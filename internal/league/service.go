@@ -45,6 +45,7 @@ type Service struct {
 	poolSource   PlayerSource
 	poolCache    playerPool
 	poolStatusFn PoolStatusSource
+	scheduleFn   ScheduleSource
 }
 
 var (

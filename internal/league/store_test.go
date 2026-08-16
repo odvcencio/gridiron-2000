@@ -301,6 +301,62 @@ func TestSetScoringValue(t *testing.T) {
 	}
 }
 
+func TestSetPickem(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.SetPickem("", "game-1", "BUF"); err == nil {
+		t.Error("empty owner accepted")
+	}
+	if err := store.SetPickem("a@example.com", "", "BUF"); err == nil {
+		t.Error("empty game ID accepted")
+	}
+
+	if err := store.SetPickem("a@example.com", "game-1", "BUF"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetPickem("a@example.com", "game-2", "DAL"); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Pickems["a@example.com"]["game-1"]; got != "BUF" {
+		t.Fatalf("pick = %q, want BUF", got)
+	}
+
+	// Re-picking a game overwrites the earlier pick.
+	if err := store.SetPickem("a@example.com", "game-1", "MIA"); err != nil {
+		t.Fatal(err)
+	}
+	picks := store.Snapshot().Pickems["a@example.com"]
+	if picks["game-1"] != "MIA" || len(picks) != 2 {
+		t.Fatalf("pick overwrite failed: %+v", picks)
+	}
+
+	// The snapshot's inner maps must be independent copies.
+	snapshot := store.Snapshot()
+	snapshot.Pickems["a@example.com"]["game-1"] = "TAMPERED"
+	if got := store.Snapshot().Pickems["a@example.com"]["game-1"]; got != "MIA" {
+		t.Fatalf("snapshot mutation leaked into the store: %q", got)
+	}
+
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Pickems; len(got) != 0 {
+		t.Fatalf("league reset must clear pickems: %+v", got)
+	}
+}
+
+func TestPickemsPersistAcrossReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	if err := store.SetPickem("a@example.com", "game-1", "BUF"); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	if got := reloaded.Snapshot().Pickems["a@example.com"]["game-1"]; got != "BUF" {
+		t.Fatalf("reload lost pick: %q", got)
+	}
+}
+
 func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
 	store := newTestStore(t)
 	custom := []string{"team-2", "team-1", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}

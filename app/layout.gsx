@@ -37,8 +37,12 @@ func Layout() Node {
 						<span>06</span>
 						Rules
 					</a>
-					<a href="/draft" data-gosx-link class="site-link site-link--hot">
+					<a href="/pickem" data-gosx-link class="site-link">
 						<span>07</span>
+						Pick'em
+					</a>
+					<a href="/draft" data-gosx-link class="site-link site-link--hot">
+						<span>08</span>
 						Draft
 				</a>
 			</nav>

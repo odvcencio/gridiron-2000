@@ -41,6 +41,18 @@ type Player struct {
 	News       string  `json:"news"`
 }
 
+// GameInfo is one real NFL game supplied by the schedule source.
+type GameInfo struct {
+	ID        string
+	Week      int
+	Kickoff   time.Time
+	Away      string // team abbreviation
+	Home      string
+	AwayScore int
+	HomeScore int
+	Final     bool
+}
+
 // DraftPick is persisted when a mock or live pick is made.
 type DraftPick struct {
 	Number   int       `json:"number"`
@@ -67,6 +79,8 @@ type PersistedState struct {
 	TeamNames  map[string]string   `json:"teamNames"`
 	DraftOrder []string            `json:"draftOrder"`
 	Scoring    map[string]float64  `json:"scoring"`
+	// Pickems maps owner email to game ID to the picked team abbreviation.
+	Pickems map[string]map[string]string `json:"pickems"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
