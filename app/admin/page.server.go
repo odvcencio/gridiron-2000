@@ -21,15 +21,28 @@ func init() {
 			data := league.Default().AdminData(ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
+			// avatar_error is flashed by the raw POST /avatar/upload handler
+			// (main package) rather than through this file's Actions map: an
+			// avatar upload's body can run up to 2MB, well past the
+			// m31labs.dev/gosx/action package's 1MB action-body cap, so the
+			// upload route is a plain http.Handler outside the action
+			// registry (see avatar_handlers.go's doc comment) and cannot use
+			// ctx.ActionState the way every other admin action below does.
+			data["has_avatar_error"] = false
+			data["avatar_error"] = ""
 			if store := session.Current(ctx.Request); store != nil {
 				if flashes := store.Flashes("notice"); len(flashes) > 0 {
 					data["has_notice"] = true
 					data["notice"] = fmt.Sprint(flashes[0])
 				}
+				if flashes := store.Flashes("avatar_error"); len(flashes) > 0 {
+					data["has_avatar_error"] = true
+					data["avatar_error"] = fmt.Sprint(flashes[0])
+				}
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "draft-reset", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "avatar-reset", "draft-reset", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -92,6 +105,14 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", team.Name+" is set.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"avatar-reset": func(ctx *action.Context) error {
+				if err := league.Default().ResetAvatar(ctx.Request, ctx.FormData["team_id"]); err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Avatar reset.")
 				ctx.Redirect("/admin")
 				return nil
 			},
