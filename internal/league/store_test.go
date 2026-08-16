@@ -2,6 +2,7 @@ package league
 
 import (
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func TestReleaseSeatAndResets(t *testing.T) {
 	if _, err := store.ToggleReady(member.TeamID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MakePick(teamOnClock(1), "p-01", time.Now()); err != nil {
+	if _, err := store.MakePick(teamOnClock(nil, 1), "p-01", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.BoardAdd("a@example.com", "p-02"); err != nil {
@@ -189,5 +190,146 @@ func TestStatePersistsAcrossReload(t *testing.T) {
 	state := reloaded.Snapshot()
 	if len(state.Invites) != 1 || len(state.Boards["x@example.com"]) != 1 {
 		t.Fatalf("reload lost state: %+v", state)
+	}
+}
+
+func TestTeamOnClockCustomOrder(t *testing.T) {
+	order := []string{"team-4", "team-2", "team-7", "team-1", "team-8", "team-3", "team-6", "team-5"}
+	if got := teamOnClock(order, 1); got != order[0] {
+		t.Errorf("pick 1 = %s, want %s", got, order[0])
+	}
+	if got := teamOnClock(order, 8); got != order[7] {
+		t.Errorf("pick 8 = %s, want %s", got, order[7])
+	}
+	if got := teamOnClock(order, 9); got != order[7] {
+		t.Errorf("pick 9 (snake reversal) = %s, want %s", got, order[7])
+	}
+	if got := teamOnClock(order, 16); got != order[0] {
+		t.Errorf("pick 16 = %s, want %s", got, order[0])
+	}
+}
+
+func TestSetDraftOrder(t *testing.T) {
+	store := newTestStore(t)
+	defaults := defaultTeamIDs()
+
+	if err := store.SetDraftOrder(defaults[:7]); err == nil {
+		t.Error("short order accepted")
+	}
+
+	duplicate := append([]string(nil), defaults...)
+	duplicate[1] = duplicate[0]
+	if err := store.SetDraftOrder(duplicate); err == nil {
+		t.Error("duplicate team accepted")
+	}
+
+	unknown := append([]string(nil), defaults[:7]...)
+	unknown = append(unknown, "team-99")
+	if err := store.SetDraftOrder(unknown); err == nil {
+		t.Error("unknown team accepted")
+	}
+
+	custom := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
+	if err := store.SetDraftOrder(custom); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().DraftOrder; !reflect.DeepEqual(got, custom) {
+		t.Fatalf("draft order = %v, want %v", got, custom)
+	}
+
+	if _, err := store.MakePick(custom[0], "p-01", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetDraftOrder(defaults); err == nil {
+		t.Error("changing the order after a pick must be rejected")
+	}
+}
+
+func TestMakePickHonorsCustomDraftOrder(t *testing.T) {
+	store := newTestStore(t)
+	custom := []string{"team-3", "team-1", "team-4", "team-2", "team-8", "team-6", "team-7", "team-5"}
+	if err := store.SetDraftOrder(custom); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MakePick("team-1", "p-01", time.Now()); err == nil {
+		t.Error("a team out of turn on the custom order must be rejected")
+	}
+	pick, err := store.MakePick(custom[0], "p-01", time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pick.TeamID != custom[0] {
+		t.Fatalf("pick.TeamID = %s, want %s", pick.TeamID, custom[0])
+	}
+}
+
+func TestSetScoringValue(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.SetScoringValue("not-a-key", 1); err == nil {
+		t.Error("unknown scoring key accepted")
+	}
+	if err := store.SetScoringValue("passTD", 26); err == nil {
+		t.Error("above-range value accepted")
+	}
+	if err := store.SetScoringValue("passTD", -26); err == nil {
+		t.Error("below-range value accepted")
+	}
+
+	if err := store.SetScoringValue("passTD", 5); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Scoring["passTD"]; got != 5 {
+		t.Fatalf("override = %v, want 5", got)
+	}
+
+	if err := store.SetScoringValue("passTD", 4); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Snapshot().Scoring["passTD"]; ok {
+		t.Error("setting the default value must clear the override")
+	}
+
+	if err := store.SetScoringValue("passTD", 7); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetScoring(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Scoring; len(got) != 0 {
+		t.Fatalf("ResetScoring left overrides: %v", got)
+	}
+}
+
+func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
+	store := newTestStore(t)
+	custom := []string{"team-2", "team-1", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}
+	if err := store.SetDraftOrder(custom); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetScoringValue("passTD", 5); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if !reflect.DeepEqual(state.DraftOrder, custom) {
+		t.Fatalf("draft reset must keep the draft order: %v", state.DraftOrder)
+	}
+	if state.Scoring["passTD"] != 5 {
+		t.Fatal("draft reset must keep scoring overrides")
+	}
+
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	state = store.Snapshot()
+	if !reflect.DeepEqual(state.DraftOrder, custom) {
+		t.Fatalf("league reset must keep the draft order: %v", state.DraftOrder)
+	}
+	if state.Scoring["passTD"] != 5 {
+		t.Fatal("league reset must keep scoring overrides")
 	}
 }

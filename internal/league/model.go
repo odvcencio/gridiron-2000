@@ -6,6 +6,7 @@ const (
 	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
 	DefaultDraftTZ       = "America/New_York"
 	DefaultRefreshPeriod = 60 * time.Second
+	DefaultSeasonStartAt = "2026-09-10T20:20:00-04:00"
 )
 
 // Team is one franchise in the private league.
@@ -58,12 +59,14 @@ type Member struct {
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
-	Ready     map[string]bool     `json:"ready"`
-	Picks     []DraftPick         `json:"picks"`
-	Members   map[string]Member   `json:"members"`
-	Invites   []string            `json:"invites"`
-	Boards    map[string][]string `json:"boards"`
-	TeamNames map[string]string   `json:"teamNames"`
+	Ready      map[string]bool     `json:"ready"`
+	Picks      []DraftPick         `json:"picks"`
+	Members    map[string]Member   `json:"members"`
+	Invites    []string            `json:"invites"`
+	Boards     map[string][]string `json:"boards"`
+	TeamNames  map[string]string   `json:"teamNames"`
+	DraftOrder []string            `json:"draftOrder"`
+	Scoring    map[string]float64  `json:"scoring"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
@@ -114,6 +117,18 @@ func defaultTeams() []Team {
 		{ID: "team-7", Name: "Orange 3", Abbreviation: "OR3", Division: "Orange", Record: "0–0", Rank: 7, Streak: "—", Tone: "magenta"},
 		{ID: "team-8", Name: "Orange 4", Abbreviation: "OR4", Division: "Orange", Record: "0–0", Rank: 8, Streak: "—", Tone: "pink"},
 	}
+}
+
+// defaultTeamIDs returns the eight team IDs in their default (team-1..team-8)
+// order. It is the fallback draft order and the permutation set that
+// Store.SetDraftOrder validates against.
+func defaultTeamIDs() []string {
+	teams := defaultTeams()
+	ids := make([]string, len(teams))
+	for index, team := range teams {
+		ids[index] = team.ID
+	}
+	return ids
 }
 
 func defaultPlayers() []Player {

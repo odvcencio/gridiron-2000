@@ -52,6 +52,7 @@ func main() {
 	openStats.Start(runtimeContext)
 	fantasyPool.Start(runtimeContext)
 	league.Default().SetPlayerSource(fantasyPlayerSource(fantasyPool))
+	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
@@ -221,6 +222,35 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 			lastMode = mode
 		}
 		return converted, version, mode
+	}
+}
+
+// fantasyPoolStatus renders the fantasy pool diagnostics as the legible map
+// the commissioner console displays.
+func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
+	return func() map[string]any {
+		status := pool.Status()
+		lastSync := "never"
+		if !status.LastSync.IsZero() {
+			lastSync = status.LastSync.Local().Format("Jan 2 · 3:04 PM MST")
+		}
+		positions := make([]map[string]any, 0, len(status.Positions))
+		for _, position := range []string{"QB", "RB", "WR", "TE", "K", "DST"} {
+			if count, ok := status.Positions[position]; ok {
+				positions = append(positions, map[string]any{"pos": position, "count": count})
+			}
+		}
+		return map[string]any{
+			"mode":           status.Mode,
+			"players":        status.Players,
+			"with_adp":       status.WithADP,
+			"with_proj":      status.WithProj,
+			"with_bye":       status.WithBye,
+			"requests":       status.Requests,
+			"last_sync":      lastSync,
+			"error":          status.LastError,
+			"positions_list": positions,
+		}
 	}
 }
 

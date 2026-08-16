@@ -8,6 +8,7 @@ import (
 	_ "gridiron-2000/app/draft"
 	_ "gridiron-2000/app/login"
 	_ "gridiron-2000/app/matchups"
+	_ "gridiron-2000/app/scoring"
 	_ "gridiron-2000/app/team"
 	_ "gridiron-2000/app/wire"
 )

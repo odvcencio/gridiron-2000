@@ -39,9 +39,10 @@ type Service struct {
 	players  []Player
 	roster   []Player
 
-	poolMu     sync.Mutex
-	poolSource PlayerSource
-	poolCache  playerPool
+	poolMu       sync.Mutex
+	poolSource   PlayerSource
+	poolCache    playerPool
+	poolStatusFn PoolStatusSource
 }
 
 var (
@@ -187,6 +188,31 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 	s.poolMu.Unlock()
 }
 
+// PoolStatusSource supplies legible fantasy pool diagnostics for the admin
+// console. main.go injects it to avoid an import cycle with internal/fantasy.
+type PoolStatusSource func() map[string]any
+
+// SetPoolStatus attaches the diagnostics source. Call it during startup.
+func (s *Service) SetPoolStatus(source PoolStatusSource) {
+	s.poolMu.Lock()
+	s.poolStatusFn = source
+	s.poolMu.Unlock()
+}
+
+func (s *Service) poolStatusMap() map[string]any {
+	s.poolMu.Lock()
+	source := s.poolStatusFn
+	s.poolMu.Unlock()
+	if source == nil {
+		return map[string]any{
+			"mode": "unknown", "players": 0, "with_adp": 0, "with_proj": 0,
+			"with_bye": 0, "requests": 0, "last_sync": "never", "error": "",
+			"positions_list": []map[string]any{},
+		}
+	}
+	return source()
+}
+
 // pool returns the indexed draft pool, rebuilding the index only when the
 // source version changes. The demo fixtures remain reachable by ID so picks
 // recorded during rehearsals keep resolving after the live pool arrives.
@@ -270,8 +296,11 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"standings":    s.standingsMaps(),
 		"divisions":    s.divisionMaps(state),
 		"transactions": transactionMaps(),
+		// GSX conditions cannot call .length on server data; ship the bool.
+		"transactions_empty": len(transactionMaps()) == 0,
 		"league_size":  len(s.teams),
 		"season":       "2026",
+		"league_mode":  "DYNASTY",
 	}
 }
 
@@ -375,7 +404,7 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		}
 	}
 	nextNumber := len(state.Picks) + 1
-	onClockID := teamOnClock(nextNumber)
+	onClockID := teamOnClock(state.DraftOrder, nextNumber)
 	onClock := s.teamView(state, onClockID)
 	viewerTeam, _ := viewer["team_id"].(string)
 	canPick := now.After(s.draftAt) && viewerTeam == onClockID
@@ -395,24 +424,27 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		}
 	}
 	return map[string]any{
-		"viewer":        viewer,
-		"draft":         s.draftSummary(now),
-		"teams":         s.draftTeamMaps(state, onClockID),
-		"picks":         s.pickMaps(state, pool.byID),
-		"available":     playerMaps(available),
-		"board":         boardPanel,
-		"board_count":   len(boardPanel),
-		"pool_label":    pool.label,
-		"pool_live":     pool.label == "live" || pool.label == "cache",
-		"pool_count":    len(pool.players),
-		"on_clock":      s.teamMap(onClock),
-		"on_clock_id":   onClockID,
-		"pick_number":   nextNumber,
-		"round":         ((nextNumber - 1) / len(s.teams)) + 1,
-		"can_pick":      canPick,
-		"demo_mode":     s.demoMode,
-		"ready_count":   readyCount(state.Ready),
-		"manager_count": len(s.teams),
+		"viewer":           viewer,
+		"draft":            s.draftSummary(now),
+		"teams":            s.draftTeamMaps(state, onClockID),
+		"picks":            s.pickMaps(state, pool.byID),
+		"available":        playerMaps(available),
+		"board":            boardPanel,
+		"board_count":      len(boardPanel),
+		"pool_label":       pool.label,
+		"pool_live":        pool.label == "live" || pool.label == "cache",
+		"pool_count":       len(pool.players),
+		"on_clock":         s.teamMap(onClock),
+		"on_clock_id":      onClockID,
+		"pick_number":      nextNumber,
+		"picks_empty":      len(state.Picks) == 0,
+		"round":            ((nextNumber - 1) / len(s.teams)) + 1,
+		"can_pick":         canPick,
+		"demo_mode":        s.demoMode,
+		"ready_count":      readyCount(state.Ready),
+		"manager_count":    len(s.teams),
+		"order_randomized": len(state.DraftOrder) > 0,
+		"league_mode":      "DYNASTY",
 	}
 }
 
@@ -449,7 +481,7 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 		return DraftPick{}, Player{}, Team{}, err
 	}
 	state := s.store.Snapshot()
-	expected := teamOnClock(len(state.Picks) + 1)
+	expected := teamOnClock(state.DraftOrder, len(state.Picks)+1)
 	if s.demoMode {
 		teamID = expected
 	}
@@ -489,7 +521,7 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"date":       strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":       local.Format("3:04 PM MST"),
 		"long_date":  local.Format("Saturday, January 2, 2006"),
-		"format":     "Snake · 15 rounds · 90 sec picks",
+		"format":     "Dynasty · Snake · 15 rounds",
 		"started":    !now.Before(s.draftAt),
 		"days_until": max(0, int(s.draftAt.Sub(now).Hours()/24)),
 	}
@@ -505,9 +537,16 @@ func (s *Service) standingsMaps() []map[string]any {
 	return out
 }
 
+// draftTeamMaps renders the draft-room team grid in draft order: the
+// commissioner-drawn order when set, otherwise the default team-ID order.
 func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[string]any {
-	out := make([]map[string]any, 0, len(s.teams))
-	for _, team := range s.teams {
+	order := state.DraftOrder
+	if len(order) == 0 {
+		order = defaultTeamIDs()
+	}
+	out := make([]map[string]any, 0, len(order))
+	for _, teamID := range order {
+		team := s.teamView(state, teamID)
 		item := s.teamMap(team)
 		item["ready"] = state.Ready[team.ID]
 		item["on_clock"] = team.ID == onClockID
@@ -655,12 +694,10 @@ func playerMaps(players []Player) []map[string]any {
 	return out
 }
 
+// transactionMaps returns the dashboard's transaction feed. The feed has no
+// live source yet, so the page renders an empty state.
 func transactionMaps() []map[string]any {
-	return []map[string]any{
-		{"time": "08:42", "team": "PXL", "action": "claimed", "player": "R. Davis · WR"},
-		{"time": "07:18", "team": "VHS", "action": "dropped", "player": "M. Carter · RB"},
-		{"time": "YDAY", "team": "DUD", "action": "traded for", "player": "2027 2nd"},
-	}
+	return []map[string]any{}
 }
 
 func leaderMaps() []map[string]any {

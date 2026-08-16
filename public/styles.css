@@ -1784,6 +1784,17 @@ h2 {
   font-size: var(--type-xs);
 }
 
+.seat-row input[type="text"] {
+  width: 9rem;
+  min-height: 2.35rem;
+  padding: 0.35rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
 .invite-row {
   grid-template-columns: minmax(0, 1fr) auto auto;
 }
@@ -1827,6 +1838,100 @@ h2 {
   color: inherit;
   font-family: var(--font-mono);
   font-size: var(--type-xs);
+}
+
+.scoring-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-top: none;
+}
+
+.scoring-row:first-child {
+  border-top: 1px solid var(--color-border);
+}
+
+.scoring-row__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.scoring-row__label strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scoring-row__form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.scoring-input {
+  width: 6rem;
+  min-height: 2.35rem;
+  padding: 0.35rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.scoring-note {
+  margin-top: var(--space-md);
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
+.order-list {
+  display: grid;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+.order-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.pool-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.pool-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.pool-stat span {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+.pool-stat b {
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
 }
 
 @media (max-width: 60rem) {

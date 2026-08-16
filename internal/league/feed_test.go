@@ -8,7 +8,7 @@ import (
 func TestSnakeDraftOrder(t *testing.T) {
 	want := []string{"team-1", "team-2", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8", "team-8", "team-7"}
 	for i, expected := range want {
-		if got := teamOnClock(i + 1); got != expected {
+		if got := teamOnClock(nil, i+1); got != expected {
 			t.Fatalf("pick %d: expected %s, got %s", i+1, expected, got)
 		}
 	}
