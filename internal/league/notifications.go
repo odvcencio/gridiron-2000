@@ -669,7 +669,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 	subject := fmt.Sprintf("THE ORDER IS DRAWN — you pick %d of %d", slot, n)
 
 	rows := make([][]string, 0, n)
-	mark := -1
+	markRow := 0 // 1-based; 0 means no row marked (finding m5)
 	for i, teamID := range order {
 		team := s.teamView(state, teamID)
 		manager := strings.TrimSpace(team.Manager)
@@ -678,7 +678,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 		}
 		rows = append(rows, []string{strconv.Itoa(i + 1), team.Name, manager})
 		if teamID == member.TeamID {
-			mark = i
+			markRow = i + 1
 		}
 	}
 
@@ -690,7 +690,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 				"resets, and everyone will see that. You hold slot %d. Round 2 snakes back to you at pick %d.",
 				slot, 2*n+1-slot),
 		},
-		emailkit.StatTable{Title: "THE ORDER", Header: []string{"SLOT", "TEAM", "MANAGER"}, Rows: rows, Mark: mark},
+		emailkit.StatTable{Title: "THE ORDER", Header: []string{"SLOT", "TEAM", "MANAGER"}, Rows: rows, MarkRow: markRow},
 		emailkit.CTA{Label: "SEE THE BOARD →", URL: leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)
@@ -986,7 +986,7 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 		order = defaultTeamIDs()
 	}
 	leagueRows := make([][]string, 0, n)
-	mark := -1
+	markRow := 0 // 1-based; 0 means no row marked (finding m5)
 	for i, teamID := range order {
 		team := s.teamView(state, teamID)
 		round1 := ""
@@ -1004,7 +1004,7 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 		posSummary := fmt.Sprintf("%dQB/%dRB/%dWR/%dTE", counts["QB"], counts["RB"], counts["WR"], counts["TE"])
 		leagueRows = append(leagueRows, []string{strconv.Itoa(i + 1), team.Name, round1, posSummary})
 		if teamID == member.TeamID {
-			mark = i
+			markRow = i + 1
 		}
 	}
 
@@ -1015,8 +1015,8 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 			Lede: fmt.Sprintf("%s of drafting. %d manual, %d auto, %d commissioner picks on the tape.",
 				duration.Round(time.Minute), manual, auto, commissioner),
 		},
-		emailkit.StatTable{Title: "YOUR HAUL", Header: []string{"ROUND", "PICK", "PLAYER", "POS", "TEAM"}, Rows: haulRows, Mark: -1},
-		emailkit.StatTable{Title: "AROUND THE LEAGUE", Header: []string{"SLOT", "TEAM", "ROUND 1", "POSITIONS"}, Rows: leagueRows, Mark: mark},
+		emailkit.StatTable{Title: "YOUR HAUL", Header: []string{"ROUND", "PICK", "PLAYER", "POS", "TEAM"}, Rows: haulRows},
+		emailkit.StatTable{Title: "AROUND THE LEAGUE", Header: []string{"SLOT", "TEAM", "ROUND 1", "POSITIONS"}, Rows: leagueRows, MarkRow: markRow},
 		emailkit.CTA{Label: "SEE THE FULL BOARD →", URL: leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)

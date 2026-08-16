@@ -1,6 +1,7 @@
 package league
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -710,6 +711,141 @@ func TestFirstSendBatchMixed(t *testing.T) {
 	}
 }
 
+// newUnwritablePersistStore builds a Store whose state file sits inside a
+// directory with no write permission, so persistLocked fails
+// deterministically on the very next write attempt. This is the
+// "unwritable path" test seam finding M1 asks for: it forces the real
+// persist failure path without adding a mock hook to production code.
+func newUnwritablePersistStore(t *testing.T) *Store {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "readonly")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // let TempDir's own cleanup remove it
+	return NewStore(filepath.Join(dir, "state.json"))
+}
+
+// TestFirstSendRollsBackMapEntryOnPersistFailure checks that a persist
+// failure rolls back FirstSend's in-memory SentLog entry and reports
+// (false, err), so "true" always means "on disk" (finding M1).
+func TestFirstSendRollsBackMapEntryOnPersistFailure(t *testing.T) {
+	store := newUnwritablePersistStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	first, err := store.FirstSend("seat:team-1:a@example.com", now)
+	if err == nil {
+		t.Fatal("FirstSend must return the persist error, got nil")
+	}
+	if first {
+		t.Fatal("FirstSend must report false when the persist fails")
+	}
+	if _, exists := store.Snapshot().SentLog["seat:team-1:a@example.com"]; exists {
+		t.Fatal("a failed persist must roll back the in-memory SentLog entry")
+	}
+}
+
+// TestFirstSendBatchRollsBackNewKeysOnPersistFailure checks the batch half
+// of finding M1: every key newly added by a failed call is rolled back,
+// and the result is all-false plus the error.
+func TestFirstSendBatchRollsBackNewKeysOnPersistFailure(t *testing.T) {
+	store := newUnwritablePersistStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	keys := []string{"kickoff:2026:a@example.com", "kickoff:2026:b@example.com"}
+	results, err := store.FirstSendBatch(keys, now)
+	if err == nil {
+		t.Fatal("FirstSendBatch must return the persist error, got nil")
+	}
+	for i, got := range results {
+		if got {
+			t.Fatalf("result[%d] = true, want false when the persist fails", i)
+		}
+	}
+	snapshot := store.Snapshot()
+	for _, key := range keys {
+		if _, exists := snapshot.SentLog[key]; exists {
+			t.Fatalf("a failed persist must roll back new key %q", key)
+		}
+	}
+}
+
+// TestFirstSendBatchRollsBackOnlyNewKeysOnPersistFailure checks that a
+// failed batch call rolls back only the keys it newly added, leaving a key
+// that was already recorded (by an earlier, successful call) untouched
+// (finding M1): this call never made that key true, so it has no business
+// un-recording it.
+func TestFirstSendBatchRollsBackOnlyNewKeysOnPersistFailure(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	store := NewStore(path)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	if _, err := store.FirstSend("kickoff:2026:seeded@example.com", now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	keys := []string{"kickoff:2026:seeded@example.com", "kickoff:2026:new@example.com"}
+	results, err := store.FirstSendBatch(keys, now)
+	if err == nil {
+		t.Fatal("FirstSendBatch must return the persist error, got nil")
+	}
+	for i, got := range results {
+		if got {
+			t.Fatalf("result[%d] = true, want false when the persist fails", i)
+		}
+	}
+	snapshot := store.Snapshot()
+	if _, exists := snapshot.SentLog["kickoff:2026:seeded@example.com"]; !exists {
+		t.Fatal("a failed persist must not roll back a key that was already recorded before this call")
+	}
+	if _, exists := snapshot.SentLog["kickoff:2026:new@example.com"]; exists {
+		t.Fatal("a failed persist must roll back the newly added key")
+	}
+}
+
+// TestPruneSentLogSkipsPersistOnZeroDeletions checks finding nit 6: a
+// prune that deletes nothing does not rewrite the state file. It proves
+// this behaviorally through the unwritable-directory seam — persistLocked
+// would fail (and PruneSentLog would return that error) if it ran, so a
+// nil return here means persistLocked was skipped, not that it silently
+// succeeded.
+func TestPruneSentLogSkipsPersistOnZeroDeletions(t *testing.T) {
+	store := newUnwritablePersistStore(t)
+	if err := store.PruneSentLog(time.Time{}); err != nil {
+		t.Fatalf("PruneSentLog with nothing to delete must not persist (and so must not fail): %v", err)
+	}
+}
+
+// TestScoringChangedAtOmitsZeroFromJSON checks finding nit 5: a zero
+// ScoringChangedAt (no scoring edit pending) does not appear in the
+// persisted state file at all, now that its tag reads "omitzero" instead
+// of "omitempty" (go.mod's Go directive is 1.26, at or above the 1.24
+// "omitzero" requires). "omitempty" never omitted a time.Time, since it
+// is a struct and never counts as the empty value omitempty checks for.
+func TestScoringChangedAtOmitsZeroFromJSON(t *testing.T) {
+	raw, err := json.Marshal(PersistedState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "scoringChangedAt") {
+		t.Errorf("a zero ScoringChangedAt must be omitted from the marshaled state: %s", raw)
+	}
+
+	nonZero := PersistedState{ScoringChangedAt: time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)}
+	raw, err = json.Marshal(nonZero)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "scoringChangedAt") {
+		t.Errorf("a non-zero ScoringChangedAt must still be marshaled: %s", raw)
+	}
+}
+
 // TestFirstSendSurvivesRestart checks that a key recorded before a reload
 // still reports false after the store reloads from disk, and that an old
 // state file with no sentLog key decodes to an empty, non-nil map (spec
@@ -919,7 +1055,11 @@ func TestSetNotifyPref(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := store.Snapshot()
-	if snapshot.NotifyPrefs["a@example.com"]["draft_live"] != false {
+	// finding nit 4: a plain "!= false" comparison is vacuous here — a
+	// missing key also reads as the zero value false, so it would pass
+	// even if SetNotifyPref never stored anything. comma-ok distinguishes
+	// "stored false" from "never stored".
+	if got, ok := snapshot.NotifyPrefs["a@example.com"]["draft_live"]; !ok || got != false {
 		t.Fatalf("pref not stored: %+v", snapshot.NotifyPrefs)
 	}
 

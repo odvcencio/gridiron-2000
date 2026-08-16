@@ -302,11 +302,12 @@ func TestAutopickMadeNotification(t *testing.T) {
 	})
 
 	t.Run("commissioner: send", func(t *testing.T) {
-		// AdminForceAutopick does not call this hook in WP-E3 (documented
-		// deviation in the task report); notifyAutopickMade itself is
-		// provenance-agnostic and fires for any MadeBy once presence is
-		// not CONNECTED, which this test exercises directly against a new
-		// absence episode.
+		// notifyAutopickMade is provenance-agnostic and fires for any
+		// MadeBy once presence is not CONNECTED; this exercises it
+		// directly, against a new absence episode. AdminForceAutopick's
+		// own wiring of this same hook (the N6 gap WP-E3 left open, per
+		// the design spec's commissioner trigger) is covered end to end by
+		// TestAdminForceAutopickFiresN6Hook in admin_test.go.
 		reconnectAt := draftAt.Add(10 * time.Minute)
 		service.presence.record(member.Email, reconnectAt)
 		laterAway := reconnectAt.Add(2 * time.Hour)

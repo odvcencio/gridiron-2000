@@ -127,7 +127,12 @@ type PersistedState struct {
 	// ScoringChangedAt is the instant of the last scoring edit. The
 	// notifier ticker coalesces edits into one rules-change email 15
 	// minutes after the edits go quiet. Zero means no edit is pending.
-	ScoringChangedAt time.Time `json:"scoringChangedAt,omitempty"`
+	// finding nit 5: "omitempty" never omits a time.Time (it is a struct,
+	// never the empty value omitempty checks for), so every state file
+	// carried a zero ScoringChangedAt regardless. go.mod's Go directive is
+	// 1.26 (>= 1.24), so "omitzero" — which calls time.Time's IsZero()
+	// method — actually omits it.
+	ScoringChangedAt time.Time `json:"scoringChangedAt,omitzero"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

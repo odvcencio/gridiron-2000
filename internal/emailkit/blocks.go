@@ -34,7 +34,11 @@ func (h Headline) appendHTML(b *strings.Builder) {
 }
 
 func (h Headline) appendText(b *strings.Builder) {
-	b.WriteString(h.Title)
+	// Title is not wrapped (it renders on its own line), so it is not
+	// routed through wrapText's whitespace normalization; textSafe closes
+	// that gap directly (finding m3). Lede is wrapped, and wrapText's own
+	// strings.Fields call already normalizes embedded control characters.
+	b.WriteString(textSafe(h.Title))
 	if h.Lede == "" {
 		return
 	}
@@ -96,21 +100,22 @@ func (p Panel) appendText(b *strings.Builder) {
 	if len(p.Rows) == 0 {
 		return
 	}
-	maxLabel := 0
-	for _, row := range p.Rows {
-		if len(row.Label) > maxLabel {
-			maxLabel = len(row.Label)
-		}
-	}
-	col := 2 + maxLabel + 4
+	// col comes from the shared helper (finding nit 3: this arithmetic
+	// used to be inlined here, leaving panelValueColumn with no production
+	// caller); maxLabel is recovered from col so padLabel below still
+	// aligns to the same sanitized, rune-counted width panelValueColumn
+	// used to compute it.
+	col := panelValueColumn(p.Rows)
+	maxLabel := col - 2 - 4
 	valueWidth := TextWrapWidth - col
 	lines := make([]string, 0, len(p.Rows))
 	for _, row := range p.Rows {
+		label := textSafe(row.Label) // finding m3: Label is not wrapped, so not otherwise sanitized
 		wrapped := wrapText(row.Value, valueWidth)
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
-		lines = append(lines, "  "+padLabel(row.Label, maxLabel)+"    "+wrapped[0])
+		lines = append(lines, "  "+padLabel(label, maxLabel)+"    "+wrapped[0])
 		indent := strings.Repeat(" ", col)
 		for _, cont := range wrapped[1:] {
 			lines = append(lines, indent+cont)
@@ -132,16 +137,31 @@ func (c CTA) appendHTML(b *strings.Builder) {
 <td style="border-radius:2px; background-color:`)
 	b.WriteString(ColorAccent)
 	b.WriteString(`;">
-<a href="`)
-	b.WriteString(escapeHTML(c.URL))
-	b.WriteString(`" style="display:inline-block; padding:14px 30px; color:`)
-	b.WriteString(ColorGround)
-	b.WriteString(`; font-family:`)
-	b.WriteString(FontSans)
-	b.WriteString(`; font-size:14px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; text-decoration:none; border-radius:2px;">`)
-	b.WriteString(escapeHTML(c.Label))
-	b.WriteString(`</a>
-</td>
+`)
+	// finding nit 9: only an http(s) URL becomes a link; any other scheme
+	// (or an unparseable value) renders the label alone, un-clickable, in
+	// the same button face.
+	const faceStyle = `display:inline-block; padding:14px 30px; color:` + ColorGround +
+		`; font-family:` + FontSans +
+		`; font-size:14px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; text-decoration:none; border-radius:2px;`
+	if hasSafeURLScheme(c.URL) {
+		b.WriteString(`<a href="`)
+		b.WriteString(escapeHTML(c.URL))
+		b.WriteString(`" style="`)
+		b.WriteString(faceStyle)
+		b.WriteString(`">`)
+		b.WriteString(escapeHTML(c.Label))
+		b.WriteString(`</a>
+`)
+	} else {
+		b.WriteString(`<span style="`)
+		b.WriteString(faceStyle)
+		b.WriteString(`">`)
+		b.WriteString(escapeHTML(c.Label))
+		b.WriteString(`</span>
+`)
+	}
+	b.WriteString(`</td>
 </tr>
 </table>
 </td>
@@ -150,24 +170,35 @@ func (c CTA) appendHTML(b *strings.Builder) {
 }
 
 func (c CTA) appendText(b *strings.Builder) {
-	label := strings.TrimRight(c.Label, " →") // trim trailing " →"
+	// finding nit 2: strings.TrimRight treats " →" as a cutset (a set of
+	// characters to strip from either end, in any combination), not a
+	// literal suffix — "GO →→" would trim to "GO", and "→" alone would
+	// trim to "". TrimSuffix removes exactly the literal " →" once.
+	label := textSafe(strings.TrimSuffix(c.Label, " →")) // finding m3
 	b.WriteString("  -> ")
 	b.WriteString(label)
-	b.WriteString(": ")
-	b.WriteString(c.URL)
+	// finding nit 9: only an http(s) URL gets a trailing ": URL"; any
+	// other scheme (or an unparseable value) leaves just the label.
+	if hasSafeURLScheme(c.URL) {
+		b.WriteString(": ")
+		b.WriteString(c.URL)
+	}
 }
 
 // StatTable is a bordered table: mono uppercase header row, sans body
-// rows. Mark selects an accent-colored row (the recipient), -1 for none.
+// rows. MarkRow selects an accent-colored row (the recipient): it is
+// 1-based, and 0 means no row is marked (finding m5) — a builder that
+// omits the field leaves the honest "nobody is marked" zero value, instead
+// of the previous 0-based Mark field's zero value silently marking row 0.
 // Text twin: two-space-guttered columns, header row, dashes underline.
 // The marked row carries a "* " line prefix in text (every other row and
 // the header/dash rows carry "  "), so the accent color's meaning survives
 // in plain text too (spec section 4.3, rule 5).
 type StatTable struct {
-	Title  string // mono kicker above, "LABEL //" style; "" hides it
-	Header []string
-	Rows   [][]string
-	Mark   int
+	Title   string // mono kicker above, "LABEL //" style; "" hides it
+	Header  []string
+	Rows    [][]string
+	MarkRow int // 1-based; 0 means no row is marked
 }
 
 func (s StatTable) appendHTML(b *strings.Builder) {
@@ -206,7 +237,7 @@ func (s StatTable) appendHTML(b *strings.Builder) {
 	for i, row := range s.Rows {
 		rowColor := ColorBody
 		background := ""
-		if i == s.Mark {
+		if i+1 == s.MarkRow {
 			rowColor = ColorAccent
 			background = ` background-color:` + ColorPanel + `;`
 		}
@@ -240,18 +271,28 @@ func (s StatTable) appendHTML(b *strings.Builder) {
 }
 
 func (s StatTable) appendText(b *strings.Builder) {
+	// finding m3: table cells never wrap, so they are not otherwise
+	// routed through wrapText's whitespace normalization; sanitize here so
+	// an embedded newline in a cell cannot forge extra lines the paired
+	// HTML part never shows.
+	header := textSafeAll(s.Header)
+	rows := make([][]string, len(s.Rows))
+	for i, row := range s.Rows {
+		rows[i] = textSafeAll(row)
+	}
+
 	var lines []string
 	if s.Title != "" {
-		lines = append(lines, s.Title+" //")
+		lines = append(lines, textSafe(s.Title)+" //")
 	}
-	widths := columnWidths(s.Header, s.Rows)
-	if len(s.Header) > 0 {
-		lines = append(lines, "  "+joinRow(s.Header, widths))
+	widths := columnWidths(header, rows)
+	if len(header) > 0 {
+		lines = append(lines, "  "+joinRow(header, widths))
 		lines = append(lines, "  "+dashRow(widths))
 	}
-	for i, row := range s.Rows {
+	for i, row := range rows {
 		marker := "  "
-		if i == s.Mark {
+		if i+1 == s.MarkRow {
 			marker = "* "
 		}
 		lines = append(lines, marker+joinRow(row, widths))
@@ -263,21 +304,28 @@ func (s StatTable) appendText(b *strings.Builder) {
 // numerals.
 // Text twin: "  1. item" lines under "LABEL //".
 type PickList struct {
-	Title string
+	Title string // mono kicker above, "LABEL //" style; "" hides it
 	Items []string
 }
 
 func (p PickList) appendHTML(b *strings.Builder) {
 	b.WriteString(`<tr>
 <td style="padding:24px 32px 0 32px;">
-<div style="color:`)
-	b.WriteString(ColorMuted)
-	b.WriteString(`; font-family:`)
-	b.WriteString(FontMono)
-	b.WriteString(`; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:12px;">`)
-	b.WriteString(escapeHTML(p.Title))
-	b.WriteString(` //</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+`)
+	// finding m9: an empty Title previously still emitted an empty kicker
+	// div; skip the whole element instead, mirroring StatTable's "" hides
+	// it rule.
+	if p.Title != "" {
+		b.WriteString(`<div style="color:`)
+		b.WriteString(ColorMuted)
+		b.WriteString(`; font-family:`)
+		b.WriteString(FontMono)
+		b.WriteString(`; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:12px;">`)
+		b.WriteString(escapeHTML(p.Title))
+		b.WriteString(` //</div>
+`)
+	}
+	b.WriteString(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
 `)
 	for i, item := range p.Items {
 		b.WriteString(`<tr><td style="padding:5px 0; color:`)
@@ -303,9 +351,11 @@ func (p PickList) appendHTML(b *strings.Builder) {
 
 func (p PickList) appendText(b *strings.Builder) {
 	lines := make([]string, 0, len(p.Items)+1)
-	lines = append(lines, p.Title+" //")
+	if p.Title != "" { // finding m9: skip the bare " //" line when Title is empty
+		lines = append(lines, textSafe(p.Title)+" //")
+	}
 	for i, item := range p.Items {
-		lines = append(lines, "  "+strconv.Itoa(i+1)+". "+item)
+		lines = append(lines, "  "+strconv.Itoa(i+1)+". "+textSafe(item)) // finding m3
 	}
 	b.WriteString(strings.Join(lines, "\n"))
 }
@@ -332,10 +382,12 @@ func (n Note) appendText(b *strings.Builder) {
 	b.WriteString(strings.Join(wrapText(n.Text, TextWrapWidth), "\n"))
 }
 
-// Divider is a border-top rule. Text twin: a blank line — the blank-line
-// separators Render already places before and after every block double up
-// around a Divider (which itself emits nothing), reading as one extra
-// line of vertical space.
+// Divider is a border-top rule. Text twin: a blank line. renderText
+// (finding nit 1) skips a Divider's own block-separator entirely, so the
+// one blank line that already separates it from its neighbors is the only
+// blank line it produces — without that special case, the separators
+// placed before and after an empty-output block would stack into three
+// blank lines instead of the spec's one.
 type Divider struct{}
 
 func (Divider) appendHTML(b *strings.Builder) {
