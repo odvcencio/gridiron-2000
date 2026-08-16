@@ -32,16 +32,18 @@ func NewStore(filePath string) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
 		state: PersistedState{
-			Ready:      map[string]bool{},
-			Picks:      []DraftPick{},
-			Members:    map[string]Member{},
-			Invites:    []string{},
-			Boards:     map[string][]string{},
-			TeamNames:  map[string]string{},
-			DraftOrder: []string{},
-			Scoring:    map[string]float64{},
-			Pickems:    map[string]map[string]string{},
-			Autopick:   map[string]bool{},
+			Ready:       map[string]bool{},
+			Picks:       []DraftPick{},
+			Members:     map[string]Member{},
+			Invites:     []string{},
+			Boards:      map[string][]string{},
+			TeamNames:   map[string]string{},
+			DraftOrder:  []string{},
+			Scoring:     map[string]float64{},
+			Pickems:     map[string]map[string]string{},
+			Autopick:    map[string]bool{},
+			SentLog:     map[string]time.Time{},
+			NotifyPrefs: map[string]map[string]bool{},
 		},
 	}
 	_ = s.load()
@@ -372,22 +374,38 @@ func (s *Store) ReleaseSeat(teamID string) error {
 	return s.persistLocked()
 }
 
+// resetDraftSentLogPrefixes are the SentLog key prefixes ResetDraft drops:
+// a re-run draft is a new subject entity. draftrem: (reminder keys) is
+// deliberately absent: same draftAt, same reminder, no resend (spec
+// section 6.2).
+var resetDraftSentLogPrefixes = []string{"onclock:", "autopick:", "draftdone:"}
+
+// resetLeagueSentLogPrefixes extends resetDraftSentLogPrefixes: a rebuilt
+// league starts a clean ledger for these key spaces too. order: and
+// draftrem: are absent; both re-key naturally (spec section 6.2).
+var resetLeagueSentLogPrefixes = append(append([]string{}, resetDraftSentLogPrefixes...),
+	"seat:", "pickem-remind:", "pickem-results:", "recap:", "scoring:", "kickoff:")
+
 // ResetDraft clears every pick and ready flag. Seats and boards survive. The
 // clock fields and the Autopick map are also cleared: a redrawn draft
-// starts with a clean, unarmed clock and no stale away-mode toggles.
+// starts with a clean, unarmed clock and no stale away-mode toggles. The
+// draft-scoped SentLog entries (resetDraftSentLogPrefixes) are pruned in
+// the same persist.
 func (s *Store) ResetDraft() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.clearClockFieldsLocked()
+	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
 	return s.persistLocked()
 }
 
 // ResetLeague clears picks, seats, ready flags, boards, and pick'em picks.
 // Invites and team name overrides survive; both are commissioner
 // configuration, not game state. Clock fields and Autopick are cleared,
-// same as ResetDraft.
+// same as ResetDraft. The league-scoped SentLog entries
+// (resetLeagueSentLogPrefixes) are pruned in the same persist.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -397,6 +415,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
 	s.clearClockFieldsLocked()
+	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
 }
 
@@ -408,6 +427,20 @@ func (s *Store) clearClockFieldsLocked() {
 	s.state.ClockRemainingSec = 0
 	s.state.ClockDurationSec = 0
 	s.state.Autopick = map[string]bool{}
+}
+
+// pruneSentLogPrefixesLocked drops every SentLog entry whose key carries
+// any of the given prefixes. The caller must hold s.mu and persist
+// afterward.
+func (s *Store) pruneSentLogPrefixesLocked(prefixes ...string) {
+	for key := range s.state.SentLog {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.state.SentLog, key)
+				break
+			}
+		}
+	}
 }
 
 // SetTeamName overrides a team's display name. An empty name clears the
@@ -573,6 +606,84 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 	return s.persistLocked()
 }
 
+// FirstSend records key with now (converted to UTC) and returns true when
+// the key is new. One lock acquisition, one persist: the check and the
+// write are atomic, so two evaluation paths (an event hook and a
+// derivation tick) racing the same key cannot both report true (spec
+// section 6.2, 6.3).
+func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, exists := s.state.SentLog[key]; exists {
+		return false, nil
+	}
+	s.state.SentLog[key] = now.UTC()
+	return true, s.persistLocked()
+}
+
+// FirstSendBatch does the same as FirstSend for a league-wide fan-out, in
+// one persist: result[i] reports whether keys[i] was new. A repeated key
+// within the same call is new only for its first occurrence.
+func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	result := make([]bool, len(keys))
+	sentAt := now.UTC()
+	for i, key := range keys {
+		if _, exists := s.state.SentLog[key]; exists {
+			continue
+		}
+		s.state.SentLog[key] = sentAt
+		result[i] = true
+	}
+	return result, s.persistLocked()
+}
+
+// PruneSentLog drops SentLog entries older than cutoff and entries whose
+// key carries any of the given prefixes. A zero cutoff prunes for prefix
+// only, which is how ResetDraft and ResetLeague reuse this rule outside
+// their own atomic persist (see pruneSentLogPrefixesLocked); the
+// notifier's daily prune calls it with prefixes empty and cutoff 180 days
+// back (spec section 6.2).
+func (s *Store) PruneSentLog(cutoff time.Time, prefixes ...string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, sentAt := range s.state.SentLog {
+		if !cutoff.IsZero() && sentAt.Before(cutoff) {
+			delete(s.state.SentLog, key)
+			continue
+		}
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(key, prefix) {
+				delete(s.state.SentLog, key)
+				break
+			}
+		}
+	}
+	return s.persistLocked()
+}
+
+// SetNotifyPref records one member's category preference. Only overrides
+// are stored (spec section 7.1); the league.json default and the catalog
+// default apply when nothing is stored here.
+func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+	category = strings.TrimSpace(category)
+	if email == "" {
+		return fmt.Errorf("email is required")
+	}
+	if category == "" {
+		return fmt.Errorf("category is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.NotifyPrefs[email] == nil {
+		s.state.NotifyPrefs[email] = map[string]bool{}
+	}
+	s.state.NotifyPrefs[email][category] = enabled
+	return s.persistLocked()
+}
+
 func (s *Store) load() error {
 	if s.filePath == "" {
 		return nil
@@ -617,6 +728,12 @@ func (s *Store) load() error {
 	}
 	if state.Autopick == nil {
 		state.Autopick = map[string]bool{}
+	}
+	if state.SentLog == nil {
+		state.SentLog = map[string]time.Time{}
+	}
+	if state.NotifyPrefs == nil {
+		state.NotifyPrefs = map[string]map[string]bool{}
 	}
 	s.state = state
 	return nil
@@ -669,6 +786,9 @@ func cloneState(in PersistedState) PersistedState {
 		ClockRemainingSec: in.ClockRemainingSec,
 		ClockDurationSec:  in.ClockDurationSec,
 		Autopick:          make(map[string]bool, len(in.Autopick)),
+		SentLog:           make(map[string]time.Time, len(in.SentLog)),
+		NotifyPrefs:       make(map[string]map[string]bool, len(in.NotifyPrefs)),
+		ScoringChangedAt:  in.ScoringChangedAt,
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -694,6 +814,16 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for key, value := range in.Autopick {
 		out.Autopick[key] = value
+	}
+	for key, value := range in.SentLog {
+		out.SentLog[key] = value
+	}
+	for email, prefs := range in.NotifyPrefs {
+		inner := make(map[string]bool, len(prefs))
+		for category, enabled := range prefs {
+			inner[category] = enabled
+		}
+		out.NotifyPrefs[email] = inner
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

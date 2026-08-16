@@ -113,6 +113,21 @@ type PersistedState struct {
 	ClockDurationSec int `json:"clockDurationSec,omitempty"`
 	// Autopick maps team ID to its away-mode auto-pick toggle.
 	Autopick map[string]bool `json:"autopick"`
+
+	// SentLog maps a notification idempotency key (see the notification
+	// catalog) to the UTC instant the send was committed. It is written
+	// before the transport call, so a restart never double-sends. Old
+	// state files decode with a nil map; the store normalizes it to an
+	// empty one, matching the clock-field precedent above.
+	SentLog map[string]time.Time `json:"sentLog,omitempty"`
+	// NotifyPrefs maps member email to category to enabled. An absent
+	// entry means the category default applies (league.json, then the
+	// catalog default); only overrides are stored.
+	NotifyPrefs map[string]map[string]bool `json:"notifyPrefs,omitempty"`
+	// ScoringChangedAt is the instant of the last scoring edit. The
+	// notifier ticker coalesces edits into one rules-change email 15
+	// minutes after the edits go quiet. Zero means no edit is pending.
+	ScoringChangedAt time.Time `json:"scoringChangedAt,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

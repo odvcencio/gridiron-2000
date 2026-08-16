@@ -52,7 +52,7 @@ func TestSendRejectsDisabledConfig(t *testing.T) {
 
 func TestBuildMessageComposesHeadersAndBody(t *testing.T) {
 	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
-	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "")
+	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "", "")
 	message := string(raw)
 
 	wantLines := []string{
@@ -93,15 +93,50 @@ func TestBuildMessageDefaultFromEnv(t *testing.T) {
 	t.Setenv("SMTP_FROM", "invites@example.com")
 
 	config := FromEnv()
-	message := string(config.buildMessage("manager@example.com", "Hi", "Body", ""))
+	message := string(config.buildMessage("manager@example.com", "Hi", "Body", "", ""))
 	if !strings.Contains(message, "From: invites@example.com\r\n") {
 		t.Errorf("expected explicit SMTP_FROM in message, got:\n%s", message)
 	}
 }
 
+// TestBuildMessageWithReplyTo checks that a non-empty replyTo adds a
+// Reply-To header, and that an empty replyTo adds nothing (spec section
+// 6.5: SMTP ignores Tags and IdempotencyKey but honors ReplyTo).
+func TestBuildMessageWithReplyTo(t *testing.T) {
+	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
+
+	withReplyTo := string(config.buildMessage("manager@example.com", "Subject", "Body", "", "commissioner@example.com"))
+	if !strings.Contains(withReplyTo, "Reply-To: commissioner@example.com\r\n") {
+		t.Errorf("message missing Reply-To header:\n%s", withReplyTo)
+	}
+
+	withoutReplyTo := string(config.buildMessage("manager@example.com", "Subject", "Body", "", ""))
+	if strings.Contains(withoutReplyTo, "Reply-To:") {
+		t.Errorf("message must omit Reply-To when empty:\n%s", withoutReplyTo)
+	}
+}
+
+// TestSendMessageSMTPIgnoresTagsAndIdempotencyKey checks that the SMTP
+// path (no Resend credentials) accepts a Message carrying Tags and an
+// IdempotencyKey without error and without surfacing either in the
+// message body; only ReplyTo affects the SMTP output. SendMail itself is
+// not exercised here (that needs a live socket); this only checks
+// buildMessage, which SendMessage calls on the SMTP path.
+func TestSendMessageSMTPIgnoresTagsAndIdempotencyKey(t *testing.T) {
+	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
+	raw := config.buildMessage("manager@example.com", "Rules update", "The math changed.", "", "commissioner@example.com")
+	message := string(raw)
+	if strings.Contains(message, "scoring_change") || strings.Contains(message, "Idempotency") {
+		t.Errorf("SMTP message must not carry tag or idempotency-key content:\n%s", message)
+	}
+	if !strings.Contains(message, "Reply-To: commissioner@example.com\r\n") {
+		t.Errorf("SMTP message must still carry Reply-To:\n%s", message)
+	}
+}
+
 func TestBuildMessageWithHTMLIsMultipartAlternative(t *testing.T) {
 	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
-	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "<p>Hello there.</p>")
+	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "<p>Hello there.</p>", "")
 	message := string(raw)
 
 	if !strings.Contains(message, `Content-Type: multipart/alternative; boundary="`) {

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/smtp"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -78,38 +79,79 @@ func (c Config) resendFromAddress() string {
 // so mail clients render the designed body but keep a plain-text fallback.
 // Resend is preferred when configured; SMTP is the fallback. It fails fast
 // when the config is not Enabled, so callers may check Send's error instead
-// of calling Enabled twice.
+// of calling Enabled twice. Send is a thin wrapper around SendMessage; use
+// SendMessage directly for Resend tags, an idempotency key, or a reply-to
+// address.
 func (c Config) Send(to, subject, text, html string) error {
+	return c.SendMessage(Message{To: to, Subject: subject, Text: text, HTML: html})
+}
+
+// Message extends Send with optional Resend features (design spec section
+// 6.5). Tags and IdempotencyKey are Resend-only; the SMTP path ignores
+// both but still honors ReplyTo.
+type Message struct {
+	To, Subject, Text, HTML string
+	// Tags become the Resend "tags" array, e.g. {"category":"on_the_clock"}.
+	Tags map[string]string
+	// IdempotencyKey becomes the Resend "Idempotency-Key" header. The
+	// caller's persisted ledger remains the durable send guard; this
+	// header is defense-in-depth against a retry after a lost response.
+	IdempotencyKey string
+	// ReplyTo becomes the Reply-To header on both transports.
+	ReplyTo string
+}
+
+// SendMessage delivers m to one recipient. Resend is preferred when
+// configured; SMTP is the fallback. It fails fast when the config is not
+// Enabled.
+func (c Config) SendMessage(m Message) error {
 	if c.ResendKey != "" && c.resendFromAddress() != "" {
-		return c.sendResend(to, subject, text, html)
+		return c.sendResend(m)
 	}
 	if !c.Enabled() {
 		return fmt.Errorf("mailer: no transport configured (need RESEND_API_KEY+RESEND_FROM or SMTP_HOST/USER/PASS)")
 	}
-	message := c.buildMessage(to, subject, text, html)
+	message := c.buildMessage(m.To, m.Subject, m.Text, m.HTML, m.ReplyTo)
 	addr := c.Host + ":" + c.Port
 	auth := smtp.PlainAuth("", c.User, c.Pass, c.Host)
-	if err := smtp.SendMail(addr, auth, c.From, []string{to}, message); err != nil {
-		return fmt.Errorf("mailer: send to %s: %w", to, err)
+	if err := smtp.SendMail(addr, auth, c.From, []string{m.To}, message); err != nil {
+		return fmt.Errorf("mailer: send to %s: %w", m.To, err)
 	}
 	return nil
 }
 
 // sendResend posts the message to the Resend HTTP API. The "html" key is
 // omitted entirely when html is empty, so a plain-text send stays plain.
-func (c Config) sendResend(to, subject, text, html string) error {
+// "tags" is included only when Tags is non-empty; the Idempotency-Key
+// header is set only when IdempotencyKey is non-empty.
+func (c Config) sendResend(m Message) error {
 	endpoint := c.resendURL
 	if endpoint == "" {
 		endpoint = defaultResendURL
 	}
 	body := map[string]any{
 		"from":    c.resendFromAddress(),
-		"to":      []string{to},
-		"subject": subject,
-		"text":    text,
+		"to":      []string{m.To},
+		"subject": m.Subject,
+		"text":    m.Text,
 	}
-	if html != "" {
-		body["html"] = html
+	if m.HTML != "" {
+		body["html"] = m.HTML
+	}
+	if m.ReplyTo != "" {
+		body["reply_to"] = m.ReplyTo
+	}
+	if len(m.Tags) > 0 {
+		tags := make([]map[string]string, 0, len(m.Tags))
+		names := make([]string, 0, len(m.Tags))
+		for name := range m.Tags {
+			names = append(names, name)
+		}
+		sort.Strings(names) // deterministic payload order
+		for _, name := range names {
+			tags = append(tags, map[string]string{"name": name, "value": m.Tags[name]})
+		}
+		body["tags"] = tags
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -123,15 +165,18 @@ func (c Config) sendResend(to, subject, text, html string) error {
 	request.Header.Set("Content-Type", "application/json")
 	// Some WAF rules on the API reject generic client user agents.
 	request.Header.Set("User-Agent", "gridiron-2000-mailer/1.0")
+	if m.IdempotencyKey != "" {
+		request.Header.Set("Idempotency-Key", m.IdempotencyKey)
+	}
 	client := &http.Client{Timeout: 15 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("mailer: resend send to %s: %w", to, err)
+		return fmt.Errorf("mailer: resend send to %s: %w", m.To, err)
 	}
 	defer response.Body.Close()
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		snippet, _ := io.ReadAll(io.LimitReader(response.Body, 300))
-		return fmt.Errorf("mailer: resend returned %d for %s: %s", response.StatusCode, to, strings.TrimSpace(string(snippet)))
+		return fmt.Errorf("mailer: resend returned %d for %s: %s", response.StatusCode, m.To, strings.TrimSpace(string(snippet)))
 	}
 	return nil
 }
@@ -141,12 +186,17 @@ func (c Config) sendResend(to, subject, text, html string) error {
 // composition without opening a socket. When html is empty the message is
 // plain text, matching the previous behavior; when html is given the
 // message becomes multipart/alternative with the text part first, then the
-// html part, each under its own boundary-delimited part.
-func (c Config) buildMessage(to, subject, text, html string) []byte {
+// html part, each under its own boundary-delimited part. replyTo, when
+// non-empty, adds a Reply-To header (the SMTP path ignores Tags and
+// IdempotencyKey, per Message's doc comment, but honors ReplyTo).
+func (c Config) buildMessage(to, subject, text, html, replyTo string) []byte {
 	var b strings.Builder
 	b.WriteString("From: " + c.From + "\r\n")
 	b.WriteString("To: " + to + "\r\n")
 	b.WriteString("Subject: " + subject + "\r\n")
+	if replyTo != "" {
+		b.WriteString("Reply-To: " + replyTo + "\r\n")
+	}
 	b.WriteString("MIME-Version: 1.0\r\n")
 
 	if html == "" {

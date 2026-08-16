@@ -19,6 +19,8 @@ import (
 
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/mailer"
+	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
 	"gridiron-2000/internal/wire"
 	_ "gridiron-2000/modules"
@@ -58,6 +60,17 @@ func main() {
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 	league.Default().SetHistoricalSource(historicalSource(openStats))
 	league.Default().StartDraftClock(runtimeContext)
+	notifyMailer := mailer.FromEnv()
+	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
+	// Spec section 6.6: without a transport, notifications are disabled;
+	// the worker never starts, and startup says so exactly once. The
+	// league package's own trigger hooks (WP-E3) short-circuit before
+	// building or recording anything, independent of this check.
+	if notifyMailer.Enabled() {
+		notifyQueue.Start(runtimeContext)
+	} else {
+		log.Printf("notify: no mail transport configured; notifications disabled")
+	}
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
@@ -231,6 +244,26 @@ func requireLeagueSession(next http.Handler) http.Handler {
 		session.AddFlash(r, "notice", "Sign in to enter the league.")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
+}
+
+// notificationSender adapts mailer.Config to notify.Sender: it converts one
+// rendered notify.Message into a mailer.Message, tagging it with its
+// notification category and carrying its ledger key as the Resend
+// Idempotency-Key (design spec section 6.5). The league-shortcode tag
+// named in the spec is not wired yet — league.json's config surface (the
+// productization spec) has not landed, so there is no shortcode to read
+// here; it is a documented follow-up, not a silent gap.
+func notificationSender(mailCfg mailer.Config) notify.Sender {
+	return func(m notify.Message) error {
+		return mailCfg.SendMessage(mailer.Message{
+			To:             m.To,
+			Subject:        m.Subject,
+			Text:           m.Text,
+			HTML:           m.HTML,
+			Tags:           map[string]string{"category": m.Category},
+			IdempotencyKey: m.Key,
+		})
+	}
 }
 
 // fantasyPlayerSource adapts the fantasy pool to the league's PlayerSource.
