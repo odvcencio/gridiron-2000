@@ -117,6 +117,11 @@ func TestFullSnakeDraftAndRosters(t *testing.T) {
 		t.Errorf("pick 9 should belong to the last team, got %s", state.Picks[8].TeamID)
 	}
 
+	// The draft is complete; pick 121 must be rejected.
+	if _, _, _, err := service.MakePick(request, teamOnClock(nil, totalPicks+1), "pool-149"); err == nil {
+		t.Error("pick past the final round must be rejected")
+	}
+
 	data := service.DraftData(request)
 	if available, _ := data["available"].([]map[string]any); len(available) != 150-totalPicks {
 		t.Errorf("available after draft = %d", len(available))

@@ -3,7 +3,11 @@ package league
 import "time"
 
 const (
-	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
+	// DraftRounds caps the snake draft; the room completes when every team
+	// holds this many picks.
+	DraftRounds = 15
+
+	DefaultDraftAt = "2026-08-22T16:00:00-04:00"
 	DefaultDraftTZ       = "America/New_York"
 	DefaultRefreshPeriod = 60 * time.Second
 	DefaultSeasonStartAt = "2026-09-10T20:20:00-04:00"

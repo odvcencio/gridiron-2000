@@ -68,6 +68,11 @@ func (s *Store) MakePick(teamID, playerID string, now time.Time) (DraftPick, err
 			return DraftPick{}, fmt.Errorf("that player has already been drafted")
 		}
 	}
+	// The draft ends after every team fills its roster; "15 rounds" was
+	// display copy only until this cap.
+	if len(s.state.Picks) >= len(defaultTeams())*DraftRounds {
+		return DraftPick{}, fmt.Errorf("the draft is complete")
+	}
 	number := len(s.state.Picks) + 1
 	expected := teamOnClock(s.state.DraftOrder, number)
 	if expected != teamID {
