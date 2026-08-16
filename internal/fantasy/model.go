@@ -10,7 +10,7 @@ import (
 
 const (
 	// SchemaVersion guards the on-disk pool cache format.
-	SchemaVersion = 2
+	SchemaVersion = 3
 	// DefaultHost is the Tank01 NFL API host on RapidAPI. Point TANK01_HOST at
 	// another Tank01 sport host (NBA, MLB, NHL) to reuse this client later.
 	DefaultHost = "tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com"
@@ -18,17 +18,19 @@ const (
 
 // Player is one draftable entry in the normalized fantasy pool.
 type Player struct {
-	ID         string  `json:"id"`
-	Name       string  `json:"name"`
-	Position   string  `json:"position"`
-	NFLTeam    string  `json:"nflTeam"`
-	ByeWeek    int     `json:"byeWeek,omitempty"`
-	ADP        float64 `json:"adp,omitempty"`
-	ADPRank    int     `json:"adpRank,omitempty"`
-	Projection float64 `json:"projection,omitempty"`
-	Injury     string  `json:"injury,omitempty"`
-	News       string  `json:"news,omitempty"`
-	Headshot   string  `json:"headshot,omitempty"`
+	ID         string             `json:"id"`
+	Name       string             `json:"name"`
+	Position   string             `json:"position"`
+	NFLTeam    string             `json:"nflTeam"`
+	Jersey     string             `json:"jersey,omitempty"`
+	ByeWeek    int                `json:"byeWeek,omitempty"`
+	ADP        float64            `json:"adp,omitempty"`
+	ADPRank    int                `json:"adpRank,omitempty"`
+	Projection float64            `json:"projection,omitempty"`
+	ProjStats  map[string]float64 `json:"projStats,omitempty"`
+	Injury     string             `json:"injury,omitempty"`
+	News       string             `json:"news,omitempty"`
+	Headshot   string             `json:"headshot,omitempty"`
 }
 
 // Status reports pool health for /api/health, the admin console, and the

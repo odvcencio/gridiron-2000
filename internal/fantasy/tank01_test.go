@@ -18,9 +18,9 @@ func TestUnwrapEnvelope(t *testing.T) {
 
 func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	raw := json.RawMessage(`[
-		{"playerID":"100","longName":"Test Receiver","pos":"WR","team":"cin",
+		{"playerID":"100","longName":"Test Receiver","pos":"WR","team":"cin","jerseyNum":"18",
 		 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png"},
-		{"playerID":"101","longName":"Test Kicker","pos":"PK","team":"DAL"},
+		{"playerID":"101","longName":"Test Kicker","pos":"PK","team":"DAL","jerseyNum":"0"},
 		{"playerID":"102","longName":"Test Lineman","pos":"OT","team":"DAL"},
 		{"playerID":"","longName":"No ID","pos":"WR","team":"DAL"},
 		{"playerID":"103","espnName":"Fallback Name","pos":"QB","team":"BUF",
@@ -36,6 +36,12 @@ func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	}
 	if players["100"].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
 		t.Errorf("headshot not captured: %q", players["100"].Headshot)
+	}
+	if players["100"].Jersey != "18" {
+		t.Errorf("jersey number not captured: %q", players["100"].Jersey)
+	}
+	if players["101"].Jersey != "" {
+		t.Errorf("jerseyNum \"0\" should mean unknown, not be stored: %q", players["101"].Jersey)
 	}
 	if players["101"].Position != "K" {
 		t.Errorf("PK not normalized to K: %q", players["101"].Position)
@@ -130,25 +136,87 @@ func TestParseProjectionsMapAndScoring(t *testing.T) {
 		"3":{"fantasyPoints":"0"}
 	}}`)
 	points := parseProjections(raw, "half_ppr")
-	if points["1"] != 12.0 {
-		t.Errorf("halfPPR projection = %v", points["1"])
+	if points["1"].Points != 12.0 {
+		t.Errorf("halfPPR projection = %v", points["1"].Points)
 	}
-	if points["2"] != 8.5 {
-		t.Errorf("fantasyPoints fallback = %v", points["2"])
+	if points["2"].Points != 8.5 {
+		t.Errorf("fantasyPoints fallback = %v", points["2"].Points)
 	}
 	if _, ok := points["3"]; ok {
 		t.Errorf("zero projection should be dropped")
 	}
-	if points := parseProjections(raw, "ppr"); points["1"] != 14.0 {
-		t.Errorf("PPR projection = %v", points["1"])
+	if points := parseProjections(raw, "ppr"); points["1"].Points != 14.0 {
+		t.Errorf("PPR projection = %v", points["1"].Points)
 	}
 }
 
 func TestParseProjectionsList(t *testing.T) {
 	raw := json.RawMessage(`[{"playerID":"7","fantasyPoints":11.25}]`)
 	points := parseProjections(raw, "half_ppr")
-	if points["7"] != 11.25 {
+	if points["7"].Points != 11.25 {
 		t.Errorf("list projections = %v", points)
+	}
+}
+
+// TestParseProjectionsNestedStatGroups mirrors the live projection shape
+// observed on 2026-08-16: per-play-type groups with string-encoded numbers,
+// plus a top-level fumblesLost. Zero-valued stats must not appear.
+func TestParseProjectionsNestedStatGroups(t *testing.T) {
+	raw := json.RawMessage(`{"playerProjections":{
+		"1":{"Rushing":{"rushYds":"78.0","carries":"16.3","rushTD":"0.8"},
+		     "Passing":{"passAttempts":"0","passTD":"0","passYds":"0","int":"0","passCompletions":"0"},
+		     "Receiving":{"receptions":"3.9","targets":"4.9","recTD":"0.2","recYds":"30.2"},
+		     "twoPointConversion":"0.1","fumblesLost":"0.1","fantasyPoints":"2.05",
+		     "fantasyPointsDefault":{"standard":"16.92","PPR":"20.82","halfPPR":"18.87"}}
+	}}`)
+	entries := parseProjections(raw, "half_ppr")
+	entry, ok := entries["1"]
+	if !ok {
+		t.Fatalf("player 1 missing from projections: %+v", entries)
+	}
+	if entry.Points != 18.87 {
+		t.Errorf("halfPPR points = %v", entry.Points)
+	}
+	want := map[string]float64{
+		"rushYds": 78.0, "carries": 16.3, "rushTD": 0.8,
+		"receptions": 3.9, "targets": 4.9, "recTD": 0.2, "recYds": 30.2,
+		"fumblesLost": 0.1,
+	}
+	if len(entry.Stats) != len(want) {
+		t.Fatalf("stats = %+v, want %+v", entry.Stats, want)
+	}
+	for key, value := range want {
+		if entry.Stats[key] != value {
+			t.Errorf("stats[%q] = %v, want %v", key, entry.Stats[key], value)
+		}
+	}
+	for _, zeroKey := range []string{"passAttempts", "passTD", "passYds", "passInt", "passCompletions"} {
+		if _, present := entry.Stats[zeroKey]; present {
+			t.Errorf("zero-valued passing stat %q should be dropped: %+v", zeroKey, entry.Stats)
+		}
+	}
+}
+
+// TestParseProjectionsDefenseHasNoStatGroups mirrors a DST/kicker entry: no
+// Rushing/Passing/Receiving groups at all. Stats must be empty, not nil, and
+// parsing must not panic.
+func TestParseProjectionsDefenseHasNoStatGroups(t *testing.T) {
+	raw := json.RawMessage(`{"playerProjections":{
+		"DST-HOU":{"fantasyPoints":"7.5","fantasyPointsDefault":{"standard":"7.5","PPR":"7.5","halfPPR":"7.5"}}
+	}}`)
+	entries := parseProjections(raw, "half_ppr")
+	entry, ok := entries["DST-HOU"]
+	if !ok {
+		t.Fatalf("DST entry missing: %+v", entries)
+	}
+	if entry.Points != 7.5 {
+		t.Errorf("DST points = %v", entry.Points)
+	}
+	if entry.Stats == nil {
+		t.Error("DST stats map must be non-nil")
+	}
+	if len(entry.Stats) != 0 {
+		t.Errorf("DST stats should be empty: %+v", entry.Stats)
 	}
 }
 
@@ -178,7 +246,11 @@ func TestMergePoolOrderingAndSynthesis(t *testing.T) {
 		{PlayerID: "3", ADP: 2.5, Name: "Synth DST", Position: "DST", Team: "BAL"},
 		{PlayerID: "2", ADP: 4.0},
 	}
-	projections := map[string]float64{"4": 20, "5": 9, "1": 18}
+	projections := map[string]projEntry{
+		"4": {Points: 20},
+		"5": {Points: 9},
+		"1": {Points: 18, Stats: map[string]float64{"passYds": 250}},
+	}
 	byes := map[string]int{"CIN": 10}
 	pool := mergePool(base, adp, projections, map[string]string{"1": "Big news"}, byes, 10)
 	if len(pool) != 5 {
@@ -198,6 +270,9 @@ func TestMergePoolOrderingAndSynthesis(t *testing.T) {
 	}
 	if pool[0].ByeWeek != 10 || pool[0].News != "Big news" || pool[0].Projection != 18 {
 		t.Errorf("merge fields wrong: %+v", pool[0])
+	}
+	if pool[0].ProjStats["passYds"] != 250 {
+		t.Errorf("proj stats not merged: %+v", pool[0].ProjStats)
 	}
 	if pool[1].Name != "Synth DST" || pool[1].Position != "DST" {
 		t.Errorf("synthesized entry wrong: %+v", pool[1])

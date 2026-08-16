@@ -46,6 +46,7 @@ type Service struct {
 	poolCache    playerPool
 	poolStatusFn PoolStatusSource
 	scheduleFn   ScheduleSource
+	historicalFn HistoricalSource
 }
 
 var (
@@ -250,15 +251,48 @@ func (s *Service) pool() playerPool {
 	return s.poolCache
 }
 
+// HistoricalSource supplies one player's legible previous-season line by
+// name and position. main.go adapts the nflverse season summary mirror to
+// this shape, which keeps that dependency out of internal/league.
+type HistoricalSource func(name, position string) (line string, ok bool)
+
+// SetHistoricalSource attaches the previous-season lookup. Call it once
+// during startup, before the server accepts requests.
+func (s *Service) SetHistoricalSource(fn HistoricalSource) {
+	s.poolMu.Lock()
+	s.historicalFn = fn
+	s.poolMu.Unlock()
+}
+
+// buildPool runs once per pool version, not once per render, so it is the
+// right place to amortize the historical-line lookup: every player without
+// an Hist line gets one chance at it here, and the result travels with the
+// cached pool. buildPool is called from pool(), which already holds poolMu,
+// so it reads s.historicalFn directly rather than locking again.
 func (s *Service) buildPool(players []Player, version int64, label string) playerPool {
 	byID := make(map[string]Player, len(players)+len(s.players))
 	for _, player := range s.players {
-		byID[player.ID] = player
+		byID[player.ID] = s.withHistorical(player)
 	}
-	for _, player := range players {
-		byID[player.ID] = player
+	annotated := make([]Player, len(players))
+	for index, player := range players {
+		annotated[index] = s.withHistorical(player)
+		byID[annotated[index].ID] = annotated[index]
 	}
-	return playerPool{version: version, label: label, players: players, byID: byID}
+	return playerPool{version: version, label: label, players: annotated, byID: byID}
+}
+
+// withHistorical fills a player's previous-season line from the attached
+// historical source, unless the player already carries one or no source is
+// attached. Callers hold poolMu already (see buildPool).
+func (s *Service) withHistorical(player Player) Player {
+	if player.Hist != "" || s.historicalFn == nil {
+		return player
+	}
+	if line, ok := s.historicalFn(player.Name, player.Position); ok && line != "" {
+		player.Hist = line
+	}
+	return player
 }
 
 func (s *Service) AssignManager(email, name string) (Member, error) {
@@ -350,7 +384,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	return map[string]any{
 		"viewer":          viewer,
 		"team":            teamMap,
-		"roster":          playerMaps(roster),
+		"roster":          playerMapsWithScoring(roster, s.currentScoringValues()),
 		"drafted":         drafted,
 		"starters":        len(roster),
 		"projected":       fmt.Sprintf("%.1f", projected),
@@ -415,6 +449,10 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
 	pool := s.pool()
+	// Resolved once for the whole render: up to hundreds of players render
+	// per page, and scoreBreakdown would otherwise snapshot store state once
+	// per player. See currentScoringValues.
+	scoringValues := s.currentScoringValues()
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
@@ -439,7 +477,7 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 			continue
 		}
 		if player, ok := pool.byID[id]; ok {
-			boardPanel = append(boardPanel, playerMap(player))
+			boardPanel = append(boardPanel, playerMap(player, scoringValues))
 			if len(boardPanel) == 5 {
 				break
 			}
@@ -449,8 +487,8 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"viewer":           viewer,
 		"draft":            s.draftSummary(now),
 		"teams":            s.draftTeamMaps(state, onClockID),
-		"picks":            s.pickMaps(state, pool.byID),
-		"available":        playerMaps(available),
+		"picks":            s.pickMaps(state, pool.byID, scoringValues),
+		"available":        playerMapsWithScoring(available, scoringValues),
 		"board":            boardPanel,
 		"board_count":      len(boardPanel),
 		"pool_label":       pool.label,
@@ -577,7 +615,7 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 	return out
 }
 
-func (s *Service) pickMaps(state PersistedState, players map[string]Player) []map[string]any {
+func (s *Service) pickMaps(state PersistedState, players map[string]Player, scoringValues map[string]float64) []map[string]any {
 	out := make([]map[string]any, 0, len(state.Picks))
 	for _, pick := range state.Picks {
 		player := players[pick.PlayerID]
@@ -586,7 +624,7 @@ func (s *Service) pickMaps(state PersistedState, players map[string]Player) []ma
 			"number": pick.Number,
 			"round":  pick.Round,
 			"team":   s.teamMap(team),
-			"player": playerMap(player),
+			"player": playerMap(player, scoringValues),
 		})
 	}
 	return out
@@ -684,7 +722,14 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 	return out
 }
 
-func playerMap(player Player) map[string]any {
+// playerMap renders one player's view-model map. scoringValues is the
+// league's live, override-aware point values (see currentScoringValues);
+// pass none to score the player's breakdown against the stock default
+// rules instead, at no store-access cost. Callers that render many players
+// per request should resolve scoringValues once and reuse it — see
+// playerMapsWithScoring — rather than call playerMap in a bare loop, which
+// forces every breakdown onto the default-only path.
+func playerMap(player Player, scoringValues ...map[string]float64) map[string]any {
 	rank := "—"
 	if player.ADPRank > 0 {
 		rank = fmt.Sprintf("%03d", player.ADPRank)
@@ -699,20 +744,50 @@ func playerMap(player Player) map[string]any {
 	if player.News != "" {
 		detail += " · " + player.News
 	}
+	jersey := ""
+	if player.Jersey != "" {
+		jersey = "#" + player.Jersey
+	}
+	hasBreakdown := len(player.ProjStats) > 0
+	var breakdownRows []map[string]any
+	breakdownTotal := ""
+	if hasBreakdown {
+		var values map[string]float64
+		if len(scoringValues) > 0 {
+			values = scoringValues[0]
+		}
+		breakdownRows, breakdownTotal = scoreBreakdownWithValues(player.ProjStats, values)
+	}
 	return map[string]any{
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
 		"opponent": player.Opponent, "projection": fmt.Sprintf("%.1f", player.Projection),
 		"points": fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
 		"rank": rank, "detail": detail,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
-		"search": strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position),
+		"jersey":          jersey,
+		"has_breakdown":   hasBreakdown,
+		"breakdown":       breakdownRows,
+		"breakdown_total": breakdownTotal,
+		"has_hist":        player.Hist != "",
+		"hist":            player.Hist,
+		"search":          strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position),
 	}
 }
 
+// playerMaps renders many players against the stock default scoring rules.
+// Pool-rendering callers should call playerMapsWithScoring instead, passing
+// a scoringValues map resolved once per render; see currentScoringValues.
 func playerMaps(players []Player) []map[string]any {
+	return playerMapsWithScoring(players, nil)
+}
+
+// playerMapsWithScoring renders many players' view models against one
+// already-resolved scoringValues map, so a page with hundreds of players
+// pays for one store snapshot, not one per player. See currentScoringValues.
+func playerMapsWithScoring(players []Player, scoringValues map[string]float64) []map[string]any {
 	out := make([]map[string]any, 0, len(players))
 	for _, player := range players {
-		out = append(out, playerMap(player))
+		out = append(out, playerMap(player, scoringValues))
 	}
 	return out
 }

@@ -3,7 +3,7 @@ package team
 func RosterRow(props any) Node {
 	return <div class="roster-row">
 		<div class="position-chip">{props.position}</div>
-		<div class="player-identity">
+		<div class="player-identity stat-tip" tabindex="0">
 			<If cond={props.has_headshot}>
 				<img class="player-avatar player-avatar--photo" src={props.headshot} alt="" loading="lazy" />
 			</If>
@@ -17,6 +17,34 @@ func RosterRow(props any) Node {
 					·
 					{props.opponent}
 				</small>
+			</div>
+			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+				<div class="stat-tip__head">
+					<strong>{props.name}</strong>
+					<span class="mono">{props.jersey}</span>
+					<span class="mono stat-tip__team">{props.nfl_team}</span>
+				</div>
+				<If cond={props.has_breakdown}>
+					<div class="stat-tip__rows">
+						<Each of={props.breakdown} as="row">
+							<div class="stat-tip__row" data-scored={row.scored}>
+								<span>{row.label}</span>
+								<span class="mono">{row.calc}</span>
+								<b class="mono">{row.points}</b>
+							</div>
+						</Each>
+						<div class="stat-tip__total">
+							<span>League scoring</span>
+							<b class="mono">{props.breakdown_total}</b>
+						</div>
+					</div>
+				</If>
+				<If cond={props.has_breakdown == false}>
+					<p class="stat-tip__empty">No projection detail for this position.</p>
+				</If>
+				<If cond={props.has_hist}>
+					<p class="stat-tip__hist mono">{props.hist}</p>
+				</If>
 			</div>
 		</div>
 		<div class="game-state">

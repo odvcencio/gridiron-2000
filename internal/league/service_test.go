@@ -535,3 +535,80 @@ func TestViewerIncludesIsCommissionerInDemoMode(t *testing.T) {
 		t.Fatalf("is_commissioner = %v, want true in demo mode", viewer["is_commissioner"])
 	}
 }
+
+// TestPlayerMapEmitsBreakdownJerseyAndHistKeys checks the frontend contract:
+// jersey, has_breakdown, breakdown, breakdown_total, has_hist, and hist all
+// appear on the rendered player map, with jersey prefixed "#" only when set.
+func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
+	service := newTestService(t, true)
+	loaded := Player{
+		ID: "p-jersey", Name: "Loaded Guy", Position: "RB", NFLTeam: "CIN",
+		Jersey:    "26",
+		ProjStats: map[string]float64{"rushYds": 80, "rushTD": 1},
+		Hist:      "2025 · 16 G · 900 rush yds · 6 TD · 12.4 FPts",
+	}
+	entry := playerMap(loaded, service.currentScoringValues())
+	if entry["jersey"] != "#26" {
+		t.Errorf("jersey = %v, want #26", entry["jersey"])
+	}
+	if entry["has_breakdown"] != true {
+		t.Errorf("has_breakdown = %v, want true", entry["has_breakdown"])
+	}
+	rows, ok := entry["breakdown"].([]map[string]any)
+	if !ok || len(rows) != 2 {
+		t.Fatalf("breakdown rows = %+v", entry["breakdown"])
+	}
+	if entry["breakdown_total"] != "14.0" {
+		t.Errorf("breakdown_total = %v, want 14.0", entry["breakdown_total"])
+	}
+	if entry["has_hist"] != true || entry["hist"] != loaded.Hist {
+		t.Errorf("hist fields wrong: has_hist=%v hist=%v", entry["has_hist"], entry["hist"])
+	}
+
+	bare := Player{ID: "p-bare", Name: "No Data", Position: "WR", NFLTeam: "CIN"}
+	bareEntry := playerMap(bare)
+	if bareEntry["jersey"] != "" {
+		t.Errorf("jersey = %v, want empty", bareEntry["jersey"])
+	}
+	if bareEntry["has_breakdown"] != false || bareEntry["has_hist"] != false {
+		t.Errorf("bare player defaults wrong: has_breakdown=%v has_hist=%v", bareEntry["has_breakdown"], bareEntry["has_hist"])
+	}
+	if bareEntry["breakdown_total"] != "" || bareEntry["hist"] != "" {
+		t.Errorf("bare player breakdown_total/hist wrong: %v %v", bareEntry["breakdown_total"], bareEntry["hist"])
+	}
+	bareRows, ok := bareEntry["breakdown"].([]map[string]any)
+	if !ok || bareRows != nil {
+		t.Errorf("bare player breakdown = %+v, want nil", bareEntry["breakdown"])
+	}
+}
+
+// TestHistoricalSourceAppliesInBuildPool checks that buildPool fills Hist
+// from the attached HistoricalSource for matching players, on both the
+// ordered players slice and the byID lookup, and leaves an existing Hist
+// or an unmatched player untouched.
+func TestHistoricalSourceAppliesInBuildPool(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(3)
+	pool[1].Hist = "already set"
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 9, "live" })
+	service.SetHistoricalSource(func(name, position string) (string, bool) {
+		if name == "Pool Player 001" && position == "QB" {
+			return "2025 · 17 G · 4,100 pass yds · 30 TD · 8 INT · 24.6 FPts", true
+		}
+		return "", false
+	})
+
+	built := service.pool()
+	if built.players[0].Hist == "" {
+		t.Fatalf("historical line missing on matched player: %+v", built.players[0])
+	}
+	if byID, ok := built.byID["pool-001"]; !ok || byID.Hist != built.players[0].Hist {
+		t.Fatalf("historical line not mirrored into byID: %+v", byID)
+	}
+	if built.players[1].Hist != "already set" {
+		t.Fatalf("existing hist overwritten: %+v", built.players[1])
+	}
+	if built.players[2].Hist != "" {
+		t.Fatalf("unmatched player gained a hist line: %+v", built.players[2])
+	}
+}

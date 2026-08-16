@@ -30,16 +30,26 @@ type Player struct {
 	Name       string  `json:"name"`
 	Position   string  `json:"position"`
 	NFLTeam    string  `json:"nflTeam"`
+	Jersey     string  `json:"jersey,omitempty"`
 	Opponent   string  `json:"opponent"`
 	ADP        float64 `json:"adp,omitempty"`
 	ADPRank    int     `json:"adpRank,omitempty"`
 	ByeWeek    int     `json:"byeWeek,omitempty"`
 	Injury     string  `json:"injury,omitempty"`
 	Projection float64 `json:"projection"`
-	Points     float64 `json:"points"`
-	Status     string  `json:"status"`
-	News       string  `json:"news"`
-	Headshot   string  `json:"headshot,omitempty"`
+	// ProjStats holds the projected-stat line behind Projection, keyed by
+	// stat name (for example "passYds", "rushTD"). scoreBreakdown resolves
+	// it against the league's live scoring settings; see breakdown.go.
+	ProjStats map[string]float64 `json:"projStats,omitempty"`
+	Points    float64            `json:"points"`
+	Status    string             `json:"status"`
+	News      string             `json:"news"`
+	Headshot  string             `json:"headshot,omitempty"`
+	// Hist is a prebuilt, legible previous-season line (for example
+	// "2025 · 17 G · 1,206 rush yds · 12 TD · 4.8 FPts"). An empty string
+	// means no historical line is available. main.go builds the text; the
+	// league package only carries and serves it. See HistoricalSource.
+	Hist string `json:"hist,omitempty"`
 }
 
 // GameInfo is one real NFL game supplied by the schedule source.

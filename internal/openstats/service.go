@@ -22,36 +22,41 @@ const (
 )
 
 type Config struct {
-	Root             string
-	Season           int
-	Enabled          bool
-	ScheduleURL      string
-	PlayerStatsURL   string
-	InjuryURL        string
-	ScheduleInterval time.Duration
-	PlayerInterval   time.Duration
-	InjuryInterval   time.Duration
-	MaxDownloadBytes int64
-	HTTPClient       *http.Client
-	Now              func() time.Time
+	Root               string
+	Season             int
+	Enabled            bool
+	ScheduleURL        string
+	PlayerStatsURL     string
+	PlayerStatsPrevURL string
+	InjuryURL          string
+	ScheduleInterval   time.Duration
+	PlayerInterval     time.Duration
+	PlayerPrevInterval time.Duration
+	InjuryInterval     time.Duration
+	MaxDownloadBytes   int64
+	HTTPClient         *http.Client
+	Now                func() time.Time
 }
 
 func ConfigFromEnv() Config {
 	now := time.Now()
 	season := openStatsEnvInt("NFL_SEASON", now.Year())
 	defaultPlayerURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_%d.csv", season)
+	defaultPlayerPrevURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_%d.csv", season-1)
 	defaultInjuryURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_%d.csv", season)
 	return Config{
-		Root:             openStatsEnvString("OPEN_STATS_ROOT", "data/open-stats"),
-		Season:           season,
-		Enabled:          openStatsEnvBool("OPEN_STATS_ENABLED", true),
-		ScheduleURL:      openStatsEnvString("NFLVERSE_SCHEDULE_URL", defaultScheduleURL),
-		PlayerStatsURL:   openStatsEnvString("NFLVERSE_PLAYER_STATS_URL", defaultPlayerURL),
-		InjuryURL:        openStatsEnvString("NFLVERSE_INJURY_URL", defaultInjuryURL),
-		ScheduleInterval: openStatsEnvDuration("OPEN_STATS_SCHEDULE_INTERVAL", 5*time.Minute),
-		PlayerInterval:   openStatsEnvDuration("OPEN_STATS_PLAYER_INTERVAL", 6*time.Hour),
-		InjuryInterval:   openStatsEnvDuration("OPEN_STATS_INJURY_INTERVAL", 15*time.Minute),
-		MaxDownloadBytes: int64(openStatsEnvInt("OPEN_STATS_MAX_DOWNLOAD_MB", 128)) << 20,
+		Root:               openStatsEnvString("OPEN_STATS_ROOT", "data/open-stats"),
+		Season:             season,
+		Enabled:            openStatsEnvBool("OPEN_STATS_ENABLED", true),
+		ScheduleURL:        openStatsEnvString("NFLVERSE_SCHEDULE_URL", defaultScheduleURL),
+		PlayerStatsURL:     openStatsEnvString("NFLVERSE_PLAYER_STATS_URL", defaultPlayerURL),
+		PlayerStatsPrevURL: openStatsEnvString("NFLVERSE_PLAYER_STATS_PREV_URL", defaultPlayerPrevURL),
+		InjuryURL:          openStatsEnvString("NFLVERSE_INJURY_URL", defaultInjuryURL),
+		ScheduleInterval:   openStatsEnvDuration("OPEN_STATS_SCHEDULE_INTERVAL", 5*time.Minute),
+		PlayerInterval:     openStatsEnvDuration("OPEN_STATS_PLAYER_INTERVAL", 6*time.Hour),
+		PlayerPrevInterval: openStatsEnvDuration("OPEN_STATS_PLAYER_PREV_INTERVAL", 24*time.Hour),
+		InjuryInterval:     openStatsEnvDuration("OPEN_STATS_INJURY_INTERVAL", 15*time.Minute),
+		MaxDownloadBytes:   int64(openStatsEnvInt("OPEN_STATS_MAX_DOWNLOAD_MB", 128)) << 20,
 	}
 }
 
@@ -65,6 +70,7 @@ type Service struct {
 	manifest  manifest
 	schedules []ScheduleGame
 	stats     []PlayerWeekStat
+	statsPrev []PlayerWeekStat
 	injuries  []InjuryReport
 }
 
@@ -93,6 +99,9 @@ func NewService(config Config) (*Service, error) {
 	}
 	if config.PlayerInterval <= 0 {
 		config.PlayerInterval = 6 * time.Hour
+	}
+	if config.PlayerPrevInterval <= 0 {
+		config.PlayerPrevInterval = 24 * time.Hour
 	}
 	if config.InjuryInterval <= 0 {
 		config.InjuryInterval = 15 * time.Minute
@@ -128,6 +137,12 @@ func NewService(config Config) (*Service, error) {
 				SourceURL: config.PlayerStatsURL,
 				License:   License,
 			},
+			PlayerStatsPrev: DatasetStatus{
+				Name:      "player_stats_prev",
+				State:     "waiting",
+				SourceURL: config.PlayerStatsPrevURL,
+				License:   License,
+			},
 			Injuries: DatasetStatus{
 				Name:      "injuries",
 				State:     "waiting",
@@ -153,6 +168,7 @@ func (service *Service) Start(ctx context.Context) {
 		service.mu.Unlock()
 		go service.syncLoop(ctx, "schedules", service.config.ScheduleInterval)
 		go service.syncLoop(ctx, "player_stats", service.config.PlayerInterval)
+		go service.syncLoop(ctx, "player_stats_prev", service.config.PlayerPrevInterval)
 		go service.syncLoop(ctx, "injuries", service.config.InjuryInterval)
 		go func() {
 			<-ctx.Done()
@@ -166,24 +182,26 @@ func (service *Service) Start(ctx context.Context) {
 func (service *Service) SyncNow(ctx context.Context) error {
 	scheduleErr := service.syncDataset(ctx, "schedules")
 	playerErr := service.syncDataset(ctx, "player_stats")
+	playerPrevErr := service.syncDataset(ctx, "player_stats_prev")
 	injuryErr := service.syncDataset(ctx, "injuries")
-	return errors.Join(scheduleErr, playerErr, injuryErr)
+	return errors.Join(scheduleErr, playerErr, playerPrevErr, injuryErr)
 }
 
 func (service *Service) Status() Status {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
 	return Status{
-		SchemaVersion:  SchemaVersion,
-		Provider:       Attribution,
-		License:        License,
-		Attribution:    Attribution,
-		AttributionURL: AttributionURL,
-		Season:         service.config.Season,
-		Running:        service.running,
-		Schedules:      service.manifest.Schedules,
-		PlayerStats:    service.manifest.PlayerStats,
-		Injuries:       service.manifest.Injuries,
+		SchemaVersion:   SchemaVersion,
+		Provider:        Attribution,
+		License:         License,
+		Attribution:     Attribution,
+		AttributionURL:  AttributionURL,
+		Season:          service.config.Season,
+		Running:         service.running,
+		Schedules:       service.manifest.Schedules,
+		PlayerStats:     service.manifest.PlayerStats,
+		PlayerStatsPrev: service.manifest.PlayerStatsPrev,
+		Injuries:        service.manifest.Injuries,
 	}
 }
 
@@ -273,6 +291,8 @@ func (service *Service) ExportCSV(writer io.Writer, dataset string) error {
 		path = service.schedulePath()
 	case "player_stats":
 		path = service.playerStatsPath()
+	case "player_stats_prev":
+		path = service.playerStatsPrevPath()
 	case "injuries":
 		path = service.injuryPath()
 	default:
@@ -412,6 +432,8 @@ func (service *Service) datasetConfig(dataset string) (DatasetStatus, string, st
 		return service.manifest.Schedules, service.config.ScheduleURL, service.schedulePath()
 	case "player_stats":
 		return service.manifest.PlayerStats, service.config.PlayerStatsURL, service.playerStatsPath()
+	case "player_stats_prev":
+		return service.manifest.PlayerStatsPrev, service.config.PlayerStatsPrevURL, service.playerStatsPrevPath()
 	case "injuries":
 		return service.manifest.Injuries, service.config.InjuryURL, service.injuryPath()
 	default:
@@ -427,6 +449,9 @@ func (service *Service) parseDownloaded(dataset, path string) (int, any, error) 
 	case "player_stats":
 		stats, err := parsePlayerStats(path, service.config.Season)
 		return len(stats), stats, err
+	case "player_stats_prev":
+		stats, err := parsePlayerStats(path, service.config.Season-1)
+		return len(stats), stats, err
 	case "injuries":
 		injuries, err := parseInjuries(path, service.config.Season)
 		return len(injuries), injuries, err
@@ -441,6 +466,8 @@ func (service *Service) setParsedLocked(dataset string, parsed any) {
 		service.schedules, _ = parsed.([]ScheduleGame)
 	case "player_stats":
 		service.stats, _ = parsed.([]PlayerWeekStat)
+	case "player_stats_prev":
+		service.statsPrev, _ = parsed.([]PlayerWeekStat)
 	case "injuries":
 		service.injuries, _ = parsed.([]InjuryReport)
 	}
@@ -462,6 +489,8 @@ func (service *Service) datasetStatusLocked(dataset string) DatasetStatus {
 	switch dataset {
 	case "schedules":
 		return service.manifest.Schedules
+	case "player_stats_prev":
+		return service.manifest.PlayerStatsPrev
 	case "injuries":
 		return service.manifest.Injuries
 	default:
@@ -473,6 +502,8 @@ func (service *Service) setDatasetStatusLocked(dataset string, status DatasetSta
 	switch dataset {
 	case "schedules":
 		service.manifest.Schedules = status
+	case "player_stats_prev":
+		service.manifest.PlayerStatsPrev = status
 	case "injuries":
 		service.manifest.Injuries = status
 	default:
@@ -497,6 +528,11 @@ func (service *Service) loadManifest() error {
 	}
 	saved.Schedules.SourceURL = service.config.ScheduleURL
 	saved.PlayerStats.SourceURL = service.config.PlayerStatsURL
+	if saved.PlayerStatsPrev.Name == "" {
+		saved.PlayerStatsPrev = DatasetStatus{Name: "player_stats_prev", State: "waiting", License: License}
+	}
+	saved.PlayerStatsPrev.SourceURL = service.config.PlayerStatsPrevURL
+	saved.PlayerStatsPrev.License = License
 	if saved.Injuries.Name == "" {
 		saved.Injuries = DatasetStatus{Name: "injuries", State: "waiting", License: License}
 	}
@@ -519,6 +555,13 @@ func (service *Service) loadCachedData() {
 		service.manifest.PlayerStats.Rows = len(stats)
 		if service.manifest.PlayerStats.State == "waiting" {
 			service.manifest.PlayerStats.State = "ready"
+		}
+	}
+	if statsPrev, err := parsePlayerStats(service.playerStatsPrevPath(), service.config.Season-1); err == nil {
+		service.statsPrev = statsPrev
+		service.manifest.PlayerStatsPrev.Rows = len(statsPrev)
+		if service.manifest.PlayerStatsPrev.State == "waiting" {
+			service.manifest.PlayerStatsPrev.State = "ready"
 		}
 	}
 	if injuries, err := parseInjuries(service.injuryPath(), service.config.Season); err == nil {
@@ -569,6 +612,10 @@ func (service *Service) schedulePath() string {
 
 func (service *Service) playerStatsPath() string {
 	return filepath.Join(service.config.Root, fmt.Sprintf("stats_player_week_%d.csv", service.config.Season))
+}
+
+func (service *Service) playerStatsPrevPath() string {
+	return filepath.Join(service.config.Root, fmt.Sprintf("stats_player_week_%d.csv", service.config.Season-1))
 }
 
 func (service *Service) injuryPath() string {

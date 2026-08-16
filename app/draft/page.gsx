@@ -49,13 +49,41 @@ func DraftQueue(props any) Node {
 			<Each of={props.Players.filter(func(p){ return p.search.contains(query.trim().toLower()) })} as="player">
 				<article class="pool-row" data-player-position={player.position} data-search={player.search}>
 					<span class="pool-rank mono">{player.rank}</span>
-					<div class="pool-player pool-player--photo">
+					<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 						<If cond={player.has_headshot}>
 							<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
 						</If>
 						<div class="pool-player__text">
 							<strong>{player.name}</strong>
 							<small>{player.detail}</small>
+						</div>
+						<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+							<div class="stat-tip__head">
+								<strong>{player.name}</strong>
+								<span class="mono">{player.jersey}</span>
+								<span class="mono stat-tip__team">{player.nfl_team}</span>
+							</div>
+							<If cond={player.has_breakdown}>
+								<div class="stat-tip__rows">
+									<Each of={player.breakdown} as="row">
+										<div class="stat-tip__row" data-scored={row.scored}>
+											<span>{row.label}</span>
+											<span class="mono">{row.calc}</span>
+											<b class="mono">{row.points}</b>
+										</div>
+									</Each>
+									<div class="stat-tip__total">
+										<span>League scoring</span>
+										<b class="mono">{player.breakdown_total}</b>
+									</div>
+								</div>
+							</If>
+							<If cond={player.has_breakdown == false}>
+								<p class="stat-tip__empty">No projection detail for this position.</p>
+							</If>
+							<If cond={player.has_hist}>
+								<p class="stat-tip__hist mono">{player.hist}</p>
+							</If>
 						</div>
 					</div>
 					<span class="position-chip">{player.position}</span>
