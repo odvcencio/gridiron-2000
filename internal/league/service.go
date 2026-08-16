@@ -81,6 +81,14 @@ type Service struct {
 	// always prunes once at boot, matching the draft clock's
 	// bootRecoverClock precedent of "act once, immediately, at startup."
 	notifyLastPruneAt time.Time
+
+	// avatarRoot and defaultBadgeRoot are the team-avatar feature's two
+	// filesystem roots (AVATAR_ROOT / AVATAR_DEFAULTS_ROOT env, see
+	// avatar.go's avatarDir/defaultBadgeDir). badgeCache caches
+	// defaultBadgeRoot's directory listing; see defaultBadgeExists.
+	avatarRoot       string
+	defaultBadgeRoot string
+	badgeCache       badgeToneCache
 }
 
 // clock returns the service's current instant: the test-injected now hook
@@ -116,6 +124,8 @@ func Default() *Service {
 			players:          defaultPlayers(),
 			presence:         newPresenceTracker(time.Now()),
 			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
+			avatarRoot:       avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
+			defaultBadgeRoot: avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
 		}
 		// scheduleProvider reads the persisted league schedule once one has
 		// been generated; until then it defers to the honest preseason
@@ -371,6 +381,11 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	if blitzSource != nil {
 		suffix += fmt.Sprintf("|blitz:%d", blitzSource().Version)
 	}
+	// Avatar files live on disk, outside PersistedState, so a plain
+	// json.Marshal(state) above never changes when one is uploaded or
+	// reset; the digest is what lets an open page's poll notice (design
+	// decision 5). See avatarDigest.
+	suffix += fmt.Sprintf("|avatars:%s", s.avatarDigest())
 	digest := sha256.Sum256(append(encoded, []byte(suffix)...))
 	return hex.EncodeToString(digest[:8])
 }
@@ -955,15 +970,24 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 	for _, matchup := range matchups {
 		away := s.teamView(state, matchup.Away.ID)
 		home := s.teamView(state, matchup.Home.ID)
+		// matchupMaps builds its own away/home maps rather than reusing
+		// teamMap (it needs the live score, not the standings fields), so
+		// the avatar fallback chain (design decision 4) is resolved here
+		// too — this is the one TeamMark render path that does not already
+		// pick it up through teamMap.
+		awayHasAvatar, awayHasImage, awayAvatarURL := s.avatarView(away.ID, away.Tone)
+		homeHasAvatar, homeHasImage, homeAvatarURL := s.avatarView(home.ID, home.Tone)
 		out = append(out, map[string]any{
 			"id": matchup.ID,
 			"away": map[string]any{
 				"id": matchup.Away.ID, "name": matchup.Away.Name, "abbreviation": matchup.Away.Abbreviation,
 				"score": fmt.Sprintf("%.1f", matchup.Away.Score), "tone": away.Tone, "manager": away.Manager,
+				"has_avatar": awayHasAvatar, "has_avatar_image": awayHasImage, "avatar_image_url": awayAvatarURL,
 			},
 			"home": map[string]any{
 				"id": matchup.Home.ID, "name": matchup.Home.Name, "abbreviation": matchup.Home.Abbreviation,
 				"score": fmt.Sprintf("%.1f", matchup.Home.Score), "tone": home.Tone, "manager": home.Manager,
+				"has_avatar": homeHasAvatar, "has_avatar_image": homeHasImage, "avatar_image_url": homeAvatarURL,
 			},
 			"status": matchup.Status,
 			"clock":  matchup.Clock,
@@ -999,10 +1023,16 @@ func (s *Service) teamMap(team Team) map[string]any {
 	if !claimed {
 		manager = "UNCLAIMED"
 	}
+	// Team-avatar fallback chain (design decision 4): hasAvatar gates the
+	// admin "reset avatar" control (only tier a — an uploaded photo — has
+	// anything to reset); hasImage/avatarURL are what every TeamMark-class
+	// render site needs to choose between an <img> and the plain text mark.
+	hasAvatar, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
 		"id": team.ID, "name": team.Name, "abbreviation": team.Abbreviation, "division": strings.ToUpper(team.Division),
 		"manager": manager, "claimed": claimed, "record": team.Record, "points_for": fmt.Sprintf("%.1f", team.PointsFor),
 		"rank": fmt.Sprintf("%02d", team.Rank), "rank_number": team.Rank, "streak": team.Streak, "tone": team.Tone,
+		"has_avatar": hasAvatar, "has_avatar_image": hasImage, "avatar_image_url": avatarURL,
 	}
 }
 

@@ -12,12 +12,14 @@ import (
 func newTestService(t *testing.T, demo bool) *Service {
 	t.Helper()
 	return &Service{
-		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
-		draftAt:  time.Now().Add(-time.Hour),
-		demoMode: demo,
-		teams:    defaultTeams(),
-		players:  defaultPlayers(),
+		store:            NewStore(filepath.Join(t.TempDir(), "state.json")),
+		feed:             newLiveFeed(nil),
+		draftAt:          time.Now().Add(-time.Hour),
+		demoMode:         demo,
+		teams:            defaultTeams(),
+		players:          defaultPlayers(),
+		avatarRoot:       filepath.Join(t.TempDir(), "avatars"),
+		defaultBadgeRoot: filepath.Join(t.TempDir(), "avatar-defaults"),
 	}
 }
 
