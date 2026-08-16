@@ -307,6 +307,128 @@ func TestAdminForceAutopickFiresN6Hook(t *testing.T) {
 	}
 }
 
+func TestAdminGenerateScheduleCreatesAndPersists(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	sched, err := service.AdminGenerateSchedule(request, 14, 1, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sched.Weeks) != 14 {
+		t.Fatalf("weeks = %d, want 14", len(sched.Weeks))
+	}
+	if sched.Seed != 42 {
+		t.Errorf("seed = %d, want 42 (explicit seed must be stored as given)", sched.Seed)
+	}
+	if sched.GeneratedAt.IsZero() {
+		t.Error("GeneratedAt must be stamped by AdminGenerateSchedule")
+	}
+	stored := service.store.Snapshot().Schedule
+	if stored == nil || len(stored.Weeks) != 14 {
+		t.Fatalf("schedule was not persisted: %+v", stored)
+	}
+}
+
+func TestAdminGenerateScheduleFailsIfScheduleExists(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := service.AdminGenerateSchedule(request, 14, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AdminGenerateSchedule(request, 14, 1, 2); err == nil {
+		t.Error("expected an error generating a schedule when one already exists")
+	}
+}
+
+func TestAdminGenerateScheduleRequiresCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := service.AdminGenerateSchedule(request, 14, 1, 1); err == nil {
+		t.Error("expected an error for a non-commissioner request")
+	}
+}
+
+func TestAdminGenerateScheduleDrawsSeedWhenZero(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	sched, err := service.AdminGenerateSchedule(request, 14, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sched.Seed == 0 {
+		t.Error("expected a nonzero drawn seed when the caller passes 0")
+	}
+}
+
+func TestAdminRegenerateScheduleDrawsFreshSeedAndPersists(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	first, err := service.AdminGenerateSchedule(request, 14, 1, 111)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.AdminRegenerateSchedule(request, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Seed == first.Seed {
+		t.Error("expected AdminRegenerateSchedule to draw a fresh seed")
+	}
+	if len(second.Weeks) != len(first.Weeks) {
+		t.Errorf("weeks = %d, want %d (reused from the existing schedule)", len(second.Weeks), len(first.Weeks))
+	}
+	stored := service.store.Snapshot().Schedule
+	if stored.Seed != second.Seed {
+		t.Fatalf("persisted schedule does not match the regenerated one: %+v", stored)
+	}
+}
+
+func TestAdminRegenerateScheduleFailsWithoutExistingSchedule(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := service.AdminRegenerateSchedule(request, 14, 1); err == nil {
+		t.Error("expected an error regenerating a schedule that does not exist yet")
+	}
+}
+
+// TestAdminRegenerateScheduleFailsAfterSeasonStart checks the section 2.3
+// guard's first half: now < seasonStartAt().
+func TestAdminRegenerateScheduleFailsAfterSeasonStart(t *testing.T) {
+	t.Setenv("SEASON_START_AT", "2026-09-10T20:20:00-04:00")
+	service := newTestService(t, true)
+	seasonStart := seasonStartAt()
+	service.now = func() time.Time { return seasonStart.Add(-time.Hour) }
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := service.AdminGenerateSchedule(request, 14, 1, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	service.now = func() time.Time { return seasonStart.Add(time.Hour) } // after kickoff
+	if _, err := service.AdminRegenerateSchedule(request, 14, 1); err == nil {
+		t.Error("expected an error regenerating the schedule after the season starts")
+	}
+}
+
+// TestAdminRegenerateScheduleFailsAfterFinalMatchup checks the section 2.3
+// guard's second half: no matchup has Final == true.
+func TestAdminRegenerateScheduleFailsAfterFinalMatchup(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	sched, err := service.AdminGenerateSchedule(request, 14, 1, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	week := sched.Weeks[0]
+	week.Matchups[0].Final = true
+	if err := service.store.SetScheduleWeek(week); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AdminRegenerateSchedule(request, 14, 1); err == nil {
+		t.Error("expected an error regenerating the schedule once a matchup has scored")
+	}
+}
+
 func TestAdminDataMailEnabledTrueWithSMTP(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

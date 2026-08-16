@@ -1115,3 +1115,142 @@ func TestResetDraftClearsClockAndAutopick(t *testing.T) {
 		t.Fatalf("ResetLeague left clock/autopick set: %+v", state)
 	}
 }
+
+// TestScheduleRoundTripsThroughReload is WP1's required store round-trip
+// test: persist, reload, deep-equal.
+func TestScheduleRoundTripsThroughReload(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: genTeamIDs(8), Divisions: referenceDivisions(genTeamIDs(8)), StartWeek: 1, Weeks: 14, Seed: 99,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sched.GeneratedAt = time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	if err := store.SetSchedule(sched); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := NewStore(path)
+	got := reloaded.Snapshot().Schedule
+	if got == nil {
+		t.Fatal("reloaded state has no schedule")
+	}
+	if !reflect.DeepEqual(*got, sched) {
+		t.Fatalf("reloaded schedule does not deep-equal the original:\ngot:  %+v\nwant: %+v", *got, sched)
+	}
+}
+
+// TestSetScheduleWeekRoundTrips checks that a week-close update (scores,
+// Final) survives a persist/reload cycle.
+func TestSetScheduleWeekRoundTrips(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	sched, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: genTeamIDs(4), StartWeek: 1, Weeks: 1, Seed: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSchedule(sched); err != nil {
+		t.Fatal(err)
+	}
+	week := sched.Weeks[0]
+	for i := range week.Matchups {
+		week.Matchups[i].Final = true
+		week.Matchups[i].HomeScore = 100
+		week.Matchups[i].AwayScore = 90
+	}
+	if err := store.SetScheduleWeek(week); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	got := reloaded.Snapshot().Schedule
+	if got == nil || len(got.Weeks) != 1 {
+		t.Fatalf("reloaded schedule missing its week: %+v", got)
+	}
+	if !reflect.DeepEqual(got.Weeks[0], week) {
+		t.Fatalf("reloaded week does not deep-equal the update:\ngot:  %+v\nwant: %+v", got.Weeks[0], week)
+	}
+	if err := store.SetScheduleWeek(ScheduleWeek{Week: 999}); err == nil {
+		t.Error("expected an error for a week not part of the schedule")
+	}
+}
+
+// TestStateFileMigratesFromVersion1 is WP1's required v1-file migration
+// test: a pre-existing state file with no schemaVersion field (and no
+// Schedule/Playoffs/Phase fields at all) must load cleanly, decode as
+// version 1, and migrate forward to currentSchemaVersion with nil
+// Schedule/Playoffs and an empty Phase — the existing nil-map-guard idiom,
+// extended to the new pointer fields.
+func TestStateFileMigratesFromVersion1(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	if err := store.StartupError(); err != nil {
+		t.Fatalf("a version-1 file must load cleanly: %v", err)
+	}
+	state := store.Snapshot()
+	if state.SchemaVersion != currentSchemaVersion {
+		t.Fatalf("SchemaVersion = %d, want %d after migration", state.SchemaVersion, currentSchemaVersion)
+	}
+	if state.Schedule != nil {
+		t.Errorf("Schedule = %+v, want nil for a migrated v1 file", state.Schedule)
+	}
+	if state.Playoffs != nil {
+		t.Errorf("Playoffs = %+v, want nil for a migrated v1 file", state.Playoffs)
+	}
+	if state.Phase != "" {
+		t.Errorf("Phase = %q, want empty for a migrated v1 file", state.Phase)
+	}
+
+	// The migrated version must be written back on the next persist.
+	if err := store.SetTeamName("team-1", "Renamed"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"schemaVersion": 2`) {
+		t.Errorf("persisted file did not stamp the current schema version:\n%s", raw)
+	}
+}
+
+// TestStateFileRefusesNewerSchemaVersion checks section 6.3: "If the
+// file's version exceeds the binary's version, refuse to start."
+func TestStateFileRefusesNewerSchemaVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	futureJSON := fmt.Sprintf(`{"schemaVersion": %d}`, currentSchemaVersion+1)
+	if err := os.WriteFile(path, []byte(futureJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	if err := store.StartupError(); err == nil {
+		t.Fatal("expected StartupError to report a too-new schema version")
+	}
+	// The store must refuse to persist too, so it can never clobber the
+	// newer file on disk with blank in-memory state.
+	if err := store.SetTeamName("team-1", "Should Not Write"); err == nil {
+		t.Error("expected persistLocked to fail while a schema-too-new startup error is set")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != futureJSON {
+		t.Errorf("the on-disk file must be untouched:\ngot:  %s\nwant: %s", raw, futureJSON)
+	}
+}

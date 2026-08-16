@@ -666,7 +666,7 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"on_clock_id":      onClockID,
 		"pick_number":      nextNumber,
 		"picks_empty":      len(state.Picks) == 0,
-		"round":            ((nextNumber - 1) / len(s.teams)) + 1,
+		"round":            pickRound(activeTeamCount(state.DraftOrder), nextNumber),
 		"can_pick":         canPick,
 		"demo_mode":        s.demoMode,
 		"ready_count":      readyCount(state.Ready),
@@ -972,16 +972,25 @@ func (s *Service) teamMap(team Team) map[string]any {
 	}
 }
 
-// divisionMaps groups the league into its two divisions, Aqua then Orange,
-// each with its teams sorted by rank. Names and manager claims are resolved
-// through teamView so overrides and claims reach the standings view.
+// divisionMaps groups the league into the divisions found in s.teams, in
+// first-occurrence (config) order, each with its teams sorted by rank.
+// Zero divisions (every team's Division is "") renders one table; divisions
+// of unequal size are legal (competition-formats spec section 1.3). Names
+// and manager claims are resolved through teamView so overrides and claims
+// reach the standings view.
 func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 	byDivision := map[string][]Team{}
+	seen := map[string]bool{}
+	order := make([]string, 0, 2)
 	for _, team := range s.teams {
+		if !seen[team.Division] {
+			seen[team.Division] = true
+			order = append(order, team.Division)
+		}
 		byDivision[team.Division] = append(byDivision[team.Division], team)
 	}
-	out := make([]map[string]any, 0, 2)
-	for _, division := range []string{"Aqua", "Orange"} {
+	out := make([]map[string]any, 0, len(order))
+	for _, division := range order {
 		teams := append([]Team(nil), byDivision[division]...)
 		sort.Slice(teams, func(i, j int) bool { return teams[i].Rank < teams[j].Rank })
 		teamsOut := make([]map[string]any, 0, len(teams))

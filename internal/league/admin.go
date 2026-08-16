@@ -2,6 +2,7 @@ package league
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"html"
 	"math/big"
@@ -495,4 +496,133 @@ func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, 
 	// from clockTick's path, but nothing called it from here.
 	s.notifyAutopickMade(state, pick, "commissioner", now)
 	return pick, s.pool().byID[playerID], s.teamByID(teamID), nil
+}
+
+// AdminGenerateSchedule generates and persists the first regular-season
+// schedule from the league's current team list and divisions
+// (competition-formats spec section 2.3). weeks is the regular-season
+// length; league weeks map 1:1 onto NFL weeks. startWeek <= 0 defaults to
+// 1. seed == 0 draws a fresh seed from crypto/rand; a nonzero seed is
+// stored as given, matching a commissioner-supplied schedule.seed config
+// value. It fails once a schedule already exists — use
+// AdminRegenerateSchedule to redraw one.
+func (s *Service) AdminGenerateSchedule(r *http.Request, weeks, startWeek int, seed int64) (SeasonSchedule, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return SeasonSchedule{}, err
+	}
+	state := s.store.Snapshot()
+	if state.Schedule != nil {
+		return SeasonSchedule{}, fmt.Errorf("a schedule already exists; regenerate it instead")
+	}
+	return s.buildAndStoreSchedule(weeks, startWeek, seed)
+}
+
+// AdminRegenerateSchedule redraws the schedule with a fresh seed. The
+// section 2.3 guard requires both: now < seasonStartAt(), and no matchup
+// in the current schedule has Final == true — once week 1 kicks off the
+// schedule is immutable, mirroring ScoringLocked. weeks <= 0 or startWeek
+// <= 0 reuse the existing schedule's values.
+func (s *Service) AdminRegenerateSchedule(r *http.Request, weeks, startWeek int) (SeasonSchedule, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return SeasonSchedule{}, err
+	}
+	if !s.clock().Before(seasonStartAt()) {
+		return SeasonSchedule{}, fmt.Errorf("the schedule is locked once the season starts")
+	}
+	state := s.store.Snapshot()
+	if state.Schedule == nil {
+		return SeasonSchedule{}, fmt.Errorf("no schedule exists yet; generate one first")
+	}
+	if scheduleHasFinalMatchup(*state.Schedule) {
+		return SeasonSchedule{}, fmt.Errorf("the schedule is locked once a matchup has been scored")
+	}
+	if weeks <= 0 {
+		weeks = len(state.Schedule.Weeks)
+	}
+	if startWeek <= 0 {
+		startWeek = state.Schedule.StartWeek
+	}
+	seed, err := randomScheduleSeed()
+	if err != nil {
+		return SeasonSchedule{}, err
+	}
+	return s.buildAndStoreSchedule(weeks, startWeek, seed)
+}
+
+// buildAndStoreSchedule runs the pure GenerateSchedule against the
+// league's current team list and divisions, stamps GeneratedAt from the
+// service clock (GenerateSchedule itself never touches the clock), and
+// persists the result.
+func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64) (SeasonSchedule, error) {
+	if startWeek <= 0 {
+		startWeek = 1
+	}
+	if seed == 0 {
+		drawn, err := randomScheduleSeed()
+		if err != nil {
+			return SeasonSchedule{}, err
+		}
+		seed = drawn
+	}
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season:    seasonStartAt().Year(),
+		TeamIDs:   teamIDList(s.teams),
+		Divisions: teamDivisionMap(s.teams),
+		StartWeek: startWeek,
+		Weeks:     weeks,
+		Seed:      seed,
+	})
+	if err != nil {
+		return SeasonSchedule{}, err
+	}
+	sched.GeneratedAt = s.clock().UTC()
+	if err := s.store.SetSchedule(sched); err != nil {
+		return SeasonSchedule{}, err
+	}
+	return sched, nil
+}
+
+// scheduleHasFinalMatchup reports whether any matchup in sch has scored
+// (Final == true) — the section 2.3 regeneration guard's second half.
+func scheduleHasFinalMatchup(sch SeasonSchedule) bool {
+	for _, wk := range sch.Weeks {
+		for _, m := range wk.Matchups {
+			if m.Final {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// teamIDList and teamDivisionMap adapt the league's team list to
+// GenerateSchedule's ScheduleParams shape. A team with an empty Division
+// is omitted from the map, matching "empty = none" (section 2.2).
+func teamIDList(teams []Team) []string {
+	ids := make([]string, len(teams))
+	for i, team := range teams {
+		ids[i] = team.ID
+	}
+	return ids
+}
+
+func teamDivisionMap(teams []Team) map[string]string {
+	out := make(map[string]string, len(teams))
+	for _, team := range teams {
+		if team.Division != "" {
+			out[team.ID] = team.Division
+		}
+	}
+	return out
+}
+
+// randomScheduleSeed draws a non-negative int64 seed from crypto/rand
+// (section 2.3: "the seed comes from schedule.seed config when set, else
+// from crypto/rand, and is stored").
+func randomScheduleSeed() (int64, error) {
+	var buf [8]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.BigEndian.Uint64(buf[:]) &^ (1 << 63)), nil
 }

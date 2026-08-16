@@ -90,7 +90,17 @@ type Member struct {
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
-	Ready      map[string]bool     `json:"ready"`
+	// SchemaVersion is the state file's schema generation (section 6.3 of
+	// the competition-formats spec). A missing field decodes as 0 and means
+	// "version 1" (every file written before this field existed). This
+	// spec's additions — Schedule and Playoffs so far — land as version 2.
+	// Store.load migrates forward only: new fields fill with their zero
+	// value (nil maps and pointers included), exactly the existing
+	// nil-map-guard pattern below, and the version is stamped current on
+	// load. A file whose version exceeds currentSchemaVersion refuses to
+	// load rather than silently drop data; see Store.load.
+	SchemaVersion int                 `json:"schemaVersion"`
+	Ready         map[string]bool     `json:"ready"`
 	Picks      []DraftPick         `json:"picks"`
 	Members    map[string]Member   `json:"members"`
 	Invites    []string            `json:"invites"`
@@ -133,6 +143,22 @@ type PersistedState struct {
 	// 1.26 (>= 1.24), so "omitzero" — which calls time.Time's IsZero()
 	// method — actually omits it.
 	ScoringChangedAt time.Time `json:"scoringChangedAt,omitzero"`
+
+	// Schedule is the persisted regular-season plan plus results (see
+	// schedule.go). nil means no schedule has been generated yet; the live
+	// feed falls back to the honest preseason snapshot until it exists
+	// (feed.go's scheduleProvider).
+	Schedule *SeasonSchedule `json:"schedule,omitempty"`
+	// Playoffs is the persisted bracket state (see playoffs.go). nil means
+	// the bracket has not been seeded yet.
+	Playoffs *PlayoffState `json:"playoffs,omitempty"`
+	// Phase is the season lifecycle marker (see season.go). Empty means
+	// "before the regular season" — no schedule yet, or the schedule
+	// exists but SEASON_START_AT has not passed. Section 5.2 of the
+	// competition-formats spec defines the full multi-season lifecycle;
+	// this field only carries the phases season.go actually drives in this
+	// work package: PhaseRegularSeason, PhasePlayoffs, PhaseSeasonComplete.
+	Phase string `json:"phase,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
@@ -168,10 +194,19 @@ type LiveSnapshot struct {
 
 // defaultTeams returns the eight franchise identities. Manager, record, and
 // streak stay empty until a real member claims the seat and games are played;
-// the UI renders unclaimed seats explicitly. Order matters: the snake draft
-// and matchup pairing index into this slice. team-1..team-4 sit in the Aqua
+// the UI renders unclaimed seats explicitly. Order matters for the snake
+// draft's default order (see defaultTeamIDs). team-1..team-4 sit in the Aqua
 // division; team-5..team-8 sit in the Orange division. A commissioner may
 // rename any seat; see Store.SetTeamName.
+//
+// This is the reference league's team list, and — per the
+// competition-formats spec section 1.3 — the fallback config until the
+// sibling drop-in league configuration spec lands: every subsystem that
+// needs "the league's teams" (seat claiming, division split, round math,
+// schedule generation) reads a []Team / []string derived from this slice,
+// never a bare literal team count or division name. Matchup pairing does
+// NOT index into this slice; it reads the persisted SeasonSchedule
+// (schedule.go).
 func defaultTeams() []Team {
 	return []Team{
 		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1", Division: "Aqua", Record: "0–0", Rank: 1, Streak: "—", Tone: "cyan"},
