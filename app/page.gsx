@@ -135,8 +135,13 @@ func Page() Node {
 					<span>FORM</span>
 				</div>
 				<div class="standings-list">
-					<Each of={data.standings} as="team">
-						<StandingRow {...team}></StandingRow>
+					<Each of={data.divisions} as="division">
+						<div class="division-group">
+							<span class="division-heading mono">{division.name}</span>
+							<Each of={division.teams} as="team">
+								<StandingRow {...team}></StandingRow>
+							</Each>
+						</div>
 					</Each>
 				</div>
 			</section>

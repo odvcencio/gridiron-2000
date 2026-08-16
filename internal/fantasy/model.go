@@ -30,15 +30,21 @@ type Player struct {
 	News       string  `json:"news,omitempty"`
 }
 
-// Status reports pool health for /api/health and the wire page.
+// Status reports pool health for /api/health, the admin console, and the
+// wire page.
 type Status struct {
-	Enabled   bool      `json:"enabled"`
-	Provider  string    `json:"provider"`
-	Mode      string    `json:"mode"` // live | cache | offline
-	Scoring   string    `json:"scoring"`
-	Players   int       `json:"players"`
-	LastSync  time.Time `json:"lastSync,omitzero"`
-	LastError string    `json:"lastError,omitempty"`
+	Enabled   bool           `json:"enabled"`
+	Provider  string         `json:"provider"`
+	Mode      string         `json:"mode"` // live | cache | offline
+	Scoring   string         `json:"scoring"`
+	Players   int            `json:"players"`
+	Positions map[string]int `json:"positions,omitempty"`
+	WithADP   int            `json:"withAdp"`
+	WithProj  int            `json:"withProjection"`
+	WithBye   int            `json:"withBye"`
+	Requests  int            `json:"requestsUsed"`
+	LastSync  time.Time      `json:"lastSync,omitzero"`
+	LastError string         `json:"lastError,omitempty"`
 }
 
 // Config controls the sync service. Zero values fall back to safe defaults.

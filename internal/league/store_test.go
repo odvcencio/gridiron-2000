@@ -2,6 +2,7 @@ package league
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -129,6 +130,49 @@ func TestBoardOperations(t *testing.T) {
 	}
 	if got := store.Snapshot().Boards[owner]; len(got) != 0 {
 		t.Fatalf("clear failed: %v", got)
+	}
+}
+
+func TestSetTeamName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+
+	if err := store.SetTeamName("team-1", "  The Rebrand  "); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().TeamNames["team-1"]; got != "The Rebrand" {
+		t.Fatalf("override = %q, want trimmed name", got)
+	}
+
+	reloaded := NewStore(path)
+	if got := reloaded.Snapshot().TeamNames["team-1"]; got != "The Rebrand" {
+		t.Fatalf("override lost on reload: %q", got)
+	}
+
+	tooLong := strings.Repeat("x", 41)
+	if err := store.SetTeamName("team-1", tooLong); err == nil {
+		t.Error("names over 40 characters must be rejected")
+	}
+
+	if err := store.SetTeamName("team-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Snapshot().TeamNames["team-1"]; ok {
+		t.Error("empty name must clear the override")
+	}
+
+	if err := store.SetTeamName("team-99", "Ghost"); err == nil {
+		t.Error("unknown team must error")
+	}
+
+	if err := store.SetTeamName("team-2", "Kept After Reset"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().TeamNames["team-2"]; got != "Kept After Reset" {
+		t.Fatalf("league reset must keep team name overrides, got %q", got)
 	}
 }
 

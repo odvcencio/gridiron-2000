@@ -13,6 +13,7 @@ type Team struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
 	Abbreviation string  `json:"abbreviation"`
+	Division     string  `json:"division"`
 	Manager      string  `json:"manager"`
 	Record       string  `json:"record"`
 	PointsFor    float64 `json:"pointsFor"`
@@ -57,11 +58,12 @@ type Member struct {
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
-	Ready   map[string]bool     `json:"ready"`
-	Picks   []DraftPick         `json:"picks"`
-	Members map[string]Member   `json:"members"`
-	Invites []string            `json:"invites"`
-	Boards  map[string][]string `json:"boards"`
+	Ready     map[string]bool     `json:"ready"`
+	Picks     []DraftPick         `json:"picks"`
+	Members   map[string]Member   `json:"members"`
+	Invites   []string            `json:"invites"`
+	Boards    map[string][]string `json:"boards"`
+	TeamNames map[string]string   `json:"teamNames"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
@@ -97,17 +99,20 @@ type LiveSnapshot struct {
 
 // defaultTeams returns the eight franchise identities. Manager, record, and
 // streak stay empty until a real member claims the seat and games are played;
-// the UI renders unclaimed seats explicitly.
+// the UI renders unclaimed seats explicitly. Order matters: the snake draft
+// and matchup pairing index into this slice. team-1..team-4 sit in the Aqua
+// division; team-5..team-8 sit in the Orange division. A commissioner may
+// rename any seat; see Store.SetTeamName.
 func defaultTeams() []Team {
 	return []Team{
-		{ID: "team-1", Name: "Fourth & Longing", Abbreviation: "F&L", Record: "0–0", Rank: 1, Streak: "—", Tone: "lime"},
-		{ID: "team-2", Name: "Dial-Up Defense", Abbreviation: "DUD", Record: "0–0", Rank: 2, Streak: "—", Tone: "magenta"},
-		{ID: "team-3", Name: "End Zone Empire", Abbreviation: "EZE", Record: "0–0", Rank: 3, Streak: "—", Tone: "cyan"},
-		{ID: "team-4", Name: "Blitz Protocol", Abbreviation: "BLZ", Record: "0–0", Rank: 4, Streak: "—", Tone: "orange"},
-		{ID: "team-5", Name: "VHS Victory", Abbreviation: "VHS", Record: "0–0", Rank: 5, Streak: "—", Tone: "violet"},
-		{ID: "team-6", Name: "Pixel Punters", Abbreviation: "PXL", Record: "0–0", Rank: 6, Streak: "—", Tone: "blue"},
-		{ID: "team-7", Name: "Neon Audible", Abbreviation: "NEO", Record: "0–0", Rank: 7, Streak: "—", Tone: "pink"},
-		{ID: "team-8", Name: "Sunday Service", Abbreviation: "SUN", Record: "0–0", Rank: 8, Streak: "—", Tone: "gold"},
+		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1", Division: "Aqua", Record: "0–0", Rank: 1, Streak: "—", Tone: "cyan"},
+		{ID: "team-2", Name: "Aqua 2", Abbreviation: "AQ2", Division: "Aqua", Record: "0–0", Rank: 2, Streak: "—", Tone: "blue"},
+		{ID: "team-3", Name: "Aqua 3", Abbreviation: "AQ3", Division: "Aqua", Record: "0–0", Rank: 3, Streak: "—", Tone: "violet"},
+		{ID: "team-4", Name: "Aqua 4", Abbreviation: "AQ4", Division: "Aqua", Record: "0–0", Rank: 4, Streak: "—", Tone: "lime"},
+		{ID: "team-5", Name: "Orange 1", Abbreviation: "OR1", Division: "Orange", Record: "0–0", Rank: 5, Streak: "—", Tone: "orange"},
+		{ID: "team-6", Name: "Orange 2", Abbreviation: "OR2", Division: "Orange", Record: "0–0", Rank: 6, Streak: "—", Tone: "gold"},
+		{ID: "team-7", Name: "Orange 3", Abbreviation: "OR3", Division: "Orange", Record: "0–0", Rank: 7, Streak: "—", Tone: "magenta"},
+		{ID: "team-8", Name: "Orange 4", Abbreviation: "OR4", Division: "Orange", Record: "0–0", Rank: 8, Streak: "—", Tone: "pink"},
 	}
 }
 

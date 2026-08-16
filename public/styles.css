@@ -906,6 +906,27 @@ h2 {
   grid-column: 2 / 4;
 }
 
+.division-group + .division-group {
+  margin-top: var(--space-lg);
+}
+
+.division-heading {
+  display: block;
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.division-tag {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .standing-row {
   padding: var(--space-sm);
   border-top: 1px solid var(--color-border);
@@ -1750,7 +1771,7 @@ h2 {
 }
 
 .seat-row {
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
 }
 
 .seat-row[data-claimed="false"] .seat-identity strong {

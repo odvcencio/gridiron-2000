@@ -15,6 +15,7 @@ func SeatRow(props any) Node {
 					Awaiting a manager
 				</If>
 			</small>
+			<span class="position-chip">{props.seat.division}</span>
 		</div>
 		<If cond={props.seat.ready}>
 			<b class="ready-state is-ready">Ready</b>
@@ -29,6 +30,12 @@ func SeatRow(props any) Node {
 				<button class="board-button board-button--cut" type="submit">Release</button>
 			</form>
 		</If>
+		<form method="post" action={props.RenameAction}>
+			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+			<input type="hidden" name="team_id" value={props.seat.id}></input>
+			<input type="text" name="name" placeholder="Rename team" maxlength="40"></input>
+			<button class="board-button" type="submit">Set</button>
+		</form>
 	</article>
 }
 
@@ -105,7 +112,7 @@ func Page() Node {
 					</div>
 					<div class="seat-list">
 						<Each of={data.seats} as="seat">
-							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} CSRF={csrf.token} />
+							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} CSRF={csrf.token} />
 						</Each>
 					</div>
 				</section>

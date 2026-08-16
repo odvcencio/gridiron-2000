@@ -27,7 +27,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-remove", "seat-release", "draft-reset", "league-reset"} {
+			for _, name := range []string{"invite-add", "invite-remove", "seat-release", "team-rename", "draft-reset", "league-reset"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -67,6 +67,15 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", team.Name+" is unclaimed again.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"team-rename": func(ctx *action.Context) error {
+				team, err := league.Default().AdminRenameTeam(ctx.Request, ctx.FormData["team_id"], ctx.FormData["name"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", team.Name+" is set.")
 				ctx.Redirect("/admin")
 				return nil
 			},

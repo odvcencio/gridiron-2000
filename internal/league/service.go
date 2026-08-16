@@ -268,6 +268,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"live":         s.liveMap(live),
 		"featured":     s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))]),
 		"standings":    s.standingsMaps(),
+		"divisions":    s.divisionMaps(state),
 		"transactions": transactionMaps(),
 		"league_size":  len(s.teams),
 		"season":       "2026",
@@ -576,6 +577,9 @@ func (s *Service) teamView(state PersistedState, id string) Team {
 			if member := memberForTeam(state.Members, id); member.Name != "" {
 				team.Manager = member.Name
 			}
+			if override := strings.TrimSpace(state.TeamNames[id]); override != "" {
+				team.Name = override
+			}
 			return team
 		}
 	}
@@ -589,10 +593,34 @@ func (s *Service) teamMap(team Team) map[string]any {
 		manager = "UNCLAIMED"
 	}
 	return map[string]any{
-		"id": team.ID, "name": team.Name, "abbreviation": team.Abbreviation,
+		"id": team.ID, "name": team.Name, "abbreviation": team.Abbreviation, "division": strings.ToUpper(team.Division),
 		"manager": manager, "claimed": claimed, "record": team.Record, "points_for": fmt.Sprintf("%.1f", team.PointsFor),
 		"rank": fmt.Sprintf("%02d", team.Rank), "rank_number": team.Rank, "streak": team.Streak, "tone": team.Tone,
 	}
+}
+
+// divisionMaps groups the league into its two divisions, Aqua then Orange,
+// each with its teams sorted by rank. Names and manager claims are resolved
+// through teamView so overrides and claims reach the standings view.
+func (s *Service) divisionMaps(state PersistedState) []map[string]any {
+	byDivision := map[string][]Team{}
+	for _, team := range s.teams {
+		byDivision[team.Division] = append(byDivision[team.Division], team)
+	}
+	out := make([]map[string]any, 0, 2)
+	for _, division := range []string{"Aqua", "Orange"} {
+		teams := append([]Team(nil), byDivision[division]...)
+		sort.Slice(teams, func(i, j int) bool { return teams[i].Rank < teams[j].Rank })
+		teamsOut := make([]map[string]any, 0, len(teams))
+		for _, team := range teams {
+			teamsOut = append(teamsOut, s.teamMap(s.teamView(state, team.ID)))
+		}
+		out = append(out, map[string]any{
+			"name":  strings.ToUpper(division),
+			"teams": teamsOut,
+		})
+	}
+	return out
 }
 
 func playerMap(player Player) map[string]any {
