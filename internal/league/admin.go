@@ -50,6 +50,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
 	}
 	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
+	now := s.clock()
 	return map[string]any{
 		"viewer":           s.Viewer(r),
 		"is_commissioner":  s.IsCommissioner(r),
@@ -60,14 +61,28 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"member_count":     len(state.Members),
 		"pick_count":       len(state.Picks),
 		"seat_count":       len(s.teams),
-		"draft":            s.draftSummary(time.Now()),
+		"draft":            s.draftSummary(now),
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
 		"pool":             s.poolStatusMap(),
 		"mail_enabled":     mailer.FromEnv().Enabled(),
 		"invite_preview":   map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
+		// Draft clock card: armed/paused state, both deadlines, and where
+		// the duration comes from (env default or a commissioner override).
+		"clock":                 s.clockView(state, now),
+		"clock_duration_source": clockDurationSource(state),
 	}
+}
+
+// clockDurationSource reports whether the pick-clock duration comes from
+// the commissioner's persisted override or the PICK_CLOCK environment
+// default, for the admin console's "Draft clock" card.
+func clockDurationSource(state PersistedState) string {
+	if state.ClockDurationSec > 0 {
+		return "override"
+	}
+	return "env"
 }
 
 // inviteMailto builds a prefilled mailto: link for one invite email, using
@@ -375,4 +390,90 @@ func (s *Service) AdminResetScoring(r *http.Request) error {
 		return fmt.Errorf("scoring is locked for the season")
 	}
 	return s.store.ResetScoring()
+}
+
+// AdminPauseClock stops the running pick clock. Picks stay allowed; only
+// the timer and auto-pick stop (see the pick-clock spec, section 4.4).
+func (s *Service) AdminPauseClock(r *http.Request) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.PauseClock(s.clock())
+}
+
+// AdminResumeClock restarts the pick clock from its stored remaining time,
+// or grants a full duration when nothing was captured. In demo mode this
+// doubles as "start the clock" for rehearsals: demo never self-arms (see
+// clockTick), so resume is the only way to begin one.
+func (s *Service) AdminResumeClock(r *http.Request) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	state := s.store.Snapshot()
+	return s.store.ResumeClock(s.clock(), s.pickClock(state))
+}
+
+// AdminExtendClock adds secs to the running deadline, clamped to
+// [now+MinPickClock, now+MaxPickClock]. It is current-pick mercy only: a
+// paused or unarmed clock has no running deadline to extend.
+func (s *Service) AdminExtendClock(r *http.Request, secs int) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.ExtendClock(s.clock(), time.Duration(secs)*time.Second)
+}
+
+// AdminSetClockSeconds overrides the persisted pick-clock duration,
+// clamped to [MinPickClock, MaxPickClock]. It applies starting with the
+// next arm; the running deadline stays untouched (one control, one
+// effect — ExtendClock and PauseClock cover current-pick mercy).
+func (s *Service) AdminSetClockSeconds(r *http.Request, secs int) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.SetClockDuration(secs)
+}
+
+// AdminSetAutopick toggles any seat's Autopick flag on the commissioner's
+// authority, rather than the manager's own (compare ToggleAutopick).
+func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.SetAutopick(teamID, on)
+}
+
+// AdminForceAutopick fires an immediate auto-pick for the on-clock seat,
+// with provenance "commissioner". It works while the clock is paused (this
+// is the whole point: the commissioner is the human confirming a pick
+// should happen right now) and is rejected before the draft is live or
+// once every roster slot is filled.
+func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return DraftPick{}, Player{}, Team{}, err
+	}
+	now := s.clock()
+	if !s.draftIsLive(now) {
+		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
+	}
+	state := s.store.Snapshot()
+	totalPicks := len(defaultTeams()) * DraftRounds
+	number := len(state.Picks) + 1
+	if number > totalPicks {
+		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft is complete")
+	}
+	teamID := teamOnClock(state.DraftOrder, number)
+	playerID, ok := s.autopickChoice(state, teamID)
+	if !ok {
+		return DraftPick{}, Player{}, Team{}, fmt.Errorf("no undrafted player is available to auto-pick")
+	}
+	nextDeadline := time.Time{}
+	if !state.ClockPaused && number < totalPicks {
+		nextDeadline = now.Add(s.pickClock(state))
+	}
+	pick, err := s.store.AutoPick(teamID, playerID, "commissioner", number, state.ClockDeadline, now, nextDeadline)
+	if err != nil {
+		return DraftPick{}, Player{}, Team{}, err
+	}
+	return pick, s.pool().byID[playerID], s.teamByID(teamID), nil
 }

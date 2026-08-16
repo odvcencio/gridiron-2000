@@ -110,7 +110,10 @@ func DraftTeam(props any) Node {
 		<span class={"team-mark tone-" + props.tone}>{props.abbreviation}</span>
 		<div>
 			<strong>{props.name}</strong>
-			<small>{props.manager}</small>
+			<small>
+				<span class="presence-dot" data-presence={props.presence}></span>
+				{props.manager}
+			</small>
 			<small class="mono division-tag">{props.division}</small>
 		</div>
 		<If cond={props.ready}>
@@ -118,6 +121,9 @@ func DraftTeam(props any) Node {
 		</If>
 		<If cond={props.ready == false}>
 			<b class="ready-state">Not ready</b>
+		</If>
+		<If cond={props.autopick}>
+			<b class="autopick-badge mono">AUTO</b>
 		</If>
 	</div>
 }
@@ -159,10 +165,27 @@ func Page() Node {
 						{data.pick_number}
 					</span>
 				</div>
+				<div class="pick-clock-row">
+					<span class="mono">ON THE CLOCK //</span>
+					<strong
+						class="pick-clock mono"
+						data-pick-clock
+						data-armed={data.clock.armed}
+						data-paused={data.clock.paused}
+						data-deadline={data.clock.effective_deadline}
+						data-server-now={data.clock.server_now}
+					>--:--</strong>
+					<span class="mono pick-clock-reason">{data.clock.reason}</span>
+				</div>
 				<form method="post" action={actionPath("toggle-ready")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button button--primary" type="submit">Toggle my ready state</button>
+				</form>
+				<form method="post" action={actionPath("toggle-autopick")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<input type="hidden" name="csrf_token" value={csrf.token}></input>
+					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+					<button class="button autopick-toggle" type="submit">Toggle my autopick</button>
 				</form>
 			</div>
 		</section>
@@ -173,6 +196,12 @@ func Page() Node {
 			<If cond={data.has_pick_error}>
 				<p class="error-message">
 					{data.pick_error}
+				</p>
+			</If>
+			<If cond={data.clock.paused}>
+				<p class="demo-message">
+					<strong>CLOCK PAUSED:</strong>
+					the commissioner paused the pick clock. Picks stay open.
 				</p>
 			</If>
 			<If cond={data.demo_mode}>
@@ -215,6 +244,38 @@ func Page() Node {
 				</Each>
 			</div>
 		</section>
+		<If cond={data.viewer.is_commissioner}>
+			<section class="draft-order-strip commissioner-clock-controls">
+				<header>
+					<span class="section-index">COMMISSIONER // CLOCK</span>
+					<span class="mono">{data.clock.reason}</span>
+				</header>
+				<div class="clock-controls">
+					<form method="post" action={actionPath("clock-pause")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="button button--compact" type="submit">Pause clock</button>
+					</form>
+					<form method="post" action={actionPath("clock-resume")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="button button--compact button--primary" type="submit">Resume clock</button>
+					</form>
+					<form method="post" action={actionPath("clock-extend")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<button class="button button--compact" type="submit">Extend pick</button>
+					</form>
+					<form method="post" action={actionPath("clock-set-duration")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
+						<button class="button button--compact" type="submit">Set duration</button>
+					</form>
+					<form method="post" action={actionPath("clock-force-autopick")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="button button--compact button--ghost" type="submit">Force autopick</button>
+					</form>
+				</div>
+			</section>
+		</If>
 		<div class="pool-count-bar">
 			<span class="mono pool-count">
 				{data.pool_count}
@@ -281,7 +342,15 @@ func Page() Node {
 									{pick.player.nfl_team}
 								</small>
 							</div>
-							<b>{pick.team.abbreviation}</b>
+							<div class="pick-tape-meta">
+								<If cond={pick.is_auto}>
+									<b class="pick-tag pick-tag--auto mono">AUTO</b>
+								</If>
+								<If cond={pick.is_commissioner}>
+									<b class="pick-tag pick-tag--comm mono">COMM</b>
+								</If>
+								<b class="mono">{pick.team.abbreviation}</b>
+							</div>
 						</div>
 					</Each>
 				</div>

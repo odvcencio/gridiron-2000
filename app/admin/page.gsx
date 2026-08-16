@@ -36,6 +36,22 @@ func SeatRow(props any) Node {
 			<input type="text" name="name" placeholder="Rename team" maxlength="40"></input>
 			<button class="board-button" type="submit">Set</button>
 		</form>
+		<If cond={props.seat.autopick}>
+			<form method="post" action={props.AutopickAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="team_id" value={props.seat.id}></input>
+				<input type="hidden" name="on" value="false"></input>
+				<button class="board-button autopick-toggle is-on" type="submit">AUTO: ON</button>
+			</form>
+		</If>
+		<If cond={props.seat.autopick == false}>
+			<form method="post" action={props.AutopickAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="team_id" value={props.seat.id}></input>
+				<input type="hidden" name="on" value="true"></input>
+				<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
+			</form>
+		</If>
 	</article>
 }
 
@@ -112,7 +128,7 @@ func Page() Node {
 					</div>
 					<div class="seat-list">
 						<Each of={data.seats} as="seat">
-							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} CSRF={csrf.token} />
+							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} AutopickAction={actionPath("clock-set-autopick")} CSRF={csrf.token} />
 						</Each>
 					</div>
 				</section>
@@ -288,6 +304,89 @@ func Page() Node {
 							</Each>
 						</div>
 					</If>
+				</section>
+				<section class="player-pool">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">06 // DRAFT CLOCK</span>
+							<h2>Pick clock controls</h2>
+						</div>
+						<If cond={data.clock.armed}>
+							<span class="position-chip">ARMED</span>
+						</If>
+						<If cond={data.clock.armed == false}>
+							<span class="position-chip">UNARMED</span>
+						</If>
+					</div>
+					<div class="pool-stats">
+						<div class="pool-stat">
+							<span>State</span>
+							<If cond={data.clock.paused}>
+								<b class="mono">PAUSED</b>
+							</If>
+							<If cond={data.clock.paused == false}>
+								<b class="mono">RUNNING</b>
+							</If>
+						</div>
+						<div class="pool-stat">
+							<span>Reason</span>
+							<b class="mono">{data.clock.reason}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Deadline</span>
+							<b class="mono">{data.clock.deadline}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Duration</span>
+							<b class="mono">
+								{data.clock.duration_seconds}
+								S
+							</b>
+						</div>
+						<div class="pool-stat">
+							<span>Duration source</span>
+							<If cond={data.clock.duration_overridden}>
+								<b class="mono">OVERRIDE</b>
+							</If>
+							<If cond={data.clock.duration_overridden == false}>
+								<b class="mono">ENV DEFAULT</b>
+							</If>
+						</div>
+						<div class="pool-stat">
+							<span>Remaining</span>
+							<b class="mono">
+								{data.clock.remaining_seconds}
+								S
+							</b>
+						</div>
+					</div>
+					<div class="clock-controls">
+						<form method="post" action={actionPath("clock-pause")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button" type="submit">Pause clock</button>
+						</form>
+						<form method="post" action={actionPath("clock-resume")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button button--primary" type="submit">Resume / start clock</button>
+						</form>
+						<form method="post" action={actionPath("clock-extend")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+							<button class="button" type="submit">Extend pick</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
+							<button class="button" type="submit">Set duration</button>
+						</form>
+						<form method="post" action={actionPath("clock-force-autopick")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button button--ghost" type="submit">Force auto-pick now</button>
+						</form>
+					</div>
+					<p class="scoring-note">
+						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
+					</p>
 				</section>
 			</div>
 		</If>

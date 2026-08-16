@@ -41,12 +41,36 @@ type Service struct {
 	teams    []Team
 	players  []Player
 
+	// now overrides time.Now() for every time-dependent decision that
+	// tests must drive deterministically: DraftData, MakePick, clockTick,
+	// and the fingerprint's presence digest. nil means time.Now(); see
+	// clock().
+	now func() time.Time
+	// presence tracks per-viewer last-seen instants, in memory only. The
+	// zero value is ready to use (see presenceTracker's doc comment).
+	presence presenceTracker
+	// pickClockDefault is the PICK_CLOCK environment default, parsed once
+	// at construction. Zero (the test-construction default) falls back to
+	// DefaultPickClock; see pickClock.
+	pickClockDefault time.Duration
+
 	poolMu       sync.Mutex
 	poolSource   PlayerSource
 	poolCache    playerPool
 	poolStatusFn PoolStatusSource
 	scheduleFn   ScheduleSource
 	historicalFn HistoricalSource
+}
+
+// clock returns the service's current instant: the test-injected now hook
+// when set, otherwise time.Now(). Every time-dependent decision outside the
+// enforcement loop's own ticker wiring reads the instant through here, so
+// tests can drive the whole system with a fake clock.
+func (s *Service) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 var (
@@ -66,12 +90,14 @@ func Default() *Service {
 			store: NewStore(statePath),
 			// Matchups stay on the local preview contract until the league has
 			// drafted lineups that can be scored against the owned nflverse cache.
-			feed:     newLiveFeed(nil),
-			draftAt:  draftAt,
-			draftTZ:  parseDraftTZ(os.Getenv("DRAFT_TZ")),
-			demoMode: demo,
-			teams:    defaultTeams(),
-			players:  defaultPlayers(),
+			feed:             newLiveFeed(nil),
+			draftAt:          draftAt,
+			draftTZ:          parseDraftTZ(os.Getenv("DRAFT_TZ")),
+			demoMode:         demo,
+			teams:            defaultTeams(),
+			players:          defaultPlayers(),
+			presence:         newPresenceTracker(time.Now()),
+			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
 		}
 	})
 	return defaultSvc
@@ -104,6 +130,39 @@ func parseDraftTZ(value string) *time.Location {
 		location = time.UTC
 	}
 	return location
+}
+
+// parsePickClock resolves the PICK_CLOCK environment default: a Go
+// duration string ("90s", "2m") or bare seconds ("90"). An empty value or a
+// parse failure falls back to DefaultPickClock; every result clamps to
+// [MinPickClock, MaxPickClock].
+func parsePickClock(value string) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return DefaultPickClock
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return clampPickClock(time.Duration(seconds) * time.Second)
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return DefaultPickClock
+	}
+	return clampPickClock(duration)
+}
+
+// pickClock resolves the pick-clock duration for state: the commissioner's
+// persisted override when set, otherwise the PICK_CLOCK environment
+// default (or DefaultPickClock when the service was built without one, as
+// in most tests).
+func (s *Service) pickClock(state PersistedState) time.Duration {
+	if state.ClockDurationSec > 0 {
+		return clampPickClock(time.Duration(state.ClockDurationSec) * time.Second)
+	}
+	if s.pickClockDefault > 0 {
+		return s.pickClockDefault
+	}
+	return DefaultPickClock
 }
 
 func parseBool(value string, fallback bool) bool {
@@ -171,6 +230,55 @@ func (s *Service) viewerKey(r *http.Request) string {
 	return ""
 }
 
+// RecordPresence stores now as the requester's last-seen instant. An
+// anonymous, non-demo request carries no viewer key and is skipped. Call it
+// before computing a fingerprint the same requester will read, so the
+// poller's own transition to CONNECTED is visible in that response.
+func (s *Service) RecordPresence(r *http.Request, now time.Time) {
+	s.presence.record(s.viewerKey(r), now)
+}
+
+// presenceKeyForTeam resolves the viewer key that stands for one team's
+// seat: the claiming member's email, or "demo-guest" for every seat in demo
+// mode (a single guest key drives every rehearsal seat). An unclaimed seat
+// outside demo mode resolves to "".
+func (s *Service) presenceKeyForTeam(state PersistedState, teamID string) string {
+	if s.demoMode {
+		return "demo-guest"
+	}
+	return strings.ToLower(strings.TrimSpace(memberForTeam(state.Members, teamID).Email))
+}
+
+// presenceFloor returns key's last-seen instant, floored at the presence
+// tracker's process-start instant. The floor keeps a just-booted server
+// from reading every key as instantly, spuriously AWAY: the away cap
+// cannot fire before startedAt + PresenceIdleWithin + AwayClockCap.
+func (s *Service) presenceFloor(key string) time.Time {
+	seenAt, ok := s.presence.seen(key)
+	if !ok || seenAt.Before(s.presence.startedAt) {
+		return s.presence.startedAt
+	}
+	return seenAt
+}
+
+// presenceDigest renders "team-1=connected,team-2=away,..." across every
+// default team ID, in order (already sorted, since team-1..team-8 compare
+// lexically). Buckets change only on a presenceState transition, so this
+// string — and the fingerprint suffix it feeds — stays stable between
+// transitions and changes exactly when a room's presence dot must change.
+func (s *Service) presenceDigest(state PersistedState, now time.Time) string {
+	order := defaultTeamIDs()
+	parts := make([]string, 0, len(order))
+	for _, teamID := range order {
+		label := "none"
+		if key := s.presenceKeyForTeam(state, teamID); key != "" {
+			label = presenceState(s.presenceFloor(key), now)
+		}
+		parts = append(parts, teamID+"="+label)
+	}
+	return strings.Join(parts, ",")
+}
+
 func splitEmails(raw string) []string {
 	out := []string{}
 	for _, part := range strings.Split(raw, ",") {
@@ -191,16 +299,19 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 	s.poolMu.Unlock()
 }
 
-// StateFingerprint hashes the persisted league state plus the pool version.
-// Clients poll it and soft-refresh the page when it changes, which keeps
-// every open draft room current without full reloads.
+// StateFingerprint hashes the persisted league state plus the pool version
+// and a bucketed presence digest. Clients poll it and soft-refresh the page
+// when it changes, which keeps every open draft room current — including
+// its presence dots and pick-clock deadline, both of which live in or feed
+// this hash — without full reloads.
 func (s *Service) StateFingerprint(poolVersion int64) string {
 	state := s.store.Snapshot()
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		encoded = []byte(err.Error())
 	}
-	digest := sha256.Sum256(append(encoded, []byte(fmt.Sprintf("|pool:%d", poolVersion))...))
+	suffix := fmt.Sprintf("|pool:%d|presence:%s", poolVersion, s.presenceDigest(state, s.clock()))
+	digest := sha256.Sum256(append(encoded, []byte(suffix)...))
 	return hex.EncodeToString(digest[:8])
 }
 
@@ -445,7 +556,7 @@ func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
-	now := time.Now()
+	now := s.clock()
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
 	pool := s.pool()
@@ -505,7 +616,55 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"manager_count":    len(s.teams),
 		"order_randomized": len(state.DraftOrder) > 0,
 		"league_mode":      "DYNASTY",
+		"clock":            s.clockView(state, now),
 	}
+}
+
+// clockView renders the pick-clock payload the draft room's countdown
+// enhancer consumes: armed/paused state, both the persisted and the
+// effective (capped) deadline, the reason label, and a remaining-seconds
+// figure the client can render immediately, before its own 1-second
+// interval takes over. now must come from s.clock() so this always agrees
+// with the enforcement loop's own decision.
+func (s *Service) clockView(state PersistedState, now time.Time) map[string]any {
+	deadline := state.ClockDeadline
+	armed := !deadline.IsZero()
+	effective := deadline
+	reason := "clock"
+	switch {
+	case state.ClockPaused:
+		reason = "paused"
+	case !armed:
+		reason = "unarmed"
+	default:
+		effective, reason = s.effectiveDeadline(state, now)
+	}
+	remaining := 0
+	if armed && !state.ClockPaused {
+		remaining = int(effective.Sub(now).Seconds())
+		if remaining < 0 {
+			remaining = 0
+		}
+	}
+	return map[string]any{
+		"armed":              armed,
+		"paused":             state.ClockPaused,
+		"deadline":           formatClockInstant(deadline),
+		"effective_deadline": formatClockInstant(effective),
+		"reason":             reason,
+		"remaining_seconds":  remaining,
+		"duration_seconds":   int(s.pickClock(state).Seconds()),
+		"server_now":         now.UTC().Format(time.RFC3339),
+	}
+}
+
+// formatClockInstant renders t as RFC3339 UTC, or "" for the zero value
+// (unarmed).
+func formatClockInstant(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
@@ -545,11 +704,36 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	if s.demoMode {
 		teamID = expected
 	}
-	if !s.demoMode && time.Now().Before(s.draftAt) {
+	now := s.clock()
+	if !s.draftIsLive(now) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
 	}
-	pick, err := s.store.MakePick(teamID, playerID, time.Now())
+	// The pick and its clock reset land in one store transaction (section
+	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
+	// pick — pause freezes the timer, not the draft — and the final pick
+	// leaves the clock unarmed for good.
+	totalPicks := len(defaultTeams()) * DraftRounds
+	nextDeadline := time.Time{}
+	if !state.ClockPaused && len(state.Picks)+1 < totalPicks {
+		nextDeadline = now.Add(s.pickClock(state))
+	}
+	pick, err := s.store.MakePick(teamID, playerID, "manager", now, nextDeadline)
 	return pick, player, s.teamByID(teamID), err
+}
+
+// ToggleAutopick flips the acting seat's away-mode auto-pick flag. A
+// manager toggles only their own seat; demo mode may name any seat, the
+// same rule MakePick and ToggleReady use via actingTeam.
+func (s *Service) ToggleAutopick(r *http.Request, requestedTeam string) (bool, string, error) {
+	teamID, err := s.actingTeam(r, requestedTeam)
+	if err != nil {
+		return false, "", err
+	}
+	on := !s.store.Snapshot().Autopick[teamID]
+	if err := s.store.SetAutopick(teamID, on); err != nil {
+		return false, "", err
+	}
+	return on, s.teamByID(teamID).Name, nil
 }
 
 func (s *Service) actingTeam(r *http.Request, requested string) (string, error) {
@@ -568,6 +752,17 @@ func (s *Service) actingTeam(r *http.Request, requested string) (string, error) 
 		return requested, nil
 	}
 	return "", fmt.Errorf("Google sign-in is required for league actions")
+}
+
+// draftIsLive reports whether picks (manual or a commissioner's forced
+// auto-pick) may currently be recorded: always true in demo mode
+// (rehearsals bypass the gate; see service.go's can_pick logic in
+// DraftData), otherwise true once now reaches draftAt.
+func (s *Service) draftIsLive(now time.Time) bool {
+	if s.demoMode {
+		return true
+	}
+	return !now.Before(s.draftAt)
 }
 
 func (s *Service) draftSummary(now time.Time) map[string]any {
@@ -599,32 +794,54 @@ func (s *Service) standingsMaps() []map[string]any {
 
 // draftTeamMaps renders the draft-room team grid in draft order: the
 // commissioner-drawn order when set, otherwise the default team-ID order.
+// Each entry also carries the seat's presence bucket (connected | idle |
+// away | none) and its Autopick toggle, both read against s.clock().
 func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[string]any {
 	order := state.DraftOrder
 	if len(order) == 0 {
 		order = defaultTeamIDs()
 	}
+	now := s.clock()
 	out := make([]map[string]any, 0, len(order))
 	for _, teamID := range order {
 		team := s.teamView(state, teamID)
 		item := s.teamMap(team)
 		item["ready"] = state.Ready[team.ID]
 		item["on_clock"] = team.ID == onClockID
+		presenceLabel := "none"
+		if key := s.presenceKeyForTeam(state, team.ID); key != "" {
+			presenceLabel = presenceState(s.presenceFloor(key), now)
+		}
+		item["presence"] = presenceLabel
+		item["autopick"] = state.Autopick[team.ID]
 		out = append(out, item)
 	}
 	return out
 }
 
+// pickMaps renders the pick tape, one entry per recorded pick. Each entry
+// carries provenance: made_by ("manager", "auto", or "commissioner") plus
+// the is_auto/is_commissioner bools GSX conditions need (they cannot switch
+// on a string comfortably). An empty stored MadeBy — a pick recorded before
+// this field existed — normalizes to "manager" here, in the view only; the
+// stored pick itself stays byte-stable.
 func (s *Service) pickMaps(state PersistedState, players map[string]Player, scoringValues map[string]float64) []map[string]any {
 	out := make([]map[string]any, 0, len(state.Picks))
 	for _, pick := range state.Picks {
 		player := players[pick.PlayerID]
 		team := s.teamView(state, pick.TeamID)
+		madeBy := pick.MadeBy
+		if madeBy == "" {
+			madeBy = "manager"
+		}
 		out = append(out, map[string]any{
-			"number": pick.Number,
-			"round":  pick.Round,
-			"team":   s.teamMap(team),
-			"player": playerMap(player, scoringValues),
+			"number":          pick.Number,
+			"round":           pick.Round,
+			"team":            s.teamMap(team),
+			"player":          playerMap(player, scoringValues),
+			"made_by":         madeBy,
+			"is_auto":         madeBy == "auto",
+			"is_commissioner": madeBy == "commissioner",
 		})
 	}
 	return out

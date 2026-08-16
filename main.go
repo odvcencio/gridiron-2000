@@ -57,6 +57,7 @@ func main() {
 	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 	league.Default().SetHistoricalSource(historicalSource(openStats))
+	league.Default().StartDraftClock(runtimeContext)
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
@@ -153,6 +154,7 @@ func main() {
 	})
 	app.API("GET /api/league/version", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
+		league.Default().RecordPresence(ctx.Request, time.Now())
 		_, poolVersion := fantasyPool.Players()
 		return map[string]any{
 			"fingerprint": league.Default().StateFingerprint(poolVersion),
