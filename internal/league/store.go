@@ -20,34 +20,67 @@ var ErrLeagueFull = errors.New("all league seats are already assigned")
 // re-evaluates from a fresh snapshot. See AutoPick.
 var errStaleAutoPick = errors.New("auto-pick is stale")
 
+// currentSchemaVersion is the state file schema version this binary writes
+// and the highest version it accepts on load. See PersistedState's
+// SchemaVersion doc comment and Store.load.
+const currentSchemaVersion = 2
+
+// errSchemaTooNew is returned by NewStore/load when the state file's
+// SchemaVersion exceeds currentSchemaVersion: an older binary must not
+// silently drop fields a newer one wrote (section 6.3).
+var errSchemaTooNew = errors.New("state file schema version is newer than this binary supports")
+
 // Store keeps the starter deployable without a database while preserving
 // state across restarts. Its methods are safe for concurrent requests.
 type Store struct {
 	mu       sync.RWMutex
 	filePath string
 	state    PersistedState
+	// loadErr holds a load() failure the constructor could not recover
+	// from: today, only errSchemaTooNew (section 6.3). persistLocked
+	// refuses to write while it is set, so a downgraded binary can never
+	// clobber a newer-schema file with blank in-memory state; see
+	// StartupError.
+	loadErr error
 }
 
 func NewStore(filePath string) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
 		state: PersistedState{
-			Ready:       map[string]bool{},
-			Picks:       []DraftPick{},
-			Members:     map[string]Member{},
-			Invites:     []string{},
-			Boards:      map[string][]string{},
-			TeamNames:   map[string]string{},
-			DraftOrder:  []string{},
-			Scoring:     map[string]float64{},
-			Pickems:     map[string]map[string]string{},
-			Autopick:    map[string]bool{},
-			SentLog:     map[string]time.Time{},
-			NotifyPrefs: map[string]map[string]bool{},
+			SchemaVersion: currentSchemaVersion,
+			Ready:         map[string]bool{},
+			Picks:         []DraftPick{},
+			Members:       map[string]Member{},
+			Invites:       []string{},
+			Boards:        map[string][]string{},
+			TeamNames:     map[string]string{},
+			DraftOrder:    []string{},
+			Scoring:       map[string]float64{},
+			Pickems:       map[string]map[string]string{},
+			Autopick:      map[string]bool{},
+			SentLog:       map[string]time.Time{},
+			NotifyPrefs:   map[string]map[string]bool{},
 		},
 	}
-	_ = s.load()
+	if err := s.load(); err != nil {
+		s.loadErr = err
+	}
 	return s
+}
+
+// StartupError reports a load failure the constructor could not recover
+// from safely: today, only a state file whose SchemaVersion exceeds
+// currentSchemaVersion (section 6.3 — "refuse to start with a clear
+// error"). Every write method fails with the same error while this is set,
+// protecting the on-disk file from a downgraded binary silently
+// overwriting it with blank in-memory state. A malformed (non-JSON) file
+// still decodes to the pre-existing "start fresh" behavior, unchanged by
+// this work package.
+func (s *Store) StartupError() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.loadErr
 }
 
 func (s *Store) Snapshot() PersistedState {
@@ -95,7 +128,7 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	}
 	pick := DraftPick{
 		Number:   number,
-		Round:    ((number - 1) / len(defaultTeams())) + 1,
+		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),
 		TeamID:   teamID,
 		PlayerID: playerID,
 		MadeAt:   now.UTC(),
@@ -151,7 +184,7 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 	}
 	pick := DraftPick{
 		Number:   number,
-		Round:    ((number - 1) / len(defaultTeams())) + 1,
+		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),
 		TeamID:   teamID,
 		PlayerID: playerID,
 		MadeAt:   now.UTC(),
@@ -718,6 +751,57 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 	return s.persistLocked()
 }
 
+// SetSchedule replaces the persisted regular-season schedule wholesale. It
+// does not validate the schedule's shape (GenerateSchedule already did);
+// callers that need the section 2.3 regeneration guard (season not
+// started, no matchup final yet) enforce it before calling this — see
+// AdminGenerateSchedule / AdminRegenerateSchedule.
+func (s *Store) SetSchedule(sch SeasonSchedule) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Schedule = cloneSchedule(&sch)
+	return s.persistLocked()
+}
+
+// SetScheduleWeek replaces one week's data (matchups, scores, bye) in the
+// persisted schedule, matched by week.Week. It fails when no schedule
+// exists or the week number is not part of it; see season.go's closeWeek.
+func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Schedule == nil {
+		return fmt.Errorf("no schedule has been generated")
+	}
+	for i, wk := range s.state.Schedule.Weeks {
+		if wk.Week == week.Week {
+			stored := week
+			stored.Matchups = append([]LeagueMatchup(nil), week.Matchups...)
+			s.state.Schedule.Weeks[i] = stored
+			return s.persistLocked()
+		}
+	}
+	return fmt.Errorf("week %d is not part of the schedule", week.Week)
+}
+
+// SetPhase overrides the persisted season phase (section 5.2). season.go
+// and playoffs.go call this at the transitions this work package drives;
+// it performs no validation of the transition itself, matching the
+// existing store idiom of pushing invariant checks to the service layer.
+func (s *Store) SetPhase(phase string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Phase = phase
+	return s.persistLocked()
+}
+
+// SetPlayoffs replaces the persisted playoff bracket state wholesale.
+func (s *Store) SetPlayoffs(state PlayoffState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Playoffs = clonePlayoffState(&state)
+	return s.persistLocked()
+}
+
 func (s *Store) load() error {
 	if s.filePath == "" {
 		return nil
@@ -733,6 +817,16 @@ func (s *Store) load() error {
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return err
 	}
+	if state.SchemaVersion > currentSchemaVersion {
+		return fmt.Errorf("%w: file is version %d, this binary supports up to %d",
+			errSchemaTooNew, state.SchemaVersion, currentSchemaVersion)
+	}
+	// Migrate forward: a missing SchemaVersion decodes as 0 ("version 1"),
+	// and every field this spec adds is additive with a nil-safe zero
+	// value (Schedule and Playoffs are pointers; nil is already correct).
+	// No per-field migration is needed beyond the nil-map guards below;
+	// stamp the file current so the next persist records it.
+	state.SchemaVersion = currentSchemaVersion
 	if state.Ready == nil {
 		state.Ready = map[string]bool{}
 	}
@@ -774,6 +868,9 @@ func (s *Store) load() error {
 }
 
 func (s *Store) persistLocked() error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
 	if s.filePath == "" {
 		return nil
 	}
@@ -806,6 +903,7 @@ func (s *Store) persistLocked() error {
 
 func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
+		SchemaVersion:     in.SchemaVersion,
 		Ready:             make(map[string]bool, len(in.Ready)),
 		Picks:             append([]DraftPick(nil), in.Picks...),
 		Members:           make(map[string]Member, len(in.Members)),
@@ -823,6 +921,9 @@ func cloneState(in PersistedState) PersistedState {
 		SentLog:           make(map[string]time.Time, len(in.SentLog)),
 		NotifyPrefs:       make(map[string]map[string]bool, len(in.NotifyPrefs)),
 		ScoringChangedAt:  in.ScoringChangedAt,
+		Schedule:          cloneSchedule(in.Schedule),
+		Playoffs:          clonePlayoffState(in.Playoffs),
+		Phase:             in.Phase,
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -870,6 +971,29 @@ func knownTeam(teamID string) bool {
 		}
 	}
 	return false
+}
+
+// activeTeamCount resolves the team count backing draft-order math: the
+// commissioner-drawn order's length when set, otherwise the default
+// team-ID count. This is the one place round math and team-count math
+// resolve (competition-formats spec section 1.3); MakePick, AutoPick, and
+// DraftData's round display all call pickRound(activeTeamCount(...), ...)
+// instead of separately assuming len(defaultTeams()) or len(s.teams)
+// (items 3 and 11 of the spec's hardcoded-8 inventory).
+func activeTeamCount(order []string) int {
+	if len(order) == 0 {
+		return len(defaultTeamIDs())
+	}
+	return len(order)
+}
+
+// pickRound resolves a pick number's round under a snake draft with
+// teamCount active teams.
+func pickRound(teamCount, number int) int {
+	if teamCount <= 0 {
+		teamCount = 1
+	}
+	return ((number - 1) / teamCount) + 1
 }
 
 // teamOnClock resolves the team due to pick at pickNumber under a snake
