@@ -852,7 +852,7 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"date":       strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":       local.Format("3:04 PM MST"),
 		"long_date":  local.Format("Saturday, January 2, 2006"),
-		"format":     "Dynasty · Snake · 15 rounds",
+		"format":     fmt.Sprintf("Dynasty · Snake · %d rounds", DraftRounds),
 		"started":    !now.Before(s.draftAt),
 		"days_until": max(0, int(s.draftAt.Sub(now).Hours()/24)),
 	}

@@ -117,8 +117,8 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 			return DraftPick{}, fmt.Errorf("that player has already been drafted")
 		}
 	}
-	// The draft ends after every team fills its roster; "15 rounds" was
-	// display copy only until this cap.
+	// The draft ends after every team fills its roster; the round count
+	// (DraftRounds, model.go) is the cap, not display copy alone.
 	if len(s.state.Picks) >= len(defaultTeams())*DraftRounds {
 		return DraftPick{}, fmt.Errorf("the draft is complete")
 	}

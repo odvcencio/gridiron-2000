@@ -4,8 +4,11 @@ import "time"
 
 const (
 	// DraftRounds caps the snake draft; the room completes when every team
-	// holds this many picks.
-	DraftRounds = 15
+	// holds this many picks. 17 matches the gridiron-house roster preset's
+	// 11 starters + 6 bench (roster-ops spec section 4.1.1, WP-R0): the
+	// slot-count/draft-round equality rule requires draft.rounds to equal
+	// the active preset's total. See lineup.go's ActiveRosterPreset.
+	DraftRounds = 17
 
 	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
 	DefaultDraftTZ       = "America/New_York"

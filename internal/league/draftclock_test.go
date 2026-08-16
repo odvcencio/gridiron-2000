@@ -342,10 +342,11 @@ func TestPauseBeatsExpiryRace(t *testing.T) {
 }
 
 // TestSpeedyDraftSimulation drives the whole system — presence, the
-// persisted pick clock, and the auto-pick ticker — through a full 120-pick
-// snake draft with a mixed manager population, one second of simulated time
-// at a time. It exercises every mechanism together rather than in
-// isolation, the way a real draft night would.
+// persisted pick clock, and the auto-pick ticker — through a full
+// DraftRounds-round (136-pick as of WP-R0) snake draft with a mixed manager
+// population, one second of simulated time at a time. It exercises every
+// mechanism together rather than in isolation, the way a real draft night
+// would.
 //
 // Roster, assigned in team-1..team-8 order (AssignMember fills seats in
 // that order, so the category maps directly onto the seat):
@@ -508,11 +509,13 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		}
 		madeByCount[pick.MadeBy]++
 	}
-	if madeByCount["manager"] != 45 { // 3 connected teams * 15 rounds
-		t.Errorf("manager picks = %d, want 45", madeByCount["manager"])
+	wantManager := 3 * DraftRounds // 3 connected teams
+	if madeByCount["manager"] != wantManager {
+		t.Errorf("manager picks = %d, want %d", madeByCount["manager"], wantManager)
 	}
-	if madeByCount["auto"] != 75 { // 5 non-connected teams * 15 rounds
-		t.Errorf("auto picks = %d, want 75", madeByCount["auto"])
+	wantAuto := 5 * DraftRounds // 5 non-connected teams (toggled + away)
+	if madeByCount["auto"] != wantAuto {
+		t.Errorf("auto picks = %d, want %d", madeByCount["auto"], wantAuto)
 	}
 	if madeByCount["commissioner"] != 0 {
 		t.Errorf("commissioner picks = %d, want 0", madeByCount["commissioner"])
