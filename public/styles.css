@@ -74,6 +74,9 @@
   --shadow-panel: 0 2rem 5rem var(--color-shadow);
   --shadow-signal: 0 0 2rem var(--color-accent-haze);
   --content-width: 88rem;
+  --rail-width: 15.5rem;
+  --rail-breakpoint: 56.25rem;
+  --mobile-bar-height: 3.75rem;
 }
 
 * {
@@ -177,15 +180,15 @@ textarea:focus-visible {
   transform: translateY(0);
 }
 
-.site-header {
+.minimal-bar {
   position: relative;
   z-index: 20;
   width: min(var(--content-width), calc(100% - var(--space-xl)));
   margin: 0 auto;
   padding: var(--space-md) 0;
-  display: grid;
-  grid-template-columns: minmax(14rem, 1fr) auto minmax(10rem, 1fr);
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-lg);
   border-bottom: 1px solid var(--color-border);
 }
@@ -258,56 +261,7 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
-.site-nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.site-link {
-  position: relative;
-  padding: var(--space-xs) var(--space-sm);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--color-text-secondary);
-  font-size: var(--type-sm);
-  font-weight: 700;
-  text-decoration: none;
-  text-transform: uppercase;
-  transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
-}
-
-.site-link span {
-  margin-right: 0.35rem;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--type-xs);
-}
-
-.site-link:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-border);
-  color: var(--color-text-primary);
-}
-
-.site-link:active {
-  transform: translateY(0);
-}
-
-.site-link--hot::after {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  width: 0.32rem;
-  aspect-ratio: 1;
-  border-radius: var(--radius-pill);
-  content: "";
-  background: var(--color-accent-hot);
-  box-shadow: 0 0 0.8rem var(--color-accent-hot);
-}
-
 .access-link {
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: var(--space-xs);
@@ -334,7 +288,6 @@ textarea:focus-visible {
 }
 
 .user-badge {
-  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: var(--space-sm);
@@ -353,10 +306,13 @@ textarea:focus-visible {
 }
 
 .user-name {
+  overflow: hidden;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .user-badge form {
@@ -369,6 +325,246 @@ button.access-link {
   padding: 0;
   font: inherit;
   cursor: pointer;
+}
+
+/* ===== Primary navigation: persistent left rail (desktop) that becomes a
+   full-height drawer (mobile), see app/layout.gsx for the markup and the
+   checkbox-hack reasoning. ===== */
+
+.drawer-check {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.mobile-bar,
+.drawer-open,
+.drawer-close,
+.drawer-backdrop {
+  display: none;
+}
+
+.site-rail {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  width: var(--rail-width);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-canvas-deep);
+}
+
+.rail-head {
+  padding: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rail-nav {
+  padding: var(--space-sm);
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.rail-link {
+  position: relative;
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md);
+  border-left: 2px solid transparent;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: uppercase;
+  transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+
+.rail-index {
+  margin-right: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.rail-link:hover {
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+}
+
+.rail-link[aria-current="page"] {
+  border-left-color: var(--color-accent);
+  color: var(--color-text-primary);
+  background: var(--color-accent-haze);
+}
+
+.rail-link[aria-current="page"] .rail-index {
+  color: var(--color-accent);
+}
+
+.rail-link--hot::after {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.6rem;
+  width: 0.32rem;
+  aspect-ratio: 1;
+  border-radius: var(--radius-pill);
+  content: "";
+  background: var(--color-accent-hot);
+  box-shadow: 0 0 0.8rem var(--color-accent-hot);
+}
+
+.rail-foot {
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.rail-foot-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+}
+
+.rail-foot .user-badge {
+  min-width: 0;
+}
+
+@media (min-width: 56.25rem) {
+  .site-rail ~ .site-frame,
+  .site-rail ~ .site-footer {
+    width: min(var(--content-width), calc(100% - var(--rail-width) - var(--space-xl)));
+    margin-left: calc(var(--rail-width) + var(--space-lg));
+    margin-right: auto;
+  }
+}
+
+@media (max-width: 56.1875rem) {
+  .mobile-bar {
+    position: fixed;
+    inset: 0 0 auto 0;
+    z-index: 50;
+    height: var(--mobile-bar-height);
+    padding: 0 var(--space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+  }
+
+  .mobile-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .mobile-brand strong {
+    font-family: var(--font-display);
+    font-size: var(--type-sm);
+    letter-spacing: -0.03em;
+  }
+
+  .drawer-open,
+  .drawer-close {
+    display: grid;
+    width: 2.75rem;
+    height: 2.75rem;
+    place-items: center;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .drawer-open span {
+    position: relative;
+    width: 1.1rem;
+    height: 1px;
+    background: var(--color-text-primary);
+  }
+
+  .drawer-open span::before,
+  .drawer-open span::after {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    height: 1px;
+    content: "";
+    background: var(--color-text-primary);
+  }
+
+  .drawer-open span::before {
+    top: -0.35rem;
+  }
+
+  .drawer-open span::after {
+    top: 0.35rem;
+  }
+
+  .drawer-check:focus-visible ~ .mobile-bar .drawer-open {
+    outline: 2px solid var(--color-accent-cyan);
+    outline-offset: 2px;
+  }
+
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(3, 5, 11, 0.72);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-standard) var(--ease-out);
+  }
+
+  .drawer-check:checked ~ .drawer-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .site-rail {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 60;
+    width: min(20rem, 85vw);
+    height: 100vh;
+    transform: translateX(-100%);
+    box-shadow: var(--shadow-panel);
+    transition: transform var(--duration-standard) var(--ease-out);
+  }
+
+  .drawer-check:checked ~ .site-rail {
+    transform: translateX(0);
+  }
+
+  .drawer-check:focus-visible ~ .site-rail .drawer-close {
+    outline: 2px solid var(--color-accent-cyan);
+    outline-offset: 2px;
+  }
+
+  .site-frame,
+  .site-footer {
+    padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
+  }
 }
 
 .site-frame {
@@ -1402,6 +1598,7 @@ h2 {
 
 .roster-labels,
 .roster-row {
+  position: relative;
   display: grid;
   grid-template-columns: 3.3rem minmax(13rem, 1fr) 7rem 4rem 4rem 2rem;
   align-items: center;
@@ -1857,6 +2054,7 @@ h2 {
 
 .pool-labels,
 .pool-row {
+  position: relative;
   display: grid;
   grid-template-columns: 3rem minmax(14rem, 1fr) 3.5rem 4rem 5rem;
   align-items: center;
@@ -1920,30 +2118,88 @@ h2 {
   margin-right: var(--space-xs);
 }
 
+/* Stat-tip stacking model (see .board-row / .pool-row / .roster-row /
+   .pickem-row below): the trigger itself stays position: static so its
+   absolutely positioned .stat-tip__panel is contained by the ROW, not by
+   the narrow name/photo trigger. That gives the panel the full row width
+   to anchor against, so it can never leave a sliver of a neighboring row's
+   text peeking out past its own edge. The .blitz-chip-row leaderboard
+   layout packs several triggers into one row, so it opts back into a
+   per-trigger anchor below. */
 .stat-tip {
-  position: relative;
+  position: static;
 }
 
 .stat-tip__panel {
   position: absolute;
   z-index: 40;
   top: calc(100% + 0.4rem);
-  left: 0;
+  left: var(--space-sm);
+  right: var(--space-sm);
   display: none;
-  min-width: 17rem;
-  max-width: 22rem;
+  width: auto;
+  max-width: 26rem;
+  max-height: 22rem;
+  overflow-y: auto;
   padding: var(--space-sm);
   border: 1px solid var(--color-surface-soft);
   border-top: 2px solid var(--color-accent-cyan);
   border-radius: var(--radius-sm);
   background: var(--color-canvas-deep);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.85);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(0, 0, 0, 0.5);
   text-align: left;
 }
 
 .stat-tip:hover .stat-tip__panel,
 .stat-tip:focus-within .stat-tip__panel {
   display: block;
+}
+
+/* Raise the open row itself above later siblings so its panel always wins
+   the paint order. NOTE: this intentionally uses z-index alone, not
+   isolation: isolate - giving every row its own permanent stacking
+   context reproduced a real compositor bug (verified via Chrome DevTools:
+   a later sibling row's own text painted through the leading edge of an
+   open panel even though DOM hit-testing showed the panel on top). Scoping
+   the raised stacking to only the row with an open panel avoids it. */
+.pool-row:has(.stat-tip:hover),
+.pool-row:has(.stat-tip:focus-within),
+.board-row:has(.stat-tip:hover),
+.board-row:has(.stat-tip:focus-within),
+.roster-row:has(.stat-tip:hover),
+.roster-row:has(.stat-tip:focus-within),
+.pickem-row:has(.stat-tip:hover),
+.pickem-row:has(.stat-tip:focus-within) {
+  z-index: 41;
+}
+
+/* Leaderboard chip row: several .stat-tip triggers share one .board-row,
+   so each chip keeps its own positioned anchor instead of inheriting the
+   row-wide one above, and the panel reverts to a compact chip-anchored
+   width (clamped to the viewport for narrow screens). */
+.blitz-chip-row .stat-tip {
+  position: relative;
+}
+
+.blitz-chip-row .stat-tip__panel {
+  left: 0;
+  right: auto;
+  width: max-content;
+  min-width: 17rem;
+  max-width: min(22rem, calc(100vw - 2 * var(--space-md)));
+}
+
+/* Pure-CSS viewport-aware placement approximation: we cannot measure the
+   space below a trigger without script, so the last three rows of any
+   list - the ones statistically most likely to sit near the bottom of the
+   viewport, or the bottom of a scrolling .pool-list--tall container - open
+   the panel above the row instead of below it. */
+.pool-row:nth-last-child(-n+3) .stat-tip__panel,
+.board-row:nth-last-child(-n+3) .stat-tip__panel,
+.pickem-row:nth-last-child(-n+3) .stat-tip__panel,
+.roster-row:nth-last-child(-n+3) .stat-tip__panel {
+  top: auto;
+  bottom: calc(100% + 0.4rem);
 }
 
 .stat-tip__head {
@@ -2011,11 +2267,9 @@ h2 {
   font-size: var(--type-xs);
 }
 
-@media (hover: none) {
-  .stat-tip__panel {
-    display: none !important;
-  }
-}
+/* Touch has no hover: the tabindex="0" trigger above already opens the
+   panel on :focus-within (tap), and losing focus (tapping elsewhere)
+   closes it, so no separate touch rule is needed here. */
 
 .board-workspace,
 .admin-grid {
@@ -2030,6 +2284,7 @@ h2 {
 }
 
 .board-row {
+  position: relative;
   display: grid;
   grid-template-columns: 3rem minmax(10rem, 1fr) 3.5rem 4rem 8rem;
   align-items: center;
@@ -2043,9 +2298,23 @@ h2 {
   border-top: 1px solid var(--color-border);
 }
 
+/* Locked/picked rows dim their own visible content only, never the whole
+   row: group opacity on an ancestor composites its entire subtree,
+   including an absolutely positioned .stat-tip__panel nested inside it, so
+   an "opaque" panel background would render at 45% opacity and let the
+   next row's text bleed through it. Dimming each visible piece
+   individually keeps the panel itself always fully opaque. */
 .board-row[data-picked="true"] {
-  opacity: 0.45;
   text-decoration: line-through;
+}
+
+.board-row[data-picked="true"] > .pool-rank,
+.board-row[data-picked="true"] > .position-chip,
+.board-row[data-picked="true"] > b,
+.board-row[data-picked="true"] > .board-controls,
+.board-row[data-picked="true"] .player-headshot,
+.board-row[data-picked="true"] .pool-player__text {
+  opacity: 0.45;
 }
 
 .board-controls {
@@ -2072,6 +2341,7 @@ h2 {
 }
 
 .pickem-row {
+  position: relative;
   display: grid;
   grid-template-columns: 6rem minmax(10rem, 1fr) auto 6rem;
   align-items: center;
@@ -3205,24 +3475,6 @@ h2 {
 }
 
 @media (max-width: 72rem) {
-  .site-header {
-    grid-template-columns: 1fr auto;
-  }
-
-  .site-nav {
-    grid-column: 1 / 3;
-    grid-row: 2;
-    justify-content: center;
-    border-top: 1px solid var(--color-border);
-    padding-top: var(--space-sm);
-  }
-
-  .access-link,
-  .user-badge {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
   .hero-command {
     gap: var(--space-xl);
   }
@@ -3250,7 +3502,7 @@ h2 {
 
 @media (max-width: 54rem) {
   .site-frame,
-  .site-header,
+  .minimal-bar,
   .site-footer {
     width: min(100% - var(--space-lg), var(--content-width));
   }
@@ -3373,25 +3625,13 @@ h2 {
 }
 
 @media (max-width: 38rem) {
-  .site-header {
+  .minimal-bar {
     width: calc(100% - var(--space-md));
     gap: var(--space-sm);
   }
 
-  .brand-copy small,
-  .site-header > .access-link {
+  .brand-copy small {
     display: none;
-  }
-
-  .site-nav {
-    justify-content: flex-start;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: thin;
-  }
-
-  .site-nav::-webkit-scrollbar {
-    height: 0.3rem;
   }
 
   .pool-search-bar {
@@ -3400,15 +3640,6 @@ h2 {
 
   .pool-search-bar input {
     flex-basis: 100%;
-  }
-
-  .site-link {
-    padding: var(--space-xs);
-    font-size: var(--type-xs);
-  }
-
-  .site-link span {
-    display: none;
   }
 
   .site-frame,
@@ -3539,10 +3770,6 @@ h2 {
 
   .footer-status {
     text-align: left;
-  }
-
-  .user-name {
-    display: none;
   }
 
   .board-row {
