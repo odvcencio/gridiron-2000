@@ -2,6 +2,8 @@ package league
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,21 +17,31 @@ func TestSnakeDraftOrder(t *testing.T) {
 	}
 }
 
+// TestDefaultDraftDate pins parseDraftAt's fallback to the config-derived
+// DefaultDraftAt var (productization spec section 3.4): an empty input
+// falls back to whatever is currently active — the neutral placeholder on
+// an unconfigured checkout, or a loaded league.json's draft.at once one
+// applies. It does not assert a specific calendar date, since that date is
+// now config, not a compiled literal.
 func TestDefaultDraftDate(t *testing.T) {
 	draft := parseDraftAt("")
 	if got := draft.Format(time.RFC3339); got != DefaultDraftAt {
 		t.Fatalf("expected %s, got %s", DefaultDraftAt, got)
 	}
-	if draft.Weekday() != time.Saturday {
-		t.Fatalf("expected a Saturday, got %s", draft.Weekday())
+	location, err := time.LoadLocation(DefaultDraftTZ)
+	if err != nil {
+		t.Fatalf("DefaultDraftTZ %q does not load: %v", DefaultDraftTZ, err)
 	}
-	svc := &Service{draftAt: draft}
+	svc := &Service{draftAt: draft, draftTZ: location, cfg: DefaultConfig()}
+	local := draft.In(location)
 	summary := svc.draftSummary(draft.Add(-7 * 24 * time.Hour))
-	if got := summary["date"]; got != "SAT · AUG 22" {
-		t.Fatalf("expected display date SAT · AUG 22, got %v", got)
+	wantDate := strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day())
+	if got := summary["date"]; got != wantDate {
+		t.Fatalf("expected display date %s, got %v", wantDate, got)
 	}
-	if got := summary["time"]; got != "4:00 PM EDT" {
-		t.Fatalf("expected kickoff display 4:00 PM EDT, got %v", got)
+	wantTime := local.Format("3:04 PM MST")
+	if got := summary["time"]; got != wantTime {
+		t.Fatalf("expected kickoff display %s, got %v", wantTime, got)
 	}
 }
 

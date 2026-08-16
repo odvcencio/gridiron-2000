@@ -8,25 +8,61 @@ import (
 	"time"
 )
 
+// TestInviteEmailTemplateCarriesFactsAndEmail pins the neutral shipped
+// default's invite copy (productization spec section 4.3, owner decision):
+// no real league name, no divisions baked in, no venue clause — the
+// unconfigured checkout never leaks this project's own reference league.
 func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "")
 
 	subject, text, _ := service.InviteEmailTemplate("manager@example.com")
 
-	if !strings.Contains(subject, "GRIDIRON 2000") {
+	if !strings.Contains(subject, service.cfg.Name) {
 		t.Errorf("subject missing league name: %q", subject)
 	}
 	if !strings.HasPrefix(subject, "You're invited:") {
 		t.Errorf("subject missing invite lead-in: %q", subject)
 	}
 	for _, want := range []string{
-		"Aqua", "Orange", "Dolphins", "manager@example.com",
-		defaultLeagueURL, "Rules page", "— The Commissioner",
+		service.cfg.Name, "manager@example.com",
+		service.cfg.URL, "Rules page", "— The Commissioner",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text body missing %q\ntext:\n%s", want, text)
 		}
+	}
+	for _, unwanted := range []string{"Aqua", "Orange", "Dolphins", "GRIDIRON 2000"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("neutral default invite text must not carry reference-league flavor %q:\n%s", unwanted, text)
+		}
+	}
+}
+
+// TestInviteEmailTemplateReproducesDeployedLeagueFacts simulates the
+// reference deployment's own league.json (Aqua/Orange divisions, the
+// Dolphins venue line) and checks the derived blurb and venue clause carry
+// those facts — the "behaviorally identical to today's build" invariant,
+// exercised through config instead of a compiled literal.
+func TestInviteEmailTemplateReproducesDeployedLeagueFacts(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "")
+	service.cfg = referenceDeploymentConfig()
+	service.teams = teamsFromSeeds(service.cfg.Teams)
+
+	subject, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	if !strings.Contains(subject, service.cfg.Name) {
+		t.Errorf("subject missing league name: %q", subject)
+	}
+	for _, want := range []string{
+		"Aqua", "Orange", "Dolphins", "manager@example.com", "Rules page", "— The Commissioner",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text body missing %q\ntext:\n%s", want, text)
+		}
+	}
+	if !strings.Contains(htmlBody, "Dolphins") {
+		t.Errorf("html body missing the venue row for a config with copy.venue_line set:\n%s", htmlBody)
 	}
 }
 
@@ -38,7 +74,7 @@ func TestInviteEmailTemplateHonorsLeagueURLEnv(t *testing.T) {
 	if !strings.Contains(text, "https://league.example.com") {
 		t.Errorf("text body did not honor LEAGUE_URL override:\n%s", text)
 	}
-	if strings.Contains(text, defaultLeagueURL) {
+	if strings.Contains(text, service.cfg.URL) {
 		t.Errorf("text body should not fall back to the default URL when LEAGUE_URL is set:\n%s", text)
 	}
 }
@@ -49,7 +85,7 @@ func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
 
 	_, _, htmlBody := service.InviteEmailTemplate("manager@example.com")
 
-	if !strings.Contains(htmlBody, `href="`+defaultLeagueURL+`"`) {
+	if !strings.Contains(htmlBody, `href="`+service.cfg.URL+`"`) {
 		t.Errorf("html body missing CTA link to the league URL:\n%s", htmlBody)
 	}
 	if !strings.Contains(htmlBody, "CLAIM YOUR SEAT") {
@@ -63,6 +99,55 @@ func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
 	if !strings.Contains(htmlBody, longDate) {
 		t.Errorf("html body missing the long draft date %q:\n%s", longDate, htmlBody)
 	}
+}
+
+// TestInviteEmailTemplateOmitsVenueRowWhenUnset pins the spec section 3.2
+// rule: an empty copy.venue_line drops the VENUE row and the text clause
+// entirely, rather than inventing a venue for a league that has none.
+func TestInviteEmailTemplateOmitsVenueRowWhenUnset(t *testing.T) {
+	service := newTestService(t, true)
+	_, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	if strings.Contains(htmlBody, "VENUE") {
+		t.Errorf("html body should omit the VENUE row when copy.venue_line is empty:\n%s", htmlBody)
+	}
+	draft := service.draftSummary(time.Now())
+	draftTime, _ := draft["time"].(string)
+	longDate, _ := draft["long_date"].(string)
+	wantSentence := "The startup snake draft is " + longDate + " at " + draftTime + "."
+	if !strings.Contains(text, wantSentence) {
+		t.Errorf("text body should end the draft sentence cleanly with no venue clause:\nwant substring %q\ngot:\n%s", wantSentence, text)
+	}
+}
+
+// referenceDeploymentConfig builds the config equivalent of this project's
+// own reference deployment's (gitignored) league.json — the same shape
+// config/league-real.json.example documents — so tests can pin
+// "deployed-league behavior preserved" without a real file on disk.
+func referenceDeploymentConfig() Config {
+	cfg := DefaultConfig()
+	cfg.Name = "GRIDIRON 2000"
+	cfg.ShortCode = "G2K"
+	cfg.Tagline = "Dynasty Fantasy League"
+	cfg.ModeLabel = "DYNASTY"
+	cfg.URL = "https://gridiron.draco.quest"
+	cfg.Teams = []TeamSeed{
+		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1", Division: "Aqua", Tone: "cyan"},
+		{ID: "team-2", Name: "Aqua 2", Abbreviation: "AQ2", Division: "Aqua", Tone: "blue"},
+		{ID: "team-3", Name: "Aqua 3", Abbreviation: "AQ3", Division: "Aqua", Tone: "violet"},
+		{ID: "team-4", Name: "Aqua 4", Abbreviation: "AQ4", Division: "Aqua", Tone: "lime"},
+		{ID: "team-5", Name: "Orange 1", Abbreviation: "OR1", Division: "Orange", Tone: "orange"},
+		{ID: "team-6", Name: "Orange 2", Abbreviation: "OR2", Division: "Orange", Tone: "gold"},
+		{ID: "team-7", Name: "Orange 3", Abbreviation: "OR3", Division: "Orange", Tone: "magenta"},
+		{ID: "team-8", Name: "Orange 4", Abbreviation: "OR4", Division: "Orange", Tone: "pink"},
+	}
+	cfg.Rounds = 17
+	cfg.RosterPresetName = "gridiron-house"
+	cfg.Roster = rosterPresets["gridiron-house"]
+	cfg.Copy = CopyBlock{
+		VenueLine: "During the Dolphins preseason game — bring both screens.",
+	}
+	cfg.Source = "file:league.json"
+	return cfg
 }
 
 func TestInviteEmailTemplateHTMLEscapesUnsafeEmail(t *testing.T) {
@@ -149,7 +234,7 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	if !ok {
 		t.Fatalf("invite_preview missing or wrong type: %#v", data["invite_preview"])
 	}
-	if subject, _ := preview["subject"].(string); !strings.Contains(subject, "GRIDIRON 2000") {
+	if subject, _ := preview["subject"].(string); !strings.Contains(subject, service.cfg.Name) {
 		t.Errorf("invite_preview subject wrong: %q", subject)
 	}
 	if body, _ := preview["body"].(string); !strings.Contains(body, "their-email@example.com") {

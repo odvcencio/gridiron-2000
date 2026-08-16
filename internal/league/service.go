@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -42,6 +43,13 @@ type Service struct {
 	demoMode bool
 	teams    []Team
 	players  []Player
+
+	// cfg is the resolved league.json (or DefaultConfig() when none loads)
+	// every identity string and copy fragment reads from — see config.go.
+	// Default() sets it via LoadConfig(); tests that construct a Service
+	// literal directly leave it at the zero Config, so any test exercising
+	// cfg-derived copy must set it explicitly (see newTestService).
+	cfg Config
 
 	// now overrides time.Now() for every time-dependent decision that
 	// tests must drive deterministically: DraftData, MakePick, clockTick,
@@ -107,21 +115,44 @@ var (
 	defaultSvc  *Service
 )
 
+// Default builds (once) the process-wide Service, loading league.json (or
+// the neutral built-in default when none is found) through LoadConfig —
+// productization spec section 3.4. A found-but-invalid config, or an
+// explicit $LEAGUE_FILE that does not exist, is fatal at startup: the spec
+// section 3.3 rule is "silent fallback on a bad file is worse than a
+// crash for an operator." applyActiveConfig then publishes the resolved
+// config into every package var the rest of the codebase reads
+// (DraftRounds, defaultTeams, ActiveRosterPreset, ...) exactly once, before
+// this function returns — see its doc comment in config.go.
 func Default() *Service {
 	defaultOnce.Do(func() {
 		statePath := strings.TrimSpace(os.Getenv("DATA_FILE"))
 		if statePath == "" {
 			statePath = filepath.Join("data", "league-state.json")
 		}
-		draftAt := parseDraftAt(os.Getenv("DRAFT_AT"))
+		cfg, err := LoadConfig()
+		if err != nil {
+			log.Fatal(err)
+		}
+		applyActiveConfig(cfg)
+		if cfg.Source == "defaults" {
+			log.Printf("league config: no league.json found; running the built-in neutral reference league (%s). Run the init flow or drop a league.json into config/ to run your own.", cfg.Name)
+		} else {
+			log.Printf("league config: loaded %s", cfg.Source)
+		}
 		demo := parseBool(os.Getenv("DEMO_MODE"), os.Getenv("GOOGLE_CLIENT_ID") == "")
+		draftTZ, err := time.LoadLocation(cfg.Timezone)
+		if err != nil || draftTZ == nil {
+			draftTZ = time.UTC
+		}
 		defaultSvc = &Service{
 			store:            NewStore(statePath),
-			draftAt:          draftAt,
-			draftTZ:          parseDraftTZ(os.Getenv("DRAFT_TZ")),
+			draftAt:          cfg.DraftAt,
+			draftTZ:          draftTZ,
 			demoMode:         demo,
 			teams:            defaultTeams(),
 			players:          defaultPlayers(),
+			cfg:              cfg,
 			presence:         newPresenceTracker(time.Now()),
 			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
 			avatarRoot:       avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
@@ -135,6 +166,11 @@ func Default() *Service {
 	})
 	return defaultSvc
 }
+
+// Config returns the service's resolved league.json (or the neutral
+// default). main.go and every page.server.go's Metadata function read
+// identity strings through here.
+func (s *Service) Config() Config { return s.cfg }
 
 func parseDraftAt(value string) time.Time {
 	value = strings.TrimSpace(value)
@@ -569,8 +605,9 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"transactions_empty": len(transactionMaps()) == 0,
 		"featured_empty":     len(featured) == 0,
 		"league_size":        len(s.teams),
-		"season":             "2026",
-		"league_mode":        "DYNASTY",
+		"season":             strconv.Itoa(s.cfg.Season),
+		"league_mode":        s.cfg.ModeLabel,
+		"league":             s.leagueMap(),
 	}
 }
 
@@ -584,6 +621,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"matchups":       matchups,
 		"matchups_empty": len(matchups) == 0,
 		"leaders":        s.leaderMaps(),
+		"league":         s.leagueMap(),
 	}
 }
 
@@ -608,7 +646,8 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"division":        teamMap["division"],
 		"scouting":        s.topAvailable(state, 3),
 		"is_commissioner": s.IsCommissioner(r),
-		"league_mode":     "DYNASTY",
+		"league_mode":     s.cfg.ModeLabel,
+		"league":          s.leagueMap(),
 	}
 }
 
@@ -721,8 +760,9 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"ready_count":      readyCount(state.Ready),
 		"manager_count":    len(s.teams),
 		"order_randomized": len(state.DraftOrder) > 0,
-		"league_mode":      "DYNASTY",
+		"league_mode":      s.cfg.ModeLabel,
 		"clock":            s.clockView(state, now),
+		"league":           s.leagueMap(),
 	}
 }
 
@@ -775,10 +815,12 @@ func formatClockInstant(t time.Time) string {
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 	return map[string]any{
-		"viewer":     s.Viewer(r),
-		"configured": configured,
-		"demo_mode":  s.demoMode,
-		"seats":      len(s.teams),
+		"viewer":       s.Viewer(r),
+		"configured":   configured,
+		"demo_mode":    s.demoMode,
+		"seats":        len(s.teams),
+		"seat_numbers": seatNumbers(len(s.teams)),
+		"league":       s.leagueMap(),
 	}
 }
 
@@ -882,9 +924,138 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"date":       strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":       local.Format("3:04 PM MST"),
 		"long_date":  local.Format("Saturday, January 2, 2006"),
-		"format":     fmt.Sprintf("Dynasty · Snake · %d rounds", DraftRounds),
+		"format":     s.draftFormatLabel(),
 		"started":    !now.Before(s.draftAt),
 		"days_until": max(0, int(s.draftAt.Sub(now).Hours()/24)),
+	}
+}
+
+// draftFormatLabel renders the draft-room masthead / invite-email format
+// line: the config's own draft.format_label when the operator set one,
+// otherwise "{ModeLabel titlecase} · Snake · {rounds} rounds" — which
+// reproduces "Dynasty · Snake · 15 rounds" exactly for the neutral default
+// (productization spec section 3.2 field rules).
+func (s *Service) draftFormatLabel() string {
+	if label := strings.TrimSpace(s.cfg.FormatLabel); label != "" {
+		return label
+	}
+	return fmt.Sprintf("%s · Snake · %d rounds", titleCase(s.cfg.ModeLabel), s.cfg.Rounds)
+}
+
+// titleCase renders an all-caps or free-form mode label ("DYNASTY",
+// "REDRAFT") as "Dynasty", "Redraft": first rune upper, the rest lower.
+// Multi-word labels keep each word's own capitalization rule.
+func titleCase(value string) string {
+	words := strings.Fields(strings.ToLower(value))
+	for i, word := range words {
+		if word == "" {
+			continue
+		}
+		words[i] = strings.ToUpper(word[:1]) + word[1:]
+	}
+	return strings.Join(words, " ")
+}
+
+// countWord maps a team/seat count to its English word (spec section 3.2's
+// CountWord rule, 4-16 covers the config's validated team-count range).
+// Counts outside the table fall back to the digit form so a future range
+// change never panics or silently prints nothing.
+func countWord(n int) string {
+	words := map[int]string{
+		4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight",
+		9: "nine", 10: "ten", 11: "eleven", 12: "twelve",
+		13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen",
+	}
+	if word, ok := words[n]; ok {
+		return word
+	}
+	return strconv.Itoa(n)
+}
+
+// seatNumbers returns [1..n], the server-supplied replacement for the
+// GSX login page's old literal []int{1,...,8} (spec section 3.6 fix 1).
+func seatNumbers(n int) []int {
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i + 1
+	}
+	return out
+}
+
+// leagueURL resolves the league's public URL: the LEAGUE_URL environment
+// override when set (checked live, so an operator or a test can flip it
+// without reconstructing the service), otherwise league.url from config
+// (spec section 3.3's env-wins precedence for this key).
+func (s *Service) leagueURL() string {
+	if url := strings.TrimSpace(os.Getenv("LEAGUE_URL")); url != "" {
+		return url
+	}
+	return s.cfg.URL
+}
+
+// divisionList returns the distinct division names in first-seen team
+// order, or nil when every team carries an empty division (a flat,
+// undivided league — spec section 3.2: "division may be empty on all
+// teams").
+func (s *Service) divisionList() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, team := range s.teams {
+		if team.Division == "" || seen[team.Division] {
+			continue
+		}
+		seen[team.Division] = true
+		out = append(out, team.Division)
+	}
+	return out
+}
+
+// heroKicker renders the landing page's hero kicker: the config's own
+// copy.hero_kicker when set, otherwise a generated line reproducing
+// "Eight-manager dynasty league · Aqua and Orange divisions" in shape for
+// any team count / division set (spec section 3.2, 5.2).
+func (s *Service) heroKicker() string {
+	if kicker := strings.TrimSpace(s.cfg.Copy.HeroKicker); kicker != "" {
+		return kicker
+	}
+	label := fmt.Sprintf("%s-manager %s league", countWord(len(s.teams)), strings.ToLower(s.cfg.ModeLabel))
+	if divisions := s.divisionList(); len(divisions) > 0 {
+		label += " · " + strings.Join(divisions, " and ") + " divisions"
+	}
+	return label
+}
+
+// scoringNote renders the scoring page's format footnote from
+// scoring_format (spec section 3.2: "half-PPR" / "full-PPR" / "standard"
+// consensus feed).
+func (s *Service) scoringNote() string {
+	label := "half-PPR"
+	switch s.cfg.ScoringFormat {
+	case "ppr":
+		label = "full-PPR"
+	case "standard":
+		label = "standard"
+	}
+	return fmt.Sprintf("Draft ADP and projections use the %s consensus feed.", label)
+}
+
+// leagueMap is the identity block every page's data map carries as
+// data["league"] (spec section 5.1): the layout's header/footer, the
+// landing page's wordmark and kicker, and every derived copy fragment
+// read from config instead of a hardcoded literal.
+func (s *Service) leagueMap() map[string]any {
+	return map[string]any{
+		"name":            s.cfg.Name,
+		"short_code":      s.cfg.ShortCode,
+		"tagline":         s.cfg.Tagline,
+		"mode_label":      s.cfg.ModeLabel,
+		"season":          strconv.Itoa(s.cfg.Season),
+		"hero_kicker":     s.heroKicker(),
+		"footer_line":     s.cfg.Copy.FooterLine,
+		"has_footer_line": s.cfg.Copy.FooterLine != "",
+		"seat_count":      len(s.teams),
+		"seat_count_word": countWord(len(s.teams)),
+		"seat_numbers":    seatNumbers(len(s.teams)),
 	}
 }
 

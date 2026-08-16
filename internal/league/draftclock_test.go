@@ -23,6 +23,7 @@ func newClockTestService(t *testing.T, demo bool, draftAt time.Time, start time.
 		demoMode: demo,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
+		cfg:      DefaultConfig(),
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
@@ -371,6 +372,7 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		demoMode: false,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
+		cfg:      DefaultConfig(),
 		// The tracker boots exactly at draftAt: "presence is empty at
 		// boot" (section 8.1), so every seat starts unseen.
 		presence: newPresenceTracker(draftAt),

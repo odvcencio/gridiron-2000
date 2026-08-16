@@ -12,7 +12,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -66,28 +65,16 @@ var categoryLabel = map[string]string{
 	categoryBroadcast:      "Broadcast",
 }
 
-// Brand constants reused verbatim from the invite email (admin.go:120-152)
-// until league.json's config surface lands (productization WP1). Every
-// read through these — and through leagueURL() below — is a documented
-// cfg.* follow-up: cfg.Name, cfg.ShortCode, cfg.Tagline, and cfg.URL will
-// replace them in WP-E5 without changing any template's shape.
-const (
-	leagueWordmark   = "GRIDIRON 2000"
-	leagueShortCode  = "G2K"
-	leagueTagline    = "DYNASTY FANTASY LEAGUE"
-	leagueFooterLine = "Eight seats. One trophy. Permanent group-chat evidence."
-)
-
-// leagueURL resolves the league's public URL exactly as
-// InviteEmailTemplate does today (admin.go): LEAGUE_URL, falling back to
-// defaultLeagueURL. TODO(productization WP1): replace with cfg.URL from
-// league.json once config.go exists.
-func leagueURL() string {
-	url := strings.TrimSpace(os.Getenv("LEAGUE_URL"))
-	if url == "" {
-		url = defaultLeagueURL
-	}
-	return url
+// leagueWordmark, leagueShortCode, and leagueTagline read the live config
+// (productization spec section 3.4): league.name, league.short_code,
+// league.tagline, uppercased where the shell's mono badges expect it.
+// leagueFooterLine reads copy.footer_line. Service.leagueURL (service.go)
+// reads league.url with the LEAGUE_URL env override.
+func (s *Service) leagueWordmark() string  { return s.cfg.Name }
+func (s *Service) leagueShortCode() string { return strings.ToUpper(s.cfg.ShortCode) }
+func (s *Service) leagueTagline() string   { return strings.ToUpper(s.cfg.Tagline) }
+func (s *Service) leagueFooterLine() string {
+	return s.cfg.Copy.FooterLine
 }
 
 // keyContext carries every value a catalog entry's key builder might need.
@@ -364,14 +351,14 @@ func (s *Service) shellFor(category, signal string) emailkit.Shell {
 		label = "League"
 	}
 	return emailkit.Shell{
-		Wordmark:   leagueWordmark,
-		ShortCode:  leagueShortCode,
-		Tagline:    leagueTagline,
+		Wordmark:   s.leagueWordmark(),
+		ShortCode:  s.leagueShortCode(),
+		Tagline:    s.leagueTagline(),
 		Signal:     signal,
 		Signoff:    "— The Commissioner",
-		FooterJoke: leagueWordmark + " · " + leagueFooterLine,
-		PrefLine:   fmt.Sprintf("You hold a seat in %s. %s alerts: on.", leagueWordmark, label),
-		PrefURL:    leagueURL() + "/settings",
+		FooterJoke: s.leagueWordmark() + " · " + s.leagueFooterLine(),
+		PrefLine:   fmt.Sprintf("You hold a seat in %s. %s alerts: on.", s.leagueWordmark(), label),
+		PrefURL:    s.leagueURL() + "/settings",
 	}
 }
 
@@ -379,14 +366,14 @@ func (s *Service) shellFor(category, signal string) emailkit.Shell {
 // (spec section 7.1): no seat, no prefs, a claim link instead of settings.
 func (s *Service) shellForInvitee(signal string) emailkit.Shell {
 	return emailkit.Shell{
-		Wordmark:   leagueWordmark,
-		ShortCode:  leagueShortCode,
-		Tagline:    leagueTagline,
+		Wordmark:   s.leagueWordmark(),
+		ShortCode:  s.leagueShortCode(),
+		Tagline:    s.leagueTagline(),
 		Signal:     signal,
 		Signoff:    "— The Commissioner",
-		FooterJoke: leagueWordmark + " · " + leagueFooterLine,
-		PrefLine:   fmt.Sprintf("You were invited to %s. Claim your seat to manage alerts.", leagueWordmark),
-		PrefURL:    leagueURL(),
+		FooterJoke: s.leagueWordmark() + " · " + s.leagueFooterLine(),
+		PrefLine:   fmt.Sprintf("You were invited to %s. Claim your seat to manage alerts.", s.leagueWordmark()),
+		PrefURL:    s.leagueURL(),
 	}
 }
 
@@ -443,7 +430,7 @@ func (s *Service) buildSeatClaimed(state PersistedState, member Member) rendered
 	date, _ := draft["date"].(string)
 	dtime, _ := draft["time"].(string)
 
-	subject := fmt.Sprintf("Seat claimed: %s is yours — %s", team.Name, leagueWordmark)
+	subject := fmt.Sprintf("Seat claimed: %s is yours — %s", team.Name, s.leagueWordmark())
 	shell := s.shellFor(categoryOnboarding, "SEAT CLAIMED // "+team.Abbreviation)
 	blocks := []emailkit.Block{
 		emailkit.Headline{
@@ -460,7 +447,7 @@ func (s *Service) buildSeatClaimed(state PersistedState, member Member) rendered
 				"Bookmark the draft room — that's where it all happens.",
 			},
 		},
-		emailkit.CTA{Label: "BUILD YOUR BOARD →", URL: leagueURL() + "/board"},
+		emailkit.CTA{Label: "BUILD YOUR BOARD →", URL: s.leagueURL() + "/board"},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -573,7 +560,7 @@ func (s *Service) buildDraftReminder(state PersistedState, member Member, lead r
 			{Label: "ORDER", Value: s.draftOrderSummary(state)},
 			{Label: "YOUR SLOT", Value: s.yourSlotSummary(state, member.TeamID)},
 		}},
-		emailkit.CTA{Label: "ENTER THE DRAFT ROOM →", URL: leagueURL() + "/draft"},
+		emailkit.CTA{Label: "ENTER THE DRAFT ROOM →", URL: s.leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -601,7 +588,7 @@ func (s *Service) buildDraftReminderInvitee(state PersistedState, email string, 
 			{Label: "DRAFT", Value: shortDate + " · " + draftTime},
 			{Label: "ORDER", Value: s.draftOrderSummary(state)},
 		}},
-		emailkit.CTA{Label: "CLAIM YOUR SEAT →", URL: leagueURL()},
+		emailkit.CTA{Label: "CLAIM YOUR SEAT →", URL: s.leagueURL()},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -691,7 +678,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 				slot, 2*n+1-slot),
 		},
 		emailkit.StatTable{Title: "THE ORDER", Header: []string{"SLOT", "TEAM", "MANAGER"}, Rows: rows, MarkRow: markRow},
-		emailkit.CTA{Label: "SEE THE BOARD →", URL: leagueURL() + "/draft"},
+		emailkit.CTA{Label: "SEE THE BOARD →", URL: s.leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -764,7 +751,7 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 			{Label: "CLOCK", Value: s.onClockClockRow(state, now)},
 			{Label: "YOUR BOARD", Value: s.onClockBoardRow(state, boardKey)},
 		}},
-		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: leagueURL() + "/draft"},
+		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: s.leagueURL() + "/draft"},
 		emailkit.Note{Text: "If the cap hits zero, the server drafts the top of your Big Board for you. " +
 			"No board? Best available by ADP. Either way the tape reads AUTO next to your name — forever. " +
 			"One tap fixes that."},
@@ -886,7 +873,7 @@ func (s *Service) buildAutopickMade(state PersistedState, pick DraftPick, member
 			{Label: "MODE", Value: mode},
 		}},
 		emailkit.Note{Text: "Further auto picks stay quiet until you return."},
-		emailkit.CTA{Label: "RETAKE THE WHEEL →", URL: leagueURL() + "/draft"},
+		emailkit.CTA{Label: "RETAKE THE WHEEL →", URL: s.leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -1017,7 +1004,7 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 		},
 		emailkit.StatTable{Title: "YOUR HAUL", Header: []string{"ROUND", "PICK", "PLAYER", "POS", "TEAM"}, Rows: haulRows},
 		emailkit.StatTable{Title: "AROUND THE LEAGUE", Header: []string{"SLOT", "TEAM", "ROUND 1", "POSITIONS"}, Rows: leagueRows, MarkRow: markRow},
-		emailkit.CTA{Label: "SEE THE FULL BOARD →", URL: leagueURL() + "/draft"},
+		emailkit.CTA{Label: "SEE THE FULL BOARD →", URL: s.leagueURL() + "/draft"},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{

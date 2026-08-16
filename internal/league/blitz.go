@@ -565,6 +565,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"leaderboard_empty": len(leaderboard) == 0,
 		"has_archive":       false,
 		"archive":           map[string]any{},
+		"league":            s.leagueMap(),
 	}
 	if archived {
 		data["has_archive"] = true

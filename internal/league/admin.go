@@ -76,7 +76,14 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// Mail-health card (design spec section 6.6): whether notifications
 		// are wired and enabled, queue depth, the last transport failure,
 		// and how many sends landed in the last 24 hours.
-		"mail": s.notifyMailMap(now),
+		"mail":   s.notifyMailMap(now),
+		"league": s.leagueMap(),
+		// config_source shows which league.json is live (productization
+		// spec section 3.4): "defaults" on an unconfigured checkout, or
+		// "file:<path>" once one loads. is_default_config drives the
+		// admin console's "running the built-in reference league" banner.
+		"config_source":     s.cfg.Source,
+		"is_default_config": s.cfg.Source == "defaults",
 	}
 }
 
@@ -113,33 +120,57 @@ func (s *Service) AdminAddInvite(r *http.Request, email string) error {
 	return s.store.AddInvite(email)
 }
 
-// defaultLeagueURL is the fallback landing page when LEAGUE_URL is unset.
-const defaultLeagueURL = "https://gridiron.draco.quest"
+// inviteBlurb renders the invite's opening description: the config's own
+// copy.invite_blurb when set, otherwise a generated line from the team
+// count, mode, and division set (spec section 3.2: "derives from count,
+// mode, and divisions"). With the reference league's config (8 teams,
+// DYNASTY, Aqua/Orange) this reproduces "an eight-manager dynasty league
+// split into the Aqua and Orange divisions" exactly.
+func (s *Service) inviteBlurb() string {
+	if blurb := strings.TrimSpace(s.cfg.Copy.InviteBlurb); blurb != "" {
+		return blurb
+	}
+	word := countWord(len(s.teams))
+	article := "a"
+	if word != "" && strings.ContainsRune("aeiou", rune(word[0])) {
+		article = "an"
+	}
+	blurb := fmt.Sprintf("%s %s-manager %s league", article, word, strings.ToLower(s.cfg.ModeLabel))
+	if divisions := s.divisionList(); len(divisions) > 0 {
+		blurb += " split into the " + strings.Join(divisions, " and ") + " divisions"
+	}
+	return blurb
+}
 
 // InviteEmailTemplate builds the subject, plain-text body, and HTML body of
 // the invite email sent to one manager. It draws the draft date and time
-// from the live draft summary, so the copy always matches the console. The
-// HTML body carries the same facts as the text body, dressed in the
-// league's Neo-Retro Stadium OS look; the text body is unchanged from the
+// from the live draft summary, so the copy always matches the console, and
+// every identity fact (wordmark, short code, tagline, blurb, venue,
+// footer) comes from config (productization spec section 5.2) — an empty
+// copy.venue_line drops the venue clause and the HTML VENUE row entirely
+// rather than inventing one for a league that has none. The HTML body
+// carries the same facts as the text body, dressed in the league's
+// Neo-Retro Stadium OS look; the text body is unchanged in shape from the
 // plain-text-only era, since its mailto: use depends on the wording.
 func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody string) {
 	draft := s.draftSummary(time.Now())
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	leagueURL := strings.TrimSpace(os.Getenv("LEAGUE_URL"))
-	if leagueURL == "" {
-		leagueURL = defaultLeagueURL
+	leagueURL := s.leagueURL()
+	blurb := s.inviteBlurb()
+
+	venueClause := ""
+	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
+		venueClause = " " + venue
 	}
 
-	subject = fmt.Sprintf("You're invited: GRIDIRON 2000 — dynasty league, draft %s", shortDate)
+	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
 	text = fmt.Sprintf(`Hi there,
 
-You've got a seat waiting in GRIDIRON 2000, an eight-manager dynasty
-league split into the Aqua and Orange divisions.
+You've got a seat waiting in %s, %s.
 
-The startup snake draft is %s at %s — during the Dolphins
-preseason game, so bring both screens.
+The startup snake draft is %s at %s.%s
 
 Here's what to do before then:
   1. Open %s
@@ -151,38 +182,75 @@ The full scoring system is on the Rules page.
 
 Rosters carry over season to season, so draft like it matters.
 
-— The Commissioner`, longDate, draftTime, leagueURL, email)
-	htmlBody = inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email)
+— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, leagueURL, email)
+	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb)
 	return subject, text, htmlBody
 }
 
 // inviteEmailHTML renders the designed HTML invite body: a single 600px
 // table with every style inline and no external assets, so it survives
-// clipping and dark/light rendering across mail clients. email and
-// leagueURL are attacker-influenced (email via the invite form, leagueURL
-// via the environment) and are HTML-escaped before insertion.
-func inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email string) string {
-	safeEmail := html.EscapeString(email)
-	safeURL := html.EscapeString(leagueURL)
-	safeShortDate := html.EscapeString(shortDate)
-	safeLongDate := html.EscapeString(longDate)
-	safeDraftTime := html.EscapeString(draftTime)
-	return fmt.Sprintf(inviteEmailHTMLTemplate, safeShortDate, safeLongDate, safeDraftTime, safeEmail, safeURL)
+// clipping and dark/light rendering across mail clients. Every field is
+// operator- or attacker-influenced (email via the invite form, leagueURL
+// via the environment, name/short_code/tagline/blurb/venue/footer via
+// league.json) and is HTML-escaped before insertion.
+func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb string) string {
+	venueRow := ""
+	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
+		venueRow = fmt.Sprintf(inviteEmailVenueRowTemplate, html.EscapeString(venue))
+	}
+	footerLine := s.cfg.Copy.FooterLine
+	footerJoke := s.cfg.Name
+	if footerLine != "" {
+		footerJoke += " " + emDash + " " + footerLine
+	}
+	return fmt.Sprintf(inviteEmailHTMLTemplate,
+		html.EscapeString(s.cfg.Name),
+		html.EscapeString(s.cfg.ShortCode),
+		html.EscapeString(s.cfg.Name),
+		html.EscapeString(s.cfg.Tagline),
+		html.EscapeString(shortDate),
+		html.EscapeString(blurb),
+		html.EscapeString(longDate),
+		html.EscapeString(draftTime),
+		venueRow,
+		html.EscapeString(email),
+		leagueURL,
+		html.EscapeString(footerJoke),
+	)
 }
+
+// emDash is the invite footer's separator ("Name — footer line"), spelled
+// once here instead of as a raw literal buried in a format call.
+const emDash = "—"
+
+// inviteEmailVenueRowTemplate is the invite HTML's optional VENUE row,
+// spliced into inviteEmailHTMLTemplate's %s slot only when
+// copy.venue_line is set (spec section 3.2, 5.2).
+const inviteEmailVenueRowTemplate = `<tr>
+<td style="padding:16px 20px; border-bottom:1px solid #26305A;">
+<span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">VENUE</span>
+<span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">%s</span>
+</td>
+</tr>
+`
 
 // inviteEmailHTMLTemplate is the invite email's HTML body: a single
 // 600px-max table, all styles inline, system font stack only (no external
 // assets or webfonts), dark ground with light-enough text to survive a
-// client forcing light mode. %s placeholders fill, in order: the short
-// draft date ("SAT · AUG 22" style) for the signal line, the long draft
-// date, the draft time, the invited email, and the league URL (used twice,
-// as the CTA href and its escaped text is not repeated so no dupe risk).
+// client forcing light mode. %s placeholders fill, in order: the page
+// title (name), the short-code badge, the wordmark, the tagline, the short
+// draft date ("SAT · AUG 22" style) for the signal line, the invite blurb,
+// the short draft date again (DRAFT row), the long draft date, the draft
+// time, the optional VENUE row (empty string when copy.venue_line is
+// unset), the invited email, the league URL (CTA href), and the footer
+// joke ("{name} — {footer_line}", or just "{name}" when footer_line is
+// empty).
 const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GRIDIRON 2000</title>
+<title>%s</title>
 </head>
 <body style="margin:0; padding:0; background-color:#070A16;">
 <table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%; background-color:#070A16; margin:0; padding:0;">
@@ -194,11 +262,11 @@ const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <table role="presentation" cellpadding="0" cellspacing="0" border="0">
 <tr>
 <td width="44" valign="middle" style="padding-right:12px;">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #38E8FF; border-radius:2px;"><tr><td style="width:40px; height:40px; text-align:center; vertical-align:middle; color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:13px; font-weight:700;">G2K</td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #38E8FF; border-radius:2px;"><tr><td style="width:40px; height:40px; text-align:center; vertical-align:middle; color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:13px; font-weight:700;">%s</td></tr></table>
 </td>
 <td valign="middle">
-<div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:19px; font-weight:800; letter-spacing:-0.02em; text-transform:uppercase;">GRIDIRON 2000</div>
-<div style="color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-top:3px;">DYNASTY FANTASY LEAGUE</div>
+<div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:19px; font-weight:800; letter-spacing:-0.02em; text-transform:uppercase;">%s</div>
+<div style="color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-top:3px;">%s</div>
 </td>
 </tr>
 </table>
@@ -212,7 +280,7 @@ const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <tr>
 <td style="padding:14px 32px 0 32px;">
 <div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:32px; font-weight:800; letter-spacing:-0.03em; text-transform:uppercase; line-height:1.08;">YOU'RE IN.</div>
-<div style="color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; margin-top:12px;">A seat is holding for you in an eight-manager dynasty league. Aqua vs Orange. Rosters carry over. Receipts are forever.</div>
+<div style="color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; margin-top:12px;">A seat is holding for you in %s. Rosters carry over. Receipts are forever.</div>
 </td>
 </tr>
 <tr>
@@ -224,13 +292,7 @@ const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">%s &middot; %s</span>
 </td>
 </tr>
-<tr>
-<td style="padding:16px 20px; border-bottom:1px solid #26305A;">
-<span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">VENUE</span>
-<span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">During the Dolphins preseason game &mdash; bring both screens.</span>
-</td>
-</tr>
-<tr>
+%s<tr>
 <td style="padding:16px 20px;">
 <span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">YOUR KEY</span>
 <span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">Sign in with Google as %s</span>
@@ -264,7 +326,7 @@ const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <tr>
 <td style="padding:28px 32px 32px 32px;">
 <div style="border-top:1px solid #26305A; padding-top:20px; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">&mdash; The Commissioner</div>
-<div style="color:#5C6690; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:10px; letter-spacing:0.04em; text-transform:uppercase; margin-top:10px;">GRIDIRON 2000 &middot; Eight seats. One trophy. Permanent group-chat evidence.</div>
+<div style="color:#5C6690; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:10px; letter-spacing:0.04em; text-transform:uppercase; margin-top:10px;">%s</div>
 </td>
 </tr>
 </table>

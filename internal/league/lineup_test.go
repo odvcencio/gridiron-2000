@@ -2,17 +2,18 @@ package league
 
 import "testing"
 
-// TestActiveRosterPresetMatchesDraftRounds pins the WP-R0 invariant the
-// slot-count/draft-round equality rule requires (roster-ops spec section
-// 10): the active preset's total roster size must equal DraftRounds, so a
-// 17-round draft fills exactly the gridiron-house shape with no leftover or
-// short bench spots.
+// TestActiveRosterPresetMatchesDraftRounds pins the slot-count/draft-round
+// equality rule (roster-ops spec section 10): the active preset's total
+// roster size must equal DraftRounds. The neutral shipped default (owner
+// decision, productization wave) is standard/15, not the reference
+// deployment's gridiron-house/17 — that shape is now config, exercised by
+// TestLoadConfigResolvesGridironHousePreset in config_test.go.
 func TestActiveRosterPresetMatchesDraftRounds(t *testing.T) {
 	if got := ActiveRosterPreset.Total(); got != DraftRounds {
 		t.Fatalf("ActiveRosterPreset.Total() = %d, want DraftRounds (%d)", got, DraftRounds)
 	}
-	if ActiveRosterPreset.Name != "gridiron-house" {
-		t.Fatalf("ActiveRosterPreset.Name = %q, want gridiron-house", ActiveRosterPreset.Name)
+	if ActiveRosterPreset.Name != "standard" {
+		t.Fatalf("ActiveRosterPreset.Name = %q, want standard (the neutral default)", ActiveRosterPreset.Name)
 	}
 }
 

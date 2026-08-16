@@ -21,6 +21,7 @@ func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service,
 		demoMode: demo,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
+		cfg:      DefaultConfig(),
 		presence: newPresenceTracker(start),
 		now:      func() time.Time { return clock },
 	}

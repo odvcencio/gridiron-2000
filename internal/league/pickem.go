@@ -133,6 +133,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		"picked_count":      pickedCount,
 		"leaderboard":       leaderboard,
 		"leaderboard_empty": len(leaderboard) == 0,
+		"league":            s.leagueMap(),
 	}
 }
 

@@ -2,18 +2,29 @@ package league
 
 import "time"
 
-const (
+// DraftRounds, DefaultDraftAt, DefaultDraftTZ, and DefaultSeasonStartAt are
+// config-derived (productization spec section 3.4). Each starts at
+// DefaultConfig()'s neutral value and is mutated exactly once, at boot, by
+// applyActiveConfig — the same "package var set once from config" shape
+// lineup.go's ActiveRosterPreset already uses. Every existing bare-name
+// call site (DraftRounds, DefaultDraftAt, ...) keeps compiling unchanged;
+// only the value now tracks the active league.json (or the neutral
+// default when none loads). Tests that never call Default() never trigger
+// the mutation, so they keep seeing the neutral defaults these vars start
+// at, package-wide, for the whole test binary.
+var (
 	// DraftRounds caps the snake draft; the room completes when every team
-	// holds this many picks. 17 matches the gridiron-house roster preset's
-	// 11 starters + 6 bench (roster-ops spec section 4.1.1, WP-R0): the
-	// slot-count/draft-round equality rule requires draft.rounds to equal
-	// the active preset's total. See lineup.go's ActiveRosterPreset.
-	DraftRounds = 17
+	// holds this many picks. It must equal the active roster shape's total
+	// (roster-ops spec section 10's slot-count/draft-round equality rule);
+	// LoadConfig's validator enforces that at boot. The neutral default
+	// (15) matches the standard preset; the reference deployment's
+	// league.json sets 17 to match gridiron-house.
+	DraftRounds = DefaultConfig().Rounds
 
-	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
-	DefaultDraftTZ       = "America/New_York"
+	DefaultDraftAt       = placeholderDraftAt
+	DefaultDraftTZ       = defaultConfigTimezone
 	DefaultRefreshPeriod = 60 * time.Second
-	DefaultSeasonStartAt = "2026-09-10T20:20:00-04:00"
+	DefaultSeasonStartAt = placeholderSeasonStartAt
 )
 
 // Team is one franchise in the private league.
@@ -113,13 +124,13 @@ type PersistedState struct {
 	// load rather than silently drop data; see Store.load.
 	SchemaVersion int                 `json:"schemaVersion"`
 	Ready         map[string]bool     `json:"ready"`
-	Picks      []DraftPick         `json:"picks"`
-	Members    map[string]Member   `json:"members"`
-	Invites    []string            `json:"invites"`
-	Boards     map[string][]string `json:"boards"`
-	TeamNames  map[string]string   `json:"teamNames"`
-	DraftOrder []string            `json:"draftOrder"`
-	Scoring    map[string]float64  `json:"scoring"`
+	Picks         []DraftPick         `json:"picks"`
+	Members       map[string]Member   `json:"members"`
+	Invites       []string            `json:"invites"`
+	Boards        map[string][]string `json:"boards"`
+	TeamNames     map[string]string   `json:"teamNames"`
+	DraftOrder    []string            `json:"draftOrder"`
+	Scoring       map[string]float64  `json:"scoring"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
 	// BlitzEntries maps owner email to slate ID ("pre2" | "pre3") to that
@@ -209,35 +220,57 @@ type LiveSnapshot struct {
 	Warning             string         `json:"warning,omitempty"`
 }
 
-// defaultTeams returns the eight franchise identities. Manager, record, and
-// streak stay empty until a real member claims the seat and games are played;
-// the UI renders unclaimed seats explicitly. Order matters for the snake
-// draft's default order (see defaultTeamIDs). team-1..team-4 sit in the Aqua
-// division; team-5..team-8 sit in the Orange division. A commissioner may
-// rename any seat; see Store.SetTeamName.
-//
-// This is the reference league's team list, and — per the
-// competition-formats spec section 1.3 — the fallback config until the
-// sibling drop-in league configuration spec lands: every subsystem that
-// needs "the league's teams" (seat claiming, division split, round math,
-// schedule generation) reads a []Team / []string derived from this slice,
-// never a bare literal team count or division name. Matchup pairing does
-// NOT index into this slice; it reads the persisted SeasonSchedule
-// (schedule.go).
-func defaultTeams() []Team {
-	return []Team{
-		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1", Division: "Aqua", Record: "0–0", Rank: 1, Streak: "—", Tone: "cyan"},
-		{ID: "team-2", Name: "Aqua 2", Abbreviation: "AQ2", Division: "Aqua", Record: "0–0", Rank: 2, Streak: "—", Tone: "blue"},
-		{ID: "team-3", Name: "Aqua 3", Abbreviation: "AQ3", Division: "Aqua", Record: "0–0", Rank: 3, Streak: "—", Tone: "violet"},
-		{ID: "team-4", Name: "Aqua 4", Abbreviation: "AQ4", Division: "Aqua", Record: "0–0", Rank: 4, Streak: "—", Tone: "lime"},
-		{ID: "team-5", Name: "Orange 1", Abbreviation: "OR1", Division: "Orange", Record: "0–0", Rank: 5, Streak: "—", Tone: "orange"},
-		{ID: "team-6", Name: "Orange 2", Abbreviation: "OR2", Division: "Orange", Record: "0–0", Rank: 6, Streak: "—", Tone: "gold"},
-		{ID: "team-7", Name: "Orange 3", Abbreviation: "OR3", Division: "Orange", Record: "0–0", Rank: 7, Streak: "—", Tone: "magenta"},
-		{ID: "team-8", Name: "Orange 4", Abbreviation: "OR4", Division: "Orange", Record: "0–0", Rank: 8, Streak: "—", Tone: "pink"},
+// activeTeams backs defaultTeams(): the currently active league's team
+// list, seeded from DefaultConfig()'s neutral teams and mutated exactly
+// once, at boot, by applyActiveConfig (see model.go's var block doc
+// comment). Order matters for the snake draft's default order (see
+// defaultTeamIDs) and for divisionMaps' first-seen division order.
+var activeTeams = teamsFromSeeds(DefaultConfig().Teams)
+
+// teamsFromSeeds converts config.TeamSeed entries into the runtime Team
+// shape: Manager, Record, and Streak stay empty until a real member claims
+// the seat and games are played (the UI renders unclaimed seats
+// explicitly); Rank is the slice position + 1, exactly as the old literal
+// table encoded it (config.go's field-rules doc, spec section 3.2). A seed
+// with an empty Tone auto-assigns from the eight-color palette cycle in
+// slice order.
+func teamsFromSeeds(seeds []TeamSeed) []Team {
+	palette := []string{"cyan", "blue", "violet", "lime", "orange", "gold", "magenta", "pink"}
+	out := make([]Team, 0, len(seeds))
+	for index, seed := range seeds {
+		tone := seed.Tone
+		if tone == "" {
+			tone = palette[index%len(palette)]
+		}
+		out = append(out, Team{
+			ID:           seed.ID,
+			Name:         seed.Name,
+			Abbreviation: seed.Abbreviation,
+			Division:     seed.Division,
+			Record:       "0–0",
+			Rank:         index + 1,
+			Streak:       "—",
+			Tone:         tone,
+		})
 	}
+	return out
 }
 
-// defaultTeamIDs returns the eight team IDs in their default (team-1..team-8)
+// defaultTeams returns the active league's team list: every subsystem that
+// needs "the league's teams" (seat claiming, division split, round math,
+// schedule generation) reads a []Team / []string derived from this slice,
+// never a bare literal team count or division name (competition-formats
+// spec section 1.3). Matchup pairing does NOT index into this slice; it
+// reads the persisted SeasonSchedule (schedule.go).
+//
+// The name is historical (it once returned one hardcoded reference
+// league); it now returns whichever config is active — see activeTeams
+// and applyActiveConfig in config.go.
+func defaultTeams() []Team {
+	return activeTeams
+}
+
+// defaultTeamIDs returns the active league's team IDs in their configured
 // order. It is the fallback draft order and the permutation set that
 // Store.SetDraftOrder validates against.
 func defaultTeamIDs() []string {
