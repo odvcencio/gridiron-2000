@@ -141,6 +141,17 @@ func Default() *Service {
 			log.Printf("league config: loaded %s", cfg.Source)
 		}
 		demo := parseBool(os.Getenv("DEMO_MODE"), os.Getenv("GOOGLE_CLIENT_ID") == "")
+		// Production never runs demo mode, no matter what the environment
+		// says. Demo mode bypasses the sign-in gate and grants commissioner
+		// powers to every visitor; one misconfigured or auto-loaded env file
+		// must not be able to open a live league to the internet. The
+		// owner's rule: the deployed site is for signed-up members only.
+		if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
+			if demo {
+				log.Printf("league: DEMO_MODE requested but APP_ENV=production; demo mode is disabled unconditionally in production")
+			}
+			demo = false
+		}
 		draftTZ, err := time.LoadLocation(cfg.Timezone)
 		if err != nil || draftTZ == nil {
 			draftTZ = time.UTC
