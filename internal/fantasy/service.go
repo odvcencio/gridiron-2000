@@ -156,7 +156,7 @@ func (s *Service) SyncNow(ctx context.Context) error {
 		adp = parseADP(raw)
 	}
 
-	projections := map[string]float64{}
+	projections := map[string]projEntry{}
 	if raw, err := s.client.get(ctx, "getNFLProjections", map[string]string{
 		"week":               "1",
 		"archiveSeason":      strconv.Itoa(s.config.Season),
@@ -211,7 +211,7 @@ func (s *Service) SyncNow(ctx context.Context) error {
 // ADP order; the rest sort by projection. ADP entries missing from the player
 // list (defenses, kickers on some feeds) are synthesized when they carry
 // enough identity to draft.
-func mergePool(base map[string]Player, adp []adpEntry, projections map[string]float64, news map[string]string, byes map[string]int, limit int) []Player {
+func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int) []Player {
 	ranked := make([]Player, 0, len(adp))
 	seen := map[string]bool{}
 	for _, entry := range adp {
@@ -234,7 +234,7 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]fl
 		}
 	}
 	sort.SliceStable(rest, func(i, j int) bool {
-		left, right := projections[rest[i].ID], projections[rest[j].ID]
+		left, right := projections[rest[i].ID].Points, projections[rest[j].ID].Points
 		if left != right {
 			return left > right
 		}
@@ -249,7 +249,8 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]fl
 		if player.ADP > 0 {
 			player.ADPRank = index + 1
 		}
-		player.Projection = projections[player.ID]
+		player.Projection = projections[player.ID].Points
+		player.ProjStats = projections[player.ID].Stats
 		player.ByeWeek = byes[player.NFLTeam]
 		if headline, ok := news[player.ID]; ok {
 			player.News = headline

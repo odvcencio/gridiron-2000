@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -54,6 +56,7 @@ func main() {
 	league.Default().SetPlayerSource(fantasyPlayerSource(fantasyPool))
 	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
+	league.Default().SetHistoricalSource(historicalSource(openStats))
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
@@ -254,6 +257,8 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 					ByeWeek:    player.ByeWeek,
 					Injury:     player.Injury,
 					Headshot:   player.Headshot,
+					Jersey:     player.Jersey,
+					ProjStats:  player.ProjStats,
 					Projection: player.Projection,
 					News:       player.News,
 					Status:     "Available",
@@ -304,6 +309,61 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 		}
 		return out
 	}
+}
+
+// historicalSource joins previous-season nflverse totals onto pool players by
+// normalized name and position. The lookup builds lazily once summaries are
+// mirrored; previous-season data is static after the first sync.
+func historicalSource(stats *openstats.Service) league.HistoricalSource {
+	var mu sync.Mutex
+	lookup := map[string]string{}
+	return func(name, position string) (string, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(lookup) == 0 {
+			for _, summary := range stats.PlayerSeasonSummaries() {
+				key := openstats.NormalizePlayerKey(summary.PlayerName, summary.Position)
+				lookup[key] = histLine(summary)
+			}
+		}
+		line, ok := lookup[openstats.NormalizePlayerKey(name, position)]
+		return line, ok
+	}
+}
+
+// histLine renders one legible previous-season line, shaped by position.
+func histLine(s openstats.PlayerSeasonSummary) string {
+	switch s.Position {
+	case "QB":
+		return fmt.Sprintf("%d · %d G · %s pass yds · %d TD · %d INT · %.1f FPts",
+			s.Season, s.Games, thousands(s.PassYds), s.PassTD, s.PassInt, s.FantasyPoints)
+	case "RB":
+		return fmt.Sprintf("%d · %d G · %s rush yds · %d TD · %d rec · %.1f FPts",
+			s.Season, s.Games, thousands(s.RushYds), s.RushTD+s.RecTD, s.Receptions, s.FantasyPoints)
+	default:
+		return fmt.Sprintf("%d · %d G · %d rec · %s rec yds · %d TD · %.1f FPts",
+			s.Season, s.Games, s.Receptions, thousands(s.RecYds), s.RecTD, s.FantasyPoints)
+	}
+}
+
+// thousands formats an int with a comma separator, US style.
+func thousands(value int) string {
+	raw := strconv.Itoa(value)
+	if len(raw) <= 3 || value < 0 {
+		return raw
+	}
+	var b strings.Builder
+	lead := len(raw) % 3
+	if lead > 0 {
+		b.WriteString(raw[:lead])
+	}
+	for i := lead; i < len(raw); i += 3 {
+		if b.Len() > 0 {
+			b.WriteString(",")
+		}
+		b.WriteString(raw[i : i+3])
+	}
+	return b.String()
 }
 
 // fantasyPoolStatus renders the fantasy pool diagnostics as the legible map

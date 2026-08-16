@@ -104,6 +104,9 @@ func parsePlayerList(raw json.RawMessage) map[string]Player {
 			Position: position,
 			NFLTeam:  strings.ToUpper(flexString(entry["team"])),
 		}
+		if jersey := flexString(entry["jerseyNum"]); jersey != "" && jersey != "0" {
+			player.Jersey = jersey
+		}
 		if headshot := flexString(entry["espnHeadshot"]); strings.HasPrefix(headshot, "https://") {
 			player.Headshot = headshot
 		}
@@ -182,8 +185,42 @@ func parseADP(raw json.RawMessage) []adpEntry {
 	return out
 }
 
-// parseProjections maps playerID to projected fantasy points for the format.
-func parseProjections(raw json.RawMessage, scoring string) map[string]float64 {
+// projEntry is one player's projected fantasy points plus the flattened stat
+// line the projection was built from.
+type projEntry struct {
+	Points float64
+	Stats  map[string]float64
+}
+
+// passingStatKeys maps a raw Passing group field to its normalized stat key.
+var passingStatKeys = map[string]string{
+	"passYds":         "passYds",
+	"passTD":          "passTD",
+	"int":             "passInt",
+	"passAttempts":    "passAttempts",
+	"passCompletions": "passCompletions",
+}
+
+// rushingStatKeys maps a raw Rushing group field to its normalized stat key.
+var rushingStatKeys = map[string]string{
+	"rushYds": "rushYds",
+	"rushTD":  "rushTD",
+	"carries": "carries",
+}
+
+// receivingStatKeys maps a raw Receiving group field to its normalized stat key.
+var receivingStatKeys = map[string]string{
+	"receptions": "receptions",
+	"targets":    "targets",
+	"recYds":     "recYds",
+	"recTD":      "recTD",
+}
+
+// parseProjections maps playerID to a projEntry for the scoring format. The
+// live feed nests per-play-type stats under "Rushing", "Passing", and
+// "Receiving" groups with string-encoded numbers; defense and kicker entries
+// carry no groups at all.
+func parseProjections(raw json.RawMessage, scoring string) map[string]projEntry {
 	var wrapper struct {
 		PlayerProjections json.RawMessage `json:"playerProjections"`
 	}
@@ -191,12 +228,12 @@ func parseProjections(raw json.RawMessage, scoring string) map[string]float64 {
 	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.PlayerProjections) > 0 {
 		payload = wrapper.PlayerProjections
 	}
-	out := map[string]float64{}
+	out := map[string]projEntry{}
 	var byID map[string]map[string]any
 	if err := json.Unmarshal(payload, &byID); err == nil {
 		for id, entry := range byID {
 			if points := projectionPoints(entry, scoring); points > 0 {
-				out[id] = points
+				out[id] = projEntry{Points: points, Stats: projectionStats(entry)}
 			}
 		}
 		return out
@@ -209,7 +246,7 @@ func parseProjections(raw json.RawMessage, scoring string) map[string]float64 {
 				continue
 			}
 			if points := projectionPoints(entry, scoring); points > 0 {
-				out[id] = points
+				out[id] = projEntry{Points: points, Stats: projectionStats(entry)}
 			}
 		}
 	}
@@ -224,6 +261,32 @@ func projectionPoints(entry map[string]any, scoring string) float64 {
 		}
 	}
 	return flexFloat(entry["fantasyPoints"])
+}
+
+// projectionStats flattens the Rushing, Passing, and Receiving groups plus
+// the top-level fumblesLost into one normalized map. Zero values are dropped
+// to keep the payload small; an entry with no groups (defense, kicker)
+// returns an empty, non-nil map.
+func projectionStats(entry map[string]any) map[string]float64 {
+	stats := map[string]float64{}
+	addGroup := func(groupKey string, keyMap map[string]string) {
+		group, ok := entry[groupKey].(map[string]any)
+		if !ok {
+			return
+		}
+		for rawKey, normKey := range keyMap {
+			if value := flexFloat(group[rawKey]); value != 0 {
+				stats[normKey] = value
+			}
+		}
+	}
+	addGroup("Passing", passingStatKeys)
+	addGroup("Rushing", rushingStatKeys)
+	addGroup("Receiving", receivingStatKeys)
+	if value := flexFloat(entry["fumblesLost"]); value != 0 {
+		stats["fumblesLost"] = value
+	}
+	return stats
 }
 
 // parseNews maps a player key to the latest matching headline. The live feed

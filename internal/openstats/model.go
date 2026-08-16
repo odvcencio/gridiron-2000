@@ -25,16 +25,17 @@ type DatasetStatus struct {
 }
 
 type Status struct {
-	SchemaVersion  int           `json:"schema_version"`
-	Provider       string        `json:"provider"`
-	License        string        `json:"license"`
-	Attribution    string        `json:"attribution"`
-	AttributionURL string        `json:"attribution_url"`
-	Season         int           `json:"season"`
-	Running        bool          `json:"running"`
-	Schedules      DatasetStatus `json:"schedules"`
-	PlayerStats    DatasetStatus `json:"player_stats"`
-	Injuries       DatasetStatus `json:"injuries"`
+	SchemaVersion   int           `json:"schema_version"`
+	Provider        string        `json:"provider"`
+	License         string        `json:"license"`
+	Attribution     string        `json:"attribution"`
+	AttributionURL  string        `json:"attribution_url"`
+	Season          int           `json:"season"`
+	Running         bool          `json:"running"`
+	Schedules       DatasetStatus `json:"schedules"`
+	PlayerStats     DatasetStatus `json:"player_stats"`
+	PlayerStatsPrev DatasetStatus `json:"player_stats_prev"`
+	Injuries        DatasetStatus `json:"injuries"`
 }
 
 type ScheduleGame struct {
@@ -108,9 +109,29 @@ type InjuryQuery struct {
 }
 
 type manifest struct {
-	SchemaVersion int           `json:"schema_version"`
-	Season        int           `json:"season"`
-	Schedules     DatasetStatus `json:"schedules"`
-	PlayerStats   DatasetStatus `json:"player_stats"`
-	Injuries      DatasetStatus `json:"injuries"`
+	SchemaVersion   int           `json:"schema_version"`
+	Season          int           `json:"season"`
+	Schedules       DatasetStatus `json:"schedules"`
+	PlayerStats     DatasetStatus `json:"player_stats"`
+	PlayerStatsPrev DatasetStatus `json:"player_stats_prev"`
+	Injuries        DatasetStatus `json:"injuries"`
+}
+
+// PlayerSeasonSummary is one player's aggregated previous-season stat line,
+// summed across every week in the "player_stats_prev" dataset.
+type PlayerSeasonSummary struct {
+	PlayerName    string  `json:"player_name"`
+	Position      string  `json:"position"`
+	Team          string  `json:"team"`
+	Season        int     `json:"season"`
+	Games         int     `json:"games"`
+	PassYds       int     `json:"pass_yds"`
+	PassTD        int     `json:"pass_td"`
+	PassInt       int     `json:"pass_int"`
+	RushYds       int     `json:"rush_yds"`
+	RushTD        int     `json:"rush_td"`
+	Receptions    int     `json:"receptions"`
+	RecYds        int     `json:"rec_yds"`
+	RecTD         int     `json:"rec_td"`
+	FantasyPoints float64 `json:"fantasy_points"`
 }

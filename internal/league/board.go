@@ -12,6 +12,9 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	key := s.viewerKey(r)
 	state := s.store.Snapshot()
 	pool := s.pool()
+	// Resolve commissioner scoring overrides once so board tooltips show the
+	// same breakdown math as the draft room.
+	scoringValues := s.currentScoringValues()
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
@@ -25,7 +28,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 			continue
 		}
 		onBoard[id] = true
-		entry := playerMap(player)
+		entry := playerMap(player, scoringValues)
 		entry["board_rank"] = fmt.Sprintf("%02d", index+1)
 		entry["picked"] = picked[id]
 		entries = append(entries, entry)
@@ -35,7 +38,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		if onBoard[player.ID] || picked[player.ID] {
 			continue
 		}
-		available = append(available, playerMap(player))
+		available = append(available, playerMap(player, scoringValues))
 	}
 	return map[string]any{
 		"viewer":          viewer,
