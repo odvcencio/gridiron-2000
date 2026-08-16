@@ -41,6 +41,20 @@ var breakdownRows = []breakdownRow{
 	{statKey: "fgMade", label: "FG made", ruleKey: "fgMade"},
 	{statKey: "fgMissed", label: "FG miss", ruleKey: "fgMissed"},
 	{statKey: "xpMade", label: "XP made", ruleKey: "xpMade"},
+	// PUNTING rows (WP-R0, roster-ops spec section 4.1.2). Additive for the
+	// same reason the four rows above are: no projection or existing live
+	// stat line carries these keys yet (punters have no Tank01 projections
+	// and score zero in live weekly scoring until WP-R2's play-by-play
+	// adapter arrives — see scoring.go's defaultScoringRules), so every
+	// existing breakdown renders byte-identical before and after this
+	// addition.
+	{statKey: "puntYards", label: "Punt yds (40+)", ruleKey: "puntYards"},
+	{statKey: "puntIn20", label: "Punt in 20", ruleKey: "puntIn20"},
+	{statKey: "coffinCorner", label: "Coffin corner", ruleKey: "coffinCorner"},
+	{statKey: "puntDownedInside5", label: "Downed inside 5", ruleKey: "puntDownedInside5"},
+	{statKey: "puntLong50", label: "Long punt 50+", ruleKey: "puntLong50"},
+	{statKey: "puntTouchback", label: "Touchback", ruleKey: "puntTouchback"},
+	{statKey: "puntBlocked", label: "Blocked", ruleKey: "puntBlocked"},
 }
 
 // breakdownDefaultValues resolves every scoring rule's stock point value,

@@ -44,6 +44,33 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "DEFENSE", Key: "dstTD", Label: "Defensive TD", Points: 6},
 		{Group: "DEFENSE", Key: "dstSafety", Label: "Safety", Points: 2},
 		{Group: "DEFENSE", Key: "dstShutout", Label: "Shutout", Points: 10},
+		// PUNTING (roster-ops spec section 4.1.2, owner-refined defaults —
+		// these supersede the spec's draft numbers where they differ).
+		// Commissioner-tunable like every group above, same -25..25 clamp
+		// (Store.SetScoringValue). Data-honesty note: the live Tank01
+		// box-score feed carries only per-game aggregates for a punter
+		// (punts, puntYds, puntsin20, puntTouchBacks, puntLong — see the
+		// preseason box-score sample). puntYards' 40+-yard gate,
+		// coffinCorner, and puntDownedInside5 all need per-punt data the
+		// aggregate feed cannot supply; each is dormant (scores zero) in
+		// live weekly scoring until the WP-R2 play-by-play adapter attaches
+		// week-close values for these three keys.
+		// TODO(WP-R2): source puntYards (40+-yard punts only), coffinCorner,
+		// and puntDownedInside5 from the play-by-play source at week close;
+		// today's WeekStatsSource (openstats weekly ledger) carries none of
+		// the three.
+		{Group: "PUNTING", Key: "puntYards", Label: "Punting yards, 40+ yard punts only (per yard)", Points: 0.02},
+		{Group: "PUNTING", Key: "puntIn20", Label: "Punt downed inside the 20", Points: 1.5},
+		{Group: "PUNTING", Key: "coffinCorner", Label: "Coffin corner (out-of-bounds inside the 10)", Points: 1},
+		{Group: "PUNTING", Key: "puntDownedInside5", Label: "Punt downed inside the 5", Points: 2},
+		{Group: "PUNTING", Key: "puntLong50", Label: "Punt 50+ yards (each)", Points: 1},
+		{Group: "PUNTING", Key: "puntTouchback", Label: "Punt touchback", Points: -0.5},
+		// puntBlocked: the Tank01 sample carries blockedPunt at team level
+		// only, never attributed to the punting player, so this rule stays
+		// dormant (zero occurrences) until a stats adapter can attribute it
+		// — the same open question the roster-ops spec section 4.1.2 flags
+		// for its own draft version of this rule.
+		{Group: "PUNTING", Key: "puntBlocked", Label: "Punt blocked", Points: -2},
 	}
 }
 
