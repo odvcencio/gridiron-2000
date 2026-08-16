@@ -112,6 +112,8 @@ func (c Config) sendResend(to, subject, body string) error {
 	}
 	request.Header.Set("Authorization", "Bearer "+c.ResendKey)
 	request.Header.Set("Content-Type", "application/json")
+	// Some WAF rules on the API reject generic client user agents.
+	request.Header.Set("User-Agent", "gridiron-2000-mailer/1.0")
 	client := &http.Client{Timeout: 15 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
