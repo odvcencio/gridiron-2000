@@ -3,7 +3,8 @@ package league
 import "time"
 
 const (
-	DefaultDraftAt       = "2026-08-16T17:00:00-07:00"
+	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
+	DefaultDraftTZ       = "America/New_York"
 	DefaultRefreshPeriod = 60 * time.Second
 )
 

@@ -2,7 +2,7 @@
 
 A private, eight-manager fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 (RapidAPI) key adds live ADP, projections, and fantasy news to the draft room.
 
-The inaugural draft is scheduled for **Sunday, August 16, 2026 at 5:00 PM Pacific**. Set `DRAFT_AT` to move it.
+The inaugural draft is scheduled for **Saturday, August 22, 2026 at 4:00 PM Eastern** — kickoff of the Dolphins' second preseason game, when the league is together. Set `DRAFT_AT` to move it and `DRAFT_TZ` to change the displayed timezone.
 
 ## What is included
 
@@ -173,7 +173,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DRAFT_AT` | `2026-08-16T17:00:00-07:00` | Draft start as RFC3339 |
+| `DRAFT_AT` | `2026-08-22T16:00:00-04:00` | Draft start as RFC3339 |
+| `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
 | `TANK01_API_KEY` | empty | Enables the live Tank01 draft pool |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |

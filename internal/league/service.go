@@ -33,6 +33,7 @@ type Service struct {
 	store    *Store
 	feed     *liveFeed
 	draftAt  time.Time
+	draftTZ  *time.Location
 	demoMode bool
 	teams    []Team
 	players  []Player
@@ -62,6 +63,7 @@ func Default() *Service {
 			// drafted lineups that can be scored against the owned nflverse cache.
 			feed:     newLiveFeed(nil),
 			draftAt:  draftAt,
+			draftTZ:  parseDraftTZ(os.Getenv("DRAFT_TZ")),
 			demoMode: demo,
 			teams:    defaultTeams(),
 			players:  defaultPlayers(),
@@ -81,6 +83,23 @@ func parseDraftAt(value string) time.Time {
 		draftAt, _ = time.Parse(time.RFC3339, DefaultDraftAt)
 	}
 	return draftAt
+}
+
+// parseDraftTZ resolves the league's display timezone. The countdown uses
+// the absolute DRAFT_AT instant; this only shapes the printed clock times.
+func parseDraftTZ(value string) *time.Location {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		value = DefaultDraftTZ
+	}
+	location, err := time.LoadLocation(value)
+	if err != nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	if location == nil {
+		location = time.UTC
+	}
+	return location
 }
 
 func parseBool(value string, fallback bool) bool {
@@ -357,7 +376,10 @@ func (s *Service) actingTeam(r *http.Request, requested string) (string, error) 
 }
 
 func (s *Service) draftSummary(now time.Time) map[string]any {
-	location, _ := time.LoadLocation("America/Los_Angeles")
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
 	local := s.draftAt.In(location)
 	return map[string]any{
 		"at":         s.draftAt.Format(time.RFC3339),
