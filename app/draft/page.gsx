@@ -107,7 +107,14 @@ func DraftQueue(props any) Node {
 
 func DraftTeam(props any) Node {
 	return <div class="draft-team" data-on-clock={props.on_clock}>
-		<span class={"team-mark tone-" + props.tone}>{props.abbreviation}</span>
+		<span class={"team-mark tone-" + props.tone}>
+			<If cond={props.has_avatar_image}>
+				<img class="avatar-mark__photo" src={props.avatar_image_url} alt={props.name} loading="lazy" />
+			</If>
+			<If cond={props.has_avatar_image == false}>
+				{props.abbreviation}
+			</If>
+		</span>
 		<div>
 			<strong>{props.name}</strong>
 			<small>

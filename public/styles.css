@@ -840,6 +840,34 @@ h2 {
   font-size: var(--type-sm);
 }
 
+/* Team-avatar fallback chain (uploaded photo / default tone badge / text
+   mark). .avatar-mark__photo fills whatever team-mark/team-monogram badge
+   it renders inside; the parent skews -7deg (see above), so the photo
+   counter-skews back to upright. */
+.avatar-mark__photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  transform: skewX(7deg);
+}
+
+.avatar-upload-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.avatar-upload-form input[type="file"] {
+  min-width: 0;
+  max-width: 12rem;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
 .tone-magenta,
 .tone-pink {
   color: var(--color-accent-hot);
@@ -2107,7 +2135,7 @@ h2 {
 }
 
 .seat-row {
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto auto;
 }
 
 .seat-row[data-claimed="false"] .seat-identity strong {
@@ -3434,6 +3462,15 @@ h2 {
 
   .score-ticker a {
     grid-column: 1 / 3;
+  }
+
+  .avatar-upload-form {
+    width: 100%;
+  }
+
+  .avatar-upload-form input[type="file"] {
+    max-width: 100%;
+    flex: 1 1 100%;
   }
 
   .team-hero {

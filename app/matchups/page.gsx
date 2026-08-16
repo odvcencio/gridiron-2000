@@ -1,7 +1,14 @@
 package matchups
 
 func TeamMark(props any) Node {
-	return <span class={"team-mark team-mark--large tone-" + props.tone} aria-hidden="true">{props.abbreviation}</span>
+	return <span class={"team-mark team-mark--large tone-" + props.tone} aria-hidden="true">
+		<If cond={props.has_avatar_image}>
+			<img class="avatar-mark__photo" src={props.avatar_image_url} alt={props.name} loading="lazy" />
+		</If>
+		<If cond={props.has_avatar_image == false}>
+			{props.abbreviation}
+		</If>
+	</span>
 }
 
 func ScoreTeam(props any) Node {

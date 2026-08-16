@@ -63,11 +63,30 @@ func RosterRow(props any) Node {
 	</div>
 }
 
+// Page's avatar-upload form posts to /avatar/upload as a plain, unmanaged
+// (data-gosx-managed="false") full-page submission. TODO(gosx#187): once
+// ctx.Files lands upstream, revisit whether it can move to the managed
+// path — see avatar_handlers.go in the repo root for why it does not today.
 func Page() Node {
 	return <main class="page team-page" id="main-content">
+		<div class="notice-stack" aria-live="polite">
+			<If cond={data.has_notice}>
+				<p class="flash-message">{data.notice}</p>
+			</If>
+			<If cond={data.has_avatar_error}>
+				<p class="error-message">{data.avatar_error}</p>
+			</If>
+		</div>
 		<section class="team-hero tone-lime">
 			<div class="team-hero__identity">
-				<span class="team-monogram">{data.team.abbreviation}</span>
+				<span class="team-monogram">
+					<If cond={data.team.has_avatar_image}>
+						<img class="avatar-mark__photo" src={data.team.avatar_image_url} alt={data.team.name} loading="lazy" />
+					</If>
+					<If cond={data.team.has_avatar_image == false}>
+						{data.team.abbreviation}
+					</If>
+				</span>
 				<div>
 					<span class="section-index">
 						MANAGER TERMINAL //
@@ -89,6 +108,13 @@ func Page() Node {
 							Awaiting a manager — sign in to claim this seat.
 						</p>
 					</If>
+					<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input type="hidden" name="team_id" value={data.team.id}></input>
+						<input type="hidden" name="redirect_to" value="/team"></input>
+						<input type="file" name="avatar" accept="image/png,image/jpeg" required="required"></input>
+						<button class="button button--compact" type="submit">Upload team avatar</button>
+					</form>
 				</div>
 			</div>
 			<div class="team-hero__record">
