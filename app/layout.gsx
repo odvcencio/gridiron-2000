@@ -9,7 +9,7 @@ func Layout() Node {
 				<span class="brand-badge">G2K</span>
 				<span class="brand-copy">
 					<strong>GRIDIRON 2000</strong>
-					<small>Pacific Fantasy System</small>
+					<small>Dynasty Fantasy League</small>
 				</span>
 			</a>
 			<nav class="site-nav" aria-label="Primary navigation">
@@ -42,10 +42,26 @@ func Layout() Node {
 						Draft
 				</a>
 			</nav>
-			<a href="/login" data-gosx-link class="access-link" aria-label="League access">
-				<span class="access-light" aria-hidden="true"></span>
-				League access
-			</a>
+			<If cond={data.viewer.signed_in}>
+				<div class="user-badge">
+					<span class="user-chip mono">{data.viewer.initials}</span>
+					<span class="user-name">{data.viewer.team_name}</span>
+					<a href="/team" data-gosx-link class="access-link">Team</a>
+					<If cond={data.viewer.is_commissioner}>
+						<a href="/admin" data-gosx-link class="access-link">Admin</a>
+					</If>
+					<form method="post" action="/auth/logout" data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="access-link" type="submit">Sign out</button>
+					</form>
+				</div>
+			</If>
+			<If cond={data.viewer.signed_in == false}>
+				<a href="/login" data-gosx-link class="access-link" aria-label="League access">
+					<span class="access-light" aria-hidden="true"></span>
+					League access
+				</a>
+			</If>
 		</header>
 		<div class="site-frame">
 			<Slot />

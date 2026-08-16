@@ -2,6 +2,9 @@ package league
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -37,7 +40,6 @@ type Service struct {
 	demoMode bool
 	teams    []Team
 	players  []Player
-	roster   []Player
 
 	poolMu       sync.Mutex
 	poolSource   PlayerSource
@@ -68,7 +70,6 @@ func Default() *Service {
 			demoMode: demo,
 			teams:    defaultTeams(),
 			players:  defaultPlayers(),
-			roster:   defaultRoster(),
 		}
 	})
 	return defaultSvc
@@ -188,6 +189,19 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 	s.poolMu.Unlock()
 }
 
+// StateFingerprint hashes the persisted league state plus the pool version.
+// Clients poll it and soft-refresh the page when it changes, which keeps
+// every open draft room current without full reloads.
+func (s *Service) StateFingerprint(poolVersion int64) string {
+	state := s.store.Snapshot()
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		encoded = []byte(err.Error())
+	}
+	digest := sha256.Sum256(append(encoded, []byte(fmt.Sprintf("|pool:%d", poolVersion))...))
+	return hex.EncodeToString(digest[:8])
+}
+
 // PoolStatusSource supplies legible fantasy pool diagnostics for the admin
 // console. main.go injects it to avoid an import cycle with internal/fantasy.
 type PoolStatusSource func() map[string]any
@@ -255,13 +269,14 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 	if !signedIn {
 		team := s.teams[0]
 		return map[string]any{
-			"signed_in": false,
-			"demo":      s.demoMode,
-			"name":      "Guest Coach",
-			"email":     "",
-			"initials":  "GC",
-			"team_id":   team.ID,
-			"team_name": team.Name,
+			"signed_in":       false,
+			"demo":            s.demoMode,
+			"name":            "Guest Coach",
+			"email":           "",
+			"initials":        "GC",
+			"team_id":         team.ID,
+			"team_name":       team.Name,
+			"is_commissioner": s.demoMode,
 		}
 	}
 	member, ok := s.store.MemberByEmail(user.Email)
@@ -274,13 +289,14 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 		name = strings.Split(user.Email, "@")[0]
 	}
 	return map[string]any{
-		"signed_in": true,
-		"demo":      false,
-		"name":      name,
-		"email":     user.Email,
-		"initials":  initials(name),
-		"team_id":   team.ID,
-		"team_name": team.Name,
+		"signed_in":       true,
+		"demo":            false,
+		"name":            name,
+		"email":           user.Email,
+		"initials":        initials(name),
+		"team_id":         team.ID,
+		"team_name":       team.Name,
+		"is_commissioner": s.IsCommissioner(r),
 	}
 }
 
@@ -288,30 +304,34 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	now := time.Now()
 	live := s.feed.Snapshot(ctx, now)
 	state := s.store.Snapshot()
+	featured := s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))])
 	return map[string]any{
 		"viewer":       s.Viewer(r),
 		"draft":        s.draftSummary(now),
 		"live":         s.liveMap(live),
-		"featured":     s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))]),
+		"featured":     featured,
 		"standings":    s.standingsMaps(),
 		"divisions":    s.divisionMaps(state),
 		"transactions": transactionMaps(),
-		// GSX conditions cannot call .length on server data; ship the bool.
+		// GSX conditions cannot call .length on server data; ship the bools.
 		"transactions_empty": len(transactionMaps()) == 0,
-		"league_size":  len(s.teams),
-		"season":       "2026",
-		"league_mode":  "DYNASTY",
+		"featured_empty":     len(featured) == 0,
+		"league_size":        len(s.teams),
+		"season":             "2026",
+		"league_mode":        "DYNASTY",
 	}
 }
 
 func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]any {
 	live := s.feed.Snapshot(ctx, time.Now())
 	state := s.store.Snapshot()
+	matchups := s.matchupMaps(state, live.Matchups)
 	return map[string]any{
-		"viewer":   s.Viewer(r),
-		"live":     s.liveMap(live),
-		"matchups": s.matchupMaps(state, live.Matchups),
-		"leaders":  leaderMaps(),
+		"viewer":         s.Viewer(r),
+		"live":           s.liveMap(live),
+		"matchups":       matchups,
+		"matchups_empty": len(matchups) == 0,
+		"leaders":        s.leaderMaps(),
 	}
 }
 
@@ -325,17 +345,18 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	for _, player := range roster {
 		projected += player.Projection
 	}
+	teamMap := s.teamMap(team)
 	return map[string]any{
 		"viewer":          viewer,
-		"team":            s.teamMap(team),
+		"team":            teamMap,
 		"roster":          playerMaps(roster),
 		"drafted":         drafted,
 		"starters":        len(roster),
 		"projected":       fmt.Sprintf("%.1f", projected),
-		"waiver_rank":     "—",
-		"budget":          "—",
+		"division":        teamMap["division"],
 		"scouting":        s.topAvailable(state, 3),
 		"is_commissioner": s.IsCommissioner(r),
+		"league_mode":     "DYNASTY",
 	}
 }
 
@@ -700,13 +721,29 @@ func transactionMaps() []map[string]any {
 	return []map[string]any{}
 }
 
-func leaderMaps() []map[string]any {
-	return []map[string]any{
-		{"rank": "01", "name": "L. Jackson", "position": "QB", "points": "24.1", "trend": "+6.4"},
-		{"rank": "02", "name": "J. Gibbs", "position": "RB", "points": "21.2", "trend": "+2.3"},
-		{"rank": "03", "name": "P. Nacua", "position": "WR", "points": "18.6", "trend": "+1.4"},
-		{"rank": "04", "name": "B. Robinson", "position": "RB", "points": "16.8", "trend": "−2.9"},
+// leaderMaps ranks the top four pool players by projection for the
+// matchups page leaderboard.
+func (s *Service) leaderMaps() []map[string]any {
+	players := append([]Player(nil), s.pool().players...)
+	sort.Slice(players, func(i, j int) bool { return players[i].Projection > players[j].Projection })
+	if len(players) > 4 {
+		players = players[:4]
 	}
+	out := make([]map[string]any, 0, len(players))
+	for index, player := range players {
+		trend := "—"
+		if player.ADPRank > 0 {
+			trend = fmt.Sprintf("ADP #%d", player.ADPRank)
+		}
+		out = append(out, map[string]any{
+			"rank":     fmt.Sprintf("%02d", index+1),
+			"name":     player.Name,
+			"position": player.Position,
+			"points":   fmt.Sprintf("%.1f", player.Projection),
+			"trend":    trend,
+		})
+	}
+	return out
 }
 
 func memberForTeam(members map[string]Member, teamID string) Member {

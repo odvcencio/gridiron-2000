@@ -147,16 +147,3 @@ func defaultPlayers() []Player {
 		{ID: "p-12", GSISID: "00-0037744", Name: "Trey McBride", Position: "TE", NFLTeam: "ARI", Opponent: "vs SEA", Projection: 14.8, Points: 0, Status: "Available", News: "Target-volume edge at tight end."},
 	}
 }
-
-func defaultRoster() []Player {
-	return []Player{
-		{ID: "r-01", GSISID: "00-0034796", Name: "Lamar Jackson", Position: "QB", NFLTeam: "BAL", Opponent: "vs PIT", Projection: 22.6, Points: 24.1, Status: "Final", News: "Demo roster fixture."},
-		{ID: "r-02", GSISID: "00-0038542", Name: "Bijan Robinson", Position: "RB", NFLTeam: "ATL", Opponent: "vs TB", Projection: 19.7, Points: 16.8, Status: "Q3 08:14", News: "Nine touches since halftime."},
-		{ID: "r-03", GSISID: "00-0039139", Name: "Jahmyr Gibbs", Position: "RB", NFLTeam: "DET", Opponent: "vs CHI", Projection: 18.9, Points: 21.2, Status: "Q4 11:02", News: "Touchdown on the last drive."},
-		{ID: "r-04", GSISID: "00-0036900", Name: "Ja'Marr Chase", Position: "WR", NFLTeam: "CIN", Opponent: "vs CLE", Projection: 20.8, Points: 13.4, Status: "Q3 02:30", News: "Seven targets through three quarters."},
-		{ID: "r-05", GSISID: "00-0039075", Name: "Puka Nacua", Position: "WR", NFLTeam: "LAR", Opponent: "@ SF", Projection: 17.2, Points: 18.6, Status: "Final", News: "Demo roster fixture."},
-		{ID: "r-06", GSISID: "00-0039338", Name: "Brock Bowers", Position: "TE", NFLTeam: "LV", Opponent: "@ DEN", Projection: 15.9, Points: 9.7, Status: "Q2 00:42", News: "Four catches on five targets."},
-		{ID: "r-07", GSISID: "00-0036358", Name: "CeeDee Lamb", Position: "FLEX", NFLTeam: "DAL", Opponent: "@ PHI", Projection: 18.4, Points: 0, Status: "SNF", News: "Kickoff tonight."},
-		{ID: "r-08", Name: "Steelers", Position: "D/ST", NFLTeam: "PIT", Opponent: "@ BAL", Projection: 7.8, Points: 8.0, Status: "Q4 04:19", News: "Two sacks and one takeaway."},
-	}
-}

@@ -277,10 +277,46 @@
     });
   });
 
+  var leagueFingerprint = null;
+  var leagueSyncTimer = null;
+
+  function checkLeagueVersion() {
+    if (document.hidden) return;
+    var active = document.activeElement;
+    if (active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA")) return;
+    fetch("/api/league/version", { headers: { Accept: "application/json" } })
+      .then(function (response) {
+        return response.ok ? response.json() : null;
+      })
+      .then(function (payload) {
+        if (!payload || !payload.fingerprint) return;
+        if (leagueFingerprint === null) {
+          leagueFingerprint = payload.fingerprint;
+          return;
+        }
+        if (payload.fingerprint === leagueFingerprint) return;
+        leagueFingerprint = payload.fingerprint;
+        var nav = window.__gosx_page_nav;
+        if (nav && typeof nav.revalidate === "function") {
+          nav.revalidate();
+        } else if (nav && typeof nav.refresh === "function") {
+          nav.refresh();
+        }
+      })
+      .catch(function () {});
+  }
+
+  function startLeagueSync() {
+    if (leagueSyncTimer) clearInterval(leagueSyncTimer);
+    leagueFingerprint = null;
+    leagueSyncTimer = setInterval(checkLeagueVersion, 4000);
+  }
+
   function bootPageEnhancers() {
     startCountdown();
     startScoreSync();
     startWireSync();
+    startLeagueSync();
   }
 
   document.addEventListener("click", function (event) {
