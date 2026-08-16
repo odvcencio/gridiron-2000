@@ -10,8 +10,8 @@ import (
 
 // BlitzGame is one real preseason game feeding Preseason Blitz (WP-B1).
 type BlitzGame struct {
-	ID      string    // Tank01 gameID: 20260820_LV@HOU
-	Slate   string    // "pre2" | "pre3"
+	ID      string // Tank01 gameID: 20260820_LV@HOU
+	Slate   string // "pre2" | "pre3"
 	Away    string
 	Home    string
 	Kickoff time.Time // UTC
@@ -547,6 +547,10 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"other_slate":       other,
 		"other_slate_label": blitzSlateLabel(other),
 		"can_enter":         viewerKey != "" && !archived,
+		// entry_open additionally requires the slate itself to still be
+		// open; the template uses this single flag to gate the Add/Remove
+		// controls instead of combining can_enter and slate_closed inline.
+		"entry_open":        viewerKey != "" && !archived && !closed,
 		"entry_count":       entryCount,
 		"slots":             slots,
 		"slots_count":       len(slots),
