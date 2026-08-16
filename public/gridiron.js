@@ -263,20 +263,6 @@
     }, 80);
   });
 
-  // Position-filter fallback: keeps the pool filters working even when the
-  // island runtime is not hydrated (for example, a server-only build).
-  document.addEventListener("click", function (event) {
-    var button = event.target.closest(".position-filters .filter-button");
-    if (!button) return;
-    var pool = button.closest(".player-pool");
-    if (!pool) return;
-    var value = (button.textContent || "").trim().toUpperCase();
-    pool.setAttribute("data-filter", value);
-    all(".position-filters .filter-button", pool).forEach(function (candidate) {
-      candidate.setAttribute("aria-pressed", candidate === button ? "true" : "false");
-    });
-  });
-
   var leagueFingerprint = null;
   var leagueSyncTimer = null;
 
