@@ -350,6 +350,16 @@ func loadConfigFile(path string) (Config, error) {
 		Waivers:       file.Waivers,
 		Trades:        file.Trades,
 	}
+	// Absent waivers/trades blocks resolve to their defaults (roster-ops
+	// spec section 10: "Absent blocks resolve to the defaults below"). A
+	// present-but-empty Mode/Veto is how an omitted JSON object decodes,
+	// since WaiversBlock/TradesBlock carry no "was this key present" bit.
+	if strings.TrimSpace(file.Waivers.Mode) == "" {
+		cfg.Waivers = DefaultConfig().Waivers
+	}
+	if strings.TrimSpace(file.Trades.Veto) == "" {
+		cfg.Trades = DefaultConfig().Trades
+	}
 	if strings.TrimSpace(file.Draft.At) != "" {
 		if parsed, err := time.Parse(time.RFC3339, file.Draft.At); err == nil {
 			cfg.DraftAt = parsed
@@ -362,6 +372,15 @@ func loadConfigFile(path string) (Config, error) {
 	}
 	cfg.RosterPresetName = file.Roster.Preset
 	cfg.RosterConflict = file.Roster.Preset != "" && (len(file.Roster.Slots) > 0 || file.Roster.Bench > 0)
+	rosterAbsent := file.Roster.Preset == "" && len(file.Roster.Slots) == 0 && file.Roster.Bench == 0
+	if rosterAbsent {
+		// spec (roster-ops section 10): "an absent roster block resolves
+		// to gridiron-house" — validate it exactly as if the operator had
+		// named the preset, so a mismatched draft.rounds still fails with
+		// the preset-shaped message instead of the generic explicit-shape
+		// one.
+		cfg.RosterPresetName = "gridiron-house"
+	}
 	cfg.Roster = resolveRosterBlock(file.Roster, file.Draft.Rounds)
 	return cfg, nil
 }
