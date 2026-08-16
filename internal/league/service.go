@@ -172,6 +172,15 @@ func Default() *Service {
 // identity strings through here.
 func (s *Service) Config() Config { return s.cfg }
 
+// TeamCount returns the active league's team count.
+func (s *Service) TeamCount() int { return len(s.teams) }
+
+// RosterSpots returns the active roster shape's total size (starters plus
+// bench) — the reference count main.go uses to scale FANTASY_POOL_LIMIT's
+// default (owner decision, productization wave: teams × roster spots ×
+// headroom, not a flat constant).
+func (s *Service) RosterSpots() int { return s.cfg.Roster.Total() }
+
 func parseDraftAt(value string) time.Time {
 	value = strings.TrimSpace(value)
 	if value == "" {

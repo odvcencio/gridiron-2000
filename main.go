@@ -48,7 +48,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fantasyPool, err := fantasy.Default()
+	// league.Default() loads league.json (or the neutral built-in default)
+	// first, so its team count and roster shape are on hand to scale
+	// FANTASY_POOL_LIMIT's own default (owner decision, productization
+	// wave: teams × roster spots × headroom, not a flat constant).
+	poolLimit := fantasy.ScaledPoolLimit(league.Default().TeamCount(), league.Default().RosterSpots())
+	fantasyPool, err := fantasy.Default(poolLimit)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -84,7 +89,11 @@ func main() {
 	}
 	league.Default().StartNotifier(runtimeContext)
 
-	appName := getenv("APP_NAME", "GRIDIRON 2000")
+	// league.Default() has already resolved APP_NAME (env) over
+	// league.name (file) over the neutral built-in default (spec section
+	// 3.3 precedence); read the wordmark through it instead of a second,
+	// independent getenv call so the two never disagree.
+	appName := league.Default().Config().Name
 	port := getenv("PORT", "8080")
 	production := strings.EqualFold(os.Getenv("APP_ENV"), "production")
 	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
@@ -170,7 +179,11 @@ func main() {
 			"fantasyPoolScoring":   poolStatus.Scoring,
 			"fantasyPoolError":     poolStatus.LastError,
 			"draftAt":              league.Default().DraftAt().Format(time.RFC3339),
-			"time":                 time.Now().UTC().Format(time.RFC3339),
+			// leagueConfig: "defaults" on an unconfigured checkout, or
+			// "file:<path>" once a league.json loads (productization spec
+			// section 4.3).
+			"leagueConfig": league.Default().Config().Source,
+			"time":         time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	})
 	app.API("GET /api/live/week", func(ctx *server.Context) (any, error) {
@@ -535,7 +548,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 		member, err := league.Default().AssignManager(user.Email, user.Name)
 		if err != nil {
 			manager.SignOut(r)
-			session.AddFlash(r, "notice", "All eight manager seats are currently claimed.")
+			session.AddFlash(r, "notice", fmt.Sprintf("All %d manager seats are currently claimed.", league.Default().TeamCount()))
 			http.Redirect(w, r, "/login?error=full", http.StatusSeeOther)
 			return
 		}

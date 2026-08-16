@@ -64,8 +64,24 @@ type Config struct {
 	Now           func() time.Time
 }
 
+// DefaultPoolLimitFallback is FANTASY_POOL_LIMIT's fallback of last
+// resort: used only when the caller has no league size to scale from (for
+// example a direct NewService call in a test). main.go's normal boot path
+// always passes a size-scaled default through ConfigFromEnv instead.
+const DefaultPoolLimitFallback = 400
+
 // ConfigFromEnv reads the TANK01_* and fantasy pool environment keys.
-func ConfigFromEnv() Config {
+// defaultPoolLimit is FANTASY_POOL_LIMIT's value when the env var is
+// unset: main.go computes it from the active league's team count and
+// roster size (productization wave, owner decision) instead of a flat
+// constant, so a 12-team deep-league config gets a deeper pool than an
+// 8-team one without an operator having to tune FANTASY_POOL_LIMIT by
+// hand. Pass <= 0 to fall back to DefaultPoolLimitFallback (tests, or a
+// caller with no league size on hand yet).
+func ConfigFromEnv(defaultPoolLimit int) Config {
+	if defaultPoolLimit <= 0 {
+		defaultPoolLimit = DefaultPoolLimitFallback
+	}
 	season := envInt("NFL_SEASON", time.Now().Year())
 	return Config{
 		APIKey:        strings.TrimSpace(os.Getenv("TANK01_API_KEY")),
@@ -74,8 +90,36 @@ func ConfigFromEnv() Config {
 		Season:        season,
 		SyncInterval:  envDuration("FANTASY_SYNC_INTERVAL", 6*time.Hour),
 		ScoringFormat: normalizeScoring(envString("SCORING_FORMAT", "half_ppr")),
-		PoolLimit:     envInt("FANTASY_POOL_LIMIT", 400),
+		PoolLimit:     envInt("FANTASY_POOL_LIMIT", defaultPoolLimit),
 		MaxBodyBytes:  int64(envInt("FANTASY_MAX_DOWNLOAD_MB", 32)) << 20,
+	}
+}
+
+// ScaledPoolLimit derives FANTASY_POOL_LIMIT's default from league shape
+// instead of a flat constant (owner decision, productization wave): teams
+// × rosterSpots is the number of players a full league could ever roster;
+// a 2.5x headroom factor keeps free agency and waivers meaningful (the
+// roster-ops spec's waiver/FA design assumes a pool several times deeper
+// than what is actually rostered, competition-formats' honest-coverage
+// precedent for "give the wire something to search"). Clamped to
+// [200, 800]: 200 keeps even a 4-team, 15-round league (60 rostered) well
+// stocked without a silly-small pool; 800 caps memory/sync cost for large
+// configs (14 teams × 17 rounds × 2.5 ≈ 595, comfortably under the cap) —
+// Tank01's real-world pool tops out under 800 startable-relevant players
+// regardless, so the cap is a safety rail, not an expected ceiling.
+func ScaledPoolLimit(teams, rosterSpots int) int {
+	if teams <= 0 || rosterSpots <= 0 {
+		return DefaultPoolLimitFallback
+	}
+	const headroom = 2.5
+	limit := int(float64(teams*rosterSpots) * headroom)
+	switch {
+	case limit < 200:
+		return 200
+	case limit > 800:
+		return 800
+	default:
+		return limit
 	}
 }
 
