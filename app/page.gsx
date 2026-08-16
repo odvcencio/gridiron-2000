@@ -60,10 +60,10 @@ func Page() Node {
 						LEAGUE SYSTEM // PRIVATE
 					</div>
 					<p class="hero-kicker">
-						Eight-manager dynasty league · Aqua and Orange divisions
+						{data.league.hero_kicker}
 					</p>
 					<h1>
-						GRIDIRON 2000
+						{data.league.name}
 						<br></br>
 						<span>CLAIM YOUR SEAT.</span>
 					</h1>
@@ -96,13 +96,13 @@ func Page() Node {
 				<aside class="draft-transmission" data-draft-at={data.draft.at}>
 					<div class="transmission-top">
 						<span>Incoming transmission</span>
-						<span class="mono">EVENT 0815</span>
+						<span class="mono">DRAFT EVENT</span>
 					</div>
 					<div class="chrome-disc" aria-hidden="true">
-						<span>G2K</span>
+						<span>{data.league.short_code}</span>
 					</div>
 					<div class="draft-transmission__body">
-						<p>2026 LEAGUE DRAFT</p>
+						<p>{data.league.season} LEAGUE DRAFT</p>
 						<strong>{data.draft.date}</strong>
 						<span>{data.draft.time}</span>
 					</div>
@@ -121,7 +121,7 @@ func Page() Node {
 					LEAGUE SYSTEM // ONLINE
 				</div>
 				<p class="hero-kicker">
-					Eight managers. Zero restraint.
+					{data.league.hero_kicker}
 					<span class="position-chip">{data.league_mode}</span>
 				</p>
 				<h1>
@@ -143,13 +143,13 @@ func Page() Node {
 			<aside class="draft-transmission" data-draft-at={data.draft.at}>
 				<div class="transmission-top">
 					<span>Incoming transmission</span>
-					<span class="mono">EVENT 0815</span>
+					<span class="mono">DRAFT EVENT</span>
 				</div>
 				<div class="chrome-disc" aria-hidden="true">
-					<span>G2K</span>
+					<span>{data.league.short_code}</span>
 				</div>
 				<div class="draft-transmission__body">
-					<p>2026 LEAGUE DRAFT</p>
+					<p>{data.league.season} LEAGUE DRAFT</p>
 					<strong>{data.draft.date}</strong>
 					<span>{data.draft.time}</span>
 				</div>
@@ -202,7 +202,7 @@ func Page() Node {
 			<section class="standings-panel">
 				<header class="section-heading">
 					<span class="section-index">02 // POWER GRID</span>
-					<h2>Final ’25 table</h2>
+					<h2>Final ’{data.league.prior_season_short} table</h2>
 					<p>
 						Last season’s damage report. Everyone resets to 0–0 after draft night.
 					</p>

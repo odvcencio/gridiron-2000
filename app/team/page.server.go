@@ -37,7 +37,7 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: "Team Terminal · GRIDIRON 2000"},
+				Title:       server.Title{Default: league.PageTitle("Team Terminal")},
 				Description: "Set a lineup, inspect player status, and scout the wire.",
 			}, nil
 		},

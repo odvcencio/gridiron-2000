@@ -10,7 +10,9 @@ import (
 	_ "gridiron-2000/app/login"
 	_ "gridiron-2000/app/matchups"
 	_ "gridiron-2000/app/pickem"
+	_ "gridiron-2000/app/privacy"
 	_ "gridiron-2000/app/scoring"
 	_ "gridiron-2000/app/team"
+	_ "gridiron-2000/app/terms"
 	_ "gridiron-2000/app/wire"
 )

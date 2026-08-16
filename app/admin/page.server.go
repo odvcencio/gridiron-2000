@@ -54,7 +54,7 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: "Commissioner Console · GRIDIRON 2000"},
+				Title:       server.Title{Default: league.PageTitle("Commissioner Console")},
 				Description: "Seat, invite, and reset controls for the league commissioner.",
 			}, nil
 		},

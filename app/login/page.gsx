@@ -8,7 +8,7 @@ func Page() Node {
 					<span class="live-dot" aria-hidden="true"></span>
 					PRIVATE LEAGUE NETWORK
 				</span>
-				<p class="page-kicker">Authentication channel 08</p>
+				<p class="page-kicker">Authentication channel</p>
 				<h1>
 					CLAIM
 					<br></br>
@@ -18,7 +18,7 @@ func Page() Node {
 					One Google identity maps to one manager seat. No passwords to forget, no open registration, no strangers ruining the group chat.
 				</p>
 				<div class="seat-meter" aria-label={data.seats + " manager seats"}>
-					<Each of={[]int{1,2,3,4,5,6,7,8}} as="seat">
+					<Each of={data.seat_numbers} as="seat">
 						<span>{seat}</span>
 					</Each>
 				</div>

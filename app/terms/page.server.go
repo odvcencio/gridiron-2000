@@ -1,4 +1,4 @@
-package app
+package terms
 
 import (
 	"log"
@@ -12,12 +12,12 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			return league.Default().DashboardData(ctx.Request.Context(), ctx.Request), nil
+			return league.Default().StaticPageData(ctx.Request), nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: league.PageTitle("")},
-				Description: "The live league headquarters for " + league.SeatCountArticle() + " " + league.SeatCountWord() + "-manager fantasy football season.",
+				Title:       server.Title{Default: league.PageTitle("Terms")},
+				Description: "House rules for this private league installation.",
 			}, nil
 		},
 	}); err != nil {

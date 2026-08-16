@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="GRIDIRON 2000">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="League home">
   <rect width="64" height="64" rx="10" fill="#070A16"/>
   <path d="M13 14h38v36H13z" fill="#111832" stroke="#D9FF43" stroke-width="2" transform="skewX(-6)"/>
   <path d="M20 22h24v4H20zm0 8h18v4H20zm0 8h24v4H20z" fill="#38E8FF"/>

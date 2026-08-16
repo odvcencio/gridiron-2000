@@ -137,15 +137,28 @@ func scheduleWeekByNumber(sch SeasonSchedule, week int) (ScheduleWeek, bool) {
 type demoProvider struct{}
 
 // Snapshot reports the honest preseason state: no matchups exist until the
-// league's real schedule and lineups are in place.
+// league's real schedule and lineups are in place. The week label derives
+// from the config-driven season_start_at (DefaultSeasonStartAt, mutated
+// once at boot by applyActiveConfig) instead of a hardcoded September 13.
 func (demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, error) {
 	return LiveSnapshot{
 		Source:      "preseason",
 		SourceLabel: "Preseason",
 		Week:        1,
-		WeekLabel:   "Week 1 · Sundays from September 13",
+		WeekLabel:   "Week 1 · Sundays from " + seasonOpenDateLabel(),
 		Status:      "League matchups begin when the season starts",
 		LastUpdated: now.UTC(),
 		Matchups:    []ScoreMatchup{},
 	}, nil
+}
+
+// seasonOpenDateLabel renders DefaultSeasonStartAt as "Month Day" ("September
+// 13") for the preseason snapshot's week label. An unparseable value (never
+// expected; LoadConfig validates it) falls back to the raw string.
+func seasonOpenDateLabel() string {
+	start, err := time.Parse(time.RFC3339, DefaultSeasonStartAt)
+	if err != nil {
+		return DefaultSeasonStartAt
+	}
+	return start.Format("January 2")
 }

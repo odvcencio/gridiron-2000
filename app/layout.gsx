@@ -5,11 +5,11 @@ func Layout() Node {
 		<a class="skip-link" href="#main-content">Skip to league content</a>
 		<div class="ambient-grid" aria-hidden="true"></div>
 		<header class="site-header">
-			<a href="/" data-gosx-link class="site-brand" aria-label="GRIDIRON 2000 league home">
-				<span class="brand-badge">G2K</span>
+			<a href="/" data-gosx-link class="site-brand" aria-label={data.league.name + " league home"}>
+				<span class="brand-badge">{data.league.short_code}</span>
 				<span class="brand-copy">
-					<strong>GRIDIRON 2000</strong>
-					<small>Dynasty Fantasy League</small>
+					<strong>{data.league.name}</strong>
+					<small>{data.league.tagline}</small>
 				</span>
 			</a>
 			<nav class="site-nav" aria-label="Primary navigation">
@@ -77,8 +77,10 @@ func Layout() Node {
 		<footer class="site-footer">
 			<div>
 				<p>
-					<strong>GRIDIRON 2000</strong>
-					// Eight seats. One trophy. Permanent group-chat evidence.
+					<strong>{data.league.name}</strong>
+					<If cond={data.league.has_footer_line}>
+						// {data.league.footer_line}
+					</If>
 				</p>
 				<nav aria-label="Legal">
 					<a href="/privacy" data-gosx-link>Privacy</a>

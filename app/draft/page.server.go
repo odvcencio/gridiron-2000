@@ -40,8 +40,8 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: "Draft Room · GRIDIRON 2000"},
-				Description: "The live eight-team snake draft room.",
+				Title:       server.Title{Default: league.PageTitle("Draft Room")},
+				Description: "The live " + league.SeatCountWord() + "-team snake draft room.",
 			}, nil
 		},
 		Actions: route.FileActions{

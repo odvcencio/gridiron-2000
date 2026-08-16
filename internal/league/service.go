@@ -172,6 +172,39 @@ func Default() *Service {
 // identity strings through here.
 func (s *Service) Config() Config { return s.cfg }
 
+// PageTitle renders one page's browser-tab title from the live config
+// (spec section 5.1): "{section} · {league.name}", or "{league.name} ·
+// League HQ" for the landing page (section == ""). Every page.server.go's
+// Metadata function calls this instead of hardcoding "· GRIDIRON 2000".
+func PageTitle(section string) string {
+	name := Default().Config().Name
+	if section == "" {
+		return name + " · League HQ"
+	}
+	return section + " · " + name
+}
+
+// SeatCountWord renders the active league's team count as an English word
+// ("eight", "ten", ...) for meta descriptions and page copy that used to
+// hardcode "eight-manager" / "eight-team" (spec section 3.6 fix 5).
+func SeatCountWord() string {
+	return countWord(Default().TeamCount())
+}
+
+// SeatCountArticle returns "a" or "an" to match SeatCountWord's leading
+// sound ("an eight-manager league", "a ten-manager league").
+func SeatCountArticle() string {
+	return article(SeatCountWord())
+}
+
+// article returns "an" when word starts with a vowel sound, else "a".
+func article(word string) string {
+	if word != "" && strings.ContainsRune("aeiou", rune(word[0])) {
+		return "an"
+	}
+	return "a"
+}
+
 // TeamCount returns the active league's team count.
 func (s *Service) TeamCount() int { return len(s.teams) }
 
@@ -822,6 +855,16 @@ func formatClockInstant(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
+// StaticPageData is the minimal data map for pages with no per-request
+// state of their own (privacy, terms): just the viewer badge and the
+// league identity block the shared layout needs on every route.
+func (s *Service) StaticPageData(r *http.Request) map[string]any {
+	return map[string]any{
+		"viewer": s.Viewer(r),
+		"league": s.leagueMap(),
+	}
+}
+
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 	return map[string]any{
 		"viewer":       s.Viewer(r),
@@ -1034,6 +1077,13 @@ func (s *Service) heroKicker() string {
 	return label
 }
 
+// seasonOpenLine renders "League play begins Week 1 · {Month Day}." from
+// season_start_at (spec section 3.2's derived preseason string), replacing
+// the old hardcoded "September 13" in app/matchups/page.gsx.
+func (s *Service) seasonOpenLine() string {
+	return "League play begins Week 1 · " + s.cfg.SeasonStartAt.Format("January 2") + "."
+}
+
 // scoringNote renders the scoring page's format footnote from
 // scoring_format (spec section 3.2: "half-PPR" / "full-PPR" / "standard"
 // consensus feed).
@@ -1054,17 +1104,19 @@ func (s *Service) scoringNote() string {
 // read from config instead of a hardcoded literal.
 func (s *Service) leagueMap() map[string]any {
 	return map[string]any{
-		"name":            s.cfg.Name,
-		"short_code":      s.cfg.ShortCode,
-		"tagline":         s.cfg.Tagline,
-		"mode_label":      s.cfg.ModeLabel,
-		"season":          strconv.Itoa(s.cfg.Season),
-		"hero_kicker":     s.heroKicker(),
-		"footer_line":     s.cfg.Copy.FooterLine,
-		"has_footer_line": s.cfg.Copy.FooterLine != "",
-		"seat_count":      len(s.teams),
-		"seat_count_word": countWord(len(s.teams)),
-		"seat_numbers":    seatNumbers(len(s.teams)),
+		"name":               s.cfg.Name,
+		"short_code":         s.cfg.ShortCode,
+		"tagline":            s.cfg.Tagline,
+		"mode_label":         s.cfg.ModeLabel,
+		"season":             strconv.Itoa(s.cfg.Season),
+		"prior_season_short": fmt.Sprintf("%02d", (s.cfg.Season-1)%100),
+		"hero_kicker":        s.heroKicker(),
+		"footer_line":        s.cfg.Copy.FooterLine,
+		"has_footer_line":    s.cfg.Copy.FooterLine != "",
+		"seat_count":         len(s.teams),
+		"seat_count_word":    countWord(len(s.teams)),
+		"seat_numbers":       seatNumbers(len(s.teams)),
+		"season_open_line":   s.seasonOpenLine(),
 	}
 }
 
