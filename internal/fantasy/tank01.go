@@ -149,6 +149,21 @@ func parseADP(raw json.RawMessage) []adpEntry {
 		if adp == 0 {
 			adp = flexFloat(entry["averagePick"])
 		}
+		position := strings.ToUpper(flexString(entry["pos"]))
+		if position == "" {
+			// The live feed carries position only inside posADP ("DST1", "K12").
+			position = strings.ToUpper(strings.TrimRight(flexString(entry["posADP"]), "0123456789"))
+		}
+		team := strings.ToUpper(flexString(entry["team"]))
+		if team == "" {
+			team = strings.ToUpper(flexString(entry["teamAbv"]))
+		}
+		if id == "" {
+			// Team defenses have no playerID; derive a stable one.
+			if normalized, ok := fantasyPositions[position]; ok && team != "" {
+				id = normalized + "-" + team
+			}
+		}
 		if id == "" || adp <= 0 {
 			continue
 		}
@@ -156,8 +171,8 @@ func parseADP(raw json.RawMessage) []adpEntry {
 			PlayerID: id,
 			ADP:      adp,
 			Name:     flexString(entry["longName"]),
-			Team:     strings.ToUpper(flexString(entry["team"])),
-			Position: strings.ToUpper(flexString(entry["pos"])),
+			Team:     team,
+			Position: position,
 		})
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].ADP < out[j].ADP })
@@ -208,7 +223,10 @@ func projectionPoints(entry map[string]any, scoring string) float64 {
 	return flexFloat(entry["fantasyPoints"])
 }
 
-// parseNews maps playerID to the latest headline that mentions the player.
+// parseNews maps a player key to the latest matching headline. The live feed
+// carries no playerID on fantasy news, so headlines like
+// "Keon Coleman: suffered a lower body injury" key on the name prefix; pool
+// lookups try the ID first and the player name second.
 func parseNews(raw json.RawMessage) map[string]string {
 	var entries []map[string]any
 	if err := json.Unmarshal(raw, &entries); err != nil {
@@ -216,13 +234,21 @@ func parseNews(raw json.RawMessage) map[string]string {
 	}
 	out := map[string]string{}
 	for _, entry := range entries {
-		id := flexString(entry["playerID"])
 		title := flexString(entry["title"])
-		if id == "" || title == "" {
+		if title == "" {
 			continue
 		}
-		if _, seen := out[id]; !seen {
-			out[id] = title
+		key := flexString(entry["playerID"])
+		if key == "" {
+			if name, _, found := strings.Cut(title, ":"); found {
+				key = strings.TrimSpace(name)
+			}
+		}
+		if key == "" {
+			continue
+		}
+		if _, seen := out[key]; !seen {
+			out[key] = title
 		}
 	}
 	return out

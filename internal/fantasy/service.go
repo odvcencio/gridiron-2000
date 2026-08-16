@@ -253,6 +253,8 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]fl
 		player.ByeWeek = byes[player.NFLTeam]
 		if headline, ok := news[player.ID]; ok {
 			player.News = headline
+		} else if headline, ok := news[player.Name]; ok {
+			player.News = headline
 		}
 	}
 	return pool
