@@ -1,0 +1,144 @@
+package team
+
+func RosterRow(props any) Node {
+	return <div class="roster-row">
+		<div class="position-chip">{props.position}</div>
+		<div class="player-identity">
+			<span class="player-avatar" aria-hidden="true">{props.nfl_team}</span>
+			<div>
+				<strong>{props.name}</strong>
+				<small>
+					{props.nfl_team}
+					·
+					{props.opponent}
+				</small>
+			</div>
+		</div>
+		<div class="game-state">
+			<span class="status-pin" aria-hidden="true"></span>
+			{props.status}
+		</div>
+		<div class="player-number mono">
+			<small>PROJ</small>
+			{props.projection}
+		</div>
+		<div class="player-number mono">
+			<small>PTS</small>
+			{props.points}
+		</div>
+		<button class="row-menu" type="button" aria-label={"Roster options for " + props.name}>•••</button>
+	</div>
+}
+
+func Page() Node {
+	return <main class="page team-page" id="main-content">
+		<section class="team-hero tone-lime">
+			<div class="team-hero__identity">
+				<span class="team-monogram">{data.team.abbreviation}</span>
+				<div>
+					<span class="section-index">
+						MANAGER TERMINAL //
+						{data.viewer.initials}
+					</span>
+					<h1>{data.team.name}</h1>
+					<p>
+						Operated by
+						{data.team.manager}
+						· 2025 finish #
+						{data.team.rank_number}
+					</p>
+				</div>
+			</div>
+			<div class="team-hero__record">
+				<span>Last season</span>
+				<strong class="mono">{data.team.record}</strong>
+				<small>
+					{data.team.points_for}
+					PF ·
+					{data.team.streak}
+				</small>
+			</div>
+		</section>
+		<div class="team-command-strip">
+			<div>
+				<span>Projected</span>
+				<strong class="mono">{data.projected}</strong>
+			</div>
+			<div>
+				<span>Starters</span>
+				<strong class="mono">
+					{data.starters}
+					/ 8
+				</strong>
+			</div>
+			<div>
+				<span>Waiver priority</span>
+				<strong class="mono">
+					#
+					{data.waiver_rank}
+				</strong>
+			</div>
+			<div>
+				<span>FAAB remaining</span>
+				<strong class="mono">{data.budget}</strong>
+			</div>
+			<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
+		</div>
+		<div class="team-layout">
+			<section class="roster-panel">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">01 // STARTING UNIT</span>
+						<h2>Week one lineup</h2>
+					</div>
+					<span class="lineup-lock">
+						<span class="status-pin" aria-hidden="true"></span>
+						4 slots live
+					</span>
+				</header>
+				<div class="roster-labels mono" aria-hidden="true">
+					<span>POS</span>
+					<span>PLAYER</span>
+					<span>GAME</span>
+					<span>PROJ</span>
+					<span>PTS</span>
+					<span></span>
+				</div>
+				<div class="roster-list">
+					<Each of={data.roster} as="player">
+						<RosterRow {...player}></RosterRow>
+					</Each>
+				</div>
+			</section>
+			<aside class="scout-panel">
+				<header>
+					<span class="section-index">02 // WAIVER RADAR</span>
+					<h2>Signal watch</h2>
+				</header>
+				<div class="scout-list">
+					<Each of={data.scouting} as="player">
+						<article class="scout-row">
+							<span class="position-chip">{player.position}</span>
+							<div>
+								<strong>{player.name}</strong>
+								<small>
+									{player.team}
+									·
+									{player.signal}
+								</small>
+							</div>
+							<b class="mono">{player.status}</b>
+						</article>
+					</Each>
+				</div>
+				<div class="scout-callout">
+					<span>Roster note</span>
+					<p>
+						Player names and projections are demo fixtures until a live league provider is configured.
+					</p>
+					<a href="/draft" data-gosx-link>Scout draft pool →</a>
+				</div>
+			</aside>
+		</div>
+	</main>
+}

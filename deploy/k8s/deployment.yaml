@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gridiron-2000
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
+  # the app keeps its state in single-process JSON files, so two pods must
+  # never run at once. Recreate stops the old pod before the new one starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gridiron-2000
+  template:
+    metadata:
+      labels:
+        app: gridiron-2000
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: gridiron-2000
+          image: harbor.draco.quest/orchard/gridiron-2000:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: gridiron-2000-secrets
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: DEMO_MODE
+              value: "false"
+            - name: PORT
+              value: "8080"
+            - name: DRAFT_AT
+              value: "2026-08-16T17:00:00-07:00"
+            - name: SCORING_FORMAT
+              value: "half_ppr"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gridiron-2000-data

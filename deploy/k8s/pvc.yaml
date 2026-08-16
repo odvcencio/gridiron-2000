@@ -1,0 +1,19 @@
+# The cluster's default StorageClass is "local-path" (rancher.io/local-path,
+# ReadWriteOnce only, no volume expansion, WaitForFirstConsumer binding).
+# storageClassName is left unset so the claim uses that default, matching
+# every other single-pod GoSX app on this cluster (for example
+# m31labs/muddy-noni-gosx-data). If the default StorageClass ever changes,
+# set storageClassName: local-path explicitly to keep this claim pinned.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gridiron-2000-data
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

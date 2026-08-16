@@ -1,0 +1,194 @@
+package main
+
+import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+
+	"gridiron-2000/internal/fantasy"
+	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/openstats"
+	"gridiron-2000/internal/wire"
+	"m31labs.dev/gosx/auth"
+	"m31labs.dev/gosx/server"
+)
+
+func mountOwnedDataAPI(app *server.App, signalFeed *wire.Service, stats *openstats.Service, pool *fantasy.Service, token string) {
+	leagueOnly := func(handler http.Handler) http.Handler {
+		return requireLeagueAccess(handler)
+	}
+	app.Mount("GET /api/data/status", leagueOnly(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"signal_wire":         signalFeed.Status(),
+			"open_stats":          stats.Status(),
+			"fantasy_pool":        pool.Status(),
+			"protected_api_ready": strings.TrimSpace(token) != "",
+		})
+	})))
+	app.Mount("GET /api/wire/status", leagueOnly(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeDataJSON(writer, http.StatusOK, signalFeed.Status())
+	})))
+	app.Mount("GET /api/wire/events", leagueOnly(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		limit := queryInt(request, "limit", 50)
+		events := signalFeed.Recent(limit, request.URL.Query().Get("category"))
+		status := signalFeed.Status()
+		if len(events) > 0 {
+			etag := fmt.Sprintf("\"wire-%s-%d\"", events[0].ID, status.RelevantSignals)
+			writer.Header().Set("ETag", etag)
+			if request.Header.Get("If-None-Match") == etag {
+				writer.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"schema_version": wire.SchemaVersion,
+			"count":          len(events),
+			"events":         events,
+			"status":         status,
+		})
+	})))
+
+	protected := func(handler http.Handler) http.Handler {
+		return requireDataToken(strings.TrimSpace(token), handler)
+	}
+	app.Mount("GET /api/data/games", protected(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		games := stats.Games(queryInt(request, "week", 0))
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"schema_version": openstats.SchemaVersion,
+			"count":          len(games),
+			"games":          games,
+		})
+	})))
+	app.Mount("GET /api/data/player-week", protected(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		rows := stats.PlayerStats(openstats.PlayerQuery{
+			Week:       queryInt(request, "week", 0),
+			PlayerID:   request.URL.Query().Get("player_id"),
+			Team:       request.URL.Query().Get("team"),
+			SeasonType: request.URL.Query().Get("season_type"),
+			Limit:      queryInt(request, "limit", 100),
+		})
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"schema_version": openstats.SchemaVersion,
+			"license":        openstats.License,
+			"attribution":    openstats.AttributionURL,
+			"count":          len(rows),
+			"player_week":    rows,
+		})
+	})))
+	app.Mount("GET /api/data/injuries", protected(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		rows := stats.InjuryReports(openstats.InjuryQuery{
+			Week:     queryInt(request, "week", 0),
+			PlayerID: request.URL.Query().Get("player_id"),
+			Team:     request.URL.Query().Get("team"),
+			Limit:    queryInt(request, "limit", 100),
+		})
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"schema_version": openstats.SchemaVersion,
+			"license":        openstats.License,
+			"attribution":    openstats.AttributionURL,
+			"count":          len(rows),
+			"injuries":       rows,
+		})
+	})))
+	app.Mount("GET /api/data/signal-export.ndjson", protected(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Content-Type", "application/x-ndjson")
+		writer.Header().Set("Content-Disposition", `attachment; filename="gridiron-2000-signals.ndjson"`)
+		writer.Header().Set("X-Archive-Schema", strconv.Itoa(wire.SchemaVersion))
+		if err := signalFeed.Export(writer); err != nil {
+			_, _ = writer.Write([]byte("\n"))
+		}
+	})))
+	app.Mount("GET /api/data/fantasy-pool", protected(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		players, version := pool.Players()
+		writeDataJSON(writer, http.StatusOK, map[string]any{
+			"schema_version": fantasy.SchemaVersion,
+			"status":         pool.Status(),
+			"version":        version,
+			"count":          len(players),
+			"players":        players,
+		})
+	})))
+	mountCSVExport(app, protected, stats, "schedules", "/api/data/schedules.csv", "nflverse-schedules.csv")
+	mountCSVExport(app, protected, stats, "player_stats", "/api/data/player-stats.csv", "nflverse-player-stats.csv")
+	mountCSVExport(app, protected, stats, "injuries", "/api/data/injuries.csv", "nflverse-injuries.csv")
+}
+
+func mountCSVExport(app *server.App, protect func(http.Handler) http.Handler, stats *openstats.Service, dataset, pattern, filename string) {
+	app.Mount("GET "+pattern, protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		writer.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+		writer.Header().Set("X-Data-License", openstats.License)
+		writer.Header().Set("X-Data-Attribution", openstats.AttributionURL)
+		if err := stats.ExportCSV(writer, dataset); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				http.Error(writer, "dataset has not been synchronized yet", http.StatusNotFound)
+				return
+			}
+			http.Error(writer, "dataset export failed", http.StatusInternalServerError)
+		}
+	})))
+}
+
+func requireLeagueAccess(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if league.Default().DemoMode() {
+			next.ServeHTTP(writer, request)
+			return
+		}
+		if _, ok := auth.Current(request); !ok {
+			writer.Header().Set("Cache-Control", "no-store")
+			http.Error(writer, "Google sign-in is required", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func queryInt(request *http.Request, key string, fallback int) int {
+	raw := strings.TrimSpace(request.URL.Query().Get(key))
+	if raw == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func requireDataToken(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if token == "" {
+			http.NotFound(writer, request)
+			return
+		}
+		provided := strings.TrimSpace(strings.TrimPrefix(request.Header.Get("Authorization"), "Bearer "))
+		if !dataTokenEqual(token, provided) {
+			writer.Header().Set("WWW-Authenticate", `Bearer realm="gridiron-data"`)
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(writer, request)
+	})
+}
+
+func dataTokenEqual(expected, provided string) bool {
+	expectedHash := sha256.Sum256([]byte(expected))
+	providedHash := sha256.Sum256([]byte(provided))
+	return subtle.ConstantTimeCompare(expectedHash[:], providedHash[:]) == 1
+}
+
+func writeDataJSON(writer http.ResponseWriter, status int, value any) {
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	writer.WriteHeader(status)
+	_ = json.NewEncoder(writer).Encode(value)
+}

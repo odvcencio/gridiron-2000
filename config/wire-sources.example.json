@@ -1,0 +1,28 @@
+{
+  "feeds": [
+    {
+      "name": "ESPN NFL Headlines",
+      "url": "https://www.espn.com/espn/rss/nfl/news",
+      "evidence_type": "news",
+      "enabled": true
+    },
+    {
+      "name": "CBS Sports NFL",
+      "url": "https://www.cbssports.com/rss/headlines/nfl/",
+      "evidence_type": "news",
+      "enabled": true
+    },
+    {
+      "name": "r/fantasyfootball New",
+      "url": "https://www.reddit.com/r/fantasyfootball/new/.rss",
+      "evidence_type": "community_feed",
+      "enabled": true
+    },
+    {
+      "name": "Mastodon #fantasyfootball",
+      "url": "https://mastodon.social/tags/fantasyfootball.rss",
+      "evidence_type": "community_feed",
+      "enabled": true
+    }
+  ]
+}

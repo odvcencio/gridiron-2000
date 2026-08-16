@@ -1,0 +1,40 @@
+package login
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strings"
+
+	"gridiron-2000/internal/league"
+	"m31labs.dev/gosx/route"
+	"m31labs.dev/gosx/server"
+	"m31labs.dev/gosx/session"
+)
+
+func init() {
+	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
+		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
+			ctx.NoStore()
+			configured := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")) != "" && strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")) != ""
+			data := league.Default().LoginData(ctx.Request, configured)
+			data["has_notice"] = false
+			data["notice"] = ""
+			if store := session.Current(ctx.Request); store != nil {
+				if flashes := store.Flashes("notice"); len(flashes) > 0 {
+					data["has_notice"] = true
+					data["notice"] = fmt.Sprint(flashes[0])
+				}
+			}
+			return data, nil
+		},
+		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
+			return server.Metadata{
+				Title:       server.Title{Default: "League Access · GRIDIRON 2000"},
+				Description: "Claim one of eight manager seats with Google OAuth.",
+			}, nil
+		},
+	}); err != nil {
+		log.Fatal(err)
+	}
+}

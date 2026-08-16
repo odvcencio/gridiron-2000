@@ -1,0 +1,177 @@
+# GRIDIRON 2000 social-signal policy.
+#
+# These rules classify language, not truth. Every emitted signal remains
+# provisional until the open statistics reconciliation lane confirms it.
+
+rule CommunityDiscussionNoise priority 0 {
+    when {
+        source.evidence == "community_feed"
+        and post.text matches ".*(what are we doing|ama |ask me anything|draft strategy|mock draft|rankings|rank these|tier list|sleepers|underrated|overrated|buy low|sell high|last .* years|season outlook).*"
+    }
+    then Ignore {
+        reason: "general fantasy discussion rather than a current event",
+    }
+}
+
+rule MarketSighting priority 0 {
+    when {
+        source.evidence == "market"
+    }
+    then Classify {
+        category: "market",
+        label: "MARKET SIGHTING",
+        confidence: 0.52,
+    }
+}
+
+rule Inactive priority 1 {
+    when {
+        post.text matches ".*(inactive|ruled out|will not play|won't play|not expected to play).*"
+    }
+    then Classify {
+        category: "inactive",
+        label: "INACTIVE",
+        confidence: 0.82,
+    }
+}
+
+rule Touchdown priority 2 {
+    when {
+        post.text matches ".*(touchdown|scores a td|td pass|td run|td catch).*"
+    }
+    then Classify {
+        category: "touchdown",
+        label: "TOUCHDOWN",
+        confidence: 0.78,
+    }
+}
+
+rule Injury priority 3 {
+    when {
+        post.text matches ".*(injury|injured|questionable|doubtful|left the game|medical tent|locker room).*"
+    }
+    then Classify {
+        category: "injury",
+        label: "INJURY WATCH",
+        confidence: 0.72,
+    }
+}
+
+rule PracticeStatus priority 4 {
+    when {
+        post.text matches ".*(limited practice|did not practice|dnp|full participant|returned to practice|practice squad).*"
+    }
+    then Classify {
+        category: "practice",
+        label: "PRACTICE REPORT",
+        confidence: 0.72,
+    }
+}
+
+rule RoleChange priority 5 {
+    when {
+        post.text matches ".*(named (the )?starter|will start|benched|depth chart|first-team reps|first team reps|taking over at).*"
+    }
+    then Classify {
+        category: "role",
+        label: "ROLE CHANGE",
+        confidence: 0.68,
+    }
+}
+
+rule Availability priority 6 {
+    when {
+        post.text matches ".*(suspended|suspension|activated from|injured reserve|placed on ir|pup list|holdout).*"
+    }
+    then Classify {
+        category: "availability",
+        label: "AVAILABILITY",
+        confidence: 0.74,
+    }
+}
+
+rule Turnover priority 7 {
+    when {
+        post.text matches ".*(interception|intercepted|fumble|turnover).*"
+    }
+    then Classify {
+        category: "turnover",
+        label: "TURNOVER",
+        confidence: 0.74,
+    }
+}
+
+rule KickingPlay priority 8 {
+    when {
+        post.text matches ".*(field goal|extra point|pat is good|pat is no good).*"
+    }
+    then Classify {
+        category: "kicking",
+        label: "KICKING PLAY",
+        confidence: 0.70,
+    }
+}
+
+rule Transaction priority 9 {
+    when {
+        post.text matches ".*(traded to|has been traded|acquired by|signs with|signed by|agreed to terms|released by|waived by|claimed off waivers).*"
+    }
+    then Classify {
+        category: "transaction",
+        label: "ROSTER MOVE",
+        confidence: 0.68,
+    }
+}
+
+rule Weather priority 10 {
+    when {
+        post.text matches ".*(weather|wind advisory|lightning delay|rain delay|snow game).*"
+    }
+    then Classify {
+        category: "weather",
+        label: "WEATHER",
+        confidence: 0.66,
+    }
+}
+
+rule BigPlay priority 11 {
+    when {
+        post.text matches ".*(big play|breakaway|yards to the house|longest play).*"
+    }
+    then Classify {
+        category: "big_play",
+        label: "BIG PLAY",
+        confidence: 0.62,
+    }
+}
+
+rule CommunityTip priority 90 {
+    when {
+        source.evidence == "community"
+    }
+    then Classify {
+        category: "community",
+        label: "LEAGUE TIP",
+        confidence: 0.58,
+    }
+}
+
+rule SharedNews priority 91 {
+    when {
+        source.evidence == "submitted_news"
+    }
+    then Classify {
+        category: "news",
+        label: "SHARED NEWS",
+        confidence: 0.60,
+    }
+}
+
+rule IgnoreNoise priority 99 {
+    when {
+        true
+    }
+    then Ignore {
+        reason: "no fantasy-relevant language",
+    }
+}
