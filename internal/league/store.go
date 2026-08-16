@@ -58,6 +58,7 @@ func NewStore(filePath string) *Store {
 			DraftOrder:    []string{},
 			Scoring:       map[string]float64{},
 			Pickems:       map[string]map[string]string{},
+			BlitzEntries:  map[string]map[string]BlitzEntry{},
 			Autopick:      map[string]bool{},
 			SentLog:       map[string]time.Time{},
 			NotifyPrefs:   map[string]map[string]bool{},
@@ -440,11 +441,13 @@ func (s *Store) ResetDraft() error {
 	return s.persistLocked()
 }
 
-// ResetLeague clears picks, seats, ready flags, boards, and pick'em picks.
-// Invites and team name overrides survive; both are commissioner
-// configuration, not game state. Clock fields and Autopick are cleared,
-// same as ResetDraft. The league-scoped SentLog entries
-// (resetLeagueSentLogPrefixes) are pruned in the same persist.
+// ResetLeague clears picks, seats, ready flags, boards, pick'em picks, and
+// Preseason Blitz entries. Invites and team name overrides survive; both
+// are commissioner configuration, not game state. Clock fields and
+// Autopick are cleared, same as ResetDraft. Blitz entries are game state,
+// not draft state (F19), so ResetDraft does not touch them. The
+// league-scoped SentLog entries (resetLeagueSentLogPrefixes) are pruned in
+// the same persist.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -453,6 +456,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Members = map[string]Member{}
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
+	s.state.BlitzEntries = map[string]map[string]BlitzEntry{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
@@ -642,6 +646,27 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 		s.state.Pickems[owner] = map[string]string{}
 	}
 	s.state.Pickems[owner][gameID] = team
+	return s.persistLocked()
+}
+
+// BlitzSetEntry replaces owner's slate entry wholesale. It performs no
+// validation — the service layer owns that (SetPickem precedent, F9).
+// Two-tab last-write-wins is accepted for eight users (R8). An empty
+// players slice still records the entry, with UpdatedAt moved to now; the
+// service layer's BlitzRemove relies on that to persist a player removal.
+func (s *Store) BlitzSetEntry(owner, slate string, players []string, now time.Time) error {
+	if owner == "" || slate == "" {
+		return fmt.Errorf("blitz entry owner and slate are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.BlitzEntries[owner] == nil {
+		s.state.BlitzEntries[owner] = map[string]BlitzEntry{}
+	}
+	s.state.BlitzEntries[owner][slate] = BlitzEntry{
+		Players:   append([]string(nil), players...),
+		UpdatedAt: now.UTC(),
+	}
 	return s.persistLocked()
 }
 
@@ -854,6 +879,9 @@ func (s *Store) load() error {
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
 	}
+	if state.BlitzEntries == nil {
+		state.BlitzEntries = map[string]map[string]BlitzEntry{}
+	}
 	if state.Autopick == nil {
 		state.Autopick = map[string]bool{}
 	}
@@ -913,6 +941,7 @@ func cloneState(in PersistedState) PersistedState {
 		DraftOrder:        append([]string(nil), in.DraftOrder...),
 		Scoring:           make(map[string]float64, len(in.Scoring)),
 		Pickems:           make(map[string]map[string]string, len(in.Pickems)),
+		BlitzEntries:      make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
 		ClockDeadline:     in.ClockDeadline,
 		ClockPaused:       in.ClockPaused,
 		ClockRemainingSec: in.ClockRemainingSec,
@@ -946,6 +975,16 @@ func cloneState(in PersistedState) PersistedState {
 			inner[gameID] = team
 		}
 		out.Pickems[owner] = inner
+	}
+	for owner, bySlate := range in.BlitzEntries {
+		inner := make(map[string]BlitzEntry, len(bySlate))
+		for slate, entry := range bySlate {
+			inner[slate] = BlitzEntry{
+				Players:   append([]string(nil), entry.Players...),
+				UpdatedAt: entry.UpdatedAt,
+			}
+		}
+		out.BlitzEntries[owner] = inner
 	}
 	for key, value := range in.Autopick {
 		out.Autopick[key] = value
