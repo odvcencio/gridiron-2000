@@ -63,13 +63,22 @@ func main() {
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
 	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())
+	// The notify worker gets its own cancellation, separate from
+	// runtimeContext: on shutdown the HTTP server stops accepting requests
+	// immediately, but the worker keeps draining whatever is already
+	// queued (see notifyQueue.Drain below the server's shutdown branch)
+	// until it finishes or the drain deadline expires. A message the
+	// ledger already marked "sent" must not be silently abandoned
+	// (design spec section 6.3; finding m1).
+	notifyContext, stopNotify := context.WithCancel(context.Background())
+	defer stopNotify()
 	// Spec section 6.6: without a transport, notifications are disabled
 	// across both the delivery queue and every league-side trigger hook.
 	// StartNotifier always runs and re-checks the same enabled flag
 	// (via notifyReady), so it is the single source of the spec's exact
 	// startup log line — no separate log call is needed here.
 	if notifyMailer.Enabled() {
-		notifyQueue.Start(runtimeContext)
+		notifyQueue.Start(notifyContext)
 	}
 	league.Default().StartNotifier(runtimeContext)
 
@@ -215,6 +224,14 @@ func main() {
 		if err := app.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("server shutdown: %v", err)
 		}
+		// Give the notify worker a bounded window to finish delivering
+		// whatever was already queued before the process exits; Drain logs
+		// the remaining count itself if the deadline is reached (finding
+		// m1). stopNotify then cancels the worker's context so it does not
+		// linger up to another 30s in a retry wait the drain has already
+		// given up on.
+		notifyQueue.Drain(10 * time.Second)
+		stopNotify()
 	}
 }
 
@@ -253,10 +270,15 @@ func requireLeagueSession(next http.Handler) http.Handler {
 // Idempotency-Key (design spec section 6.5). The league-shortcode tag
 // named in the spec is not wired yet — league.json's config surface (the
 // productization spec) has not landed, so there is no shortcode to read
-// here; it is a documented follow-up, not a silent gap.
+// here; it is a documented follow-up, not a silent gap. An SMTP-transport
+// failure is wrapped notify.Permanent so Queue.deliver does not retry it:
+// smtp.SendMail can error after the server already accepted the message,
+// and at-most-once is preferred there. A Resend failure is returned
+// unwrapped and stays retryable — its Idempotency-Key header protects a
+// retry from becoming a duplicate (finding M3).
 func notificationSender(mailCfg mailer.Config) notify.Sender {
 	return func(m notify.Message) error {
-		return mailCfg.SendMessage(mailer.Message{
+		err := mailCfg.SendMessage(mailer.Message{
 			To:             m.To,
 			Subject:        m.Subject,
 			Text:           m.Text,
@@ -264,6 +286,10 @@ func notificationSender(mailCfg mailer.Config) notify.Sender {
 			Tags:           map[string]string{"category": m.Category},
 			IdempotencyKey: m.Key,
 		})
+		if errors.Is(err, mailer.ErrSMTPTransport) {
+			return notify.Permanent(err)
+		}
+		return err
 	}
 }
 

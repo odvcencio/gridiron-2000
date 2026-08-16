@@ -485,5 +485,14 @@ func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, 
 	if err != nil {
 		return DraftPick{}, Player{}, Team{}, err
 	}
+	// N6: notify the seat's manager that a pick fired on their behalf,
+	// skipping a manager who was CONNECTED at pick time (spec section 3,
+	// N6). state is the pre-fire snapshot already read above, matching the
+	// world the commissioner's action actually saw — the same pattern
+	// clockTick's own AutoPick call site uses (draftclock.go). This was
+	// the one N6 call site WP-E3 left unwired: notifyAutopickMade itself
+	// is provenance-agnostic and already fires for MadeBy=="commissioner"
+	// from clockTick's path, but nothing called it from here.
+	s.notifyAutopickMade(state, pick, "commissioner", now)
 	return pick, s.pool().byID[playerID], s.teamByID(teamID), nil
 }

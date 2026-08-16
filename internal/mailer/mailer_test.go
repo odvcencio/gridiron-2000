@@ -1,6 +1,7 @@
 package mailer
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -131,6 +132,121 @@ func TestSendMessageSMTPIgnoresTagsAndIdempotencyKey(t *testing.T) {
 	}
 	if !strings.Contains(message, "Reply-To: commissioner@example.com\r\n") {
 		t.Errorf("SMTP message must still carry Reply-To:\n%s", message)
+	}
+}
+
+// --- Finding B1: CRLF/control-character header injection -----------------
+
+// TestSanitizeHeaderStripsCRLFAndControls checks that sanitizeHeader
+// removes \r, \n, and every other C0 control character while leaving
+// ordinary text — including multi-byte runes — untouched (finding B1).
+func TestSanitizeHeaderStripsCRLFAndControls(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"clean passthrough", "Rules update: 3 values changed", "Rules update: 3 values changed"},
+		{"CRLF header injection", "Hi\r\nContent-Type: text/plain\r\n\r\nInjected body", "HiContent-Type: text/plainInjected body"},
+		{"bare LF", "line one\nline two", "line oneline two"},
+		{"bare CR", "line one\rline two", "line oneline two"},
+		{"other C0 controls", "a\x00b\x07c\x1fd", "abcd"},
+		{"unicode untouched", "José · GRIDIRON — 2000", "José · GRIDIRON — 2000"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sanitizeHeader(tc.in); got != tc.want {
+				t.Errorf("sanitizeHeader(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestContainsControlDetectsCRLF checks the recipient-address guard
+// SendMessage uses to reject rather than silently strip a control
+// character (finding B1).
+func TestContainsControlDetectsCRLF(t *testing.T) {
+	if containsControl("manager@example.com") {
+		t.Error("a clean address must not be flagged")
+	}
+	if !containsControl("manager@example.com\r\nBcc: evil@example.com") {
+		t.Error("a CRLF-carrying address must be flagged")
+	}
+	if !containsControl("manager@example.com\n") {
+		t.Error("a bare-LF address must be flagged")
+	}
+}
+
+// TestSendMessageRejectsControlCharacterInRecipient checks that a control
+// character in the To address fails the send with a clear error, before
+// either transport is attempted — SMTP-configured and Resend-configured
+// alike (finding B1).
+func TestSendMessageRejectsControlCharacterInRecipient(t *testing.T) {
+	dirtyTo := "manager@example.com\r\nBcc: evil@example.com"
+
+	smtpConfig := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
+	if err := smtpConfig.SendMessage(Message{To: dirtyTo, Subject: "Hi", Text: "Body"}); err == nil {
+		t.Error("SMTP-configured SendMessage must reject a control character in To")
+	}
+
+	resendConfig := Config{ResendKey: "re_test_key", ResendFrom: "commish@example.com", resendURL: "http://127.0.0.1:0/unreachable"}
+	if err := resendConfig.SendMessage(Message{To: dirtyTo, Subject: "Hi", Text: "Body"}); err == nil {
+		t.Error("Resend-configured SendMessage must reject a control character in To")
+	}
+}
+
+// TestBuildMessageSanitizesSubjectAndReplyTo checks that a CRLF payload in
+// either the subject or the Reply-To field cannot terminate the header
+// block early or forge an extra header (finding B1): the built message
+// carries exactly one blank-line header/body separator, and no attacker
+// text escapes into a forged header line.
+func TestBuildMessageSanitizesSubjectAndReplyTo(t *testing.T) {
+	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
+
+	t.Run("CRLF in subject", func(t *testing.T) {
+		raw := config.buildMessage("manager@example.com", "Hi\r\nContent-Type: text/plain\r\n\r\nInjected body", "Real body.", "", "")
+		message := string(raw)
+		if strings.Count(message, "\r\n\r\n") != 1 {
+			t.Fatalf("message has more than one header/body separator, header injection likely succeeded:\n%s", message)
+		}
+		if strings.Contains(message, "Injected body") == false {
+			// The literal text survives (sanitizeHeader only strips CR/LF,
+			// not the words), but it must stay inside the Subject header
+			// line, not become its own block.
+			t.Fatalf("subject text unexpectedly dropped:\n%s", message)
+		}
+		if !strings.Contains(message, "Subject: HiContent-Type: text/plainInjected body\r\n") {
+			t.Errorf("sanitized subject did not land on one header line:\n%s", message)
+		}
+	})
+
+	t.Run("CRLF in replyTo forging a Bcc header", func(t *testing.T) {
+		raw := config.buildMessage("manager@example.com", "Subject", "Body", "", "a@example.com\r\nBcc: evil@example.com")
+		message := string(raw)
+		if strings.Contains(message, "\r\nBcc:") {
+			t.Errorf("message must not carry a forged Bcc header line:\n%s", message)
+		}
+		if !strings.Contains(message, "Reply-To: a@example.comBcc: evil@example.com\r\n") {
+			t.Errorf("sanitized reply-to did not land on one header line:\n%s", message)
+		}
+	})
+}
+
+// --- Finding M3: SMTP-transport errors must be identifiable -------------
+
+// TestSendMessageSMTPErrorsWrapErrSMTPTransport checks that a failed SMTP
+// send is identifiable via errors.Is(err, ErrSMTPTransport), so a caller
+// (notificationSender in main.go) can choose not to retry it (finding M3).
+func TestSendMessageSMTPErrorsWrapErrSMTPTransport(t *testing.T) {
+	// Port 1 on loopback: nothing listens there, so the dial fails fast
+	// with connection-refused, no live network access required.
+	config := Config{Host: "127.0.0.1", Port: "1", User: "u", Pass: "p", From: "commish@example.com"}
+	err := config.SendMessage(Message{To: "manager@example.com", Subject: "Hi", Text: "Body"})
+	if err == nil {
+		t.Fatal("expected a dial failure against a closed port")
+	}
+	if !errors.Is(err, ErrSMTPTransport) {
+		t.Errorf("SMTP send error does not wrap ErrSMTPTransport: %v", err)
 	}
 }
 

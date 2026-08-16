@@ -272,6 +272,41 @@ func TestDraftIsLive(t *testing.T) {
 	}
 }
 
+// TestAdminForceAutopickFiresN6Hook checks that AdminForceAutopick wires
+// the N6 autopick-made hook (the commissioner call site WP-E3 left
+// unwired — see the design spec section 3, N6's "commissioner" trigger,
+// and internal/league/notifications_test.go's TestAutopickMadeNotification
+// for notifyAutopickMade's own, provenance-agnostic coverage). A
+// commissioner-forced pick for a manager who is not CONNECTED must land
+// exactly one autopick: ledger entry and enqueue one message.
+func TestAdminForceAutopickFiresN6Hook(t *testing.T) {
+	draftAt := time.Now().Add(-time.Hour)
+	service, _ := newNotifyTestService(t, draftAt, draftAt)
+	service.demoMode = true // grants commissioner authority without a forged session
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+	if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil { // team-1, first on the clock
+		t.Fatal(err)
+	}
+	// No presence.record call: the tracker floors an unseen key to AWAY,
+	// so notifyAutopickMade's CONNECTED skip does not apply here.
+
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	pick, _, _, err := service.AdminForceAutopick(request)
+	if err != nil {
+		t.Fatalf("AdminForceAutopick: %v", err)
+	}
+	if pick.MadeBy != "commissioner" {
+		t.Fatalf("MadeBy = %q, want commissioner", pick.MadeBy)
+	}
+
+	if got := sentLogCount(service.store.Snapshot(), "autopick:"); got != 1 {
+		t.Fatalf("autopick: ledger entries = %d, want 1 (AdminForceAutopick must fire the N6 hook)", got)
+	}
+	if got := service.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("notify queue depth = %d, want 1 (AdminForceAutopick must enqueue the N6 email)", got)
+	}
+}
+
 func TestAdminDataMailEnabledTrueWithSMTP(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

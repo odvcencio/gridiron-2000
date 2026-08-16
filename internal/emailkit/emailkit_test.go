@@ -47,7 +47,7 @@ func TestBlockGoldens(t *testing.T) {
 				{"2", "Orange 3", "Marcus"},
 				{"3", "Aqua 4", "Priya"},
 			},
-			Mark: 1,
+			MarkRow: 2, // 1-based (finding m5): marks the same "Orange 3 / Marcus" row the old Mark: 1 did
 		}},
 		{"picklist", PickList{
 			Title: "NEXT STEPS",
@@ -130,20 +130,16 @@ func TestOnTheClockWorkedExampleMatchesSpec(t *testing.T) {
 		t.Fatalf("text does not match the section 5 worked example.\n got:\n%s\nwant:\n%s", text, want)
 	}
 
-	// The HTML part carries the same facts in the invite's dress; every
-	// value that appears in the text part must also appear in HTML
-	// (spec section 4.3, rule 1).
-	for _, want := range []string{
-		"YOU&#39;RE ON THE CLOCK.",
-		"3.07 · overall 23",
-		"0:20 away cap armed",
-		"Jahmyr Gibbs",
-		"TAKE YOUR PICK",
-		"https://gridiron.draco.quest/draft",
-	} {
-		if !strings.Contains(html, want) {
-			t.Errorf("html missing %q", want)
-		}
+	// finding M2: an HTML golden pairs with the .txt one, per spec section
+	// 4.3 rule 4 ("compare both parts against testdata/{name}.txt and
+	// testdata/{name}.html"). Previously only the .txt golden existed, and
+	// the substring checks that stood in for the HTML side did not catch
+	// escapeHTML(shell.Signoff) or escapeHTML(shell.PrefLine) being deleted
+	// from renderHTML — both passed the whole suite before this golden
+	// existed.
+	wantHTML := readGolden(t, "n5_worked_example.html")
+	if html != wantHTML {
+		t.Fatalf("html does not match the section 5 worked example.\n got:\n%s\nwant:\n%s", html, wantHTML)
 	}
 }
 
@@ -214,6 +210,17 @@ func TestShellFieldsEscapeInHTMLRawInText(t *testing.T) {
 // parts carry every sentinel. A block that adds a field without wiring it
 // into both renderers fails here (spec section 4.3, rule 1).
 
+// sentinelFieldValue wraps sentinel s in an http(s) URL when fieldName
+// names a URL field (CTA.URL, Shell.PrefURL): finding nit 9 makes those
+// fields render only when they carry an allowed scheme, so the reflective
+// pairing test needs a value that survives the scheme check.
+func sentinelFieldValue(fieldName, sentinel string) string {
+	if strings.HasSuffix(fieldName, "URL") {
+		return "https://example.com/" + sentinel
+	}
+	return sentinel
+}
+
 // sentinelValue sets every exported string field (including []string,
 // []PanelRow, and [][]string fields) on the struct pointed to by v to a
 // unique sentinel value made only of letters and digits, so HTML escaping
@@ -233,7 +240,11 @@ func sentinelValue(v reflect.Value, prefix string, counter *int) []string {
 		case reflect.String:
 			*counter++
 			s := fmt.Sprintf("ZQSENTINEL%s%d", name, *counter)
-			field.SetString(s)
+			// finding nit 9: a URL field only reaches either rendered part
+			// when it parses as an http(s) URL, so its stored value must
+			// look like one; the sentinel substring asserted below stays
+			// exactly s, since it is still a substring of the full value.
+			field.SetString(sentinelFieldValue(fieldType.Name, s))
 			sentinels = append(sentinels, s)
 		case reflect.Slice:
 			elemType := fieldType.Type.Elem()
@@ -293,6 +304,46 @@ func TestBlockFieldPairingReflective(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// shellHTMLOnlyFields lists the Shell fields the design spec scopes to the
+// HTML part only (spec section 4.2, header bar: "HTML: the invite header
+// verbatim; text: {WORDMARK} // {TAGLINE} on line one" — ShortCode names
+// the badge that line omits by design, not by omission).
+// TestShellFieldPairingReflective checks every other exported Shell field
+// against both parts.
+var shellHTMLOnlyFields = map[string]bool{"ShortCode": true}
+
+// TestShellFieldPairingReflective extends the reflective pairing check to
+// Shell itself (finding M2): the block-level version above never covered
+// Shell, and deleting escapeHTML(shell.Signoff) or escapeHTML(shell.PrefLine)
+// from renderHTML passed the whole suite before this test existed. Every
+// exported Shell string field the design does not explicitly scope to HTML
+// alone must appear in both rendered parts, the same invariant
+// TestBlockFieldPairingReflective proves for blocks. Shell has no slice
+// fields, so sentinelValue's returned sentinels line up 1:1, in order, with
+// reflect.TypeOf(Shell{})'s exported fields — the same order this walks.
+func TestShellFieldPairingReflective(t *testing.T) {
+	shellType := reflect.TypeOf(Shell{})
+	var shell Shell
+	counter := 0
+	sentinels := sentinelValue(reflect.ValueOf(&shell), "Shell", &counter)
+	if len(sentinels) != shellType.NumField() {
+		t.Fatalf("sentinelValue produced %d sentinels for %d Shell fields; the 1:1 field order this test relies on broke", len(sentinels), shellType.NumField())
+	}
+	text, html := Render(shell, nil)
+	for i, s := range sentinels {
+		fieldName := shellType.Field(i).Name
+		if !strings.Contains(html, s) {
+			t.Errorf("html part missing sentinel %s for field %s", s, fieldName)
+		}
+		if shellHTMLOnlyFields[fieldName] {
+			continue
+		}
+		if !strings.Contains(text, s) {
+			t.Errorf("text part missing sentinel %s for field %s (field not rendered in text)", s, fieldName)
+		}
 	}
 }
 
@@ -384,7 +435,7 @@ func TestStatTableTextMarksRecipientRow(t *testing.T) {
 			{"1", "Aqua 1"},
 			{"2", "Aqua 2"},
 		},
-		Mark: 1,
+		MarkRow: 2, // 1-based (finding m5): marks the same second row the old Mark: 1 did
 	}
 	var b strings.Builder
 	table.appendText(&b)
@@ -397,17 +448,22 @@ func TestStatTableTextMarksRecipientRow(t *testing.T) {
 	}
 }
 
-func TestStatTableNoMarkMarksNoRow(t *testing.T) {
+// TestStatTableZeroMarkRowMarksNoRow checks finding m5: the zero value of
+// MarkRow (a builder that never sets it) means "no row is marked", not
+// "row 1 is marked" the way a 0-based field's zero value used to.
+func TestStatTableZeroMarkRowMarksNoRow(t *testing.T) {
 	table := StatTable{
 		Header: []string{"SLOT"},
 		Rows:   [][]string{{"1"}, {"2"}},
-		Mark:   -1,
 	}
 	var text, html strings.Builder
 	table.appendText(&text)
 	table.appendHTML(&html)
 	if strings.Contains(text.String(), "* ") {
-		t.Errorf("no row should carry the marker when Mark is -1: %q", text.String())
+		t.Errorf("no row should carry the marker when MarkRow is the zero value: %q", text.String())
+	}
+	if strings.Contains(html.String(), ColorAccent) {
+		t.Errorf("no row should render in the accent color when MarkRow is the zero value:\n%s", html.String())
 	}
 }
 
@@ -417,5 +473,252 @@ func TestCTATextStripsTrailingArrow(t *testing.T) {
 	want := "  -> BUILD YOUR BOARD: https://example.com/board"
 	if b.String() != want {
 		t.Errorf("cta text = %q, want %q", b.String(), want)
+	}
+}
+
+// TestCTATextTrimSuffixNotCutset checks finding nit 2: the old
+// strings.TrimRight(label, " →") treated " →" as a cutset — strip any
+// trailing run of ' ' or '→', in either order or quantity — not a literal
+// suffix. Under that bug, "GO →→" would have lost both arrows and the
+// space down to "GO", and a label of "→" alone would have been stripped
+// entirely to "". TrimSuffix removes only one exact, literal trailing
+// " →", so neither of those cases (whose actual trailing bytes are not
+// literally " →") gets touched; only a real " →" suffix is removed.
+func TestCTATextTrimSuffixNotCutset(t *testing.T) {
+	cases := []struct{ label, want string }{
+		{"GO →→", "GO →→"},                         // old cutset bug: "GO"
+		{"→", "→"},                                 // old cutset bug: ""
+		{"BUILD YOUR BOARD", "BUILD YOUR BOARD"},   // no trailing " →" at all
+		{"BUILD YOUR BOARD →", "BUILD YOUR BOARD"}, // a literal " →" suffix is still trimmed
+	}
+	for _, tc := range cases {
+		var b strings.Builder
+		CTA{Label: tc.label, URL: "https://example.com"}.appendText(&b)
+		want := "  -> " + tc.want + ": https://example.com"
+		if b.String() != want {
+			t.Errorf("CTA{Label: %q}.appendText = %q, want %q", tc.label, b.String(), want)
+		}
+	}
+}
+
+// --- Finding m3: text renderers must not pass raw control characters ------
+
+// TestTextSafeCollapsesControlCharsToOneSpace checks the textSafe helper
+// directly: every run of control characters (including \r, \n, \t)
+// collapses to one space, and clean input passes through unchanged.
+func TestTextSafeCollapsesControlCharsToOneSpace(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"clean text", "clean text"},
+		{"a\nb", "a b"},
+		{"a\r\nb", "a b"},
+		{"a\n\n\nb", "a b"},
+		{"a\tb", "a b"},
+		{"José · —", "José · —"}, // multi-byte runes are not control characters
+	}
+	for _, tc := range cases {
+		if got := textSafe(tc.in); got != tc.want {
+			t.Errorf("textSafe(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// TestStatTableCellNewlineCannotForgeExtraLines checks finding m3's
+// concrete scenario: a StatTable cell carrying an embedded newline (for
+// example a hostile team or player name) cannot fabricate an extra text
+// line that states something the paired HTML part does not show. Before
+// the fix, this cell could forge what looked like a whole extra row.
+func TestStatTableCellNewlineCannotForgeExtraLines(t *testing.T) {
+	forged := "Real Cell\n* 99  FORGED ROW  not really here"
+	table := StatTable{
+		Header: []string{"SLOT", "TEAM"},
+		Rows:   [][]string{{"1", forged}},
+	}
+	var b strings.Builder
+	table.appendText(&b)
+	lines := strings.Split(b.String(), "\n")
+	if len(lines) != 3 { // title-less: header line, dash line, one data line
+		t.Fatalf("StatTable text produced %d lines, want 3 (the forged newline must not add a line): %q", len(lines), b.String())
+	}
+	if strings.Contains(b.String(), "FORGED ROW") == false {
+		t.Fatalf("the cell's own text must still survive, sanitized: %q", b.String())
+	}
+}
+
+// TestHeadlineAndPickListAndPanelSanitizeUnwrappedFields checks finding m3
+// across the other fields that are not routed through wrapText's own
+// whitespace normalization: Headline.Title, Panel row Label, PickList
+// Title and Items.
+func TestHeadlineAndPickListAndPanelSanitizeUnwrappedFields(t *testing.T) {
+	dirty := "line one\nline two"
+	clean := "line one line two"
+
+	var headline strings.Builder
+	Headline{Title: dirty}.appendText(&headline)
+	if headline.String() != clean {
+		t.Errorf("Headline.Title = %q, want sanitized %q", headline.String(), clean)
+	}
+
+	var panel strings.Builder
+	Panel{Rows: []PanelRow{{Label: dirty, Value: "v"}}}.appendText(&panel)
+	if strings.Contains(panel.String(), "\n"+"line two") {
+		t.Errorf("Panel label newline was not sanitized: %q", panel.String())
+	}
+	if !strings.Contains(panel.String(), clean) {
+		t.Errorf("Panel label must still carry its sanitized text: %q", panel.String())
+	}
+
+	var picklist strings.Builder
+	PickList{Title: dirty, Items: []string{dirty}}.appendText(&picklist)
+	lines := strings.Split(picklist.String(), "\n")
+	if len(lines) != 2 { // title line + one item line; a real newline would add a third
+		t.Fatalf("PickList text produced %d lines, want 2: %q", len(lines), picklist.String())
+	}
+}
+
+// --- Finding m8: a StatTable without a header must still align ------------
+
+// TestStatTableWithoutHeaderSizesFromWidestRow checks finding m8:
+// columnWidths previously sized its widths slice from len(header) alone,
+// so a StatTable with no header (empty Header slice) produced a
+// zero-length widths slice and silently dropped every row cell. Column
+// widths must instead come from the widest row when there is no header.
+func TestStatTableWithoutHeaderSizesFromWidestRow(t *testing.T) {
+	table := StatTable{
+		Rows: [][]string{
+			{"a", "bb"},
+			{"ccc", "d"},
+		},
+	}
+	var b strings.Builder
+	table.appendText(&b)
+	got := b.String()
+	want := "  a    bb\n  ccc  d"
+	if got != want {
+		t.Errorf("headerless StatTable text = %q, want %q", got, want)
+	}
+}
+
+// --- Finding m9: an empty PickList title must not emit a bare line/div ----
+
+// TestPickListEmptyTitleSkipsInBothParts checks finding m9: PickList with
+// an empty Title previously emitted a bare " //" line in text and an
+// empty kicker div in HTML; both must be skipped instead, mirroring
+// StatTable's own "" hides it doc comment.
+func TestPickListEmptyTitleSkipsInBothParts(t *testing.T) {
+	list := PickList{Items: []string{"one", "two"}}
+	var text, html strings.Builder
+	list.appendText(&text)
+	list.appendHTML(&html)
+
+	if strings.HasPrefix(text.String(), " //") || strings.Contains(text.String(), "\n //") {
+		t.Errorf("text must not carry a bare \" //\" title line: %q", text.String())
+	}
+	wantText := "  1. one\n  2. two"
+	if text.String() != wantText {
+		t.Errorf("text = %q, want %q", text.String(), wantText)
+	}
+	if strings.Contains(html.String(), "//</div>") {
+		t.Errorf("html must not carry an empty kicker div: %s", html.String())
+	}
+}
+
+// --- Finding nit 1: Divider must produce exactly one blank line -----------
+
+// TestDividerProducesExactlyOneBlankLine checks finding nit 1: two blocks
+// separated by a Divider must show exactly one blank line between them in
+// text, the same spacing two blocks show with no Divider between them at
+// all — not the three blank lines the un-special-cased separator math
+// used to stack up around Divider's empty appendText output.
+func TestDividerProducesExactlyOneBlankLine(t *testing.T) {
+	withDivider, _ := Render(minimalShell(), []Block{Note{Text: "A."}, Divider{}, Note{Text: "B."}})
+	withoutDivider, _ := Render(minimalShell(), []Block{Note{Text: "A."}, Note{Text: "B."}})
+
+	if withDivider != withoutDivider {
+		t.Errorf("a Divider must not change the text part's spacing:\n with divider: %q\nwithout divider: %q", withDivider, withoutDivider)
+	}
+	if !strings.Contains(withDivider, "A.\n\nB.") {
+		t.Errorf("expected exactly one blank line between A. and B.: %q", withDivider)
+	}
+}
+
+// --- Finding nit 9: CTA.URL and Shell.PrefURL enforce an http(s) allowlist -
+
+func TestCTANonHTTPSchemeRendersLabelWithoutLinkOrURL(t *testing.T) {
+	cases := []string{
+		"javascript:alert(1)",
+		"data:text/html,evil",
+		"mailto:a@example.com",
+		"/relative/path", // no scheme at all
+		"",
+	}
+	for _, url := range cases {
+		t.Run(url, func(t *testing.T) {
+			cta := CTA{Label: "CLICK ME", URL: url}
+			var text, html strings.Builder
+			cta.appendText(&text)
+			cta.appendHTML(&html)
+
+			if strings.Contains(html.String(), "<a ") {
+				t.Errorf("html must not carry a link for scheme %q:\n%s", url, html.String())
+			}
+			if !strings.Contains(html.String(), "CLICK ME") {
+				t.Errorf("html must still carry the label for scheme %q:\n%s", url, html.String())
+			}
+			wantText := "  -> CLICK ME"
+			if text.String() != wantText {
+				t.Errorf("text = %q, want %q (label only, no URL line)", text.String(), wantText)
+			}
+		})
+	}
+}
+
+func TestCTAHTTPAndHTTPSSchemesRenderLink(t *testing.T) {
+	for _, url := range []string{"http://example.com", "https://example.com"} {
+		t.Run(url, func(t *testing.T) {
+			cta := CTA{Label: "CLICK ME", URL: url}
+			var text, html strings.Builder
+			cta.appendText(&text)
+			cta.appendHTML(&html)
+
+			if !strings.Contains(html.String(), `<a href="`+url+`"`) {
+				t.Errorf("html must carry a link for scheme %q:\n%s", url, html.String())
+			}
+			wantText := "  -> CLICK ME: " + url
+			if text.String() != wantText {
+				t.Errorf("text = %q, want %q", text.String(), wantText)
+			}
+		})
+	}
+}
+
+func TestShellPrefURLNonHTTPSchemeRendersLabelWithoutLinkOrURL(t *testing.T) {
+	shell := minimalShell()
+	shell.PrefURL = "javascript:alert(1)"
+	text, html := Render(shell, nil)
+
+	if strings.Contains(html, "<a ") {
+		t.Errorf("html footer must not carry a link for a non-http(s) PrefURL:\n%s", html)
+	}
+	if !strings.Contains(html, "Manage:") {
+		t.Errorf("html footer must still carry the \"Manage:\" label:\n%s", html)
+	}
+	if strings.Contains(text, "javascript:") {
+		t.Errorf("text footer must not carry the unsafe URL: %q", text)
+	}
+	if !strings.HasSuffix(text, "Manage: ") {
+		t.Errorf("text footer must end with the bare \"Manage: \" label, no URL: %q", text)
+	}
+}
+
+func TestShellPrefURLHTTPSSchemeRendersLink(t *testing.T) {
+	shell := minimalShell()
+	shell.PrefURL = "https://example.com/settings"
+	text, html := Render(shell, nil)
+
+	if !strings.Contains(html, `<a href="https://example.com/settings"`) {
+		t.Errorf("html footer must carry the link:\n%s", html)
+	}
+	if !strings.HasSuffix(text, "Manage: https://example.com/settings") {
+		t.Errorf("text footer must carry the URL: %q", text)
 	}
 }

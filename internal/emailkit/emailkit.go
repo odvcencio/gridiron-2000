@@ -11,6 +11,7 @@ package emailkit
 
 import (
 	"html"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -78,23 +79,40 @@ func Render(shell Shell, blocks []Block) (text, html string) {
 
 func renderText(shell Shell, blocks []Block) string {
 	var b strings.Builder
-	b.WriteString(shell.Wordmark)
+	// finding m3: every Shell field is written raw here (none of them
+	// pass through wrapText's whitespace normalization), so each is
+	// routed through textSafe to close the same newline-forging gap the
+	// block-level fields close.
+	b.WriteString(textSafe(shell.Wordmark))
 	b.WriteString(" // ")
-	b.WriteString(shell.Tagline)
+	b.WriteString(textSafe(shell.Tagline))
 	b.WriteString("\n\n* ")
-	b.WriteString(shell.Signal)
+	b.WriteString(textSafe(shell.Signal))
 	for _, block := range blocks {
+		// finding nit 1: a Divider carries its blank line as the ambient
+		// separator between its neighbors, not as its own extra pair of
+		// separators — skip its iteration's leading "\n\n" entirely, since
+		// appendText already emits nothing for it. Without this, the "\n\n"
+		// written here plus the next block's own leading "\n\n" would stack
+		// into three blank lines instead of the spec's one.
+		if _, isDivider := block.(Divider); isDivider {
+			continue
+		}
 		b.WriteString("\n\n")
 		block.appendText(&b)
 	}
 	b.WriteString("\n\n")
-	b.WriteString(shell.Signoff)
+	b.WriteString(textSafe(shell.Signoff))
 	b.WriteString("\n")
-	b.WriteString(shell.FooterJoke)
+	b.WriteString(textSafe(shell.FooterJoke))
 	b.WriteString("\n")
-	b.WriteString(shell.PrefLine)
+	b.WriteString(textSafe(shell.PrefLine))
 	b.WriteString("\nManage: ")
-	b.WriteString(shell.PrefURL)
+	// finding nit 9: mirrors the HTML footer's scheme guard — a non-http(s)
+	// PrefURL leaves the "Manage: " label with no URL trailing it.
+	if hasSafeURLScheme(shell.PrefURL) {
+		b.WriteString(textSafe(shell.PrefURL))
+	}
 	return b.String()
 }
 
@@ -204,13 +222,19 @@ func renderHTML(shell Shell, blocks []Block) string {
 	b.WriteString(FontMono)
 	b.WriteString(`; font-size:10px; letter-spacing:0.04em; margin-top:6px;">`)
 	b.WriteString(escapeHTML(shell.PrefLine))
-	b.WriteString(` Manage: <a href="`)
-	b.WriteString(escapeHTML(shell.PrefURL))
-	b.WriteString(`" style="color:`)
-	b.WriteString(ColorMuted)
-	b.WriteString(`;">`)
-	b.WriteString(escapeHTML(shell.PrefURL))
-	b.WriteString(`</a></div>
+	b.WriteString(` Manage: `)
+	// finding nit 9: only an http(s) PrefURL becomes a link; any other
+	// scheme (or an unparseable value) renders the "Manage:" label alone.
+	if hasSafeURLScheme(shell.PrefURL) {
+		b.WriteString(`<a href="`)
+		b.WriteString(escapeHTML(shell.PrefURL))
+		b.WriteString(`" style="color:`)
+		b.WriteString(ColorMuted)
+		b.WriteString(`;">`)
+		b.WriteString(escapeHTML(shell.PrefURL))
+		b.WriteString(`</a>`)
+	}
+	b.WriteString(`</div>
 </td>
 </tr>
 </table>
@@ -228,4 +252,20 @@ func renderHTML(shell Shell, blocks []Block) string {
 // place.
 func escapeHTML(s string) string {
 	return html.EscapeString(s)
+}
+
+// hasSafeURLScheme reports whether raw parses as an absolute URL with an
+// http or https scheme (finding nit 9): CTA.URL and Shell.PrefURL are the
+// only two fields that ever reach an href, and neither carries a
+// documented scheme allowlist. A "javascript:", "data:", or other
+// non-http(s) scheme — or a URL that fails to parse at all — is not safe
+// to link. Every caller checks this before writing an href, and renders
+// the label alone (HTML) or drops the trailing URL (text) when it fails.
+func hasSafeURLScheme(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	return scheme == "http" || scheme == "https"
 }

@@ -616,7 +616,11 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 // the key is new. One lock acquisition, one persist: the check and the
 // write are atomic, so two evaluation paths (an event hook and a
 // derivation tick) racing the same key cannot both report true (spec
-// section 6.2, 6.3).
+// section 6.2, 6.3). true always means "on disk": when the persist fails,
+// the in-memory entry is rolled back and FirstSend returns (false, err),
+// so a caller that ignores the error never believes a send it must not
+// repeat, and a caller that honors it can retry the same key next time
+// (finding M1).
 func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -624,25 +628,41 @@ func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
 		return false, nil
 	}
 	s.state.SentLog[key] = now.UTC()
-	return true, s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		delete(s.state.SentLog, key)
+		return false, err
+	}
+	return true, nil
 }
 
 // FirstSendBatch does the same as FirstSend for a league-wide fan-out, in
 // one persist: result[i] reports whether keys[i] was new. A repeated key
-// within the same call is new only for its first occurrence.
+// within the same call is new only for its first occurrence. When the
+// persist fails, every key newly added by this call is rolled back and
+// FirstSendBatch returns an all-false result plus the error; a key that
+// was already recorded before this call is left untouched, since this
+// call never claimed to be the one that made it true (finding M1).
 func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	result := make([]bool, len(keys))
 	sentAt := now.UTC()
+	added := make([]string, 0, len(keys))
 	for i, key := range keys {
 		if _, exists := s.state.SentLog[key]; exists {
 			continue
 		}
 		s.state.SentLog[key] = sentAt
 		result[i] = true
+		added = append(added, key)
 	}
-	return result, s.persistLocked()
+	if err := s.persistLocked(); err != nil {
+		for _, key := range added {
+			delete(s.state.SentLog, key)
+		}
+		return make([]bool, len(keys)), err
+	}
+	return result, nil
 }
 
 // PruneSentLog drops SentLog entries older than cutoff and entries whose
@@ -650,21 +670,29 @@ func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
 // only, which is how ResetDraft and ResetLeague reuse this rule outside
 // their own atomic persist (see pruneSentLogPrefixesLocked); the
 // notifier's daily prune calls it with prefixes empty and cutoff 180 days
-// back (spec section 6.2).
+// back (spec section 6.2). It persists only when at least one entry was
+// actually dropped, so a no-op prune does not rewrite the state file and
+// move the fingerprint for nothing (finding nit 6).
 func (s *Store) PruneSentLog(cutoff time.Time, prefixes ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	deleted := false
 	for key, sentAt := range s.state.SentLog {
 		if !cutoff.IsZero() && sentAt.Before(cutoff) {
 			delete(s.state.SentLog, key)
+			deleted = true
 			continue
 		}
 		for _, prefix := range prefixes {
 			if strings.HasPrefix(key, prefix) {
 				delete(s.state.SentLog, key)
+				deleted = true
 				break
 			}
 		}
+	}
+	if !deleted {
+		return nil
 	}
 	return s.persistLocked()
 }

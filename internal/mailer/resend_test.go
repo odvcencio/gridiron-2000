@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -184,6 +185,117 @@ func TestSendIsAThinSendMessageWrapper(t *testing.T) {
 	}
 	if got["from"] != "commish@example.com" || got["subject"] != "Subject line" || got["text"] != "Body text" {
 		t.Errorf("payload wrong: %+v", got)
+	}
+}
+
+// TestResendSanitizesSubjectAndReplyToCRLF checks the Resend path's half of
+// finding B1: a CRLF payload in Subject or ReplyTo cannot survive into the
+// JSON payload's subject/reply_to values, matching the SMTP path's
+// buildMessage behavior.
+func TestResendSanitizesSubjectAndReplyToCRLF(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"test"}`))
+	}))
+	defer server.Close()
+
+	config := Config{ResendKey: "re_test_key", ResendFrom: "commish@example.com", resendURL: server.URL}
+	err := config.SendMessage(Message{
+		To:      "manager@example.com",
+		Subject: "Hi\r\nX-Injected: yes",
+		Text:    "Body",
+		ReplyTo: "a@example.com\r\nBcc: evil@example.com",
+	})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	subject, _ := got["subject"].(string)
+	if strings.ContainsAny(subject, "\r\n") {
+		t.Errorf("subject carries a raw CR or LF: %q", subject)
+	}
+	replyTo, _ := got["reply_to"].(string)
+	if strings.ContainsAny(replyTo, "\r\n") {
+		t.Errorf("reply_to carries a raw CR or LF: %q", replyTo)
+	}
+}
+
+// TestResendOmitsTagWithEmptyOrOutOfCharsetNameOrValue checks finding m6:
+// an empty category tag, and a tag whose name or value falls outside
+// Resend's documented ASCII letters/digits/_/- charset, are filtered
+// rather than sent as-is; a tag that survives filtering keeps only the
+// allowed characters.
+func TestResendOmitsTagWithEmptyOrOutOfCharsetNameOrValue(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"test"}`))
+	}))
+	defer server.Close()
+
+	config := Config{ResendKey: "re_test_key", ResendFrom: "commish@example.com", resendURL: server.URL}
+	err := config.SendMessage(Message{
+		To:      "manager@example.com",
+		Subject: "Hi",
+		Text:    "Body",
+		Tags: map[string]string{
+			"category": "",             // empty value: must be omitted entirely
+			"league":   "g2k! (draft)", // out-of-charset chars: filtered, not omitted
+			"":         "orphan-name",  // empty name: must be omitted entirely
+		},
+	})
+	if err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	rawTags, _ := got["tags"].([]any)
+	tags := map[string]string{}
+	for _, entry := range rawTags {
+		m, _ := entry.(map[string]any)
+		name, _ := m["name"].(string)
+		value, _ := m["value"].(string)
+		tags[name] = value
+	}
+	if len(tags) != 1 {
+		t.Fatalf("tags = %+v, want exactly one surviving tag", tags)
+	}
+	if tags["league"] != "g2kdraft" {
+		t.Errorf("league tag = %q, want charset-filtered %q", tags["league"], "g2kdraft")
+	}
+	if _, present := tags["category"]; present {
+		t.Error("an empty-value tag must be omitted")
+	}
+}
+
+// TestResendRejectsControlCharacterInIdempotencyKey checks finding nit 8:
+// a CRLF (or any other control character) in IdempotencyKey fails the
+// send with a clear error before ever reaching net/http's header writer,
+// rather than losing the email to a low-level "invalid header value"
+// failure net/http would otherwise raise.
+func TestResendRejectsControlCharacterInIdempotencyKey(t *testing.T) {
+	hit := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"test"}`))
+	}))
+	defer server.Close()
+
+	config := Config{ResendKey: "re_test_key", ResendFrom: "commish@example.com", resendURL: server.URL}
+	err := config.SendMessage(Message{
+		To:             "manager@example.com",
+		Subject:        "Hi",
+		Text:           "Body",
+		IdempotencyKey: "seat:team-1:a@example.com\r\nX-Injected: yes",
+	})
+	if err == nil {
+		t.Fatal("expected an error for a control character in IdempotencyKey")
+	}
+	if hit {
+		t.Error("the request must not reach the transport when IdempotencyKey is invalid")
 	}
 }
 
