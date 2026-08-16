@@ -1,0 +1,2 @@
+Further auto picks stay quiet until you return. The recap lists
+everything once the draft wraps, so nothing you missed goes unrecorded.
