@@ -454,14 +454,29 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 }
 
 // withHistorical fills a player's previous-season line from the attached
-// historical source, unless the player already carries one or no source is
-// attached. Callers hold poolMu already (see buildPool).
+// historical source, unless the player already carries one. Callers hold
+// poolMu already (see buildPool).
+//
+// Punter fallback (roster-ops spec section 4.1.2 / WP-R0): nflverse's
+// season-summary mirror — the attached historicalFn source — carries no
+// punting columns, so a Position "P" player never matches there. When the
+// primary source is absent or misses and the player is a punter, this
+// falls back to the embedded 2025 punter index (punters_hist.go), matching
+// by team and last name. A mismatch attaches nothing (fail quiet).
 func (s *Service) withHistorical(player Player) Player {
-	if player.Hist != "" || s.historicalFn == nil {
+	if player.Hist != "" {
 		return player
 	}
-	if line, ok := s.historicalFn(player.Name, player.Position); ok && line != "" {
-		player.Hist = line
+	if s.historicalFn != nil {
+		if line, ok := s.historicalFn(player.Name, player.Position); ok && line != "" {
+			player.Hist = line
+			return player
+		}
+	}
+	if player.Position == "P" {
+		if line, ok := punterHistLine(player.Name, player.NFLTeam); ok && line != "" {
+			player.Hist = line
+		}
 	}
 	return player
 }
