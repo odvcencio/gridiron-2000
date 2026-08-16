@@ -4,6 +4,24 @@ This runbook takes GRIDIRON 2000 from a built image to a live production
 deployment at `gridiron.draco.quest`. Follow the steps in order. Each step
 lists the exact command to run.
 
+## Deployment status (2026-08-16)
+
+Steps 1 through 6 are complete. The app is live at
+`https://gridiron.draco.quest` with a valid certificate. The wildcard
+`*.draco.quest` DNS record already covered the hostname. The applied
+secret holds a generated `SESSION_SECRET` and `DATA_API_TOKEN`; the
+Google OAuth values, the manager allowlist, and the Tank01 key are still
+empty, so the app runs in OAuth setup mode. To finish:
+
+1. Complete step 7 (Google OAuth redirect URI).
+2. Patch the secret with the real values, then restart:
+   ```
+   kubectl patch secret gridiron-2000-secrets -n gridiron --type merge -p \
+     '{"stringData":{"GOOGLE_CLIENT_ID":"...","GOOGLE_CLIENT_SECRET":"...","LEAGUE_ALLOWED_EMAILS":"a@x.com,b@x.com","TANK01_API_KEY":"..."}}'
+   kubectl rollout restart deployment/gridiron-2000 -n gridiron
+   ```
+3. Run the step 10 smoke test.
+
 ## Before you start
 
 Confirm you have:
