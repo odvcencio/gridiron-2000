@@ -59,6 +59,7 @@ func main() {
 	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 	league.Default().SetHistoricalSource(historicalSource(openStats))
+	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
 	league.Default().StartDraftClock(runtimeContext)
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
@@ -367,6 +368,41 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 				AwayScore: int(game.AwayScore),
 				HomeScore: int(game.HomeScore),
 				Final:     now.After(kickoff.Add(5 * time.Hour)),
+			})
+		}
+		return out
+	}
+}
+
+// leagueWeekStatsSource adapts the mirrored nflverse weekly player ledger to
+// the league's WeekStatsSource seam (competition-formats spec section
+// 2.4): one WeekStatLine per player, keyed by the same
+// openstats.NormalizePlayerKey the pick'em and historical-line seams
+// already use, with stats mapped onto the league's scoring rule keys.
+// PlayerWeekStat carries only passing, rushing, receiving, and fumbles
+// columns today, so two-point conversions, kicking, return TDs, and DST
+// rules score zero in v1 — the honest coverage note in section 2.4, not a
+// bug here. openstats.Service.PlayerStats caps results at 1000 rows per
+// call regardless of Limit, an existing openstats constraint this adapter
+// does not change.
+func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
+	return func(week int) []league.WeekStatLine {
+		rows := stats.PlayerStats(openstats.PlayerQuery{Week: week, Limit: 1000})
+		out := make([]league.WeekStatLine, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, league.WeekStatLine{
+				Key: openstats.NormalizePlayerKey(row.PlayerName, row.Position),
+				Stats: map[string]float64{
+					"passYards":  row.PassingYards,
+					"passTD":     row.PassingTDs,
+					"passInt":    row.PassingInterceptions,
+					"rushYards":  row.RushingYards,
+					"rushTD":     row.RushingTDs,
+					"reception":  row.Receptions,
+					"recYards":   row.ReceivingYards,
+					"recTD":      row.ReceivingTDs,
+					"fumbleLost": row.FumblesLost,
+				},
 			})
 		}
 		return out

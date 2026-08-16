@@ -62,6 +62,7 @@ type Service struct {
 	poolStatusFn PoolStatusSource
 	scheduleFn   ScheduleSource
 	historicalFn HistoricalSource
+	weekStatsFn  WeekStatsSource
 
 	// notifyQueue is the delivery queue every notification hook enqueues to
 	// (internal/notify). nil means notifications were never wired (most
@@ -102,10 +103,7 @@ func Default() *Service {
 		draftAt := parseDraftAt(os.Getenv("DRAFT_AT"))
 		demo := parseBool(os.Getenv("DEMO_MODE"), os.Getenv("GOOGLE_CLIENT_ID") == "")
 		defaultSvc = &Service{
-			store: NewStore(statePath),
-			// Matchups stay on the local preview contract until the league has
-			// drafted lineups that can be scored against the owned nflverse cache.
-			feed:             newLiveFeed(nil),
+			store:            NewStore(statePath),
 			draftAt:          draftAt,
 			draftTZ:          parseDraftTZ(os.Getenv("DRAFT_TZ")),
 			demoMode:         demo,
@@ -114,6 +112,11 @@ func Default() *Service {
 			presence:         newPresenceTracker(time.Now()),
 			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
 		}
+		// scheduleProvider reads the persisted league schedule once one has
+		// been generated; until then it defers to the honest preseason
+		// snapshot (feed.go). This replaces the always-empty demoProvider
+		// default (competition-formats spec section 2.5).
+		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc})
 	})
 	return defaultSvc
 }
