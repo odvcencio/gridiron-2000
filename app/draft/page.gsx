@@ -88,7 +88,7 @@ func DraftQueue(props any) Node {
 					</div>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
-					<form method="post" action={props.Action} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={props.Action} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
 						<input type="hidden" name="player_id" value={player.id}></input>
@@ -129,7 +129,7 @@ func DraftTeam(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page draft-page" id="main-content" data-draft-at={data.draft.at}>
+	return <main class="page draft-page" id="main-content" data-draft-at={data.draft.at} data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -177,12 +177,12 @@ func Page() Node {
 					>--:--</strong>
 					<span class="mono pick-clock-reason">{data.clock.reason}</span>
 				</div>
-				<form method="post" action={actionPath("toggle-ready")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<form method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button button--primary" type="submit">Toggle my ready state</button>
 				</form>
-				<form method="post" action={actionPath("toggle-autopick")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<form method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button autopick-toggle" type="submit">Toggle my autopick</button>
@@ -251,25 +251,25 @@ func Page() Node {
 					<span class="mono">{data.clock.reason}</span>
 				</header>
 				<div class="clock-controls">
-					<form method="post" action={actionPath("clock-pause")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("clock-pause")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button class="button button--compact" type="submit">Pause clock</button>
 					</form>
-					<form method="post" action={actionPath("clock-resume")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("clock-resume")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button class="button button--compact button--primary" type="submit">Resume clock</button>
 					</form>
-					<form method="post" action={actionPath("clock-extend")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
-					<form method="post" action={actionPath("clock-set-duration")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
 						<button class="button button--compact" type="submit">Set duration</button>
 					</form>
-					<form method="post" action={actionPath("clock-force-autopick")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("clock-force-autopick")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button class="button button--compact button--ghost" type="submit">Force autopick</button>
 					</form>

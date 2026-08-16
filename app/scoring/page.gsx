@@ -12,7 +12,7 @@ func ScoringRow(props any) Node {
 			<b class="mono">{props.rule.points}</b>
 		</If>
 		<If cond={props.Editable}>
-			<form class="scoring-row__form" method="post" action={props.SetAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+			<form class="scoring-row__form" method="post" action={props.SetAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="key" value={props.rule.key}></input>
 				<input type="text" name="points" value={props.rule.points} class="scoring-input"></input>
@@ -102,7 +102,7 @@ func Page() Node {
 					</div>
 				</div>
 				<div class="danger-grid">
-					<form method="post" action={actionPath("scoring-reset")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action={actionPath("scoring-reset")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<strong>Reset scoring</strong>
 						<p>Restores every rule to the league defaults. Custom values are lost.</p>

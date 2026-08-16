@@ -43,19 +43,19 @@ func BoardRow(props any) Node {
 		<span class="position-chip">{props.player.position}</span>
 		<b class="mono">{props.player.projection}</b>
 		<div class="board-controls">
-			<form method="post" action={props.MoveAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+			<form method="post" action={props.MoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="player_id" value={props.player.id}></input>
 				<input type="hidden" name="direction" value="up"></input>
 				<button class="board-button" type="submit" aria-label={"Move " + props.player.name + " up"}>▲</button>
 			</form>
-			<form method="post" action={props.MoveAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+			<form method="post" action={props.MoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="player_id" value={props.player.id}></input>
 				<input type="hidden" name="direction" value="down"></input>
 				<button class="board-button" type="submit" aria-label={"Move " + props.player.name + " down"}>▼</button>
 			</form>
-			<form method="post" action={props.RemoveAction} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+			<form method="post" action={props.RemoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="player_id" value={props.player.id}></input>
 				<button class="board-button board-button--cut" type="submit" aria-label={"Remove " + props.player.name}>✕</button>
@@ -65,7 +65,7 @@ func BoardRow(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page board-page" id="main-content">
+	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -120,7 +120,7 @@ func Page() Node {
 						<h2>Ranked queue</h2>
 					</div>
 					<If cond={data.board_count > 0}>
-						<form method="post" action={actionPath("board-clear")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+						<form method="post" action={actionPath("board-clear")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<button class="filter-button" type="submit">Clear board</button>
 						</form>
@@ -205,7 +205,7 @@ func Page() Node {
 							</div>
 							<span class="position-chip">{player.position}</span>
 							<b class="mono">{player.projection}</b>
-							<form method="post" action={actionPath("board-add")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+							<form method="post" action={actionPath("board-add")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="player_id" value={player.id}></input>
 								<If cond={data.can_edit}>

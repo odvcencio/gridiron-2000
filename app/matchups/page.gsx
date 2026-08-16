@@ -40,7 +40,7 @@ func MatchupCard(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root>
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">

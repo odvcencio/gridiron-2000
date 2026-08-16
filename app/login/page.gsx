@@ -56,7 +56,7 @@ func Page() Node {
 						<strong>{data.viewer.team_name}</strong>
 					</div>
 					<a href="/team" data-gosx-link class="button button--primary">Open team terminal</a>
-					<form method="post" action="/auth/logout" data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action="/auth/logout" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button type="submit" class="button button--ghost">Sign out</button>
 					</form>
