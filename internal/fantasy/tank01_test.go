@@ -66,6 +66,52 @@ func TestParseADPHandlesWrapperAndStringNumbers(t *testing.T) {
 	}
 }
 
+// Shapes below mirror the live feed observed on 2026-08-16: DST rows carry
+// posADP + teamAbv and no playerID; news rows carry only link + title.
+func TestParseADPLiveShapeSynthesizesDST(t *testing.T) {
+	raw := json.RawMessage(`{"adpList":[
+		{"posADP":"DST1","overallADP":"154.3","teamAbv":"HOU","teamID":"13","longName":"Houston Texans DST"},
+		{"posADP":"K1","overallADP":"184.6","playerID":"3953687","longName":"Brandon Aubrey"},
+		{"posADP":"WR9","overallADP":"12.1","playerID":"77","longName":"Some Receiver"}
+	]}`)
+	entries := parseADP(raw)
+	if len(entries) != 3 {
+		t.Fatalf("entries = %d, want 3 (%+v)", len(entries), entries)
+	}
+	dst := entries[1]
+	if dst.PlayerID != "DST-HOU" || dst.Position != "DST" || dst.Team != "HOU" || dst.Name != "Houston Texans DST" {
+		t.Errorf("DST entry wrong: %+v", dst)
+	}
+	if entries[2].Position != "K" || entries[2].PlayerID != "3953687" {
+		t.Errorf("kicker posADP prefix not derived: %+v", entries[2])
+	}
+}
+
+func TestParseNewsFallsBackToTitleName(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"link":"https://example.com/1","title":"Keon Coleman: appeared to suffer a lower body injury"},
+		{"link":"https://example.com/2","title":"No colon headline"},
+		{"playerID":"55","title":"By ID: still keyed on the ID"}
+	]`)
+	news := parseNews(raw)
+	if news["Keon Coleman"] == "" {
+		t.Errorf("name-prefix key missing: %v", news)
+	}
+	if news["55"] == "" {
+		t.Errorf("playerID key missing: %v", news)
+	}
+}
+
+func TestMergePoolMatchesNewsByName(t *testing.T) {
+	base := map[string]Player{"1": {ID: "1", Name: "Keon Coleman", Position: "WR", NFLTeam: "BUF"}}
+	adp := []adpEntry{{PlayerID: "1", ADP: 30}}
+	news := map[string]string{"Keon Coleman": "Keon Coleman: limited in practice"}
+	pool := mergePool(base, adp, nil, news, nil, 10)
+	if pool[0].News != "Keon Coleman: limited in practice" {
+		t.Errorf("news by name not applied: %+v", pool[0])
+	}
+}
+
 func TestParseProjectionsMapAndScoring(t *testing.T) {
 	raw := json.RawMessage(`{"playerProjections":{
 		"1":{"fantasyPointsDefault":{"standard":"10.0","PPR":"14.0","halfPPR":"12.0"}},
