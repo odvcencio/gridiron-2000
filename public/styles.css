@@ -1422,6 +1422,11 @@ h2 {
   background: var(--color-white-faint);
 }
 
+.player-avatar--photo {
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
 .game-state,
 .lineup-lock {
   display: inline-flex;
@@ -1742,6 +1747,31 @@ h2 {
 .pool-rank {
   color: var(--color-text-muted);
   font-size: var(--type-xs);
+}
+
+/* .pool-player also renders the pickem leaderboard row (app/pickem/page.gsx),
+   which stays on the default grid stack. The --photo modifier scopes the
+   flex layout to the draft/board rows that carry the new headshot img. */
+.pool-player--photo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.pool-player--photo .pool-player__text {
+  min-width: 0;
+  display: grid;
+}
+
+.player-headshot {
+  display: inline-block;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--color-white-faint);
+  vertical-align: middle;
+  margin-right: var(--space-xs);
 }
 
 .board-workspace,

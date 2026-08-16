@@ -3,9 +3,14 @@ package board
 func BoardRow(props any) Node {
 	return <article class="board-row" data-picked={props.player.picked}>
 		<span class="pool-rank mono">{props.player.board_rank}</span>
-		<div class="pool-player">
-			<strong>{props.player.name}</strong>
-			<small>{props.player.detail}</small>
+		<div class="pool-player pool-player--photo">
+			<If cond={props.player.has_headshot}>
+				<img class="player-headshot" src={props.player.headshot} alt="" loading="lazy" />
+			</If>
+			<div class="pool-player__text">
+				<strong>{props.player.name}</strong>
+				<small>{props.player.detail}</small>
+			</div>
 		</div>
 		<span class="position-chip">{props.player.position}</span>
 		<b class="mono">{props.player.projection}</b>
@@ -133,9 +138,14 @@ func Page() Node {
 					<Each of={data.available} as="player">
 						<article class="pool-row" data-player-position={player.position} data-search={player.search}>
 							<span class="pool-rank mono">{player.rank}</span>
-							<div class="pool-player">
-								<strong>{player.name}</strong>
-								<small>{player.detail}</small>
+							<div class="pool-player pool-player--photo">
+								<If cond={player.has_headshot}>
+									<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
+								</If>
+								<div class="pool-player__text">
+									<strong>{player.name}</strong>
+									<small>{player.detail}</small>
+								</div>
 							</div>
 							<span class="position-chip">{player.position}</span>
 							<b class="mono">{player.projection}</b>

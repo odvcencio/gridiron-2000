@@ -3,6 +3,7 @@ package league
 import (
 	"crypto/rand"
 	"fmt"
+	"html"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -48,7 +49,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	for _, teamID := range orderIDs {
 		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
 	}
-	previewSubject, previewBody := s.InviteEmailTemplate("their-email@example.com")
+	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
 	return map[string]any{
 		"viewer":           s.Viewer(r),
 		"is_commissioner":  s.IsCommissioner(r),
@@ -65,16 +66,16 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"order_randomized": len(state.DraftOrder) > 0,
 		"pool":             s.poolStatusMap(),
 		"mail_enabled":     mailer.FromEnv().Enabled(),
-		"invite_preview":   map[string]any{"subject": previewSubject, "body": previewBody},
+		"invite_preview":   map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
 	}
 }
 
 // inviteMailto builds a prefilled mailto: link for one invite email, using
-// that email's own copy of the invite template (its address appears inside
-// the body).
+// that email's own copy of the invite template's plain-text body (mailto:
+// links cannot carry HTML, so the text version is the only option here).
 func inviteMailto(s *Service, email string) string {
-	subject, body := s.InviteEmailTemplate(email)
-	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(body)
+	subject, text, _ := s.InviteEmailTemplate(email)
+	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(text)
 }
 
 func (s *Service) requireCommissioner(r *http.Request) error {
@@ -95,10 +96,13 @@ func (s *Service) AdminAddInvite(r *http.Request, email string) error {
 // defaultLeagueURL is the fallback landing page when LEAGUE_URL is unset.
 const defaultLeagueURL = "https://gridiron.draco.quest"
 
-// InviteEmailTemplate builds the subject and body of the invite email sent
-// to one manager. It draws the draft date and time from the live draft
-// summary, so the copy always matches the console.
-func (s *Service) InviteEmailTemplate(email string) (subject, body string) {
+// InviteEmailTemplate builds the subject, plain-text body, and HTML body of
+// the invite email sent to one manager. It draws the draft date and time
+// from the live draft summary, so the copy always matches the console. The
+// HTML body carries the same facts as the text body, dressed in the
+// league's Neo-Retro Stadium OS look; the text body is unchanged from the
+// plain-text-only era, since its mailto: use depends on the wording.
+func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody string) {
 	draft := s.draftSummary(time.Now())
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
@@ -109,7 +113,7 @@ func (s *Service) InviteEmailTemplate(email string) (subject, body string) {
 	}
 
 	subject = fmt.Sprintf("You're invited: GRIDIRON 2000 — dynasty league, draft %s", shortDate)
-	body = fmt.Sprintf(`Hi there,
+	text = fmt.Sprintf(`Hi there,
 
 You've got a seat waiting in GRIDIRON 2000, an eight-manager dynasty
 league split into the Aqua and Orange divisions.
@@ -128,8 +132,128 @@ The full scoring system is on the Rules page.
 Rosters carry over season to season, so draft like it matters.
 
 — The Commissioner`, longDate, draftTime, leagueURL, email)
-	return subject, body
+	htmlBody = inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email)
+	return subject, text, htmlBody
 }
+
+// inviteEmailHTML renders the designed HTML invite body: a single 600px
+// table with every style inline and no external assets, so it survives
+// clipping and dark/light rendering across mail clients. email and
+// leagueURL are attacker-influenced (email via the invite form, leagueURL
+// via the environment) and are HTML-escaped before insertion.
+func inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email string) string {
+	safeEmail := html.EscapeString(email)
+	safeURL := html.EscapeString(leagueURL)
+	safeShortDate := html.EscapeString(shortDate)
+	safeLongDate := html.EscapeString(longDate)
+	safeDraftTime := html.EscapeString(draftTime)
+	return fmt.Sprintf(inviteEmailHTMLTemplate, safeShortDate, safeLongDate, safeDraftTime, safeEmail, safeURL)
+}
+
+// inviteEmailHTMLTemplate is the invite email's HTML body: a single
+// 600px-max table, all styles inline, system font stack only (no external
+// assets or webfonts), dark ground with light-enough text to survive a
+// client forcing light mode. %s placeholders fill, in order: the short
+// draft date ("SAT · AUG 22" style) for the signal line, the long draft
+// date, the draft time, the invited email, and the league URL (used twice,
+// as the CTA href and its escaped text is not repeated so no dupe risk).
+const inviteEmailHTMLTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRIDIRON 2000</title>
+</head>
+<body style="margin:0; padding:0; background-color:#070A16;">
+<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%; background-color:#070A16; margin:0; padding:0;">
+<tr>
+<td align="center" style="padding:32px 16px;">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:600px; background-color:#0B1024; border:1px solid #26305A; border-radius:4px;">
+<tr>
+<td style="padding:24px 32px 20px 32px; border-bottom:1px solid #26305A;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td width="44" valign="middle" style="padding-right:12px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #38E8FF; border-radius:2px;"><tr><td style="width:40px; height:40px; text-align:center; vertical-align:middle; color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:13px; font-weight:700;">G2K</td></tr></table>
+</td>
+<td valign="middle">
+<div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:19px; font-weight:800; letter-spacing:-0.02em; text-transform:uppercase;">GRIDIRON 2000</div>
+<div style="color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-top:3px;">DYNASTY FANTASY LEAGUE</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:20px 32px 0 32px;">
+<div style="color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:12px; letter-spacing:0.08em; text-transform:uppercase;">&#9679; DRAFT EVENT // %s</div>
+</td>
+</tr>
+<tr>
+<td style="padding:14px 32px 0 32px;">
+<div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:32px; font-weight:800; letter-spacing:-0.03em; text-transform:uppercase; line-height:1.08;">YOU'RE IN.</div>
+<div style="color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; margin-top:12px;">A seat is holding for you in an eight-manager dynasty league. Aqua vs Orange. Rosters carry over. Receipts are forever.</div>
+</td>
+</tr>
+<tr>
+<td style="padding:24px 32px 0 32px;">
+<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0" style="width:100%%; border:1px solid #26305A; border-radius:4px; background-color:#131B3B;">
+<tr>
+<td style="padding:16px 20px; border-bottom:1px solid #26305A;">
+<span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">DRAFT</span>
+<span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">%s &middot; %s</span>
+</td>
+</tr>
+<tr>
+<td style="padding:16px 20px; border-bottom:1px solid #26305A;">
+<span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">VENUE</span>
+<span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">During the Dolphins preseason game &mdash; bring both screens.</span>
+</td>
+</tr>
+<tr>
+<td style="padding:16px 20px;">
+<span style="display:inline-block; width:88px; color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; vertical-align:top;">YOUR KEY</span>
+<span style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">Sign in with Google as %s</span>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center" style="padding:28px 32px 0 32px;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td style="border-radius:2px; background-color:#38E8FF;">
+<a href="%s" style="display:inline-block; padding:14px 30px; color:#070A16; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; text-decoration:none; border-radius:2px;">CLAIM YOUR SEAT &rarr;</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:28px 32px 0 32px;">
+<div style="color:#8995B8; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:11px; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:12px;">NEXT STEPS //</div>
+<table role="presentation" width="100%%" cellpadding="0" cellspacing="0" border="0">
+<tr><td style="padding:5px 0; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;"><span style="color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-weight:700;">1.</span>&nbsp; Claim your seat</td></tr>
+<tr><td style="padding:5px 0; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;"><span style="color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-weight:700;">2.</span>&nbsp; Rename your team</td></tr>
+<tr><td style="padding:5px 0; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;"><span style="color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-weight:700;">3.</span>&nbsp; Build your Big Board</td></tr>
+<tr><td style="padding:5px 0; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;"><span style="color:#38E8FF; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-weight:700;">4.</span>&nbsp; Read the Rules page</td></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:28px 32px 32px 32px;">
+<div style="border-top:1px solid #26305A; padding-top:20px; color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:14px;">&mdash; The Commissioner</div>
+<div style="color:#5C6690; font-family:'SFMono-Regular',Consolas,Menlo,monospace; font-size:10px; letter-spacing:0.04em; text-transform:uppercase; margin-top:10px;">GRIDIRON 2000 &middot; Eight seats. One trophy. Permanent group-chat evidence.</div>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>
+`
 
 // AdminSendInvite adds email to the invite list and, when SMTP is
 // configured, sends it the warm invite template. Without SMTP credentials
@@ -143,12 +267,12 @@ func (s *Service) AdminSendInvite(r *http.Request, email string) (bool, error) {
 	if err := s.store.AddInvite(email); err != nil {
 		return false, err
 	}
-	subject, body := s.InviteEmailTemplate(email)
+	subject, text, htmlBody := s.InviteEmailTemplate(email)
 	config := mailer.FromEnv()
 	if !config.Enabled() {
 		return false, nil
 	}
-	err := config.Send(email, subject, body)
+	err := config.Send(email, subject, text, htmlBody)
 	return true, err
 }
 

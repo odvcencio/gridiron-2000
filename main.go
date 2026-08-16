@@ -253,6 +253,7 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 					ADPRank:    player.ADPRank,
 					ByeWeek:    player.ByeWeek,
 					Injury:     player.Injury,
+					Headshot:   player.Headshot,
 					Projection: player.Projection,
 					News:       player.News,
 					Status:     "Available",

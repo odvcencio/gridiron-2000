@@ -10,7 +10,7 @@ import (
 
 const (
 	// SchemaVersion guards the on-disk pool cache format.
-	SchemaVersion = 1
+	SchemaVersion = 2
 	// DefaultHost is the Tank01 NFL API host on RapidAPI. Point TANK01_HOST at
 	// another Tank01 sport host (NBA, MLB, NHL) to reuse this client later.
 	DefaultHost = "tank01-nfl-live-in-game-real-time-statistics-nfl.p.rapidapi.com"
@@ -28,6 +28,7 @@ type Player struct {
 	Projection float64 `json:"projection,omitempty"`
 	Injury     string  `json:"injury,omitempty"`
 	News       string  `json:"news,omitempty"`
+	Headshot   string  `json:"headshot,omitempty"`
 }
 
 // Status reports pool health for /api/health, the admin console, and the

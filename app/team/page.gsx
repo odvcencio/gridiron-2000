@@ -4,7 +4,12 @@ func RosterRow(props any) Node {
 	return <div class="roster-row">
 		<div class="position-chip">{props.position}</div>
 		<div class="player-identity">
-			<span class="player-avatar" aria-hidden="true">{props.nfl_team}</span>
+			<If cond={props.has_headshot}>
+				<img class="player-avatar player-avatar--photo" src={props.headshot} alt="" loading="lazy" />
+			</If>
+			<If cond={props.has_headshot == false}>
+				<span class="player-avatar" aria-hidden="true">{props.nfl_team}</span>
+			</If>
 			<div>
 				<strong>{props.name}</strong>
 				<small>

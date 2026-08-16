@@ -39,6 +39,7 @@ type Player struct {
 	Points     float64 `json:"points"`
 	Status     string  `json:"status"`
 	News       string  `json:"news"`
+	Headshot   string  `json:"headshot,omitempty"`
 }
 
 // GameInfo is one real NFL game supplied by the schedule source.

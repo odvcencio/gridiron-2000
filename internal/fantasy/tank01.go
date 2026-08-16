@@ -104,6 +104,9 @@ func parsePlayerList(raw json.RawMessage) map[string]Player {
 			Position: position,
 			NFLTeam:  strings.ToUpper(flexString(entry["team"])),
 		}
+		if headshot := flexString(entry["espnHeadshot"]); strings.HasPrefix(headshot, "https://") {
+			player.Headshot = headshot
+		}
 		if injury, ok := entry["injury"].(map[string]any); ok {
 			designation := flexString(injury["designation"])
 			if designation != "" && !strings.EqualFold(designation, "healthy") {
