@@ -41,16 +41,21 @@ func Page() Node {
 						{data.viewer.initials}
 					</span>
 					<h1>{data.team.name}</h1>
-					<p>
-						Operated by
-						{data.team.manager}
-						· 2025 finish #
-						{data.team.rank_number}
-					</p>
+					<If cond={data.team.claimed}>
+						<p>
+							Operated by
+							{data.team.manager}
+						</p>
+					</If>
+					<If cond={data.team.claimed == false}>
+						<p>
+							Awaiting a manager — sign in to claim this seat.
+						</p>
+					</If>
 				</div>
 			</div>
 			<div class="team-hero__record">
-				<span>Last season</span>
+				<span>Season</span>
 				<strong class="mono">{data.team.record}</strong>
 				<small>
 					{data.team.points_for}
@@ -96,19 +101,30 @@ func Page() Node {
 						4 slots live
 					</span>
 				</header>
-				<div class="roster-labels mono" aria-hidden="true">
-					<span>POS</span>
-					<span>PLAYER</span>
-					<span>GAME</span>
-					<span>PROJ</span>
-					<span>PTS</span>
-					<span></span>
-				</div>
-				<div class="roster-list">
-					<Each of={data.roster} as="player">
-						<RosterRow {...player}></RosterRow>
-					</Each>
-				</div>
+				<If cond={data.drafted == false}>
+					<div class="empty-tape">
+						<strong>NO ROSTER YET</strong>
+						<p>
+							This roster fills as draft picks are made. Rank your targets on the Big Board first.
+						</p>
+						<a href="/board" data-gosx-link>Open your board →</a>
+					</div>
+				</If>
+				<If cond={data.drafted}>
+					<div class="roster-labels mono" aria-hidden="true">
+						<span>POS</span>
+						<span>PLAYER</span>
+						<span>GAME</span>
+						<span>PROJ</span>
+						<span>PTS</span>
+						<span></span>
+					</div>
+					<div class="roster-list">
+						<Each of={data.roster} as="player">
+							<RosterRow {...player}></RosterRow>
+						</Each>
+					</div>
+				</If>
 			</section>
 			<aside class="scout-panel">
 				<header>
@@ -134,9 +150,12 @@ func Page() Node {
 				<div class="scout-callout">
 					<span>Roster note</span>
 					<p>
-						Player names and projections are demo fixtures until a live league provider is configured.
+						The radar lists the best players still undrafted, straight from the live pool.
 					</p>
 					<a href="/draft" data-gosx-link>Scout draft pool →</a>
+					<If cond={data.is_commissioner}>
+						<a href="/admin" data-gosx-link>Commissioner console →</a>
+					</If>
 				</div>
 			</aside>
 		</div>

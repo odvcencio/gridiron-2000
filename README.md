@@ -14,6 +14,9 @@ The inaugural draft is scheduled for **Saturday, August 22, 2026 at 4:00 PM East
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
 - An atomic local mirror of nflverse schedules, weekly injury reports, and corrected weekly player statistics under the CC-BY-4.0 license.
 - A draft pool service with a swappable provider seam: an embedded 182-player offline pool with approximate ranks, or a live Tank01 pool with ADP, projections, bye weeks, injuries, and news.
+- A personal Big Board at `/board`: every manager ranks the pool their way, and the draft room surfaces their top available targets on the clock.
+- A commissioner console at `/admin` (`COMMISSIONER_EMAILS`): runtime invites, seat release, and typed-confirmation draft or league resets.
+- Honest empty states: seats show `UNCLAIMED` until a manager signs in, records start `0–0`, and rosters stay empty until picks are made.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
 
@@ -175,6 +178,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | --- | --- | --- |
 | `DRAFT_AT` | `2026-08-22T16:00:00-04:00` | Draft start as RFC3339 |
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
+| `COMMISSIONER_EMAILS` | empty | Accounts allowed into `/admin` |
 | `TANK01_API_KEY` | empty | Enables the live Tank01 draft pool |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
