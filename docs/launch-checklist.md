@@ -144,10 +144,14 @@ kubectl get certificate -n gridiron
 ## 9. Subscribe to the Tank01 NFL API
 
 1. Create or sign in to a RapidAPI account.
-2. Subscribe to the Tank01 Fantasy Stats API on the free tier.
+2. Subscribe to "Tank01 NFL Live In-Game Real Time Statistics" on the free
+   tier (1,000 requests per month, no card required).
 3. Copy the API key RapidAPI issues you.
 4. Set `TANK01_API_KEY` in your applied secret to that key, then apply the
    secret and restart the deployment as in step 8.
+5. Confirm `/api/health` reports `"fantasyPoolMode":"live"` within a
+   minute. The app spends five requests per sync and syncs every six
+   hours, so the free tier covers normal operation.
 
 ## 10. Pre-draft smoke test
 
@@ -169,12 +173,11 @@ skip the demo-mode pick rehearsal.
    the real draft date. Submit one draft pick. Confirm the pick appears in
    the pick tape and the on-the-clock team advances.
 
-## Known limitation
+## Notes on client assets
 
-The image compiles the server with a plain `go build`. It does not run the
-`gosx build` client-asset pipeline, so the draft page serves without its
-client-side WASM runtime bundle. Every page still renders correctly, and
-every form-based action — including the draft pick button, the ready
-toggle, and login — works, because they submit as standard HTML forms. The
-draft page's client-side position filter buttons (All, RB, WR, QB, TE) stay
-non-interactive until a follow-up build adds the asset pipeline stage.
+The image builder runs `gosx build --dev .` with the CLI version pinned to
+the go.mod module version. The image therefore serves the hashed runtime
+and island assets, and the draft-room island hydrates in production. Every
+user flow also works without JavaScript through plain HTML forms. The
+position filters and the pool search additionally have a plain JavaScript
+fallback in `public/gridiron.js`.

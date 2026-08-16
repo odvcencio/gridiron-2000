@@ -1,8 +1,8 @@
 # GRIDIRON 2000
 
-A private, eight-manager fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets without a paid sports-data account.
+A private, eight-manager fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 (RapidAPI) key adds live ADP, projections, and fantasy news to the draft room.
 
-The inaugural draft is scheduled for **Saturday, August 15, 2026 at 5:00 PM Pacific**—the next Saturday from the project date. Set `DRAFT_AT` to move it.
+The inaugural draft is scheduled for **Sunday, August 16, 2026 at 5:00 PM Pacific**. Set `DRAFT_AT` to move it.
 
 ## What is included
 
@@ -13,14 +13,15 @@ The inaugural draft is scheduled for **Saturday, August 15, 2026 at 5:00 PM Paci
 - A signed-in league form for tips, shared news, and human-entered market sightings—including observations from PrizePicks—without account automation or scraping.
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
 - An atomic local mirror of nflverse schedules, weekly injury reports, and corrected weekly player statistics under the CC-BY-4.0 license.
+- A draft pool service with a swappable provider seam: an embedded 182-player offline pool with approximate ranks, or a live Tank01 pool with ADP, projections, bye weeks, injuries, and news.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
 
-There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required.
+There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.31.4.
+Requirements: Go 1.26 and GoSX v0.38.1.
 
 ```bash
 cp .env.example .env
@@ -94,6 +95,20 @@ WIRE_RULES_FILE=/absolute/path/to/league-rules.arb
 
 Provenance policy lives in [`internal/wire/trust_rules.arb`](internal/wire/trust_rules.arb) and can be overridden with `WIRE_TRUST_RULES_FILE`. Publisher, social, crowd, and market evidence receive different visible tiers and weights. Exact canonical source links cluster together and show how many independent source records corroborated them. Every result remains provisional: it can alert the league, but it cannot add points, change a roster, or settle a dispute.
 
+## Fantasy draft pool (optional Tank01 key)
+
+The draft room always works. Without a key it uses an embedded offline pool of 182 players with approximate ranks. With a Tank01 key it syncs live data and labels the pool `live`.
+
+To connect Tank01:
+
+1. Create a RapidAPI account and subscribe to "Tank01 NFL Live In-Game Real Time Statistics". The free tier (1,000 requests per month, no card) is enough: one sync costs five requests, and the app syncs every six hours (about 600 per month at the default interval — set `FANTASY_SYNC_INTERVAL=8h` to stay under 1,000, or the $10/month Pro tier removes the concern).
+2. Set `TANK01_API_KEY` in `.env` and restart.
+3. Confirm `fantasyPoolMode` reports `live` at `/api/health`.
+
+One sync fetches the player list, ADP, weekly projections, fantasy news, and team bye weeks, then writes an atomic cache under `data/fantasy/`. Between syncs, and across restarts, the last good pool serves from that cache. `SCORING_FORMAT` (half_ppr, ppr, standard) selects the ADP type and projection scoring.
+
+The same vendor publishes NBA, MLB, NHL, and WNBA APIs with the same envelope. Point `TANK01_HOST` at another Tank01 host to reuse this client when those seasons start.
+
 ## Open statistics mirror
 
 The app uses three nflverse release assets:
@@ -146,6 +161,7 @@ Reusable exports require `Authorization: Bearer <DATA_API_TOKEN>`:
 | `GET /api/data/games?week=1` | Normalized schedule/game records |
 | `GET /api/data/player-week?week=1&player_id=...` | Normalized weekly player ledger |
 | `GET /api/data/injuries?week=1&team=BUF` | Normalized injury/practice reports |
+| `GET /api/data/fantasy-pool` | Normalized draft pool with ADP and projections |
 | `GET /api/data/signal-export.ndjson` | Current non-deleted signal records |
 | `GET /api/data/schedules.csv` | Mirrored nflverse schedule CSV |
 | `GET /api/data/player-stats.csv` | Mirrored nflverse player-stat CSV |
@@ -157,7 +173,13 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DRAFT_AT` | `2026-08-15T17:00:00-07:00` | Draft start as RFC3339 |
+| `DRAFT_AT` | `2026-08-16T17:00:00-07:00` | Draft start as RFC3339 |
+| `TANK01_API_KEY` | empty | Enables the live Tank01 draft pool |
+| `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
+| `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
+| `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
+| `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |
+| `FANTASY_POOL_LIMIT` | `400` | Maximum pool size |
 | `DATA_FILE` | `data/league-state.json` | League state |
 | `WIRE_ENABLED` | `true` | Enable the public signal listener |
 | `WIRE_FEEDS_ENABLED` | `true` | Enable the RSS/Atom source mesh |
@@ -183,10 +205,12 @@ See [`.env.example`](.env.example) for every endpoint and reconnect override.
 ```text
 app/                  GoSX routes, actions, and Signal Wire UI
 internal/league/      seats, draft store, fixtures, and view models
+internal/fantasy/     Tank01 client, pool sync, offline fallback pool
 internal/wire/        RSS/Atom + Jetstream ingestion, trust policy, clustering, journal, and redaction
 internal/openstats/   nflverse sync, parser, manifest, and normalized queries
 public/               Neo-Retro visual system and browser enhancers
-docs/                 source policy, data contract, and design specification
+deploy/k8s/           single-replica Kubernetes manifests
+docs/                 source policy, data contract, and launch checklist
 ```
 
 The JSON stores are deliberate for one private league and one process. Move state to a transactional database before running multiple application replicas.

@@ -23,22 +23,16 @@ ENV GOPRIVATE=github.com/odvcencio/*,github.com/M31-Labs/*,m31labs.dev/* \
     CGO_ENABLED=0
 
 COPY go.mod go.sum ./
-# go.mod on this developer's machine carries a local `replace` pointing at
-# the host's module cache path, which does not exist in the build
-# container. Drop it here (this edits only the in-image copy, not the
-# repository's go.mod) so the real m31labs.dev/gosx module resolves.
-RUN go mod edit -dropreplace=m31labs.dev/gosx && go mod download
+RUN go mod download
 
 COPY . .
-# `COPY . .` re-copies the repository's go.mod (replace directive and all),
-# so drop it again before compiling.
-RUN go mod edit -dropreplace=m31labs.dev/gosx
 
 RUN go build -trimpath -ldflags="-s -w" -o /out/gridiron-2000 .
 
 # Client assets: dist/ is excluded from the build context, so this always
 # generates fresh island programs that match the GSX sources in the image.
-RUN go install m31labs.dev/gosx/cmd/gosx@v0.31.4 && /go/bin/gosx build --dev .
+# Keep the CLI version equal to the m31labs.dev/gosx version in go.mod.
+RUN go install m31labs.dev/gosx/cmd/gosx@v0.38.1 && /go/bin/gosx build --dev .
 
 # Runtime data directory. The PVC mount in Kubernetes covers /app/data in
 # production; this pre-created, owner-only directory lets the same image
