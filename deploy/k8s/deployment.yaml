@@ -45,6 +45,20 @@ spec:
               value: "false"
             - name: PORT
               value: "8080"
+            # LEAGUE_FILE points at the mounted league.json ConfigMap
+            # (productization spec section 3.3, lookup rule 1). It carries
+            # this deployment's real identity: wordmark, teams/divisions,
+            # draft date, invite copy, and the roster-ops config blocks.
+            # See deploy/README.md for how the ConfigMap is created — its
+            # source file is gitignored, never committed here.
+            - name: LEAGUE_FILE
+              value: "/etc/gridiron/league.json"
+            # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are now
+            # redundant with league.json's own draft.at / league.timezone /
+            # season_start_at / scoring_format fields (env still wins over
+            # the file per spec section 3.3, so these stay authoritative
+            # until removed). Kept as a defense-in-depth migration step;
+            # removing them is optional per the spec's migration steps.
             - name: DRAFT_AT
               value: "2026-08-22T16:00:00-04:00"
             - name: DRAFT_TZ
@@ -56,6 +70,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /app/data
+            - name: league-config
+              mountPath: /etc/gridiron
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /api/health
@@ -87,3 +104,12 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: gridiron-2000-data
+        # league-config is a ConfigMap, NOT a file tracked in this repo:
+        # deploy/ is a tracked directory, so the real league.json (with
+        # this league's actual name, divisions, draft date, and invite
+        # copy) never lands here. Create the ConfigMap out-of-band from a
+        # gitignored local file — see deploy/README.md for the exact
+        # command.
+        - name: league-config
+          configMap:
+            name: gridiron-2000-league-config

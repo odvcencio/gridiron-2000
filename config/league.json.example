@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "league": {
+    "name": "THE LEAGUE",
+    "short_code": "TL",
+    "tagline": "Fantasy Football League",
+    "mode_label": "DYNASTY",
+    "url": "http://localhost:8080",
+    "timezone": "America/New_York",
+    "season": 2026
+  },
+  "teams": [
+    { "id": "team-1", "name": "East 1", "abbreviation": "E1", "division": "East", "tone": "cyan" },
+    { "id": "team-2", "name": "East 2", "abbreviation": "E2", "division": "East", "tone": "blue" },
+    { "id": "team-3", "name": "East 3", "abbreviation": "E3", "division": "East", "tone": "violet" },
+    { "id": "team-4", "name": "East 4", "abbreviation": "E4", "division": "East", "tone": "lime" },
+    { "id": "team-5", "name": "West 1", "abbreviation": "W1", "division": "West", "tone": "orange" },
+    { "id": "team-6", "name": "West 2", "abbreviation": "W2", "division": "West", "tone": "gold" },
+    { "id": "team-7", "name": "West 3", "abbreviation": "W3", "division": "West", "tone": "magenta" },
+    { "id": "team-8", "name": "West 4", "abbreviation": "W4", "division": "West", "tone": "pink" }
+  ],
+  "draft": {
+    "at": "2099-01-01T00:00:00Z",
+    "rounds": 15,
+    "format_label": ""
+  },
+  "season_start_at": "2099-01-08T00:00:00Z",
+  "scoring_format": "half_ppr",
+  "copy": {
+    "hero_kicker": "",
+    "footer_line": "",
+    "venue_line": "",
+    "invite_blurb": ""
+  },
+  "roster": {
+    "preset": "standard"
+  },
+  "waivers": {
+    "mode": "perf-priority",
+    "season_weight_pct": 60,
+    "faab_budget": 100,
+    "clear_days": 2,
+    "process_time": "09:00"
+  },
+  "trades": {
+    "deadline": "",
+    "veto": "commissioner",
+    "review_hours": 24
+  }
+}
