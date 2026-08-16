@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -16,6 +17,8 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
+			// A page load is a heartbeat too; the 4s poll takes over after boot.
+			league.Default().RecordPresence(ctx.Request, time.Now())
 			data := league.Default().DraftData(ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
@@ -61,6 +64,19 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
+				ctx.Redirect("/draft")
+				return nil
+			},
+			"toggle-autopick": func(ctx *action.Context) error {
+				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])
+				if err != nil {
+					return action.Error(http.StatusUnauthorized, err.Error())
+				}
+				status := "off"
+				if on {
+					status = "on"
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
 				ctx.Redirect("/draft")
 				return nil
 			},

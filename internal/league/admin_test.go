@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -175,6 +176,99 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("invite missing from admin data: %+v", invites)
+	}
+}
+
+// TestCommissionerForceAutopick checks AdminForceAutopick's authority gate,
+// its live-draft gate, and that it fires while paused with provenance
+// MadeBy == "commissioner".
+//
+// Spec delta: test 15 also asks for "rejected for non-commissioners" and
+// "rejected pre-draft" from the *same* otherwise-authorized commissioner
+// request. That combination is not reachable in this test package:
+// auth.Current keys its context value with an unexported type from
+// m31labs.dev/gosx/auth, so no external package — including this one — can
+// forge a signed-in user, and IsCommissioner in live (non-demo) mode
+// requires exactly that. Demo mode is the only way this suite reaches a
+// positive commissioner check, and demo mode is defined (section 8.5) to
+// never gate on draftAt. The two gates are therefore covered separately:
+// the commissioner gate below, live, with no forged identity; the live-draft
+// gate via the extracted draftIsLive helper in TestDraftIsLive, pure and
+// without any auth dependency.
+func TestCommissionerForceAutopick(t *testing.T) {
+	t.Run("rejected for non-commissioners", func(t *testing.T) {
+		service := newTestService(t, false)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+		if _, _, _, err := service.AdminForceAutopick(request); err == nil {
+			t.Fatal("a non-commissioner request must be rejected")
+		}
+	})
+
+	t.Run("fires while paused with commissioner provenance", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		if err := service.store.ArmClock(time.Now().Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.AdminPauseClock(request); err != nil {
+			t.Fatal(err)
+		}
+
+		pick, player, team, err := service.AdminForceAutopick(request)
+		if err != nil {
+			t.Fatalf("force auto-pick while paused: %v", err)
+		}
+		if pick.MadeBy != "commissioner" {
+			t.Fatalf("MadeBy = %q, want commissioner", pick.MadeBy)
+		}
+		if player.ID == "" || team.ID == "" {
+			t.Fatalf("force auto-pick returned an empty player or team: %+v %+v", player, team)
+		}
+		if got := service.store.Snapshot().Picks; len(got) != 1 {
+			t.Fatalf("picks = %d, want 1", len(got))
+		}
+	})
+
+	t.Run("rejected once the draft is complete", func(t *testing.T) {
+		service := newTestService(t, true)
+		service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(200), 1, "live" })
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		total := len(defaultTeams()) * DraftRounds
+		for number := 1; number <= total; number++ {
+			team := teamOnClock(nil, number)
+			playerID := fmt.Sprintf("pool-%03d", number)
+			if _, err := service.store.MakePick(team, playerID, "manager", time.Now(), time.Time{}); err != nil {
+				t.Fatalf("seed pick %d: %v", number, err)
+			}
+		}
+		if _, _, _, err := service.AdminForceAutopick(request); err == nil {
+			t.Fatal("force auto-pick must be rejected once the draft is complete")
+		}
+	})
+}
+
+// TestDraftIsLive checks the live-draft gate AdminForceAutopick and
+// MakePick share: always live in demo mode, gated on draftAt otherwise.
+// See TestCommissionerForceAutopick's doc comment for why this pure check
+// stands in for testing AdminForceAutopick's live gate directly.
+func TestDraftIsLive(t *testing.T) {
+	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	live := &Service{draftAt: draftAt}
+	if live.draftIsLive(draftAt.Add(-time.Second)) {
+		t.Error("live mode must gate before draftAt")
+	}
+	if !live.draftIsLive(draftAt) {
+		t.Error("live mode must open exactly at draftAt")
+	}
+
+	demo := &Service{draftAt: draftAt, demoMode: true}
+	if !demo.draftIsLive(draftAt.Add(-time.Hour)) {
+		t.Error("demo mode must never gate on draftAt")
 	}
 }
 

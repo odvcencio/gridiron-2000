@@ -7,7 +7,7 @@ const (
 	// holds this many picks.
 	DraftRounds = 15
 
-	DefaultDraftAt = "2026-08-22T16:00:00-04:00"
+	DefaultDraftAt       = "2026-08-22T16:00:00-04:00"
 	DefaultDraftTZ       = "America/New_York"
 	DefaultRefreshPeriod = 60 * time.Second
 	DefaultSeasonStartAt = "2026-09-10T20:20:00-04:00"
@@ -75,6 +75,10 @@ type DraftPick struct {
 	TeamID   string    `json:"teamId"`
 	PlayerID string    `json:"playerId"`
 	MadeAt   time.Time `json:"madeAt"`
+	// MadeBy is the pick's provenance: "manager", "auto", or "commissioner".
+	// Old state files decode with MadeBy == ""; pickMaps normalizes the
+	// empty value to "manager" for display, leaving stored data untouched.
+	MadeBy string `json:"madeBy,omitempty"`
 }
 
 // Member binds a Google identity to a league seat.
@@ -96,6 +100,19 @@ type PersistedState struct {
 	Scoring    map[string]float64  `json:"scoring"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
+
+	// Clock state. Zero values mean: no clock armed, not paused, env
+	// default duration. Old state files decode to exactly that, so the
+	// change is additive and needs no migration.
+	ClockDeadline time.Time `json:"clockDeadline"` // zero = unarmed
+	ClockPaused   bool      `json:"clockPaused,omitempty"`
+	// ClockRemainingSec holds the frozen countdown while paused.
+	ClockRemainingSec int `json:"clockRemainingSec,omitempty"`
+	// ClockDurationSec overrides PICK_CLOCK when nonzero; the commissioner
+	// sets it mid-draft. It applies from the next arm.
+	ClockDurationSec int `json:"clockDurationSec,omitempty"`
+	// Autopick maps team ID to its away-mode auto-pick toggle.
+	Autopick map[string]bool `json:"autopick"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
