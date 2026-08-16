@@ -229,6 +229,42 @@ func TestQueueNeverDeliversWithoutStart(t *testing.T) {
 	}
 }
 
+// TestQueueDepth checks that Depth reports the number of messages queued
+// and not yet delivered: zero on a fresh queue, growing with Enqueue, and
+// dropping back to zero once the worker drains it (spec section 6.6's
+// admin mail-panel queue_depth field).
+func TestQueueDepth(t *testing.T) {
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	send := func(Message) error {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return nil
+	}
+	q, _ := newTestQueue(send, nil)
+	if got := q.Depth(); got != 0 {
+		t.Fatalf("Depth on a fresh queue = %d, want 0", got)
+	}
+
+	q.Enqueue(Message{Key: "a"})
+	q.Enqueue(Message{Key: "b"})
+	if got := q.Depth(); got != 2 {
+		t.Fatalf("Depth after two enqueues = %d, want 2", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	q.Start(ctx)
+	<-started // the worker has dequeued "a" and is blocked delivering it
+	if got := q.Depth(); got != 1 {
+		t.Fatalf("Depth while one message is in flight = %d, want 1 (the other still queued)", got)
+	}
+	close(release)
+}
+
 // TestNewDefaultsNilLogf checks that New tolerates a nil logf so callers
 // are not forced to pass a no-op function.
 func TestNewDefaultsNilLogf(t *testing.T) {

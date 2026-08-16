@@ -72,6 +72,10 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// the duration comes from (env default or a commissioner override).
 		"clock":                 s.clockView(state, now),
 		"clock_duration_source": clockDurationSource(state),
+		// Mail-health card (design spec section 6.6): whether notifications
+		// are wired and enabled, queue depth, the last transport failure,
+		// and how many sends landed in the last 24 hours.
+		"mail": s.notifyMailMap(now),
 	}
 }
 
@@ -353,7 +357,13 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request) error {
 		}
 		order[i], order[j.Int64()] = order[j.Int64()], order[i]
 	}
-	return s.store.SetDraftOrder(order)
+	if err := s.store.SetDraftOrder(order); err != nil {
+		return err
+	}
+	// N4: notify every seated member the order is drawn (spec section 3,
+	// N4). A no-op when notifications are not wired.
+	s.notifyDraftOrderDrawn(order)
+	return nil
 }
 
 // AdminSetScoring overrides one scoring rule's point value. It requires

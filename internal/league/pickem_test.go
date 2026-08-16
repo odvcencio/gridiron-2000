@@ -146,13 +146,13 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
 
-	if _, err := service.store.AssignMember("a@example.com", "Alice"); err != nil {
+	if _, _, err := service.store.AssignMember("a@example.com", "Alice"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.store.AssignMember("b@example.com", "Bob"); err != nil {
+	if _, _, err := service.store.AssignMember("b@example.com", "Bob"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.store.AssignMember("c@example.com", "Cara"); err != nil {
+	if _, _, err := service.store.AssignMember("c@example.com", "Cara"); err != nil {
 		t.Fatal(err)
 	}
 

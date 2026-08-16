@@ -271,11 +271,17 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 	return s.persistLocked()
 }
 
-func (s *Store) AssignMember(email, name string) (Member, error) {
+// AssignMember binds email to the first open seat, or returns the existing
+// member when the email already holds one. created reports whether this
+// call bound a brand-new member — the one-lock check-and-write keeps the
+// report atomic, so two racing callers for the same new email cannot both
+// see created == true (the N1 seat-claimed notification's hook relies on
+// this; see service.go's assignMember).
+func (s *Store) AssignMember(email, name string) (member Member, created bool, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
 	if email == "" {
-		return Member{}, fmt.Errorf("email is required")
+		return Member{}, false, fmt.Errorf("email is required")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -285,7 +291,7 @@ func (s *Store) AssignMember(email, name string) (Member, error) {
 			s.state.Members[email] = existing
 			_ = s.persistLocked()
 		}
-		return existing, nil
+		return existing, false, nil
 	}
 	used := map[string]bool{}
 	for _, member := range s.state.Members {
@@ -298,11 +304,11 @@ func (s *Store) AssignMember(email, name string) (Member, error) {
 		if name == "" {
 			name = team.Manager
 		}
-		member := Member{TeamID: team.ID, Name: name, Email: email}
-		s.state.Members[email] = member
-		return member, s.persistLocked()
+		newMember := Member{TeamID: team.ID, Name: name, Email: email}
+		s.state.Members[email] = newMember
+		return newMember, true, s.persistLocked()
 	}
-	return Member{}, ErrLeagueFull
+	return Member{}, false, ErrLeagueFull
 }
 
 func (s *Store) MemberByEmail(email string) (Member, bool) {

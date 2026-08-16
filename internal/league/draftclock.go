@@ -132,8 +132,15 @@ func (s *Service) clockTick(now time.Time) {
 		return
 	}
 
+	// N5: notify an AWAY on-clock manager, once per absence episode (spec
+	// section 3, N5). Evaluated here so it fires every tick regardless of
+	// how close the deadline is — early reach is the point; see the design
+	// spec's "timing honesty" note. Guarded internally by notifyReady, so
+	// this is a no-op when notifications are not wired.
+	s.evalOnTheClock(state, now)
+
 	// 6. Not yet due.
-	effective, _ := s.effectiveDeadline(state, now)
+	effective, reason := s.effectiveDeadline(state, now)
 	if now.Before(effective) {
 		return
 	}
@@ -156,11 +163,18 @@ func (s *Service) clockTick(now time.Time) {
 	if number < totalPicks {
 		nextDeadline = now.Add(s.pickClock(state))
 	}
-	if _, err := s.store.AutoPick(teamID, playerID, "auto", number, state.ClockDeadline, now, nextDeadline); err != nil {
+	pick, err := s.store.AutoPick(teamID, playerID, "auto", number, state.ClockDeadline, now, nextDeadline)
+	if err != nil {
 		if !errors.Is(err, errStaleAutoPick) {
 			log.Printf("draft clock: auto-pick failed: %v", err)
 		}
+		return
 	}
+	// N6: notify the seat's manager that a pick fired on their behalf,
+	// skipping a manager who was CONNECTED at pick time (spec section 3,
+	// N6). state is the pre-fire snapshot already read above, matching the
+	// world the auto-pick decision itself saw.
+	s.notifyAutopickMade(state, pick, reason, now)
 }
 
 // effectiveDeadline returns the instant the auto-pick may fire and the

@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/internal/notify"
+
 	"m31labs.dev/gosx/auth"
 )
 
@@ -60,6 +62,19 @@ type Service struct {
 	poolStatusFn PoolStatusSource
 	scheduleFn   ScheduleSource
 	historicalFn HistoricalSource
+
+	// notifyQueue is the delivery queue every notification hook enqueues to
+	// (internal/notify). nil means notifications were never wired (most
+	// tests); notifyReady also requires notifyTransportEnabled, main.go's
+	// mailer.Config.Enabled() reading passed through SetNotifier — see the
+	// design spec section 6.6.
+	notifyQueue            *notify.Queue
+	notifyTransportEnabled bool
+	// notifyLastPruneAt gates the notifier ticker's daily SentLog prune
+	// (spec section 6.2, 6.4): zero at construction, so the first tick
+	// always prunes once at boot, matching the draft clock's
+	// bootRecoverClock precedent of "act once, immediately, at startup."
+	notifyLastPruneAt time.Time
 }
 
 // clock returns the service's current instant: the test-injected now hook
@@ -299,6 +314,32 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 	s.poolMu.Unlock()
 }
 
+// SetNotifier attaches the notification delivery queue and the mail
+// transport's enabled state. Call it once during startup, before the
+// server accepts requests, beside SetPlayerSource — main.go resolves
+// transportEnabled from mailer.Config.Enabled(), the same check that gates
+// notify.Queue.Start. Every notification hook and StartNotifier read this
+// pair through notifyReady before building, recording, or enqueuing
+// anything (design spec section 6.6).
+func (s *Service) SetNotifier(queue *notify.Queue, transportEnabled bool) {
+	s.poolMu.Lock()
+	s.notifyQueue = queue
+	s.notifyTransportEnabled = transportEnabled
+	s.poolMu.Unlock()
+}
+
+// notifyReady reports whether notification hooks may build, record, or
+// send: the queue is wired and its mail transport is enabled. league.json's
+// notifications.enabled adds a second gate in a later work package
+// (WP-E5); config.go does not exist yet, so this check stands alone for
+// now (design spec section 6.6, 7.1).
+func (s *Service) notifyReady() bool {
+	s.poolMu.Lock()
+	ready := s.notifyQueue != nil && s.notifyTransportEnabled
+	s.poolMu.Unlock()
+	return ready
+}
+
 // StateFingerprint hashes the persisted league state plus the pool version
 // and a bucketed presence digest. Clients poll it and soft-refresh the page
 // when it changes, which keeps every open draft room current — including
@@ -407,7 +448,23 @@ func (s *Service) withHistorical(player Player) Player {
 }
 
 func (s *Service) AssignManager(email, name string) (Member, error) {
-	return s.store.AssignMember(email, name)
+	return s.assignMember(email, name)
+}
+
+// assignMember is the single call path for every AssignMember use in the
+// service (Google sign-in via AssignManager, a demo-mode first visit via
+// Viewer, and the acting-team resolver), so the N1 seat-claimed hook fires
+// exactly once per real seat claim, from whichever entry point reached it
+// first (spec section 3, N1).
+func (s *Service) assignMember(email, name string) (Member, error) {
+	member, created, err := s.store.AssignMember(email, name)
+	if err != nil {
+		return Member{}, err
+	}
+	if created {
+		s.notifySeatClaimed(member)
+	}
+	return member, nil
 }
 
 func (s *Service) Viewer(r *http.Request) map[string]any {
@@ -427,7 +484,7 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 	}
 	member, ok := s.store.MemberByEmail(user.Email)
 	if !ok {
-		member, _ = s.store.AssignMember(user.Email, user.Name)
+		member, _ = s.assignMember(user.Email, user.Name)
 	}
 	team := s.teamByID(member.TeamID)
 	name := strings.TrimSpace(user.Name)
@@ -741,7 +798,7 @@ func (s *Service) actingTeam(r *http.Request, requested string) (string, error) 
 		member, exists := s.store.MemberByEmail(user.Email)
 		if !exists {
 			var err error
-			member, err = s.store.AssignMember(user.Email, user.Name)
+			member, err = s.assignMember(user.Email, user.Name)
 			if err != nil {
 				return "", err
 			}

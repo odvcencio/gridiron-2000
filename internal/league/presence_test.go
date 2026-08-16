@@ -91,7 +91,7 @@ func TestPresenceDigestStableBetweenTransitions(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	service, clock := newPresenceTestService(t, false, start)
 
-	member, err := service.store.AssignMember("a@example.com", "A")
+	member, _, err := service.store.AssignMember("a@example.com", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestPresenceDigestStableBetweenTransitions(t *testing.T) {
 func TestFingerprintChangesOnPresenceTransition(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	service, clock := newPresenceTestService(t, false, start)
-	member, err := service.store.AssignMember("a@example.com", "A")
+	member, _, err := service.store.AssignMember("a@example.com", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestFingerprintChangesOnClockEvents(t *testing.T) {
 func TestFingerprintStableAcrossQuietSeconds(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	service, clock := newPresenceTestService(t, false, start)
-	member, err := service.store.AssignMember("a@example.com", "A")
+	member, _, err := service.store.AssignMember("a@example.com", "A")
 	if err != nil {
 		t.Fatal(err)
 	}
