@@ -39,7 +39,7 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: "Big Board · GRIDIRON 2000"},
+				Title:       server.Title{Default: league.PageTitle("Big Board")},
 				Description: "Rank the draft pool your way before the clock starts.",
 			}, nil
 		},

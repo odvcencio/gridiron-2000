@@ -131,11 +131,7 @@ func (s *Service) inviteBlurb() string {
 		return blurb
 	}
 	word := countWord(len(s.teams))
-	article := "a"
-	if word != "" && strings.ContainsRune("aeiou", rune(word[0])) {
-		article = "an"
-	}
-	blurb := fmt.Sprintf("%s %s-manager %s league", article, word, strings.ToLower(s.cfg.ModeLabel))
+	blurb := fmt.Sprintf("%s %s-manager %s league", article(word), word, strings.ToLower(s.cfg.ModeLabel))
 	if divisions := s.divisionList(); len(divisions) > 0 {
 		blurb += " split into the " + strings.Join(divisions, " and ") + " divisions"
 	}

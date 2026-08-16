@@ -93,7 +93,7 @@ func Page() Node {
 					<div class="empty-tape">
 						<strong>NO MATCHUPS YET</strong>
 						<p>
-							League play begins Week 1 · September 13.
+							{data.league.season_open_line}
 						</p>
 					</div>
 				</If>

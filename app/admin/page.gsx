@@ -98,6 +98,12 @@ func Page() Node {
 				<p>
 					Seats, invites, and reset controls. Every action is checked against the commissioner list on the server.
 				</p>
+				<If cond={data.is_default_config}>
+					<p class="demo-message">
+						<strong>BUILT-IN REFERENCE LEAGUE:</strong>
+						no league.json was found, so this server is running the neutral built-in default. Drop a league.json into config/ (see config/league.json.example) to run your own league.
+					</p>
+				</If>
 			</div>
 			<div class="draft-clock-panel">
 				<span>League status</span>
@@ -172,7 +178,7 @@ func Page() Node {
 					<If cond={data.league_open}>
 						<p class="demo-message">
 							<strong>OPEN LEAGUE:</strong>
-							no invite list is set, so any Google account may claim a seat. Add the eight manager emails below.
+							no invite list is set, so any Google account may claim a seat. Add the {data.league.seat_count_word} manager emails below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">

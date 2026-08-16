@@ -6,7 +6,7 @@ func Page() Node {
 			<span class="live-dot" aria-hidden="true"></span>
 			DOCUMENT // LEAGUE TERMS
 		</span>
-		<p class="page-kicker">Commissioner edition · 2026 season</p>
+		<p class="page-kicker">Commissioner edition · {data.league.season} season</p>
 		<h1>
 			HOUSE
 			<br></br>
@@ -19,7 +19,7 @@ func Page() Node {
 			</p>
 			<h2>Draft protocol</h2>
 			<p>
-				The default draft begins Saturday, August 15, 2026 at 5:00 PM Pacific and uses a fifteen-round snake order with ninety-second picks. Environment configuration may override those defaults.
+				The draft date, time, and round count are set in this league's configuration and shown on the Draft Room page. It runs as a snake order; the commissioner may adjust the pick clock and other settings before the room opens.
 			</p>
 			<h2>Data accuracy</h2>
 			<p>

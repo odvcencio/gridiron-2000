@@ -35,7 +35,7 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: "Signal Wire · GRIDIRON 2000"},
+				Title:       server.Title{Default: league.PageTitle("Signal Wire")},
 				Description: "The private league's no-key publisher, community, social, and open NFL intelligence mesh.",
 			}, nil
 		},
