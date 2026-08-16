@@ -18,6 +18,7 @@ func newTestService(t *testing.T, demo bool) *Service {
 		demoMode:         demo,
 		teams:            defaultTeams(),
 		players:          defaultPlayers(),
+		cfg:              DefaultConfig(),
 		avatarRoot:       filepath.Join(t.TempDir(), "avatars"),
 		defaultBadgeRoot: filepath.Join(t.TempDir(), "avatar-defaults"),
 	}
@@ -276,7 +277,7 @@ func TestDivisionMaps(t *testing.T) {
 	if len(divisions) != 2 {
 		t.Fatalf("divisions = %d, want 2", len(divisions))
 	}
-	if divisions[0]["name"] != "AQUA" || divisions[1]["name"] != "ORANGE" {
+	if divisions[0]["name"] != "EAST" || divisions[1]["name"] != "WEST" {
 		t.Fatalf("division order wrong: %v then %v", divisions[0]["name"], divisions[1]["name"])
 	}
 	for _, division := range divisions {

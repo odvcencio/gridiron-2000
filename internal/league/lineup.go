@@ -82,11 +82,9 @@ func (p RosterPreset) Total() int {
 }
 
 // rosterPresets is every named preset the roster-ops spec section 4.1.1
-// defines. TODO(productization): once league.json's roster.preset config
-// key lands (productization WP1), the config loader selects among these by
-// name and validates draft.rounds against the chosen preset's Total(); until
-// then only gridironHousePreset (ActiveRosterPreset, below) is wired to
-// anything.
+// defines. config.go's LoadConfig selects among these by name
+// (roster.preset) and validates draft.rounds against the chosen preset's
+// Total(); resolveRosterBlock and validateRoster are the call sites.
 var rosterPresets = map[string]RosterPreset{
 	// gridiron-house: the reference league (owner decision). Superflex QB
 	// value plus a startable punter for an 8-team league. 11 starters + 6
@@ -130,13 +128,13 @@ var rosterPresets = map[string]RosterPreset{
 	},
 }
 
-// ActiveRosterPreset is the league's active roster shape until
-// productization WP1's config loader can select among rosterPresets by
-// config key. WP-R0 sets it to gridiron-house (roster-ops spec section
-// 4.1.1, owner decision) and moves DraftRounds to 17 to match (model.go).
-//
-// TODO(productization): replace this compiled default with
-// config.Roster.Resolve() (or equivalent) once league.json's roster block
-// lands; an absent roster block should still resolve to gridiron-house, so
-// this value doubles as that fallback today.
-var ActiveRosterPreset = rosterPresets["gridiron-house"]
+// ActiveRosterPreset is the league's active roster shape: config-derived
+// (productization spec section 3.4, roster-ops spec section 10). It starts
+// at the neutral shipped default (standard) and is mutated exactly once,
+// at boot, by applyActiveConfig — see that function's doc comment in
+// config.go for why no test may call it. The reference deployment's own
+// league.json selects gridiron-house (owner decision, roster-ops spec
+// section 4.1.1) via roster.preset; an absent roster block in a config
+// *file* still resolves to gridiron-house (resolveRosterBlock's fallback,
+// config.go) — only the *compiled*, no-file-at-all default is neutral.
+var ActiveRosterPreset = DefaultConfig().Roster

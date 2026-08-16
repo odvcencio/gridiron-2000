@@ -146,9 +146,10 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"is_commissioner": isCommissioner,
 		"locked":          locked,
 		"editable":        isCommissioner && !locked,
-		"league_mode":     "DYNASTY",
+		"league_mode":     s.cfg.ModeLabel,
 		"season_start":    seasonStartAt().In(location).Format("Monday, January 2 · 3:04 PM MST"),
 		"groups":          groups,
-		"scoring_note":    "Draft ADP and projections use the half-PPR consensus feed.",
+		"scoring_note":    s.scoringNote(),
+		"league":          s.leagueMap(),
 	}
 }

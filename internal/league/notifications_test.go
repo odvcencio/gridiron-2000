@@ -25,6 +25,7 @@ func newNotifyTestService(t *testing.T, draftAt, start time.Time) (*Service, *ti
 		draftAt:  draftAt,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
+		cfg:      DefaultConfig(),
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
