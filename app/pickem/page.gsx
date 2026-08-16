@@ -6,7 +6,7 @@ func PickemRow(props any) Node {
 		<strong>{props.game.label}</strong>
 		<div class="pickem-buttons">
 			<If cond={props.game.locked == false}>
-				<form method="post" action={props.Action} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.game.id}></input>
 					<input type="hidden" name="team" value={props.game.away}></input>
@@ -17,7 +17,7 @@ func PickemRow(props any) Node {
 				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.game.pick == props.game.away}>{props.game.away}</button>
 			</If>
 			<If cond={props.game.locked == false}>
-				<form method="post" action={props.Action} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.game.id}></input>
 					<input type="hidden" name="team" value={props.game.home}></input>
@@ -48,7 +48,7 @@ func PickemRow(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page pickem-page" id="main-content">
+	return <main class="page pickem-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">

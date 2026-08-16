@@ -44,7 +44,7 @@ func StandingRow(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page home-page" id="main-content">
+	return <main class="page home-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<If cond={data.viewer.signed_in == false}>
 			<section class="hero-command">
 				<div class="hero-command__copy">

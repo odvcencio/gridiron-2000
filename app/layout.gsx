@@ -54,7 +54,7 @@ func Layout() Node {
 					<If cond={data.viewer.is_commissioner}>
 						<a href="/admin" data-gosx-link class="access-link">Admin</a>
 					</If>
-					<form method="post" action="/auth/logout" data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+					<form method="post" action="/auth/logout" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button class="access-link" type="submit">Sign out</button>
 					</form>

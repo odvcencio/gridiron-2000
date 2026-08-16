@@ -355,56 +355,47 @@
     }, 80);
   });
 
-  var leagueFingerprint = null;
-  var leagueSyncTimer = null;
+  var presenceHeartbeatTimer = null;
 
-  function inputFocused() {
+  // GoSX v0.42's declarative revalidation (data-gosx-revalidate-interval /
+  // data-gosx-revalidate-src on each league page's <main>) now owns the
+  // fingerprint poll and the page refresh; the old JS poller above is gone.
+  // That same runtime poll hits /api/league/version with the session
+  // cookie, so the server's RecordPresence call in the version handler
+  // still fires for every tick — except the runtime skips its entire tick,
+  // fetch included, while an input, textarea, or select has focus. A
+  // manager typing in the pool search would then stop sending any request
+  // at all and drift to AWAY. This loop exists only to close that one gap:
+  // it fires a bare fetch, and only while a control is focused, so it never
+  // duplicates the runtime's own poll.
+  function focusedControlActive() {
     var active = document.activeElement;
-    return !!(active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA"));
+    if (!active) return false;
+    switch (String(active.tagName || "").toUpperCase()) {
+      case "INPUT":
+      case "TEXTAREA":
+      case "SELECT":
+        return true;
+      default:
+        return false;
+    }
   }
 
-  function checkLeagueVersion() {
-    // A hidden tab is idle on purpose: stop the heartbeat entirely.
-    if (document.hidden) return;
-    // The fetch itself is the presence heartbeat. Send it every cycle, even
-    // while the manager types in the pool search — otherwise a manager using
-    // the most engaged part of the room drifts to AWAY. Only the fingerprint
-    // compare and revalidate skip while an input has focus, so typing never
-    // gets yanked by a mid-keystroke page refresh.
-    fetch("/api/league/version", { headers: { Accept: "application/json" } })
-      .then(function (response) {
-        return response.ok ? response.json() : null;
-      })
-      .then(function (payload) {
-        if (!payload || !payload.fingerprint) return;
-        if (inputFocused()) return;
-        if (leagueFingerprint === null) {
-          leagueFingerprint = payload.fingerprint;
-          return;
-        }
-        if (payload.fingerprint === leagueFingerprint) return;
-        leagueFingerprint = payload.fingerprint;
-        var nav = window.__gosx_page_nav;
-        if (nav && typeof nav.revalidate === "function") {
-          nav.revalidate();
-        } else if (nav && typeof nav.refresh === "function") {
-          nav.refresh();
-        }
-      })
-      .catch(function () {});
+  function sendPresenceHeartbeat() {
+    if (document.hidden || !focusedControlActive()) return;
+    fetch("/api/league/version", { credentials: "same-origin", headers: { Accept: "application/json" } }).catch(function () {});
   }
 
-  function startLeagueSync() {
-    if (leagueSyncTimer) clearInterval(leagueSyncTimer);
-    leagueFingerprint = null;
-    leagueSyncTimer = setInterval(checkLeagueVersion, 4000);
+  function startPresenceHeartbeat() {
+    if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
+    presenceHeartbeatTimer = setInterval(sendPresenceHeartbeat, 4000);
   }
 
   function bootPageEnhancers() {
     startCountdown();
     startScoreSync();
     startWireSync();
-    startLeagueSync();
+    startPresenceHeartbeat();
   }
 
   document.addEventListener("click", function (event) {
