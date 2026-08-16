@@ -154,6 +154,15 @@ func Page() Node {
 					ON CLOCK:
 					{data.on_clock.abbreviation}
 				</span>
+				<span class="mono">
+					ORDER:
+					<If cond={data.order_randomized}>
+						<b>RANDOMIZED</b>
+					</If>
+					<If cond={data.order_randomized == false}>
+						<b>DEFAULT</b>
+					</If>
+				</span>
 			</header>
 			<div class="draft-team-grid">
 				<Each of={data.teams} as="team">
@@ -215,7 +224,7 @@ func Page() Node {
 					<span class="section-index">PICK TAPE</span>
 					<b class="mono">LIVE LOG</b>
 				</header>
-				<If cond={data.picks.length == 0}>
+				<If cond={data.picks_empty}>
 					<div class="empty-tape">
 						<strong>NO PICKS YET</strong>
 						<p>

@@ -85,7 +85,7 @@ func TestFullSnakeDraftAndRosters(t *testing.T) {
 	teams := defaultTeams()
 	totalPicks := len(teams) * 15
 	for number := 1; number <= totalPicks; number++ {
-		onClock := teamOnClock(number)
+		onClock := teamOnClock(nil, number)
 		data := service.DraftData(request)
 		available, _ := data["available"].([]map[string]any)
 		if len(available) == 0 {
@@ -181,7 +181,7 @@ func TestBoardFlowThroughService(t *testing.T) {
 	}
 
 	// The draft room surfaces the board, minus already-picked players.
-	if _, _, _, err := service.MakePick(request, teamOnClock(1), "pool-001"); err != nil {
+	if _, _, _, err := service.MakePick(request, teamOnClock(nil, 1), "pool-001"); err != nil {
 		t.Fatal(err)
 	}
 	draft := service.DraftData(request)
@@ -228,6 +228,22 @@ func TestAdminGuardsAndControls(t *testing.T) {
 	seats, _ := demo.AdminData(request)["seats"].([]map[string]any)
 	if seats[0]["claimed"] != false || seats[0]["manager"] != "UNCLAIMED" {
 		t.Fatalf("seat display wrong after release: %+v", seats[0])
+	}
+}
+
+func TestAdminDataPoolStatusSeam(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	pool, _ := service.AdminData(request)["pool"].(map[string]any)
+	if pool["mode"] != "unknown" || pool["last_sync"] != "never" {
+		t.Fatalf("default pool status wrong: %+v", pool)
+	}
+	service.SetPoolStatus(func() map[string]any {
+		return map[string]any{"mode": "live", "players": 400}
+	})
+	pool, _ = service.AdminData(request)["pool"].(map[string]any)
+	if pool["mode"] != "live" || pool["players"] != 400 {
+		t.Fatalf("injected pool status not surfaced: %+v", pool)
 	}
 }
 
@@ -298,7 +314,7 @@ func TestRehearsalPicksSurviveLivePoolSwap(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
 
 	// Rehearsal pick from the demo pool, before any live pool exists.
-	if _, _, _, err := service.MakePick(request, teamOnClock(1), "p-01"); err != nil {
+	if _, _, _, err := service.MakePick(request, teamOnClock(nil, 1), "p-01"); err != nil {
 		t.Fatalf("demo pick: %v", err)
 	}
 	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(150), 3, "live" })
@@ -311,5 +327,159 @@ func TestRehearsalPicksSurviveLivePoolSwap(t *testing.T) {
 	player, _ := picks[0]["player"].(map[string]any)
 	if name, _ := player["name"].(string); name != "Ja'Marr Chase" {
 		t.Errorf("rehearsal pick lost its name after pool swap: %q", name)
+	}
+}
+
+func TestDraftDataFollowsCustomOrder(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	custom := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
+	if err := service.store.SetDraftOrder(custom); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.DraftData(request)
+	teams, _ := data["teams"].([]map[string]any)
+	if len(teams) != len(custom) {
+		t.Fatalf("teams grid = %d entries, want %d", len(teams), len(custom))
+	}
+	for index, team := range teams {
+		if team["id"] != custom[index] {
+			t.Fatalf("team grid position %d = %v, want %s", index, team["id"], custom[index])
+		}
+	}
+	if data["on_clock_id"] != custom[0] {
+		t.Fatalf("on_clock_id = %v, want %s", data["on_clock_id"], custom[0])
+	}
+	if data["order_randomized"] != true {
+		t.Error("order_randomized must be true once a custom order is set")
+	}
+	if data["league_mode"] != "DYNASTY" {
+		t.Errorf("league_mode = %v, want DYNASTY", data["league_mode"])
+	}
+
+	pick, _, team, err := service.MakePick(request, custom[0], "pool-001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pick.TeamID != custom[0] || team.ID != custom[0] {
+		t.Fatalf("MakePick did not honor the custom order: %+v %s", pick, team.ID)
+	}
+}
+
+func TestAdminRandomizeDraftOrder(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	if err := service.AdminRandomizeDraftOrder(request); err != nil {
+		t.Fatal(err)
+	}
+	state := service.store.Snapshot()
+	if !isPermutationOfDefaultTeams(state.DraftOrder) {
+		t.Fatalf("draft order is not a permutation of the eight teams: %v", state.DraftOrder)
+	}
+
+	data := service.AdminData(request)
+	if data["order_randomized"] != true {
+		t.Error("order_randomized must be true after randomizing")
+	}
+	draftOrder, ok := data["draft_order"].([]map[string]any)
+	if !ok || len(draftOrder) != 8 {
+		t.Fatalf("admin draft_order = %v", data["draft_order"])
+	}
+}
+
+func isPermutationOfDefaultTeams(order []string) bool {
+	want := defaultTeamIDs()
+	if len(order) != len(want) {
+		return false
+	}
+	counts := map[string]int{}
+	for _, id := range want {
+		counts[id]++
+	}
+	for _, id := range order {
+		counts[id]--
+	}
+	for _, count := range counts {
+		if count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func TestScoringDataDefaultsAndOverride(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/scoring", nil)
+
+	data := service.ScoringData(request)
+	if data["locked"] != false || data["editable"] != true {
+		t.Fatalf("scoring should be open before the season starts: %+v", data)
+	}
+	groups, _ := data["groups"].([]map[string]any)
+	if len(groups) == 0 || groups[0]["name"] != "PASSING" {
+		t.Fatalf("first group = %v, want PASSING", groups)
+	}
+	rules, _ := groups[0]["rules"].([]map[string]any)
+	passYards := rules[0]
+	if passYards["key"] != "passYards" || passYards["points"] != "0.04" || passYards["is_default"] != true {
+		t.Fatalf("passYards default wrong: %+v", passYards)
+	}
+
+	rule, err := service.AdminSetScoring(request, "passYards", "0.06")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rule.Points != 0.06 {
+		t.Fatalf("returned rule points = %v, want 0.06", rule.Points)
+	}
+
+	data = service.ScoringData(request)
+	groups, _ = data["groups"].([]map[string]any)
+	rules, _ = groups[0]["rules"].([]map[string]any)
+	passYards = rules[0]
+	if passYards["points"] != "0.06" || passYards["is_default"] != false {
+		t.Fatalf("override not reflected: %+v", passYards)
+	}
+
+	if _, err := service.AdminSetScoring(request, "passYards", "0.04"); err != nil {
+		t.Fatal(err)
+	}
+	data = service.ScoringData(request)
+	groups, _ = data["groups"].([]map[string]any)
+	rules, _ = groups[0]["rules"].([]map[string]any)
+	passYards = rules[0]
+	if passYards["is_default"] != true || passYards["points"] != "0.04" {
+		t.Fatalf("setting the default value must clear the override: %+v", passYards)
+	}
+
+	if _, err := service.AdminSetScoring(request, "passYards", "999"); err == nil {
+		t.Error("out-of-range value accepted")
+	}
+	if _, err := service.AdminSetScoring(request, "not-a-key", "1"); err == nil {
+		t.Error("unknown scoring key accepted")
+	}
+	if _, err := service.AdminSetScoring(request, "passYards", "not-a-number"); err == nil {
+		t.Error("non-numeric value accepted")
+	}
+}
+
+func TestScoringLockRejectsEdits(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/scoring", nil)
+	t.Setenv("SEASON_START_AT", time.Now().Add(-time.Hour).Format(time.RFC3339))
+
+	data := service.ScoringData(request)
+	if data["locked"] != true || data["editable"] != false {
+		t.Fatalf("scoring must lock once the season has started: %+v", data)
+	}
+	if _, err := service.AdminSetScoring(request, "passYards", "0.06"); err == nil {
+		t.Error("locked scoring accepted an edit")
+	}
+	if err := service.AdminResetScoring(request); err == nil {
+		t.Error("locked scoring accepted a reset")
 	}
 }

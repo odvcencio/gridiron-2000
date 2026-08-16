@@ -49,6 +49,8 @@ spec:
               value: "2026-08-22T16:00:00-04:00"
             - name: DRAFT_TZ
               value: "America/New_York"
+            - name: SEASON_START_AT
+              value: "2026-09-10T20:20:00-04:00"
             - name: SCORING_FORMAT
               value: "half_ppr"
           volumeMounts:

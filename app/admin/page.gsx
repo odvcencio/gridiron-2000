@@ -186,6 +186,90 @@ func Page() Node {
 						</form>
 					</div>
 				</section>
+				<section class="player-pool">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">04 // DRAFT ORDER</span>
+							<h2>Snake order</h2>
+						</div>
+						<If cond={data.order_randomized}>
+							<span class="position-chip">RANDOMIZED</span>
+						</If>
+						<If cond={data.order_randomized == false}>
+							<span class="position-chip">DEFAULT ORDER</span>
+						</If>
+					</div>
+					<div class="order-list">
+						<Each of={data.draft_order} as="team">
+							<article class="order-row">
+								<span class={"team-mark tone-" + team.tone}>{team.abbreviation}</span>
+								<div class="seat-identity">
+									<strong>{team.name}</strong>
+									<small>{team.manager}</small>
+									<span class="position-chip">{team.division}</span>
+								</div>
+							</article>
+						</Each>
+					</div>
+					<form method="post" action={actionPath("order-randomize")}>
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="button button--primary" type="submit">Randomize order</button>
+					</form>
+					<p class="scoring-note">
+						Run this one hour before the draft. Locked once the first pick is in.
+					</p>
+				</section>
+				<section class="player-pool">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">05 // DATA FEED</span>
+							<h2>Player pool sync</h2>
+						</div>
+					</div>
+					<If cond={data.pool.error != ""}>
+						<p class="error-message">{data.pool.error}</p>
+					</If>
+					<div class="pool-stats">
+						<div class="pool-stat">
+							<span>Mode</span>
+							<b class="mono">{data.pool.mode}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Players</span>
+							<b class="mono">{data.pool.players}</b>
+						</div>
+						<div class="pool-stat">
+							<span>ADP</span>
+							<b class="mono">{data.pool.with_adp}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Projections</span>
+							<b class="mono">{data.pool.with_proj}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Byes</span>
+							<b class="mono">{data.pool.with_bye}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Requests used</span>
+							<b class="mono">{data.pool.requests}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Last sync</span>
+							<b class="mono">{data.pool.last_sync}</b>
+						</div>
+					</div>
+					<If cond={data.pool.players > 0}>
+						<div class="position-filters">
+							<Each of={data.pool.positions_list} as="entry">
+								<span class="position-chip">
+									{entry.pos}
+									{entry.count}
+								</span>
+							</Each>
+						</div>
+					</If>
+				</section>
 			</div>
 		</If>
 	</main>

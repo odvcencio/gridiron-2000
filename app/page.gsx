@@ -51,7 +51,10 @@ func Page() Node {
 					<span class="live-dot" aria-hidden="true"></span>
 					LEAGUE SYSTEM // ONLINE
 				</div>
-				<p class="hero-kicker">Eight managers. Zero restraint.</p>
+				<p class="hero-kicker">
+					Eight managers. Zero restraint.
+					<span class="position-chip">{data.league_mode}</span>
+				</p>
 				<h1>
 					THE SEASON
 					<br></br>
@@ -152,6 +155,14 @@ func Page() Node {
 				</div>
 				<h2>Moves after midnight</h2>
 				<div class="activity-feed">
+					<If cond={data.transactions_empty}>
+						<div class="empty-tape">
+							<strong>NO TRANSACTIONS YET</strong>
+							<p>
+								The wire opens after the draft.
+							</p>
+						</div>
+					</If>
 					<Each of={data.transactions} as="move">
 						<div class="activity-item">
 							<time class="mono">{move.time}</time>

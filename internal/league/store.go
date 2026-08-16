@@ -26,12 +26,14 @@ func NewStore(filePath string) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
 		state: PersistedState{
-			Ready:     map[string]bool{},
-			Picks:     []DraftPick{},
-			Members:   map[string]Member{},
-			Invites:   []string{},
-			Boards:    map[string][]string{},
-			TeamNames: map[string]string{},
+			Ready:      map[string]bool{},
+			Picks:      []DraftPick{},
+			Members:    map[string]Member{},
+			Invites:    []string{},
+			Boards:     map[string][]string{},
+			TeamNames:  map[string]string{},
+			DraftOrder: []string{},
+			Scoring:    map[string]float64{},
 		},
 	}
 	_ = s.load()
@@ -66,7 +68,7 @@ func (s *Store) MakePick(teamID, playerID string, now time.Time) (DraftPick, err
 		}
 	}
 	number := len(s.state.Picks) + 1
-	expected := teamOnClock(number)
+	expected := teamOnClock(s.state.DraftOrder, number)
 	if expected != teamID {
 		return DraftPick{}, fmt.Errorf("%s is on the clock", expected)
 	}
@@ -225,6 +227,70 @@ func (s *Store) SetTeamName(teamID, name string) error {
 	return s.persistLocked()
 }
 
+// SetDraftOrder stores a commissioner-drawn draft order. The order must name
+// every default team exactly once, and no pick may exist yet; reset the
+// draft first to redraw the order after picks start.
+func (s *Store) SetDraftOrder(order []string) error {
+	if err := validateDraftOrder(order); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Picks) > 0 {
+		return fmt.Errorf("reset the draft before changing the order")
+	}
+	s.state.DraftOrder = append([]string(nil), order...)
+	return s.persistLocked()
+}
+
+// validateDraftOrder rejects anything that is not an exact permutation of
+// the eight default team IDs.
+func validateDraftOrder(order []string) error {
+	defaults := defaultTeamIDs()
+	if len(order) != len(defaults) {
+		return fmt.Errorf("the draft order must name all %d teams exactly once", len(defaults))
+	}
+	seen := make(map[string]bool, len(order))
+	for _, teamID := range order {
+		if !knownTeam(teamID) {
+			return fmt.Errorf("unknown team %q", teamID)
+		}
+		if seen[teamID] {
+			return fmt.Errorf("team %q appears more than once in the order", teamID)
+		}
+		seen[teamID] = true
+	}
+	return nil
+}
+
+// SetScoringValue overrides one scoring rule's point value. Setting the
+// default value clears the override so future default changes apply.
+func (s *Store) SetScoringValue(key string, points float64) error {
+	rule, ok := scoringRuleByKey(key)
+	if !ok {
+		return fmt.Errorf("unknown scoring key %q", key)
+	}
+	if points < -25 || points > 25 {
+		return fmt.Errorf("points must be between -25 and 25")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if points == rule.Points {
+		delete(s.state.Scoring, key)
+	} else {
+		s.state.Scoring[key] = points
+	}
+	return s.persistLocked()
+}
+
+// ResetScoring clears every scoring override, restoring the default rules.
+func (s *Store) ResetScoring() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.state.Scoring = map[string]float64{}
+	return s.persistLocked()
+}
+
 const boardLimit = 100
 
 // BoardAdd appends a player to the owner's ranked board.
@@ -322,6 +388,12 @@ func (s *Store) load() error {
 	if state.TeamNames == nil {
 		state.TeamNames = map[string]string{}
 	}
+	if state.DraftOrder == nil {
+		state.DraftOrder = []string{}
+	}
+	if state.Scoring == nil {
+		state.Scoring = map[string]float64{}
+	}
 	s.state = state
 	return nil
 }
@@ -359,12 +431,14 @@ func (s *Store) persistLocked() error {
 
 func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
-		Ready:     make(map[string]bool, len(in.Ready)),
-		Picks:     append([]DraftPick(nil), in.Picks...),
-		Members:   make(map[string]Member, len(in.Members)),
-		Invites:   append([]string(nil), in.Invites...),
-		Boards:    make(map[string][]string, len(in.Boards)),
-		TeamNames: make(map[string]string, len(in.TeamNames)),
+		Ready:      make(map[string]bool, len(in.Ready)),
+		Picks:      append([]DraftPick(nil), in.Picks...),
+		Members:    make(map[string]Member, len(in.Members)),
+		Invites:    append([]string(nil), in.Invites...),
+		Boards:     make(map[string][]string, len(in.Boards)),
+		TeamNames:  make(map[string]string, len(in.TeamNames)),
+		DraftOrder: append([]string(nil), in.DraftOrder...),
+		Scoring:    make(map[string]float64, len(in.Scoring)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -377,6 +451,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for key, value := range in.TeamNames {
 		out.TeamNames[key] = value
+	}
+	for key, value := range in.Scoring {
+		out.Scoring[key] = value
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
@@ -391,15 +468,21 @@ func knownTeam(teamID string) bool {
 	return false
 }
 
-func teamOnClock(pickNumber int) string {
-	teams := defaultTeams()
+// teamOnClock resolves the team due to pick at pickNumber under a snake
+// draft. order is a slice of team IDs; a nil or empty order falls back to
+// the default team-ID order (team-1..team-8).
+func teamOnClock(order []string, pickNumber int) string {
+	ids := order
+	if len(ids) == 0 {
+		ids = defaultTeamIDs()
+	}
 	if pickNumber < 1 {
 		pickNumber = 1
 	}
-	index := (pickNumber - 1) % len(teams)
-	round := (pickNumber-1)/len(teams) + 1
+	index := (pickNumber - 1) % len(ids)
+	round := (pickNumber-1)/len(ids) + 1
 	if round%2 == 0 {
-		index = len(teams) - 1 - index
+		index = len(ids) - 1 - index
 	}
-	return teams[index].ID
+	return ids[index]
 }
