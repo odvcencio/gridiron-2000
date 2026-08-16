@@ -60,6 +60,7 @@ func main() {
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 	league.Default().SetHistoricalSource(historicalSource(openStats))
 	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
+	startBlitzPoller(runtimeContext, fantasyPool, league.Default())
 	league.Default().StartDraftClock(runtimeContext)
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
