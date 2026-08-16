@@ -76,6 +76,13 @@ func unwrapEnvelope(raw []byte) json.RawMessage {
 var fantasyPositions = map[string]string{
 	"QB": "QB", "RB": "RB", "WR": "WR", "TE": "TE",
 	"PK": "K", "K": "K", "DST": "DST", "DEF": "DST", "D/ST": "DST",
+	// P: punters (roster-ops spec section 4.1.2 / WP-R0). The live feed
+	// carries 59 punters with pos "P" (verified live); they arrive with
+	// espnHeadshot and jerseyNum populated but no ADP and no projections —
+	// mergePool's projection-descending sort and ADPRank>0 display guards
+	// (service.go) already handle a zero-ADP, zero-projection player
+	// honestly, so no further change was needed there.
+	"P": "P",
 }
 
 // parsePlayerList maps playerID to a base Player for fantasy positions.

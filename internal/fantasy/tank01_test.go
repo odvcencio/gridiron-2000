@@ -60,6 +60,34 @@ func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	}
 }
 
+// TestParsePlayerListIncludesPunters checks that pos "P" parses into the
+// pool as Position "P" (roster-ops spec section 4.1.2 / WP-R0), carrying
+// jerseyNum and espnHeadshot the same as any other position — the live
+// feed populates both for punters.
+func TestParsePlayerListIncludesPunters(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"playerID":"200","longName":"Test Punter","pos":"P","team":"hou","jerseyNum":"4",
+		 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4241469.png"}
+	]`)
+	players := parsePlayerList(raw)
+	punter, ok := players["200"]
+	if !ok {
+		t.Fatalf("punter dropped from parsePlayerList: %+v", players)
+	}
+	if punter.Position != "P" {
+		t.Errorf("punter position = %q, want P", punter.Position)
+	}
+	if punter.NFLTeam != "HOU" {
+		t.Errorf("punter team not upper-cased: %q", punter.NFLTeam)
+	}
+	if punter.Jersey != "4" {
+		t.Errorf("punter jersey lost: %q", punter.Jersey)
+	}
+	if punter.Headshot == "" {
+		t.Errorf("punter headshot lost")
+	}
+}
+
 func TestParseADPHandlesWrapperAndStringNumbers(t *testing.T) {
 	wrapped := json.RawMessage(`{"adpList":[
 		{"playerID":"2","adp":"3.5"},
@@ -283,10 +311,47 @@ func TestMergePoolOrderingAndSynthesis(t *testing.T) {
 	}
 }
 
+// TestMergePoolPuntersSortToTailWithNoCrash checks that punters — which
+// carry no ADP and no Tank01 projections (roster-ops spec section 4.1.2) —
+// merge safely: no ADP entry means they fall into mergePool's "rest" branch
+// alongside any other unranked player, sorted by projection (zero for all
+// of them, so ties break by name), with zero ADPRank and zero Projection.
+// The zero values are plain float64/int zero values, never a nil pointer,
+// so no ranking path can panic on a punter row.
+func TestMergePoolPuntersSortToTailWithNoCrash(t *testing.T) {
+	base := map[string]Player{
+		"1": {ID: "1", Name: "Ranked Receiver", Position: "WR", NFLTeam: "CIN"},
+		"9": {ID: "9", Name: "Zed Punter", Position: "P", NFLTeam: "HOU"},
+		"8": {ID: "8", Name: "Able Punter", Position: "P", NFLTeam: "DAL"},
+	}
+	adp := []adpEntry{{PlayerID: "1", ADP: 1.5}}
+	pool := mergePool(base, adp, nil, nil, nil, 10)
+	if len(pool) != 3 {
+		t.Fatalf("pool size = %d, want 3", len(pool))
+	}
+	if pool[0].ID != "1" {
+		t.Fatalf("ranked player must lead the pool: %+v", pool[0])
+	}
+	// Both punters tie at zero projection, so they order by name.
+	if pool[1].ID != "8" || pool[2].ID != "9" {
+		t.Fatalf("punters must sort to the tail by name on a projection tie: %+v", pool[1:])
+	}
+	for _, punter := range pool[1:] {
+		if punter.ADPRank != 0 {
+			t.Errorf("punter %s ADPRank = %d, want 0 (no ADP)", punter.ID, punter.ADPRank)
+		}
+		if punter.Projection != 0 {
+			t.Errorf("punter %s Projection = %v, want 0 (no Tank01 projection)", punter.ID, punter.Projection)
+		}
+	}
+}
+
 func TestOfflinePoolIsDraftable(t *testing.T) {
 	pool := OfflinePool()
-	if len(pool) < 130 {
-		t.Fatalf("offline pool too small for a 120-pick draft: %d", len(pool))
+	// WP-R0 moved league.DraftRounds 15 -> 17 (8 teams x 17 = 136 picks);
+	// the offline fallback pool must still outsize a full draft.
+	if len(pool) < 136 {
+		t.Fatalf("offline pool too small for a 136-pick draft: %d", len(pool))
 	}
 	seen := map[string]bool{}
 	positions := map[string]int{}

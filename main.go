@@ -475,7 +475,7 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 			lastSync = status.LastSync.Local().Format("Jan 2 · 3:04 PM MST")
 		}
 		positions := make([]map[string]any, 0, len(status.Positions))
-		for _, position := range []string{"QB", "RB", "WR", "TE", "K", "DST"} {
+		for _, position := range []string{"QB", "RB", "WR", "TE", "K", "P", "DST"} {
 			if count, ok := status.Positions[position]; ok {
 				positions = append(positions, map[string]any{"pos": position, "count": count})
 			}
