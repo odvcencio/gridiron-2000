@@ -1,0 +1,6 @@
+AROUND THE LEAGUE //
+  SLOT  TEAM      MANAGER
+  ----  --------  -------
+  1     Aqua 1    Dana
+* 2     Orange 3  Marcus
+  3     Aqua 4    Priya
