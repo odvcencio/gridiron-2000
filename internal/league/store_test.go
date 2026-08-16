@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -642,6 +643,292 @@ func TestClockFieldsDecodeFromOldStateFile(t *testing.T) {
 	}
 	if maps[0]["is_auto"] != false || maps[0]["is_commissioner"] != false {
 		t.Fatalf("provenance bools wrong: %+v", maps[0])
+	}
+}
+
+// TestFirstSend checks that FirstSend reports true exactly once for a
+// given key and false on every later call (spec section 9, test 5).
+func TestFirstSend(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	first, err := store.FirstSend("seat:team-1:a@example.com", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first {
+		t.Fatal("first call for a new key must report true")
+	}
+
+	for i := 0; i < 3; i++ {
+		again, err := store.FirstSend("seat:team-1:a@example.com", now.Add(time.Duration(i)*time.Minute))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again {
+			t.Fatalf("call %d for an existing key must report false", i)
+		}
+	}
+
+	got := store.Snapshot().SentLog["seat:team-1:a@example.com"]
+	if !got.Equal(now.UTC()) {
+		t.Fatalf("recorded instant = %v, want %v", got, now.UTC())
+	}
+}
+
+// TestFirstSendBatchMixed checks that FirstSendBatch reports true only for
+// keys that were not already in the ledger, including a key repeated
+// within the same call, all in one persist (spec section 9, test 5).
+func TestFirstSendBatchMixed(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	if _, err := store.FirstSend("draftrem:24:2026-08-22T16:00:00Z:seeded@example.com", now); err != nil {
+		t.Fatal(err)
+	}
+
+	keys := []string{
+		"draftrem:24:2026-08-22T16:00:00Z:a@example.com",
+		"draftrem:24:2026-08-22T16:00:00Z:seeded@example.com", // already present
+		"draftrem:24:2026-08-22T16:00:00Z:b@example.com",
+		"draftrem:24:2026-08-22T16:00:00Z:a@example.com", // repeated within the batch
+	}
+	results, err := store.FirstSendBatch(keys, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []bool{true, false, true, false}
+	if !reflect.DeepEqual(results, want) {
+		t.Fatalf("FirstSendBatch results = %v, want %v", results, want)
+	}
+
+	snapshot := store.Snapshot()
+	for _, key := range keys {
+		if _, ok := snapshot.SentLog[key]; !ok {
+			t.Fatalf("key %q missing from SentLog after batch", key)
+		}
+	}
+}
+
+// TestFirstSendSurvivesRestart checks that a key recorded before a reload
+// still reports false after the store reloads from disk, and that an old
+// state file with no sentLog key decodes to an empty, non-nil map (spec
+// section 9, test 6).
+func TestFirstSendSurvivesRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	if first, err := store.FirstSend("kickoff:2026:a@example.com", now); err != nil || !first {
+		t.Fatalf("first call: first=%v err=%v", first, err)
+	}
+
+	reloaded := NewStore(path)
+	again, err := reloaded.FirstSend("kickoff:2026:a@example.com", now.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again {
+		t.Fatal("a key recorded before reload must still report false after reload")
+	}
+}
+
+// TestClockFieldsDecodeFromOldStateFile's fixture (no clock keys, no
+// autopick map) also lacks sentLog and notifyPrefs; this test checks both
+// decode to empty, non-nil maps, matching the clock-field precedent.
+func TestNotifyLedgerDecodesFromOldStateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	state := store.Snapshot()
+	if state.SentLog == nil || len(state.SentLog) != 0 {
+		t.Fatalf("SentLog = %#v, want an empty, non-nil map", state.SentLog)
+	}
+	if state.NotifyPrefs == nil || len(state.NotifyPrefs) != 0 {
+		t.Fatalf("NotifyPrefs = %#v, want an empty, non-nil map", state.NotifyPrefs)
+	}
+}
+
+// TestFirstSendSerializesConcurrentRace checks that when an event hook and
+// a derivation tick race the same key concurrently, the store's lock
+// serializes them and exactly one reports true (spec section 9, test 7).
+func TestFirstSendSerializesConcurrentRace(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	const racers = 20
+	results := make(chan bool, racers)
+	var wg sync.WaitGroup
+	wg.Add(racers)
+	for i := 0; i < racers; i++ {
+		go func() {
+			defer wg.Done()
+			first, err := store.FirstSend("draftdone:abcd1234:a@example.com", now)
+			if err != nil {
+				t.Error(err)
+			}
+			results <- first
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	trueCount := 0
+	for r := range results {
+		if r {
+			trueCount++
+		}
+	}
+	if trueCount != 1 {
+		t.Fatalf("true count = %d, want exactly 1 across %d racing callers", trueCount, racers)
+	}
+}
+
+// TestPruneSentLogAgeCutoff checks that PruneSentLog drops entries older
+// than cutoff and keeps entries at or after it (spec section 9, test 8).
+func TestPruneSentLogAgeCutoff(t *testing.T) {
+	store := newTestStore(t)
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := store.FirstSend("recap:2025-w1:a@example.com", base); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FirstSend("recap:2025-w2:a@example.com", base.Add(200*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	cutoff := base.Add(180 * 24 * time.Hour)
+	if err := store.PruneSentLog(cutoff); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := store.Snapshot()
+	if _, ok := snapshot.SentLog["recap:2025-w1:a@example.com"]; ok {
+		t.Fatal("entry older than cutoff must be pruned")
+	}
+	if _, ok := snapshot.SentLog["recap:2025-w2:a@example.com"]; !ok {
+		t.Fatal("entry at or after cutoff must survive")
+	}
+}
+
+// TestResetDraftPrunesExactPrefixList checks that ResetDraft prunes
+// exactly onclock:, autopick:, and draftdone: keys, and that draftrem:
+// survives (spec section 9, test 8; spec section 6.2).
+func TestResetDraftPrunesExactPrefixList(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	seedKeys := []string{
+		"onclock:team-1:100:a@example.com",
+		"autopick:team-1:100:a@example.com",
+		"draftdone:abcd1234:a@example.com",
+		"draftrem:24:2026-08-22T16:00:00Z:a@example.com",
+		"order:abcd1234:a@example.com",
+		"seat:team-1:a@example.com",
+		"scoring:deadbeef:a@example.com",
+	}
+	if _, err := store.FirstSendBatch(seedKeys, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := store.Snapshot()
+	pruned := []string{seedKeys[0], seedKeys[1], seedKeys[2]}
+	survives := []string{seedKeys[3], seedKeys[4], seedKeys[5], seedKeys[6]}
+	for _, key := range pruned {
+		if _, ok := snapshot.SentLog[key]; ok {
+			t.Errorf("ResetDraft must prune %q", key)
+		}
+	}
+	for _, key := range survives {
+		if _, ok := snapshot.SentLog[key]; !ok {
+			t.Errorf("ResetDraft must keep %q", key)
+		}
+	}
+}
+
+// TestResetLeaguePrunesExactPrefixList checks that ResetLeague prunes the
+// ResetDraft prefixes plus seat:, pickem-remind:, pickem-results:,
+// recap:, scoring:, and kickoff:, and that order: and draftrem: survive
+// (spec section 9, test 8; spec section 6.2).
+func TestResetLeaguePrunesExactPrefixList(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	seedKeys := []string{
+		"onclock:team-1:100:a@example.com",
+		"autopick:team-1:100:a@example.com",
+		"draftdone:abcd1234:a@example.com",
+		"seat:team-1:a@example.com",
+		"pickem-remind:2026-w1:a@example.com",
+		"pickem-results:2026-w1:a@example.com",
+		"recap:2026-w1:a@example.com",
+		"scoring:deadbeef:a@example.com",
+		"kickoff:2026:a@example.com",
+		"draftrem:24:2026-08-22T16:00:00Z:a@example.com",
+		"order:abcd1234:a@example.com",
+	}
+	if _, err := store.FirstSendBatch(seedKeys, now); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := store.Snapshot()
+	pruned := seedKeys[:9]
+	survives := seedKeys[9:]
+	for _, key := range pruned {
+		if _, ok := snapshot.SentLog[key]; ok {
+			t.Errorf("ResetLeague must prune %q", key)
+		}
+	}
+	for _, key := range survives {
+		if _, ok := snapshot.SentLog[key]; !ok {
+			t.Errorf("ResetLeague must keep %q", key)
+		}
+	}
+}
+
+// TestSetNotifyPref checks that SetNotifyPref stores overrides per member
+// and category, and rejects an empty email or category.
+func TestSetNotifyPref(t *testing.T) {
+	store := newTestStore(t)
+
+	if err := store.SetNotifyPref("", "draft_live", false); err == nil {
+		t.Error("empty email accepted")
+	}
+	if err := store.SetNotifyPref("a@example.com", "", false); err == nil {
+		t.Error("empty category accepted")
+	}
+
+	if err := store.SetNotifyPref(" A@Example.com ", "draft_live", false); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := store.Snapshot()
+	if snapshot.NotifyPrefs["a@example.com"]["draft_live"] != false {
+		t.Fatalf("pref not stored: %+v", snapshot.NotifyPrefs)
+	}
+
+	if err := store.SetNotifyPref("a@example.com", "weekly_recap", true); err != nil {
+		t.Fatal(err)
+	}
+	snapshot = store.Snapshot()
+	if len(snapshot.NotifyPrefs["a@example.com"]) != 2 {
+		t.Fatalf("expected two categories stored: %+v", snapshot.NotifyPrefs["a@example.com"])
 	}
 }
 
