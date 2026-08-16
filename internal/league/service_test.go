@@ -83,7 +83,7 @@ func TestFullSnakeDraftAndRosters(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
 	teams := defaultTeams()
-	totalPicks := len(teams) * 15
+	totalPicks := len(teams) * DraftRounds
 	for number := 1; number <= totalPicks; number++ {
 		onClock := teamOnClock(nil, number)
 		data := service.DraftData(request)
@@ -107,7 +107,7 @@ func TestFullSnakeDraftAndRosters(t *testing.T) {
 	}
 	for _, team := range teams {
 		roster, drafted := service.rosterForTeam(state, team.ID)
-		if !drafted || len(roster) != 15 {
+		if !drafted || len(roster) != DraftRounds {
 			t.Fatalf("team %s roster = %d drafted=%v", team.ID, len(roster), drafted)
 		}
 	}
