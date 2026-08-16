@@ -149,15 +149,20 @@ kubectl get certificate -n gridiron
 
 ## 8. Set the league's allowed managers
 
-1. Collect the Google account email for each of the eight league managers.
-2. Edit the `LEAGUE_ALLOWED_EMAILS` value in your applied secret. Use a
-   comma-separated list with no spaces.
-3. Apply the updated secret, then restart the deployment so the new pod
-   picks up the change.
+Two paths work; use either or both:
+
+1. **Runtime invites (no restart).** Sign in as a commissioner
+   (`COMMISSIONER_EMAILS`), open `/admin`, and add each manager's email in
+   the Invites panel. Invites persist in league state.
+2. **Environment allowlist.** Edit `LEAGUE_ALLOWED_EMAILS` in the applied
+   secret (comma-separated, no spaces), then restart:
    ```
    kubectl apply -f /tmp/gridiron-2000-secret.yaml
    kubectl rollout restart deployment/gridiron-2000 -n gridiron
    ```
+
+The commissioner console also releases seats and resets the draft or the
+whole league (type RESET to confirm).
 
 ## 9. Subscribe to the Tank01 NFL API
 

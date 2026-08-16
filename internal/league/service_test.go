@@ -131,6 +131,122 @@ func TestFullSnakeDraftAndRosters(t *testing.T) {
 	}
 }
 
+func TestEmailAllowedMergesEnvAndInvites(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "")
+	if !service.EmailAllowed("anyone@example.com") {
+		t.Error("empty lists must leave the league open")
+	}
+	t.Setenv("LEAGUE_ALLOWED_EMAILS", "env@example.com")
+	if !service.EmailAllowed("ENV@example.com") {
+		t.Error("env allowlist match failed")
+	}
+	if service.EmailAllowed("other@example.com") {
+		t.Error("non-listed email allowed")
+	}
+	if err := service.store.AddInvite("other@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if !service.EmailAllowed("other@example.com") {
+		t.Error("stored invite not honored")
+	}
+}
+
+func TestBoardFlowThroughService(t *testing.T) {
+	service := newTestService(t, true) // demo mode: guest board key
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+	request, _ := http.NewRequest(http.MethodGet, "/board", nil)
+
+	if _, err := service.BoardAdd(request, "pool-003"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.BoardAdd(request, "pool-001"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.BoardAdd(request, "does-not-exist"); err == nil {
+		t.Error("unknown player accepted onto board")
+	}
+	if err := service.BoardMove(request, "pool-001", "up"); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.BoardData(request)
+	board, _ := data["board"].([]map[string]any)
+	if len(board) != 2 || board[0]["id"] != "pool-001" {
+		t.Fatalf("board order wrong: %+v", board)
+	}
+	available, _ := data["available"].([]map[string]any)
+	if len(available) != 18 {
+		t.Fatalf("available should exclude board entries: %d", len(available))
+	}
+
+	// The draft room surfaces the board, minus already-picked players.
+	if _, _, _, err := service.MakePick(request, teamOnClock(1), "pool-001"); err != nil {
+		t.Fatal(err)
+	}
+	draft := service.DraftData(request)
+	panel, _ := draft["board"].([]map[string]any)
+	if len(panel) != 1 || panel[0]["id"] != "pool-003" {
+		t.Fatalf("draft board panel wrong: %+v", panel)
+	}
+}
+
+func TestAdminGuardsAndControls(t *testing.T) {
+	service := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+	if err := service.AdminAddInvite(request, "x@example.com"); err == nil {
+		t.Fatal("unauthenticated admin action must fail")
+	}
+
+	demo := newTestService(t, true) // demo mode grants commissioner
+	if err := demo.AdminAddInvite(request, "x@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	data := demo.AdminData(request)
+	invites, _ := data["invites"].([]map[string]any)
+	found := false
+	for _, invite := range invites {
+		if invite["email"] == "x@example.com" && invite["removable"] == true {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("invite missing from admin data: %+v", invites)
+	}
+
+	if _, err := demo.store.AssignMember("x@example.com", "X"); err != nil {
+		t.Fatal(err)
+	}
+	team, err := demo.AdminReleaseSeat(request, "team-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team.Manager != "" {
+		t.Fatalf("released seat still shows a manager: %+v", team)
+	}
+	seats, _ := demo.AdminData(request)["seats"].([]map[string]any)
+	if seats[0]["claimed"] != false || seats[0]["manager"] != "UNCLAIMED" {
+		t.Fatalf("seat display wrong after release: %+v", seats[0])
+	}
+}
+
+func TestUnclaimedTeamDisplay(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := service.TeamData(request)
+	team, _ := data["team"].(map[string]any)
+	if team["claimed"] != false || team["manager"] != "UNCLAIMED" || team["record"] != "0–0" {
+		t.Fatalf("unclaimed team display wrong: %+v", team)
+	}
+	if data["drafted"] != false {
+		t.Error("fresh team must have an empty roster")
+	}
+	if roster, _ := data["roster"].([]map[string]any); len(roster) != 0 {
+		t.Fatalf("roster should be empty, got %d", len(roster))
+	}
+}
+
 func TestRehearsalPicksSurviveLivePoolSwap(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)

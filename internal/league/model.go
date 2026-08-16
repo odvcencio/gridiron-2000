@@ -57,9 +57,11 @@ type Member struct {
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
-	Ready   map[string]bool   `json:"ready"`
-	Picks   []DraftPick       `json:"picks"`
-	Members map[string]Member `json:"members"`
+	Ready   map[string]bool     `json:"ready"`
+	Picks   []DraftPick         `json:"picks"`
+	Members map[string]Member   `json:"members"`
+	Invites []string            `json:"invites"`
+	Boards  map[string][]string `json:"boards"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
@@ -93,16 +95,19 @@ type LiveSnapshot struct {
 	Warning             string         `json:"warning,omitempty"`
 }
 
+// defaultTeams returns the eight franchise identities. Manager, record, and
+// streak stay empty until a real member claims the seat and games are played;
+// the UI renders unclaimed seats explicitly.
 func defaultTeams() []Team {
 	return []Team{
-		{ID: "team-1", Name: "Fourth & Longing", Abbreviation: "F&L", Manager: "Alex", Record: "11–3", PointsFor: 1784.6, Rank: 1, Streak: "W5", Tone: "lime"},
-		{ID: "team-2", Name: "Dial-Up Defense", Abbreviation: "DUD", Manager: "Maya", Record: "10–4", PointsFor: 1712.2, Rank: 2, Streak: "W2", Tone: "magenta"},
-		{ID: "team-3", Name: "End Zone Empire", Abbreviation: "EZE", Manager: "Theo", Record: "9–5", PointsFor: 1698.9, Rank: 3, Streak: "L1", Tone: "cyan"},
-		{ID: "team-4", Name: "Blitz Protocol", Abbreviation: "BLZ", Manager: "Jordan", Record: "8–6", PointsFor: 1654.4, Rank: 4, Streak: "W1", Tone: "orange"},
-		{ID: "team-5", Name: "VHS Victory", Abbreviation: "VHS", Manager: "Priya", Record: "7–7", PointsFor: 1598.1, Rank: 5, Streak: "W3", Tone: "violet"},
-		{ID: "team-6", Name: "Pixel Punters", Abbreviation: "PXL", Manager: "Miles", Record: "6–8", PointsFor: 1543.7, Rank: 6, Streak: "L2", Tone: "blue"},
-		{ID: "team-7", Name: "Neon Audible", Abbreviation: "NEO", Manager: "Casey", Record: "3–11", PointsFor: 1460.3, Rank: 7, Streak: "L4", Tone: "pink"},
-		{ID: "team-8", Name: "Sunday Service", Abbreviation: "SUN", Manager: "Sam", Record: "2–12", PointsFor: 1398.8, Rank: 8, Streak: "L3", Tone: "gold"},
+		{ID: "team-1", Name: "Fourth & Longing", Abbreviation: "F&L", Record: "0–0", Rank: 1, Streak: "—", Tone: "lime"},
+		{ID: "team-2", Name: "Dial-Up Defense", Abbreviation: "DUD", Record: "0–0", Rank: 2, Streak: "—", Tone: "magenta"},
+		{ID: "team-3", Name: "End Zone Empire", Abbreviation: "EZE", Record: "0–0", Rank: 3, Streak: "—", Tone: "cyan"},
+		{ID: "team-4", Name: "Blitz Protocol", Abbreviation: "BLZ", Record: "0–0", Rank: 4, Streak: "—", Tone: "orange"},
+		{ID: "team-5", Name: "VHS Victory", Abbreviation: "VHS", Record: "0–0", Rank: 5, Streak: "—", Tone: "violet"},
+		{ID: "team-6", Name: "Pixel Punters", Abbreviation: "PXL", Record: "0–0", Rank: 6, Streak: "—", Tone: "blue"},
+		{ID: "team-7", Name: "Neon Audible", Abbreviation: "NEO", Record: "0–0", Rank: 7, Streak: "—", Tone: "pink"},
+		{ID: "team-8", Name: "Sunday Service", Abbreviation: "SUN", Record: "0–0", Rank: 8, Streak: "—", Tone: "gold"},
 	}
 }
 

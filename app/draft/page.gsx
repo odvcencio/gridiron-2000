@@ -183,6 +183,33 @@ func Page() Node {
 				CanPick={data.can_pick}
 			 />
 			<aside class="pick-tape">
+				<If cond={data.board_count > 0}>
+					<header>
+						<span class="section-index">YOUR BOARD</span>
+						<a href="/board" data-gosx-link class="mono">EDIT →</a>
+					</header>
+					<div class="pick-list board-peek">
+						<Each of={data.board} as="target">
+							<div class="pick-row">
+								<span class="mono">{target.rank}</span>
+								<div>
+									<strong>{target.name}</strong>
+									<small>
+										{target.position}
+										·
+										{target.nfl_team}
+									</small>
+								</div>
+								<b>{target.projection}</b>
+							</div>
+						</Each>
+					</div>
+				</If>
+				<If cond={data.board_count == 0}>
+					<div class="board-peek-empty">
+						<a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a>
+					</div>
+				</If>
 				<header>
 					<span class="section-index">PICK TAPE</span>
 					<b class="mono">LIVE LOG</b>

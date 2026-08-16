@@ -246,7 +246,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}
-		if !emailAllowed(user.Email, os.Getenv("LEAGUE_ALLOWED_EMAILS")) {
+		if !league.Default().EmailAllowed(user.Email) {
 			manager.SignOut(r)
 			session.AddFlash(r, "notice", "That Google account is not on this league's invite list.")
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
@@ -269,20 +269,6 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 
 func googleAuthConfigured() bool {
 	return strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")) != "" && strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")) != ""
-}
-
-func emailAllowed(email, rawAllowlist string) bool {
-	rawAllowlist = strings.TrimSpace(rawAllowlist)
-	if rawAllowlist == "" {
-		return true
-	}
-	email = strings.ToLower(strings.TrimSpace(email))
-	for _, candidate := range strings.Split(rawAllowlist, ",") {
-		if strings.ToLower(strings.TrimSpace(candidate)) == email {
-			return true
-		}
-	}
-	return false
 }
 
 func getenv(key string, fallback string) string {

@@ -118,6 +118,66 @@ func (s *Service) DraftAt() time.Time { return s.draftAt }
 
 func (s *Service) DemoMode() bool { return s.demoMode }
 
+// EmailAllowed reports whether the email may claim a seat: it must appear in
+// the LEAGUE_ALLOWED_EMAILS environment list or the stored invite list. When
+// both lists are empty the league is open (initial setup).
+func (s *Service) EmailAllowed(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	envList := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
+	invites := s.store.Snapshot().Invites
+	if len(envList) == 0 && len(invites) == 0 {
+		return true
+	}
+	for _, candidate := range envList {
+		if candidate == email {
+			return true
+		}
+	}
+	return s.store.Invited(email)
+}
+
+// IsCommissioner reports whether the request belongs to a commissioner.
+// COMMISSIONER_EMAILS names them; demo mode grants it for local rehearsal.
+func (s *Service) IsCommissioner(r *http.Request) bool {
+	if s.demoMode {
+		return true
+	}
+	user, ok := auth.Current(r)
+	if !ok {
+		return false
+	}
+	email := strings.ToLower(strings.TrimSpace(user.Email))
+	for _, candidate := range splitEmails(os.Getenv("COMMISSIONER_EMAILS")) {
+		if candidate == email {
+			return true
+		}
+	}
+	return false
+}
+
+// viewerKey identifies the acting person for board storage: the signed-in
+// email, or a shared guest key in demo mode.
+func (s *Service) viewerKey(r *http.Request) string {
+	if user, ok := auth.Current(r); ok {
+		return strings.ToLower(strings.TrimSpace(user.Email))
+	}
+	if s.demoMode {
+		return "demo-guest"
+	}
+	return ""
+}
+
+func splitEmails(raw string) []string {
+	out := []string{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.ToLower(strings.TrimSpace(part))
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
 // SetPlayerSource attaches the fantasy pool. Call it once during startup,
 // before the server accepts requests.
 func (s *Service) SetPlayerSource(source PlayerSource) {
@@ -236,20 +296,21 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		projected += player.Projection
 	}
 	return map[string]any{
-		"viewer":      viewer,
-		"team":        s.teamMap(team),
-		"roster":      playerMaps(roster),
-		"drafted":     drafted,
-		"starters":    len(roster),
-		"projected":   fmt.Sprintf("%.1f", projected),
-		"waiver_rank": "03",
-		"budget":      "$87",
-		"scouting":    scoutingMaps(),
+		"viewer":          viewer,
+		"team":            s.teamMap(team),
+		"roster":          playerMaps(roster),
+		"drafted":         drafted,
+		"starters":        len(roster),
+		"projected":       fmt.Sprintf("%.1f", projected),
+		"waiver_rank":     "—",
+		"budget":          "—",
+		"scouting":        s.topAvailable(state, 3),
+		"is_commissioner": s.IsCommissioner(r),
 	}
 }
 
-// rosterForTeam returns the team's drafted players in pick order. Before any
-// pick exists the demo roster fixture keeps the team terminal populated.
+// rosterForTeam returns the team's drafted players in pick order. An empty
+// slice means the seat has not drafted; the page renders the empty state.
 func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, bool) {
 	pool := s.pool()
 	roster := make([]Player, 0, 15)
@@ -264,10 +325,37 @@ func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, 
 			roster = append(roster, player)
 		}
 	}
-	if len(roster) == 0 {
-		return s.roster, false
+	return roster, len(roster) > 0
+}
+
+// topAvailable lists the best unpicked pool players for the waiver radar.
+func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any {
+	pool := s.pool()
+	picked := make(map[string]bool, len(state.Picks))
+	for _, pick := range state.Picks {
+		picked[pick.PlayerID] = true
 	}
-	return roster, true
+	out := make([]map[string]any, 0, limit)
+	for _, player := range pool.players {
+		if picked[player.ID] {
+			continue
+		}
+		signal := "Projection " + fmt.Sprintf("%.1f", player.Projection)
+		if player.ADPRank > 0 {
+			signal = fmt.Sprintf("ADP #%d", player.ADPRank)
+		}
+		out = append(out, map[string]any{
+			"position": player.Position,
+			"name":     player.Name,
+			"team":     player.NFLTeam,
+			"signal":   signal,
+			"status":   "OPEN",
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
@@ -293,12 +381,26 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 	if s.demoMode {
 		canPick = true
 	}
+	boardPanel := make([]map[string]any, 0, 5)
+	for _, id := range state.Boards[s.viewerKey(r)] {
+		if picked[id] {
+			continue
+		}
+		if player, ok := pool.byID[id]; ok {
+			boardPanel = append(boardPanel, playerMap(player))
+			if len(boardPanel) == 5 {
+				break
+			}
+		}
+	}
 	return map[string]any{
 		"viewer":        viewer,
 		"draft":         s.draftSummary(now),
 		"teams":         s.draftTeamMaps(state, onClockID),
 		"picks":         s.pickMaps(state, pool.byID),
 		"available":     playerMaps(available),
+		"board":         boardPanel,
+		"board_count":   len(boardPanel),
 		"pool_label":    pool.label,
 		"pool_live":     pool.label == "live" || pool.label == "cache",
 		"pool_count":    len(pool.players),
@@ -481,9 +583,14 @@ func (s *Service) teamView(state PersistedState, id string) Team {
 }
 
 func (s *Service) teamMap(team Team) map[string]any {
+	manager := strings.TrimSpace(team.Manager)
+	claimed := manager != ""
+	if !claimed {
+		manager = "UNCLAIMED"
+	}
 	return map[string]any{
 		"id": team.ID, "name": team.Name, "abbreviation": team.Abbreviation,
-		"manager": team.Manager, "record": team.Record, "points_for": fmt.Sprintf("%.1f", team.PointsFor),
+		"manager": manager, "claimed": claimed, "record": team.Record, "points_for": fmt.Sprintf("%.1f", team.PointsFor),
 		"rank": fmt.Sprintf("%02d", team.Rank), "rank_number": team.Rank, "streak": team.Streak, "tone": team.Tone,
 	}
 }
@@ -534,14 +641,6 @@ func leaderMaps() []map[string]any {
 		{"rank": "02", "name": "J. Gibbs", "position": "RB", "points": "21.2", "trend": "+2.3"},
 		{"rank": "03", "name": "P. Nacua", "position": "WR", "points": "18.6", "trend": "+1.4"},
 		{"rank": "04", "name": "B. Robinson", "position": "RB", "points": "16.8", "trend": "−2.9"},
-	}
-}
-
-func scoutingMaps() []map[string]any {
-	return []map[string]any{
-		{"position": "WR", "name": "R. Davis", "team": "BUF", "signal": "+2.8K adds", "status": "HOT"},
-		{"position": "RB", "name": "M. Carter", "team": "ARI", "signal": "18% rostered", "status": "WATCH"},
-		{"position": "TE", "name": "D. Knox", "team": "BUF", "signal": "+14 targets", "status": "RISING"},
 	}
 }
 

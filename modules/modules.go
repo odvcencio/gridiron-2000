@@ -3,6 +3,8 @@ package modules
 
 import (
 	_ "gridiron-2000/app"
+	_ "gridiron-2000/app/admin"
+	_ "gridiron-2000/app/board"
 	_ "gridiron-2000/app/draft"
 	_ "gridiron-2000/app/login"
 	_ "gridiron-2000/app/matchups"
