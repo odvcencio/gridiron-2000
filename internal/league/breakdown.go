@@ -31,6 +31,16 @@ var breakdownRows = []breakdownRow{
 	{statKey: "recYds", label: "Rec yds", ruleKey: "recYards"},
 	{statKey: "recTD", label: "Rec TD", ruleKey: "recTD"},
 	{statKey: "fumblesLost", label: "Fum lost", ruleKey: "fumbleLost"},
+	// The four rows below are additive for Preseason Blitz (WP-B1, design
+	// spec section 4.3). A projection stat line never emits these keys —
+	// kicker and defense projections carry no groups at all
+	// (internal/fantasy/tank01.go:266-269) — so every existing draft-pool
+	// tooltip renders byte-identical rows before and after this addition
+	// (T10); these rows only ever populate from live Blitz box scores.
+	{statKey: "returnTD", label: "Ret TD", ruleKey: "returnTD"},
+	{statKey: "fgMade", label: "FG made", ruleKey: "fgMade"},
+	{statKey: "fgMissed", label: "FG miss", ruleKey: "fgMissed"},
+	{statKey: "xpMade", label: "XP made", ruleKey: "xpMade"},
 }
 
 // breakdownDefaultValues resolves every scoring rule's stock point value,
@@ -85,7 +95,6 @@ func scoreBreakdownWithValues(stats map[string]float64, values map[string]float6
 	if values == nil {
 		values = breakdownDefaultValues()
 	}
-	sum := 0.0
 	for _, row := range breakdownRows {
 		stat, ok := stats[row.statKey]
 		if !ok || stat == 0 {
@@ -105,11 +114,40 @@ func scoreBreakdownWithValues(stats map[string]float64, values map[string]float6
 		if row.ruleKey != "" {
 			points := values[row.ruleKey]
 			scored := stat * points
-			sum += scored
 			entry["calc"] = statText + " × " + strconv.FormatFloat(points, 'f', -1, 64)
 			entry["points"] = fmt.Sprintf("%+.1f", scored)
 		}
 		rows = append(rows, entry)
 	}
-	return rows, fmt.Sprintf("%.1f", sum)
+	return rows, fmt.Sprintf("%.1f", scoreStatsWithValues(stats, values))
+}
+
+// scoreStatsWithValues sums a stat line's scored rows (the breakdownRows
+// entries that carry a ruleKey) against values, ignoring context rows and
+// any stat key breakdownRows does not carry. Unlike
+// scoreBreakdownWithValues, this returns a raw float rather than a
+// formatted string: a numeric caller that sums several players' scores —
+// the Preseason Blitz leaderboard sums five players before formatting
+// once (design spec section 4.3: "sum floats, then format %.1f; never sum
+// formatted strings") — calls this directly instead of parsing
+// scoreBreakdownWithValues' rendered total back into a number.
+func scoreStatsWithValues(stats map[string]float64, values map[string]float64) float64 {
+	if len(stats) == 0 {
+		return 0
+	}
+	if values == nil {
+		values = breakdownDefaultValues()
+	}
+	sum := 0.0
+	for _, row := range breakdownRows {
+		if row.ruleKey == "" {
+			continue
+		}
+		stat, ok := stats[row.statKey]
+		if !ok || stat == 0 {
+			continue
+		}
+		sum += stat * values[row.ruleKey]
+	}
+	return sum
 }

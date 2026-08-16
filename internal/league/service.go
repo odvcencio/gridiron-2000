@@ -63,6 +63,11 @@ type Service struct {
 	scheduleFn   ScheduleSource
 	historicalFn HistoricalSource
 	weekStatsFn  WeekStatsSource
+	// blitzFn supplies the Preseason Blitz feed (games plus live stats,
+	// WP-B1); see blitz.go's SetBlitzSource. nil means the feature is
+	// disabled — no TANK01_API_KEY, or the contest has sunset — and
+	// BlitzData renders its honest feed-offline state.
+	blitzFn BlitzSource
 
 	// notifyQueue is the delivery queue every notification hook enqueues to
 	// (internal/notify). nil means notifications were never wired (most
@@ -355,6 +360,17 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 		encoded = []byte(err.Error())
 	}
 	suffix := fmt.Sprintf("|pool:%d|presence:%s", poolVersion, s.presenceDigest(state, s.clock()))
+	// Preseason Blitz live scores are never persisted in league state
+	// (design spec section 4.4): a poll must not rewrite the state file and
+	// churn every other fingerprint reader. Appending the source's own
+	// version here is what lets a live-stat update reach browsers through
+	// the same 4s revalidation loop everything else uses (F14).
+	s.poolMu.Lock()
+	blitzSource := s.blitzFn
+	s.poolMu.Unlock()
+	if blitzSource != nil {
+		suffix += fmt.Sprintf("|blitz:%d", blitzSource().Version)
+	}
 	digest := sha256.Sum256(append(encoded, []byte(suffix)...))
 	return hex.EncodeToString(digest[:8])
 }

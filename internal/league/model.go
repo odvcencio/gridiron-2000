@@ -56,6 +56,15 @@ type Player struct {
 	Hist string `json:"hist,omitempty"`
 }
 
+// BlitzEntry is one member's 5-player slate entry for Preseason Blitz
+// (WP-B1). Players is add order, not display order; lock and reveal state
+// resolve at read time in the service layer against the live schedule (see
+// blitz.go), never stored here.
+type BlitzEntry struct {
+	Players   []string  `json:"players"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
 // GameInfo is one real NFL game supplied by the schedule source.
 type GameInfo struct {
 	ID        string
@@ -110,6 +119,11 @@ type PersistedState struct {
 	Scoring    map[string]float64  `json:"scoring"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
+	// BlitzEntries maps owner email to slate ID ("pre2" | "pre3") to that
+	// owner's Preseason Blitz entry (WP-B1). Additive under schema version
+	// 2 — the Pickems precedent (F10): a nil map decodes safely on an old
+	// file, and the store normalizes it in load/NewStore/cloneState.
+	BlitzEntries map[string]map[string]BlitzEntry `json:"blitzEntries,omitempty"`
 
 	// Clock state. Zero values mean: no clock armed, not paused, env
 	// default duration. Old state files decode to exactly that, so the
