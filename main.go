@@ -187,6 +187,16 @@ func main() {
 	})
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
+	// Team avatars (design decisions 1-3): the upload endpoint sits outside
+	// gosx's action registry (its 1MB action-body cap is well under the 2MB
+	// avatar limit — see avatar_handlers.go), and the serving route emits
+	// its own fixed Cache-Control lifetime rather than the public-dir
+	// default, since an uploaded avatar lives in the data dir, not
+	// public/. Both still pass through the session/CSRF/auth middleware
+	// registered above (app.Use wraps every mount, not just page routes).
+	app.Mount("POST /avatar/upload", avatarUploadHandler(league.Default()))
+	app.Mount("GET /avatars/", avatarServeHandler(league.Default()))
+
 	app.Mount("GET /auth/google/start", googleStartHandler(googleOAuth, googleConfigured))
 	app.Mount("GET /auth/google/callback", googleCallbackHandler(googleOAuth, authManager, googleConfigured))
 	app.Mount("POST /auth/logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
