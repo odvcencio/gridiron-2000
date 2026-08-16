@@ -13,6 +13,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"

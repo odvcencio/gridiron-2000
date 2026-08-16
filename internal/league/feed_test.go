@@ -19,12 +19,15 @@ func TestDefaultDraftDate(t *testing.T) {
 	if got := draft.Format(time.RFC3339); got != DefaultDraftAt {
 		t.Fatalf("expected %s, got %s", DefaultDraftAt, got)
 	}
-	if draft.Weekday() != time.Sunday {
-		t.Fatalf("expected a Sunday, got %s", draft.Weekday())
+	if draft.Weekday() != time.Saturday {
+		t.Fatalf("expected a Saturday, got %s", draft.Weekday())
 	}
 	svc := &Service{draftAt: draft}
 	summary := svc.draftSummary(draft.Add(-7 * 24 * time.Hour))
-	if got := summary["date"]; got != "SUN · AUG 16" {
-		t.Fatalf("expected display date SUN · AUG 16, got %v", got)
+	if got := summary["date"]; got != "SAT · AUG 22" {
+		t.Fatalf("expected display date SAT · AUG 22, got %v", got)
+	}
+	if got := summary["time"]; got != "4:00 PM EDT" {
+		t.Fatalf("expected kickoff display 4:00 PM EDT, got %v", got)
 	}
 }
