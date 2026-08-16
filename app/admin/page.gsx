@@ -1,8 +1,21 @@
 package admin
 
+// SeatRow's avatar-upload form posts to /avatar/upload as a plain,
+// unmanaged (data-gosx-managed="false") full-page submission. TODO(gosx#187):
+// once ctx.Files lands upstream, revisit whether it can move to the managed
+// path — the raw handler exists today because m31labs.dev/gosx/action caps
+// every managed-form request body at 1MB, well under the 2MB avatar limit
+// (see avatar_handlers.go in the repo root).
 func SeatRow(props any) Node {
 	return <article class="seat-row" data-claimed={props.seat.claimed}>
-		<span class={"team-mark tone-" + props.seat.tone}>{props.seat.abbreviation}</span>
+		<span class={"team-mark tone-" + props.seat.tone}>
+			<If cond={props.seat.has_avatar_image}>
+				<img class="avatar-mark__photo" src={props.seat.avatar_image_url} alt={props.seat.name} loading="lazy" />
+			</If>
+			<If cond={props.seat.has_avatar_image == false}>
+				{props.seat.abbreviation}
+			</If>
+		</span>
 		<div class="seat-identity">
 			<strong>{props.seat.name}</strong>
 			<small>
@@ -52,6 +65,20 @@ func SeatRow(props any) Node {
 				<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
 			</form>
 		</If>
+		<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
+			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+			<input type="hidden" name="team_id" value={props.seat.id}></input>
+			<input type="hidden" name="redirect_to" value="/admin"></input>
+			<input type="file" name="avatar" accept="image/png,image/jpeg" required="required"></input>
+			<button class="board-button" type="submit">Set avatar</button>
+		</form>
+		<If cond={props.seat.has_avatar}>
+			<form method="post" action={props.AvatarResetAction} data-gosx-managed="true">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="team_id" value={props.seat.id}></input>
+				<button class="board-button board-button--cut" type="submit">Reset avatar</button>
+			</form>
+		</If>
 	</article>
 }
 
@@ -99,6 +126,9 @@ func Page() Node {
 			<If cond={data.has_admin_error}>
 				<p class="error-message">{data.admin_error}</p>
 			</If>
+			<If cond={data.has_avatar_error}>
+				<p class="error-message">{data.avatar_error}</p>
+			</If>
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
@@ -128,7 +158,7 @@ func Page() Node {
 					</div>
 					<div class="seat-list">
 						<Each of={data.seats} as="seat">
-							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} AutopickAction={actionPath("clock-set-autopick")} CSRF={csrf.token} />
+							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} AutopickAction={actionPath("clock-set-autopick")} AvatarResetAction={actionPath("avatar-reset")} CSRF={csrf.token} />
 						</Each>
 					</div>
 				</section>
@@ -237,7 +267,14 @@ func Page() Node {
 					<div class="order-list">
 						<Each of={data.draft_order} as="team">
 							<article class="order-row">
-								<span class={"team-mark tone-" + team.tone}>{team.abbreviation}</span>
+								<span class={"team-mark tone-" + team.tone}>
+									<If cond={team.has_avatar_image}>
+										<img class="avatar-mark__photo" src={team.avatar_image_url} alt={team.name} loading="lazy" />
+									</If>
+									<If cond={team.has_avatar_image == false}>
+										{team.abbreviation}
+									</If>
+								</span>
 								<div class="seat-identity">
 									<strong>{team.name}</strong>
 									<small>{team.manager}</small>
