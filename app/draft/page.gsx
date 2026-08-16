@@ -3,6 +3,7 @@ package draft
 //gosx:island
 func DraftQueue(props any) Node {
 	filter := signal.New("ALL")
+	query := signal.New("")
 	showAll := func() { filter.Set("ALL") }
 	showRB := func() { filter.Set("RB") }
 	showWR := func() { filter.Set("WR") }
@@ -10,6 +11,7 @@ func DraftQueue(props any) Node {
 	showTE := func() { filter.Set("TE") }
 	showK := func() { filter.Set("K") }
 	showDST := func() { filter.Set("DST") }
+	onQuery := func() { query.Set(value) }
 	return <section class="player-pool" data-filter={filter}>
 		<div class="pool-toolbar">
 			<div>
@@ -26,6 +28,16 @@ func DraftQueue(props any) Node {
 				<button type="button" class="filter-button" aria-pressed={filter == "DST"} onClick={showDST}>DST</button>
 			</div>
 		</div>
+		<div class="pool-search-bar">
+			<label class="mono" for="pool-search">DATABASE QUERY //</label>
+			<input
+				id="pool-search"
+				type="search"
+				placeholder="Search player, team, or position"
+				autocomplete="off"
+				onInput={onQuery}
+			 />
+		</div>
 		<div class="pool-labels mono" aria-hidden="true">
 			<span>RK</span>
 			<span>PLAYER</span>
@@ -34,7 +46,7 @@ func DraftQueue(props any) Node {
 			<span>ACTION</span>
 		</div>
 		<div class="pool-list">
-			<Each of={props.Players} as="player">
+			<Each of={props.Players.filter(func(p){ return p.search.contains(query.trim().toLower()) })} as="player">
 				<article class="pool-row" data-player-position={player.position} data-search={player.search}>
 					<span class="pool-rank mono">{player.rank}</span>
 					<div class="pool-player">
@@ -170,15 +182,7 @@ func Page() Node {
 				</Each>
 			</div>
 		</section>
-		<div class="pool-search-bar">
-			<label class="mono" for="pool-search">DATABASE QUERY //</label>
-			<input
-				id="pool-search"
-				type="search"
-				data-pool-search="true"
-				placeholder="Search player, team, or position"
-				autocomplete="off"
-			 />
+		<div class="pool-count-bar">
 			<span class="mono pool-count">
 				{data.pool_count}
 				PLAYERS

@@ -1624,6 +1624,11 @@ h2 {
   gap: var(--space-md);
 }
 
+.pool-count-bar {
+  margin-bottom: var(--space-md);
+  text-align: right;
+}
+
 .pool-search-bar {
   display: flex;
   align-items: center;
