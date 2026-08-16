@@ -1,0 +1,9 @@
+.env
+data/
+dist/
+.gosx/
+.canopy/
+artifacts/
+*.log
+.analyses/
+docs/superpowers/

@@ -1,0 +1,41 @@
+# Source confidence policy. This measures provenance, not truth.
+
+rule CorrectedRecord priority 0 {
+    when { source.evidence == "official" }
+    then Trust { tier: "CORRECTED RECORD", weight: 1.0 }
+}
+
+rule PublisherFeed priority 1 {
+    when { source.evidence == "news" }
+    then Trust { tier: "PUBLISHER", weight: 0.88 }
+}
+
+rule CuratedSocial priority 2 {
+    when { source.evidence == "social" }
+    then Trust { tier: "CURATED SOCIAL", weight: 0.76 }
+}
+
+rule LeagueCommunity priority 3 {
+    when { source.evidence == "community" }
+    then Trust { tier: "COMMUNITY", weight: 0.62 }
+}
+
+rule CommunityFeed priority 4 {
+    when { source.evidence == "community_feed" }
+    then Trust { tier: "COMMUNITY", weight: 0.62 }
+}
+
+rule LeagueSharedNews priority 5 {
+    when { source.evidence == "submitted_news" }
+    then Trust { tier: "COMMUNITY LINK", weight: 0.62 }
+}
+
+rule MarketObservation priority 6 {
+    when { source.evidence == "market" }
+    then Trust { tier: "MARKET WATCH", weight: 0.40 }
+}
+
+rule UnknownSource priority 99 {
+    when { true }
+    then Trust { tier: "UNRATED", weight: 0.35 }
+}

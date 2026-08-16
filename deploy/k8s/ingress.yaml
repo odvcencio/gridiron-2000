@@ -1,0 +1,33 @@
+# Cluster conventions this manifest matches (read from the live cluster on
+# 2026-08-15): ingressClassName "traefik" (every real ingress on this
+# cluster uses traefik, not the also-installed "nginx" IngressClass), the
+# cert-manager.io/cluster-issuer: cloudflare-issuer ClusterIssuer, and a
+# TLS secretName of "<host-with-dashes>-tls" (see m31labs/muddy-noni-gosx).
+# Replace the host below with the real production hostname once DNS is set.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gridiron-2000
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+  annotations:
+    cert-manager.io/cluster-issuer: cloudflare-issuer
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: gridiron.draco.quest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gridiron-2000
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - gridiron.draco.quest
+      secretName: gridiron-draco-quest-tls

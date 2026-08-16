@@ -1,0 +1,30 @@
+{
+  "defaultProfile": "league",
+  "profiles": {
+    "league": {
+      "description": "Server-first league route with the lightweight navigation enhancer.",
+      "assertions": [
+        "lcp <= 2500",
+        "long_tasks <= 2",
+        "tbt <= 150",
+        "js_total_kb <= 140"
+      ]
+    },
+    "draft": {
+      "description": "Draft room with one focused GoSX island.",
+      "assertions": [
+        "lcp <= 2800",
+        "long_tasks <= 3",
+        "tbt <= 200",
+        "js_total_kb <= 180"
+      ]
+    }
+  },
+  "routes": [
+    {"url": "/", "profile": "league"},
+    {"url": "/matchups", "profile": "league"},
+    {"url": "/team", "profile": "league"},
+    {"url": "/login", "profile": "league"},
+    {"url": "/draft", "profile": "draft"}
+  ]
+}

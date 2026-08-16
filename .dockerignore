@@ -1,0 +1,25 @@
+# Runtime state; a PVC (Kubernetes) or bind mount (local) owns this path.
+data/
+
+# Local `gosx build` output; the image builds the server with `go build`.
+dist/
+
+# Secrets and environment files. Configuration reaches the container as
+# Kubernetes Secret/env values, never as a baked-in file.
+.env
+.env.local
+.env.*.local
+
+# Documentation and analysis caches; irrelevant to the runtime image.
+docs/
+.analyses/
+.canopy/
+
+# Editor, VCS, and container tooling noise.
+.git/
+.gitignore
+.gosx/
+*.log
+Dockerfile
+.dockerignore
+deploy/
