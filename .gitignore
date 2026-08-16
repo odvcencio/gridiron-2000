@@ -7,3 +7,16 @@ artifacts/
 *.log
 .analyses/
 docs/superpowers/
+
+# league.json carries one operator's real league identity (name,
+# divisions, draft date, invite copy) — never the public tree's business.
+# Ship config/league.json.example (neutral) instead; an operator's own
+# league.json belongs at the repo root, config/league.json, or beside
+# DATA_FILE (see LEAGUE_FILE lookup order, internal/league/config.go).
+/league.json
+/config/league.json
+# deploy/ is tracked (this project's own k8s manifests reference a
+# ConfigMap by name, never embed the real values) — deploy/local/ is
+# where this deployment's own gitignored league.json lives before it is
+# loaded into that ConfigMap. See deploy/README.md.
+deploy/local/

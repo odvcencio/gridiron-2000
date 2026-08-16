@@ -1,13 +1,13 @@
 # GRIDIRON 2000
 
-A private, eight-manager fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 (RapidAPI) key adds live ADP, projections, and fantasy news to the draft room.
+A private, self-hostable fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 (RapidAPI) key adds live ADP, projections, and fantasy news to the draft room.
 
-The inaugural draft is scheduled for **Saturday, August 22, 2026 at 4:00 PM Eastern** — kickoff of the Dolphins' second preseason game, when the league is together. Set `DRAFT_AT` to move it and `DRAFT_TZ` to change the displayed timezone.
+Every league-specific fact — name, team count, divisions, draft date, and invite copy — lives in `league.json` (see `config/league.json.example`), not in the code. A fresh checkout with no `league.json` runs a neutral, clearly-placeholder reference league; copy the example file, edit it, and restart to run your own. `DRAFT_AT` and `DRAFT_TZ` still override the file's draft date/timezone for a quick change without touching the file.
 
 ## What is included
 
 - Neo-Retro “Stadium OS, year 2000” league HQ, matchup simulator, team terminal, draft room, Signal Wire, and mobile layouts.
-- Google OAuth with PKCE, encrypted HTTP-only sessions, CSRF protection, an optional email allowlist, and exactly eight league seats.
+- Google OAuth with PKCE, encrypted HTTP-only sessions, CSRF protection, an optional email allowlist, and a configurable seat count (4 to 14 teams; see `config/league.json.example`).
 - Persistent manager assignments, draft readiness, and snake-draft picks in `data/league-state.json`.
 - A no-key RSS/Atom mesh with ESPN NFL, CBS Sports NFL, r/fantasyfootball, and Mastodon hashtag feeds enabled by default, plus optional curated Bluesky Jetstream identities.
 - A signed-in league form for tips, shared news, and human-entered market sightings—including observations from PrizePicks—without account automation or scraping.
@@ -42,15 +42,17 @@ gosx check app/wire/page.gsx
 gosx build --dev .
 ```
 
-## Configure the eight-person league
+## Configure your league
 
-Create a Google OAuth client with application type **Web application**, then register the exact callback URI:
+Copy `config/league.json.example` to `league.json` (or `config/league.json`) and edit the `league`, `teams`, `draft`, and `copy` blocks with your own name, roster, draft date, and invite wording — see the field-by-field comments in the example file and `internal/league/config.go`'s validation rules.
+
+Then create a Google OAuth client with application type **Web application**, and register the exact callback URI:
 
 ```text
 http://localhost:8080/auth/google/callback
 ```
 
-Set the credentials and the eight invited accounts:
+Set the credentials and one email per seat:
 
 ```dotenv
 GOOGLE_CLIENT_ID=your-client-id
@@ -60,7 +62,7 @@ LEAGUE_ALLOWED_EMAILS=alex@example.com,maya@example.com
 DEMO_MODE=false
 ```
 
-An authenticated manager claims the first open seat. The allowlist should contain all eight accounts before exposing the app outside your home network. Production needs HTTPS, a strong random `SESSION_SECRET`, and the production callback URL registered with Google.
+An authenticated manager claims the first open seat. The allowlist should contain one account per configured team before exposing the app outside your home network. Production needs HTTPS, a strong random `SESSION_SECRET`, and the production callback URL registered with Google.
 
 ## Assemble the free Signal Wire
 

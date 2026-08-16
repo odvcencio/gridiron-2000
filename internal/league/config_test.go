@@ -421,3 +421,51 @@ func itoa(n int) string {
 	}
 	return string(digits)
 }
+
+// TestShippedExampleConfigValidates loads config/league.json.example (the
+// neutral file shipped with the repo, config/league.json.example) and
+// checks it parses and validates cleanly — an operator's copy/edit/rename
+// starting point must never itself be broken.
+func TestShippedExampleConfigValidates(t *testing.T) {
+	path := filepath.Join("..", "..", "config", "league.json.example")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read %s: %v", path, err)
+	}
+	t.Setenv("LEAGUE_FILE", writeConfig(t, string(body)))
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("config/league.json.example must load and validate cleanly: %v", err)
+	}
+	if cfg.Name != "THE LEAGUE" {
+		t.Errorf("Name = %q", cfg.Name)
+	}
+	if len(cfg.Teams) != 8 {
+		t.Errorf("Teams = %d, want 8", len(cfg.Teams))
+	}
+	if cfg.Roster.Name != "standard" || cfg.Rounds != 15 {
+		t.Errorf("Roster = %+v, Rounds = %d, want standard/15", cfg.Roster, cfg.Rounds)
+	}
+}
+
+// TestReferenceDeploymentConfigValidates loads the real (gitignored)
+// deploy/local/league.json this project's own deployment uses and checks
+// it validates cleanly with the gridiron-house preset at 17 rounds — the
+// "behaviorally identical to today's build" invariant, on the actual file
+// an operator would mount. Skips gracefully when the file is absent
+// (a clean checkout, or CI without deploy/local/ populated).
+func TestReferenceDeploymentConfigValidates(t *testing.T) {
+	path := filepath.Join("..", "..", "deploy", "local", "league.json")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("deploy/local/league.json not present (gitignored, deployment-only): %v", err)
+	}
+	t.Setenv("LEAGUE_FILE", writeConfig(t, string(body)))
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("deploy/local/league.json must load and validate cleanly: %v", err)
+	}
+	if cfg.Name != "GRIDIRON 2000" || cfg.Roster.Name != "gridiron-house" || cfg.Rounds != 17 {
+		t.Errorf("cfg = %+v, want the reference deployment's shape", cfg)
+	}
+}
