@@ -66,6 +66,7 @@ func DraftTeam(props any) Node {
 		<div>
 			<strong>{props.name}</strong>
 			<small>{props.manager}</small>
+			<small class="mono division-tag">{props.division}</small>
 		</div>
 		<If cond={props.ready}>
 			<b class="ready-state is-ready">Ready</b>

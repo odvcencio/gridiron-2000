@@ -41,6 +41,10 @@ func Page() Node {
 						{data.viewer.initials}
 					</span>
 					<h1>{data.team.name}</h1>
+					<small class="mono">
+						{data.team.division}
+						DIVISION
+					</small>
 					<If cond={data.team.claimed}>
 						<p>
 							Operated by

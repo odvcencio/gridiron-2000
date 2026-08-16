@@ -270,12 +270,31 @@ func (s *Service) Players() ([]Player, int64) {
 func (s *Service) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	positions := make(map[string]int, 6)
+	withADP, withProj, withBye := 0, 0, 0
+	for _, player := range s.players {
+		positions[player.Position]++
+		if player.ADPRank > 0 {
+			withADP++
+		}
+		if player.Projection > 0 {
+			withProj++
+		}
+		if player.ByeWeek > 0 {
+			withBye++
+		}
+	}
 	return Status{
 		Enabled:   s.Enabled(),
 		Provider:  "Tank01 (RapidAPI)",
 		Mode:      s.mode,
 		Scoring:   s.config.ScoringFormat,
 		Players:   len(s.players),
+		Positions: positions,
+		WithADP:   withADP,
+		WithProj:  withProj,
+		WithBye:   withBye,
+		Requests:  s.client.requests,
 		LastSync:  s.lastSync,
 		LastError: s.lastErr,
 	}
@@ -289,11 +308,11 @@ func (s *Service) recordError(err error) error {
 }
 
 type poolCache struct {
-	SchemaVersion int      `json:"schemaVersion"`
-	Provider      string   `json:"provider"`
-	Scoring       string   `json:"scoring"`
+	SchemaVersion int       `json:"schemaVersion"`
+	Provider      string    `json:"provider"`
+	Scoring       string    `json:"scoring"`
 	SyncedAt      time.Time `json:"syncedAt"`
-	Players       []Player `json:"players"`
+	Players       []Player  `json:"players"`
 }
 
 func (s *Service) cachePath() string {

@@ -26,11 +26,12 @@ func NewStore(filePath string) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
 		state: PersistedState{
-			Ready:   map[string]bool{},
-			Picks:   []DraftPick{},
-			Members: map[string]Member{},
-			Invites: []string{},
-			Boards:  map[string][]string{},
+			Ready:     map[string]bool{},
+			Picks:     []DraftPick{},
+			Members:   map[string]Member{},
+			Invites:   []string{},
+			Boards:    map[string][]string{},
+			TeamNames: map[string]string{},
 		},
 	}
 	_ = s.load()
@@ -192,8 +193,8 @@ func (s *Store) ResetDraft() error {
 	return s.persistLocked()
 }
 
-// ResetLeague clears picks, seats, ready flags, and boards. Invites survive
-// so managers can claim seats again immediately.
+// ResetLeague clears picks, seats, ready flags, and boards. Invites and team
+// name overrides survive; both are commissioner configuration, not game state.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -201,6 +202,26 @@ func (s *Store) ResetLeague() error {
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
 	s.state.Boards = map[string][]string{}
+	return s.persistLocked()
+}
+
+// SetTeamName overrides a team's display name. An empty name clears the
+// override and restores the default.
+func (s *Store) SetTeamName(teamID, name string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	name = strings.TrimSpace(name)
+	if len(name) > 40 {
+		return fmt.Errorf("team names must be 40 characters or fewer")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if name == "" {
+		delete(s.state.TeamNames, teamID)
+	} else {
+		s.state.TeamNames[teamID] = name
+	}
 	return s.persistLocked()
 }
 
@@ -298,6 +319,9 @@ func (s *Store) load() error {
 	if state.Boards == nil {
 		state.Boards = map[string][]string{}
 	}
+	if state.TeamNames == nil {
+		state.TeamNames = map[string]string{}
+	}
 	s.state = state
 	return nil
 }
@@ -335,11 +359,12 @@ func (s *Store) persistLocked() error {
 
 func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
-		Ready:   make(map[string]bool, len(in.Ready)),
-		Picks:   append([]DraftPick(nil), in.Picks...),
-		Members: make(map[string]Member, len(in.Members)),
-		Invites: append([]string(nil), in.Invites...),
-		Boards:  make(map[string][]string, len(in.Boards)),
+		Ready:     make(map[string]bool, len(in.Ready)),
+		Picks:     append([]DraftPick(nil), in.Picks...),
+		Members:   make(map[string]Member, len(in.Members)),
+		Invites:   append([]string(nil), in.Invites...),
+		Boards:    make(map[string][]string, len(in.Boards)),
+		TeamNames: make(map[string]string, len(in.TeamNames)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -349,6 +374,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for key, value := range in.Boards {
 		out.Boards[key] = append([]string(nil), value...)
+	}
+	for key, value := range in.TeamNames {
+		out.TeamNames[key] = value
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

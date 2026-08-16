@@ -97,3 +97,15 @@ func (s *Service) AdminResetLeague(r *http.Request) error {
 	}
 	return s.store.ResetLeague()
 }
+
+// AdminRenameTeam overrides a team's display name. An empty name restores
+// the default name.
+func (s *Service) AdminRenameTeam(r *http.Request, teamID, name string) (Team, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return Team{}, err
+	}
+	if err := s.store.SetTeamName(teamID, name); err != nil {
+		return Team{}, err
+	}
+	return s.teamView(s.store.Snapshot(), teamID), nil
+}

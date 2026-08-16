@@ -247,6 +247,52 @@ func TestUnclaimedTeamDisplay(t *testing.T) {
 	}
 }
 
+func TestDivisionMaps(t *testing.T) {
+	service := newTestService(t, true)
+	divisions := service.divisionMaps(service.store.Snapshot())
+	if len(divisions) != 2 {
+		t.Fatalf("divisions = %d, want 2", len(divisions))
+	}
+	if divisions[0]["name"] != "AQUA" || divisions[1]["name"] != "ORANGE" {
+		t.Fatalf("division order wrong: %v then %v", divisions[0]["name"], divisions[1]["name"])
+	}
+	for _, division := range divisions {
+		teams, ok := division["teams"].([]map[string]any)
+		if !ok || len(teams) != 4 {
+			t.Fatalf("division %v has %d teams, want 4", division["name"], len(teams))
+		}
+		for _, team := range teams {
+			if team["division"] != division["name"] {
+				t.Errorf("team division %v does not match group %v", team["division"], division["name"])
+			}
+		}
+	}
+}
+
+func TestAdminRenameTeamOverridesTeamMap(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	team, err := service.AdminRenameTeam(request, "team-1", "  Commissioner's Pick  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if team.Name != "Commissioner's Pick" {
+		t.Fatalf("rename result = %q", team.Name)
+	}
+
+	view := service.teamMap(service.teamView(service.store.Snapshot(), "team-1"))
+	if view["name"] != "Commissioner's Pick" {
+		t.Fatalf("teamMap did not carry the rename: %v", view["name"])
+	}
+
+	divisions := service.divisionMaps(service.store.Snapshot())
+	aquaTeams, _ := divisions[0]["teams"].([]map[string]any)
+	if aquaTeams[0]["name"] != "Commissioner's Pick" {
+		t.Fatalf("divisionMaps did not carry the rename: %v", aquaTeams[0]["name"])
+	}
+}
+
 func TestRehearsalPicksSurviveLivePoolSwap(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
