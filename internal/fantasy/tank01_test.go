@@ -18,12 +18,14 @@ func TestUnwrapEnvelope(t *testing.T) {
 
 func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	raw := json.RawMessage(`[
-		{"playerID":"100","longName":"Test Receiver","pos":"WR","team":"cin"},
+		{"playerID":"100","longName":"Test Receiver","pos":"WR","team":"cin",
+		 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png"},
 		{"playerID":"101","longName":"Test Kicker","pos":"PK","team":"DAL"},
 		{"playerID":"102","longName":"Test Lineman","pos":"OT","team":"DAL"},
 		{"playerID":"","longName":"No ID","pos":"WR","team":"DAL"},
 		{"playerID":"103","espnName":"Fallback Name","pos":"QB","team":"BUF",
-		 "injury":{"designation":"Questionable"}}
+		 "injury":{"designation":"Questionable"},
+		 "espnHeadshot":"http://insecure.example.com/4429795.png"}
 	]`)
 	players := parsePlayerList(raw)
 	if len(players) != 3 {
@@ -32,14 +34,23 @@ func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	if players["100"].NFLTeam != "CIN" {
 		t.Errorf("team not upper-cased: %q", players["100"].NFLTeam)
 	}
+	if players["100"].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
+		t.Errorf("headshot not captured: %q", players["100"].Headshot)
+	}
 	if players["101"].Position != "K" {
 		t.Errorf("PK not normalized to K: %q", players["101"].Position)
+	}
+	if players["101"].Headshot != "" {
+		t.Errorf("player with no espnHeadshot should have empty Headshot: %q", players["101"].Headshot)
 	}
 	if players["103"].Name != "Fallback Name" {
 		t.Errorf("espnName fallback failed: %q", players["103"].Name)
 	}
 	if players["103"].Injury != "Questionable" {
 		t.Errorf("injury designation lost: %q", players["103"].Injury)
+	}
+	if players["103"].Headshot != "" {
+		t.Errorf("non-https headshot should be dropped: %q", players["103"].Headshot)
 	}
 }
 

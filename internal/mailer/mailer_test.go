@@ -45,14 +45,14 @@ func TestEnabledRequiresHostUserPass(t *testing.T) {
 
 func TestSendRejectsDisabledConfig(t *testing.T) {
 	var config Config
-	if err := config.Send("to@example.com", "Subject", "Body"); err == nil {
+	if err := config.Send("to@example.com", "Subject", "Body", ""); err == nil {
 		t.Fatal("Send on a disabled config should fail")
 	}
 }
 
 func TestBuildMessageComposesHeadersAndBody(t *testing.T) {
 	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
-	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.")
+	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "")
 	message := string(raw)
 
 	wantLines := []string{
@@ -93,8 +93,54 @@ func TestBuildMessageDefaultFromEnv(t *testing.T) {
 	t.Setenv("SMTP_FROM", "invites@example.com")
 
 	config := FromEnv()
-	message := string(config.buildMessage("manager@example.com", "Hi", "Body"))
+	message := string(config.buildMessage("manager@example.com", "Hi", "Body", ""))
 	if !strings.Contains(message, "From: invites@example.com\r\n") {
 		t.Errorf("expected explicit SMTP_FROM in message, got:\n%s", message)
+	}
+}
+
+func TestBuildMessageWithHTMLIsMultipartAlternative(t *testing.T) {
+	config := Config{Host: "smtp.example.com", Port: "587", User: "commish@example.com", Pass: "secret", From: "commish@example.com"}
+	raw := config.buildMessage("manager@example.com", "You're invited", "Hello there.\nSee you at the draft.", "<p>Hello there.</p>")
+	message := string(raw)
+
+	if !strings.Contains(message, `Content-Type: multipart/alternative; boundary="`) {
+		t.Fatalf("top-level header missing multipart/alternative content type:\n%s", message)
+	}
+
+	// Pull the declared boundary out of the top-level header and confirm the
+	// body actually uses it to delimit both parts.
+	const marker = `boundary="`
+	start := strings.Index(message, marker) + len(marker)
+	end := strings.Index(message[start:], `"`)
+	if start < len(marker) || end == -1 {
+		t.Fatalf("could not find boundary value in header:\n%s", message)
+	}
+	boundary := message[start : start+end]
+	if boundary == "" {
+		t.Fatal("boundary value is empty")
+	}
+
+	delimiter := "--" + boundary
+	if strings.Count(message, delimiter) < 3 { // opening x2 + closing
+		t.Errorf("message does not use the declared boundary to delimit two parts:\n%s", message)
+	}
+	if !strings.Contains(message, delimiter+"--\r\n") {
+		t.Errorf("message missing the closing boundary marker:\n%s", message)
+	}
+
+	textIndex := strings.Index(message, "Content-Type: text/plain; charset=utf-8")
+	htmlIndex := strings.Index(message, "Content-Type: text/html; charset=utf-8")
+	if textIndex == -1 || htmlIndex == -1 {
+		t.Fatalf("message missing a text or html part header:\n%s", message)
+	}
+	if textIndex > htmlIndex {
+		t.Errorf("text part should appear before the html part:\n%s", message)
+	}
+	if !strings.Contains(message, "Hello there.\nSee you at the draft.") {
+		t.Errorf("message missing plain-text body:\n%s", message)
+	}
+	if !strings.Contains(message, "<p>Hello there.</p>") {
+		t.Errorf("message missing html body:\n%s", message)
 	}
 }

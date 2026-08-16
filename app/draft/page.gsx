@@ -49,9 +49,14 @@ func DraftQueue(props any) Node {
 			<Each of={props.Players.filter(func(p){ return p.search.contains(query.trim().toLower()) })} as="player">
 				<article class="pool-row" data-player-position={player.position} data-search={player.search}>
 					<span class="pool-rank mono">{player.rank}</span>
-					<div class="pool-player">
-						<strong>{player.name}</strong>
-						<small>{player.detail}</small>
+					<div class="pool-player pool-player--photo">
+						<If cond={player.has_headshot}>
+							<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
+						</If>
+						<div class="pool-player__text">
+							<strong>{player.name}</strong>
+							<small>{player.detail}</small>
+						</div>
 					</div>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>

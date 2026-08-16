@@ -16,7 +16,8 @@ func tank01Stub(t *testing.T, hits map[string]int) *httptest.Server {
 	t.Helper()
 	payloads := map[string]string{
 		"/getNFLPlayerList": `{"statusCode":200,"body":[
-			{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN"},
+			{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN",
+			 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png"},
 			{"playerID":"2","longName":"Beta Back","pos":"RB","team":"DET"},
 			{"playerID":"3","longName":"Gamma Quarterback","pos":"QB","team":"BUF"}
 		]}`,
@@ -98,6 +99,12 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 	if players[0].ByeWeek != 10 || players[0].News != "Alpha looks sharp" {
 		t.Errorf("bye/news merge wrong: %+v", players[0])
 	}
+	if players[0].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
+		t.Errorf("headshot lost in merge: %+v", players[0])
+	}
+	if players[1].Headshot != "" {
+		t.Errorf("player without a headshot should stay empty: %+v", players[1])
+	}
 	status := service.Status()
 	if status.Mode != "live" || status.Players != 3 || status.LastError != "" {
 		t.Errorf("status = %+v", status)
@@ -117,6 +124,9 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 	if cache.SchemaVersion != SchemaVersion || len(cache.Players) != 3 {
 		t.Errorf("cache contents wrong: %+v", cache)
 	}
+	if cache.Players[0].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
+		t.Errorf("headshot not persisted to disk cache: %+v", cache.Players[0])
+	}
 
 	reloaded := newTestService(t, root, server, "test-key")
 	players2, version2 := reloaded.Players()
@@ -125,6 +135,9 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 	}
 	if reloaded.Status().Mode != "cache" {
 		t.Errorf("reloaded mode = %q", reloaded.Status().Mode)
+	}
+	if players2[0].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
+		t.Errorf("headshot lost on cache reload: %+v", players2[0])
 	}
 	if version2 == 0 || version == 0 {
 		t.Errorf("versions must be non-zero: %d %d", version, version2)

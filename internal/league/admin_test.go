@@ -4,13 +4,14 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "")
 
-	subject, body := service.InviteEmailTemplate("manager@example.com")
+	subject, text, _ := service.InviteEmailTemplate("manager@example.com")
 
 	if !strings.Contains(subject, "GRIDIRON 2000") {
 		t.Errorf("subject missing league name: %q", subject)
@@ -22,8 +23,8 @@ func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 		"Aqua", "Orange", "Dolphins", "manager@example.com",
 		defaultLeagueURL, "Rules page", "— The Commissioner",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body missing %q\nbody:\n%s", want, body)
+		if !strings.Contains(text, want) {
+			t.Errorf("text body missing %q\ntext:\n%s", want, text)
 		}
 	}
 }
@@ -32,12 +33,47 @@ func TestInviteEmailTemplateHonorsLeagueURLEnv(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "https://league.example.com")
 
-	_, body := service.InviteEmailTemplate("manager@example.com")
-	if !strings.Contains(body, "https://league.example.com") {
-		t.Errorf("body did not honor LEAGUE_URL override:\n%s", body)
+	_, text, _ := service.InviteEmailTemplate("manager@example.com")
+	if !strings.Contains(text, "https://league.example.com") {
+		t.Errorf("text body did not honor LEAGUE_URL override:\n%s", text)
 	}
-	if strings.Contains(body, defaultLeagueURL) {
-		t.Errorf("body should not fall back to the default URL when LEAGUE_URL is set:\n%s", body)
+	if strings.Contains(text, defaultLeagueURL) {
+		t.Errorf("text body should not fall back to the default URL when LEAGUE_URL is set:\n%s", text)
+	}
+}
+
+func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "")
+
+	_, _, htmlBody := service.InviteEmailTemplate("manager@example.com")
+
+	if !strings.Contains(htmlBody, `href="`+defaultLeagueURL+`"`) {
+		t.Errorf("html body missing CTA link to the league URL:\n%s", htmlBody)
+	}
+	if !strings.Contains(htmlBody, "CLAIM YOUR SEAT") {
+		t.Errorf("html body missing the CTA label:\n%s", htmlBody)
+	}
+	if !strings.Contains(htmlBody, "manager@example.com") {
+		t.Errorf("html body missing the escaped invite email:\n%s", htmlBody)
+	}
+	draft := service.draftSummary(time.Now())
+	longDate, _ := draft["long_date"].(string)
+	if !strings.Contains(htmlBody, longDate) {
+		t.Errorf("html body missing the long draft date %q:\n%s", longDate, htmlBody)
+	}
+}
+
+func TestInviteEmailTemplateHTMLEscapesUnsafeEmail(t *testing.T) {
+	service := newTestService(t, true)
+
+	_, _, htmlBody := service.InviteEmailTemplate(`<script>alert(1)</script>@example.com`)
+
+	if strings.Contains(htmlBody, "<script>") {
+		t.Errorf("html body should escape a raw '<' in the email address:\n%s", htmlBody)
+	}
+	if !strings.Contains(htmlBody, "&lt;script&gt;") {
+		t.Errorf("html body should carry the escaped email address:\n%s", htmlBody)
 	}
 }
 
@@ -117,6 +153,9 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	}
 	if body, _ := preview["body"].(string); !strings.Contains(body, "their-email@example.com") {
 		t.Errorf("invite_preview body should address the sample email: %q", body)
+	}
+	if htmlBody, _ := preview["html"].(string); !strings.Contains(htmlBody, "their-email@example.com") {
+		t.Errorf("invite_preview html should address the sample email: %q", htmlBody)
 	}
 
 	invites, _ := data["invites"].([]map[string]any)

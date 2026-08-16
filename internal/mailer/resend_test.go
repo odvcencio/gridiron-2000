@@ -24,7 +24,7 @@ func TestResendPreferredAndPayload(t *testing.T) {
 	if !config.Enabled() {
 		t.Fatal("resend-only config must be enabled")
 	}
-	if err := config.Send("manager@example.com", "Subject line", "Body text"); err != nil {
+	if err := config.Send("manager@example.com", "Subject line", "Body text", ""); err != nil {
 		t.Fatalf("send: %v", err)
 	}
 	if auth != "Bearer re_test_key" {
@@ -37,6 +37,31 @@ func TestResendPreferredAndPayload(t *testing.T) {
 	if len(to) != 1 || to[0] != "manager@example.com" {
 		t.Errorf("to wrong: %v", got["to"])
 	}
+	if _, present := got["html"]; present {
+		t.Errorf("payload should omit the html key when html is empty: %+v", got)
+	}
+}
+
+func TestResendPayloadCarriesHTMLWhenGiven(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(raw, &got)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"test"}`))
+	}))
+	defer server.Close()
+
+	config := Config{ResendKey: "re_test_key", ResendFrom: "commish@example.com", resendURL: server.URL}
+	if err := config.Send("manager@example.com", "Subject line", "Body text", "<p>Body text</p>"); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	if got["text"] != "Body text" {
+		t.Errorf("payload text wrong: %+v", got)
+	}
+	if got["html"] != "<p>Body text</p>" {
+		t.Errorf("payload html wrong: %+v", got)
+	}
 }
 
 func TestResendErrorSurfacesStatusAndBody(t *testing.T) {
@@ -46,7 +71,7 @@ func TestResendErrorSurfacesStatusAndBody(t *testing.T) {
 	}))
 	defer server.Close()
 	config := Config{ResendKey: "re_bad", ResendFrom: "x@nope.example", resendURL: server.URL}
-	err := config.Send("a@example.com", "s", "b")
+	err := config.Send("a@example.com", "s", "b", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

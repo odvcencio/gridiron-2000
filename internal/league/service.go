@@ -704,6 +704,7 @@ func playerMap(player Player) map[string]any {
 		"opponent": player.Opponent, "projection": fmt.Sprintf("%.1f", player.Projection),
 		"points": fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
 		"rank": rank, "detail": detail,
+		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"search": strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position),
 	}
 }

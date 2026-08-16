@@ -170,6 +170,7 @@ func Page() Node {
 						<summary class="mono">INVITE TEMPLATE PREVIEW</summary>
 						<p class="mono">{data.invite_preview.subject}</p>
 						<pre>{data.invite_preview.body}</pre>
+						<small class="mono">HTML version sends automatically with the text fallback.</small>
 					</details>
 					<If cond={data.mail_enabled == false}>
 						<p class="demo-message">
