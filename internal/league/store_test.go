@@ -44,7 +44,7 @@ func TestInvites(t *testing.T) {
 
 func TestReleaseSeatAndResets(t *testing.T) {
 	store := newTestStore(t)
-	member, err := store.AssignMember("a@example.com", "A")
+	member, _, err := store.AssignMember("a@example.com", "A")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -85,7 +85,7 @@ func TestClockArmsAtDraftAt(t *testing.T) {
 func TestEffectiveDeadlinePrecedence(t *testing.T) {
 	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	service, _ := newClockTestService(t, false, draftAt, draftAt)
-	member, err := service.store.AssignMember("a@example.com", "A") // team-1
+	member, _, err := service.store.AssignMember("a@example.com", "A") // team-1
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestAutopickPrecedence(t *testing.T) {
 	service, _ := newClockTestService(t, false, draftAt, draftAt)
 	pool := testPool(5)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
-	member, err := service.store.AssignMember("a@example.com", "A") // team-1
+	member, _, err := service.store.AssignMember("a@example.com", "A") // team-1
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 	var connectedKeys []string
 	var flapEmail string
 	for _, entry := range roster {
-		member, err := service.store.AssignMember(entry.email, entry.email)
+		member, _, err := service.store.AssignMember(entry.email, entry.email)
 		if err != nil {
 			t.Fatal(err)
 		}

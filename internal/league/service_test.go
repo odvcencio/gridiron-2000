@@ -220,7 +220,7 @@ func TestAdminGuardsAndControls(t *testing.T) {
 		t.Fatalf("invite missing from admin data: %+v", invites)
 	}
 
-	if _, err := demo.store.AssignMember("x@example.com", "X"); err != nil {
+	if _, _, err := demo.store.AssignMember("x@example.com", "X"); err != nil {
 		t.Fatal(err)
 	}
 	team, err := demo.AdminReleaseSeat(request, "team-1")

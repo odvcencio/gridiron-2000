@@ -108,6 +108,14 @@ func (q *Queue) LastError() (string, time.Time) {
 	return q.lastError, q.lastErrorAt
 }
 
+// Depth reports the number of messages currently queued and not yet
+// delivered, for the admin mail panel's queue_depth field (spec section
+// 6.6). WP-E2 deliberately deferred this accessor until a caller needed
+// it; WP-E3's mail-health card is that caller.
+func (q *Queue) Depth() int {
+	return len(q.queue)
+}
+
 func (q *Queue) recordError(err error) {
 	q.mu.Lock()
 	q.lastError = err.Error()

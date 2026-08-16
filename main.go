@@ -62,15 +62,16 @@ func main() {
 	league.Default().StartDraftClock(runtimeContext)
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
-	// Spec section 6.6: without a transport, notifications are disabled;
-	// the worker never starts, and startup says so exactly once. The
-	// league package's own trigger hooks (WP-E3) short-circuit before
-	// building or recording anything, independent of this check.
+	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())
+	// Spec section 6.6: without a transport, notifications are disabled
+	// across both the delivery queue and every league-side trigger hook.
+	// StartNotifier always runs and re-checks the same enabled flag
+	// (via notifyReady), so it is the single source of the spec's exact
+	// startup log line — no separate log call is needed here.
 	if notifyMailer.Enabled() {
 		notifyQueue.Start(runtimeContext)
-	} else {
-		log.Printf("notify: no mail transport configured; notifications disabled")
 	}
+	league.Default().StartNotifier(runtimeContext)
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
