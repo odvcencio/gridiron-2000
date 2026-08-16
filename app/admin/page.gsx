@@ -145,6 +145,14 @@ func Page() Node {
 							<article class="invite-row">
 								<b class="mono">{invite.email}</b>
 								<span class="position-chip">{invite.source}</span>
+								<If cond={data.mail_enabled}>
+									<form method="post" action={actionPath("invite-send")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="email" value={invite.email}></input>
+										<button class="board-button" type="submit">Email</button>
+									</form>
+								</If>
+								<a href={invite.mailto} class="board-button">Mail app</a>
 								<If cond={invite.removable}>
 									<form method="post" action={actionPath("invite-remove")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -158,6 +166,16 @@ func Page() Node {
 							</article>
 						</Each>
 					</div>
+					<details class="invite-preview">
+						<summary class="mono">INVITE TEMPLATE PREVIEW</summary>
+						<p class="mono">{data.invite_preview.subject}</p>
+						<pre>{data.invite_preview.body}</pre>
+					</details>
+					<If cond={data.mail_enabled == false}>
+						<p class="demo-message">
+							Email sending is not configured (RESEND_API_KEY + RESEND_FROM, or SMTP_HOST/USER/PASS). Email buttons hide until it is; the Mail app links always work.
+						</p>
+					</If>
 					<p class="scout-callout">
 						Send managers this address: they sign in with Google and the next open seat is theirs.
 					</p>

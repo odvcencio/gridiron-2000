@@ -75,6 +75,16 @@ func Page() Node {
 							every page opens without a sign-in in this preview league.
 						</p>
 					</If>
+					<div class="oss-invite">
+						<span class="section-index">RUN YOUR OWN</span>
+						<p>
+							This whole league room is open source: GoSX server, snake draft, dynasty scoring, personal big boards, live Tank01 player pool, commissioner console. One Go binary, your own data, MIT licensed.
+						</p>
+						<div class="hero-actions">
+							<a href="https://github.com/odvcencio/gridiron-2000" rel="noreferrer" class="button button--compact">Get the source ↗</a>
+							<a href="https://github.com/odvcencio/gosx" rel="noreferrer" class="button button--compact">Built with GoSX ↗</a>
+						</div>
+					</div>
 				</div>
 				<aside class="draft-transmission" data-draft-at={data.draft.at}>
 					<div class="transmission-top">

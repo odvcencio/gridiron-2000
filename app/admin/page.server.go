@@ -27,7 +27,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-remove", "seat-release", "team-rename", "draft-reset", "league-reset", "order-randomize"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "draft-reset", "league-reset", "order-randomize"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -50,6 +50,20 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", email+" can now claim a seat.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"invite-send": func(ctx *action.Context) error {
+				email := ctx.FormData["email"]
+				sent, err := league.Default().AdminSendInvite(ctx.Request, email)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				if sent {
+					session.AddFlash(ctx.Request, "notice", "Invite emailed to "+email)
+				} else {
+					session.AddFlash(ctx.Request, "notice", "Invite added — email is not configured, use the mail link.")
+				}
 				ctx.Redirect("/admin")
 				return nil
 			},

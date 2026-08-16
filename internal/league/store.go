@@ -34,6 +34,7 @@ func NewStore(filePath string) *Store {
 			TeamNames:  map[string]string{},
 			DraftOrder: []string{},
 			Scoring:    map[string]float64{},
+			Pickems:    map[string]map[string]string{},
 		},
 	}
 	_ = s.load()
@@ -195,8 +196,9 @@ func (s *Store) ResetDraft() error {
 	return s.persistLocked()
 }
 
-// ResetLeague clears picks, seats, ready flags, and boards. Invites and team
-// name overrides survive; both are commissioner configuration, not game state.
+// ResetLeague clears picks, seats, ready flags, boards, and pick'em picks.
+// Invites and team name overrides survive; both are commissioner
+// configuration, not game state.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -204,6 +206,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
 	s.state.Boards = map[string][]string{}
+	s.state.Pickems = map[string]map[string]string{}
 	return s.persistLocked()
 }
 
@@ -355,6 +358,21 @@ func (s *Store) BoardClear(owner string) error {
 	return s.persistLocked()
 }
 
+// SetPickem records the owner's pick for one game. It does not validate the
+// game or the team against the schedule; the service layer owns that.
+func (s *Store) SetPickem(owner, gameID, team string) error {
+	if owner == "" || gameID == "" {
+		return fmt.Errorf("pick owner and game are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Pickems[owner] == nil {
+		s.state.Pickems[owner] = map[string]string{}
+	}
+	s.state.Pickems[owner][gameID] = team
+	return s.persistLocked()
+}
+
 func (s *Store) load() error {
 	if s.filePath == "" {
 		return nil
@@ -393,6 +411,9 @@ func (s *Store) load() error {
 	}
 	if state.Scoring == nil {
 		state.Scoring = map[string]float64{}
+	}
+	if state.Pickems == nil {
+		state.Pickems = map[string]map[string]string{}
 	}
 	s.state = state
 	return nil
@@ -439,6 +460,7 @@ func cloneState(in PersistedState) PersistedState {
 		TeamNames:  make(map[string]string, len(in.TeamNames)),
 		DraftOrder: append([]string(nil), in.DraftOrder...),
 		Scoring:    make(map[string]float64, len(in.Scoring)),
+		Pickems:    make(map[string]map[string]string, len(in.Pickems)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -454,6 +476,13 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for key, value := range in.Scoring {
 		out.Scoring[key] = value
+	}
+	for owner, picks := range in.Pickems {
+		inner := make(map[string]string, len(picks))
+		for gameID, team := range picks {
+			inner[gameID] = team
+		}
+		out.Pickems[owner] = inner
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

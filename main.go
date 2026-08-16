@@ -53,6 +53,7 @@ func main() {
 	fantasyPool.Start(runtimeContext)
 	league.Default().SetPlayerSource(fantasyPlayerSource(fantasyPool))
 	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
+	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 
 	appName := getenv("APP_NAME", "GRIDIRON 2000")
 	port := getenv("PORT", "8080")
@@ -261,6 +262,46 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 			lastMode = mode
 		}
 		return converted, version, mode
+	}
+}
+
+// leagueScheduleSource adapts the mirrored nflverse schedule to the pick'em
+// engine. nflverse kickoff times are Eastern. The parsed schedule drops the
+// result column, so a game counts as final five hours after kickoff; the
+// winner resolves once scores land in the mirror.
+func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		eastern = time.UTC
+	}
+	return func() []league.GameInfo {
+		games := stats.Games(0)
+		now := time.Now()
+		out := make([]league.GameInfo, 0, len(games))
+		for _, game := range games {
+			if game.GameType != "REG" {
+				continue
+			}
+			gameTime := game.GameTime
+			if strings.TrimSpace(gameTime) == "" {
+				gameTime = "13:00"
+			}
+			kickoff, err := time.ParseInLocation("2006-01-02 15:04", game.GameDay+" "+gameTime, eastern)
+			if err != nil {
+				continue
+			}
+			out = append(out, league.GameInfo{
+				ID:        game.GameID,
+				Week:      game.Week,
+				Kickoff:   kickoff,
+				Away:      strings.ToUpper(game.AwayTeam),
+				Home:      strings.ToUpper(game.HomeTeam),
+				AwayScore: int(game.AwayScore),
+				HomeScore: int(game.HomeScore),
+				Final:     now.After(kickoff.Add(5 * time.Hour)),
+			})
+		}
+		return out
 	}
 }
 

@@ -1629,6 +1629,18 @@ h2 {
   text-align: right;
 }
 
+.oss-invite {
+  margin-top: var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px dashed var(--color-border);
+}
+
+.oss-invite p {
+  margin: var(--space-xs) 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+}
+
 .pool-search-bar {
   display: flex;
   align-items: center;
@@ -1784,6 +1796,42 @@ h2 {
 .pool-list--tall {
   max-height: 42rem;
   overflow-y: auto;
+}
+
+.pickem-row {
+  display: grid;
+  grid-template-columns: 6rem minmax(10rem, 1fr) auto 6rem;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-top: none;
+}
+
+.pickem-row:first-child {
+  border-top: 1px solid var(--color-border);
+}
+
+.pickem-buttons {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.pickem-status {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.pickem-hit {
+  color: var(--color-accent);
+}
+
+.pickem-miss {
+  color: var(--color-accent-hot);
 }
 
 .board-peek {
@@ -3153,6 +3201,22 @@ h2 {
 
   .board-controls {
     flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .pickem-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .pickem-buttons {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .pickem-status {
     justify-content: flex-start;
   }
 
