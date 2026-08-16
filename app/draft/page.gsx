@@ -43,7 +43,7 @@ func DraftQueue(props any) Node {
 					</div>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
-					<form method="post" action={props.Action}>
+					<form method="post" action={props.Action} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
 						<input type="hidden" name="player_id" value={player.id}></input>
@@ -114,7 +114,7 @@ func Page() Node {
 						{data.pick_number}
 					</span>
 				</div>
-				<form method="post" action={actionPath("toggle-ready")}>
+				<form method="post" action={actionPath("toggle-ready")} data-gosx-form="true" data-gosx-form-state="idle" data-gosx-enhance="form" data-gosx-enhance-layer="bootstrap" data-gosx-fallback="native-form">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button button--primary" type="submit">Toggle my ready state</button>

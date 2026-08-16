@@ -1,6 +1,7 @@
 package league
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -29,5 +30,21 @@ func TestDefaultDraftDate(t *testing.T) {
 	}
 	if got := summary["time"]; got != "4:00 PM EDT" {
 		t.Fatalf("expected kickoff display 4:00 PM EDT, got %v", got)
+	}
+}
+
+func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
+	snapshot, err := demoProvider{}.Snapshot(context.Background(), time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snapshot.Source != "preseason" {
+		t.Errorf("source = %q, want preseason", snapshot.Source)
+	}
+	if len(snapshot.Matchups) != 0 {
+		t.Errorf("matchups = %d, want 0", len(snapshot.Matchups))
+	}
+	if snapshot.Warning != "" {
+		t.Errorf("warning = %q, want empty", snapshot.Warning)
 	}
 }

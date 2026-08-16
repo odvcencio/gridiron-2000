@@ -2,7 +2,6 @@ package league
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 )
@@ -52,29 +51,16 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 
 type demoProvider struct{}
 
+// Snapshot reports the honest preseason state: no matchups exist until the
+// league's real schedule and lineups are in place.
 func (demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, error) {
-	teams := defaultTeams()
-	// Small deterministic movement makes refresh behavior visible without random jumps.
-	tick := float64((now.Unix() / 60) % 7)
-	pairs := [][2]int{{0, 1}, {2, 3}, {4, 5}, {6, 7}}
-	base := [][2]float64{{96.4, 92.8}, {108.1, 101.6}, {88.7, 111.2}, {103.5, 99.9}}
-	matchups := make([]ScoreMatchup, 0, len(pairs))
-	for i, pair := range pairs {
-		matchups = append(matchups, ScoreMatchup{
-			ID:     fmt.Sprintf("matchup-%d", i+1),
-			Away:   ScoreTeam{ID: teams[pair[0]].ID, Name: teams[pair[0]].Name, Abbreviation: teams[pair[0]].Abbreviation, Score: base[i][0] + tick*0.18},
-			Home:   ScoreTeam{ID: teams[pair[1]].ID, Name: teams[pair[1]].Name, Abbreviation: teams[pair[1]].Abbreviation, Score: base[i][1] + tick*0.11},
-			Status: []string{"Q3", "FINAL", "Q4", "SNF"}[i],
-			Clock:  []string{"08:14", "00:00", "11:02", "5:20 PM"}[i],
-		})
-	}
 	return LiveSnapshot{
-		Source:      "demo",
-		SourceLabel: "Local preview",
+		Source:      "preseason",
+		SourceLabel: "Preseason",
 		Week:        1,
-		WeekLabel:   "Week 1 matchup simulator",
-		Status:      "Fixture data — not live scoring",
+		WeekLabel:   "Week 1 · Sundays from September 13",
+		Status:      "League matchups begin when the season starts",
 		LastUpdated: now.UTC(),
-		Matchups:    matchups,
+		Matchups:    []ScoreMatchup{},
 	}, nil
 }

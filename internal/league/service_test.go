@@ -1,6 +1,7 @@
 package league
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -17,7 +18,6 @@ func newTestService(t *testing.T, demo bool) *Service {
 		demoMode: demo,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
-		roster:   defaultRoster(),
 	}
 }
 
@@ -481,5 +481,57 @@ func TestScoringLockRejectsEdits(t *testing.T) {
 	}
 	if err := service.AdminResetScoring(request); err == nil {
 		t.Error("locked scoring accepted a reset")
+	}
+}
+
+func TestLeaderMapsRanksTopFourByProjection(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(10)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	leaders := service.leaderMaps()
+	if len(leaders) != 4 {
+		t.Fatalf("leaders = %d, want 4", len(leaders))
+	}
+	for index, leader := range leaders {
+		want := pool[index]
+		if leader["rank"] != fmt.Sprintf("%02d", index+1) {
+			t.Errorf("leader %d rank = %v", index, leader["rank"])
+		}
+		if leader["name"] != want.Name || leader["position"] != want.Position {
+			t.Errorf("leader %d identity = %+v, want %+v", index, leader, want)
+		}
+		if leader["points"] != fmt.Sprintf("%.1f", want.Projection) {
+			t.Errorf("leader %d points = %v, want %.1f", index, leader["points"], want.Projection)
+		}
+		wantTrend := "—"
+		if want.ADPRank > 0 {
+			wantTrend = fmt.Sprintf("ADP #%d", want.ADPRank)
+		}
+		if leader["trend"] != wantTrend {
+			t.Errorf("leader %d trend = %v, want %v", index, leader["trend"], wantTrend)
+		}
+	}
+}
+
+func TestDashboardDataFeaturedEmptyOnFreshService(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+	data := service.DashboardData(context.Background(), request)
+	if data["featured_empty"] != true {
+		t.Fatalf("featured_empty = %v, want true", data["featured_empty"])
+	}
+	featured, _ := data["featured"].([]map[string]any)
+	if len(featured) != 0 {
+		t.Fatalf("featured = %d, want 0", len(featured))
+	}
+}
+
+func TestViewerIncludesIsCommissionerInDemoMode(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+	viewer := service.Viewer(request)
+	if viewer["is_commissioner"] != true {
+		t.Fatalf("is_commissioner = %v, want true in demo mode", viewer["is_commissioner"])
 	}
 }

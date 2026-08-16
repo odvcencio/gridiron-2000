@@ -97,6 +97,9 @@ func main() {
 		})
 		ctx.AddHead(
 			gosx.El("meta", gosx.Attrs(gosx.Attr("name", "viewport"), gosx.Attr("content", "width=device-width, initial-scale=1"))),
+			// The page-navigation runtime soft-swaps links and managed forms,
+			// so the site works without full page reloads.
+			server.NavigationScript(),
 			gosx.El("script", gosx.Attrs(gosx.Attr("src", "/gridiron.js"), gosx.Attr("defer", "defer")), gosx.Text("")),
 		)
 		return server.HTMLDocument(ctx.Title(appName), ctx.Head(), body)
@@ -144,6 +147,13 @@ func main() {
 		ctx.NoStore()
 		return league.Default().LiveScores(ctx.Request.Context()), nil
 	})
+	app.API("GET /api/league/version", func(ctx *server.Context) (any, error) {
+		ctx.NoStore()
+		_, poolVersion := fantasyPool.Players()
+		return map[string]any{
+			"fingerprint": league.Default().StateFingerprint(poolVersion),
+		}, nil
+	})
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
 	app.Mount("GET /auth/google/start", googleStartHandler(googleOAuth, googleConfigured))
@@ -158,7 +168,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app.Mount("/", rootHandler)
+	app.Mount("/", requireLeagueSession(rootHandler))
 
 	if !googleConfigured {
 		log.Printf("Google OAuth is in setup mode; add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env")
@@ -186,6 +196,35 @@ func main() {
 			log.Printf("server shutdown: %v", err)
 		}
 	}
+}
+
+// requireLeagueSession gates the league pages behind sign-in, like a hosted
+// service: anonymous visitors see the landing page, the login page, and the
+// legal pages only. Demo mode leaves everything open for local rehearsal.
+func requireLeagueSession(next http.Handler) http.Handler {
+	open := map[string]bool{
+		"/": true, "/login": true, "/privacy": true, "/terms": true,
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if league.Default().DemoMode() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if _, ok := auth.Current(r); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		path := strings.TrimSuffix(r.URL.Path, "/")
+		if path == "" {
+			path = "/"
+		}
+		if open[path] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		session.AddFlash(r, "notice", "Sign in to enter the league.")
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
 }
 
 // fantasyPlayerSource adapts the fantasy pool to the league's PlayerSource.

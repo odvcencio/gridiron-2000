@@ -81,15 +81,12 @@ func Page() Node {
 				</strong>
 			</div>
 			<div>
-				<span>Waiver priority</span>
-				<strong class="mono">
-					#
-					{data.waiver_rank}
-				</strong>
+				<span>Division</span>
+				<strong class="mono">{data.team.division}</strong>
 			</div>
 			<div>
-				<span>FAAB remaining</span>
-				<strong class="mono">{data.budget}</strong>
+				<span>League</span>
+				<strong class="mono">{data.league_mode}</strong>
 			</div>
 			<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
 		</div>
@@ -98,11 +95,12 @@ func Page() Node {
 				<header class="section-heading section-heading--split">
 					<div>
 						<span class="section-index">01 // STARTING UNIT</span>
-						<h2>Week one lineup</h2>
+						<h2>Dynasty roster</h2>
 					</div>
 					<span class="lineup-lock">
 						<span class="status-pin" aria-hidden="true"></span>
-						4 slots live
+						<b class="mono">{data.starters}</b>
+						PLAYERS
 					</span>
 				</header>
 				<If cond={data.drafted == false}>

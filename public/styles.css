@@ -333,6 +333,44 @@ textarea:focus-visible {
   color: var(--color-accent);
 }
 
+.user-badge {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.user-chip {
+  display: grid;
+  width: 1.75rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-pill);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+  font-size: var(--type-xs);
+}
+
+.user-name {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+.user-badge form {
+  display: inline-flex;
+}
+
+button.access-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
 .site-frame {
   width: min(var(--content-width), calc(100% - var(--space-xl)));
   margin: 0 auto;
@@ -1936,7 +1974,8 @@ h2 {
 
 @media (max-width: 60rem) {
   .board-workspace,
-  .admin-grid {
+  .admin-grid,
+  .danger-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
@@ -2803,7 +2842,8 @@ h2 {
     padding-top: var(--space-sm);
   }
 
-  .access-link {
+  .access-link,
+  .user-badge {
     grid-column: 2;
     grid-row: 1;
   }
@@ -2964,13 +3004,27 @@ h2 {
   }
 
   .brand-copy small,
-  .access-link {
+  .site-header > .access-link {
     display: none;
   }
 
   .site-nav {
-    justify-content: space-between;
+    justify-content: flex-start;
+    flex-wrap: nowrap;
     overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .site-nav::-webkit-scrollbar {
+    height: 0.3rem;
+  }
+
+  .pool-search-bar {
+    flex-wrap: wrap;
+  }
+
+  .pool-search-bar input {
+    flex-basis: 100%;
   }
 
   .site-link {
@@ -3079,6 +3133,58 @@ h2 {
 
   .footer-status {
     text-align: left;
+  }
+
+  .user-name {
+    display: none;
+  }
+
+  .board-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .board-controls {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+
+  .scoring-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-xs);
+  }
+
+  .scoring-row__form {
+    flex: 1 1 100%;
+    justify-content: flex-end;
+  }
+
+  .seat-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .seat-identity {
+    flex: 1 1 100%;
+  }
+
+  .seat-row form {
+    flex: 0 0 auto;
+  }
+
+  .team-command-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .team-command-strip .button {
+    grid-column: 1 / -1;
   }
 }
 

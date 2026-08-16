@@ -82,6 +82,14 @@ func Page() Node {
 						<span data-live-status>Feed connected</span>
 					</div>
 				</header>
+				<If cond={data.matchups_empty}>
+					<div class="empty-tape">
+						<strong>NO MATCHUPS YET</strong>
+						<p>
+							League play begins Week 1 · September 13.
+						</p>
+					</div>
+				</If>
 				<div class="matchup-grid">
 					<Each of={data.matchups} as="matchup">
 						<MatchupCard {...matchup}></MatchupCard>
@@ -91,7 +99,7 @@ func Page() Node {
 			<aside class="leader-rail">
 				<header>
 					<span class="section-index">PLAYER TAPE</span>
-					<b>TOP SIGNALS</b>
+					<b>PROJECTION LEADERS</b>
 				</header>
 				<div class="leader-list">
 					<Each of={data.leaders} as="leader">

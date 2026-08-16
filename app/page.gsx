@@ -45,6 +45,58 @@ func StandingRow(props any) Node {
 
 func Page() Node {
 	return <main class="page home-page" id="main-content">
+		<If cond={data.viewer.signed_in == false}>
+			<section class="hero-command">
+				<div class="hero-command__copy">
+					<div class="signal-label">
+						<span class="live-dot" aria-hidden="true"></span>
+						LEAGUE SYSTEM // PRIVATE
+					</div>
+					<p class="hero-kicker">
+						Eight-manager dynasty league · Aqua and Orange divisions
+					</p>
+					<h1>
+						GRIDIRON 2000
+						<br></br>
+						<span>CLAIM YOUR SEAT.</span>
+					</h1>
+					<p class="hero-deck">
+						A private fantasy command center for lineups, live Sundays, waiver panic, and receipts that survive well past Monday night.
+					</p>
+					<div class="hero-actions">
+						<a href="/login" data-gosx-link class="button button--primary">
+							Sign in with Google
+							<span aria-hidden="true">→</span>
+						</a>
+					</div>
+					<If cond={data.viewer.demo}>
+						<p class="demo-message">
+							<strong>REHEARSAL MODE:</strong>
+							every page opens without a sign-in in this preview league.
+						</p>
+					</If>
+				</div>
+				<aside class="draft-transmission" data-draft-at={data.draft.at}>
+					<div class="transmission-top">
+						<span>Incoming transmission</span>
+						<span class="mono">EVENT 0815</span>
+					</div>
+					<div class="chrome-disc" aria-hidden="true">
+						<span>G2K</span>
+					</div>
+					<div class="draft-transmission__body">
+						<p>2026 LEAGUE DRAFT</p>
+						<strong>{data.draft.date}</strong>
+						<span>{data.draft.time}</span>
+					</div>
+					<div class="countdown-strip">
+						<span>Doors in</span>
+						<b class="mono" data-draft-countdown>CALCULATING…</b>
+					</div>
+				</aside>
+			</section>
+		</If>
+		<If cond={data.viewer.signed_in}>
 		<section class="hero-command">
 			<div class="hero-command__copy">
 				<div class="signal-label">
@@ -105,6 +157,14 @@ func Page() Node {
 					</span>
 				</div>
 			</header>
+			<If cond={data.featured_empty}>
+				<div class="empty-tape">
+					<strong>SEASON NOT STARTED</strong>
+					<p>
+						Matchups appear in Week 1.
+					</p>
+				</div>
+			</If>
 			<div class="featured-score-grid">
 				<Each of={data.featured} as="matchup">
 					<MiniMatchup {...matchup}></MiniMatchup>
@@ -183,5 +243,6 @@ func Page() Node {
 				</div>
 			</aside>
 		</div>
+		</If>
 	</main>
 }
