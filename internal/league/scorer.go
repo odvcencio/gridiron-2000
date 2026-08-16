@@ -1,0 +1,157 @@
+package league
+
+import (
+	"fmt"
+	"strings"
+	"unicode"
+)
+
+// MatchupScorer computes one team's fantasy score for one NFL week.
+// final=true means the inputs for that week can no longer change.
+type MatchupScorer interface {
+	TeamWeekScore(teamID string, week int) (points float64, final bool, err error)
+}
+
+// WeekStatLine is one player's weekly totals, keyed by scoring rule keys
+// (passYards, rushTD, reception, ...). Key is the output of
+// normalizePlayerKey (player name + position), the same shape
+// openstats.NormalizePlayerKey produces — internal/league must not import
+// internal/openstats, so main.go's WeekStatsSource adapter builds Key with
+// the real function and this package keeps its own copy in lockstep; see
+// scorer_test.go's parity test.
+type WeekStatLine struct {
+	Key   string
+	Stats map[string]float64
+}
+
+// WeekStatsSource supplies every player's stat line for one NFL week.
+// main.go injects an adapter over internal/openstats, following the
+// ScheduleSource / HistoricalSource pattern.
+type WeekStatsSource func(week int) []WeekStatLine
+
+// SetWeekStatsSource attaches the weekly stats feed. Call it once during
+// startup, before the server accepts requests.
+func (s *Service) SetWeekStatsSource(fn WeekStatsSource) {
+	s.poolMu.Lock()
+	s.weekStatsFn = fn
+	s.poolMu.Unlock()
+}
+
+// weekStatsSource returns the current weekly stats feed, or nil when none
+// is attached.
+func (s *Service) weekStatsSource() WeekStatsSource {
+	s.poolMu.Lock()
+	fn := s.weekStatsFn
+	s.poolMu.Unlock()
+	return fn
+}
+
+// JoinMiss is one rostered player whose normalized name+position found no
+// matching stat line for a scored week. It always scores zero; season.go's
+// week-close path collects these so the commissioner can see them (section
+// 2.4: "the week-close report lists misses").
+type JoinMiss struct {
+	Week       int    `json:"week"`
+	TeamID     string `json:"teamId"`
+	PlayerID   string `json:"playerId"`
+	PlayerName string `json:"playerName"`
+	Position   string `json:"position"`
+}
+
+// normalizePlayerKey mirrors openstats.NormalizePlayerKey exactly:
+// lowercase letters/digits only, then "|", then the upper-cased position.
+// internal/league must not import internal/openstats (see WeekStatLine's
+// doc comment), so this is a deliberate, tested duplicate — keep it in
+// lockstep; scorer_test.go asserts parity directly against the openstats
+// implementation on a range of names.
+func normalizePlayerKey(name, position string) string {
+	var b strings.Builder
+	for _, r := range name {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	b.WriteByte('|')
+	b.WriteString(strings.ToUpper(strings.TrimSpace(position)))
+	return b.String()
+}
+
+// rosterTotalScorer is the v1 MatchupScorer (section 2.4): score the whole
+// roster, no lineup — the sum over every rostered player of (weekly stat
+// line x league scoring values). A join miss (no stat line for the
+// player's normalized key) scores zero and is reported via onMiss, when
+// set.
+type rosterTotalScorer struct {
+	// roster returns teamID's scorable players. In the inaugural season
+	// this is the team's draft picks (see Service.rosterForTeam); after a
+	// dynasty rollover it becomes the persisted Rosters set (section 5.4,
+	// out of scope for this work package).
+	roster func(teamID string) []Player
+	stats  WeekStatsSource
+	values func() map[string]float64
+	onMiss func(JoinMiss)
+}
+
+// newRosterTotalScorer builds a rosterTotalScorer. onMiss may be nil.
+func newRosterTotalScorer(roster func(teamID string) []Player, stats WeekStatsSource, values func() map[string]float64, onMiss func(JoinMiss)) *rosterTotalScorer {
+	return &rosterTotalScorer{roster: roster, stats: stats, values: values, onMiss: onMiss}
+}
+
+// TeamWeekScore implements MatchupScorer. final reports whether the wired
+// WeekStatsSource returned any stat lines at all for week: v1 has no
+// per-player in-progress tracking, so "the ledger has data for this week"
+// is the finality signal. The two-condition auto-close check
+// (season.go's WeekCloseReady) is the authoritative "is this week done"
+// gate; this flag is advisory.
+func (r *rosterTotalScorer) TeamWeekScore(teamID string, week int) (points float64, final bool, err error) {
+	if r.stats == nil {
+		return 0, false, fmt.Errorf("no week stats source is configured")
+	}
+	lines := r.stats(week)
+	final = len(lines) > 0
+	byKey := make(map[string]map[string]float64, len(lines))
+	for _, line := range lines {
+		byKey[line.Key] = line.Stats
+	}
+	values := map[string]float64{}
+	if r.values != nil {
+		values = r.values()
+	}
+	roster := r.roster(teamID)
+	total := 0.0
+	for _, player := range roster {
+		key := normalizePlayerKey(player.Name, player.Position)
+		line, ok := byKey[key]
+		if !ok {
+			if r.onMiss != nil {
+				r.onMiss(JoinMiss{Week: week, TeamID: teamID, PlayerID: player.ID, PlayerName: player.Name, Position: player.Position})
+			}
+			continue
+		}
+		for ruleKey, statValue := range line {
+			total += statValue * values[ruleKey]
+		}
+	}
+	return total, final, nil
+}
+
+// matchupScorer builds the wired v1 MatchupScorer for one call (a week
+// close, or one live-feed snapshot): it snapshots store state once, so a
+// whole week's worth of TeamWeekScore calls share one consistent roster
+// view. misses, when non-nil, is appended to for every join miss found.
+func (s *Service) matchupScorer(misses *[]JoinMiss) MatchupScorer {
+	state := s.store.Snapshot()
+	var onMiss func(JoinMiss)
+	if misses != nil {
+		onMiss = func(m JoinMiss) { *misses = append(*misses, m) }
+	}
+	return newRosterTotalScorer(
+		func(teamID string) []Player {
+			roster, _ := s.rosterForTeam(state, teamID)
+			return roster
+		},
+		s.weekStatsSource(),
+		s.currentScoringValues,
+		onMiss,
+	)
+}
