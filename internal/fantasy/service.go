@@ -38,9 +38,14 @@ var (
 	defaultErr  error
 )
 
-func Default() (*Service, error) {
+// Default builds (once) the process-wide fantasy pool service.
+// defaultPoolLimit is FANTASY_POOL_LIMIT's default when the env var is
+// unset — main.go computes it from the active league's shape via
+// ScaledPoolLimit before calling this; pass <= 0 for the flat
+// DefaultPoolLimitFallback (tests).
+func Default(defaultPoolLimit int) (*Service, error) {
 	defaultOnce.Do(func() {
-		defaultSvc, defaultErr = NewService(ConfigFromEnv())
+		defaultSvc, defaultErr = NewService(ConfigFromEnv(defaultPoolLimit))
 	})
 	return defaultSvc, defaultErr
 }
