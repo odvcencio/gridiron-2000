@@ -1686,7 +1686,7 @@ button.badge-option:hover {
 .roster-row {
   position: relative;
   display: grid;
-  grid-template-columns: 3.3rem minmax(13rem, 1fr) 7rem 4rem 4rem 2rem;
+  grid-template-columns: 3.3rem minmax(13rem, 1fr) 7rem 4rem 4rem;
   align-items: center;
   gap: var(--space-sm);
 }
@@ -1793,6 +1793,84 @@ button.badge-option:hover {
 .scout-row > b {
   color: var(--color-accent);
   font-size: var(--type-xs);
+}
+
+/* Lineup surface (WP-R1): the starting-slot list, its per-slot managed
+   assignment form, and the week/auto-fill toolbar above it. */
+.lineup-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0 var(--space-md);
+}
+
+.lineup-week-form {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
+.lineup-slot-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.lineup-slot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 3.3rem minmax(11rem, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.lineup-slot__id {
+  display: inline-grid;
+  min-width: 2.55rem;
+  min-height: 2rem;
+  place-items: center;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+  font-size: var(--type-xs);
+}
+
+.slot-empty {
+  color: var(--color-text-muted);
+  font-size: var(--type-sm);
+  letter-spacing: 0.05em;
+}
+
+.lineup-slot__chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.position-chip--warn {
+  color: var(--color-accent-hot);
+  border-color: var(--color-accent-hot);
+  background: transparent;
+}
+
+.position-chip--locked {
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  background: transparent;
+}
+
+.lineup-slot__form {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
+.lineup-bench-title {
+  margin: var(--space-lg) 0 var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  text-transform: uppercase;
 }
 
 .draft-masthead__copy > p:last-child {

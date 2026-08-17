@@ -1254,3 +1254,124 @@ func TestStateFileRefusesNewerSchemaVersion(t *testing.T) {
 		t.Errorf("the on-disk file must be untouched:\ngot:  %s\nwant: %s", raw, futureJSON)
 	}
 }
+
+// TestSetLineupSlotRoundTrip pins Store.SetLineupSlot's write shape (one
+// key per write, displacement, clearing) and its survival across a
+// persist/reload cycle.
+func TestSetLineupSlotRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+	if err := store.SetLineupSlot("team-1", 1, "RB1", "p-01", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLineupSlot("team-1", 1, "WR1", "p-01", now); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot().Lineups["team-1"][1]
+	if got["WR1"] != "p-01" {
+		t.Fatalf("WR1 = %q, want p-01", got["WR1"])
+	}
+	if _, stillThere := got["RB1"]; stillThere {
+		t.Fatalf("RB1 must clear once p-01 moves to WR1 (a player occupies at most one slot): %+v", got)
+	}
+
+	if err := store.SetLineupSlot("team-1", 1, "WR1", "", now); err != nil {
+		t.Fatal(err)
+	}
+	got = store.Snapshot().Lineups["team-1"][1]
+	if _, stillThere := got["WR1"]; stillThere {
+		t.Fatalf("an empty player_id must clear the slot: %+v", got)
+	}
+
+	if err := store.SetLineupSlot("team-1", 1, "QB", "p-02", now); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	rgot := reloaded.Snapshot().Lineups["team-1"][1]
+	if rgot["QB"] != "p-02" {
+		t.Fatalf("reloaded Lineups[team-1][1][QB] = %q, want p-02", rgot["QB"])
+	}
+}
+
+// TestSetLineupSlotRejectsUnknownTeamAndWeek checks the store-level
+// defensive checks SetLineupSlot performs on its own (the pool/schedule
+// validations L4-L8 live one layer up, in Service.SetLineup).
+func TestSetLineupSlotRejectsUnknownTeamAndWeek(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	if err := store.SetLineupSlot("not-a-team", 1, "QB", "p-01", now); err == nil {
+		t.Error("an unknown team must be rejected")
+	}
+	if err := store.SetLineupSlot("team-1", 0, "QB", "p-01", now); err == nil {
+		t.Error("a week below 1 must be rejected")
+	}
+}
+
+// TestSetLineupWeekReplacesWholeWeek pins Store.SetLineupWeek's bulk-
+// replace contract (the lineup-auto action's writer): the new map fully
+// replaces whatever the week held before, key by key.
+func TestSetLineupWeekReplacesWholeWeek(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	if err := store.SetLineupSlot("team-1", 1, "RB1", "old-player", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLineupWeek("team-1", 1, map[string]string{"QB": "qb-1"}); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot().Lineups["team-1"][1]
+	if len(got) != 1 || got["QB"] != "qb-1" {
+		t.Fatalf("SetLineupWeek must replace the whole week: %+v", got)
+	}
+}
+
+// TestLineupsDecodeFromOldStateFile checks that a pre-WP-R1 state file (no
+// "lineups" key at all) loads with an empty, non-nil Lineups map and that
+// the store still accepts a new lineup write afterward — the same
+// old-state-file-load contract TestClockFieldsDecodeFromOldStateFile and
+// TestStateFileMigratesFromVersion1 pin for their own additive fields.
+func TestLineupsDecodeFromOldStateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	state := store.Snapshot()
+	if state.Lineups == nil || len(state.Lineups) != 0 {
+		t.Fatalf("Lineups = %#v, want an empty, non-nil map", state.Lineups)
+	}
+	if err := store.SetLineupSlot("team-1", 1, "RB1", "p-01", time.Now()); err != nil {
+		t.Fatalf("a lineup write after loading an old file must succeed: %v", err)
+	}
+	if store.Snapshot().Lineups["team-1"][1]["RB1"] != "p-01" {
+		t.Fatal("the write did not take effect on the migrated state")
+	}
+}
+
+// TestCloneStateDeepCopiesLineups checks cloneState's Lineups branch: a
+// mutation on a snapshot's map must never leak back into the store's own
+// state, matching the deep-copy discipline every other map field follows.
+func TestCloneStateDeepCopiesLineups(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.SetLineupSlot("team-1", 1, "RB1", "p-01", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := store.Snapshot()
+	snapshot.Lineups["team-1"][1]["RB1"] = "tampered"
+	if got := store.Snapshot().Lineups["team-1"][1]["RB1"]; got != "p-01" {
+		t.Fatalf("mutating a snapshot leaked into the store's own state: got %q, want p-01", got)
+	}
+}

@@ -706,6 +706,14 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	}
 }
 
+// TeamData assembles the team terminal, now the lineup surface (WP-R1):
+// every starting slot (from the live roster shape, CurrentRoster()) shows
+// its assigned player or EMPTY with a managed assignment form, locked
+// slots render read-only with the kickoff reason, and the bench lists the
+// roster remainder. week defaults to the current NFL week
+// (pickemWeek); ?week=N (current or future) previews a later week's
+// carry-forward/auto-fill resolution, matching section 8.1's week
+// selector.
 func (s *Service) TeamData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
@@ -719,12 +727,38 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	teamMap := s.teamMap(team)
 	badgeToneHex, _ := BadgeToneHex(team.Tone)
 	_, hasBadgeClaim := s.store.BadgeClaim(teamID)
+
+	now := s.clock()
+	games := s.schedule()
+	currentWeek := s.pickemWeek(games, now)
+	week := currentWeek
+	if raw := strings.TrimSpace(r.URL.Query().Get("week")); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= currentWeek {
+			week = parsed
+		}
+	}
+	preset := CurrentRoster()
+	lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	scoringValues := s.currentScoringValues()
+	filled := 0
+	for _, a := range lineup.Slots {
+		if a.HasPlayer {
+			filled++
+		}
+	}
+	weekOptions := make([]map[string]any, 0, 6)
+	for w := currentWeek; w < currentWeek+6; w++ {
+		weekOptions = append(weekOptions, map[string]any{
+			"value":    strconv.Itoa(w),
+			"label":    fmt.Sprintf("WEEK %d", w),
+			"selected": w == week,
+		})
+	}
+
 	return map[string]any{
 		"viewer":          viewer,
 		"team":            teamMap,
-		"roster":          playerMapsWithScoring(roster, s.currentScoringValues()),
 		"drafted":         drafted,
-		"starters":        len(roster),
 		"projected":       fmt.Sprintf("%.1f", projected),
 		"division":        teamMap["division"],
 		"scouting":        s.topAvailable(state, 3),
@@ -736,6 +770,13 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"badge_grid":      s.badgeGrid(state, teamID),
 		"roster_shape":    rosterShapeRows(),
 		"shape_summary":   rosterShapeSummary(len(roster)),
+		"week":            strconv.Itoa(week),
+		"week_options":    weekOptions,
+		"starters":        s.starterRowMaps(lineup, roster, games, now, scoringValues),
+		"starters_filled": strconv.Itoa(filled),
+		"starters_total":  strconv.Itoa(len(lineup.Slots)),
+		"bench":           playerMapsWithScoring(lineup.Bench, scoringValues),
+		"bench_empty":     len(lineup.Bench) == 0,
 	}
 }
 

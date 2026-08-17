@@ -219,6 +219,16 @@ type PersistedState struct {
 	// BadgeClaims precedent above: a nil slice decodes safely on an old
 	// file, and the store normalizes it in load/NewStore/cloneState.
 	Announcements []Announcement `json:"announcements,omitempty"`
+
+	// Lineups maps team ID -> NFL week -> slot ID -> player ID (roster-ops
+	// spec section 3.1). Only explicit starter assignments are stored; the
+	// bench is the roster remainder, and an unassigned slot derives at read
+	// time (lineup.go's effectiveLineup — see that function's doc comment
+	// for how this work package reconciles the spec's per-week base with
+	// its own worked example). Additive under schema version 2 — the
+	// BadgeClaims precedent above: a nil map decodes safely on an old file,
+	// and the store normalizes it in load/NewStore/cloneState.
+	Lineups map[string]map[int]map[string]string `json:"lineups,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-
