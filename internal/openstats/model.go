@@ -36,6 +36,14 @@ type Status struct {
 	PlayerStats     DatasetStatus `json:"player_stats"`
 	PlayerStatsPrev DatasetStatus `json:"player_stats_prev"`
 	Injuries        DatasetStatus `json:"injuries"`
+	// TeamStats mirrors nflverse's "stats_team" release (team-week box
+	// scores): the source for DEFENSE-group scoring (WP-R2).
+	TeamStats DatasetStatus `json:"team_stats"`
+	// PlayByPlay mirrors nflverse's "pbp" release: the source for the
+	// per-punt PUNTING keys that a box-score aggregate cannot supply
+	// (coffinCorner, puntDownedInside5, and the puntYards 40+-yard gate;
+	// WP-R2, scoring.go's TODO(WP-R2)).
+	PlayByPlay DatasetStatus `json:"play_by_play"`
 }
 
 type ScheduleGame struct {
@@ -74,6 +82,28 @@ type PlayerWeekStat struct {
 	FumblesLost          float64 `json:"fumbles_lost"`
 	FantasyPoints        float64 `json:"fantasy_points"`
 	FantasyPointsPPR     float64 `json:"fantasy_points_ppr"`
+	// Kicking fields (WP-R2): sourced from the same stats_player_week
+	// release's fg_made/fg_missed/pat_made columns, present on K-position
+	// rows. defaultScoringRules' KICKING group carries no FG distance
+	// bands or an xpMissed key, so only these three feed live scoring
+	// today; see main.go's leagueWeekStatsSource.
+	FGMade   float64 `json:"fg_made"`
+	FGMissed float64 `json:"fg_missed"`
+	XPMade   float64 `json:"xp_made"`
+	// Punting box-score aggregates (WP-R2): present on P-position rows in
+	// the same stats_player_week release. These are the honest fallback
+	// when the play-by-play mirror (PuntEvents) has no data for the
+	// requested week: per-game aggregates only, no location-qualified
+	// events (no coffin-corner/inside-5 breakdown, no per-punt 40+-yard
+	// gate — pt_yards is gross yards over every punt in the game). See
+	// main.go's leagueWeekStatsSource and its punting fallback path.
+	Punts          float64 `json:"punts"`
+	PuntYardsGross float64 `json:"punt_yards_gross"`
+	PuntLong       float64 `json:"punt_long"`
+	PuntInside20   float64 `json:"punt_inside_20"`
+	PuntDowned     float64 `json:"punt_downed"`
+	PuntTouchback  float64 `json:"punt_touchback"`
+	PuntBlocked    float64 `json:"punt_blocked"`
 }
 
 type PlayerQuery struct {
@@ -115,6 +145,78 @@ type manifest struct {
 	PlayerStats     DatasetStatus `json:"player_stats"`
 	PlayerStatsPrev DatasetStatus `json:"player_stats_prev"`
 	Injuries        DatasetStatus `json:"injuries"`
+	TeamStats       DatasetStatus `json:"team_stats"`
+	PlayByPlay      DatasetStatus `json:"play_by_play"`
+}
+
+// TeamWeekStat is one team's defensive/special-teams box score for one NFL
+// week, mirrored from nflverse's "stats_team" release. It is the source for
+// defaultScoringRules' DEFENSE group (WP-R2): dstSack, dstInt, dstFumbleRec,
+// dstTD, and dstSafety feed directly; dstShutout derives from the schedule's
+// points-allowed, not from this dataset (see main.go's leagueWeekStatsSource).
+type TeamWeekStat struct {
+	Season           int     `json:"season"`
+	Week             int     `json:"week"`
+	SeasonType       string  `json:"season_type"`
+	GameID           string  `json:"game_id"`
+	Team             string  `json:"team"`
+	OpponentTeam     string  `json:"opponent_team"`
+	DefSacks         float64 `json:"def_sacks"`
+	DefInterceptions float64 `json:"def_interceptions"`
+	DefTDs           float64 `json:"def_tds"`
+	DefSafeties      float64 `json:"def_safeties"`
+	// FumbleRecoveryOpp counts only recoveries of the OPPONENT's fumbles
+	// (a takeaway); recovering the team's own fumble (fumble_recovery_own
+	// in the source CSV) is not a defensive scoring event and is
+	// deliberately excluded.
+	FumbleRecoveryOpp float64 `json:"fumble_recovery_opp"`
+}
+
+type TeamStatsQuery struct {
+	Week  int
+	Team  string
+	Limit int
+}
+
+// PuntEvent is one punt play, parsed from the play-by-play mirror
+// (nflverse's "pbp" release). It carries exactly the fields
+// defaultScoringRules' PUNTING group needs for the keys a box-score
+// aggregate cannot supply (WP-R2): coffinCorner, puntDownedInside5, and the
+// puntYards 40+-yard gate (applied by the caller, not here — see main.go's
+// leagueWeekStatsSource).
+type PuntEvent struct {
+	Season   int    `json:"season"`
+	Week     int    `json:"week"`
+	GameID   string `json:"game_id"`
+	Team     string `json:"team"`
+	PunterID string `json:"punter_id"`
+	Punter   string `json:"punter_name"`
+	// Distance is the gross kick distance in yards (kick_distance).
+	// Blocked punts carry distance 0.
+	Distance float64 `json:"distance"`
+	Blocked  bool    `json:"blocked"`
+	// InsideTwenty mirrors punt_inside_twenty: the receiving team's
+	// possession started inside its own 20 (downed, fair catch, or a
+	// short return that never left the 20) — nflverse's definition, not a
+	// landing-spot-only measure.
+	InsideTwenty bool `json:"inside_twenty"`
+	Touchback    bool `json:"touchback"`
+	Downed       bool `json:"downed"`
+	OutOfBounds  bool `json:"out_of_bounds"`
+	FairCatch    bool `json:"fair_catch"`
+	// CoffinCorner: the punt went out of bounds with an (estimated,
+	// pre-return) landing spot inside the receiving team's 10-yard line.
+	CoffinCorner bool `json:"coffin_corner"`
+	// Inside5: the punt was downed (not returned) with an (estimated)
+	// landing spot inside the receiving team's 5-yard line.
+	Inside5 bool `json:"inside5"`
+}
+
+type PuntQuery struct {
+	Week     int
+	PunterID string
+	Team     string
+	Limit    int
 }
 
 // PlayerSeasonSummary is one player's aggregated previous-season stat line,

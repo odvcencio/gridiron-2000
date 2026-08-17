@@ -70,7 +70,9 @@ The journal is an audit trail, not a redistributed news or social archive. Futur
 
 ## Open-data mirror contract
 
-The nflverse schedule asset is checked every five minutes, injury reports every 15 minutes, and the current-season weekly player-stat asset every six hours. HTTP 304 retains the cache. HTTP 404 becomes `awaiting_release`, which is expected before a season file exists. Other transport or schema failures preserve the last known-good CSV and record an error in the manifest.
+The nflverse schedule asset is checked every five minutes, injury reports every 15 minutes, and the current-season weekly player-stat, team-stat, and play-by-play assets every six hours (WP-R2 added the last two). HTTP 304 retains the cache. HTTP 404 becomes `awaiting_release`, which is expected before a season file exists. Other transport or schema failures preserve the last known-good CSV and record an error in the manifest.
+
+The play-by-play asset ships gzip-compressed (`.csv.gz`); the mirror caches it exactly as downloaded and auto-detects the gzip magic bytes at parse time, so a plain CSV fixture and a gzip-compressed release parse identically.
 
 A successful download must:
 
@@ -82,7 +84,7 @@ A successful download must:
 6. atomically replace the prior cache;
 7. persist row count, byte count, SHA-256, HTTP validators, timestamps, URL, and license.
 
-The injury view retains report/practice status and primary/secondary injuries by player, team, week, and season type. The player-week view retains identifiers, teams, game/week, passing, rushing, receiving, fumbles lost, and standard/PPR fantasy fields. Original CC-BY CSVs remain beside normalized in-memory views for future models and transparent reprocessing.
+The injury view retains report/practice status and primary/secondary injuries by player, team, week, and season type. The player-week view retains identifiers, teams, game/week, passing, rushing, receiving, fumbles lost, standard/PPR fantasy fields, and (WP-R2) kicking and punting box-score columns. The team-week view retains each team's defense/special-teams box score (sacks, interceptions, defensive TDs, safeties, and opponent-fumble recoveries — WP-R2). The play-by-play view retains one record per punt play (distance, blocked/downed/out-of-bounds/fair-catch/touchback flags, and the punter's identity — WP-R2), the source for per-punt PUNTING scoring that a box-score aggregate cannot supply. Original CC-BY CSVs remain beside normalized in-memory views for future models and transparent reprocessing.
 
 ## Access boundaries
 
