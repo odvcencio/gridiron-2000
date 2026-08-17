@@ -20,9 +20,13 @@ import (
 	"gridiron-2000/internal/notify"
 )
 
-// Notification preference categories (spec section 3). Every notification
-// type belongs to exactly one of these eight; /settings (WP-E5) groups
-// toggles by category, not by individual type.
+// Notification preference categories (spec section 3, extended by
+// roster-ops spec section 9). Every notification type belongs to exactly
+// one of these ten; /settings (WP-E5) groups toggles by category, not by
+// individual type. transactions and lineups are the roster-ops spec
+// section 9 additions — WP-R2 registers both categories (the file this
+// work package owns) even though only lineups gets a catalog entry (N18)
+// here; N14-N17 (transactions) land in WP-R4/WP-R5.
 const (
 	categoryOnboarding     = "onboarding"
 	categoryDraftReminders = "draft_reminders"
@@ -32,14 +36,17 @@ const (
 	categoryWeeklyRecap    = "weekly_recap"
 	categoryLeagueNews     = "league_news"
 	categoryBroadcast      = "broadcast"
+	categoryTransactions   = "transactions"
+	categoryLineups        = "lineups"
 )
 
-// notificationCategories lists the eight-category set the catalog matrix
+// notificationCategories lists the ten-category set the catalog matrix
 // test pins every entry's Category against (spec section 3, section 9 test
-// 18).
+// 18, extended from eight to ten by roster-ops spec section 9).
 var notificationCategories = []string{
 	categoryOnboarding, categoryDraftReminders, categoryDraftLive, categoryDraftRecap,
 	categoryPickem, categoryWeeklyRecap, categoryLeagueNews, categoryBroadcast,
+	categoryTransactions, categoryLineups,
 }
 
 // Urgency levels (spec section 3). Only urgencyLow entries (N9, N12, N13)
@@ -63,6 +70,8 @@ var categoryLabel = map[string]string{
 	categoryWeeklyRecap:    "Weekly-recap",
 	categoryLeagueNews:     "League-news",
 	categoryBroadcast:      "Broadcast",
+	categoryTransactions:   "Transaction",
+	categoryLineups:        "Lineup",
 }
 
 // leagueWordmark, leagueShortCode, and leagueTagline read the live config
@@ -181,6 +190,13 @@ func buildCatalog() []catalogEntry {
 			TimeDriven: true, Freshness: 7 * 24 * time.Hour,
 			Key: func(email string, ctx keyContext) string { return keyMatchupRecap(ctx.Season, ctx.Week, email) },
 		},
+		// N14-N17 (roster-ops spec section 9, transactions category) are
+		// WP-R4/WP-R5 scope — not registered here.
+		{
+			ID: "N18", TypeKey: "lineup-warning", Category: categoryLineups, Urgency: urgencyHigh, Default: true,
+			TimeDriven: true, Freshness: 24 * time.Hour,
+			Key: func(email string, ctx keyContext) string { return keyLineupWarning(ctx.Season, ctx.Week, email) },
+		},
 	}
 }
 
@@ -237,6 +253,13 @@ func keyKickoff(season, email string) string {
 
 func keyMatchupRecap(season string, week int, email string) string {
 	return fmt.Sprintf("recap:%s-w%d:%s", season, week, normalizeEmail(email))
+}
+
+// keyLineupWarning backs N18's catalog entry: one warning per team per
+// week — fixed lineups do not re-key, which is correct (roster-ops spec
+// section 9, N18's Key formula, verbatim).
+func keyLineupWarning(season string, week int, email string) string {
+	return fmt.Sprintf("lineupwarn:%s-w%d:%s", season, week, normalizeEmail(email))
 }
 
 func normalizeEmail(email string) string {
@@ -1057,6 +1080,155 @@ func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotif
 }
 
 // ---------------------------------------------------------------------
+// N18 — lineup-warning (roster-ops spec section 9)
+// ---------------------------------------------------------------------
+
+// firstKickoff returns the earliest kickoff among games in week, and
+// whether week has any game at all — the anchor N18's due window measures
+// against (roster-ops spec section 9: "firstKickoff reads the week's
+// earliest GameInfo.Kickoff").
+func firstKickoff(games []GameInfo, week int) (time.Time, bool) {
+	var first time.Time
+	found := false
+	for _, g := range games {
+		if g.Week != week {
+			continue
+		}
+		if !found || g.Kickoff.Before(first) {
+			first = g.Kickoff
+			found = true
+		}
+	}
+	return first, found
+}
+
+// lineupProblem is one N18 StatTable row (roster-ops spec section 9, N18
+// block 2): a warning slot paired with the best unlocked bench player who
+// fits it, by projection.
+type lineupProblem struct {
+	SlotID      string
+	PlayerLabel string // the occupant's name, or "EMPTY"
+	Issue       string // BYE / OUT / EMPTY (slotWarningLabel's vocabulary)
+	Replacement string // best bench replacement's name, or "" when none fits
+}
+
+// lineupProblems collects every warning slot in lineup, in engine order,
+// each paired with its best bench replacement (bestAutoFillCandidate's own
+// bye/injury/tie-break rules, restricted to bench players who fit the slot
+// and are not locked for lineup.Week).
+func lineupProblems(lineup EffectiveLineup, games []GameInfo, now time.Time) []lineupProblem {
+	var out []lineupProblem
+	for _, a := range lineup.Slots {
+		issue, warns := slotWarningLabel(a)
+		if !warns {
+			continue
+		}
+		playerLabel := "EMPTY"
+		if a.HasPlayer {
+			playerLabel = a.Player.Name
+		}
+		var candidates []Player
+		for _, p := range lineup.Bench {
+			if !a.Slot.Def.Fits(p.Position) || playerLocked(games, lineup.Week, p.NFLTeam, now) {
+				continue
+			}
+			candidates = append(candidates, p)
+		}
+		replacement := ""
+		if best, ok := bestAutoFillCandidate(candidates, lineup.Week); ok {
+			replacement = best.Name
+		}
+		out = append(out, lineupProblem{SlotID: a.Slot.ID, PlayerLabel: playerLabel, Issue: issue, Replacement: replacement})
+	}
+	return out
+}
+
+// evalLineupWarnings evaluates N18 on every notifier tick (roster-ops spec
+// section 9): due window [firstKickoff(week)-24h, firstKickoff(week)] for
+// the current NFL week (pickemWeek). Before the window, nothing happens —
+// the next tick re-checks. Inside the window, a seated team's effective
+// lineup with at least one warning slot sends; a clean lineup neither sends
+// nor records, so a lineup that turns bad later in the same window still
+// fires. Past the window every seated team's key is recorded without a
+// send — a stale warning is worse than none (the N2/N3 rule, spec
+// section 3).
+func (s *Service) evalLineupWarnings(state PersistedState, now time.Time) {
+	games := s.schedule()
+	week := s.pickemWeek(games, now)
+	first, ok := firstKickoff(games, week)
+	if !ok {
+		return
+	}
+	start := first.Add(-24 * time.Hour)
+	if now.Before(start) {
+		return
+	}
+	past := now.After(first)
+	season := strconv.Itoa(s.cfg.Season)
+	preset := CurrentRoster()
+	for email, member := range state.Members {
+		key := keyLineupWarning(season, week, email)
+		if past {
+			s.recordOnly(key, now)
+			continue
+		}
+		// Resolved against the passed-in now, not s.clock(): notifierTick
+		// already threads its own instant through here, and tests drive
+		// this function directly with a fake clock (spec section 6.4).
+		roster, _ := s.rosterForTeam(state, member.TeamID)
+		lineup := effectiveLineup(preset, roster, state.Lineups[member.TeamID], week, games, now)
+		problems := lineupProblems(lineup, games, now)
+		if len(problems) == 0 {
+			continue
+		}
+		s.recordAndSend(state, email, categoryLineups, key, now, func() renderedNotification {
+			return s.buildLineupWarning(member, lineup, problems, week, first)
+		})
+	}
+}
+
+func (s *Service) buildLineupWarning(member Member, lineup EffectiveLineup, problems []lineupProblem, week int, firstKickoffAt time.Time) renderedNotification {
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	n := len(problems)
+	plural := "s"
+	if n == 1 {
+		plural = ""
+	}
+	subject := fmt.Sprintf("LINEUP ALERT: %d problem starter%s before kickoff", n, plural)
+	shell := s.shellFor(categoryLineups, fmt.Sprintf("WEEK %d // LINEUP CHECK", week))
+	rows := make([][]string, 0, len(problems))
+	for _, p := range problems {
+		replacement := p.Replacement
+		if replacement == "" {
+			replacement = "—"
+		}
+		rows = append(rows, []string{p.SlotID, p.PlayerLabel, p.Issue, replacement})
+	}
+	blocks := []emailkit.Block{
+		emailkit.Headline{
+			Title: "YOUR LINEUP HAS HOLES.",
+			Lede: fmt.Sprintf("First kickoff %s. %d problem starter%s before your lineup locks.",
+				firstKickoffAt.In(location).Format("Mon 3:04 PM MST"), n, plural),
+		},
+		emailkit.StatTable{
+			Title:  "PROBLEM SLOTS",
+			Header: []string{"SLOT", "PLAYER", "ISSUE", "BEST REPLACEMENT"},
+			Rows:   rows,
+		},
+		emailkit.CTA{Label: "FIX IT NOW →", URL: s.leagueURL() + "/team"},
+		emailkit.Note{Text: "One tap on SET BEST LINEUP fills every open slot with your best projected player."},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyLineupWarning(strconv.Itoa(s.cfg.Season), week, member.Email), Category: categoryLineups,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// ---------------------------------------------------------------------
 // Notifier ticker and admin mail-health map
 // ---------------------------------------------------------------------
 
@@ -1098,7 +1270,10 @@ func (s *Service) StartNotifier(ctx context.Context) {
 // one instant (spec section 6.4), in the spec's exact order: N2/N3
 // reminder windows, then N7's draft-complete derivation, then the entries
 // N8-N13 own (their evaluation lands in later work packages — see the TODO
-// markers), then the daily SentLog prune.
+// markers), then N18's lineup-warning window (roster-ops spec section 9,
+// WP-R2 — it is pure notification evaluation, so it belongs beside the
+// N2/N3/N7 checks, not in season.go's closeWeek), then the daily SentLog
+// prune.
 func (s *Service) notifierTick(now time.Time) {
 	state := s.store.Snapshot()
 
@@ -1112,6 +1287,8 @@ func (s *Service) notifierTick(now time.Time) {
 	// state.Schedule != nil, once competition-formats WP2 lands).
 	// TODO(WP-E5): N13 weekly matchup-recap derivation (the ticker-derived
 	// half; week-close's direct-enqueue half is a separate hook).
+
+	s.evalLineupWarnings(state, now) // N18
 
 	s.dailyPrune(now)
 }

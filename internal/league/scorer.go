@@ -135,18 +135,21 @@ func (r *rosterTotalScorer) TeamWeekScore(teamID string, week int) (points float
 	return total, final, nil
 }
 
-// lineupScorer is the roster-ops spec's lineupScorer (section 4.6),
-// wired early per this work package's explicit scorer-scoping brief:
+// lineupScorer is the roster-ops spec's lineupScorer (section 4.6):
 // TeamWeekScore counts only the effective lineup's starters for the given
-// week — a bench player never contributes to the matchup total. Section
-// 4.6's step 1 ("Lineups[teamID][week] when stored ... otherwise
-// effectiveLineup") collapses to "always effectiveLineup" here: the
-// materialize-at-close pin (spec section 4.2/13, WP-R2) is explicitly out
-// of this work package's scope, so nothing ever writes a full closed-week
-// snapshot into Lineups for this scorer to prefer — effectiveLineup
-// already returns exactly that value (the stored explicit week, gap-filled
-// by auto-fill) for both an open and a closed week, so scoring is
-// unaffected once the pin lands and starts short-circuiting the same read.
+// week — a bench player never contributes to the matchup total.
+//
+// Closed-week short-circuit (WP-R2, section 4.6 step 1). starters resolves
+// through Service.lineupStarters, which now honors the materialize-at-close
+// pin: once week's matchups are final (season.go's closeWeek sets that flag
+// in the same persist that writes the pin), starters reads the frozen
+// PersistedState.Lineups[teamID][week] map directly against the whole
+// player pool, bypassing effectiveLineup's current-roster filter entirely.
+// That bypass is the point of the pin — see pinnedStarters' doc comment for
+// why the spec's literal "stored ⇒ closed" reading is not quite right and
+// what signal this implementation uses instead. For an open (not yet
+// final) week, starters still resolves live via effectiveLineup, exactly
+// as before.
 type lineupScorer struct {
 	// starters returns teamID's resolved starting lineup for week (a
 	// service-layer effectiveLineup call, players only, bench excluded).
@@ -203,8 +206,13 @@ func (l *lineupScorer) TeamWeekScore(teamID string, week int) (points float64, f
 // lineupStarters resolves teamID's effective-lineup starters for week
 // against state: every slot's assigned player (explicit or auto-filled),
 // bench excluded — the func lineupScorer.starters wires into
-// Service.matchupScorer.
+// Service.matchupScorer. It defers to the closed-week pin (pinnedStarters)
+// first; only an open week falls through to the live effectiveLineup
+// resolution.
 func (s *Service) lineupStarters(state PersistedState, teamID string, week int) []Player {
+	if pinned, ok := s.pinnedStarters(state, teamID, week); ok {
+		return pinned
+	}
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
 	games := s.schedule()
@@ -217,6 +225,71 @@ func (s *Service) lineupStarters(state PersistedState, teamID string, week int) 
 		}
 	}
 	return starters
+}
+
+// pinnedStarters resolves teamID's frozen starters for week directly from
+// the materialize-at-close pin (state.Lineups[teamID][week]), when week is
+// closed. ok is false for an open week, so lineupStarters falls through to
+// the live effectiveLineup resolution.
+//
+// Reconciliation (report at hand-off): section 4.6 step 1's literal text
+// reads "Lineups[teamID][week] when stored ... otherwise effectiveLineup"
+// — stored presence alone as the closed-week signal. That is not quite
+// right: the section 4.7 lineup-auto action (autoFillWeek's doc comment,
+// lineup.go) already writes a *complete* stored map for the *current,
+// still-open* week too — so "stored" cannot mean "closed" by itself.
+// Treating it as if it did would break exactly the case section 6.3
+// requires: a trade in the still-open current week must still remove the
+// traded player from that week's live lineup. This implementation instead
+// gates on weekIsFinalInSchedule — the schedule's own Final flag, set by
+// closeWeek in the very same persist that writes the pin (section 4.2's
+// "in the same persist that marks the week's matchups final"), which is
+// both the literal "existing week-close/finality machinery" this work
+// package's brief points at and the one signal that correctly separates a
+// frozen week from a live one.
+//
+// Once gated closed, the pin resolves player identity from the whole
+// player pool (Service.pool, keyed by ID), not from currentRosters — that
+// bypass is the entire point: a later drop, trade, or roster-shape edit
+// removes the player from the *current* roster, and effectiveLineup's
+// step-3 "no longer rostered" rule would otherwise silently re-auto-fill
+// the slot from the *new* roster, changing a closed week's score after the
+// fact (the roster-shape-editor / trade churn this pin exists to survive).
+// A player ID that no longer resolves in the pool at all (should not
+// happen — the pool only grows) is skipped, scoring zero for that slot,
+// the same fail-quiet posture as a plain join miss.
+func (s *Service) pinnedStarters(state PersistedState, teamID string, week int) ([]Player, bool) {
+	if !weekIsFinalInSchedule(state.Schedule, week) {
+		return nil, false
+	}
+	slots := state.Lineups[teamID][week]
+	if len(slots) == 0 {
+		return []Player{}, true // week is closed; this team pinned no starters.
+	}
+	pool := s.pool()
+	starters := make([]Player, 0, len(slots))
+	for _, playerID := range slots {
+		if player, ok := pool.byID[playerID]; ok {
+			starters = append(starters, player)
+		}
+	}
+	return starters, true
+}
+
+// weekIsFinalInSchedule reports whether week's matchups are already all
+// final in sch — the authoritative "this week is closed" signal (season.go's
+// closeWeek sets it, in the same persist as the materialize-at-close pin).
+// A nil schedule, or a week absent from it, is never closed.
+func weekIsFinalInSchedule(sch *SeasonSchedule, week int) bool {
+	if sch == nil {
+		return false
+	}
+	for _, wk := range sch.Weeks {
+		if wk.Week == week {
+			return matchupsAllFinal(wk.Matchups)
+		}
+	}
+	return false
 }
 
 // matchupScorer builds the wired v1 MatchupScorer for one call (a week

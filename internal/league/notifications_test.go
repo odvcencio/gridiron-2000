@@ -50,10 +50,12 @@ func sentLogCount(state PersistedState, prefix string) int {
 // ---------------------------------------------------------------------
 
 // TestNotificationCatalogMatrix pins the section 3 summary matrix verbatim
-// (spec section 9, test 18): every one of the 13 entries carries a
-// category from the 8-set, the exact urgency and default from the table,
-// a key builder that embeds the recipient email, and a freshness window
-// exactly when (and only when) it is time-driven.
+// (spec section 9, test 18, extended by roster-ops spec section 9): every
+// one of the 14 registered entries (N14-N17 land in later work packages —
+// see buildCatalog's comment) carries a category from the 10-set, the
+// exact urgency and default from the table, a key builder that embeds the
+// recipient email, and a freshness window exactly when (and only when) it
+// is time-driven.
 func TestNotificationCatalogMatrix(t *testing.T) {
 	want := map[string]struct {
 		Category string
@@ -73,6 +75,7 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		"N11": {categoryBroadcast, urgencyNormal, true},
 		"N12": {categoryLeagueNews, urgencyLow, true},
 		"N13": {categoryWeeklyRecap, urgencyLow, true},
+		"N18": {categoryLineups, urgencyHigh, true},
 	}
 	if got := len(catalogEntries); got != len(want) {
 		t.Fatalf("catalog has %d entries, want %d", got, len(want))
@@ -81,8 +84,8 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 	for _, c := range notificationCategories {
 		validCategory[c] = true
 	}
-	if len(notificationCategories) != 8 {
-		t.Fatalf("notificationCategories has %d entries, want 8", len(notificationCategories))
+	if len(notificationCategories) != 10 {
+		t.Fatalf("notificationCategories has %d entries, want 10", len(notificationCategories))
 	}
 
 	seen := map[string]bool{}
@@ -612,4 +615,120 @@ func TestDisabledTransportWritesNothing(t *testing.T) {
 			t.Fatalf("queue depth with a disabled transport = %d, want 0", got)
 		}
 	})
+}
+
+// ---------------------------------------------------------------------
+// N18 — lineup-warning (roster-ops spec section 9, WP-R2)
+// ---------------------------------------------------------------------
+
+// lineupWarningPlayerIDs returns players' IDs in order, for
+// draftFixtureOntoTeam1's playerIDs argument.
+func lineupWarningPlayerIDs(players []Player) []string {
+	ids := make([]string, len(players))
+	for i, p := range players {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
+// lineupWarningTestService builds a notify-ready service (fake clock,
+// queue wired but never started) with one week-1 game (kickoff the sole
+// N18 window anchor) and players drafted onto team-1, whose seat carries a
+// manager email so N18 has an audience.
+func lineupWarningTestService(t *testing.T, kickoff time.Time, players []Player) *Service {
+	t.Helper()
+	svc, _ := newNotifyTestService(t, kickoff, kickoff.Add(-72*time.Hour))
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: kickoff, Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	if _, _, err := svc.store.AssignMember("manager@example.com", "Manager One"); err != nil {
+		t.Fatal(err)
+	}
+	draftFixtureOntoTeam1(t, svc, kickoff.Add(-72*time.Hour), lineupWarningPlayerIDs(players))
+	return svc
+}
+
+// TestLineupWarningSendsInsideWindowWhenLineupWarns pins N18's core trigger:
+// inside [firstKickoff-24h, firstKickoff], a team whose effective lineup
+// carries at least one warning slot (lineupFixturePlayers' 5-player roster
+// leaves several standard-preset slots EMPTY) gets exactly one send,
+// recorded under the lineupwarn: key prefix.
+func TestLineupWarningSendsInsideWindowWhenLineupWarns(t *testing.T) {
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	svc := lineupWarningTestService(t, kickoff, lineupFixturePlayers())
+
+	state := svc.store.Snapshot()
+	svc.evalLineupWarnings(state, kickoff.Add(-12*time.Hour)) // inside the window
+	state = svc.store.Snapshot()
+	if got := sentLogCount(state, "lineupwarn:"); got != 1 {
+		t.Fatalf("SentLog lineupwarn: entries = %d, want 1", got)
+	}
+	if got := svc.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("queue depth = %d, want 1", got)
+	}
+
+	// A second evaluation still inside the window must not re-send
+	// (FirstSend's at-most-once ledger).
+	svc.evalLineupWarnings(svc.store.Snapshot(), kickoff.Add(-11*time.Hour))
+	if got := svc.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("queue depth after a second in-window tick = %d, want still 1", got)
+	}
+}
+
+// TestLineupWarningRecordsWithoutSendingPastWindow pins the N2/N3 rule N18
+// reuses: once now is past firstKickoff, the key is recorded but nothing
+// sends — a stale warning is worse than none.
+func TestLineupWarningRecordsWithoutSendingPastWindow(t *testing.T) {
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	svc := lineupWarningTestService(t, kickoff, lineupFixturePlayers())
+
+	svc.evalLineupWarnings(svc.store.Snapshot(), kickoff.Add(time.Minute)) // past kickoff
+	state := svc.store.Snapshot()
+	if got := sentLogCount(state, "lineupwarn:"); got != 1 {
+		t.Fatalf("SentLog lineupwarn: entries past the window = %d, want 1 (recorded, not sent)", got)
+	}
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth past the window = %d, want 0", got)
+	}
+}
+
+// TestLineupWarningStaysSilentBeforeWindow checks that before
+// firstKickoff-24h nothing is recorded at all, so a later tick inside the
+// window can still evaluate and fire.
+func TestLineupWarningStaysSilentBeforeWindow(t *testing.T) {
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	svc := lineupWarningTestService(t, kickoff, lineupFixturePlayers())
+
+	svc.evalLineupWarnings(svc.store.Snapshot(), kickoff.Add(-25*time.Hour)) // before the window opens
+	state := svc.store.Snapshot()
+	if got := sentLogCount(state, "lineupwarn:"); got != 0 {
+		t.Fatalf("SentLog lineupwarn: entries before the window = %d, want 0", got)
+	}
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth before the window = %d, want 0", got)
+	}
+}
+
+// TestLineupWarningStaysSilentForCleanLineup checks the "send when at
+// least one slot warns" condition: lineupFixtureRoster's 11-player roster
+// fills every one of the standard preset's 9 starter slots with no bye and
+// no injury, so N18 neither sends nor records inside the window — a later
+// tick (were the lineup to turn bad) could still fire.
+func TestLineupWarningStaysSilentForCleanLineup(t *testing.T) {
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	roster := lineupFixtureRoster()
+	for i := range roster {
+		roster[i].NFLTeam = "PIT" // every player's game already exists in the fixture's one game
+		roster[i].ByeWeek = 0
+	}
+	svc := lineupWarningTestService(t, kickoff, roster)
+
+	svc.evalLineupWarnings(svc.store.Snapshot(), kickoff.Add(-12*time.Hour)) // inside the window
+	state := svc.store.Snapshot()
+	if got := sentLogCount(state, "lineupwarn:"); got != 0 {
+		t.Fatalf("SentLog lineupwarn: entries for a clean lineup = %d, want 0 (no send, no record)", got)
+	}
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth for a clean lineup = %d, want 0", got)
+	}
 }
