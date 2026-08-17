@@ -20,3 +20,7 @@ docs/superpowers/
 # where this deployment's own gitignored league.json lives before it is
 # loaded into that ConfigMap. See deploy/README.md.
 deploy/local/
+
+# buckley project artifacts — plans are never committed
+.buckley/
+docs/plans/

@@ -10,7 +10,12 @@ func SeatRow(props any) Node {
 	return <article class="seat-row" data-claimed={props.seat.claimed}>
 		<span class={"team-mark tone-" + props.seat.tone}>
 			<If cond={props.seat.has_avatar_image}>
-				<img class="avatar-mark__photo" src={props.seat.avatar_image_url} alt={props.seat.name} loading="lazy" />
+				<img
+					class="avatar-mark__photo"
+					src={props.seat.avatar_image_url}
+					alt={props.seat.name}
+					loading="lazy"
+				 />
 			</If>
 			<If cond={props.seat.has_avatar_image == false}>
 				{props.seat.abbreviation}
@@ -24,9 +29,7 @@ func SeatRow(props any) Node {
 					·
 					{props.seat.email}
 				</If>
-				<If cond={props.seat.claimed == false}>
-					Awaiting a manager
-				</If>
+				<If cond={props.seat.claimed == false}>Awaiting a manager</If>
 			</small>
 			<span class="position-chip">{props.seat.division}</span>
 		</div>
@@ -65,7 +68,13 @@ func SeatRow(props any) Node {
 				<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
 			</form>
 		</If>
-		<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
+		<form
+			method="post"
+			action="/avatar/upload"
+			enctype="multipart/form-data"
+			data-gosx-managed="false"
+			class="avatar-upload-form"
+		>
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.seat.id}></input>
 			<input type="hidden" name="redirect_to" value="/admin"></input>
@@ -83,7 +92,12 @@ func SeatRow(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page admin-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+	return <main
+		class="page admin-page"
+		id="main-content"
+		data-gosx-revalidate-interval="4s"
+		data-gosx-revalidate-src="/api/league/version"
+	>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -164,7 +178,14 @@ func Page() Node {
 					</div>
 					<div class="seat-list">
 						<Each of={data.seats} as="seat">
-							<SeatRow seat={seat} ReleaseAction={actionPath("seat-release")} RenameAction={actionPath("team-rename")} AutopickAction={actionPath("clock-set-autopick")} AvatarResetAction={actionPath("avatar-reset")} CSRF={csrf.token} />
+							<SeatRow
+								seat={seat}
+								ReleaseAction={actionPath("seat-release")}
+								RenameAction={actionPath("team-rename")}
+								AutopickAction={actionPath("clock-set-autopick")}
+								AvatarResetAction={actionPath("avatar-reset")}
+								CSRF={csrf.token}
+							 />
 						</Each>
 					</div>
 				</section>
@@ -178,7 +199,9 @@ func Page() Node {
 					<If cond={data.league_open}>
 						<p class="demo-message">
 							<strong>OPEN LEAGUE:</strong>
-							no invite list is set, so any Google account may claim a seat. Add the {data.league.seat_count_word} manager emails below.
+							no invite list is set, so any Google account may claim a seat. Add the
+							{data.league.seat_count_word}
+							manager emails below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
@@ -222,7 +245,9 @@ func Page() Node {
 						<summary class="mono">INVITE TEMPLATE PREVIEW</summary>
 						<p class="mono">{data.invite_preview.subject}</p>
 						<pre>{data.invite_preview.body}</pre>
-						<small class="mono">HTML version sends automatically with the text fallback.</small>
+						<small class="mono">
+							HTML version sends automatically with the text fallback.
+						</small>
 					</details>
 					<If cond={data.mail_enabled == false}>
 						<p class="demo-message">
@@ -244,14 +269,27 @@ func Page() Node {
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<strong>Reset draft</strong>
-							<p>Clears every pick and ready flag. Seats and boards survive.</p>
+							<p>
+								Clears every pick and ready flag. Seats and boards survive.
+							</p>
 							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
 							<button class="button" type="submit">Reset draft</button>
+						</form>
+						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<strong>Undo last pick</strong>
+							<p>
+								Removes the most recent pick and re-arms the clock for that slot.
+							</p>
+							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
+							<button class="button" type="submit">Undo last pick</button>
 						</form>
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<strong>Reset league</strong>
-							<p>Clears seats, picks, ready flags, and boards. Invites survive.</p>
+							<p>
+								Clears seats, picks, ready flags, and boards. Invites survive.
+							</p>
 							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
 							<button class="button" type="submit">Reset league</button>
 						</form>

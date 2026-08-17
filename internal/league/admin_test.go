@@ -392,6 +392,61 @@ func TestAdminForceAutopickFiresN6Hook(t *testing.T) {
 	}
 }
 
+// TestAdminUndoPickRequiresCommissioner checks that a non-commissioner
+// request is rejected before it can touch the draft at all.
+func TestAdminUndoPickRequiresCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+
+	if err := service.AdminUndoPick(request); err == nil {
+		t.Fatal("a non-commissioner request must be rejected")
+	}
+}
+
+// TestAdminUndoPickRearmsClockWithInjectedClock checks that AdminUndoPick
+// resolves the re-armed deadline from the service's injected clock
+// (service.now) plus the resolved pick-clock duration, the same
+// duration-resolution helper the manual pick flow (MakePick) uses.
+func TestAdminUndoPickRearmsClockWithInjectedClock(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	fixedNow := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return fixedNow }
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	team := teamOnClock(nil, 1)
+	if _, err := service.store.MakePick(team, "p-01", "manager", fixedNow, fixedNow.Add(90*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.AdminUndoPick(request); err != nil {
+		t.Fatalf("AdminUndoPick: %v", err)
+	}
+	state := service.store.Snapshot()
+	if len(state.Picks) != 0 {
+		t.Fatalf("picks after undo = %d, want 0", len(state.Picks))
+	}
+	want := fixedNow.Add(service.pickClock(state))
+	if !state.ClockDeadline.Equal(want) {
+		t.Fatalf("ClockDeadline = %v, want %v (injected clock + pick clock duration)", state.ClockDeadline, want)
+	}
+}
+
+// TestAdminUndoPickEmptyDraft checks that AdminUndoPick surfaces the
+// store's "no picks to undo" error unchanged through the service layer.
+func TestAdminUndoPickEmptyDraft(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	err := service.AdminUndoPick(request)
+	if err == nil {
+		t.Fatal("expected an error undoing a pick on an empty draft")
+	}
+	if !strings.Contains(err.Error(), "no picks to undo") {
+		t.Fatalf("err = %q, want it to contain %q", err.Error(), "no picks to undo")
+	}
+}
+
 func TestAdminGenerateScheduleCreatesAndPersists(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

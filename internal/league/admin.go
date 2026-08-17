@@ -482,6 +482,21 @@ func (s *Service) AdminResumeClock(r *http.Request) error {
 	return s.store.ResumeClock(s.clock(), s.pickClock(state))
 }
 
+// AdminUndoPick removes the most recent pick and re-arms the clock for
+// the reopened slot, using the same duration resolution the manual pick
+// flow uses (see MakePick and pickClock). UndoLastPick itself skips the
+// re-arm while the clock is paused, so this always passes a computed
+// deadline; it is simply unused in that case (see AdminResumeClock for
+// the same "state, then one store call" shape).
+func (s *Service) AdminUndoPick(r *http.Request) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	now := s.clock()
+	state := s.store.Snapshot()
+	return s.store.UndoLastPick(now.Add(s.pickClock(state)))
+}
+
 // AdminExtendClock adds secs to the running deadline, clamped to
 // [now+MinPickClock, now+MaxPickClock]. It is current-pick mercy only: a
 // paused or unarmed clock has no running deadline to extend.
