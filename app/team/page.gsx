@@ -137,7 +137,6 @@ component RosterRow(props: RosterRowProps) {
 			<small>PTS</small>
 			{props.Points}
 		</div>
-		<button class="row-menu" type="button" aria-label={"Roster options for " + props.Name}>•••</button>
 	</div>
 }
 
@@ -153,6 +152,9 @@ func Page() Node {
 			</If>
 			<If cond={data.has_avatar_error}>
 				<p class="error-message">{data.avatar_error}</p>
+			</If>
+			<If cond={data.has_lineup_error}>
+				<p class="error-message">{data.lineup_error}</p>
 			</If>
 		</div>
 		<section class="team-hero tone-lime">
@@ -229,8 +231,9 @@ func Page() Node {
 			<div>
 				<span>Starters</span>
 				<strong class="mono">
-					{data.starters}
-					/ 8
+					{data.starters_filled}
+					/
+					{data.starters_total}
 				</strong>
 			</div>
 			<div>
@@ -247,13 +250,19 @@ func Page() Node {
 			<section class="roster-panel">
 				<header class="section-heading section-heading--split">
 					<div>
-						<span class="section-index">01 // STARTING UNIT</span>
-						<h2>Dynasty roster</h2>
+						<span class="section-index">01 // STARTING LINEUP</span>
+						<h2>
+							Week
+							{data.week}
+							lineup
+						</h2>
 					</div>
 					<span class="lineup-lock">
 						<span class="status-pin" aria-hidden="true"></span>
-						<b class="mono">{data.starters}</b>
-						PLAYERS
+						<b class="mono">{data.starters_filled}</b>
+						/
+						{data.starters_total}
+						STARTERS
 					</span>
 				</header>
 				<div class="roster-shape" aria-label="League roster shape">
@@ -261,6 +270,22 @@ func Page() Node {
 						<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
 					</Each>
 					<p class="roster-shape__summary mono">{data.shape_summary}</p>
+				</div>
+				<div class="lineup-toolbar">
+					<form method="get" action="/team" class="lineup-week-form">
+						<select name="week" aria-label="Select week">
+							<Each of={data.week_options} as="wk">
+								<option value={wk.value} selected={wk.selected}>{wk.label}</option>
+							</Each>
+						</select>
+						<button class="board-button" type="submit">Go</button>
+					</form>
+					<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input type="hidden" name="team_id" value={data.team.id}></input>
+						<input type="hidden" name="week" value={data.week}></input>
+						<button class="button button--compact" type="submit">Set best lineup</button>
+					</form>
 				</div>
 				<If cond={data.drafted == false}>
 					<div class="empty-tape">
@@ -272,19 +297,104 @@ func Page() Node {
 					</div>
 				</If>
 				<If cond={data.drafted}>
-					<div class="roster-labels mono" aria-hidden="true">
-						<span>POS</span>
-						<span>PLAYER</span>
-						<span>GAME</span>
-						<span>PROJ</span>
-						<span>PTS</span>
-						<span></span>
-					</div>
-					<div class="roster-list">
-						<Each of={data.roster} as="player">
-							<RosterRow {...player}></RosterRow>
+					<div class="lineup-slot-list">
+						<Each of={data.starters} as="slot">
+							<div class="lineup-slot">
+								<div class="lineup-slot__id mono">{slot.slot_id}</div>
+								<If cond={slot.has_player}>
+									<div class="player-identity stat-tip" tabindex="0">
+										<If cond={slot.has_headshot}>
+											<img class="player-avatar player-avatar--photo" src={slot.headshot} alt="" loading="lazy" />
+										</If>
+										<If cond={slot.has_headshot == false}>
+											<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
+										</If>
+										<div>
+											<strong>{slot.name}</strong>
+											<small>
+												{slot.position}
+												·
+												{slot.nfl_team}
+												·
+												{slot.opponent}
+											</small>
+										</div>
+										<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+											<div class="stat-tip__head">
+												<strong>{slot.name}</strong>
+												<span class="mono">{slot.jersey}</span>
+												<span class="mono stat-tip__team">{slot.nfl_team}</span>
+											</div>
+											<If cond={slot.has_breakdown}>
+												<div class="stat-tip__rows">
+													<Each of={slot.breakdown} as="row">
+														<div class="stat-tip__row" data-scored={row.scored}>
+															<span>{row.label}</span>
+															<span class="mono">{row.calc}</span>
+															<b class="mono">{row.points}</b>
+														</div>
+													</Each>
+													<div class="stat-tip__total">
+														<span>League scoring</span>
+														<b class="mono">{slot.breakdown_total}</b>
+													</div>
+												</div>
+											</If>
+											<If cond={slot.has_breakdown == false}>
+												<p class="stat-tip__empty">No projection detail for this position.</p>
+											</If>
+										</div>
+									</div>
+								</If>
+								<If cond={slot.has_player == false}>
+									<div class="slot-empty mono">EMPTY</div>
+								</If>
+								<div class="lineup-slot__chips">
+									<If cond={slot.auto_filled}>
+										<span class="position-chip" title="Filled automatically by SET BEST LINEUP">AUTO</span>
+									</If>
+									<If cond={slot.has_warning}>
+										<span class="position-chip position-chip--warn">{slot.warning_label}</span>
+									</If>
+									<If cond={slot.locked}>
+										<span class="position-chip position-chip--locked">{slot.lock_label}</span>
+									</If>
+								</div>
+								<If cond={slot.locked == false}>
+									<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="team_id" value={data.team.id}></input>
+										<input type="hidden" name="week" value={data.week}></input>
+										<input type="hidden" name="slot" value={slot.slot_id}></input>
+										<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
+											<Each of={slot.options} as="opt">
+												<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+											</Each>
+										</select>
+										<button class="board-button" type="submit">Set</button>
+									</form>
+								</If>
+							</div>
 						</Each>
 					</div>
+					<h3 class="lineup-bench-title">Bench</h3>
+					<If cond={data.bench_empty}>
+						<p class="stat-tip__empty">No bench players.</p>
+					</If>
+					<If cond={data.bench_empty == false}>
+						<div class="roster-labels mono" aria-hidden="true">
+							<span>POS</span>
+							<span>PLAYER</span>
+							<span>GAME</span>
+							<span>PROJ</span>
+							<span>PTS</span>
+						</div>
+						<div class="roster-list">
+							<Each of={data.bench} as="player">
+								<RosterRow {...player}></RosterRow>
+							</Each>
+						</div>
+					</If>
 				</If>
 			</section>
 			<aside class="scout-panel">

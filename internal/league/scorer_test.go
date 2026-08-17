@@ -141,6 +141,112 @@ func TestNormalizePlayerKeyParityWithOpenstats(t *testing.T) {
 	}
 }
 
+// TestLineupScorerCountsOnlyStarters pins the WP-R1 scorer-scoping change
+// at the pure lineupScorer level: a bench player's stat line never
+// contributes to the matchup total, even though the stats source carries
+// it.
+func TestLineupScorerCountsOnlyStarters(t *testing.T) {
+	roster := map[string][]Player{
+		"team-1": {
+			{ID: "starter", Name: "Josh Allen", Position: "QB"},
+			{ID: "bench", Name: "Bench Guy", Position: "QB"},
+		},
+	}
+	stats := map[int][]WeekStatLine{
+		1: {
+			{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 1}},
+			{Key: normalizePlayerKey("Bench Guy", "QB"), Stats: map[string]float64{"passTD": 5}},
+		},
+	}
+	values := breakdownDefaultValues()
+	starters := func(teamID string, week int) []Player {
+		var out []Player
+		for _, p := range roster[teamID] {
+			if p.ID == "starter" {
+				out = append(out, p)
+			}
+		}
+		return out
+	}
+	scorer := newLineupScorer(starters, fixtureStatsFn(stats), func() map[string]float64 { return values }, nil)
+	points, final, err := scorer.TeamWeekScore("team-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !final {
+		t.Error("expected final = true when stats exist for the week")
+	}
+	if points != 4 { // Allen's 1 passTD * 4; the bench player's 5 passTD must not count.
+		t.Fatalf("points = %v, want 4 (bench must not contribute to the matchup total)", points)
+	}
+}
+
+// TestLineupScorerJoinMissAndFinalMirrorRosterTotalScorer pins parity with
+// rosterTotalScorer's join-miss and finality semantics (spec section 4.6:
+// "the same WeekStatsSource join... final keeps rosterTotalScorer's
+// advisory semantics").
+func TestLineupScorerJoinMissAndFinalMirrorRosterTotalScorer(t *testing.T) {
+	starters := func(teamID string, week int) []Player {
+		return []Player{{ID: "p1", Name: "Josh Allen", Position: "QB"}, {ID: "p2", Name: "Nobody Matched", Position: "WR"}}
+	}
+	stats := map[int][]WeekStatLine{
+		1: {{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 1}}},
+	}
+	values := breakdownDefaultValues()
+	var misses []JoinMiss
+	scorer := newLineupScorer(starters, fixtureStatsFn(stats), func() map[string]float64 { return values },
+		func(m JoinMiss) { misses = append(misses, m) })
+	points, _, err := scorer.TeamWeekScore("team-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if points != 4 {
+		t.Fatalf("points = %v, want 4 (a join miss scores zero)", points)
+	}
+	if len(misses) != 1 || misses[0].PlayerID != "p2" {
+		t.Fatalf("misses = %+v, want one miss for p2", misses)
+	}
+
+	empty := newLineupScorer(starters, fixtureStatsFn(map[int][]WeekStatLine{}), breakdownDefaultValues, nil)
+	_, final, err := empty.TeamWeekScore("team-1", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final {
+		t.Error("expected final = false when the stats source has nothing for this week")
+	}
+}
+
+// TestServiceMatchupScorerExcludesBench is the end-to-end scorer-scoping
+// check through Service.matchupScorer/closeWeek's own construction path:
+// two same-position players are drafted onto one team, only the
+// higher-projection one starts (the standard preset carries no
+// SUPERFLEX), and only that starter's stat line counts toward the team's
+// week score.
+func TestServiceMatchupScorerExcludesBench(t *testing.T) {
+	service := newTestService(t, true)
+	now := service.clock()
+	// p-06 Lamar Jackson (proj 22.6) and p-09 Josh Allen (proj 22.1) are
+	// both QBs; the standard preset (this test service's CurrentRoster)
+	// starts exactly one QB, so auto-fill picks Jackson and benches Allen.
+	draftFixtureOntoTeam1(t, service, now, []string{"p-06", "p-09"})
+	service.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{
+			{Key: normalizePlayerKey("Lamar Jackson", "QB"), Stats: map[string]float64{"passTD": 1}},
+			{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 5}},
+		}
+	})
+	var misses []JoinMiss
+	scorer := service.matchupScorer(&misses)
+	points, _, err := scorer.TeamWeekScore("team-1", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if points != 4 { // Jackson's 1 passTD * 4; Allen's benched 5 passTD must not count.
+		t.Fatalf("points = %v, want 4 — the bench QB's stat line must not score", points)
+	}
+}
+
 func TestServiceMatchupScorerWiring(t *testing.T) {
 	service := newTestService(t, true)
 	now := service.clock()

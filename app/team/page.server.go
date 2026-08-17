@@ -3,8 +3,10 @@ package team
 import (
 	"fmt"
 	"log"
+	"strconv"
 
 	"gridiron-2000/internal/league"
+	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
@@ -155,8 +157,8 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().TeamData(ctx.Request)
-			if roster, ok := data["roster"].([]map[string]any); ok {
-				data["roster"] = rosterRowProps(roster)
+			if bench, ok := data["bench"].([]map[string]any); ok {
+				data["bench"] = rosterRowProps(bench)
 			}
 			if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
 				teamID := stringField(data["team"].(map[string]any), "id")
@@ -164,6 +166,20 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
+			data["has_lineup_error"] = false
+			data["lineup_error"] = ""
+			for _, name := range []string{"lineup-set", "lineup-auto"} {
+				if view, ok := ctx.ActionState(name); ok {
+					message := view.Error("player_id")
+					if message == "" {
+						message = view.Error("week")
+					}
+					if message != "" {
+						data["has_lineup_error"] = true
+						data["lineup_error"] = message
+					}
+				}
+			}
 			// avatar_error is flashed by the raw POST /avatar/upload handler
 			// (main package), which sits outside gosx's action registry — see
 			// avatar_handlers.go's doc comment for why a 2MB upload cannot go
@@ -187,6 +203,42 @@ func init() {
 				Title:       server.Title{Default: league.PageTitle("Team Terminal")},
 				Description: "Set a lineup, inspect player status, and scout the wire.",
 			}, nil
+		},
+		Actions: route.FileActions{
+			// lineup-set applies one roster-ops spec section 4.4
+			// lineup-set(week, slot, player_id) action: an empty
+			// player_id clears the slot. week/slot/team_id travel as
+			// hidden fields on each starting slot's <select> form
+			// (page.gsx); no client JS resolves them.
+			"lineup-set": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					message := "choose a valid week"
+					return action.Validation(message, map[string]string{"week": message}, ctx.FormData)
+				}
+				message, err := league.Default().SetLineup(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["slot"], ctx.FormData["player_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				return nil
+			},
+			// lineup-auto applies the section 4.7 SET BEST LINEUP action.
+			"lineup-auto": func(ctx *action.Context) error {
+				week, err := strconv.Atoi(ctx.FormData["week"])
+				if err != nil {
+					message := "choose a valid week"
+					return action.Validation(message, map[string]string{"week": message}, ctx.FormData)
+				}
+				message, err := league.Default().LineupAuto(ctx.Request, ctx.FormData["team_id"], week)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"week": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				return nil
+			},
 		},
 	}); err != nil {
 		log.Fatal(err)

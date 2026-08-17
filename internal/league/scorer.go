@@ -135,20 +135,108 @@ func (r *rosterTotalScorer) TeamWeekScore(teamID string, week int) (points float
 	return total, final, nil
 }
 
+// lineupScorer is the roster-ops spec's lineupScorer (section 4.6),
+// wired early per this work package's explicit scorer-scoping brief:
+// TeamWeekScore counts only the effective lineup's starters for the given
+// week — a bench player never contributes to the matchup total. Section
+// 4.6's step 1 ("Lineups[teamID][week] when stored ... otherwise
+// effectiveLineup") collapses to "always effectiveLineup" here: the
+// materialize-at-close pin (spec section 4.2/13, WP-R2) is explicitly out
+// of this work package's scope, so nothing ever writes a full closed-week
+// snapshot into Lineups for this scorer to prefer — effectiveLineup
+// already returns exactly that value (the stored explicit week, gap-filled
+// by auto-fill) for both an open and a closed week, so scoring is
+// unaffected once the pin lands and starts short-circuiting the same read.
+type lineupScorer struct {
+	// starters returns teamID's resolved starting lineup for week (a
+	// service-layer effectiveLineup call, players only, bench excluded).
+	starters func(teamID string, week int) []Player
+	stats    WeekStatsSource
+	values   func() map[string]float64
+	onMiss   func(JoinMiss)
+}
+
+// newLineupScorer builds a lineupScorer. onMiss may be nil.
+func newLineupScorer(starters func(teamID string, week int) []Player, stats WeekStatsSource, values func() map[string]float64, onMiss func(JoinMiss)) *lineupScorer {
+	return &lineupScorer{starters: starters, stats: stats, values: values, onMiss: onMiss}
+}
+
+// TeamWeekScore implements MatchupScorer, scoped to starters only (roster-
+// ops spec section 4.6 step 2): the same WeekStatsSource join
+// rosterTotalScorer uses, but over teamID's resolved starting lineup
+// instead of its whole roster. Bench players, empty slots, and bye slots
+// with no eligible replacement all contribute zero, because they are
+// simply absent from starters' result. final keeps rosterTotalScorer's
+// advisory semantics (see that type's TeamWeekScore doc comment).
+func (l *lineupScorer) TeamWeekScore(teamID string, week int) (points float64, final bool, err error) {
+	if l.stats == nil {
+		return 0, false, fmt.Errorf("no week stats source is configured")
+	}
+	lines := l.stats(week)
+	final = len(lines) > 0
+	byKey := make(map[string]map[string]float64, len(lines))
+	for _, line := range lines {
+		byKey[line.Key] = line.Stats
+	}
+	values := map[string]float64{}
+	if l.values != nil {
+		values = l.values()
+	}
+	starters := l.starters(teamID, week)
+	total := 0.0
+	for _, player := range starters {
+		key := normalizePlayerKey(player.Name, player.Position)
+		line, ok := byKey[key]
+		if !ok {
+			if l.onMiss != nil {
+				l.onMiss(JoinMiss{Week: week, TeamID: teamID, PlayerID: player.ID, PlayerName: player.Name, Position: player.Position})
+			}
+			continue
+		}
+		for ruleKey, statValue := range line {
+			total += statValue * values[ruleKey]
+		}
+	}
+	return total, final, nil
+}
+
+// lineupStarters resolves teamID's effective-lineup starters for week
+// against state: every slot's assigned player (explicit or auto-filled),
+// bench excluded — the func lineupScorer.starters wires into
+// Service.matchupScorer.
+func (s *Service) lineupStarters(state PersistedState, teamID string, week int) []Player {
+	preset := CurrentRoster()
+	roster, _ := s.rosterForTeam(state, teamID)
+	games := s.schedule()
+	now := s.clock()
+	lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	starters := make([]Player, 0, len(lineup.Slots))
+	for _, assignment := range lineup.Slots {
+		if assignment.HasPlayer {
+			starters = append(starters, assignment.Player)
+		}
+	}
+	return starters
+}
+
 // matchupScorer builds the wired v1 MatchupScorer for one call (a week
 // close, or one live-feed snapshot): it snapshots store state once, so a
 // whole week's worth of TeamWeekScore calls share one consistent roster
 // view. misses, when non-nil, is appended to for every join miss found.
+//
+// This constructs lineupScorer, not rosterTotalScorer — the scorer-scoping
+// swap this work package's brief calls for (roster-ops spec section 4.6:
+// "the seam change is one constructor call"). rosterTotalScorer stays in
+// this file with its own tests; nothing binds it after this swap.
 func (s *Service) matchupScorer(misses *[]JoinMiss) MatchupScorer {
 	state := s.store.Snapshot()
 	var onMiss func(JoinMiss)
 	if misses != nil {
 		onMiss = func(m JoinMiss) { *misses = append(*misses, m) }
 	}
-	return newRosterTotalScorer(
-		func(teamID string) []Player {
-			roster, _ := s.rosterForTeam(state, teamID)
-			return roster
+	return newLineupScorer(
+		func(teamID string, week int) []Player {
+			return s.lineupStarters(state, teamID, week)
 		},
 		s.weekStatsSource(),
 		s.currentScoringValues,

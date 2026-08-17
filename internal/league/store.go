@@ -66,6 +66,7 @@ func NewStore(filePath string) *Store {
 			NotifyPrefs:   map[string]map[string]bool{},
 			BadgeClaims:   map[string]string{},
 			Announcements: []Announcement{},
+			Lineups:       map[string]map[int]map[string]string{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -955,6 +956,85 @@ func (s *Store) ClearRosterOverride() error {
 	return s.persistLocked()
 }
 
+// SetLineupSlot persists one lineup-slot assignment for teamID/week, one
+// lock, one persist (roster-ops spec section 4.4). An empty playerID
+// clears the slot; a non-empty playerID first clears any other slot within
+// the same stored week that already names it — a player occupies at most
+// one slot, so the displacement happens in this same write. now is
+// currently unused (reserved for a future per-write audit trail) but kept
+// so the signature mirrors the spec's SetLineupSlot(teamID, week, slot,
+// playerID, effective, now) shape; business validation needing pool or
+// schedule data (L4-L8) happens one layer up, in Service.SetLineup —
+// mirroring the split MakePick/BoardAdd already establish between
+// Service-level business validation and Store-level atomic persistence.
+func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, now time.Time) error {
+	_ = now
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if week < 1 {
+		return fmt.Errorf("unknown lineup week %d", week)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	byWeek, ok := s.state.Lineups[teamID]
+	if !ok {
+		byWeek = map[int]map[string]string{}
+		s.state.Lineups[teamID] = byWeek
+	}
+	slots, ok := byWeek[week]
+	if !ok {
+		slots = map[string]string{}
+		byWeek[week] = slots
+	}
+	playerID = strings.TrimSpace(playerID)
+	if playerID == "" {
+		delete(slots, slot)
+		return s.persistLocked()
+	}
+	for otherSlot, occupant := range slots {
+		if otherSlot != slot && occupant == playerID {
+			delete(slots, otherSlot)
+		}
+	}
+	slots[slot] = playerID
+	return s.persistLocked()
+}
+
+// SetLineupWeek replaces teamID's entire explicit lineup for week with
+// slots (slot ID -> player ID), one lock, one persist. The lineup-auto
+// action (roster-ops spec section 4.7) is the only caller: it recomputes
+// every unlocked slot at once, so the whole week's explicit map is
+// replaced rather than edited key by key the way SetLineupSlot does for a
+// single lineup-set action.
+func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if week < 1 {
+		return fmt.Errorf("unknown lineup week %d", week)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	byWeek, ok := s.state.Lineups[teamID]
+	if !ok {
+		byWeek = map[int]map[string]string{}
+		s.state.Lineups[teamID] = byWeek
+	}
+	copied := make(map[string]string, len(slots))
+	for slot, playerID := range slots {
+		copied[slot] = playerID
+	}
+	byWeek[week] = copied
+	return s.persistLocked()
+}
+
 // announcementBodyMaxRunes and announcementCap bound one announcement's
 // text and the feed's stored length (league-announcements spec).
 const (
@@ -1089,6 +1169,9 @@ func (s *Store) load() error {
 	if state.Announcements == nil {
 		state.Announcements = []Announcement{}
 	}
+	if state.Lineups == nil {
+		state.Lineups = map[string]map[int]map[string]string{}
+	}
 	s.state = state
 	return nil
 }
@@ -1194,6 +1277,7 @@ func cloneState(in PersistedState) PersistedState {
 		BadgeClaims:       make(map[string]string, len(in.BadgeClaims)),
 		RosterOverride:    cloneRosterOverride(in.RosterOverride),
 		Announcements:     append([]Announcement(nil), in.Announcements...),
+		Lineups:           make(map[string]map[int]map[string]string, len(in.Lineups)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -1242,6 +1326,17 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, motif := range in.BadgeClaims {
 		out.BadgeClaims[teamID] = motif
+	}
+	for teamID, byWeek := range in.Lineups {
+		innerByWeek := make(map[int]map[string]string, len(byWeek))
+		for week, slots := range byWeek {
+			innerSlots := make(map[string]string, len(slots))
+			for slot, playerID := range slots {
+				innerSlots[slot] = playerID
+			}
+			innerByWeek[week] = innerSlots
+		}
+		out.Lineups[teamID] = innerByWeek
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
