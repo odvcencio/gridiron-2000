@@ -66,6 +66,10 @@ func main() {
 	league.Default().SetHistoricalSource(historicalSource(openStats))
 	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
 	startBlitzPoller(runtimeContext, fantasyPool, league.Default())
+	// startBlitzPre1 makes a handful of REST calls against already-final
+	// games; it backgrounds itself so a slow or unreachable Tank01 never
+	// delays the server accepting requests (see blitz_pre1.go).
+	go startBlitzPre1(runtimeContext, fantasyPool, league.Default())
 	league.Default().StartDraftClock(runtimeContext)
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
@@ -357,6 +361,7 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 					Projection: player.Projection,
 					News:       player.News,
 					Status:     "Available",
+					Rookie:     player.IsRookie(),
 				})
 			}
 			lastVersion = version

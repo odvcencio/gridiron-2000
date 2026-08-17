@@ -594,3 +594,271 @@ func TestBreakdownAdditivity(t *testing.T) {
 		t.Fatalf("blitz total = %q, want 10.0", blitzTotal)
 	}
 }
+
+// TestPreWeek1StatLine pins the compact stat-line format (owner directive,
+// 2026-08-16): grouped Passing/Rushing/Receiving/Kicking/Misc, items
+// joined ", " within a group, groups joined " · ", a value of exactly 1
+// on a touchdown-style key prints bare. Fixtures are drawn from the
+// verified preseason box-score sample (internal/fantasy/testdata/
+// preseason-boxscore-sample.json / preseason_test.go).
+func TestPreWeek1StatLine(t *testing.T) {
+	cases := []struct {
+		name  string
+		stats map[string]float64
+		want  string
+	}{
+		{"no data", nil, ""},
+		{"empty map", map[string]float64{}, ""},
+		{
+			"rushing only, single TD",
+			map[string]float64{"carries": 8, "rushYds": 47, "rushTD": 1},
+			"8 att, 47 rush yds, rush TD",
+		},
+		{
+			"rushing plus receiving (Kiner fixture)",
+			map[string]float64{"rushYds": 59, "carries": 10, "receptions": 2, "recYds": 13, "targets": 2},
+			"10 att, 59 rush yds · 2 rec, 13 rec yds",
+		},
+		{
+			"kicking (Ryland fixture)",
+			map[string]float64{"fgMade": 2, "fgMissed": 1, "xpMade": 3},
+			"2 FG, 1 FG miss, 3 XP",
+		},
+		{
+			"passing, multi-TD (Minshew fixture)",
+			map[string]float64{"passYds": 101, "passTD": 2, "passAttempts": 16, "passCompletions": 14},
+			"16 pass att, 101 pass yds, 2 pass TD",
+		},
+		{
+			"unmapped keys only (punting) never crash into a blank-looking line",
+			map[string]float64{"puntYards": 40},
+			"",
+		},
+		{
+			"zero-valued keys are dropped like everywhere else in this package",
+			map[string]float64{"carries": 3, "rushYds": 0},
+			"3 att",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := preWeek1StatLine(tc.stats); got != tc.want {
+				t.Errorf("preWeek1StatLine(%+v) = %q, want %q", tc.stats, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestBlitzRests pins the "likely to rest" tier rule (owner directive,
+// 2026-08-16): a rookie never rests regardless of ADPRank; a non-rookie
+// rests only inside [1, blitzRestingADPRankMax] — the "strong (low) ADP"
+// established-starter band. ADPRank == 0 (mergePool's "not on the live
+// ADP list at all" marker) is explicitly not "low."
+func TestBlitzRests(t *testing.T) {
+	cases := []struct {
+		name    string
+		player  Player
+		resting bool
+	}{
+		{"rookie at a strong ADPRank never rests", Player{Rookie: true, ADPRank: 5}, false},
+		{"no ADP at all is not a resting star", Player{Rookie: false, ADPRank: 0}, false},
+		{"ADPRank 1 (the strongest possible) rests", Player{Rookie: false, ADPRank: 1}, true},
+		{"ADPRank at the threshold rests", Player{Rookie: false, ADPRank: blitzRestingADPRankMax}, true},
+		{"ADPRank just past the threshold does not rest", Player{Rookie: false, ADPRank: blitzRestingADPRankMax + 1}, false},
+		{"deep bench ADPRank does not rest", Player{Rookie: false, ADPRank: 250}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := blitzRests(tc.player); got != tc.resting {
+				t.Errorf("blitzRests(%+v) = %v, want %v", tc.player, got, tc.resting)
+			}
+		})
+	}
+}
+
+// blitzOrderingFixturePool covers the board's three ordering tiers (owner
+// directive, 2026-08-16): two pre1 producers (different point totals);
+// three zero-pre1 front-tier players — a rookie at a strong ADPRank, a
+// no-ADP depth player, and a deep-bench player whose weak (high) ADPRank
+// is NOT "established, strong ADP" and so must not earn the resting tag
+// either; and one zero-pre1 back-tier player, an established strong-ADP
+// starter, the board's only "likely to rest" row.
+func blitzOrderingFixturePool() []Player {
+	return []Player{
+		{ID: "p-producer-b", Name: "Producer Bravo", Position: "WR", NFLTeam: "MIA"},
+		{ID: "p-producer-a", Name: "Producer Alpha", Position: "RB", NFLTeam: "DEN"},
+		{ID: "p-rookie-depth", Name: "Rookie Depth", Position: "WR", NFLTeam: "BUF", Rookie: true, ADPRank: 5},
+		{ID: "p-noadp-depth", Name: "NoADP Depth", Position: "RB", NFLTeam: "KC", ADPRank: 0},
+		{ID: "p-established-star", Name: "Established Star", Position: "QB", NFLTeam: "DAL", ADPRank: 10},
+		{ID: "p-deep-bench", Name: "Deep Bench", Position: "TE", NFLTeam: "PHI", ADPRank: 250},
+	}
+}
+
+func blitzOrderingFixtureGames() []BlitzGame {
+	return []BlitzGame{
+		{ID: "g1", Slate: "pre2", Away: "DEN", Home: "KC"},
+		{ID: "g2", Slate: "pre2", Away: "BUF", Home: "MIA"},
+		{ID: "g3", Slate: "pre2", Away: "DAL", Home: "PHI"},
+	}
+}
+
+// TestBlitzEligiblePlayersOrdersThreeTiers is the ordering spec itself
+// (owner directive, 2026-08-16): pre1 producers first (descending
+// points), then the zero-pre1 front tier (rookie/no-ADP depth,
+// alphabetical), then the zero-pre1 back tier (established starters,
+// "likely to rest," alphabetical). Every position/team-plays-in-slate
+// filter stays untouched — this only changes order and labels.
+func TestBlitzEligiblePlayersOrdersThreeTiers(t *testing.T) {
+	service := newTestService(t, true)
+	pool := playerPool{players: blitzOrderingFixturePool()}
+	pre1Stats := map[string]map[string]float64{
+		// 50*0.1 (rushYards) + 6 (rushTD) = 11.0
+		"p-producer-a": {"rushYds": 50, "carries": 10, "rushTD": 1},
+		// 20*0.1 (recYards) + 2*0.5 (reception) = 4.0
+		"p-producer-b": {"recYds": 20, "receptions": 4},
+	}
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, pre1Stats)
+
+	wantOrder := []string{
+		"p-producer-a", "p-producer-b", // pre1 producers, 11.0 then 4.0
+		// zero-pre1 front tier — Deep Bench included: a weak (high)
+		// ADPRank is not "established, strong ADP" (blitzRests), so it
+		// never earns the resting tag even though it does carry an ADP.
+		"p-deep-bench", "p-noadp-depth", "p-rookie-depth",
+		"p-established-star", // zero-pre1 back tier: the lone resting star
+	}
+	if len(rows) != len(wantOrder) {
+		t.Fatalf("got %d rows, want %d: %+v", len(rows), len(wantOrder), rows)
+	}
+	for index, want := range wantOrder {
+		if got := rows[index]["id"]; got != want {
+			t.Errorf("row %d id = %v, want %v (full order: %v)", index, got, want, idsOf(rows))
+		}
+	}
+
+	// Only the true back-tier row carries the resting tag; the deep-bench
+	// player (weak ADP) must render like any other zero-pre1 depth player.
+	for _, row := range rows {
+		wantResting := row["id"] == "p-established-star"
+		if got := row["resting"]; got != wantResting {
+			t.Errorf("row %v resting = %v, want %v", row["id"], got, wantResting)
+		}
+	}
+
+	// Rookie flag threads through to the row regardless of tier.
+	rookieRow := rowByID(rows, "p-rookie-depth")
+	if rookieRow["is_rookie"] != true {
+		t.Errorf("rookie row is_rookie = %v, want true", rookieRow["is_rookie"])
+	}
+	nonRookieRow := rowByID(rows, "p-noadp-depth")
+	if nonRookieRow["is_rookie"] != false {
+		t.Errorf("non-rookie row is_rookie = %v, want false", nonRookieRow["is_rookie"])
+	}
+}
+
+// TestBlitzEligiblePlayersRowEvidence checks each row's own pre1 evidence
+// text (owner directive, 2026-08-16): a producer's row carries "PRE1
+// {points} — {stat line}"; a zero-pre1 row with no box-score data at all
+// carries the honest "no pre1 snaps" copy instead of a blank field.
+func TestBlitzEligiblePlayersRowEvidence(t *testing.T) {
+	service := newTestService(t, true)
+	pool := playerPool{players: blitzOrderingFixturePool()}
+	pre1Stats := map[string]map[string]float64{
+		"p-producer-a": {"rushYds": 50, "carries": 10, "rushTD": 1},
+	}
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, pre1Stats)
+
+	producer := rowByID(rows, "p-producer-a")
+	if producer["has_pre1"] != true {
+		t.Errorf("producer has_pre1 = %v, want true", producer["has_pre1"])
+	}
+	wantSummary := "PRE1 11.0 — 10 att, 50 rush yds, rush TD"
+	if producer["pre1_summary"] != wantSummary {
+		t.Errorf("producer pre1_summary = %q, want %q", producer["pre1_summary"], wantSummary)
+	}
+
+	depth := rowByID(rows, "p-noadp-depth")
+	if depth["has_pre1"] != false {
+		t.Errorf("depth has_pre1 = %v, want false", depth["has_pre1"])
+	}
+	if depth["pre1_summary"] != "no pre1 snaps" {
+		t.Errorf("depth pre1_summary = %q, want %q", depth["pre1_summary"], "no pre1 snaps")
+	}
+}
+
+// TestBlitzEligiblePlayersNilPre1FallsBackHonestly is the "Tank01
+// unavailable" degrade path (owner directive, 2026-08-16): a nil pre1Stats
+// map — exactly what blitzPre1Stats() returns when SetBlitzPre1Source was
+// never called — must not crash, and every player falls into the
+// zero-pre1 group, still correctly tiered by the rookie/ADP rules.
+func TestBlitzEligiblePlayersNilPre1FallsBackHonestly(t *testing.T) {
+	service := newTestService(t, true)
+	pool := playerPool{players: blitzOrderingFixturePool()}
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, nil)
+	if len(rows) != len(blitzOrderingFixturePool()) {
+		t.Fatalf("got %d rows, want %d — nil pre1Stats must not drop or crash on any player", len(rows), len(blitzOrderingFixturePool()))
+	}
+	// The established star still sinks to the very last row even with no
+	// pre1 data anywhere: the fallback tiering is not "no ordering at
+	// all," it is "ordering driven by rookie/ADP alone."
+	if got := rows[len(rows)-1]["id"]; got != "p-established-star" {
+		t.Errorf("last row id = %v, want p-established-star", got)
+	}
+	for _, row := range rows {
+		if row["has_pre1"] != false || row["pre1_summary"] != "no pre1 snaps" {
+			t.Errorf("row %v must render the honest no-data copy when pre1Stats is nil: %+v", row["id"], row)
+		}
+	}
+}
+
+// TestBlitzDataFallsBackWithoutPre1Source is the integration-level twin of
+// TestBlitzEligiblePlayersNilPre1FallsBackHonestly: BlitzData itself must
+// not panic or error when SetBlitzPre1Source is never called (the honest
+// "no TANK01 key" / "pre1 fetch failed" state).
+func TestBlitzDataFallsBackWithoutPre1Source(t *testing.T) {
+	now := time.Now()
+	games := blitzOrderingFixtureGames()
+	service := newTestService(t, true)
+	service.now = func() time.Time { return now }
+	service.SetPlayerSource(func() ([]Player, int64, string) { return blitzOrderingFixturePool(), 1, "live" })
+	service.SetBlitzSource(func() BlitzSnapshot {
+		return BlitzSnapshot{Version: 1, Games: games, Stats: map[string]map[string]map[string]float64{}}
+	})
+	// SetBlitzPre1Source is deliberately never called.
+
+	request, _ := http.NewRequest(http.MethodGet, "/blitz?slate=pre2", nil)
+	data := service.BlitzData(request)
+	eligible, ok := data["eligible"].([]map[string]any)
+	if !ok || len(eligible) == 0 {
+		t.Fatalf("BlitzData without a pre1 source must still render the eligible list, got %+v", data["eligible"])
+	}
+	for _, row := range eligible {
+		if row["has_pre1"] != false {
+			t.Errorf("row %v has_pre1 = %v, want false with no pre1 source attached", row["id"], row["has_pre1"])
+		}
+	}
+}
+
+// idsOf collects a row list's "id" values in order, for a readable
+// t.Errorf on an ordering mismatch.
+func idsOf(rows []map[string]any) []string {
+	ids := make([]string, 0, len(rows))
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// rowByID finds one row by its "id" field; the caller's fixtures always
+// carry the ID being asked for, so a missing ID returns a nil map rather
+// than panicking (a nil map's subscript reads as a friendlier failure than
+// an index-out-of-range in test output).
+func rowByID(rows []map[string]any, id string) map[string]any {
+	for _, row := range rows {
+		if row["id"] == id {
+			return row
+		}
+	}
+	return nil
+}

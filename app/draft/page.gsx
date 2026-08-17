@@ -11,6 +11,7 @@ func DraftQueue(props any) Node {
 	showTE := func() { filter.Set("TE") }
 	showK := func() { filter.Set("K") }
 	showDST := func() { filter.Set("DST") }
+	showP := func() { filter.Set("P") }
 	onQuery := func() { query.Set(value) }
 	return <section class="player-pool" data-filter={filter}>
 		<div class="pool-toolbar">
@@ -26,6 +27,7 @@ func DraftQueue(props any) Node {
 				<button type="button" class="filter-button" aria-pressed={filter == "TE"} onClick={showTE}>TE</button>
 				<button type="button" class="filter-button" aria-pressed={filter == "K"} onClick={showK}>K</button>
 				<button type="button" class="filter-button" aria-pressed={filter == "DST"} onClick={showDST}>DST</button>
+				<button type="button" class="filter-button" aria-pressed={filter == "P"} onClick={showP}>P</button>
 			</div>
 		</div>
 		<div class="pool-search-bar">
@@ -210,12 +212,12 @@ func Page() Node {
 					</If>
 					<span class="mono pick-clock-reason">{data.clock.reason}</span>
 				</div>
-				<form method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
+				<form id="ready-toggle" method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button button--primary" type="submit">Toggle my ready state</button>
 				</form>
-				<form method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
+				<form id="autopick-toggle" method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<button class="button autopick-toggle" type="submit">Toggle my autopick</button>
@@ -250,6 +252,49 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
+		<If cond={data.draft.started == false}>
+			<section class="player-pool draft-checklist">
+				<div class="pool-toolbar">
+					<div>
+						<span class="section-index">BEFORE THE ROOM OPENS</span>
+						<h2>Get your seat ready</h2>
+					</div>
+				</div>
+				<div class="checklist">
+					<div class="checklist-item">
+						<span class="checklist-mark mono">01</span>
+						<div class="checklist-item__text">
+							<strong>Build your big board</strong>
+							<small>Rank your targets now. Autopick and the pool both read your board first.</small>
+						</div>
+						<a href="/board" data-gosx-link class="board-button">Open board →</a>
+					</div>
+					<div class="checklist-item">
+						<span class="checklist-mark mono">02</span>
+						<div class="checklist-item__text">
+							<strong>Toggle your ready state</strong>
+							<small>Set yourself ready so the commissioner can confirm the room at 4PM.</small>
+						</div>
+						<a href="#ready-toggle" class="board-button">Ready toggle ↑</a>
+					</div>
+					<div class="checklist-item">
+						<span class="checklist-mark mono">03</span>
+						<div class="checklist-item__text">
+							<strong>Keep this tab open with sound on</strong>
+							<small>One click anywhere on the page arms the on-clock chime for your turn.</small>
+						</div>
+					</div>
+					<div class="checklist-item">
+						<span class="checklist-mark mono">04</span>
+						<div class="checklist-item__text">
+							<strong>Autopick covers you if you disappear</strong>
+							<small>Turn it on before the draft if you might miss your pick.</small>
+						</div>
+						<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+					</div>
+				</div>
+			</section>
+		</If>
 		<section class="draft-order-strip">
 			<header>
 				<span class="section-index">

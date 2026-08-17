@@ -53,15 +53,19 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
 	now := s.clock()
 	return map[string]any{
-		"viewer":           s.Viewer(r),
-		"is_commissioner":  s.IsCommissioner(r),
-		"seats":            seats,
-		"invites":          invites,
-		"invite_count":     len(invites),
-		"league_open":      len(invites) == 0,
-		"member_count":     len(state.Members),
-		"pick_count":       len(state.Picks),
-		"seat_count":       len(s.teams),
+		"viewer":          s.Viewer(r),
+		"is_commissioner": s.IsCommissioner(r),
+		"seats":           seats,
+		"invites":         invites,
+		"invite_count":    len(invites),
+		"league_open":     len(invites) == 0,
+		"member_count":    len(state.Members),
+		"pick_count":      len(state.Picks),
+		"seat_count":      len(s.teams),
+		// ready_count feeds the masthead's "N/seats ready" line: the same
+		// aggregate the draft room shows, so the commissioner reads seat
+		// readiness at a glance without scrolling to 01 // SEATS.
+		"ready_count":      readyCount(state.Ready),
 		"draft":            s.draftSummary(now),
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,

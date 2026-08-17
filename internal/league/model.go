@@ -68,6 +68,13 @@ type Player struct {
 	// means no historical line is available. main.go builds the text; the
 	// league package only carries and serves it. See HistoricalSource.
 	Hist string `json:"hist,omitempty"`
+	// Rookie marks a player Tank01's raw player list flags as a rookie
+	// (fantasy.Player.Exp == "R", verified live 2026-08-16). main.go's
+	// fantasyPlayerSource sets it; Preseason Blitz uses it to keep
+	// first-year players near the top of its zero-pre1 group instead of
+	// buried behind established names (owner directive, 2026-08-16 —
+	// blitz.go's blitzEligiblePlayers). Every other page ignores it today.
+	Rookie bool `json:"rookie,omitempty"`
 }
 
 // BlitzEntry is one member's 5-player slate entry for Preseason Blitz

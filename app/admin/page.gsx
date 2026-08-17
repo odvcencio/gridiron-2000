@@ -136,6 +136,12 @@ func Page() Node {
 						·
 						{data.draft.time}
 					</span>
+					<span class="mono ready-count-tag">
+						{data.ready_count}
+						/
+						{data.seat_count}
+						READY
+					</span>
 				</div>
 			</div>
 		</section>
@@ -169,6 +175,72 @@ func Page() Node {
 		</If>
 		<If cond={data.is_commissioner}>
 			<div class="admin-grid">
+				<section class="player-pool draft-runbook">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">00 // DRAFT NIGHT</span>
+							<h2>
+								{data.draft.date}
+								runbook
+							</h2>
+						</div>
+					</div>
+					<div class="checklist">
+						<div class="checklist-item">
+							<span class="checklist-mark mono">01</span>
+							<div class="checklist-item__text">
+								<strong>About an hour early, randomize the draft order</strong>
+								<small>Use Randomize order in 04 // DRAFT ORDER. It locks once the first pick lands.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">02</span>
+							<div class="checklist-item__text">
+								<strong>Confirm every seat is ready</strong>
+								<small>Check the ready count above and the Ready badges in 01 // SEATS.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">03</span>
+							<div class="checklist-item__text">
+								<strong>
+									At
+									{data.draft.time}
+									, the clock arms the first pick on its own
+								</strong>
+								<small>No action is needed. The server arms the deadline the instant the draft time arrives, as long as it stays running.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">04</span>
+							<div class="checklist-item__text">
+								<strong>Pause or extend for a break</strong>
+								<small>Use Pause clock, Resume clock, or Extend pick in 06 // DRAFT CLOCK.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">05</span>
+							<div class="checklist-item__text">
+								<strong>Undo a misclick</strong>
+								<small>Type UNDO into Undo last pick in 03 // RESET. It re-arms the clock for that slot.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">06</span>
+							<div class="checklist-item__text">
+								<strong>Autopick catches an absent manager</strong>
+								<small>Toggle AUTO for a seat in 01 // SEATS, or force one pick now in 06 // DRAFT CLOCK.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">07</span>
+							<div class="checklist-item__text">
+								<strong>league-state.json.bak is the rolling safety net</strong>
+								<small>The server saves it before every pick, undo, and auto-pick, on top of Undo last pick.</small>
+							</div>
+						</div>
+					</div>
+				</section>
 				<section class="player-pool">
 					<div class="pool-toolbar">
 						<div>

@@ -31,6 +31,20 @@ type Player struct {
 	Injury     string             `json:"injury,omitempty"`
 	News       string             `json:"news,omitempty"`
 	Headshot   string             `json:"headshot,omitempty"`
+	// Exp is Tank01's raw career-experience field from getNFLPlayerList:
+	// "R" for a rookie, or the season count as a string ("1", "12", ...)
+	// for a veteran. An empty string means Tank01 did not report it for
+	// this player. Verified live 2026-08-16: 976 of 4271 listed players
+	// carried "R" that day. See IsRookie.
+	Exp string `json:"exp,omitempty"`
+}
+
+// IsRookie reports whether Tank01's raw player list marked p a rookie:
+// Exp == "R" (verified live via getNFLPlayerList, 2026-08-16). A blank Exp
+// means Tank01 did not report it — this reports false for that case too,
+// honestly, rather than guessing.
+func (p Player) IsRookie() bool {
+	return strings.EqualFold(strings.TrimSpace(p.Exp), "R")
 }
 
 // Status reports pool health for /api/health, the admin console, and the

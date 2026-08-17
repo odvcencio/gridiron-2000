@@ -76,6 +76,11 @@ type Service struct {
 	// disabled — no TANK01_API_KEY, or the contest has sunset — and
 	// BlitzData renders its honest feed-offline state.
 	blitzFn BlitzSource
+	// blitzPre1Fn supplies preseason-week-1 production (owner directive,
+	// 2026-08-16); see blitz.go's SetBlitzPre1Source. nil means no pre1
+	// data is available yet — the board falls back to its non-pre1
+	// rookie/ADP tiering, never a crash.
+	blitzPre1Fn BlitzPre1Source
 
 	// notifyQueue is the delivery queue every notification hook enqueues to
 	// (internal/notify). nil means notifications were never wired (most
