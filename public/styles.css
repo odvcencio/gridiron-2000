@@ -1064,6 +1064,92 @@ h2 {
   font-size: var(--type-xs);
 }
 
+/* Team-badge picker (the 16-motif grid — see app/team/page.gsx's
+   BadgeCell). .badge-picker sets "--badge-tone" once, from the viewing
+   team's own tone (BadgeToneHex), so every cell's masked art tints the
+   same color without repeating the hex per cell. */
+.badge-picker-title {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.badge-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-xs);
+  width: 100%;
+  max-width: 22rem;
+  margin-top: var(--space-xs);
+}
+
+.badge-option-form {
+  display: contents;
+}
+
+.badge-option {
+  display: grid;
+  gap: 0.2rem;
+  justify-items: center;
+  align-content: center;
+  aspect-ratio: 1;
+  padding: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-deep);
+  color: inherit;
+  font-family: var(--font-mono);
+  transition: border-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+
+button.badge-option {
+  appearance: none;
+  cursor: pointer;
+}
+
+button.badge-option:hover {
+  border-color: var(--color-border-strong);
+  transform: translateY(-2px);
+}
+
+.badge-option__art {
+  width: 60%;
+  aspect-ratio: 1;
+  background: var(--badge-tone, var(--color-accent));
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: contain;
+}
+
+.badge-option small {
+  overflow: hidden;
+  max-width: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge-option--taken {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.badge-option--mine {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-haze);
+}
+
+.badge-release-form {
+  margin-top: var(--space-xs);
+}
+
 .tone-magenta,
 .tone-pink {
   color: var(--color-accent-hot);
@@ -3692,6 +3778,10 @@ h2 {
   .avatar-upload-form input[type="file"] {
     max-width: 100%;
     flex: 1 1 100%;
+  }
+
+  .badge-picker {
+    max-width: 100%;
   }
 
   .team-hero {

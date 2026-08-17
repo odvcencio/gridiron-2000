@@ -210,6 +210,14 @@ func main() {
 	app.Mount("POST /avatar/upload", avatarUploadHandler(league.Default()))
 	app.Mount("GET /avatars/", avatarServeHandler(league.Default()))
 
+	// Team badges (the badge-picker feature): POST /avatar/badge claims,
+	// swaps, or releases a team's badge motif; GET /avatars/badge/ is a
+	// more specific subtree than the "GET /avatars/" mount above, so it is
+	// preferred for any request under that path — see badge_handlers.go's
+	// doc comments for the routing and PathValue details.
+	app.Mount("POST /avatar/badge", badgeUploadHandler(league.Default()))
+	app.Mount("GET /avatars/badge/", badgeServeHandler(league.Default()))
+
 	app.Mount("GET /auth/google/start", googleStartHandler(googleOAuth, googleConfigured))
 	app.Mount("GET /auth/google/callback", googleCallbackHandler(googleOAuth, authManager, googleConfigured))
 	app.Mount("POST /auth/logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

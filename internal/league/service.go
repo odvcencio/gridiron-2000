@@ -97,6 +97,14 @@ type Service struct {
 	avatarRoot       string
 	defaultBadgeRoot string
 	badgeCache       badgeToneCache
+
+	// motifRoot is the team-badge picker feature's filesystem root
+	// (AVATAR_MOTIFS_ROOT env, see badge.go's motifDir) — the same
+	// override pattern as avatarRoot/defaultBadgeRoot above. badgeArt
+	// caches tinted, PNG-encoded badge renders keyed by motif+tone; see
+	// tintedBadgePNG.
+	motifRoot string
+	badgeArt  badgeArtCache
 }
 
 // clock returns the service's current instant: the test-injected now hook
@@ -168,6 +176,7 @@ func Default() *Service {
 			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
 			avatarRoot:       avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
 			defaultBadgeRoot: avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
+			motifRoot:        avatarEnvString("AVATAR_MOTIFS_ROOT", filepath.Join("public", "avatars", "motifs")),
 		}
 		// scheduleProvider reads the persisted league schedule once one has
 		// been generated; until then it defers to the honest preseason
@@ -689,6 +698,8 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		projected += player.Projection
 	}
 	teamMap := s.teamMap(team)
+	badgeToneHex, _ := BadgeToneHex(team.Tone)
+	_, hasBadgeClaim := s.store.BadgeClaim(teamID)
 	return map[string]any{
 		"viewer":          viewer,
 		"team":            teamMap,
@@ -701,6 +712,9 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"is_commissioner": s.IsCommissioner(r),
 		"league_mode":     s.cfg.ModeLabel,
 		"league":          s.leagueMap(),
+		"badge_tone_hex":  badgeToneHex,
+		"has_badge_claim": hasBadgeClaim,
+		"badge_grid":      s.badgeGrid(state, teamID),
 	}
 }
 
