@@ -232,18 +232,37 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 		ranked = append(ranked, player)
 		seen[player.ID] = true
 	}
-	rest := make([]Player, 0, len(base))
-	for id, player := range base {
+	// base is a map, and Go map iteration order is unspecified — it can
+	// (and does) vary from one call to the next even within the same
+	// process, not only across restarts. Collecting and sorting the keys
+	// first, before ranging over the map, fixes rest's starting order so
+	// the sort.SliceStable call below is fully deterministic even when it
+	// hits a tie (identical Points and Name); the ID tiebreak on that call
+	// is a second, independent guarantee of the same thing, so this
+	// determinism holds regardless of which of the two carries it in a
+	// future edit. Without both, two draft-pool page loads straddling a
+	// pool sync could render the undrafted tail (defenses, kickers, deep
+	// bench players — the ones with no ADP entry) in a different order.
+	ids := make([]string, 0, len(base))
+	for id := range base {
 		if !seen[id] {
-			rest = append(rest, player)
+			ids = append(ids, id)
 		}
+	}
+	sort.Strings(ids)
+	rest := make([]Player, 0, len(ids))
+	for _, id := range ids {
+		rest = append(rest, base[id])
 	}
 	sort.SliceStable(rest, func(i, j int) bool {
 		left, right := projections[rest[i].ID].Points, projections[rest[j].ID].Points
 		if left != right {
 			return left > right
 		}
-		return rest[i].Name < rest[j].Name
+		if rest[i].Name != rest[j].Name {
+			return rest[i].Name < rest[j].Name
+		}
+		return rest[i].ID < rest[j].ID
 	})
 	pool := append(ranked, rest...)
 	if len(pool) > limit {
