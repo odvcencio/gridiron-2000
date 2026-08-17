@@ -1,65 +1,90 @@
 package team
 
-func RosterRow(props any) Node {
+type BreakdownRow struct {
+	Scored bool
+	Label  string
+	Calc   string
+	Points string
+}
+
+type RosterRowProps struct {
+	Position       string
+	HasHeadshot    bool
+	Headshot       string
+	Name           string
+	NFLTeam        string
+	Opponent       string
+	Jersey         string
+	HasBreakdown   bool
+	Breakdown      []BreakdownRow
+	BreakdownTotal string
+	HasHist        bool
+	Hist           string
+	Status         string
+	Projection     string
+	Points         string
+}
+
+component RosterRow(props: RosterRowProps) {
 	return <div class="roster-row">
-		<div class="position-chip">{props.position}</div>
+		<div class="position-chip">{props.Position}</div>
 		<div class="player-identity stat-tip" tabindex="0">
-			<If cond={props.has_headshot}>
-				<img class="player-avatar player-avatar--photo" src={props.headshot} alt="" loading="lazy" />
+			<If cond={props.HasHeadshot}>
+				<img class="player-avatar player-avatar--photo" src={props.Headshot} alt="" loading="lazy" />
 			</If>
-			<If cond={props.has_headshot == false}>
-				<span class="player-avatar" aria-hidden="true">{props.nfl_team}</span>
+			<If cond={props.HasHeadshot == false}>
+				<span class="player-avatar" aria-hidden="true">{props.NFLTeam}</span>
 			</If>
 			<div>
-				<strong>{props.name}</strong>
+				<strong>{props.Name}</strong>
 				<small>
-					{props.nfl_team}
+					{props.NFLTeam}
 					·
-					{props.opponent}
+					{props.Opponent}
 				</small>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 				<div class="stat-tip__head">
-					<strong>{props.name}</strong>
-					<span class="mono">{props.jersey}</span>
-					<span class="mono stat-tip__team">{props.nfl_team}</span>
+					<strong>{props.Name}</strong>
+					<span class="mono">{props.Jersey}</span>
+					<span class="mono stat-tip__team">{props.NFLTeam}</span>
 				</div>
-				<If cond={props.has_breakdown}>
+				<If cond={props.HasBreakdown}>
 					<div class="stat-tip__rows">
-						<Each of={props.breakdown} as="row">
-							<div class="stat-tip__row" data-scored={row.scored}>
-								<span>{row.label}</span>
-								<span class="mono">{row.calc}</span>
-								<b class="mono">{row.points}</b>
+						<Each of={props.Breakdown} as="row">
+							<div class="stat-tip__row" data-scored={row.Scored}>
+								<span>{row.Label}</span>
+								<span class="mono">{row.Calc}</span>
+								<b class="mono">{row.Points}</b>
 							</div>
 						</Each>
 						<div class="stat-tip__total">
 							<span>League scoring</span>
-							<b class="mono">{props.breakdown_total}</b>
+							<b class="mono">{props.BreakdownTotal}</b>
 						</div>
 					</div>
 				</If>
-				<If cond={props.has_breakdown == false}>
+				<If cond={props.HasBreakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
 				</If>
-				<If cond={props.has_hist}>
-					<p class="stat-tip__hist mono">{props.hist}</p>
+				<If cond={props.HasHist}>
+					<p class="stat-tip__hist mono">{props.Hist}</p>
 				</If>
 			</div>
 		</div>
 		<div class="game-state">
 			<span class="status-pin" aria-hidden="true"></span>
-			{props.status}
+			{props.Status}
 		</div>
 		<div class="player-number mono">
 			<small>PROJ</small>
-			{props.projection}
+			{props.Projection}
 		</div>
 		<div class="player-number mono">
 			<small>PTS</small>
-			{props.points}
+			{props.Points}
 		</div>
-		<button class="row-menu" type="button" aria-label={"Roster options for " + props.name}>•••</button>
+		<button class="row-menu" type="button" aria-label={"Roster options for " + props.Name}>•••</button>
 	</div>
 }
 

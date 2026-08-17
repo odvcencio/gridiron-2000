@@ -1,12 +1,20 @@
 package matchups
 
-func TeamMark(props any) Node {
-	return <span class={"team-mark team-mark--large tone-" + props.tone} aria-hidden="true">
-		<If cond={props.has_avatar_image}>
-			<img class="avatar-mark__photo" src={props.avatar_image_url} alt={props.name} loading="lazy" />
+type TeamMarkProps struct {
+	Tone           string
+	Abbreviation   string
+	Name           string
+	HasAvatarImage bool
+	AvatarImageURL string
+}
+
+component TeamMark(props: TeamMarkProps) {
+	return <span class={"team-mark team-mark--large tone-" + props.Tone} aria-hidden="true">
+		<If cond={props.HasAvatarImage}>
+			<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.Name} loading="lazy" />
 		</If>
-		<If cond={props.has_avatar_image == false}>
-			{props.abbreviation}
+		<If cond={props.HasAvatarImage == false}>
+			{props.Abbreviation}
 		</If>
 	</span>
 }
@@ -15,27 +23,27 @@ func ScoreTeam(props any) Node {
 	return <div class="score-team">
 		<TeamMark {...props}></TeamMark>
 		<div class="score-team__name">
-			<strong>{props.name}</strong>
-			<small>{props.manager}</small>
+			<strong>{props.Name}</strong>
+			<small>{props.Manager}</small>
 		</div>
-		<b class="score score--large" data-score-team={props.id}>{props.score}</b>
+		<b class="score score--large" data-score-team={props.ID}>{props.Score}</b>
 	</div>
 }
 
 func MatchupCard(props any) Node {
-	return <article class="matchup-card" data-live-matchup={props.id}>
+	return <article class="matchup-card" data-live-matchup={props.ID}>
 		<header>
 			<span>
 				<span class="live-dot" aria-hidden="true"></span>
-				<b data-matchup-status>{props.status}</b>
+				<b data-matchup-status>{props.Status}</b>
 			</span>
-			<span class="mono" data-matchup-clock>{props.clock}</span>
+			<span class="mono" data-matchup-clock>{props.Clock}</span>
 		</header>
-		<ScoreTeam {...props.away}></ScoreTeam>
+		<ScoreTeam {...props.Away}></ScoreTeam>
 		<div class="matchup-rule">
 			<span>VS</span>
 		</div>
-		<ScoreTeam {...props.home}></ScoreTeam>
+		<ScoreTeam {...props.Home}></ScoreTeam>
 		<footer>
 			<span>Win probability</span>
 			<div class="probability-track" aria-hidden="true">
