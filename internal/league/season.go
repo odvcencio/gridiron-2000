@@ -76,6 +76,17 @@ func (s *Service) AdminCloseWeek(r *http.Request, week int) (ScheduleWeek, []Joi
 // it also advances the season phase to "playoffs" once every regular-season
 // week is final (section 5.2); actual bracket generation is a separate
 // step (playoffs.go's GeneratePlayoffState / a future AdminSeedPlayoffs).
+//
+// Materialize-at-close (roster-ops spec section 4.2, WP-R2): before
+// scoring, closeWeek pins every matchup team's effective lineup for week
+// into PersistedState.Lineups, in the same persist that marks the week's
+// matchups final (Store.SetScheduleWeekWithLineups). lineupScorer's
+// closed-week short-circuit (scorer.go's pinnedStarters) reads that pin
+// once the week is final, so a later drop, trade, or roster-shape edit can
+// never retroactively change a closed week's score. Idempotent: a week
+// already final is a no-op (see scheduleWeekIsFinal below) — closeWeek
+// never re-scores against whatever the roster looks like at the second
+// call, which is exactly the scenario the pin exists to prevent.
 func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, error) {
 	state := s.store.Snapshot()
 	if state.Schedule == nil {
@@ -92,6 +103,29 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 	}
 	if !found {
 		return ScheduleWeek{}, nil, fmt.Errorf("week %d is not part of the schedule", week)
+	}
+	if scheduleWeekIsFinal(target) {
+		return target, nil, nil
+	}
+
+	preset := CurrentRoster()
+	games := s.schedule()
+	teamIDs := map[string]bool{}
+	for _, m := range target.Matchups {
+		teamIDs[m.HomeTeamID] = true
+		teamIDs[m.AwayTeamID] = true
+	}
+	pins := make(map[string]map[string]string, len(teamIDs))
+	for teamID := range teamIDs {
+		roster, _ := s.rosterForTeam(state, teamID)
+		lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+		slots := make(map[string]string, len(lineup.Slots))
+		for _, a := range lineup.Slots {
+			if a.HasPlayer {
+				slots[a.Slot.ID] = a.Player.ID
+			}
+		}
+		pins[teamID] = slots
 	}
 
 	var misses []JoinMiss
@@ -112,7 +146,7 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		m.AwayScore = awayScore
 		m.Final = true
 	}
-	if err := s.store.SetScheduleWeek(updated); err != nil {
+	if err := s.store.SetScheduleWeekWithLineups(updated, pins); err != nil {
 		return ScheduleWeek{}, nil, err
 	}
 
@@ -138,11 +172,33 @@ func allWeeksFinal(sch *SeasonSchedule, updated ScheduleWeek) bool {
 		if week.Week == updated.Week {
 			week = updated
 		}
-		for _, m := range week.Matchups {
-			if !m.Final {
-				return false
-			}
+		if !matchupsAllFinal(week.Matchups) {
+			return false
 		}
 	}
 	return true
+}
+
+// matchupsAllFinal reports whether every matchup in matchups carries
+// Final=true. An empty slice is never final — there is nothing to be final
+// about, which keeps a schedule week whose matchups have not landed yet
+// from reading as closed.
+func matchupsAllFinal(matchups []LeagueMatchup) bool {
+	if len(matchups) == 0 {
+		return false
+	}
+	for _, m := range matchups {
+		if !m.Final {
+			return false
+		}
+	}
+	return true
+}
+
+// scheduleWeekIsFinal reports whether wk's matchups are already all final —
+// closeWeek's idempotent-close guard (roster-ops spec section 4.2/13): a
+// week that reads final has already been scored and its lineups pinned; a
+// repeat close must not touch either.
+func scheduleWeekIsFinal(wk ScheduleWeek) bool {
+	return matchupsAllFinal(wk.Matchups)
 }

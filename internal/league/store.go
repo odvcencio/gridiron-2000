@@ -842,6 +842,65 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 	return fmt.Errorf("week %d is not part of the schedule", week.Week)
 }
 
+// SetScheduleWeekWithLineups persists one week's close in a single lock and
+// a single persist (roster-ops spec section 4.2's materialize-at-close):
+// the effective-lineup pin for every team named in pins, plus the scored,
+// final week itself — so a crash between the two can never leave one
+// written without the other. pins maps teamID -> slot ID -> player ID.
+//
+// Idempotency lives here, not on "does Lineups[teamID][week] already have
+// an entry" — a team can carry a *partial* stored week from an ordinary,
+// still-open lineup-set (SetLineupSlot) before its week ever closes, and
+// that must not block materialize-at-close from writing the *complete*
+// pin over it. The correct signal is the schedule's own Final flag: when
+// this week already reads final under the lock (a racing close won first
+// — season.go's own scheduleWeekIsFinal check makes this rare, not
+// impossible), this call is a pure no-op, leaving both the schedule and
+// every pin exactly as the winning call left them. Otherwise it always
+// overwrites week.Week's entry in every named team's Lineups map, in full,
+// with pins' contents — that overwrite is what turns a partial live edit
+// into the frozen, complete snapshot the spec calls for.
+func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state.Schedule == nil {
+		return fmt.Errorf("no schedule has been generated")
+	}
+	index := -1
+	for i, wk := range s.state.Schedule.Weeks {
+		if wk.Week == week.Week {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		return fmt.Errorf("week %d is not part of the schedule", week.Week)
+	}
+	if matchupsAllFinal(s.state.Schedule.Weeks[index].Matchups) {
+		return nil // idempotent: this week already closed under the lock.
+	}
+	stored := week
+	stored.Matchups = append([]LeagueMatchup(nil), week.Matchups...)
+	s.state.Schedule.Weeks[index] = stored
+
+	if s.state.Lineups == nil {
+		s.state.Lineups = map[string]map[int]map[string]string{}
+	}
+	for teamID, slots := range pins {
+		byWeek, ok := s.state.Lineups[teamID]
+		if !ok {
+			byWeek = map[int]map[string]string{}
+			s.state.Lineups[teamID] = byWeek
+		}
+		copied := make(map[string]string, len(slots))
+		for slot, playerID := range slots {
+			copied[slot] = playerID
+		}
+		byWeek[week.Week] = copied
+	}
+	return s.persistLocked()
+}
+
 // SetPhase overrides the persisted season phase (section 5.2). season.go
 // and playoffs.go call this at the transitions this work package drives;
 // it performs no validation of the transition itself, matching the

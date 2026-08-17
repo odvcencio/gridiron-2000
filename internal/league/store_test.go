@@ -1375,3 +1375,60 @@ func TestCloneStateDeepCopiesLineups(t *testing.T) {
 		t.Fatalf("mutating a snapshot leaked into the store's own state: got %q, want p-01", got)
 	}
 }
+
+// TestSetScheduleWeekWithLineupsWorksAfterOldStateFileLoad pins WP-R2's
+// materialize-at-close store method against the same old-file migration
+// guarantee TestLineupsDecodeFromOldStateFile pins for plain lineup
+// writes: a state file predating both Schedule and Lineups loads cleanly,
+// and the combined pin-plus-close write still succeeds against it.
+func TestSetScheduleWeekWithLineupsWorksAfterOldStateFileLoad(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	if state := store.Snapshot(); state.Lineups == nil || state.Schedule != nil {
+		t.Fatalf("unexpected post-load state: lineups=%v schedule=%v", state.Lineups, state.Schedule)
+	}
+
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(defaultTeams()), Divisions: teamDivisionMap(defaultTeams()),
+		StartWeek: 1, Weeks: 1, Seed: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSchedule(sched); err != nil {
+		t.Fatal(err)
+	}
+
+	week := sched.Weeks[0]
+	for i := range week.Matchups {
+		week.Matchups[i].HomeScore = 10
+		week.Matchups[i].AwayScore = 7
+		week.Matchups[i].Final = true
+	}
+	pins := map[string]map[string]string{"team-1": {"QB": "p-01"}}
+	if err := store.SetScheduleWeekWithLineups(week, pins); err != nil {
+		t.Fatalf("SetScheduleWeekWithLineups against a migrated old file: %v", err)
+	}
+
+	got := store.Snapshot()
+	if got.Lineups["team-1"][week.Week]["QB"] != "p-01" {
+		t.Fatalf("pin not written: %+v", got.Lineups["team-1"])
+	}
+	if !got.Schedule.Weeks[0].Matchups[0].Final {
+		t.Fatal("the schedule week was not marked final")
+	}
+}
