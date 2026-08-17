@@ -216,6 +216,30 @@ func Page() Node {
 				<a href="/matchups" data-gosx-link>All matchups →</a>
 			</div>
 		</section>
+		<If cond={data.announcements_empty == false}>
+			<section class="score-command">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">00 // ANNOUNCEMENTS</span>
+						<h2>From the commissioner</h2>
+					</div>
+				</header>
+				<div class="announcement-list">
+					<Each of={data.announcements} as="note">
+						<article class="announcement-item">
+							<p>{note.body}</p>
+							<small class="mono">
+								{note.posted_by}
+								·
+								{note.posted_ago}
+								·
+								{note.posted_at}
+							</small>
+						</article>
+					</Each>
+				</div>
+			</section>
+		</If>
 		<div class="dashboard-split">
 			<section class="standings-panel">
 				<header class="section-heading">

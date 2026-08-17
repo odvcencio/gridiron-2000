@@ -704,7 +704,7 @@ func (s *Service) evalOnTheClock(state PersistedState, now time.Time) {
 		return
 	}
 	n := len(defaultTeams())
-	if len(state.Picks) >= n*DraftRounds {
+	if len(state.Picks) >= n*CurrentDraftRounds() {
 		return
 	}
 	number := len(state.Picks) + 1
@@ -891,7 +891,7 @@ func (s *Service) nextUpSummary(state PersistedState, teamID string, after int) 
 	if len(order) == 0 {
 		order = defaultTeamIDs()
 	}
-	total := n * DraftRounds
+	total := n * CurrentDraftRounds()
 	for number := after + 1; number <= total; number++ {
 		if teamOnClock(order, number) == teamID {
 			eta := time.Duration(number-after) * s.pickClock(state)
@@ -912,7 +912,7 @@ func (s *Service) nextUpSummary(state PersistedState, teamID string, after int) 
 // send, mirroring N2/N3.
 func (s *Service) evalDraftComplete(state PersistedState, now time.Time) {
 	n := len(defaultTeams())
-	total := n * DraftRounds
+	total := n * CurrentDraftRounds()
 	if len(state.Picks) < total {
 		return
 	}
@@ -959,7 +959,7 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 	subject := fmt.Sprintf("DRAFT COMPLETE — %d picks on the tape. Your haul inside.", len(state.Picks))
 	signal := fmt.Sprintf("DRAFT COMPLETE // %d PICKS", len(state.Picks))
 
-	haulRows := make([][]string, 0, DraftRounds)
+	haulRows := make([][]string, 0, CurrentDraftRounds())
 	for _, pick := range state.Picks {
 		if pick.TeamID != member.TeamID {
 			continue
@@ -1009,6 +1009,49 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
 		Key: keyDraftComplete(hash, member.Email), Category: categoryDraftRecap,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// ---------------------------------------------------------------------
+// N11 — commissioner-broadcast (league announcements)
+// ---------------------------------------------------------------------
+
+// notifyAnnouncement fires N11 for a newly posted announcement, to every
+// seated member: called from AdminPostAnnouncement when the commissioner
+// checks "also email the league" (league-announcements spec). This reuses
+// N11's existing catalog entry (categoryBroadcast, keyBroadcast) rather
+// than adding a new category — the catalog already carries exactly this
+// entry ("commissioner-broadcast"), registered with N8-N13 pending a
+// template builder; this is that builder. A no-op when notifications are
+// not wired, matching every other notify hook.
+func (s *Service) notifyAnnouncement(a Announcement) {
+	if !s.notifyReady() {
+		return
+	}
+	state := s.store.Snapshot()
+	now := s.clock()
+	for email, member := range state.Members {
+		key := keyBroadcast(a.ID, email)
+		s.recordAndSend(state, email, categoryBroadcast, key, now, func() renderedNotification {
+			return s.buildAnnouncement(a, member)
+		})
+	}
+}
+
+func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotification {
+	subject := fmt.Sprintf("COMMISSIONER NOTE — %s", s.leagueWordmark())
+	shell := s.shellFor(categoryBroadcast, "LEAGUE ANNOUNCEMENT")
+	blocks := []emailkit.Block{
+		emailkit.Headline{
+			Title: "A WORD FROM THE COMMISSIONER.",
+			Lede:  a.Body,
+		},
+		emailkit.CTA{Label: "OPEN THE LEAGUE →", URL: s.leagueURL()},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyBroadcast(a.ID, member.Email), Category: categoryBroadcast,
 		To: member.Email, Subject: subject, Text: text, HTML: html,
 	}
 }

@@ -68,6 +68,7 @@ type Status struct {
 type Config struct {
 	APIKey        string
 	Host          string
+	BaseURL       string
 	Root          string
 	Season        int
 	SyncInterval  time.Duration
@@ -98,8 +99,16 @@ func ConfigFromEnv(defaultPoolLimit int) Config {
 	}
 	season := envInt("NFL_SEASON", time.Now().Year())
 	return Config{
-		APIKey:        strings.TrimSpace(os.Getenv("TANK01_API_KEY")),
-		Host:          envString("TANK01_HOST", DefaultHost),
+		APIKey: strings.TrimSpace(os.Getenv("TANK01_API_KEY")),
+		Host:   envString("TANK01_HOST", DefaultHost),
+		// BaseURL, when set, points every Tank01 request at a shared
+		// caching relay (cmd/statrelay) instead of RapidAPI directly —
+		// see tank01.go's get() for how it takes precedence over Host.
+		// A trailing slash is trimmed so "base + \"/\" + endpoint" never
+		// doubles up, matching how a Kubernetes Service DNS name is
+		// typically written with no trailing slash but an operator could
+		// paste one in by habit.
+		BaseURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("TANK01_BASE_URL")), "/"),
 		Root:          envString("FANTASY_ROOT", "data/fantasy"),
 		Season:        season,
 		SyncInterval:  envDuration("FANTASY_SYNC_INTERVAL", 6*time.Hour),

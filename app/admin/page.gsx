@@ -541,6 +541,114 @@ func Page() Node {
 						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
 					</p>
 				</section>
+				<section class="player-pool">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">07 // ROSTER SHAPE</span>
+							<h2>Starting lineup and bench</h2>
+						</div>
+						<If cond={data.roster_shape.has_override}>
+							<span class="position-chip">CUSTOM</span>
+						</If>
+						<If cond={data.roster_shape.has_override == false}>
+							<span class="position-chip">CONFIG DEFAULT</span>
+						</If>
+					</div>
+					<div class="roster-shape-grid">
+						<Each of={data.roster_shape.slots} as="slot">
+							<div class="pool-stat">
+								<span>{slot.key}</span>
+								<b class="mono">{slot.count}</b>
+							</div>
+						</Each>
+						<div class="pool-stat">
+							<span>BENCH</span>
+							<b class="mono">{data.roster_shape.bench}</b>
+						</div>
+					</div>
+					<p class="scoring-note">
+						{data.roster_shape.starters}
+						starters +
+						{data.roster_shape.bench}
+						bench =
+						{data.roster_shape.rounds}
+						draft rounds. Draft rounds derive from this total; they are not set separately.
+					</p>
+					<If cond={data.roster_shape.draft_started}>
+						<p class="demo-message">
+							<strong>LOCKED:</strong>
+							the roster shape locks once the draft starts. Reset the draft in 03 // RESET to change it again.
+						</p>
+					</If>
+					<If cond={data.roster_shape.draft_started == false}>
+						<form method="post" action={actionPath("roster-shape-apply")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<div class="roster-shape-form-grid">
+								<Each of={data.roster_shape.slots} as="slot">
+									<label class="roster-shape-field">
+										<span class="mono">{slot.key}</span>
+										<input class="scoring-input" type="number" name={slot.field_name} value={slot.count} min="0" max="4"></input>
+									</label>
+								</Each>
+								<label class="roster-shape-field">
+									<span class="mono">BENCH</span>
+									<input class="scoring-input" type="number" name="bench" value={data.roster_shape.bench} min="0" max="10"></input>
+								</label>
+							</div>
+							<button class="button button--primary" type="submit">Apply roster shape</button>
+						</form>
+						<If cond={data.roster_shape.has_override}>
+							<form method="post" action={actionPath("roster-shape-reset")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<button class="button button--ghost" type="submit">Reset to config default</button>
+							</form>
+						</If>
+					</If>
+				</section>
+				<section class="player-pool">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">08 // ANNOUNCEMENTS</span>
+							<h2>League notes</h2>
+						</div>
+					</div>
+					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<textarea name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3"></textarea>
+						<label class="announcement-email-toggle">
+							<input type="checkbox" name="also_email" value="true"></input>
+							Also email the league
+						</label>
+						<button class="button button--primary" type="submit">Post announcement</button>
+					</form>
+					<If cond={data.announcements_empty}>
+						<div class="empty-tape">
+							<strong>NO ANNOUNCEMENTS YET</strong>
+							<p>
+								Posts show here, newest first, and on the home page.
+							</p>
+						</div>
+					</If>
+					<div class="announcement-list">
+						<Each of={data.announcements} as="note">
+							<article class="announcement-item">
+								<p>{note.body}</p>
+								<div class="announcement-item__meta">
+									<small class="mono">
+										{note.posted_by}
+										·
+										{note.posted_at}
+									</small>
+									<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="id" value={note.id}></input>
+										<button class="board-button board-button--cut" type="submit">✕</button>
+									</form>
+								</div>
+							</article>
+						</Each>
+					</div>
+				</section>
 			</div>
 		</If>
 	</main>

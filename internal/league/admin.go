@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/mailer"
+	"m31labs.dev/gosx/auth"
 )
 
 // AdminData assembles the commissioner console: seat claims, invites, and
@@ -88,7 +89,58 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// admin console's "running the built-in reference league" banner.
 		"config_source":     s.cfg.Source,
 		"is_default_config": s.cfg.Source == "defaults",
+		// Roster shape panel (roster-shape-editor spec): the live shape, its
+		// computed starters/bench/rounds line, whether an override is active
+		// (drives the Reset button), and whether the draft has already
+		// started (drives the read-only lock view).
+		"roster_shape": s.rosterShapeMap(state),
+		// Announcements panel (league-announcements spec): the full stored
+		// feed (newest first), for per-item delete. GSX conditions cannot
+		// call .length on server data, so announcements_empty ships as its
+		// own bool (see DashboardData's transactions_empty precedent).
+		"announcements":       s.announcementAdminMaps(state),
+		"announcements_empty": len(state.Announcements) == 0,
 	}
+}
+
+// rosterShapeMap renders the admin console's Roster shape panel data: every
+// slot in engine order with its live count, the computed starters/bench/
+// rounds line, whether a commissioner override is active, and whether the
+// draft has already started (picks lock the shape — see
+// Store.SetRosterOverride).
+func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
+	roster := CurrentRoster()
+	slots := make([]map[string]any, 0, len(slotTable))
+	for _, slot := range slotTable {
+		slots = append(slots, map[string]any{
+			"key":        slot.Key,
+			"field_name": "slot_" + slot.Key,
+			"count":      roster.Slots[slot.Key],
+		})
+	}
+	return map[string]any{
+		"slots":         slots,
+		"bench":         roster.Bench,
+		"starters":      roster.Starters(),
+		"rounds":        roster.Total(),
+		"has_override":  state.RosterOverride != nil,
+		"draft_started": len(state.Picks) > 0,
+	}
+}
+
+// announcementAdminMaps renders the Announcements panel's current list
+// (newest first, as stored) for the admin console's per-item delete.
+func (s *Service) announcementAdminMaps(state PersistedState) []map[string]any {
+	out := make([]map[string]any, 0, len(state.Announcements))
+	for _, a := range state.Announcements {
+		out = append(out, map[string]any{
+			"id":        a.ID,
+			"body":      a.Body,
+			"posted_by": a.PostedBy,
+			"posted_at": a.PostedAt.Format("Jan 2, 3:04 PM MST"),
+		})
+	}
+	return out
 }
 
 // clockDurationSource reports whether the pick-clock duration comes from
@@ -114,6 +166,76 @@ func (s *Service) requireCommissioner(r *http.Request) error {
 		return fmt.Errorf("commissioner access is required")
 	}
 	return nil
+}
+
+// commissionerProvenance renders the acting commissioner's identity for an
+// admin-authored record (announcements today): the signed-in email, or "the
+// commissioner" in demo mode or when no email is on hand — mirroring
+// Viewer's own signed-in/demo split (service.go), the closest existing
+// precedent for "who is this request" in the package.
+func (s *Service) commissionerProvenance(r *http.Request) string {
+	if user, ok := auth.Current(r); ok && strings.TrimSpace(user.Email) != "" {
+		return strings.ToLower(strings.TrimSpace(user.Email))
+	}
+	return "the commissioner"
+}
+
+// AdminSetRosterShape applies a commissioner-chosen roster shape override
+// (roster-shape-editor spec): persists it (Store.SetRosterOverride, which
+// validates and enforces the post-first-pick lock) and, on success, updates
+// the runtime accessors (CurrentRoster/CurrentDraftRounds) immediately.
+func (s *Service) AdminSetRosterShape(r *http.Request, o RosterOverride) (RosterPreset, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return RosterPreset{}, err
+	}
+	if err := s.store.SetRosterOverride(o); err != nil {
+		return RosterPreset{}, err
+	}
+	preset := rosterOverridePreset(o)
+	setRosterShape(preset)
+	return preset, nil
+}
+
+// AdminResetRosterShape drops the commissioner's roster-shape override,
+// restoring the config-resolved default, and updates the runtime
+// accessors to match.
+func (s *Service) AdminResetRosterShape(r *http.Request) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	if err := s.store.ClearRosterOverride(); err != nil {
+		return err
+	}
+	clearRosterShape()
+	return nil
+}
+
+// AdminPostAnnouncement posts a new league announcement (league-
+// announcements spec). alsoEmail fires the N11 commissioner-broadcast
+// email to every seated member, respecting each member's own notify
+// preference (notifyAnnouncement, notifications.go); it is a no-op when
+// notifications are not wired, matching every other notify hook.
+func (s *Service) AdminPostAnnouncement(r *http.Request, body string, alsoEmail bool) (Announcement, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return Announcement{}, err
+	}
+	postedBy := s.commissionerProvenance(r)
+	announcement, err := s.store.PostAnnouncement(body, postedBy, s.clock())
+	if err != nil {
+		return Announcement{}, err
+	}
+	if alsoEmail {
+		s.notifyAnnouncement(announcement)
+	}
+	return announcement, nil
+}
+
+// AdminDeleteAnnouncement removes one announcement by ID.
+func (s *Service) AdminDeleteAnnouncement(r *http.Request, id string) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.DeleteAnnouncement(id)
 }
 
 // AdminAddInvite adds a manager email to the invite list.
@@ -545,7 +667,7 @@ func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, 
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
 	}
 	state := s.store.Snapshot()
-	totalPicks := len(defaultTeams()) * DraftRounds
+	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
 	number := len(state.Picks) + 1
 	if number > totalPicks {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft is complete")

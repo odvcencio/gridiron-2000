@@ -188,6 +188,17 @@ func Default() *Service {
 		// snapshot (feed.go). This replaces the always-empty demoProvider
 		// default (competition-formats spec section 2.5).
 		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc})
+		// A commissioner-chosen roster-shape override (roster-shape-editor
+		// spec) survives a restart in the state file, not in league.json;
+		// apply it on top of applyActiveConfig's just-published baseline now
+		// that the store is available, so CurrentRoster/CurrentDraftRounds
+		// reflect it before this function returns and the server starts
+		// accepting requests. The override was already validated when it was
+		// written (Store.SetRosterOverride), so re-applying it here is a
+		// plain conversion, not a second validation pass.
+		if override := defaultSvc.store.Snapshot().RosterOverride; override != nil {
+			setRosterShape(rosterOverridePreset(*override))
+		}
 	})
 	return defaultSvc
 }
@@ -660,6 +671,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	live := s.feed.Snapshot(ctx, now)
 	state := s.store.Snapshot()
 	featured := s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))])
+	announcements := s.announcementListMaps(5)
 	return map[string]any{
 		"viewer":       s.Viewer(r),
 		"draft":        s.draftSummary(now),
@@ -669,12 +681,14 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"divisions":    s.divisionMaps(state),
 		"transactions": transactionMaps(),
 		// GSX conditions cannot call .length on server data; ship the bools.
-		"transactions_empty": len(transactionMaps()) == 0,
-		"featured_empty":     len(featured) == 0,
-		"league_size":        len(s.teams),
-		"season":             strconv.Itoa(s.cfg.Season),
-		"league_mode":        s.cfg.ModeLabel,
-		"league":             s.leagueMap(),
+		"transactions_empty":  len(transactionMaps()) == 0,
+		"featured_empty":      len(featured) == 0,
+		"league_size":         len(s.teams),
+		"season":              strconv.Itoa(s.cfg.Season),
+		"league_mode":         s.cfg.ModeLabel,
+		"league":              s.leagueMap(),
+		"announcements":       announcements,
+		"announcements_empty": len(announcements) == 0,
 	}
 }
 
@@ -720,7 +734,56 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"badge_tone_hex":  badgeToneHex,
 		"has_badge_claim": hasBadgeClaim,
 		"badge_grid":      s.badgeGrid(state, teamID),
+		"roster_shape":    rosterShapeRows(),
+		"shape_summary":   rosterShapeSummary(len(roster)),
 	}
+}
+
+// rosterShapeRows renders the league's live roster shape (CurrentRoster —
+// the commissioner's runtime override included) as one display row per
+// active slot, in slotTable engine order, with the bench appended last.
+// Eligibility text is only carried for multi-position slots; a QB slot
+// explaining "QB" would be noise.
+func rosterShapeRows() []map[string]any {
+	preset := CurrentRoster()
+	out := make([]map[string]any, 0, len(slotTable)+1)
+	for _, slot := range slotTable {
+		count := preset.Slots[slot.Key]
+		if count == 0 {
+			continue
+		}
+		eligible := ""
+		if len(slot.Eligible) > 1 {
+			eligible = strings.Join(slot.Eligible, "/")
+		}
+		out = append(out, map[string]any{
+			"label":        fmt.Sprintf("%s ×%d", slot.Key, count),
+			"eligible":     eligible,
+			"has_eligible": eligible != "",
+		})
+	}
+	out = append(out, map[string]any{
+		"label":        fmt.Sprintf("BENCH ×%d", preset.Bench),
+		"eligible":     "",
+		"has_eligible": false,
+	})
+	return out
+}
+
+// rosterShapeSummary is the one-line count summary under the shape strip:
+// starters + bench = total, and how many of those spots the team has
+// filled so far. Slot-level assignment (who is the FLEX) is WP-R1's
+// lineup engine; until it lands this stays an honest count, not a claim
+// about which player sits in which slot.
+func rosterShapeSummary(filled int) string {
+	preset := CurrentRoster()
+	total := preset.Total()
+	open := total - filled
+	if open < 0 {
+		open = 0
+	}
+	return fmt.Sprintf("%d starters + %d bench = %d spots · %d filled · %d open",
+		preset.Starters(), preset.Bench, total, filled, open)
 }
 
 // rosterForTeam returns the team's drafted players in pick order. An empty
@@ -943,7 +1006,7 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
 	// pick — pause freezes the timer, not the draft — and the final pick
 	// leaves the clock unarmed for good.
-	totalPicks := len(defaultTeams()) * DraftRounds
+	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
 	nextDeadline := time.Time{}
 	if !state.ClockPaused && len(state.Picks)+1 < totalPicks {
 		nextDeadline = now.Add(s.pickClock(state))
@@ -1179,7 +1242,87 @@ func (s *Service) leagueMap() map[string]any {
 		"seat_count_word":    countWord(len(s.teams)),
 		"seat_numbers":       seatNumbers(len(s.teams)),
 		"season_open_line":   s.seasonOpenLine(),
+		// latest_announcement carries the shared layout's dismiss-free
+		// banner data (league-announcements spec). It lives here, not in a
+		// separate data key, because leagueMap is the one map every page's
+		// data function already includes — see the doc comment above — so
+		// the layout's banner needs no per-page wiring to reach it.
+		"latest_announcement": s.latestAnnouncementBanner(),
 	}
+}
+
+// announcementBannerWindow is how long a freshly posted announcement stays
+// on the shared layout's banner (league-announcements spec: "under 72
+// hours old").
+const announcementBannerWindow = 72 * time.Hour
+
+// latestAnnouncementBanner renders the shared layout's banner data: the
+// single newest announcement when one exists and is under
+// announcementBannerWindow old, otherwise has=false. Dismiss-free by
+// design (no per-user dismissed state this wave) — see layout.gsx.
+func (s *Service) latestAnnouncementBanner() map[string]any {
+	state := s.store.Snapshot()
+	if len(state.Announcements) == 0 {
+		return map[string]any{"has": false, "body": "", "posted_at": ""}
+	}
+	latest := state.Announcements[0]
+	if s.clock().Sub(latest.PostedAt) > announcementBannerWindow {
+		return map[string]any{"has": false, "body": "", "posted_at": ""}
+	}
+	return map[string]any{
+		"has":       true,
+		"body":      latest.Body,
+		"posted_at": latest.PostedAt.Format("Jan 2, 3:04 PM MST"),
+	}
+}
+
+// announcementListMaps renders up to limit announcements (newest first, as
+// stored) for the home page's announcements section: each entry's body,
+// absolute posted time, and a relative "N hours ago" label.
+func (s *Service) announcementListMaps(limit int) []map[string]any {
+	state := s.store.Snapshot()
+	now := s.clock()
+	n := len(state.Announcements)
+	if n > limit {
+		n = limit
+	}
+	out := make([]map[string]any, 0, n)
+	for _, a := range state.Announcements[:n] {
+		out = append(out, map[string]any{
+			"id":         a.ID,
+			"body":       a.Body,
+			"posted_by":  a.PostedBy,
+			"posted_at":  a.PostedAt.Format("Jan 2, 3:04 PM MST"),
+			"posted_ago": relativeTime(now, a.PostedAt),
+		})
+	}
+	return out
+}
+
+// relativeTime renders a compact "N unit(s) ago" label for a past instant,
+// floored at "just now" for anything under a minute. Only the coarsest
+// unit that fits is shown (spec: home page's announcements section, "body
+// + relative/absolute time").
+func relativeTime(now, then time.Time) string {
+	d := now.Sub(then)
+	if d < time.Minute {
+		return "just now"
+	}
+	switch {
+	case d < time.Hour:
+		return pluralUnit(int(d/time.Minute), "minute")
+	case d < 24*time.Hour:
+		return pluralUnit(int(d/time.Hour), "hour")
+	default:
+		return pluralUnit(int(d/(24*time.Hour)), "day")
+	}
+}
+
+func pluralUnit(n int, unit string) string {
+	if n == 1 {
+		return "1 " + unit + " ago"
+	}
+	return fmt.Sprintf("%d %ss ago", n, unit)
 }
 
 func (s *Service) standingsMaps() []map[string]any {

@@ -81,6 +81,7 @@ func NewService(config Config) (*Service, error) {
 		client: &tank01Client{
 			host:    config.Host,
 			apiKey:  config.APIKey,
+			baseURL: config.BaseURL,
 			client:  config.HTTPClient,
 			maxBody: config.MaxBodyBytes,
 		},
@@ -93,8 +94,13 @@ func NewService(config Config) (*Service, error) {
 	return service, nil
 }
 
-// Enabled reports whether a Tank01 key is configured.
-func (s *Service) Enabled() bool { return s.config.APIKey != "" }
+// Enabled reports whether this service can reach Tank01: either directly
+// with a key, or through a shared relay (TANK01_BASE_URL) that holds the
+// key on its own side. A relay-mode instance carries no key of its own
+// (statrelay-topology deviation, tank01.go get()), so BaseURL alone must
+// also count as "can sync" — otherwise a relay-only league instance would
+// stay stuck in offline mode forever despite a reachable, working relay.
+func (s *Service) Enabled() bool { return s.config.APIKey != "" || s.config.BaseURL != "" }
 
 // Start launches the background sync loop when a key is configured.
 func (s *Service) Start(ctx context.Context) {

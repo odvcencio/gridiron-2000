@@ -42,7 +42,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -224,8 +224,64 @@ func init() {
 				ctx.Redirect("/admin")
 				return nil
 			},
+			"roster-shape-apply": func(ctx *action.Context) error {
+				override := league.RosterOverride{Slots: map[string]int{}}
+				for _, key := range rosterShapeSlotKeys {
+					n, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["slot_"+key]))
+					if err != nil {
+						message := "enter whole numbers for every roster slot"
+						return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+					}
+					override.Slots[key] = n
+				}
+				bench, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["bench"]))
+				if err != nil {
+					message := "enter a whole number for bench"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				override.Bench = bench
+				preset, err := league.Default().AdminSetRosterShape(ctx.Request, override)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf(
+					"Roster shape set: %d starters + %d bench = %d draft rounds.",
+					preset.Starters(), preset.Bench, preset.Total()))
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"roster-shape-reset": func(ctx *action.Context) error {
+				if err := league.Default().AdminResetRosterShape(ctx.Request); err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Roster shape reset to the config default.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"announcement-post": func(ctx *action.Context) error {
+				alsoEmail := strings.EqualFold(strings.TrimSpace(ctx.FormData["also_email"]), "true")
+				if _, err := league.Default().AdminPostAnnouncement(ctx.Request, ctx.FormData["body"], alsoEmail); err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Announcement posted.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"announcement-delete": func(ctx *action.Context) error {
+				if err := league.Default().AdminDeleteAnnouncement(ctx.Request, ctx.FormData["id"]); err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Announcement removed.")
+				ctx.Redirect("/admin")
+				return nil
+			},
 		},
 	}); err != nil {
 		log.Fatal(err)
 	}
 }
+
+// rosterShapeSlotKeys names every roster-shape editor form field in engine
+// order ("slot_QB", "slot_RB", ...): the fixed, small slot-key set the
+// roster-shape-editor spec pins (mirrors league.validRosterSlotKeys).
+var rosterShapeSlotKeys = []string{"QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX", "DST", "K", "P"}

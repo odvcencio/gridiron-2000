@@ -19,6 +19,7 @@ import (
 type tank01Client struct {
 	host     string
 	apiKey   string
+	baseURL  string
 	client   *http.Client
 	maxBody  int64
 	requests int
@@ -31,7 +32,17 @@ func (t *tank01Client) get(ctx context.Context, endpoint string, params map[stri
 			query.Set(key, value)
 		}
 	}
-	requestURL := "https://" + t.host + "/" + endpoint
+	// baseURL, when set (TANK01_BASE_URL), points every request at a
+	// shared caching relay (cmd/statrelay) instead of RapidAPI directly;
+	// it already carries its own scheme, so it replaces the hardcoded
+	// "https://" + host form entirely rather than composing with it. With
+	// no baseURL this is byte-identical to the original construction.
+	var requestURL string
+	if t.baseURL != "" {
+		requestURL = t.baseURL + "/" + endpoint
+	} else {
+		requestURL = "https://" + t.host + "/" + endpoint
+	}
 	if encoded := query.Encode(); encoded != "" {
 		requestURL += "?" + encoded
 	}
@@ -39,8 +50,16 @@ func (t *tank01Client) get(ctx context.Context, endpoint string, params map[stri
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("x-rapidapi-key", t.apiKey)
-	request.Header.Set("x-rapidapi-host", t.host)
+	// The RapidAPI headers are only meaningful — and only sent — when a
+	// key is configured. In relay mode (baseURL set) the relay holds the
+	// real key and injects its own headers upstream, so a league instance
+	// pointed at the relay needs no key at all; sending an empty
+	// x-rapidapi-key would be actively wrong (RapidAPI would reject it),
+	// not merely redundant.
+	if t.apiKey != "" {
+		request.Header.Set("x-rapidapi-key", t.apiKey)
+		request.Header.Set("x-rapidapi-host", t.host)
+	}
 	request.Header.Set("Accept", "application/json")
 	response, err := t.client.Do(request)
 	if err != nil {

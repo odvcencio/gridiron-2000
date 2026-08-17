@@ -1,5 +1,11 @@
 package league
 
+import (
+	"fmt"
+	"strings"
+	"sync"
+)
+
 // This file carries the roster-ops spec's slot and preset DATA only
 // (section 4.1, 4.1.1) as WP-R0's draft-critical pre-draft package: the
 // house roster shape must be authoritative before the 2026-08-22 draft
@@ -138,3 +144,134 @@ var rosterPresets = map[string]RosterPreset{
 // *file* still resolves to gridiron-house (resolveRosterBlock's fallback,
 // config.go) — only the *compiled*, no-file-at-all default is neutral.
 var ActiveRosterPreset = DefaultConfig().Roster
+
+// ---------------------------------------------------------------------
+// Runtime roster-shape override (commissioner roster-shape editor)
+// ---------------------------------------------------------------------
+
+// RosterOverride is a commissioner-chosen roster shape, persisted in
+// PersistedState and applied on top of the config-resolved default
+// (ActiveRosterPreset/DraftRounds). It carries a complete shape: Slots and
+// Bench replace the config's, they do not merge with it, the same
+// "explicit shape" contract RosterBlock's slots/bench pair already uses in
+// config.go.
+type RosterOverride struct {
+	Slots map[string]int `json:"slots"`
+	Bench int            `json:"bench"`
+}
+
+// cloneRosterOverride deep-copies o (nil-safe), matching the store's
+// snapshot/clone discipline (see cloneSchedule, clonePlayoffState).
+func cloneRosterOverride(o *RosterOverride) *RosterOverride {
+	if o == nil {
+		return nil
+	}
+	out := &RosterOverride{Bench: o.Bench, Slots: make(map[string]int, len(o.Slots))}
+	for key, count := range o.Slots {
+		out.Slots[key] = count
+	}
+	return out
+}
+
+// rosterOverridePreset renders o as a RosterPreset, for CurrentRoster and
+// the admin console's computed summary line.
+func rosterOverridePreset(o RosterOverride) RosterPreset {
+	return RosterPreset{Name: "custom", Slots: o.Slots, Bench: o.Bench}
+}
+
+// validateRosterOverride is the roster-shape editor's single validation
+// source (roster-ops spec section 10 numbers, reused verbatim): every slot
+// key must be one slotTable names (validRosterSlotKeys, config.go); each
+// slot count is 0-4; at least 1 QB; RB plus WR at least 2; starters total
+// at least 6; bench 0-10; the full roster (starters plus bench) 10-25.
+// Store.SetRosterOverride is the only caller today, keeping validation in
+// one place the way validateDraftOrder backs SetDraftOrder.
+func validateRosterOverride(o RosterOverride) error {
+	for key, count := range o.Slots {
+		if !validSlotKey(key) {
+			return fmt.Errorf("roster shape: unknown slot %q; valid slots: %s", key, strings.Join(validRosterSlotKeys, ", "))
+		}
+		if count < 0 || count > 4 {
+			return fmt.Errorf("roster shape: %s must be 0 to 4", key)
+		}
+	}
+	preset := RosterPreset{Slots: o.Slots}
+	if o.Slots["QB"] < 1 {
+		return fmt.Errorf("roster shape: QB must be at least 1")
+	}
+	if o.Slots["RB"]+o.Slots["WR"] < 2 {
+		return fmt.Errorf("roster shape: RB plus WR must total at least 2")
+	}
+	if preset.Starters() < 6 {
+		return fmt.Errorf("roster shape: starters must total at least 6")
+	}
+	if o.Bench < 0 || o.Bench > 10 {
+		return fmt.Errorf("roster shape: bench must be 0 to 10")
+	}
+	total := preset.Starters() + o.Bench
+	if total < 10 || total > 25 {
+		return fmt.Errorf("roster shape: total roster size (starters plus bench) must be 10 to 25; got %d", total)
+	}
+	return nil
+}
+
+// rosterRuntimeMu guards the runtime-mutable roster shape below. Every read
+// site outside config.go's boot path (applyActiveConfig) and this file's
+// own accessors should read CurrentRoster/CurrentDraftRounds instead of the
+// raw ActiveRosterPreset/DraftRounds package vars: those two stay in place,
+// mutated exactly once at boot, for compatibility and as the "config
+// baseline" clearRosterShape restores; they simply stop being the whole
+// story once a commissioner applies an override.
+var (
+	rosterRuntimeMu    sync.RWMutex
+	runtimeRoster      RosterPreset
+	runtimeDraftRounds int
+	runtimeRosterSet   bool
+)
+
+// CurrentRoster returns the league's roster shape as of right now: the
+// commissioner's runtime override when one is applied, otherwise the
+// config-resolved default (ActiveRosterPreset).
+func CurrentRoster() RosterPreset {
+	rosterRuntimeMu.RLock()
+	defer rosterRuntimeMu.RUnlock()
+	if runtimeRosterSet {
+		return runtimeRoster
+	}
+	return ActiveRosterPreset
+}
+
+// CurrentDraftRounds returns the league's draft-round count as of right
+// now, mirroring CurrentRoster's override precedence. Draft rounds are
+// always derived from the active roster's Total(), never set
+// independently, so this and CurrentRoster().Total() always agree.
+func CurrentDraftRounds() int {
+	rosterRuntimeMu.RLock()
+	defer rosterRuntimeMu.RUnlock()
+	if runtimeRosterSet {
+		return runtimeDraftRounds
+	}
+	return DraftRounds
+}
+
+// setRosterShape applies preset as the runtime roster override: every
+// CurrentRoster/CurrentDraftRounds call reflects it immediately. Draft
+// rounds derive from preset.Total(), never set independently. Called at
+// boot (Default(), once a persisted override is found) and by
+// Service.AdminSetRosterShape after Store.SetRosterOverride succeeds.
+func setRosterShape(preset RosterPreset) {
+	rosterRuntimeMu.Lock()
+	runtimeRoster = preset
+	runtimeDraftRounds = preset.Total()
+	runtimeRosterSet = true
+	rosterRuntimeMu.Unlock()
+}
+
+// clearRosterShape reverts CurrentRoster/CurrentDraftRounds to the config
+// baseline (ActiveRosterPreset/DraftRounds). Called by
+// Service.AdminResetRosterShape after Store.ClearRosterOverride succeeds.
+func clearRosterShape() {
+	rosterRuntimeMu.Lock()
+	runtimeRosterSet = false
+	rosterRuntimeMu.Unlock()
+}

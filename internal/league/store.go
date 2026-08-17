@@ -1,6 +1,8 @@
 package league
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,6 +65,7 @@ func NewStore(filePath string) *Store {
 			SentLog:       map[string]time.Time{},
 			NotifyPrefs:   map[string]map[string]bool{},
 			BadgeClaims:   map[string]string{},
+			Announcements: []Announcement{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -119,8 +122,8 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 		}
 	}
 	// The draft ends after every team fills its roster; the round count
-	// (DraftRounds, model.go) is the cap, not display copy alone.
-	if len(s.state.Picks) >= len(defaultTeams())*DraftRounds {
+	// (CurrentDraftRounds, lineup.go) is the cap, not display copy alone.
+	if len(s.state.Picks) >= len(defaultTeams())*CurrentDraftRounds() {
 		return DraftPick{}, fmt.Errorf("the draft is complete")
 	}
 	number := len(s.state.Picks) + 1
@@ -197,7 +200,7 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 	if !s.state.ClockDeadline.Equal(deadlineSeen) {
 		return DraftPick{}, errStaleAutoPick
 	}
-	if len(s.state.Picks) >= len(defaultTeams())*DraftRounds {
+	if len(s.state.Picks) >= len(defaultTeams())*CurrentDraftRounds() {
 		return DraftPick{}, errStaleAutoPick
 	}
 	expected := teamOnClock(s.state.DraftOrder, number)
@@ -920,6 +923,102 @@ func (s *Store) BadgeClaims() map[string]string {
 	return out
 }
 
+// SetRosterOverride persists a commissioner-chosen roster shape override,
+// replacing the config-resolved default (roster-shape-editor spec). It is
+// rejected once the draft has picks on the tape: the roster shape and its
+// derived draft-round count only stay free to change while nobody has been
+// drafted against a live slot count yet (mirrors SetDraftOrder's
+// post-first-pick lock, same message shape).
+func (s *Store) SetRosterOverride(o RosterOverride) error {
+	if err := validateRosterOverride(o); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Picks) > 0 {
+		return fmt.Errorf("the roster shape locks once the draft starts")
+	}
+	s.state.RosterOverride = cloneRosterOverride(&o)
+	return s.persistLocked()
+}
+
+// ClearRosterOverride drops any commissioner roster-shape override,
+// restoring the config-resolved default. Same post-first-pick lock as
+// SetRosterOverride.
+func (s *Store) ClearRosterOverride() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Picks) > 0 {
+		return fmt.Errorf("the roster shape locks once the draft starts")
+	}
+	s.state.RosterOverride = nil
+	return s.persistLocked()
+}
+
+// announcementBodyMaxRunes and announcementCap bound one announcement's
+// text and the feed's stored length (league-announcements spec).
+const (
+	announcementBodyMaxRunes = 500
+	announcementCap          = 20
+)
+
+// announcementID derives a short, stable content-hash ID for a new
+// announcement: the same "first 8 hex bytes of SHA-256" shape orderHash8
+// already uses for the draft order (notifications.go), applied to the
+// post's body, author, and instant so two different posts never collide.
+func announcementID(body, postedBy string, postedAt time.Time) string {
+	sum := sha256.Sum256([]byte(body + "|" + postedBy + "|" + postedAt.UTC().Format(time.RFC3339Nano)))
+	return "ann-" + hex.EncodeToString(sum[:8])
+}
+
+// PostAnnouncement records a new league announcement at the front of the
+// feed (newest first) and trims the list to announcementCap entries,
+// dropping the oldest. body is trimmed and must be non-empty and no more
+// than announcementBodyMaxRunes runes; postedBy is the acting
+// commissioner's identity (the service layer resolves it — see
+// Service.commissionerProvenance).
+func (s *Store) PostAnnouncement(body, postedBy string, now time.Time) (Announcement, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Announcement{}, fmt.Errorf("announcement text is required")
+	}
+	if runes := []rune(body); len(runes) > announcementBodyMaxRunes {
+		return Announcement{}, fmt.Errorf("announcements must be %d characters or fewer", announcementBodyMaxRunes)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	announcement := Announcement{
+		ID:       announcementID(body, postedBy, now),
+		Body:     body,
+		PostedAt: now.UTC(),
+		PostedBy: postedBy,
+	}
+	s.state.Announcements = append([]Announcement{announcement}, s.state.Announcements...)
+	if len(s.state.Announcements) > announcementCap {
+		s.state.Announcements = s.state.Announcements[:announcementCap]
+	}
+	if err := s.persistLocked(); err != nil {
+		return Announcement{}, err
+	}
+	return announcement, nil
+}
+
+// DeleteAnnouncement removes one announcement by ID. Deleting an ID that
+// does not exist is a harmless no-op, matching ReleaseBadge's idempotent
+// precedent.
+func (s *Store) DeleteAnnouncement(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]Announcement, 0, len(s.state.Announcements))
+	for _, a := range s.state.Announcements {
+		if a.ID != id {
+			kept = append(kept, a)
+		}
+	}
+	s.state.Announcements = kept
+	return s.persistLocked()
+}
+
 func (s *Store) load() error {
 	if s.filePath == "" {
 		return nil
@@ -986,6 +1085,9 @@ func (s *Store) load() error {
 	}
 	if state.BadgeClaims == nil {
 		state.BadgeClaims = map[string]string{}
+	}
+	if state.Announcements == nil {
+		state.Announcements = []Announcement{}
 	}
 	s.state = state
 	return nil
@@ -1090,6 +1192,8 @@ func cloneState(in PersistedState) PersistedState {
 		Playoffs:          clonePlayoffState(in.Playoffs),
 		Phase:             in.Phase,
 		BadgeClaims:       make(map[string]string, len(in.BadgeClaims)),
+		RosterOverride:    cloneRosterOverride(in.RosterOverride),
+		Announcements:     append([]Announcement(nil), in.Announcements...),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value

@@ -103,6 +103,14 @@ func Layout() Node {
 			</header>
 		</If>
 
+		<If cond={(data.viewer.signed_in || data.viewer.demo) && data.league.latest_announcement.has}>
+			<div class="announcement-banner" role="status">
+				<span class="announcement-banner__label mono">COMMISSIONER NOTE</span>
+				<p>{data.league.latest_announcement.body}</p>
+				<span class="announcement-banner__time mono">{data.league.latest_announcement.posted_at}</span>
+			</div>
+		</If>
+
 		<div class="site-frame">
 			<Slot />
 		</div>
