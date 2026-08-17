@@ -95,6 +95,22 @@ func (s *Service) scoreBreakdown(stats map[string]float64) (rows []map[string]an
 	return scoreBreakdownWithValues(stats, s.currentScoringValues())
 }
 
+// BreakdownRow is scoreBreakdownWithValues' typed twin, for a routed page's
+// page.server.go to build a strict-component <Each> loop source from (see
+// app/team/page.server.go's RosterCard.Breakdown). Declared once here
+// rather than per page package: gosx's tier-2 <Each> boundary check
+// (requireStrictSliceValue) compares this type's own name against the
+// "BreakdownRow" text a .gsx file's props struct declares, so a page's own
+// package cannot also declare a type of this name without colliding with
+// its own page.gsx source when gosx build's strict-component check merges
+// the two.
+type BreakdownRow struct {
+	Scored bool
+	Label  string
+	Calc   string
+	Points string
+}
+
 // scoreBreakdownWithValues renders a breakdown against an already-resolved
 // set of scoring point values (see currentScoringValues), or, when values
 // is nil, against the league's stock defaults with no store access at all.

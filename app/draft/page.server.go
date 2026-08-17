@@ -13,6 +13,62 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+// DraftTeamCard is the typed data.teams entry spread into strict
+// DraftTeam. It deliberately does not share DraftTeamProps' name (page.gsx
+// declares that name itself, for gosx's own strict-component check): the
+// tier-2 spread boundary (strictSpreadProps) proves struct values field by
+// field, so DraftTeamCard only needs to structurally cover DraftTeamProps,
+// and a distinct name here avoids colliding with page.gsx's own
+// declaration when gosx build's strict-component check merges the two
+// files' types.
+type DraftTeamCard struct {
+	OnClock        bool
+	Tone           string
+	HasAvatarImage bool
+	AvatarImageURL string
+	Name           string
+	Abbreviation   string
+	Presence       string
+	Manager        string
+	Division       string
+	Ready          bool
+	Autopick       bool
+}
+
+func stringField(m map[string]any, key string) string {
+	value, _ := m[key].(string)
+	return value
+}
+
+func boolField(m map[string]any, key string) bool {
+	value, _ := m[key].(bool)
+	return value
+}
+
+// draftTeamProps converts DraftData's map[string]any "teams" slice into
+// typed DraftTeamCard values so the draft-room grid's {...team} spread
+// into strict DraftTeam proves clean: the tier-2 spread boundary rejects a
+// map[string]any source outright (it "cannot prove field coverage").
+func draftTeamProps(raw []map[string]any) []DraftTeamCard {
+	out := make([]DraftTeamCard, 0, len(raw))
+	for _, team := range raw {
+		out = append(out, DraftTeamCard{
+			OnClock:        boolField(team, "on_clock"),
+			Tone:           stringField(team, "tone"),
+			HasAvatarImage: boolField(team, "has_avatar_image"),
+			AvatarImageURL: stringField(team, "avatar_image_url"),
+			Name:           stringField(team, "name"),
+			Abbreviation:   stringField(team, "abbreviation"),
+			Presence:       stringField(team, "presence"),
+			Manager:        stringField(team, "manager"),
+			Division:       stringField(team, "division"),
+			Ready:          boolField(team, "ready"),
+			Autopick:       boolField(team, "autopick"),
+		})
+	}
+	return out
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -20,6 +76,9 @@ func init() {
 			// A page load is a heartbeat too; the 4s poll takes over after boot.
 			league.Default().RecordPresence(ctx.Request, time.Now())
 			data := league.Default().DraftData(ctx.Request)
+			if teams, ok := data["teams"].([]map[string]any); ok {
+				data["teams"] = draftTeamProps(teams)
+			}
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

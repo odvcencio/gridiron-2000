@@ -1,52 +1,60 @@
 package app
 
-func TeamMark(props any) Node {
-	return <span class={"team-mark tone-" + props.tone} aria-hidden="true">
-		<If cond={props.has_avatar_image}>
-			<img class="avatar-mark__photo" src={props.avatar_image_url} alt={props.name} loading="lazy" />
+type TeamMarkProps struct {
+	Tone           string
+	Abbreviation   string
+	Name           string
+	HasAvatarImage bool
+	AvatarImageURL string
+}
+
+component TeamMark(props: TeamMarkProps) {
+	return <span class={"team-mark tone-" + props.Tone} aria-hidden="true">
+		<If cond={props.HasAvatarImage}>
+			<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.Name} loading="lazy" />
 		</If>
-		<If cond={props.has_avatar_image == false}>
-			{props.abbreviation}
+		<If cond={props.HasAvatarImage == false}>
+			{props.Abbreviation}
 		</If>
 	</span>
 }
 
 func MiniMatchup(props any) Node {
-	return <article class="mini-matchup" data-live-matchup={props.id}>
+	return <article class="mini-matchup" data-live-matchup={props.ID}>
 		<div class="mini-matchup__meta">
-			<span data-matchup-status>{props.status}</span>
-			<span class="mono" data-matchup-clock>{props.clock}</span>
+			<span data-matchup-status>{props.Status}</span>
+			<span class="mono" data-matchup-clock>{props.Clock}</span>
 		</div>
 		<div class="mini-team">
-			<TeamMark {...props.away}></TeamMark>
+			<TeamMark {...props.Away}></TeamMark>
 			<div>
-				<strong>{props.away.name}</strong>
-				<small>{props.away.manager}</small>
+				<strong>{props.Away.Name}</strong>
+				<small>{props.Away.Manager}</small>
 			</div>
-			<b class="score" data-score-team={props.away.id}>{props.away.score}</b>
+			<b class="score" data-score-team={props.Away.ID}>{props.Away.Score}</b>
 		</div>
 		<div class="mini-team">
-			<TeamMark {...props.home}></TeamMark>
+			<TeamMark {...props.Home}></TeamMark>
 			<div>
-				<strong>{props.home.name}</strong>
-				<small>{props.home.manager}</small>
+				<strong>{props.Home.Name}</strong>
+				<small>{props.Home.Manager}</small>
 			</div>
-			<b class="score" data-score-team={props.home.id}>{props.home.score}</b>
+			<b class="score" data-score-team={props.Home.ID}>{props.Home.Score}</b>
 		</div>
 	</article>
 }
 
 func StandingRow(props any) Node {
 	return <div class="standing-row">
-		<span class="rank mono">{props.rank}</span>
+		<span class="rank mono">{props.Rank}</span>
 		<TeamMark {...props}></TeamMark>
 		<div class="standing-team">
-			<strong>{props.name}</strong>
-			<small>{props.manager}</small>
+			<strong>{props.Name}</strong>
+			<small>{props.Manager}</small>
 		</div>
-		<span class="record mono">{props.record}</span>
-		<span class="points mono">{props.points_for}</span>
-		<span class="streak mono">{props.streak}</span>
+		<span class="record mono">{props.Record}</span>
+		<span class="points mono">{props.PointsFor}</span>
+		<span class="streak mono">{props.Streak}</span>
 	</div>
 }
 

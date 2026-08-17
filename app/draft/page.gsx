@@ -105,31 +105,45 @@ func DraftQueue(props any) Node {
 	</section>
 }
 
-func DraftTeam(props any) Node {
-	return <div class="draft-team" data-on-clock={props.on_clock}>
-		<span class={"team-mark tone-" + props.tone}>
-			<If cond={props.has_avatar_image}>
-				<img class="avatar-mark__photo" src={props.avatar_image_url} alt={props.name} loading="lazy" />
+type DraftTeamProps struct {
+	OnClock        bool
+	Tone           string
+	HasAvatarImage bool
+	AvatarImageURL string
+	Name           string
+	Abbreviation   string
+	Presence       string
+	Manager        string
+	Division       string
+	Ready          bool
+	Autopick       bool
+}
+
+component DraftTeam(props: DraftTeamProps) {
+	return <div class="draft-team" data-on-clock={props.OnClock}>
+		<span class={"team-mark tone-" + props.Tone}>
+			<If cond={props.HasAvatarImage}>
+				<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.Name} loading="lazy" />
 			</If>
-			<If cond={props.has_avatar_image == false}>
-				{props.abbreviation}
+			<If cond={props.HasAvatarImage == false}>
+				{props.Abbreviation}
 			</If>
 		</span>
 		<div>
-			<strong>{props.name}</strong>
+			<strong>{props.Name}</strong>
 			<small>
-				<span class="presence-dot" data-presence={props.presence}></span>
-				{props.manager}
+				<span class="presence-dot" data-presence={props.Presence}></span>
+				{props.Manager}
 			</small>
-			<small class="mono division-tag">{props.division}</small>
+			<small class="mono division-tag">{props.Division}</small>
 		</div>
-		<If cond={props.ready}>
+		<If cond={props.Ready}>
 			<b class="ready-state is-ready">Ready</b>
 		</If>
-		<If cond={props.ready == false}>
+		<If cond={props.Ready == false}>
 			<b class="ready-state">Not ready</b>
 		</If>
-		<If cond={props.autopick}>
+		<If cond={props.Autopick}>
 			<b class="autopick-badge mono">AUTO</b>
 		</If>
 	</div>
