@@ -29,10 +29,14 @@ type Config struct {
 	PlayerStatsURL     string
 	PlayerStatsPrevURL string
 	InjuryURL          string
+	TeamStatsURL       string
+	PlayByPlayURL      string
 	ScheduleInterval   time.Duration
 	PlayerInterval     time.Duration
 	PlayerPrevInterval time.Duration
 	InjuryInterval     time.Duration
+	TeamStatsInterval  time.Duration
+	PlayByPlayInterval time.Duration
 	MaxDownloadBytes   int64
 	HTTPClient         *http.Client
 	Now                func() time.Time
@@ -44,6 +48,8 @@ func ConfigFromEnv() Config {
 	defaultPlayerURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_%d.csv", season)
 	defaultPlayerPrevURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_%d.csv", season-1)
 	defaultInjuryURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/injuries/injuries_%d.csv", season)
+	defaultTeamStatsURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/stats_team/stats_team_week_%d.csv", season)
+	defaultPlayByPlayURL := fmt.Sprintf("https://github.com/nflverse/nflverse-data/releases/download/pbp/play_by_play_%d.csv.gz", season)
 	return Config{
 		Root:               openStatsEnvString("OPEN_STATS_ROOT", "data/open-stats"),
 		Season:             season,
@@ -52,26 +58,35 @@ func ConfigFromEnv() Config {
 		PlayerStatsURL:     openStatsEnvString("NFLVERSE_PLAYER_STATS_URL", defaultPlayerURL),
 		PlayerStatsPrevURL: openStatsEnvString("NFLVERSE_PLAYER_STATS_PREV_URL", defaultPlayerPrevURL),
 		InjuryURL:          openStatsEnvString("NFLVERSE_INJURY_URL", defaultInjuryURL),
+		TeamStatsURL:       openStatsEnvString("NFLVERSE_TEAM_STATS_URL", defaultTeamStatsURL),
+		PlayByPlayURL:      openStatsEnvString("NFLVERSE_PBP_URL", defaultPlayByPlayURL),
 		ScheduleInterval:   openStatsEnvDuration("OPEN_STATS_SCHEDULE_INTERVAL", 5*time.Minute),
 		PlayerInterval:     openStatsEnvDuration("OPEN_STATS_PLAYER_INTERVAL", 6*time.Hour),
 		PlayerPrevInterval: openStatsEnvDuration("OPEN_STATS_PLAYER_PREV_INTERVAL", 24*time.Hour),
 		InjuryInterval:     openStatsEnvDuration("OPEN_STATS_INJURY_INTERVAL", 15*time.Minute),
+		// Team stats and play-by-play both settle only once a week's games
+		// are final, the same cadence as the current-season player ledger
+		// (competition-formats' week-close discipline); no new trigger.
+		TeamStatsInterval:  openStatsEnvDuration("OPEN_STATS_TEAM_STATS_INTERVAL", 6*time.Hour),
+		PlayByPlayInterval: openStatsEnvDuration("OPEN_STATS_PBP_INTERVAL", 6*time.Hour),
 		MaxDownloadBytes:   int64(openStatsEnvInt("OPEN_STATS_MAX_DOWNLOAD_MB", 128)) << 20,
 	}
 }
 
 type Service struct {
-	config    Config
-	client    *http.Client
-	now       func() time.Time
-	startOnce sync.Once
-	mu        sync.RWMutex
-	running   bool
-	manifest  manifest
-	schedules []ScheduleGame
-	stats     []PlayerWeekStat
-	statsPrev []PlayerWeekStat
-	injuries  []InjuryReport
+	config     Config
+	client     *http.Client
+	now        func() time.Time
+	startOnce  sync.Once
+	mu         sync.RWMutex
+	running    bool
+	manifest   manifest
+	schedules  []ScheduleGame
+	stats      []PlayerWeekStat
+	statsPrev  []PlayerWeekStat
+	injuries   []InjuryReport
+	teamStats  []TeamWeekStat
+	puntEvents []PuntEvent
 }
 
 var (
@@ -149,6 +164,18 @@ func NewService(config Config) (*Service, error) {
 				SourceURL: config.InjuryURL,
 				License:   License,
 			},
+			TeamStats: DatasetStatus{
+				Name:      "team_stats",
+				State:     "waiting",
+				SourceURL: config.TeamStatsURL,
+				License:   License,
+			},
+			PlayByPlay: DatasetStatus{
+				Name:      "play_by_play",
+				State:     "waiting",
+				SourceURL: config.PlayByPlayURL,
+				License:   License,
+			},
 		},
 	}
 	if err := service.loadManifest(); err != nil {
@@ -170,6 +197,8 @@ func (service *Service) Start(ctx context.Context) {
 		go service.syncLoop(ctx, "player_stats", service.config.PlayerInterval)
 		go service.syncLoop(ctx, "player_stats_prev", service.config.PlayerPrevInterval)
 		go service.syncLoop(ctx, "injuries", service.config.InjuryInterval)
+		go service.syncLoop(ctx, "team_stats", service.config.TeamStatsInterval)
+		go service.syncLoop(ctx, "play_by_play", service.config.PlayByPlayInterval)
 		go func() {
 			<-ctx.Done()
 			service.mu.Lock()
@@ -184,7 +213,9 @@ func (service *Service) SyncNow(ctx context.Context) error {
 	playerErr := service.syncDataset(ctx, "player_stats")
 	playerPrevErr := service.syncDataset(ctx, "player_stats_prev")
 	injuryErr := service.syncDataset(ctx, "injuries")
-	return errors.Join(scheduleErr, playerErr, playerPrevErr, injuryErr)
+	teamStatsErr := service.syncDataset(ctx, "team_stats")
+	pbpErr := service.syncDataset(ctx, "play_by_play")
+	return errors.Join(scheduleErr, playerErr, playerPrevErr, injuryErr, teamStatsErr, pbpErr)
 }
 
 func (service *Service) Status() Status {
@@ -202,6 +233,8 @@ func (service *Service) Status() Status {
 		PlayerStats:     service.manifest.PlayerStats,
 		PlayerStatsPrev: service.manifest.PlayerStatsPrev,
 		Injuries:        service.manifest.Injuries,
+		TeamStats:       service.manifest.TeamStats,
+		PlayByPlay:      service.manifest.PlayByPlay,
 	}
 }
 
@@ -284,6 +317,82 @@ func (service *Service) InjuryReports(query InjuryQuery) []InjuryReport {
 	return out
 }
 
+// TeamStats returns team-week defensive/special-teams box scores matching
+// query — the source for DEFENSE-group scoring (WP-R2).
+func (service *Service) TeamStats(query TeamStatsQuery) []TeamWeekStat {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	team := strings.ToUpper(strings.TrimSpace(query.Team))
+	out := make([]TeamWeekStat, 0, min(limit, len(service.teamStats)))
+	for _, stat := range service.teamStats {
+		if query.Week > 0 && stat.Week != query.Week {
+			continue
+		}
+		if team != "" && stat.Team != team {
+			continue
+		}
+		out = append(out, stat)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// PuntEvents returns individual punt plays matching query, parsed from the
+// play-by-play mirror — the source for the per-punt PUNTING keys a
+// box-score aggregate cannot supply (WP-R2). An empty result for a week
+// whose games are final (but whose play-by-play has not synced yet, or
+// whose source has no punts) is not an error: the caller degrades to the
+// box-score fallback (main.go's leagueWeekStatsSource).
+func (service *Service) PuntEvents(query PuntQuery) []PuntEvent {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	limit := query.Limit
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	punterID := strings.TrimSpace(query.PunterID)
+	team := strings.ToUpper(strings.TrimSpace(query.Team))
+	out := make([]PuntEvent, 0, min(limit, len(service.puntEvents)))
+	for _, event := range service.puntEvents {
+		if query.Week > 0 && event.Week != query.Week {
+			continue
+		}
+		if punterID != "" && event.PunterID != punterID {
+			continue
+		}
+		if team != "" && event.Team != team {
+			continue
+		}
+		out = append(out, event)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// PlayByPlaySynced reports whether the play-by-play mirror has ever
+// completed a successful parse for the current season — the honest signal
+// leagueWeekStatsSource uses to choose between per-punt derivation and the
+// box-score fallback (never a silent, permanently-empty PuntEvents call).
+func (service *Service) PlayByPlaySynced() bool {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return service.manifest.PlayByPlay.State == "ready" && !service.manifest.PlayByPlay.LastUpdated.IsZero()
+}
+
 func (service *Service) ExportCSV(writer io.Writer, dataset string) error {
 	path := ""
 	switch dataset {
@@ -295,6 +404,10 @@ func (service *Service) ExportCSV(writer io.Writer, dataset string) error {
 		path = service.playerStatsPrevPath()
 	case "injuries":
 		path = service.injuryPath()
+	case "team_stats":
+		path = service.teamStatsPath()
+	case "play_by_play":
+		path = service.playByPlayPath()
 	default:
 		return fmt.Errorf("unknown dataset %q", dataset)
 	}
@@ -436,6 +549,10 @@ func (service *Service) datasetConfig(dataset string) (DatasetStatus, string, st
 		return service.manifest.PlayerStatsPrev, service.config.PlayerStatsPrevURL, service.playerStatsPrevPath()
 	case "injuries":
 		return service.manifest.Injuries, service.config.InjuryURL, service.injuryPath()
+	case "team_stats":
+		return service.manifest.TeamStats, service.config.TeamStatsURL, service.teamStatsPath()
+	case "play_by_play":
+		return service.manifest.PlayByPlay, service.config.PlayByPlayURL, service.playByPlayPath()
 	default:
 		return DatasetStatus{}, "", ""
 	}
@@ -455,6 +572,12 @@ func (service *Service) parseDownloaded(dataset, path string) (int, any, error) 
 	case "injuries":
 		injuries, err := parseInjuries(path, service.config.Season)
 		return len(injuries), injuries, err
+	case "team_stats":
+		stats, err := parseTeamStats(path, service.config.Season)
+		return len(stats), stats, err
+	case "play_by_play":
+		events, err := parsePlayByPlay(path, service.config.Season)
+		return len(events), events, err
 	default:
 		return 0, nil, fmt.Errorf("unknown dataset %q", dataset)
 	}
@@ -470,6 +593,10 @@ func (service *Service) setParsedLocked(dataset string, parsed any) {
 		service.statsPrev, _ = parsed.([]PlayerWeekStat)
 	case "injuries":
 		service.injuries, _ = parsed.([]InjuryReport)
+	case "team_stats":
+		service.teamStats, _ = parsed.([]TeamWeekStat)
+	case "play_by_play":
+		service.puntEvents, _ = parsed.([]PuntEvent)
 	}
 }
 
@@ -493,6 +620,10 @@ func (service *Service) datasetStatusLocked(dataset string) DatasetStatus {
 		return service.manifest.PlayerStatsPrev
 	case "injuries":
 		return service.manifest.Injuries
+	case "team_stats":
+		return service.manifest.TeamStats
+	case "play_by_play":
+		return service.manifest.PlayByPlay
 	default:
 		return service.manifest.PlayerStats
 	}
@@ -506,6 +637,10 @@ func (service *Service) setDatasetStatusLocked(dataset string, status DatasetSta
 		service.manifest.PlayerStatsPrev = status
 	case "injuries":
 		service.manifest.Injuries = status
+	case "team_stats":
+		service.manifest.TeamStats = status
+	case "play_by_play":
+		service.manifest.PlayByPlay = status
 	default:
 		service.manifest.PlayerStats = status
 	}
@@ -538,6 +673,16 @@ func (service *Service) loadManifest() error {
 	}
 	saved.Injuries.SourceURL = service.config.InjuryURL
 	saved.Injuries.License = License
+	if saved.TeamStats.Name == "" {
+		saved.TeamStats = DatasetStatus{Name: "team_stats", State: "waiting", License: License}
+	}
+	saved.TeamStats.SourceURL = service.config.TeamStatsURL
+	saved.TeamStats.License = License
+	if saved.PlayByPlay.Name == "" {
+		saved.PlayByPlay = DatasetStatus{Name: "play_by_play", State: "waiting", License: License}
+	}
+	saved.PlayByPlay.SourceURL = service.config.PlayByPlayURL
+	saved.PlayByPlay.License = License
 	service.manifest = saved
 	return nil
 }
@@ -569,6 +714,20 @@ func (service *Service) loadCachedData() {
 		service.manifest.Injuries.Rows = len(injuries)
 		if service.manifest.Injuries.State == "waiting" {
 			service.manifest.Injuries.State = "ready"
+		}
+	}
+	if teamStats, err := parseTeamStats(service.teamStatsPath(), service.config.Season); err == nil {
+		service.teamStats = teamStats
+		service.manifest.TeamStats.Rows = len(teamStats)
+		if service.manifest.TeamStats.State == "waiting" {
+			service.manifest.TeamStats.State = "ready"
+		}
+	}
+	if events, err := parsePlayByPlay(service.playByPlayPath(), service.config.Season); err == nil {
+		service.puntEvents = events
+		service.manifest.PlayByPlay.Rows = len(events)
+		if service.manifest.PlayByPlay.State == "waiting" {
+			service.manifest.PlayByPlay.State = "ready"
 		}
 	}
 }
@@ -620,6 +779,17 @@ func (service *Service) playerStatsPrevPath() string {
 
 func (service *Service) injuryPath() string {
 	return filepath.Join(service.config.Root, fmt.Sprintf("injuries_%d.csv", service.config.Season))
+}
+
+func (service *Service) teamStatsPath() string {
+	return filepath.Join(service.config.Root, fmt.Sprintf("stats_team_week_%d.csv", service.config.Season))
+}
+
+// playByPlayPath keeps the .csv.gz suffix: the cached file mirrors exactly
+// what was downloaded (the atomic-CSV-replacement discipline every dataset
+// follows), and parsePlayByPlay auto-detects the gzip magic bytes.
+func (service *Service) playByPlayPath() string {
+	return filepath.Join(service.config.Root, fmt.Sprintf("play_by_play_%d.csv.gz", service.config.Season))
 }
 
 func openStatsSafeError(err error) string {

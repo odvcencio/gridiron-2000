@@ -115,15 +115,23 @@ func mountOwnedDataAPI(app *server.App, signalFeed *wire.Service, stats *opensta
 			"players":        players,
 		})
 	})))
-	mountCSVExport(app, protected, stats, "schedules", "/api/data/schedules.csv", "nflverse-schedules.csv")
-	mountCSVExport(app, protected, stats, "player_stats", "/api/data/player-stats.csv", "nflverse-player-stats.csv")
-	mountCSVExport(app, protected, stats, "injuries", "/api/data/injuries.csv", "nflverse-injuries.csv")
+	mountCSVExport(app, protected, stats, "schedules", "/api/data/schedules.csv", "nflverse-schedules.csv", "text/csv; charset=utf-8")
+	mountCSVExport(app, protected, stats, "player_stats", "/api/data/player-stats.csv", "nflverse-player-stats.csv", "text/csv; charset=utf-8")
+	mountCSVExport(app, protected, stats, "injuries", "/api/data/injuries.csv", "nflverse-injuries.csv", "text/csv; charset=utf-8")
+	// WP-R2: the DEFENSE and PUNTING scoring groups' raw sources, exported
+	// for the same transparent-reprocessing reason the three above are.
+	// play_by_play's cache file is the gzip-compressed original download
+	// (ExportCSV streams whatever is on disk, unmodified), so its
+	// content-type and filename are honest about that, unlike the three
+	// plain-CSV exports above.
+	mountCSVExport(app, protected, stats, "team_stats", "/api/data/team-stats.csv", "nflverse-team-stats.csv", "text/csv; charset=utf-8")
+	mountCSVExport(app, protected, stats, "play_by_play", "/api/data/play-by-play.csv.gz", "nflverse-play-by-play.csv.gz", "application/gzip")
 }
 
-func mountCSVExport(app *server.App, protect func(http.Handler) http.Handler, stats *openstats.Service, dataset, pattern, filename string) {
+func mountCSVExport(app *server.App, protect func(http.Handler) http.Handler, stats *openstats.Service, dataset, pattern, filename, contentType string) {
 	app.Mount("GET "+pattern, protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
-		writer.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		writer.Header().Set("Content-Type", contentType)
 		writer.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 		writer.Header().Set("X-Data-License", openstats.License)
 		writer.Header().Set("X-Data-Attribution", openstats.AttributionURL)

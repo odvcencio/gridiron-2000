@@ -35,9 +35,22 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "RECEIVING", Key: "rec2pt", Label: "Two-point catch", Points: 2},
 		{Group: "MISC", Key: "fumbleLost", Label: "Fumble lost", Points: -2},
 		{Group: "MISC", Key: "returnTD", Label: "Kick or punt return TD", Points: 6},
+		// KICKING (WP-R2). Fed from the openstats weekly player ledger's
+		// fg_made/fg_missed/pat_made columns (main.go's
+		// leagueWeekStatsSource). This group carries no FG distance bands
+		// and no xpMissed key, so nothing else is available to feed today
+		// — an honest boundary, not an oversight.
 		{Group: "KICKING", Key: "fgMade", Label: "Field goal made", Points: 3},
 		{Group: "KICKING", Key: "fgMissed", Label: "Field goal missed", Points: -1},
 		{Group: "KICKING", Key: "xpMade", Label: "Extra point made", Points: 1},
+		// DEFENSE (WP-R2). dstSack/dstInt/dstFumbleRec/dstTD/dstSafety feed
+		// from the openstats team-stats mirror's def_* columns; dstFumbleRec
+		// counts opponent-fumble recoveries only (fumble_recovery_own is
+		// not a defensive scoring event). dstShutout derives from the
+		// schedule's points-allowed, gated on the same kickoff-plus-five-
+		// hours finality rule the schedule adapter uses, so an unplayed or
+		// in-progress game can never read as a shutout. See main.go's
+		// dstWeekStatLines.
 		{Group: "DEFENSE", Key: "dstSack", Label: "Sack", Points: 1},
 		{Group: "DEFENSE", Key: "dstInt", Label: "Interception", Points: 2},
 		{Group: "DEFENSE", Key: "dstFumbleRec", Label: "Fumble recovery", Points: 2},
@@ -47,29 +60,29 @@ func defaultScoringRules() []ScoringRule {
 		// PUNTING (roster-ops spec section 4.1.2, owner-refined defaults —
 		// these supersede the spec's draft numbers where they differ).
 		// Commissioner-tunable like every group above, same -25..25 clamp
-		// (Store.SetScoringValue). Data-honesty note: the live Tank01
-		// box-score feed carries only per-game aggregates for a punter
-		// (punts, puntYds, puntsin20, puntTouchBacks, puntLong — see the
-		// preseason box-score sample). puntYards' 40+-yard gate,
-		// coffinCorner, and puntDownedInside5 all need per-punt data the
-		// aggregate feed cannot supply; each is dormant (scores zero) in
-		// live weekly scoring until the WP-R2 play-by-play adapter attaches
-		// week-close values for these three keys.
-		// TODO(WP-R2): source puntYards (40+-yard punts only), coffinCorner,
-		// and puntDownedInside5 from the play-by-play source at week close;
-		// today's WeekStatsSource (openstats weekly ledger) carries none of
-		// the three.
+		// (Store.SetScoringValue).
+		//
+		// WP-R2 resolution: puntYards (the 40+-yard gate, applied at
+		// scoring time — see main.go's addPuntingStatsFromPBP), coffinCorner,
+		// puntDownedInside5, puntLong50 (each 50+-yard punt, not a single
+		// per-game flag), and puntBlocked (now attributed to the specific
+		// punter, superseding the old Tank01 team-level-only limitation)
+		// all feed from the openstats play-by-play mirror at week close.
+		// puntIn20 and puntTouchback feed from either source. When the
+		// play-by-play mirror has no data for a given week (not yet synced,
+		// or the season predates it), every punter that week degrades to
+		// the openstats weekly ledger's box-score aggregates
+		// (main.go's addPuntingStatsFromBoxScore): puntYards, coffinCorner,
+		// and puntDownedInside5 have no aggregate equivalent and stay at
+		// the same honest zero this dormant rule used before WP-R2; one log
+		// line records the degradation, never a crash, never a fabricated
+		// event.
 		{Group: "PUNTING", Key: "puntYards", Label: "Punting yards, 40+ yard punts only (per yard)", Points: 0.02},
 		{Group: "PUNTING", Key: "puntIn20", Label: "Punt downed inside the 20", Points: 1.5},
 		{Group: "PUNTING", Key: "coffinCorner", Label: "Coffin corner (out-of-bounds inside the 10)", Points: 1},
 		{Group: "PUNTING", Key: "puntDownedInside5", Label: "Punt downed inside the 5", Points: 2},
 		{Group: "PUNTING", Key: "puntLong50", Label: "Punt 50+ yards (each)", Points: 1},
 		{Group: "PUNTING", Key: "puntTouchback", Label: "Punt touchback", Points: -0.5},
-		// puntBlocked: the Tank01 sample carries blockedPunt at team level
-		// only, never attributed to the punting player, so this rule stays
-		// dormant (zero occurrences) until a stats adapter can attribute it
-		// — the same open question the roster-ops spec section 4.1.2 flags
-		// for its own draft version of this rule.
 		{Group: "PUNTING", Key: "puntBlocked", Label: "Punt blocked", Points: -2},
 	}
 }
@@ -162,13 +175,14 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 }
 
 // scoringGroupNote renders one scoring group's header note. Only PUNTING
-// carries one today: its yardage rule only scores 40+-yard punts, and three
-// of its rules stay dormant (score zero) until a play-by-play stats
-// adapter attaches them — see defaultScoringRules' PUNTING doc comment for
-// the honest accounting this note summarizes for managers.
+// carries one today: its yardage rule only scores 40+-yard punts, and its
+// per-punt rules score from play-by-play data at week close, which can lag
+// a week's games by the mirror's sync interval — see defaultScoringRules'
+// PUNTING doc comment for the honest accounting this note summarizes for
+// managers.
 func scoringGroupNote(group string) string {
 	if group == "PUNTING" {
-		return "Punting yards score only on punts of 40 or more yards; coffin-corner and inside-the-5 rules stay at zero until a play-by-play data source attaches them."
+		return "Punting yards score only on punts of 40 or more yards. Coffin-corner, inside-the-5, and blocked-punt rules score from play-by-play data at week close; a week whose play-by-play has not synced yet scores those three at zero until it does."
 	}
 	return ""
 }

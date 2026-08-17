@@ -14,7 +14,9 @@ The league owns its application, configuration, derived indexes, and local copie
 | League-manager sighting | Signed-in local form | Human speed | TV observations, local reports, shared articles, or market movement | `COMMUNITY`, `COMMUNITY LINK`, or `MARKET WATCH` |
 | nflverse schedules | Public CC-BY-4.0 release | Checked every five minutes | Schedule and game-level records | Corrected-data lane |
 | nflverse injuries | Public CC-BY-4.0 release | Checked every 15 minutes | Weekly report and practice statuses | Corrected-data lane |
-| nflverse player stats | Public CC-BY-4.0 release | Checked every six hours | Corrected reusable player-week facts and fantasy fields | Corrected-data lane |
+| nflverse player stats | Public CC-BY-4.0 release | Checked every six hours | Corrected reusable player-week facts and fantasy fields, plus kicking and punting box-score columns (WP-R2) | Corrected-data lane |
+| nflverse team stats | Public CC-BY-4.0 release | Checked every six hours | Team-week defense/special-teams box scores: the DEFENSE scoring group's source (WP-R2) | Corrected-data lane |
+| nflverse play-by-play | Public CC-BY-4.0 release | Checked every six hours | Per-punt events: the PUNTING scoring group's coffin-corner, inside-the-5, and 40+-yard-gate keys (WP-R2); degrades to the player-stats box-score aggregates for a week it has not synced yet | Corrected-data lane |
 | Commissioner ruling | Local human decision | On demand | Resolve a remaining scoring/data dispute | Final league authority |
 
 The two publisher feeds complement the two crowd feeds: publishers are narrower and more accountable; community feeds are faster at surfacing beat-report fragments, role changes, and anomalies. One source is never treated as proof. Exact canonical links are grouped, independent records are counted, and the strongest provenance becomes the displayed representative.
@@ -51,6 +53,6 @@ The server does not sign into PrizePicks, reuse an NFL+ or PrizePicks cookie, ca
 
 ## Replacement seams
 
-`WIRE_SOURCES_FILE` swaps the feed mesh without code changes. `BLUESKY_JETSTREAM_URL` can point to another compatible Jetstream instance. All three `NFLVERSE_*_URL` variables can point to a league-controlled mirror. These changes preserve the local schemas and API contracts, so later applications can reuse the archive without inheriting one vendor.
+`WIRE_SOURCES_FILE` swaps the feed mesh without code changes. `BLUESKY_JETSTREAM_URL` can point to another compatible Jetstream instance. Every `NFLVERSE_*_URL` variable — schedules, player stats, injuries, team stats, and play-by-play — can point to a league-controlled mirror. These changes preserve the local schemas and API contracts, so later applications can reuse the archive without inheriting one vendor.
 
 References: [ESPN RSS information](https://www.espn.com/espn/news/story?page=rssinfo), [Mastodon RSS feeds](https://docs.joinmastodon.org/user/network/), [Bluesky Firehose](https://docs.bsky.app/docs/advanced-guides/firehose), [Jetstream tradeoffs](https://docs.bsky.app/blog/jetstream), [nflverse data](https://github.com/nflverse/nflverse-data), [nflverse injury reports](https://nflreadr.nflverse.com/reference/load_injuries.html), and [PrizePicks terms](https://www.prizepicks.com/help-center/terms-of-service).

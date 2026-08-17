@@ -376,10 +376,7 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 // result column, so a game counts as final five hours after kickoff; the
 // winner resolves once scores land in the mirror.
 func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
-	eastern, err := time.LoadLocation("America/New_York")
-	if err != nil {
-		eastern = time.UTC
-	}
+	eastern := openStatsEastern()
 	return func() []league.GameInfo {
 		games := stats.Games(0)
 		now := time.Now()
@@ -388,12 +385,8 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 			if game.GameType != "REG" {
 				continue
 			}
-			gameTime := game.GameTime
-			if strings.TrimSpace(gameTime) == "" {
-				gameTime = "13:00"
-			}
-			kickoff, err := time.ParseInLocation("2006-01-02 15:04", game.GameDay+" "+gameTime, eastern)
-			if err != nil {
+			kickoff, ok := openStatsKickoff(game, eastern)
+			if !ok {
 				continue
 			}
 			out = append(out, league.GameInfo{
@@ -411,37 +404,258 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 	}
 }
 
-// leagueWeekStatsSource adapts the mirrored nflverse weekly player ledger to
-// the league's WeekStatsSource seam (competition-formats spec section
-// 2.4): one WeekStatLine per player, keyed by the same
-// openstats.NormalizePlayerKey the pick'em and historical-line seams
+// openStatsEastern resolves the league's game-time zone, falling back to
+// UTC when the tzdata lookup fails (the same fallback leagueScheduleSource
+// used inline before this helper existed).
+func openStatsEastern() *time.Location {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return time.UTC
+	}
+	return eastern
+}
+
+// openStatsKickoff parses one schedule row's kickoff instant, defaulting a
+// blank gametime to the early-slate 1:00 PM ET the schedule adapter has
+// always used. false means the row's date failed to parse.
+func openStatsKickoff(game openstats.ScheduleGame, eastern *time.Location) (time.Time, bool) {
+	gameTime := game.GameTime
+	if strings.TrimSpace(gameTime) == "" {
+		gameTime = "13:00"
+	}
+	kickoff, err := time.ParseInLocation("2006-01-02 15:04", game.GameDay+" "+gameTime, eastern)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return kickoff, true
+}
+
+// openStatsGameFinal reuses the schedule adapter's exact finality rule
+// (kickoff plus five hours) rather than inventing a second one — the
+// week-close/final-detection discipline WP-R2's DST points-allowed band
+// (dstShutout) must follow (see leagueScheduleSource).
+func openStatsGameFinal(game openstats.ScheduleGame, eastern *time.Location, now time.Time) bool {
+	kickoff, ok := openStatsKickoff(game, eastern)
+	if !ok {
+		return false
+	}
+	return now.After(kickoff.Add(5 * time.Hour))
+}
+
+// pointsAllowedByTeam maps a team abbreviation to the opponent's score in
+// its week game, but only for a game openStatsGameFinal reports final — an
+// in-progress or unplayed game's 0-0 placeholder score must never look like
+// a shutout. A team absent from the returned map has no final score yet;
+// dstWeekStatLines must not compute dstShutout for it.
+func pointsAllowedByTeam(games []openstats.ScheduleGame, eastern *time.Location, now time.Time) map[string]float64 {
+	allowed := make(map[string]float64, len(games)*2)
+	for _, game := range games {
+		if game.GameType != "REG" || !openStatsGameFinal(game, eastern, now) {
+			continue
+		}
+		allowed[strings.ToUpper(game.HomeTeam)] = game.AwayScore
+		allowed[strings.ToUpper(game.AwayTeam)] = game.HomeScore
+	}
+	return allowed
+}
+
+// dstNicknames maps every nflverse team abbreviation to the "{Nickname}
+// D/ST" display name the fantasy pool's demo/fallback data already uses
+// for a team-defense player (internal/fantasy/fallback.go), since
+// normalizePlayerKey joins on (name, position) and openstats' team-stats
+// mirror carries only abbreviations. A team missing from the live pool
+// under a differently-formatted DST name is a join miss, reported through
+// the existing JoinMiss path — never a crash, never a wrong attribution.
+var dstNicknames = map[string]string{
+	"ARI": "Cardinals D/ST", "ATL": "Falcons D/ST", "BAL": "Ravens D/ST", "BUF": "Bills D/ST",
+	"CAR": "Panthers D/ST", "CHI": "Bears D/ST", "CIN": "Bengals D/ST", "CLE": "Browns D/ST",
+	"DAL": "Cowboys D/ST", "DEN": "Broncos D/ST", "DET": "Lions D/ST", "GB": "Packers D/ST",
+	"HOU": "Texans D/ST", "IND": "Colts D/ST", "JAX": "Jaguars D/ST", "KC": "Chiefs D/ST",
+	"LA": "Rams D/ST", "LAC": "Chargers D/ST", "LV": "Raiders D/ST", "MIA": "Dolphins D/ST",
+	"MIN": "Vikings D/ST", "NE": "Patriots D/ST", "NO": "Saints D/ST", "NYG": "Giants D/ST",
+	"NYJ": "Jets D/ST", "PHI": "Eagles D/ST", "PIT": "Steelers D/ST", "SEA": "Seahawks D/ST",
+	"SF": "49ers D/ST", "TB": "Buccaneers D/ST", "TEN": "Titans D/ST", "WAS": "Commanders D/ST",
+}
+
+// dstWeekStatLines builds one WeekStatLine per NFL team's defense/special
+// teams unit for week from the team-stats mirror (WP-R2, DEFENSE group):
+// dstSack, dstInt, dstFumbleRec (opponent-fumble recoveries only —
+// recovering the team's own fumble is not a defensive scoring event), and
+// dstTD, dstSafety feed directly from stats_team_week's def_* columns.
+// dstShutout derives from the schedule's points-allowed, gated on the same
+// finality rule as leagueScheduleSource (openStatsGameFinal) so an
+// unplayed or in-progress game never reads as a shutout.
+func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int) []league.WeekStatLine {
+	rows := stats.TeamStats(openstats.TeamStatsQuery{Week: week, Limit: 64})
+	allowed := pointsAllowedByTeam(stats.Games(week), eastern, time.Now())
+	out := make([]league.WeekStatLine, 0, len(rows))
+	for _, row := range rows {
+		team := strings.ToUpper(row.Team)
+		name, ok := dstNicknames[team]
+		if !ok {
+			// An unrecognized team abbreviation (a source drift, not a
+			// user error) scores nothing rather than guessing a name —
+			// the same fail-quiet discipline punterHistLine follows.
+			continue
+		}
+		statLine := map[string]float64{
+			"dstSack":      row.DefSacks,
+			"dstInt":       row.DefInterceptions,
+			"dstFumbleRec": row.FumbleRecoveryOpp,
+			"dstTD":        row.DefTDs,
+			"dstSafety":    row.DefSafeties,
+			"dstShutout":   0,
+		}
+		if pointsAllowed, ok := allowed[team]; ok && pointsAllowed == 0 {
+			statLine["dstShutout"] = 1
+		}
+		out = append(out, league.WeekStatLine{
+			Key:   openstats.NormalizePlayerKey(name, "DST"),
+			Stats: statLine,
+		})
+	}
+	return out
+}
+
+// puntEventsByPunter groups week's play-by-play punt events by nflverse
+// player ID (the same ID scheme stats_player_week uses, so PlayerID joins
+// directly — no name-normalization needed for this particular join). A nil
+// return (as opposed to a non-nil empty map) is the honest-fallback signal:
+// the play-by-play mirror has no punts at all for this week, so every
+// punter degrades to the box-score aggregate path — never per-punter
+// silence dressed up as "this punter had zero punts."
+func puntEventsByPunter(stats *openstats.Service, week int) map[string][]openstats.PuntEvent {
+	events := stats.PuntEvents(openstats.PuntQuery{Week: week, Limit: 5000})
+	if len(events) == 0 {
+		return nil
+	}
+	byPunter := make(map[string][]openstats.PuntEvent, 32)
+	for _, event := range events {
+		byPunter[event.PunterID] = append(byPunter[event.PunterID], event)
+	}
+	return byPunter
+}
+
+// addPuntingStatsFromPBP fills every PUNTING scoring key from this week's
+// play-by-play punt events (WP-R2): the exact-events source. The puntYards
+// 40+-yard gate is applied here, at scoring time, not in openstats'
+// ingestion layer (openstats.PuntEvent carries gross per-punt distance
+// only). puntLong50 counts every 50+-yard punt ("(each)", scoring.go), not
+// a single per-game flag. A blocked punt cannot also count toward
+// puntYards/puntLong50 (its recorded distance is 0 in the source anyway)
+// and is excluded from those two by the !Blocked guard for clarity.
+func addPuntingStatsFromPBP(statLine map[string]float64, events []openstats.PuntEvent) {
+	var yards40Plus, in20, coffin, inside5, long50, touchback, blocked float64
+	for _, event := range events {
+		if !event.Blocked && event.Distance >= 40 {
+			yards40Plus += event.Distance
+		}
+		if event.InsideTwenty {
+			in20++
+		}
+		if event.CoffinCorner {
+			coffin++
+		}
+		if event.Inside5 {
+			inside5++
+		}
+		if !event.Blocked && event.Distance >= 50 {
+			long50++
+		}
+		if event.Touchback {
+			touchback++
+		}
+		if event.Blocked {
+			blocked++
+		}
+	}
+	statLine["puntYards"] = yards40Plus
+	statLine["puntIn20"] = in20
+	statLine["coffinCorner"] = coffin
+	statLine["puntDownedInside5"] = inside5
+	statLine["puntLong50"] = long50
+	statLine["puntTouchback"] = touchback
+	statLine["puntBlocked"] = blocked
+}
+
+// addPuntingStatsFromBoxScore is the honest fallback (WP-R2, section 3):
+// stats_player_week's per-game punting aggregates, used only when the
+// play-by-play mirror has no data for the requested week. puntYards cannot
+// honor the 40+-yard gate from an aggregate (pt_yards sums every punt in
+// the game, with no per-punt breakdown) and stays at the same zero the
+// pre-WP-R2 dormant rule used, rather than an unqualified approximation.
+// coffinCorner and puntDownedInside5 need a per-punt landing spot no
+// aggregate carries and also stay at zero. puntIn20, puntTouchback, and
+// puntBlocked have honest box-score equivalents and feed for real.
+func addPuntingStatsFromBoxScore(statLine map[string]float64, row openstats.PlayerWeekStat) {
+	statLine["puntYards"] = 0
+	statLine["puntIn20"] = row.PuntInside20
+	statLine["coffinCorner"] = 0
+	statLine["puntDownedInside5"] = 0
+	statLine["puntLong50"] = 0
+	if row.PuntLong >= 50 {
+		statLine["puntLong50"] = 1
+	}
+	statLine["puntTouchback"] = row.PuntTouchback
+	statLine["puntBlocked"] = row.PuntBlocked
+}
+
+// leagueWeekStatsSource adapts the mirrored nflverse weekly player ledger,
+// team-week box scores, and play-by-play mirror to the league's
+// WeekStatsSource seam (competition-formats spec section 2.4): one
+// WeekStatLine per player (plus one per NFL team's DST unit), keyed by the
+// same openstats.NormalizePlayerKey the pick'em and historical-line seams
 // already use, with stats mapped onto the league's scoring rule keys.
-// PlayerWeekStat carries only passing, rushing, receiving, and fumbles
-// columns today, so two-point conversions, kicking, return TDs, and DST
-// rules score zero in v1 — the honest coverage note in section 2.4, not a
-// bug here. openstats.Service.PlayerStats caps results at 1000 rows per
-// call regardless of Limit, an existing openstats constraint this adapter
-// does not change.
+// PASSING/RUSHING/RECEIVING/MISC feed as before; WP-R2 adds KICKING
+// (fgMade, fgMissed, xpMade — defaultScoringRules' KICKING group carries no
+// FG distance bands or an xpMissed key, so nothing else is available to
+// feed), DEFENSE (dstWeekStatLines), and PUNTING (per-punt from
+// play-by-play when it has data for the week, else the honest box-score
+// fallback with one log line — never a crash, never a fabricated event).
+// openstats.Service.PlayerStats caps results at 1000 rows per call
+// regardless of Limit, an existing openstats constraint this adapter does
+// not change.
 func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
+	eastern := openStatsEastern()
 	return func(week int) []league.WeekStatLine {
 		rows := stats.PlayerStats(openstats.PlayerQuery{Week: week, Limit: 1000})
-		out := make([]league.WeekStatLine, 0, len(rows))
+		puntsByPunter := puntEventsByPunter(stats, week)
+		if puntsByPunter == nil {
+			log.Printf("openstats: no play-by-play punt data for week %d; punting scores from box-score aggregates only (puntYards, coffinCorner, and puntDownedInside5 score zero this week)", week)
+		}
+		out := make([]league.WeekStatLine, 0, len(rows)+32)
 		for _, row := range rows {
+			statLine := map[string]float64{
+				"passYards":  row.PassingYards,
+				"passTD":     row.PassingTDs,
+				"passInt":    row.PassingInterceptions,
+				"rushYards":  row.RushingYards,
+				"rushTD":     row.RushingTDs,
+				"reception":  row.Receptions,
+				"recYards":   row.ReceivingYards,
+				"recTD":      row.ReceivingTDs,
+				"fumbleLost": row.FumblesLost,
+				"fgMade":     row.FGMade,
+				"fgMissed":   row.FGMissed,
+				"xpMade":     row.XPMade,
+			}
+			if row.Position == "P" {
+				if puntsByPunter != nil {
+					// A non-nil map with no entry for this punter is a
+					// genuine zero (no punts recorded for them this week),
+					// not a fallback trigger — puntsByPunter[missing key]
+					// safely returns a nil, empty slice.
+					addPuntingStatsFromPBP(statLine, puntsByPunter[row.PlayerID])
+				} else {
+					addPuntingStatsFromBoxScore(statLine, row)
+				}
+			}
 			out = append(out, league.WeekStatLine{
-				Key: openstats.NormalizePlayerKey(row.PlayerName, row.Position),
-				Stats: map[string]float64{
-					"passYards":  row.PassingYards,
-					"passTD":     row.PassingTDs,
-					"passInt":    row.PassingInterceptions,
-					"rushYards":  row.RushingYards,
-					"rushTD":     row.RushingTDs,
-					"reception":  row.Receptions,
-					"recYards":   row.ReceivingYards,
-					"recTD":      row.ReceivingTDs,
-					"fumbleLost": row.FumblesLost,
-				},
+				Key:   openstats.NormalizePlayerKey(row.PlayerName, row.Position),
+				Stats: statLine,
 			})
 		}
+		out = append(out, dstWeekStatLines(stats, eastern, week)...)
 		return out
 	}
 }

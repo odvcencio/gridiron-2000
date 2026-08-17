@@ -4,10 +4,10 @@ import "testing"
 
 // TestDefaultScoringRulesRegistersPuntingGroup pins WP-R0's PUNTING group
 // (roster-ops spec section 4.1.2, owner-refined defaults) exactly: the key
-// set, labels, and point values. The 40-yard puntYards gate, coffinCorner,
-// and puntDownedInside5 need per-punt data not yet wired (TODO(WP-R2) on
-// each in scoring.go); the group still registers today so drafting, the
-// scoring page, and projections-based displays are correct from day one.
+// set, labels, and point values. WP-R2 wired the per-punt keys (the 40-yard
+// puntYards gate, coffinCorner, puntDownedInside5, puntLong50, and
+// puntBlocked) to the openstats play-by-play mirror at week close — see
+// main.go's addPuntingStatsFromPBP and its honest box-score fallback.
 func TestDefaultScoringRulesRegistersPuntingGroup(t *testing.T) {
 	want := map[string]float64{
 		"puntYards":         0.02,
