@@ -229,6 +229,17 @@ type PersistedState struct {
 	// BadgeClaims precedent above: a nil map decodes safely on an old file,
 	// and the store normalizes it in load/NewStore/cloneState.
 	Lineups map[string]map[int]map[string]string `json:"lineups,omitempty"`
+
+	// Transactions is the append-only roster-mutation log (roster-ops spec
+	// section 7.1): one entry per add/drop move (WP-R3), with claim
+	// (WP-R4) and trade (WP-R5) entry types slotting into the same slice
+	// later. Rosters derive by replaying Picks then Transactions in order
+	// (see roster.go's currentRosters) — the log is the only roster-effect
+	// write; there is no separate stored roster to fall out of sync
+	// (section 3's derive-never-store rule). Additive under schema version
+	// 2 — the BadgeClaims precedent above: a nil slice decodes safely on
+	// an old file, and the store normalizes it in load/NewStore/cloneState.
+	Transactions []Transaction `json:"transactions,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

@@ -67,6 +67,7 @@ func NewStore(filePath string) *Store {
 			BadgeClaims:   map[string]string{},
 			Announcements: []Announcement{},
 			Lineups:       map[string]map[int]map[string]string{},
+			Transactions:  []Transaction{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -462,7 +463,9 @@ var resetLeagueSentLogPrefixes = append(append([]string{}, resetDraftSentLogPref
 
 // ResetDraft clears every pick and ready flag. Seats and boards survive. The
 // clock fields and the Autopick map are also cleared: a redrawn draft
-// starts with a clean, unarmed clock and no stale away-mode toggles. The
+// starts with a clean, unarmed clock and no stale away-mode toggles.
+// Transactions is cleared too (roster-ops spec section 7.3): every record
+// references a rostered player, and a redrawn draft orphans them all. The
 // draft-scoped SentLog entries (resetDraftSentLogPrefixes) are pruned in
 // the same persist.
 func (s *Store) ResetDraft() error {
@@ -470,18 +473,20 @@ func (s *Store) ResetDraft() error {
 	defer s.mu.Unlock()
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
+	s.state.Transactions = []Transaction{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
 	return s.persistLocked()
 }
 
-// ResetLeague clears picks, seats, ready flags, boards, pick'em picks, and
-// Preseason Blitz entries. Invites and team name overrides survive; both
-// are commissioner configuration, not game state. Clock fields and
-// Autopick are cleared, same as ResetDraft. Blitz entries are game state,
-// not draft state (F19), so ResetDraft does not touch them. The
-// league-scoped SentLog entries (resetLeagueSentLogPrefixes) are pruned in
-// the same persist.
+// ResetLeague clears picks, seats, ready flags, boards, pick'em picks,
+// Preseason Blitz entries, and Transactions (section 7.3, same rationale
+// as ResetDraft). Invites and team name overrides survive; both are
+// commissioner configuration, not game state. Clock fields and Autopick
+// are cleared, same as ResetDraft. Blitz entries are game state, not
+// draft state (F19), so ResetDraft does not touch them. The league-scoped
+// SentLog entries (resetLeagueSentLogPrefixes) are pruned in the same
+// persist.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -491,6 +496,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
 	s.state.BlitzEntries = map[string]map[string]BlitzEntry{}
+	s.state.Transactions = []Transaction{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
@@ -1035,6 +1041,46 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 	return s.persistLocked()
 }
 
+// RecordTransaction appends one add/drop transaction (roster-ops spec
+// section 7.1), one lock, one persist — the appended record is the only
+// roster effect written (section 3's derive-never-store rule:
+// currentRosters replays Transactions, so there is no separate roster
+// field that could fall out of sync with the log). Before appending it
+// re-validates against the freshest locked state, the same
+// re-validate-under-lock discipline AutoPick uses for the draft: every
+// Adds player must still be unrostered, every Drops player must still sit
+// on txn.TeamID's roster, and txn.TeamID's post-move roster size must not
+// exceed rosterCap. This closes the race two concurrent add/drop requests
+// could otherwise open between the service layer's snapshot and this
+// write; the service layer performs the same checks first (for the exact
+// W-table messages), so this is a defense-in-depth repeat, not the
+// primary validation path.
+func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !knownTeam(txn.TeamID) {
+		return fmt.Errorf("unknown team %q", txn.TeamID)
+	}
+	owner := rosterOwner(currentRosters(s.state))
+	for _, gain := range txn.Adds {
+		if owner[gain.PlayerID] != "" {
+			return fmt.Errorf("%s is already on a roster", gain.Name)
+		}
+	}
+	for _, drop := range txn.Drops {
+		if owner[drop.PlayerID] != txn.TeamID {
+			return fmt.Errorf("%s", lineupNotOnRosterMessage)
+		}
+	}
+	current := len(currentRosters(s.state)[txn.TeamID])
+	if next := current + len(txn.Adds) - len(txn.Drops); next > rosterCap {
+		return fmt.Errorf("your roster is full; choose a player to drop")
+	}
+	txn.At = txn.At.UTC()
+	s.state.Transactions = append(s.state.Transactions, txn)
+	return s.persistLocked()
+}
+
 // announcementBodyMaxRunes and announcementCap bound one announcement's
 // text and the feed's stored length (league-announcements spec).
 const (
@@ -1172,6 +1218,9 @@ func (s *Store) load() error {
 	if state.Lineups == nil {
 		state.Lineups = map[string]map[int]map[string]string{}
 	}
+	if state.Transactions == nil {
+		state.Transactions = []Transaction{}
+	}
 	s.state = state
 	return nil
 }
@@ -1278,6 +1327,7 @@ func cloneState(in PersistedState) PersistedState {
 		RosterOverride:    cloneRosterOverride(in.RosterOverride),
 		Announcements:     append([]Announcement(nil), in.Announcements...),
 		Lineups:           make(map[string]map[int]map[string]string, len(in.Lineups)),
+		Transactions:      make([]Transaction, len(in.Transactions)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -1337,6 +1387,24 @@ func cloneState(in PersistedState) PersistedState {
 			innerByWeek[week] = innerSlots
 		}
 		out.Lineups[teamID] = innerByWeek
+	}
+	for index, txn := range in.Transactions {
+		out.Transactions[index] = Transaction{
+			ID:          txn.ID,
+			Season:      txn.Season,
+			Week:        txn.Week,
+			Type:        txn.Type,
+			TeamID:      txn.TeamID,
+			OtherTeamID: txn.OtherTeamID,
+			Adds:        append([]TransactionPlayer(nil), txn.Adds...),
+			Drops:       append([]TransactionPlayer(nil), txn.Drops...),
+			Bid:         txn.Bid,
+			Position:    txn.Position,
+			OfferID:     txn.OfferID,
+			By:          txn.By,
+			Note:        txn.Note,
+			At:          txn.At,
+		}
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
