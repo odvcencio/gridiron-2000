@@ -1768,11 +1768,12 @@ h2 {
   transition: color var(--duration-fast) var(--ease-out);
 }
 
-.pick-clock.is-warning {
-  color: var(--color-gold);
-}
-
-.pick-clock.is-critical {
+/* data-gosx-countdown-warn="15s" (the pick clock's own red/critical
+   threshold — see app/draft/page.gsx) toggles this class on the countdown
+   element itself; the runtime has no hook to also toggle it on an
+   ancestor or a sibling card, so the wider page-border and on-clock-card
+   pulse the old hand-rolled JS drove are not reproduced here. */
+.pick-clock.gosx-countdown--warn {
   color: var(--color-danger);
   animation: pick-clock-pulse 1s var(--ease-in-out) infinite;
 }
@@ -1789,11 +1790,6 @@ h2 {
   50% {
     opacity: 0.45;
   }
-}
-
-.draft-page.is-critical .draft-clock-panel {
-  border-color: var(--color-danger);
-  box-shadow: 0 0 2rem rgba(255, 102, 92, 0.35);
 }
 
 .notice-stack {
@@ -1853,12 +1849,6 @@ h2 {
   transform: translateY(-3px);
   border-color: var(--color-accent);
   box-shadow: var(--shadow-signal);
-}
-
-.draft-team[data-on-clock="true"].is-critical {
-  border-color: var(--color-danger);
-  box-shadow: 0 0 1.5rem rgba(255, 102, 92, 0.4);
-  animation: pick-clock-pulse 1s var(--ease-in-out) infinite;
 }
 
 .draft-team > div {

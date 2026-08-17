@@ -620,3 +620,73 @@ func TestHistoricalSourceAppliesInBuildPool(t *testing.T) {
 		t.Fatalf("unmatched player gained a hist line: %+v", built.players[2])
 	}
 }
+
+// TestCountdownDHMSLabelMatchesRuntimeFormat proves the server-rendered
+// initial text for a data-gosx-countdown-format="dhms" element matches the
+// v0.43.0 client runtime's own compact formatter exactly (days unpadded,
+// "d " separator, then zero-padded HH:MM:SS) — see gosx's
+// client/runtime/host/navigation.ts formatCountdownDHMS. A mismatch would
+// show a visible jump the instant the runtime's first 1-second tick fires.
+func TestCountdownDHMSLabelMatchesRuntimeFormat(t *testing.T) {
+	cases := []struct {
+		remaining time.Duration
+		want      string
+	}{
+		{remaining: 0, want: "0d 00:00:00"},
+		{remaining: -time.Hour, want: "0d 00:00:00"},
+		{remaining: 45 * time.Second, want: "0d 00:00:45"},
+		{remaining: 5*24*time.Hour + 19*time.Hour + 40*time.Minute + 56*time.Second, want: "5d 19:40:56"},
+	}
+	for _, c := range cases {
+		if got := countdownDHMSLabel(c.remaining); got != c.want {
+			t.Fatalf("countdownDHMSLabel(%v) = %q, want %q", c.remaining, got, c.want)
+		}
+	}
+}
+
+// TestCountdownMMSSLabelMatchesRuntimeFormat proves the server-rendered
+// initial text for a data-gosx-countdown-format="mm:ss" element (the pick
+// clock) matches the client runtime's own compact formatter exactly
+// (minutes unpadded, seconds zero-padded) — see
+// client/runtime/host/navigation.ts formatCountdownMMSS.
+func TestCountdownMMSSLabelMatchesRuntimeFormat(t *testing.T) {
+	cases := []struct {
+		remainingSeconds int
+		want             string
+	}{
+		{remainingSeconds: 0, want: "0:00"},
+		{remainingSeconds: -5, want: "0:00"},
+		{remainingSeconds: 5, want: "0:05"},
+		{remainingSeconds: 90, want: "1:30"},
+		{remainingSeconds: 605, want: "10:05"},
+	}
+	for _, c := range cases {
+		if got := countdownMMSSLabel(c.remainingSeconds); got != c.want {
+			t.Fatalf("countdownMMSSLabel(%d) = %q, want %q", c.remainingSeconds, got, c.want)
+		}
+	}
+}
+
+// TestClockViewIncludesRemainingLabel proves clockView's remaining_label
+// key (the pick clock's data-gosx-countdown initial text) always agrees
+// with its remaining_seconds sibling, for both the armed and the
+// paused/unarmed shapes.
+func TestClockViewIncludesRemainingLabel(t *testing.T) {
+	service := newTestService(t, false)
+	now := time.Now()
+
+	unarmed := service.clockView(PersistedState{}, now)
+	if unarmed["remaining_label"] != "0:00" {
+		t.Fatalf("unarmed remaining_label = %v, want 0:00", unarmed["remaining_label"])
+	}
+
+	armed := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second)}, now)
+	if armed["remaining_label"] != "1:30" {
+		t.Fatalf("armed remaining_label = %v, want 1:30 (remaining_seconds=%v)", armed["remaining_label"], armed["remaining_seconds"])
+	}
+
+	paused := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second), ClockPaused: true}, now)
+	if paused["remaining_label"] != "0:00" {
+		t.Fatalf("paused remaining_label = %v, want 0:00", paused["remaining_label"])
+	}
+}
