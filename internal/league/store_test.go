@@ -1375,3 +1375,170 @@ func TestCloneStateDeepCopiesLineups(t *testing.T) {
 		t.Fatalf("mutating a snapshot leaked into the store's own state: got %q, want p-01", got)
 	}
 }
+
+// TestRecordTransactionAtomicPersist pins the roster-ops spec's "one
+// atomic persist per move" requirement (section 3): a reload from disk
+// must see the transaction record AND the derived roster effect together
+// — proving both live in the same JSON file written by the same persist,
+// not two separate writes that could tear under a crash.
+func TestRecordTransactionAtomicPersist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	now := time.Now()
+	txn := Transaction{
+		ID: "txn-1", Season: 2026, Week: 1, Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "fa-1", Name: "Free Agent", Position: "RB"}},
+		By:   "manager", At: now,
+	}
+	if err := store.RecordTransaction(txn, 17); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	state := reloaded.Snapshot()
+	if len(state.Transactions) != 1 || state.Transactions[0].ID != "txn-1" {
+		t.Fatalf("reloaded Transactions = %+v, want one txn-1 record", state.Transactions)
+	}
+	if owner := rosterOwner(currentRosters(state)); owner["fa-1"] != "team-1" {
+		t.Fatal("the reloaded state must derive fa-1 onto team-1's roster from the same persist")
+	}
+}
+
+// TestRecordTransactionRevalidatesUnderLock checks the store-level
+// defense-in-depth re-checks: an add whose target is already owned, and a
+// drop whose target is not on the acting roster, are both rejected even
+// though the caller built the Transaction from a stale snapshot.
+func TestRecordTransactionRevalidatesUnderLock(t *testing.T) {
+	store := newTestStore(t)
+	seed := Transaction{
+		ID: "txn-seed", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "Seed", Position: "RB"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(seed, 17); err != nil {
+		t.Fatal(err)
+	}
+	dupe := Transaction{
+		ID: "txn-dupe", Type: "add", TeamID: "team-2",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "Seed", Position: "RB"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(dupe, 17); err == nil {
+		t.Fatal("adding an already-rostered player must be rejected")
+	}
+	badDrop := Transaction{
+		ID: "txn-bad-drop", Type: "drop", TeamID: "team-2",
+		Drops: []TransactionPlayer{{PlayerID: "p-1", Name: "Seed", Position: "RB"}},
+		At:    time.Now(),
+	}
+	if err := store.RecordTransaction(badDrop, 17); err == nil {
+		t.Fatal("dropping a player not on the acting roster must be rejected")
+	}
+	if got := len(store.Snapshot().Transactions); got != 1 {
+		t.Fatalf("len(Transactions) = %d, want 1 (both rejected writes must not append)", got)
+	}
+}
+
+// TestRecordTransactionEnforcesRosterCap checks the store-level cap
+// re-check: an add that would push the roster past rosterCap is rejected.
+func TestRecordTransactionEnforcesRosterCap(t *testing.T) {
+	store := newTestStore(t)
+	seed := Transaction{
+		ID: "txn-seed", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "Seed", Position: "RB"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(seed, 1); err != nil {
+		t.Fatal(err)
+	}
+	over := Transaction{
+		ID: "txn-over", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-2", Name: "Overflow", Position: "WR"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(over, 1); err == nil {
+		t.Fatal("an add past rosterCap must be rejected")
+	}
+}
+
+// TestTransactionsDecodeFromOldStateFile checks that a pre-WP-R3 state
+// file (no "transactions" key at all) loads with an empty, non-nil
+// Transactions slice and still accepts a new transaction write afterward
+// — the same old-state-file-load contract TestLineupsDecodeFromOldStateFile
+// pins for Lineups.
+func TestTransactionsDecodeFromOldStateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	state := store.Snapshot()
+	if state.Transactions == nil || len(state.Transactions) != 0 {
+		t.Fatalf("Transactions = %#v, want an empty, non-nil slice", state.Transactions)
+	}
+	txn := Transaction{ID: "txn-1", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "P", Position: "RB"}}, At: time.Now()}
+	if err := store.RecordTransaction(txn, 17); err != nil {
+		t.Fatalf("a transaction write after loading an old file must succeed: %v", err)
+	}
+}
+
+// TestCloneStateDeepCopiesTransactions checks cloneState's Transactions
+// branch: mutating a snapshot's slice element must never leak back into
+// the store's own state.
+func TestCloneStateDeepCopiesTransactions(t *testing.T) {
+	store := newTestStore(t)
+	txn := Transaction{ID: "txn-1", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "Original", Position: "RB"}}, At: time.Now()}
+	if err := store.RecordTransaction(txn, 17); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := store.Snapshot()
+	snapshot.Transactions[0].Adds[0].Name = "Tampered"
+	if got := store.Snapshot().Transactions[0].Adds[0].Name; got != "Original" {
+		t.Fatalf("mutating a snapshot leaked into the store's own state: got %q, want Original", got)
+	}
+}
+
+// TestResetDraftClearsTransactions and TestResetLeagueClearsTransactions
+// pin section 7.3: every Transaction references a rostered player, so
+// both reset paths clear the log along with Picks.
+func TestResetDraftClearsTransactions(t *testing.T) {
+	store := newTestStore(t)
+	txn := Transaction{ID: "txn-1", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "P", Position: "RB"}}, At: time.Now()}
+	if err := store.RecordTransaction(txn, 17); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Transactions; len(got) != 0 {
+		t.Fatalf("Transactions after ResetDraft = %+v, want empty", got)
+	}
+}
+
+func TestResetLeagueClearsTransactions(t *testing.T) {
+	store := newTestStore(t)
+	txn := Transaction{ID: "txn-1", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-1", Name: "P", Position: "RB"}}, At: time.Now()}
+	if err := store.RecordTransaction(txn, 17); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Transactions; len(got) != 0 {
+		t.Fatalf("Transactions after ResetLeague = %+v, want empty", got)
+	}
+}

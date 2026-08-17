@@ -672,6 +672,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	state := s.store.Snapshot()
 	featured := s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))])
 	announcements := s.announcementListMaps(5)
+	transactions := s.activityMaps(state, 5)
 	return map[string]any{
 		"viewer":       s.Viewer(r),
 		"draft":        s.draftSummary(now),
@@ -679,9 +680,9 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"featured":     featured,
 		"standings":    s.standingsMaps(),
 		"divisions":    s.divisionMaps(state),
-		"transactions": transactionMaps(),
+		"transactions": transactions,
 		// GSX conditions cannot call .length on server data; ship the bools.
-		"transactions_empty":  len(transactionMaps()) == 0,
+		"transactions_empty":  len(transactions) == 0,
 		"featured_empty":      len(featured) == 0,
 		"league_size":         len(s.teams),
 		"season":              strconv.Itoa(s.cfg.Season),
@@ -827,21 +828,37 @@ func rosterShapeSummary(filled int) string {
 		preset.Starters(), preset.Bench, total, filled, open)
 }
 
-// rosterForTeam returns the team's drafted players in pick order. An empty
-// slice means the seat has not drafted; the page renders the empty state.
+// rosterForTeam returns the team's current roster in currentRosters order
+// (roster-ops spec section 3): draft picks first, then any free-agent
+// adds, minus any drops — the replay over Picks plus Transactions, not
+// Picks alone (fact 8's gap, closed by WP-R3). Every lineup, scoring, and
+// team-page caller that already reads through here (lineup.go, scorer.go,
+// TeamData) picks up add/drop effects with no further wiring. An empty
+// slice means the seat holds no players yet; the page renders the empty
+// state.
 func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, bool) {
 	pool := s.pool()
-	roster := make([]Player, 0, 15)
+	pickByPlayer := make(map[string]DraftPick, len(state.Picks))
 	for _, pick := range state.Picks {
-		if pick.TeamID != teamID {
+		if pick.TeamID == teamID {
+			pickByPlayer[pick.PlayerID] = pick
+		}
+	}
+	ids := currentRosters(state)[teamID]
+	roster := make([]Player, 0, len(ids))
+	for _, id := range ids {
+		player, ok := pool.byID[id]
+		if !ok {
 			continue
 		}
-		if player, ok := pool.byID[pick.PlayerID]; ok {
-			if player.Status == "" {
+		if player.Status == "" {
+			if pick, ok := pickByPlayer[id]; ok {
 				player.Status = fmt.Sprintf("Rd %d · Pick %d", pick.Round, pick.Number)
+			} else {
+				player.Status = "Free agency add"
 			}
-			roster = append(roster, player)
 		}
+		roster = append(roster, player)
 	}
 	return roster, len(roster) > 0
 }
@@ -1617,10 +1634,48 @@ func playerMapsWithScoring(players []Player, scoringValues map[string]float64) [
 	return out
 }
 
-// transactionMaps returns the dashboard's transaction feed. The feed has no
-// live source yet, so the page renders an empty state.
-func transactionMaps() []map[string]any {
-	return []map[string]any{}
+// activityMaps merges Picks and Transactions into one time-sorted feed,
+// newest first (roster-ops spec section 7.2: "the feed composes at read
+// time" — this replaces the former transactionMaps() stub). limit caps
+// the returned row count; zero means unlimited. Draft-pick lines resolve
+// the player's live pool identity at read time; transaction lines render
+// the TransactionPlayer identity snapshotted at commit time (section
+// 7.1), so both survive pool churn. DashboardData calls this with limit 5
+// for its panel; ActivityData (the /activity page) calls it with 0.
+func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any {
+	pool := s.pool()
+	type entry struct {
+		at     time.Time
+		teamID string
+		action string
+		player string
+	}
+	entries := make([]entry, 0, len(state.Picks)+len(state.Transactions))
+	for _, pick := range state.Picks {
+		label := pick.PlayerID
+		if player, ok := pool.byID[pick.PlayerID]; ok {
+			label = fmt.Sprintf("%s (%s)", player.Name, player.Position)
+		}
+		entries = append(entries, entry{at: pick.MadeAt, teamID: pick.TeamID, action: "drafts", player: label})
+	}
+	for _, txn := range state.Transactions {
+		action, player := activityLine(txn)
+		entries = append(entries, entry{at: txn.At, teamID: txn.TeamID, action: action, player: player})
+	}
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.After(entries[j].at) })
+	if limit > 0 && len(entries) > limit {
+		entries = entries[:limit]
+	}
+	out := make([]map[string]any, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, map[string]any{
+			"time":   e.at.Format("Jan 2, 3:04 PM MST"),
+			"team":   s.teamByID(e.teamID).Abbreviation,
+			"action": e.action,
+			"player": e.player,
+		})
+	}
+	return out
 }
 
 // leaderMaps ranks the top four pool players by projection for the
