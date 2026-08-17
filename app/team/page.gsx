@@ -25,6 +25,59 @@ type RosterRowProps struct {
 	Points         string
 }
 
+// BadgeCellProps is one cell of the team-badge picker grid: a free
+// motif's cell is a small submit form (csrf_token, team_id, motif,
+// redirect_to), a taken-by-another-team cell is a dimmed, non-clickable
+// preview labeled with that team's abbreviation, and this team's own
+// claim is a highlighted preview. Free/Mine/TakenByOther are precomputed,
+// mutually exclusive booleans (not "Claimed && ..." expressions) because a
+// strict <If> cond must be a plain bool props field, or a bool props
+// field compared with "== false" — see page.server.go's badgeGridProps
+// doc comment for how the three are derived. CSRF/TeamID/RedirectTo
+// repeat on every cell (rather than living once on the grid container)
+// because a strict component call accepts exactly one spread attribute
+// and no other attributes.
+type BadgeCellProps struct {
+	Slug          string
+	Name          string
+	Free          bool
+	Mine          bool
+	TakenByOther  bool
+	ClaimedByAbbr string
+	CSRF          string
+	TeamID        string
+	RedirectTo    string
+}
+
+component BadgeCell(props: BadgeCellProps) {
+	return <div class="badge-option-wrap">
+		<If cond={props.Free}>
+			<form method="post" action="/avatar/badge" data-gosx-managed="false" class="badge-option-form">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="team_id" value={props.TeamID}></input>
+				<input type="hidden" name="motif" value={props.Slug}></input>
+				<input type="hidden" name="redirect_to" value={props.RedirectTo}></input>
+				<button type="submit" class="badge-option" title={props.Name}>
+					<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
+					<small>{props.Name}</small>
+				</button>
+			</form>
+		</If>
+		<If cond={props.Mine}>
+			<div class="badge-option badge-option--mine" title={props.Name}>
+				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
+				<small>{props.Name}</small>
+			</div>
+		</If>
+		<If cond={props.TakenByOther}>
+			<div class="badge-option badge-option--taken" title={props.Name} aria-disabled="true">
+				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
+				<small>{props.ClaimedByAbbr}</small>
+			</div>
+		</If>
+	</div>
+}
+
 component RosterRow(props: RosterRowProps) {
 	return <div class="roster-row">
 		<div class="position-chip">{props.Position}</div>
@@ -140,6 +193,22 @@ func Page() Node {
 						<input type="file" name="avatar" accept="image/png,image/jpeg" required="required"></input>
 						<button class="button button--compact" type="submit">Upload team avatar</button>
 					</form>
+					<h2 class="badge-picker-title">Team badge</h2>
+					<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
+						<Each of={data.badge_grid} as="badge">
+							<BadgeCell {...badge}></BadgeCell>
+						</Each>
+					</div>
+					<If cond={data.has_badge_claim}>
+						<form method="post" action="/avatar/badge" data-gosx-managed="false" class="badge-release-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<input type="hidden" name="motif" value=""></input>
+							<input type="hidden" name="action" value="release"></input>
+							<input type="hidden" name="redirect_to" value="/team"></input>
+							<button class="button button--compact" type="submit">Use default badge</button>
+						</form>
+					</If>
 				</div>
 			</div>
 			<div class="team-hero__record">

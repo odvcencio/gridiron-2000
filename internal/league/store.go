@@ -62,6 +62,7 @@ func NewStore(filePath string) *Store {
 			Autopick:      map[string]bool{},
 			SentLog:       map[string]time.Time{},
 			NotifyPrefs:   map[string]map[string]bool{},
+			BadgeClaims:   map[string]string{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -827,6 +828,69 @@ func (s *Store) SetPlayoffs(state PlayoffState) error {
 	return s.persistLocked()
 }
 
+// ClaimBadge sets teamID's badge claim to motif, first-come-first-served:
+// a motif already held by a different team is rejected with a
+// badgeClaimedError naming that team's ID (Service.ClaimBadge resolves
+// the display name and builds the exact-message error — Store has no
+// business rendering a display name, matching every other store method's
+// "push the view-layer concern up" split). Setting a motif this team
+// already holds, or a different one, always overwrites teamID's own
+// previous claim — an implicit swap that frees the old motif in the same
+// transaction, matching ToggleReady's lock-then-persist shape.
+func (s *Store) ClaimBadge(teamID, motif string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if !knownMotif(motif) {
+		return ErrBadgeUnknownMotif
+	}
+	for holder, claimed := range s.state.BadgeClaims {
+		if claimed == motif && holder != teamID {
+			return &badgeClaimedError{teamID: holder}
+		}
+	}
+	if s.state.BadgeClaims == nil {
+		s.state.BadgeClaims = map[string]string{}
+	}
+	s.state.BadgeClaims[teamID] = motif
+	return s.persistLocked()
+}
+
+// ReleaseBadge clears teamID's badge claim. Releasing a seat with no
+// claim is a harmless no-op, not an error — matching AdminResetAvatar's
+// idempotent-reset precedent.
+func (s *Store) ReleaseBadge(teamID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	delete(s.state.BadgeClaims, teamID)
+	return s.persistLocked()
+}
+
+// BadgeClaim reports teamID's currently claimed motif slug, if any.
+func (s *Store) BadgeClaim(teamID string) (motif string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	motif, ok = s.state.BadgeClaims[teamID]
+	return motif, ok
+}
+
+// BadgeClaims returns a snapshot of every team ID's current badge claim,
+// for the picker UI's grid (which team, if any, holds each motif).
+func (s *Store) BadgeClaims() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.state.BadgeClaims))
+	for teamID, motif := range s.state.BadgeClaims {
+		out[teamID] = motif
+	}
+	return out
+}
+
 func (s *Store) load() error {
 	if s.filePath == "" {
 		return nil
@@ -891,6 +955,9 @@ func (s *Store) load() error {
 	if state.NotifyPrefs == nil {
 		state.NotifyPrefs = map[string]map[string]bool{}
 	}
+	if state.BadgeClaims == nil {
+		state.BadgeClaims = map[string]string{}
+	}
 	s.state = state
 	return nil
 }
@@ -953,6 +1020,7 @@ func cloneState(in PersistedState) PersistedState {
 		Schedule:          cloneSchedule(in.Schedule),
 		Playoffs:          clonePlayoffState(in.Playoffs),
 		Phase:             in.Phase,
+		BadgeClaims:       make(map[string]string, len(in.BadgeClaims)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -998,6 +1066,9 @@ func cloneState(in PersistedState) PersistedState {
 			inner[category] = enabled
 		}
 		out.NotifyPrefs[email] = inner
+	}
+	for teamID, motif := range in.BadgeClaims {
+		out.BadgeClaims[teamID] = motif
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

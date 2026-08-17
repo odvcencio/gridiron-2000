@@ -187,6 +187,15 @@ type PersistedState struct {
 	// this field only carries the phases season.go actually drives in this
 	// work package: PhaseRegularSeason, PhasePlayoffs, PhaseSeasonComplete.
 	Phase string `json:"phase,omitempty"`
+
+	// BadgeClaims maps team ID to the badge motif slug it currently holds
+	// (see badge.go's BadgeMotifs catalog). A motif claimed by one team is
+	// blocked for every other team; an absent entry means the team shows
+	// its tone default badge (or the text mark) instead. Additive under
+	// schema version 2 — the BlitzEntries precedent above: a nil map
+	// decodes safely on an old file, and the store normalizes it in
+	// load/NewStore/cloneState.
+	BadgeClaims map[string]string `json:"badgeClaims,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

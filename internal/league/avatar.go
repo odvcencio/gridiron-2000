@@ -170,17 +170,23 @@ func scanDefaultBadgeTones(dir string) map[string]bool {
 	return out
 }
 
-// avatarView resolves the three-tier fallback chain (design decision 4) for
-// one team into the fields the render layer needs: hasAvatar reports
-// specifically an uploaded photo (tier a — the only tier "reset avatar"
-// applies to); hasImage reports whether there is any image to show at all
-// (tier a or the tone's default badge, tier b); url is that image's
-// request path, empty when hasImage is false. A false hasImage means the
-// caller falls back to the plain text mark (tier c) — this function never
-// returns a URL pointing at a file it has not just confirmed exists.
+// avatarView resolves the four-tier fallback chain (design decision 4,
+// extended by the team-badge picker feature) for one team into the
+// fields the render layer needs: hasAvatar reports specifically an
+// uploaded photo (tier a — the only tier "reset avatar" applies to);
+// hasImage reports whether there is any image to show at all (tier a, a
+// claimed badge motif tier b, or the tone's default badge tier c); url is
+// that image's request path, empty when hasImage is false. A false
+// hasImage means the caller falls back to the plain text mark (tier d) —
+// this function never returns a URL pointing at a file it has not just
+// confirmed exists (a badge claim always has a matching motif PNG; see
+// knownMotif's gate at claim time).
 func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url string) {
 	if version, ok := s.AvatarVersion(teamID); ok {
 		return true, true, fmt.Sprintf("/avatars/%s.png?v=%d", teamID, version)
+	}
+	if motif, ok := s.store.BadgeClaim(teamID); ok {
+		return false, true, fmt.Sprintf("/avatars/badge/%s.png?v=%s", teamID, motif)
 	}
 	if s.defaultBadgeExists(tone) {
 		return false, true, fmt.Sprintf("/avatars/defaults/%s.png", tone)
@@ -190,16 +196,28 @@ func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url
 
 // avatarDigest renders "team-1:169..,team-3:169..." across every default
 // team ID that currently has a stored avatar, in order (defaultTeamIDs is
-// already sorted team-1..team-8). It is appended to StateFingerprint's
-// suffix the same way the Blitz source's version already is (see
-// StateFingerprint's |blitz: suffix), so a page open when a manager
-// uploads or a commissioner resets an avatar picks it up on its next poll.
+// already sorted team-1..team-8), followed by "team-1=wolf" pairs across
+// every team that currently holds a badge claim. It is appended to
+// StateFingerprint's suffix the same way the Blitz source's version
+// already is (see StateFingerprint's |blitz: suffix), so a page open when
+// a manager uploads or resets an avatar, or claims/releases a badge,
+// picks it up on its next poll. Badge claims already live in
+// PersistedState (unlike an uploaded photo's file), so StateFingerprint's
+// own json.Marshal(state) already changes on a claim; folding the claims
+// in here too keeps this digest — and its "which team, which asset"
+// shape — the one place every avatar-tier change is legible together.
 func (s *Service) avatarDigest() string {
 	order := defaultTeamIDs()
 	parts := make([]string, 0, len(order))
 	for _, teamID := range order {
 		if version, ok := s.AvatarVersion(teamID); ok {
 			parts = append(parts, teamID+":"+strconv.FormatInt(version, 10))
+		}
+	}
+	claims := s.store.BadgeClaims()
+	for _, teamID := range order {
+		if motif, ok := claims[teamID]; ok {
+			parts = append(parts, teamID+"="+motif)
 		}
 	}
 	return strings.Join(parts, ",")

@@ -40,6 +40,34 @@ type RosterCard struct {
 	Points         string
 }
 
+// BadgeCard is the typed data.badge_grid entry spread into strict
+// BadgeCell. It deliberately does not share BadgeCellProps' name, the
+// same reason RosterCard does not share RosterRowProps' name above: the
+// tier-2 spread boundary (strictSpreadProps) proves struct values field
+// by field, so BadgeCard only needs to structurally cover
+// BadgeCellProps, and a distinct name avoids colliding with page.gsx's
+// own declaration when gosx build's strict-component check merges the
+// two files' types.
+//
+// Free/Mine/TakenByOther are precomputed, mutually exclusive booleans —
+// see badgeGridProps — because a strict <If> cond in page.gsx must be a
+// plain bool props field, not a compound expression like
+// "Claimed && Mine". CSRF, TeamID, and RedirectTo repeat on every entry
+// (rather than being passed once to the grid container) because a
+// strict component call accepts exactly one spread attribute and no
+// other named attributes.
+type BadgeCard struct {
+	Slug          string
+	Name          string
+	Free          bool
+	Mine          bool
+	TakenByOther  bool
+	ClaimedByAbbr string
+	CSRF          string
+	TeamID        string
+	RedirectTo    string
+}
+
 func stringField(m map[string]any, key string) string {
 	value, _ := m[key].(string)
 	return value
@@ -94,6 +122,34 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 	return out
 }
 
+// badgeGridProps converts league.Service's badge_grid ([]map[string]any,
+// slug/name/claimed/claimed_by_abbr/mine) into typed BadgeCard values so
+// each cell's {...badge} spread into strict BadgeCell proves clean (see
+// rosterRowProps' identical reasoning above for the roster list). csrfToken,
+// teamID, and redirectTo are stamped onto every entry: a strict component
+// call accepts exactly one spread and no other attributes, so the values
+// every cell's form needs — otherwise passed once to the grid — have to
+// travel inside the spread source itself.
+func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) []BadgeCard {
+	out := make([]BadgeCard, 0, len(raw))
+	for _, cell := range raw {
+		claimed := boolField(cell, "claimed")
+		mine := boolField(cell, "mine")
+		out = append(out, BadgeCard{
+			Slug:          stringField(cell, "slug"),
+			Name:          stringField(cell, "name"),
+			Free:          claimed == false,
+			Mine:          claimed && mine,
+			TakenByOther:  claimed && mine == false,
+			ClaimedByAbbr: stringField(cell, "claimed_by_abbr"),
+			CSRF:          csrfToken,
+			TeamID:        teamID,
+			RedirectTo:    redirectTo,
+		})
+	}
+	return out
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -101,6 +157,10 @@ func init() {
 			data := league.Default().TeamData(ctx.Request)
 			if roster, ok := data["roster"].([]map[string]any); ok {
 				data["roster"] = rosterRowProps(roster)
+			}
+			if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
+				teamID := stringField(data["team"].(map[string]any), "id")
+				data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team")
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
