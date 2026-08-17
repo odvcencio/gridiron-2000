@@ -1,0 +1,125 @@
+# statrelay: the shared Tank01 caching relay. Every league instance that
+# talks to Tank01 (the flagship gridiron-2000 deployment, and the upcoming
+# Stable Kernel instance) points TANK01_BASE_URL at this Service instead of
+# calling RapidAPI directly, so both share one metered upstream quota. See
+# deploy/README.md's "Shared Tank01 relay" section for the full topology
+# and deploy/statrelay.Dockerfile for the image build.
+#
+# storageClassName is left unset, matching pvc.yaml: the cluster's default
+# StorageClass is "local-path" (rancher.io/local-path, ReadWriteOnce only).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: statrelay-data
+  namespace: gridiron
+  labels:
+    app: statrelay
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: statrelay
+  namespace: gridiron
+  labels:
+    app: statrelay
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
+  # the cache also lives in one process's memory, so two pods must never
+  # run at once — the same reasoning deployment.yaml documents for the
+  # main app.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: statrelay
+  template:
+    metadata:
+      labels:
+        app: statrelay
+    spec:
+      imagePullSecrets:
+        - name: regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: statrelay
+          image: harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8090
+              protocol: TCP
+          envFrom:
+            # TANK01_API_KEY lives here, and only here — no league
+            # instance's own secret carries it once TANK01_BASE_URL points
+            # it at this relay. See deploy/k8s/statrelay-secret.example.yaml.
+            - secretRef:
+                name: statrelay-secrets
+          env:
+            - name: DATA_DIR
+              value: "/app/data"
+            - name: LISTEN_ADDR
+              value: ":8090"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          # Small on purpose: statrelay does no rendering and no per-request
+          # parsing beyond a cache-key lookup and a JSON passthrough — its
+          # only real cost is the small in-memory response cache.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: statrelay-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: statrelay
+  namespace: gridiron
+  labels:
+    app: statrelay
+spec:
+  type: ClusterIP
+  selector:
+    app: statrelay
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

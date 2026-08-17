@@ -162,6 +162,28 @@ func TestNoKeyServesOfflinePool(t *testing.T) {
 	}
 }
 
+// TestEnabledWithBaseURLAndNoKey checks the relay-topology deviation
+// (service.go's Enabled): a service with BaseURL set but no APIKey (a
+// league instance pointed at a shared statrelay, which holds the real
+// key) must still report Enabled — otherwise it would stay stuck offline
+// even though a working relay is reachable.
+func TestEnabledWithBaseURLAndNoKey(t *testing.T) {
+	service, err := NewService(Config{
+		Root:    t.TempDir(),
+		Season:  2026,
+		BaseURL: "http://statrelay.gridiron.svc.cluster.local",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !service.Enabled() {
+		t.Error("Enabled() = false, want true when BaseURL is set even with no APIKey")
+	}
+	if !service.Status().Enabled {
+		t.Error("Status().Enabled = false, want true when BaseURL is set even with no APIKey")
+	}
+}
+
 func TestSyncPartialFailureKeepsPool(t *testing.T) {
 	root := t.TempDir()
 	hits := map[string]int{}

@@ -123,7 +123,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 	for _, rule := range defaultScoringRules() {
 		if current == nil || rule.Group != currentGroup {
 			currentGroup = rule.Group
-			current = map[string]any{"name": rule.Group, "rules": []map[string]any{}}
+			current = map[string]any{"name": rule.Group, "note": scoringGroupNote(rule.Group), "rules": []map[string]any{}}
 			groups = append(groups, current)
 		}
 		points := rule.Points
@@ -151,5 +151,118 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
 		"league":          s.leagueMap(),
+		// Rules page sections beyond the scoring table (rules-page spec):
+		// roster shape (data-driven off Feature A's live accessors), draft
+		// mechanics, season/playoff shape, and an honest waivers note.
+		"roster_rules":  s.rulesRosterMap(),
+		"draft_rules":   s.rulesDraftMap(state, time.Now()),
+		"season_rules":  s.rulesSeasonMap(state),
+		"waivers_rules": s.rulesWaiversMap(),
+	}
+}
+
+// scoringGroupNote renders one scoring group's header note. Only PUNTING
+// carries one today: its yardage rule only scores 40+-yard punts, and three
+// of its rules stay dormant (score zero) until a play-by-play stats
+// adapter attaches them — see defaultScoringRules' PUNTING doc comment for
+// the honest accounting this note summarizes for managers.
+func scoringGroupNote(group string) string {
+	if group == "PUNTING" {
+		return "Punting yards score only on punts of 40 or more yards; coffin-corner and inside-the-5 rules stay at zero until a play-by-play data source attaches them."
+	}
+	return ""
+}
+
+// rulesRosterMap renders the Rules page's Roster section: every starting
+// slot in engine order with its live count and a one-line eligibility
+// note, plus bench, total, and the derived draft-round count. It reads
+// CurrentRoster/CurrentDraftRounds (lineup.go), so a commissioner's
+// roster-shape edit (Feature A) reflects here immediately.
+func (s *Service) rulesRosterMap() map[string]any {
+	roster := CurrentRoster()
+	slots := make([]map[string]any, 0, len(slotTable))
+	for _, slot := range slotTable {
+		count := roster.Slots[slot.Key]
+		if count == 0 {
+			continue
+		}
+		slots = append(slots, map[string]any{
+			"key":   slot.Key,
+			"count": count,
+			"note":  slotEligibilityNote(slot.Key),
+		})
+	}
+	return map[string]any{
+		"slots":    slots,
+		"starters": roster.Starters(),
+		"bench":    roster.Bench,
+		"total":    roster.Total(),
+		"rounds":   CurrentDraftRounds(),
+	}
+}
+
+// slotEligibilityNote renders one slot's one-line eligibility explanation
+// (rules-page spec: "FLEX/SUPERFLEX eligibility explained in one line
+// each, and P if present").
+func slotEligibilityNote(key string) string {
+	switch key {
+	case "FLEX":
+		return "Starts any RB, WR, or TE."
+	case "SUPERFLEX":
+		return "Starts any QB, RB, WR, or TE — a second startable QB lives here."
+	case "P":
+		return "A dedicated punter slot; punting scores under its own group below."
+	default:
+		return "Starts a " + key + "."
+	}
+}
+
+// rulesDraftMap renders the Rules page's Draft section: the configured
+// date/time, the snake format label, the live pick-clock duration,
+// autopick behavior, and undo's existence — all honest, current facts, not
+// a static description (rules-page spec).
+func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]any {
+	draft := s.draftSummary(now)
+	return map[string]any{
+		"date":          draft["date"],
+		"long_date":     draft["long_date"],
+		"time":          draft["time"],
+		"format":        draft["format"],
+		"clock_seconds": int(s.pickClock(state).Seconds()),
+	}
+}
+
+// rulesSeasonMap renders the Rules page's Season section from whatever the
+// service actually has: honest "not generated/seeded yet" states when
+// state.Schedule/state.Playoffs are nil, or the real shape once they
+// exist (schedule.go, playoffs.go). Never invents a schedule or bracket
+// that has not been built.
+func (s *Service) rulesSeasonMap(state PersistedState) map[string]any {
+	out := map[string]any{
+		"schedule_generated": state.Schedule != nil,
+		"playoffs_seeded":    state.Playoffs != nil,
+	}
+	if state.Schedule != nil {
+		out["weeks"] = len(state.Schedule.Weeks)
+		out["start_week"] = state.Schedule.StartWeek
+	}
+	if state.Playoffs != nil {
+		cfg := state.Playoffs.Config
+		out["playoff_teams"] = cfg.TeamCount
+		out["playoff_start_week"] = cfg.StartWeek
+		out["playoff_round_weeks"] = cfg.RoundLengthWeeks
+		out["playoff_reseed"] = cfg.Reseed
+		out["playoff_consolation"] = cfg.Consolation
+		out["playoff_toilet"] = cfg.ToiletBowl
+	}
+	return out
+}
+
+// rulesWaiversMap renders the Rules page's Waivers/transactions section:
+// the honest current state (rosters lock post-draft; waivers, free
+// agency, and trades have no live UI yet), with no promised dates.
+func (s *Service) rulesWaiversMap() map[string]any {
+	return map[string]any{
+		"note": "Rosters lock at the final draft pick. Waivers, free agency, and trades are not live yet on this server; this page updates the day that work lands.",
 	}
 }

@@ -96,7 +96,7 @@ func (s *Service) bootRecoverClock(now time.Time) {
 // a second; tests call it directly with simulated instants.
 func (s *Service) clockTick(now time.Time) {
 	state := s.store.Snapshot()
-	totalPicks := len(defaultTeams()) * DraftRounds
+	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
 
 	// 1-2. Draft complete: clear a leftover deadline once, then idle.
 	if len(state.Picks) >= totalPicks {

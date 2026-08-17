@@ -44,6 +44,25 @@ func TestConfigFromEnvUsesCallerDefaultPoolLimit(t *testing.T) {
 	}
 }
 
+// TestConfigFromEnvReadsBaseURL checks TANK01_BASE_URL's env wiring: unset
+// leaves BaseURL empty (direct mode, unchanged); a trailing slash is
+// trimmed so tank01.go's "baseURL + \"/\" + endpoint" join never doubles
+// up.
+func TestConfigFromEnvReadsBaseURL(t *testing.T) {
+	t.Setenv("TANK01_BASE_URL", "")
+	if got := ConfigFromEnv(0).BaseURL; got != "" {
+		t.Errorf("BaseURL = %q, want empty when unset", got)
+	}
+	t.Setenv("TANK01_BASE_URL", "http://statrelay.gridiron.svc.cluster.local")
+	if got := ConfigFromEnv(0).BaseURL; got != "http://statrelay.gridiron.svc.cluster.local" {
+		t.Errorf("BaseURL = %q, want the env value verbatim", got)
+	}
+	t.Setenv("TANK01_BASE_URL", "http://statrelay.gridiron.svc.cluster.local/")
+	if got := ConfigFromEnv(0).BaseURL; got != "http://statrelay.gridiron.svc.cluster.local" {
+		t.Errorf("BaseURL = %q, want the trailing slash trimmed", got)
+	}
+}
+
 // TestPlayerIsRookie pins Exp == "R" (case-insensitive, whitespace
 // tolerant) as the only rookie signal Tank01's raw player list carries
 // (verified live via getNFLPlayerList, 2026-08-16); a veteran's season

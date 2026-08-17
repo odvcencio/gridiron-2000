@@ -256,6 +256,12 @@ func Page() Node {
 						PLAYERS
 					</span>
 				</header>
+				<div class="roster-shape" aria-label="League roster shape">
+					<Each of={data.roster_shape} as="slot">
+						<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
+					</Each>
+					<p class="roster-shape__summary mono">{data.shape_summary}</p>
+				</div>
 				<If cond={data.drafted == false}>
 					<div class="empty-tape">
 						<strong>NO ROSTER YET</strong>

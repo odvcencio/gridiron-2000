@@ -39,8 +39,8 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: league.PageTitle("Scoring System")},
-				Description: "How the league scores, visible to every manager.",
+				Title:       server.Title{Default: league.PageTitle("Rules & Scoring")},
+				Description: "Roster shape, scoring values, the draft, and the season, visible to every manager.",
 			}, nil
 		},
 		Actions: route.FileActions{

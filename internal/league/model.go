@@ -203,6 +203,32 @@ type PersistedState struct {
 	// decodes safely on an old file, and the store normalizes it in
 	// load/NewStore/cloneState.
 	BadgeClaims map[string]string `json:"badgeClaims,omitempty"`
+
+	// RosterOverride is the commissioner's runtime roster-shape override
+	// (roster-shape-editor spec), or nil when the league runs the
+	// config-resolved default (ActiveRosterPreset/DraftRounds) unmodified.
+	// Additive under schema version 2 — the BadgeClaims precedent above: a
+	// nil pointer decodes safely on an old file and needs no migration.
+	// Store.SetRosterOverride/ClearRosterOverride are the only writers, and
+	// both reject once len(Picks) > 0 (mirrors SetDraftOrder's lock).
+	RosterOverride *RosterOverride `json:"rosterOverride,omitempty"`
+
+	// Announcements is the league's commissioner-posted announcement feed,
+	// newest first, capped at 20 entries (Store.PostAnnouncement drops the
+	// oldest past the cap). Additive under schema version 2 — the
+	// BadgeClaims precedent above: a nil slice decodes safely on an old
+	// file, and the store normalizes it in load/NewStore/cloneState.
+	Announcements []Announcement `json:"announcements,omitempty"`
+}
+
+// Announcement is one commissioner-posted league announcement (league-
+// announcements spec). ID is a short content hash, stable for delete and
+// for the N11 email's idempotency key (keyBroadcast, notifications.go).
+type Announcement struct {
+	ID       string    `json:"id"`
+	Body     string    `json:"body"`
+	PostedAt time.Time `json:"postedAt"`
+	PostedBy string    `json:"postedBy"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.

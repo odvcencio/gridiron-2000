@@ -2,8 +2,12 @@ package fantasy
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -260,6 +264,133 @@ func TestParseProjectionsDefenseHasNoStatGroups(t *testing.T) {
 	}
 	if len(entry.Stats) != 0 {
 		t.Errorf("DST stats should be empty: %+v", entry.Stats)
+	}
+}
+
+// recordingTransport is a plain http.RoundTripper that captures the last
+// request's original scheme/host/path and headers before rewriting the
+// destination to point at an httptest server (whose URL is always
+// http://127.0.0.1:<port>, never the real Tank01 https:// host).
+type recordingTransport struct {
+	target     *url.URL
+	lastURL    url.URL
+	lastHeader http.Header
+}
+
+func (rt *recordingTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	rt.lastURL = *r.URL
+	rt.lastHeader = r.Header.Clone()
+	r.URL.Scheme = rt.target.Scheme
+	r.URL.Host = rt.target.Host
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+// TestTank01ClientDirectModeIsByteIdentical pins the client's existing
+// direct-mode request shape (no TANK01_BASE_URL): the request URL still
+// starts "https://" + host, and both RapidAPI headers still go out when a
+// key is configured — a golden-behavior guard against BaseURL support
+// changing direct mode's own wire shape.
+func TestTank01ClientDirectModeIsByteIdentical(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"statusCode":200,"body":[{"teamAbv":"CIN"}]}`))
+	}))
+	defer server.Close()
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := &recordingTransport{target: target}
+	client := &tank01Client{
+		host:    "example-tank01-host.p.rapidapi.com",
+		apiKey:  "direct-mode-key",
+		maxBody: 1 << 20,
+		client:  &http.Client{Transport: transport},
+	}
+
+	if _, err := client.get(context.Background(), "getNFLTeams", nil); err != nil {
+		t.Fatalf("get: %v", err)
+	}
+
+	if transport.lastURL.Scheme != "https" {
+		t.Errorf("direct-mode scheme = %q, want https (unchanged)", transport.lastURL.Scheme)
+	}
+	if transport.lastURL.Host != client.host {
+		t.Errorf("direct-mode host = %q, want %q", transport.lastURL.Host, client.host)
+	}
+	if transport.lastURL.Path != "/getNFLTeams" {
+		t.Errorf("direct-mode path = %q, want /getNFLTeams", transport.lastURL.Path)
+	}
+	if got := transport.lastHeader.Get("x-rapidapi-key"); got != "direct-mode-key" {
+		t.Errorf("x-rapidapi-key = %q, want direct-mode-key", got)
+	}
+	if got := transport.lastHeader.Get("x-rapidapi-host"); got != client.host {
+		t.Errorf("x-rapidapi-host = %q, want %q", got, client.host)
+	}
+}
+
+// TestTank01ClientBaseURLOverrideRespected checks that TANK01_BASE_URL
+// (wired through as tank01Client.baseURL) takes precedence over the
+// "https://" + host form, and that requests reach the relay's own address
+// verbatim.
+func TestTank01ClientBaseURLOverrideRespected(t *testing.T) {
+	var sawPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawPath = r.URL.Path + "?" + r.URL.RawQuery
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"statusCode":200,"body":[{"teamAbv":"CIN"}]}`))
+	}))
+	defer server.Close()
+
+	client := &tank01Client{
+		host:    "example-tank01-host.p.rapidapi.com", // must be ignored for the URL when baseURL is set
+		baseURL: server.URL,
+		maxBody: 1 << 20,
+		client:  server.Client(),
+	}
+
+	raw, err := client.get(context.Background(), "getNFLTeams", map[string]string{"season": "2026"})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if string(raw) != `[{"teamAbv":"CIN"}]` {
+		t.Errorf("unwrapped body = %s", raw)
+	}
+	if sawPath != "/getNFLTeams?season=2026" {
+		t.Errorf("relay saw path %q, want /getNFLTeams?season=2026", sawPath)
+	}
+}
+
+// TestTank01ClientKeyOptionalWhenBaseURLSet checks that a client with no
+// apiKey but a baseURL set (relay mode: the relay holds the real key)
+// still completes a request successfully, and sends neither RapidAPI
+// header — the relay does not need them, and an empty x-rapidapi-key
+// would be actively wrong against the real RapidAPI upstream.
+func TestTank01ClientKeyOptionalWhenBaseURLSet(t *testing.T) {
+	var sawHeader http.Header
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawHeader = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"statusCode":200,"body":[]}`))
+	}))
+	defer server.Close()
+
+	client := &tank01Client{
+		host:    "example-tank01-host.p.rapidapi.com",
+		baseURL: server.URL,
+		apiKey:  "", // deliberately empty: the relay holds the real key
+		maxBody: 1 << 20,
+		client:  server.Client(),
+	}
+
+	if _, err := client.get(context.Background(), "getNFLTeams", nil); err != nil {
+		t.Fatalf("get with no key in relay mode: %v", err)
+	}
+	if got := sawHeader.Get("x-rapidapi-key"); got != "" {
+		t.Errorf("x-rapidapi-key = %q, want unset (empty key must not send the header at all)", got)
+	}
+	if got := sawHeader.Get("x-rapidapi-host"); got != "" {
+		t.Errorf("x-rapidapi-host = %q, want unset when no key is configured", got)
 	}
 }
 
