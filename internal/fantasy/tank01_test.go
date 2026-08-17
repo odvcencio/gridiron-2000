@@ -1,7 +1,9 @@
 package fantasy
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"testing"
 )
 
@@ -342,6 +344,48 @@ func TestMergePoolPuntersSortToTailWithNoCrash(t *testing.T) {
 		}
 		if punter.Projection != 0 {
 			t.Errorf("punter %s Projection = %v, want 0 (no Tank01 projection)", punter.ID, punter.Projection)
+		}
+	}
+}
+
+// TestMergePoolRestOrderIsDeterministicAcrossCalls is the pool-order
+// determinism fix's own regression test: base is a map, and Go map
+// iteration order is unspecified — it can vary from one range over the
+// same map to the next, even within one process, which used to leak
+// straight into mergePool's "rest" branch (every player with no ADP
+// entry: defenses, kickers, deep bench players) and from there into the
+// rendered draft and board pools, so two page loads could show a
+// different order with no code change and no data change in between.
+// Every one of these 64 players ties at zero projection (none has a
+// projections entry), and only 8 distinct names cover all 64 (8 players
+// per name) — a real tie under mergePool's own (Points, Name) ranking, the
+// shape that actually depends on "rest"'s pre-sort order. Before the fix
+// this run would flake open non-deterministically; sort.Strings on the
+// collected map keys, ahead of the range, now fixes rest's starting
+// order, and the sort.SliceStable call's own ID tiebreak closes the same
+// gap a second, independent way — either alone is sufficient, and this
+// test proves both hold together.
+func TestMergePoolRestOrderIsDeterministicAcrossCalls(t *testing.T) {
+	base := make(map[string]Player, 64)
+	for i := 0; i < 64; i++ {
+		id := fmt.Sprintf("p%02d", i)
+		base[id] = Player{ID: id, Name: fmt.Sprintf("Bench Player %d", i%8), Position: "WR", NFLTeam: "FA"}
+	}
+
+	first := mergePool(base, nil, nil, nil, nil, 100)
+	firstJSON, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("marshal first: %v", err)
+	}
+
+	for i := 0; i < 25; i++ {
+		next := mergePool(base, nil, nil, nil, nil, 100)
+		nextJSON, err := json.Marshal(next)
+		if err != nil {
+			t.Fatalf("run %d: marshal: %v", i, err)
+		}
+		if !bytes.Equal(firstJSON, nextJSON) {
+			t.Fatalf("run %d: mergePool's rest order is not deterministic (map iteration leak):\nfirst: %s\nnext:  %s", i, firstJSON, nextJSON)
 		}
 	}
 }
