@@ -21,13 +21,13 @@ func TestUnwrapEnvelope(t *testing.T) {
 func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	raw := json.RawMessage(`[
 		{"playerID":"100","longName":"Test Receiver","pos":"WR","team":"cin","jerseyNum":"18",
-		 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png"},
+		 "espnHeadshot":"https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png","exp":"R"},
 		{"playerID":"101","longName":"Test Kicker","pos":"PK","team":"DAL","jerseyNum":"0"},
 		{"playerID":"102","longName":"Test Lineman","pos":"OT","team":"DAL"},
 		{"playerID":"","longName":"No ID","pos":"WR","team":"DAL"},
 		{"playerID":"103","espnName":"Fallback Name","pos":"QB","team":"BUF",
 		 "injury":{"designation":"Questionable"},
-		 "espnHeadshot":"http://insecure.example.com/4429795.png"}
+		 "espnHeadshot":"http://insecure.example.com/4429795.png","exp":"9"}
 	]`)
 	players := parsePlayerList(raw)
 	if len(players) != 3 {
@@ -59,6 +59,19 @@ func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	}
 	if players["103"].Headshot != "" {
 		t.Errorf("non-https headshot should be dropped: %q", players["103"].Headshot)
+	}
+	// Tank01's raw player list carries a career-experience field (verified
+	// live via getNFLPlayerList, 2026-08-16): "R" for a rookie, a season
+	// count for a veteran, absent entirely for a player Tank01 never
+	// reported it on. parsePlayerList must not drop it.
+	if players["100"].Exp != "R" || !players["100"].IsRookie() {
+		t.Errorf("rookie exp not captured: Exp=%q IsRookie=%v", players["100"].Exp, players["100"].IsRookie())
+	}
+	if players["103"].Exp != "9" || players["103"].IsRookie() {
+		t.Errorf("veteran exp not captured: Exp=%q IsRookie=%v", players["103"].Exp, players["103"].IsRookie())
+	}
+	if players["101"].Exp != "" || players["101"].IsRookie() {
+		t.Errorf("a player with no exp field should decode to an empty Exp and IsRookie() == false: Exp=%q IsRookie=%v", players["101"].Exp, players["101"].IsRookie())
 	}
 }
 

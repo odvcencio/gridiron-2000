@@ -43,3 +43,30 @@ func TestConfigFromEnvUsesCallerDefaultPoolLimit(t *testing.T) {
 		t.Errorf("PoolLimit = %d, want the env override 123", got)
 	}
 }
+
+// TestPlayerIsRookie pins Exp == "R" (case-insensitive, whitespace
+// tolerant) as the only rookie signal Tank01's raw player list carries
+// (verified live via getNFLPlayerList, 2026-08-16); a veteran's season
+// count and a blank (unreported) Exp both report false, not a guess.
+func TestPlayerIsRookie(t *testing.T) {
+	cases := []struct {
+		name string
+		exp  string
+		want bool
+	}{
+		{"rookie", "R", true},
+		{"lowercase rookie tolerated", "r", true},
+		{"padded rookie tolerated", " R ", true},
+		{"veteran season count", "9", false},
+		{"single-digit veteran", "1", false},
+		{"unreported", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			player := Player{Exp: tc.exp}
+			if got := player.IsRookie(); got != tc.want {
+				t.Errorf("Player{Exp: %q}.IsRookie() = %v, want %v", tc.exp, got, tc.want)
+			}
+		})
+	}
+}

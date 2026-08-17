@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,6 +54,42 @@ func (s *Service) blitzSnapshot() (BlitzSnapshot, bool) {
 		return BlitzSnapshot{}, false
 	}
 	return source(), true
+}
+
+// BlitzPre1Source returns the current preseason-week-1 per-player raw stat
+// lines: playerID -> stat key -> value, the SAME shape BlitzSnapshot.Stats
+// uses for live pre2/pre3 scoring — so blitzEligiblePlayers scores pre1
+// production through the identical scoreStatsWithValues call live scoring
+// uses, never a forked formula. It must perform no network work; the
+// main-package pipeline that fetches, scores once, and persists this data
+// to disk owns that, exactly like BlitzSource owns the live-stats fetch.
+// A nil or empty map means no pre1 data is available (the source was
+// never attached, or the pipeline's own fetch failed and logged its one
+// honest line) — blitzEligiblePlayers then treats every player as
+// zero-pre1 and falls back to ranking by the rookie/ADP tiering alone.
+type BlitzPre1Source func() map[string]map[string]float64
+
+// SetBlitzPre1Source attaches the preseason-week-1 production feed (owner
+// directive, 2026-08-16: "based on week 1 preseason mostly and
+// rookies/likely to play players so it's less confusing"). Call it once
+// during startup, beside SetBlitzSource. Never calling it is an honest
+// degrade, not a bug — see BlitzPre1Source's doc comment.
+func (s *Service) SetBlitzPre1Source(source BlitzPre1Source) {
+	s.poolMu.Lock()
+	s.blitzPre1Fn = source
+	s.poolMu.Unlock()
+}
+
+// blitzPre1Stats returns the current pre1 stat map, or nil when no source
+// is attached.
+func (s *Service) blitzPre1Stats() map[string]map[string]float64 {
+	s.poolMu.Lock()
+	source := s.blitzPre1Fn
+	s.poolMu.Unlock()
+	if source == nil {
+		return nil
+	}
+	return source()
 }
 
 // validBlitzSlate reports whether id names one of the two Preseason Blitz
@@ -355,17 +392,142 @@ func (s *Service) blitzSlotMaps(entry BlitzEntry, slateGames []BlitzGame, liveSt
 	return out
 }
 
+// blitzRestingADPRankMax caps "low" (strong) ADPRank for the zero-pre1
+// group's rest tier: the top blitzRestingADPRankMax picks are locked-in
+// NFL starters — the players most likely to sit out most of the
+// preseason once their coach is satisfied with a healthy roster (owner
+// directive, 2026-08-16: "less confusing" board). It is a tuning knob,
+// not a measured constant. mergePool only assigns ADPRank to a player
+// with ADP > 0 (internal/fantasy/service.go), so this only ever gates a
+// player the live ADP list actually ranked.
+const blitzRestingADPRankMax = 100
+
+// blitzRests reports whether player belongs in the zero-pre1 group's
+// "likely to rest" tier (see blitzEligiblePlayers): an established
+// veteran starter — strong (low) ADPRank — with no pre-week-1
+// production. A rookie never rests here, even at a strong ADPRank: a
+// debut season carries no prior-year renown to be "resting" on, and the
+// owner directive calls rookies out by name as players the board should
+// surface, not bury.
+func blitzRests(player Player) bool {
+	return !player.Rookie && player.ADPRank > 0 && player.ADPRank <= blitzRestingADPRankMax
+}
+
+// pre1StatItem is one preseason-week-1 stat-line entry: the raw stat key
+// (the same key parsePreseasonBoxScore emits, internal/fantasy/
+// preseason.go), its short display suffix, and whether a value of
+// exactly 1 prints bare ("TD") instead of "1 TD".
+type pre1StatItem struct {
+	statKey string
+	suffix  string
+	bareOne bool
+}
+
+// pre1StatGroups is the preseason-week-1 stat-line table, grouped
+// Passing, Rushing, Receiving, Kicking, then Misc — the same grouping
+// breakdownRows uses (breakdown.go) — so the board's compact line and
+// the score-breakdown tooltip never disagree about which stat belongs to
+// which group. A key this table does not list simply never shows.
+var pre1StatGroups = [][]pre1StatItem{
+	{{"passAttempts", "pass att", false}, {"passYds", "pass yds", false}, {"passTD", "pass TD", true}, {"passInt", "INT", true}},
+	{{"carries", "att", false}, {"rushYds", "rush yds", false}, {"rushTD", "rush TD", true}},
+	{{"receptions", "rec", false}, {"recYds", "rec yds", false}, {"recTD", "rec TD", true}},
+	{{"fgMade", "FG", false}, {"fgMissed", "FG miss", false}, {"xpMade", "XP", false}},
+	{{"returnTD", "ret TD", true}, {"fumblesLost", "FUM", true}},
+}
+
+// preWeek1StatLine renders a compact, honest summary of a player's
+// preseason-week-1 box score: only the nonzero stats it carries, grouped
+// and ordered by pre1StatGroups, items within a group joined by ", ",
+// groups joined by " · ". An empty or all-zero stats map returns "" —
+// blitzEligiblePlayers falls back to the "no pre1 snaps" copy in that
+// case, never a blank line.
+func preWeek1StatLine(stats map[string]float64) string {
+	if len(stats) == 0 {
+		return ""
+	}
+	var groups []string
+	for _, group := range pre1StatGroups {
+		var parts []string
+		for _, item := range group {
+			value, ok := stats[item.statKey]
+			if !ok || value == 0 {
+				continue
+			}
+			if item.bareOne && value == 1 {
+				parts = append(parts, item.suffix)
+				continue
+			}
+			parts = append(parts, strconv.FormatFloat(value, 'f', -1, 64)+" "+item.suffix)
+		}
+		if len(parts) > 0 {
+			groups = append(groups, strings.Join(parts, ", "))
+		}
+	}
+	return strings.Join(groups, " · ")
+}
+
+// blitzEligibleRow pairs one pool player with its preseason-week-1
+// evidence and rest-tier tag, ahead of sorting into blitzEligiblePlayers'
+// three board tiers.
+type blitzEligibleRow struct {
+	player   Player
+	points   float64
+	hasData  bool
+	statLine string
+	resting  bool
+}
+
+// blitzOrderEligible sorts rows into the board's three tiers (owner
+// directive, 2026-08-16): pre-week-1 producers first — points > 0,
+// descending, name tiebreak — then the zero-pre1 group's front tier
+// (rookies and no-ADP/deep-ADP depth players, alphabetical), then its
+// back tier (established, strong-ADP starters tagged "likely to rest,"
+// alphabetical). With no pre1 data at all, every row's points is 0, so
+// every row lands in the zero-pre1 group — the board still ranks by the
+// rookie/ADP tiering alone rather than crashing or reverting to raw
+// pool order.
+func blitzOrderEligible(rows []blitzEligibleRow) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
+		aScored, bScored := a.points > 0, b.points > 0
+		if aScored != bScored {
+			return aScored
+		}
+		if aScored {
+			if a.points != b.points {
+				return a.points > b.points
+			}
+			return a.player.Name < b.player.Name
+		}
+		if a.resting != b.resting {
+			return !a.resting
+		}
+		return a.player.Name < b.player.Name
+	})
+}
+
 // blitzEligiblePlayers lists pool players eligible for slate: non-DST
 // positions whose NFL team plays a slate game (section 4.2). Already
 // entered players still appear — V7 catches a repeat add — so the list
 // need not track the viewer's own entry.
-func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64) []map[string]any {
+//
+// Board order (owner directive, 2026-08-16 — "based on week 1 preseason
+// mostly and rookies/likely to play players so it's less confusing"):
+// see blitzOrderEligible. pre1Stats is playerID -> raw stat key -> value
+// (see BlitzPre1Source); scoring goes through scoreStatsWithValues, the
+// SAME function live Blitz scoring already uses (breakdown.go) — no
+// forked math. Every row carries its own pre1 evidence (points plus a
+// compact stat line, or an honest "no pre1 snaps" when there is none),
+// a rookie flag, and the resting tag, so BlitzPoolRow (app/blitz/
+// page.gsx) never has to compute any of this itself.
+func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64, pre1Stats map[string]map[string]float64) []map[string]any {
 	teams := map[string]bool{}
 	for _, game := range slateGames {
 		teams[game.Away] = true
 		teams[game.Home] = true
 	}
-	out := make([]map[string]any, 0, len(pool.players))
+	rows := make([]blitzEligibleRow, 0, len(pool.players))
 	for _, player := range pool.players {
 		if player.Position == "" || player.Position == "DST" {
 			continue
@@ -373,7 +535,32 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 		if !teams[strings.ToUpper(player.NFLTeam)] {
 			continue
 		}
-		out = append(out, playerMap(player, scoringValues))
+		stats := pre1Stats[player.ID]
+		rows = append(rows, blitzEligibleRow{
+			player:   player,
+			points:   scoreStatsWithValues(stats, scoringValues),
+			hasData:  len(stats) > 0,
+			statLine: preWeek1StatLine(stats),
+			resting:  blitzRests(player),
+		})
+	}
+	blitzOrderEligible(rows)
+
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		card := playerMap(row.player, scoringValues)
+		summary := "no pre1 snaps"
+		switch {
+		case row.hasData && row.statLine != "":
+			summary = "PRE1 " + fmt.Sprintf("%.1f", row.points) + " — " + row.statLine
+		case row.hasData:
+			summary = "PRE1 " + fmt.Sprintf("%.1f", row.points)
+		}
+		card["has_pre1"] = row.hasData
+		card["pre1_summary"] = summary
+		card["is_rookie"] = row.player.Rookie
+		card["resting"] = row.resting
+		out = append(out, card)
 	}
 	return out
 }
@@ -500,7 +687,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	slots := s.blitzSlotMaps(entry, slateGames, liveStats, scoringValues, pool, now)
 	eligible := []map[string]any{}
 	if !archived && !closed {
-		eligible = s.blitzEligiblePlayers(pool, slateGames, scoringValues)
+		eligible = s.blitzEligiblePlayers(pool, slateGames, scoringValues, s.blitzPre1Stats())
 	}
 
 	entryCount := 0

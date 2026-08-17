@@ -123,6 +123,7 @@ func parsePlayerList(raw json.RawMessage) map[string]Player {
 				player.Injury = designation
 			}
 		}
+		player.Exp = flexString(entry["exp"])
 		players[id] = player
 	}
 	return players

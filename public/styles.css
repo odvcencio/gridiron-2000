@@ -2177,6 +2177,7 @@ body.is-on-clock .draft-clock-panel {
 .player-pool[data-filter="TE"] .pool-row:not([data-player-position="TE"]),
 .player-pool[data-filter="K"] .pool-row:not([data-player-position="K"]),
 .player-pool[data-filter="DST"] .pool-row:not([data-player-position="DST"]),
+.player-pool[data-filter="P"] .pool-row:not([data-player-position="P"]),
 .pool-row[data-search-miss] {
   display: none;
 }
@@ -3947,4 +3948,121 @@ body.is-on-clock .draft-clock-panel {
     animation-iteration-count: 1;
     transition-duration: 1ms;
   }
+}
+
+/* ===== DRAFT-NIGHT-POLISH: manager pre-draft checklist (app/draft/page.gsx)
+   and commissioner runbook (app/admin/page.gsx) share this .checklist
+   scaffold, plus a small ready-state and ready-count nudge for the admin
+   console. Appended 2026-08-16; see gridiron-2000 draft-night polish task.
+   ===== */
+
+.checklist {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.checklist-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.checklist-mark {
+  display: inline-grid;
+  flex: 0 0 auto;
+  min-width: 2.1rem;
+  min-height: 2.1rem;
+  place-items: center;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+  font-size: var(--type-xs);
+}
+
+.checklist-item__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.checklist-item__text small {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.draft-runbook {
+  grid-column: 1 / -1;
+}
+
+/* Ready-count summary in the admin masthead (item 4, WORK ITEMS): a single
+   glance at N/seats ready, next to the existing draft date/time line. */
+.ready-count-tag {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+/* Ready-state badge nudge: a filled pill instead of plain colored text, so
+   "Ready" reads at a glance in the 01 // SEATS grid at 3:55PM. */
+.ready-state.is-ready {
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-haze);
+}
+
+@media (max-width: 38rem) {
+  .checklist-item {
+    flex-wrap: wrap;
+  }
+
+  .checklist-item .board-button {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+
+/* ---- Preseason Blitz board: pre1 evidence, rookie badge, resting tag
+   (owner directive, 2026-08-16 — "based on week 1 preseason mostly and
+   rookies/likely to play players so it's less confusing"). See
+   app/blitz/page.gsx's BlitzPoolRow and internal/league/blitz.go's
+   blitzEligiblePlayers. ---- */
+.badge-rookie,
+.tag-resting {
+  display: inline-block;
+  margin-left: var(--space-xs);
+  padding: 0.05rem 0.35rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  vertical-align: middle;
+}
+
+.badge-rookie {
+  border: 1px solid var(--color-accent-cyan);
+  color: var(--color-accent-cyan);
+  background: rgba(56, 232, 255, 0.12);
+}
+
+.tag-resting {
+  border: 1px solid var(--color-text-muted);
+  color: var(--color-text-muted);
+  background: var(--color-white-faint);
+}
+
+.pre1-line {
+  display: block;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.pre1-line[data-has-pre1="false"] {
+  color: var(--color-text-muted);
+  font-style: italic;
 }

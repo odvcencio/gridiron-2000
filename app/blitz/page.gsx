@@ -63,7 +63,14 @@ func BlitzPoolRow(props any) Node {
 			</If>
 			<div class="pool-player__text">
 				<strong>{props.Player.name}</strong>
+				<If cond={props.Player.is_rookie}>
+					<span class="badge-rookie">ROOKIE</span>
+				</If>
+				<If cond={props.Player.resting}>
+					<span class="tag-resting">LIKELY TO REST</span>
+				</If>
 				<small>{props.Player.detail}</small>
+				<small class="pre1-line" data-has-pre1={props.Player.has_pre1}>{props.Player.pre1_summary}</small>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 				<div class="stat-tip__head">
