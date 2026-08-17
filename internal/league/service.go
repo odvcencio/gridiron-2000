@@ -852,6 +852,7 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"effective_deadline": formatClockInstant(effective),
 		"reason":             reason,
 		"remaining_seconds":  remaining,
+		"remaining_label":    countdownMMSSLabel(remaining),
 		"duration_seconds":   int(s.pickClock(state).Seconds()),
 		"server_now":         now.UTC().Format(time.RFC3339),
 	}
@@ -983,14 +984,45 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 	}
 	local := s.draftAt.In(location)
 	return map[string]any{
-		"at":         s.draftAt.Format(time.RFC3339),
-		"date":       strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
-		"time":       local.Format("3:04 PM MST"),
-		"long_date":  local.Format("Saturday, January 2, 2006"),
-		"format":     s.draftFormatLabel(),
-		"started":    !now.Before(s.draftAt),
-		"days_until": max(0, int(s.draftAt.Sub(now).Hours()/24)),
+		"at":              s.draftAt.Format(time.RFC3339),
+		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
+		"time":            local.Format("3:04 PM MST"),
+		"long_date":       local.Format("Saturday, January 2, 2006"),
+		"format":          s.draftFormatLabel(),
+		"started":         !now.Before(s.draftAt),
+		"days_until":      max(0, int(s.draftAt.Sub(now).Hours()/24)),
+		"countdown_label": countdownDHMSLabel(s.draftAt.Sub(now)),
 	}
+}
+
+// countdownDHMSLabel formats a duration the same way the data-gosx-countdown
+// runtime's own compact "dhms" format does ("{days}d {HH}:{MM}:{SS}"), so
+// the page's server-rendered initial text (see the v0.43.0 runtime guide's
+// declarative countdown recipe) matches the client's first tick exactly —
+// no visible jump once the runtime takes over one second after page load.
+// A negative or zero remainder clamps to zero, matching the runtime's own
+// clamp.
+func countdownDHMSLabel(remaining time.Duration) string {
+	if remaining < 0 {
+		remaining = 0
+	}
+	total := int64(remaining.Seconds())
+	days := total / 86400
+	hours := (total % 86400) / 3600
+	minutes := (total % 3600) / 60
+	seconds := total % 60
+	return fmt.Sprintf("%dd %02d:%02d:%02d", days, hours, minutes, seconds)
+}
+
+// countdownMMSSLabel formats a remaining-seconds count the same way the
+// data-gosx-countdown runtime's own compact "mm:ss" format does (minutes
+// unpadded, seconds zero-padded), so the pick clock's server-rendered
+// initial text matches the client's first tick exactly.
+func countdownMMSSLabel(remainingSeconds int) string {
+	if remainingSeconds < 0 {
+		remainingSeconds = 0
+	}
+	return fmt.Sprintf("%d:%02d", remainingSeconds/60, remainingSeconds%60)
 }
 
 // draftFormatLabel renders the draft-room masthead / invite-email format

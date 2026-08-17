@@ -150,7 +150,7 @@ component DraftTeam(props: DraftTeamProps) {
 }
 
 func Page() Node {
-	return <main class="page draft-page" id="main-content" data-draft-at={data.draft.at} data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+	return <main class="page draft-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -173,7 +173,12 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel">
 				<span>Room opens in</span>
-				<strong class="mono" data-draft-countdown>CALCULATING…</strong>
+				<strong
+					class="mono"
+					data-gosx-countdown={data.draft.at}
+					data-gosx-countdown-format="dhms"
+					data-gosx-countdown-then="revalidate"
+				>{data.draft.countdown_label}</strong>
 				<div class="draft-clock-meta">
 					<span>
 						{data.ready_count}
@@ -188,14 +193,21 @@ func Page() Node {
 				</div>
 				<div class="pick-clock-row">
 					<span class="mono">ON THE CLOCK //</span>
-					<strong
-						class="pick-clock mono"
-						data-pick-clock
-						data-armed={data.clock.armed}
-						data-paused={data.clock.paused}
-						data-deadline={data.clock.effective_deadline}
-						data-server-now={data.clock.server_now}
-					>--:--</strong>
+					<If cond={data.clock.paused}>
+						<strong class="pick-clock mono">PAUSED</strong>
+					</If>
+					<If cond={data.clock.paused == false && data.clock.armed == false}>
+						<strong class="pick-clock mono">—:—</strong>
+					</If>
+					<If cond={data.clock.paused == false && data.clock.armed}>
+						<strong
+							class="pick-clock mono"
+							data-gosx-countdown={data.clock.effective_deadline}
+							data-gosx-countdown-format="mm:ss"
+							data-gosx-countdown-warn="15s"
+							data-gosx-countdown-then="revalidate"
+						>{data.clock.remaining_label}</strong>
+					</If>
 					<span class="mono pick-clock-reason">{data.clock.reason}</span>
 				</div>
 				<form method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">

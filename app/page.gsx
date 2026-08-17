@@ -101,7 +101,7 @@ func Page() Node {
 						</div>
 					</div>
 				</div>
-				<aside class="draft-transmission" data-draft-at={data.draft.at}>
+				<aside class="draft-transmission">
 					<div class="transmission-top">
 						<span>Incoming transmission</span>
 						<span class="mono">DRAFT EVENT</span>
@@ -116,7 +116,12 @@ func Page() Node {
 					</div>
 					<div class="countdown-strip">
 						<span>Doors in</span>
-						<b class="mono" data-draft-countdown>CALCULATING…</b>
+						<b
+							class="mono"
+							data-gosx-countdown={data.draft.at}
+							data-gosx-countdown-format="dhms"
+							data-gosx-countdown-then="revalidate"
+						>{data.draft.countdown_label}</b>
 					</div>
 				</aside>
 			</section>
@@ -148,7 +153,7 @@ func Page() Node {
 					<a href="/draft" data-gosx-link class="button button--ghost">Open draft room</a>
 				</div>
 			</div>
-			<aside class="draft-transmission" data-draft-at={data.draft.at}>
+			<aside class="draft-transmission">
 				<div class="transmission-top">
 					<span>Incoming transmission</span>
 					<span class="mono">DRAFT EVENT</span>
@@ -163,7 +168,12 @@ func Page() Node {
 				</div>
 				<div class="countdown-strip">
 					<span>Doors in</span>
-					<b class="mono" data-draft-countdown>CALCULATING…</b>
+					<b
+						class="mono"
+						data-gosx-countdown={data.draft.at}
+						data-gosx-countdown-format="dhms"
+						data-gosx-countdown-then="revalidate"
+					>{data.draft.countdown_label}</b>
 				</div>
 			</aside>
 		</section>
