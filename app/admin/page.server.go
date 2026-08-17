@@ -42,7 +42,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "avatar-reset", "draft-reset", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -125,6 +125,18 @@ func init() {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
 				session.AddFlash(ctx.Request, "notice", "Draft picks and ready flags are cleared.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"draft-undo": func(ctx *action.Context) error {
+				if ctx.FormData["confirm"] != "UNDO" {
+					message := "type UNDO to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				if err := league.Default().AdminUndoPick(ctx.Request); err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Last pick undone; the slot is open again.")
 				ctx.Redirect("/admin")
 				return nil
 			},

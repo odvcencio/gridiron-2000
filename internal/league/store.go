@@ -128,6 +128,8 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	if expected != teamID {
 		return DraftPick{}, fmt.Errorf("%s is on the clock", expected)
 	}
+	// Best-effort backup: a failure here must not block the pick itself.
+	_ = s.backupSnapshotLocked()
 	pick := DraftPick{
 		Number:   number,
 		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),
@@ -139,6 +141,29 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	s.state.Picks = append(s.state.Picks, pick)
 	s.state.ClockDeadline = nextDeadline
 	return pick, s.persistLocked()
+}
+
+// UndoLastPick removes the most recent pick and, unless the clock is
+// paused, re-arms ClockDeadline with the caller-supplied nextDeadline —
+// mirroring MakePick's "caller decides the next deadline" contract: pass
+// now.Add(pick clock duration) to arm the reopened slot's clock, or the
+// zero value to leave it unarmed. A paused clock keeps ClockDeadline and
+// ClockRemainingSec untouched: pause freezes the timer, not the draft, so
+// an undo during a pause must not silently resume it.
+func (s *Store) UndoLastPick(nextDeadline time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Picks) == 0 {
+		return errors.New("no picks to undo")
+	}
+	// Best-effort backup: a failure here must not block the undo itself.
+	_ = s.backupSnapshotLocked()
+	s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
+	if !s.state.ClockPaused {
+		s.state.ClockDeadline = nextDeadline
+		s.state.ClockRemainingSec = 0
+	}
+	return s.persistLocked()
 }
 
 // AutoPick records a clock-driven pick. Under the lock it re-validates:
@@ -184,6 +209,10 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 			return DraftPick{}, errStaleAutoPick
 		}
 	}
+	// Best-effort backup: a failure here must not block the auto-pick
+	// itself. AutoPick mutates Picks the same way MakePick does, so it
+	// gets the same rolling .bak snapshot.
+	_ = s.backupSnapshotLocked()
 	pick := DraftPick{
 		Number:   number,
 		Round:    pickRound(activeTeamCount(s.state.DraftOrder), number),
@@ -960,6 +989,46 @@ func (s *Store) load() error {
 	}
 	s.state = state
 	return nil
+}
+
+// backupSnapshotLocked copies the current on-disk state file to filePath + ".bak"
+// using the temp-file-plus-rename atomic pattern matching persistLocked. If no state
+// file exists yet, it silently returns nil. Every other read failure is returned to
+// the caller; every call site today treats this as a best-effort backup and ignores
+// the error deliberately (see the "Best-effort backup" comments at each call site).
+func (s *Store) backupSnapshotLocked() error {
+	if s.filePath == "" {
+		return nil
+	}
+	raw, err := os.ReadFile(s.filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	bakPath := s.filePath + ".bak"
+	if err := os.MkdirAll(filepath.Dir(bakPath), 0o750); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(bakPath), ".league-state-bak-*.json")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(raw); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, bakPath)
 }
 
 func (s *Store) persistLocked() error {

@@ -1833,6 +1833,15 @@ button.badge-option:hover {
   font-size: var(--type-sm);
 }
 
+/* body.is-on-clock (public/gridiron.js) marks the moment the viewer's own
+   seat is on the clock: a restrained gold glow layered onto the pick
+   clock panel's existing --shadow-panel, matching the presence dot's own
+   "idle" glow pattern below instead of introducing a new visual language. */
+body.is-on-clock .draft-clock-panel {
+  border-color: var(--color-gold);
+  box-shadow: var(--shadow-panel), 0 0 1.5rem var(--color-gold);
+}
+
 .pick-clock-row {
   display: flex;
   align-items: baseline;
@@ -1852,6 +1861,14 @@ button.badge-option:hover {
   font-size: var(--type-2xl);
   letter-spacing: -0.02em;
   transition: color var(--duration-fast) var(--ease-out);
+}
+
+/* pick-clock--warn (public/gridiron.js) is the client's own early-warning
+   tier, added under 30 seconds remaining — ahead of the runtime's own
+   15-second gosx-countdown--warn critical tier just below, which wins on
+   specificity once both apply. */
+.pick-clock.pick-clock--warn {
+  color: var(--color-gold);
 }
 
 /* data-gosx-countdown-warn="15s" (the pick clock's own red/critical
