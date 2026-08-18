@@ -268,6 +268,15 @@ type PersistedState struct {
 	// precedent above: a nil slice decodes safely on an old file, and the
 	// store normalizes it in load/NewStore/cloneState.
 	TradeOffers []TradeOffer `json:"tradeOffers,omitempty"`
+
+	// RosterZones maps team ID to player ID to that player's roster-zone
+	// placement (RESERVE or IR — roster-ops SK spec, zones.go). It is an
+	// overlay atop the derived roster (currentRosters/Picks+Transactions):
+	// placing or activating a zone occupant never touches ownership, only
+	// where the player sits. Additive under schema version 2 — the
+	// WaiverClaims precedent above: a nil map decodes safely on an old
+	// file, and the store normalizes it in load/NewStore/cloneState.
+	RosterZones map[string]map[string]ZoneAssignment `json:"rosterZones,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

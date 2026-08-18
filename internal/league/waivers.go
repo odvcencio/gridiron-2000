@@ -71,12 +71,13 @@ type waiverStatus struct {
 	Reason string
 }
 
-// lastDropInstant returns the At instant of the most recent drop or
-// auto-drop transaction naming playerID among its Drops, and whether one
-// exists at all.
-func lastDropInstant(state PersistedState, playerID string) (time.Time, bool) {
-	var last time.Time
-	found := false
+// lastDropInstant returns the At instant and Type ("drop" or "auto-drop")
+// of the most recent drop or auto-drop transaction naming playerID among
+// its Drops, and whether one exists at all. origin backs clearsAt's IR
+// auto-cut carve-out (SK spec): an "auto-drop" clears on a different,
+// deferred schedule than an ordinary manager drop — see
+// playerWaiverStatus and deferredClearsAt (rosterops.go).
+func lastDropInstant(state PersistedState, playerID string) (at time.Time, origin string, found bool) {
 	for _, txn := range state.Transactions {
 		if txn.Type != "drop" && txn.Type != "auto-drop" {
 			continue
@@ -85,13 +86,14 @@ func lastDropInstant(state PersistedState, playerID string) (time.Time, bool) {
 			if drop.PlayerID != playerID {
 				continue
 			}
-			if !found || txn.At.After(last) {
-				last = txn.At
+			if !found || txn.At.After(at) {
+				at = txn.At
+				origin = txn.Type
 				found = true
 			}
 		}
 	}
-	return last, found
+	return at, origin, found
 }
 
 // kickoffLockedGame finds a game for nflTeam that has kicked off (now is
@@ -130,8 +132,14 @@ func playerWaiverStatus(state PersistedState, cfg Config, games []GameInfo, play
 	if owner[playerID] != "" {
 		return waiverStatus{State: AvailabilityRostered}
 	}
-	if droppedAt, ok := lastDropInstant(state, playerID); ok {
+	if droppedAt, origin, ok := lastDropInstant(state, playerID); ok {
 		clears := clearsAt(cfg, droppedAt)
+		if origin == "auto-drop" {
+			// SK IR rule: a healed-IR auto-cut never clears on the
+			// ordinary clear_days schedule — it defers to the following
+			// NFL week's processing run, never an instant free agent.
+			clears = deferredClearsAt(cfg, games, droppedAt)
+		}
 		if now.Before(clears) {
 			return waiverStatus{State: AvailabilityOnWaivers, ResolvesAt: clears, Reason: "dropped"}
 		}

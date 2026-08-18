@@ -565,14 +565,28 @@ func Page() Node {
 							<span>BENCH</span>
 							<b class="mono">{data.roster_shape.bench}</b>
 						</div>
+						<If cond={data.roster_shape.reserve_total > 0}>
+							<div class="pool-stat">
+								<span>RESERVE</span>
+								<b class="mono">{data.roster_shape.reserve_total}</b>
+							</div>
+						</If>
+						<If cond={data.roster_shape.ir > 0}>
+							<div class="pool-stat">
+								<span>IR</span>
+								<b class="mono">{data.roster_shape.ir}</b>
+							</div>
+						</If>
 					</div>
 					<p class="scoring-note">
 						{data.roster_shape.starters}
 						starters +
 						{data.roster_shape.bench}
-						bench =
+						bench + reserve =
 						{data.roster_shape.rounds}
-						draft rounds. Draft rounds derive from this total; they are not set separately.
+						draft rounds. IR (
+						{data.roster_shape.ir}
+						) sits outside that total — in-season stash only, not draftable.
 					</p>
 					<If cond={data.roster_shape.draft_started}>
 						<p class="demo-message">
@@ -594,6 +608,35 @@ func Page() Node {
 									<span class="mono">BENCH</span>
 									<input class="scoring-input" type="number" name="bench" value={data.roster_shape.bench} min="0" max="10"></input>
 								</label>
+							</div>
+							<p class="scoring-note">
+								RESERVE (position-gated, counts toward rounds) — 0 leaves a position out of the zone entirely.
+							</p>
+							<div class="roster-shape-form-grid">
+								<Each of={data.roster_shape.reserve_rows} as="row">
+									<label class="roster-shape-field">
+										<span class="mono">{row.key}</span>
+										<input class="scoring-input" type="number" name={row.field_name} value={row.count} min="0" max="4"></input>
+									</label>
+								</Each>
+							</div>
+							<p class="scoring-note">
+								IR (injury-gated, outside rounds) and per-position LIMITS (0 = unlimited).
+							</p>
+							<div class="roster-shape-form-grid">
+								<label class="roster-shape-field">
+									<span class="mono">IR</span>
+									<input class="scoring-input" type="number" name="ir" value={data.roster_shape.ir} min="0" max="10"></input>
+								</label>
+								<Each of={data.roster_shape.limit_rows} as="row">
+									<label class="roster-shape-field">
+										<span class="mono">
+											MAX
+											{row.key}
+										</span>
+										<input class="scoring-input" type="number" name={row.field_name} value={row.count} min="0" max="20"></input>
+									</label>
+								</Each>
 							</div>
 							<button class="button button--primary" type="submit">Apply roster shape</button>
 						</form>

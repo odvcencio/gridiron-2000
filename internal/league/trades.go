@@ -176,18 +176,48 @@ func validateTradeAssets(state PersistedState, cfg Config, games []GameInfo, poo
 			return err
 		}
 	}
-	fromNext := len(rosters[offer.FromTeamID]) - len(offer.Give) + len(offer.Get)
+	// T7's bound reads the effective (IR-excluding) roster size (SK spec:
+	// "placing a player in IR frees a general roster spot"). A Give/Get
+	// player who is themself an IR occupant on the sending side does not
+	// count against that side's effective size in the first place, so it
+	// is excluded from the outgoing delta too; the receiving side always
+	// lands the player un-zoned (general pool), fully counted. With no IR
+	// occupants this is exactly the pre-zones formula.
+	giveIR := countInZone(state, offer.FromTeamID, offer.Give, zoneIR)
+	getIR := countInZone(state, offer.ToTeamID, offer.Get, zoneIR)
+	fromEffective := effectiveRosterSize(state, offer.FromTeamID)
+	fromNext := fromEffective - (len(offer.Give) - giveIR) + len(offer.Get)
 	if fromNext < starterCount || fromNext > rosterCap { // T7
 		return fmt.Errorf("this trade would leave %s with %d players; rosters must hold %d to %d", fromName, fromNext, starterCount, rosterCap)
 	}
-	toNext := len(rosters[offer.ToTeamID]) - len(offer.Get) + len(offer.Give)
+	toEffective := effectiveRosterSize(state, offer.ToTeamID)
+	toNext := toEffective - (len(offer.Get) - getIR) + len(offer.Give)
 	if toNext < starterCount || toNext > rosterCap { // T7
 		return fmt.Errorf("this trade would leave %s with %d players; rosters must hold %d to %d", toName, toNext, starterCount, rosterCap)
+	}
+	// Limits (optional knob, default off, SK spec): each side's incoming
+	// players must not push any position past its configured cap.
+	if position, limit, breach := teamWouldBreachLimit(state, poolByID, offer.FromTeamID, offer.Get, offer.Give); breach {
+		return fmt.Errorf("%s", limitMessage(position, limit))
+	}
+	if position, limit, breach := teamWouldBreachLimit(state, poolByID, offer.ToTeamID, offer.Give, offer.Get); breach {
+		return fmt.Errorf("%s", limitMessage(position, limit))
 	}
 	if deadline, ok := parseTradeDeadline(cfg); ok && !now.Before(deadline) { // T8
 		return fmt.Errorf("the trade deadline (%s) has passed", formatResolvesAt(cfg, deadline))
 	}
 	return nil
+}
+
+// countInZone counts how many of ids currently sit in zone for teamID.
+func countInZone(state PersistedState, teamID string, ids []string, zone string) int {
+	n := 0
+	for _, id := range ids {
+		if zoneOfPlayer(state, teamID, id) == zone {
+			n++
+		}
+	}
+	return n
 }
 
 // findTradeOffer looks up one offer by ID in an already-taken snapshot.

@@ -119,6 +119,20 @@ func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
 			"count":      roster.Slots[slot.Key],
 		})
 	}
+	// Reserve/Limits editor rows (SK spec): one row per real player
+	// position, so the form always offers the full, fixed key set
+	// regardless of whether the active shape currently uses it — the same
+	// "every key, current count" shape the starter slots grid above uses.
+	reserveRows := make([]map[string]any, 0, len(playerPoolPositions))
+	limitRows := make([]map[string]any, 0, len(playerPoolPositions))
+	for _, position := range playerPoolPositions {
+		reserveRows = append(reserveRows, map[string]any{
+			"key": position, "field_name": "reserve_" + position, "count": roster.Reserve[position],
+		})
+		limitRows = append(limitRows, map[string]any{
+			"key": position, "field_name": "limit_" + position, "count": roster.Limits[position],
+		})
+	}
 	return map[string]any{
 		"slots":         slots,
 		"bench":         roster.Bench,
@@ -126,6 +140,12 @@ func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
 		"rounds":        roster.Total(),
 		"has_override":  state.RosterOverride != nil,
 		"draft_started": len(state.Picks) > 0,
+		// Zones/Limits (roster-ops SK spec): additive fields onto the same
+		// panel. reserve_total counts toward rounds; ir sits outside it.
+		"reserve_rows":  reserveRows,
+		"reserve_total": roster.ReserveTotal(),
+		"ir":            roster.IR,
+		"limit_rows":    limitRows,
 	}
 }
 

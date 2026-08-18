@@ -70,6 +70,7 @@ func NewStore(filePath string) *Store {
 			Transactions:  []Transaction{},
 			WaiverClaims:  []WaiverClaim{},
 			TradeOffers:   []TradeOffer{},
+			RosterZones:   map[string]map[string]ZoneAssignment{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -526,6 +527,10 @@ func (s *Store) ResetDraft() error {
 	// draft; same rationale as WaiverClaims above (roster-ops spec section
 	// 7.3).
 	s.state.TradeOffers = []TradeOffer{}
+	// RosterZones name a zoned player against the pre-reset roster; same
+	// rationale (SK IR spec) — a redrawn draft must not leave a stale
+	// reserve/IR tag behind to trip up the new one.
+	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
 	return s.persistLocked()
@@ -558,6 +563,8 @@ func (s *Store) ResetLeague() error {
 	s.state.WaiversProcessedThrough = time.Time{}
 	// See ResetDraft's TradeOffers comment; same rationale.
 	s.state.TradeOffers = []TradeOffer{}
+	// See ResetDraft's RosterZones comment; same rationale.
+	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
@@ -1232,12 +1239,20 @@ func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 			return fmt.Errorf("%s", lineupNotOnRosterMessage)
 		}
 	}
-	current := len(currentRosters(s.state)[txn.TeamID])
+	// effectiveRosterSize excludes IR occupants from the cap math (SK
+	// spec: "placing a player in IR frees a general roster spot") — with
+	// no IR occupants this is exactly the raw ownership count, unchanged.
+	current := effectiveRosterSize(s.state, txn.TeamID)
 	if next := current + len(txn.Adds) - len(txn.Drops); next > rosterCap {
 		return fmt.Errorf("your roster is full; choose a player to drop")
 	}
 	txn.At = txn.At.UTC()
 	s.state.Transactions = append(s.state.Transactions, txn)
+	dropIDs := make([]string, 0, len(txn.Drops))
+	for _, drop := range txn.Drops {
+		dropIDs = append(dropIDs, drop.PlayerID)
+	}
+	s.clearZoneAssignmentsLocked(txn.TeamID, dropIDs)
 	return s.persistLocked()
 }
 
@@ -1364,6 +1379,14 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		result := WaiverResult{Claim: next}
 		owner := rosterOwner(currentRosters(s.state))
 		addPlayer, addKnown := poolByID[next.AddID]
+		var outgoing []string
+		if next.DropID != "" {
+			outgoing = []string{next.DropID}
+		}
+		limitPosition, limitCap, limitBreach := "", 0, false
+		if addKnown {
+			limitPosition, limitCap, limitBreach = teamWouldBreachLimit(s.state, poolByID, next.TeamID, []string{next.AddID}, outgoing)
+		}
 
 		switch {
 		case owner[next.AddID] != "":
@@ -1378,12 +1401,15 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		case next.DropID != "" && playerLocked(games, pickemWeekAt(games, now), poolByID[next.DropID].NFLTeam, now):
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
-		case next.DropID == "" && len(currentRosters(s.state)[next.TeamID])+1 > rosterCap:
+		case next.DropID == "" && effectiveRosterSize(s.state, next.TeamID)+1 > rosterCap:
 			result.Outcome = "failed"
 			result.Reason = "your roster is full; choose a player to drop"
 		case cfg.Waivers.Mode == "faab" && next.Bid > budget[next.TeamID]:
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("your bid exceeds your remaining budget ($%d left)", budget[next.TeamID])
+		case limitBreach:
+			result.Outcome = "failed"
+			result.Reason = limitMessage(limitPosition, limitCap)
 		default:
 			week := pickemWeekAt(games, now)
 			txn := Transaction{
@@ -1411,6 +1437,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			}
 			txn.ID = id
 			s.state.Transactions = append(s.state.Transactions, txn)
+			s.clearZoneAssignmentsLocked(next.TeamID, outgoing)
 			result.Outcome = "won"
 			result.Week = week
 		}
@@ -1596,6 +1623,11 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 	s.state.Transactions = append(s.state.Transactions, txn)
 	s.state.TradeOffers[index].Status = TradeStatusExecuted
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	// A traded player never carries their zone tag to the receiving team
+	// (they land in the general pool, like any other acquisition) — clear
+	// both sides' outgoing players' zone assignments in this same persist.
+	s.clearZoneAssignmentsLocked(offer.FromTeamID, offer.Give)
+	s.clearZoneAssignmentsLocked(offer.ToTeamID, offer.Get)
 	if err := s.persistLocked(); err != nil {
 		return Transaction{}, err
 	}
@@ -1829,6 +1861,9 @@ func (s *Store) load() error {
 	if state.TradeOffers == nil {
 		state.TradeOffers = []TradeOffer{}
 	}
+	if state.RosterZones == nil {
+		state.RosterZones = map[string]map[string]ZoneAssignment{}
+	}
 	s.state = state
 	return nil
 }
@@ -1939,6 +1974,7 @@ func cloneState(in PersistedState) PersistedState {
 		WaiverClaims:            make([]WaiverClaim, len(in.WaiverClaims)),
 		WaiversProcessedThrough: in.WaiversProcessedThrough,
 		TradeOffers:             make([]TradeOffer, len(in.TradeOffers)),
+		RosterZones:             make(map[string]map[string]ZoneAssignment, len(in.RosterZones)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -2044,6 +2080,9 @@ func cloneState(in PersistedState) PersistedState {
 			AcceptedAt: offer.AcceptedAt,
 			ResolvedAt: offer.ResolvedAt,
 		}
+	}
+	for teamID, zones := range in.RosterZones {
+		out.RosterZones[teamID] = cloneZoneAssignments(zones)
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

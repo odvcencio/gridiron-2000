@@ -64,7 +64,9 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 
 	myRoster := currentRosters(state)[teamID]
 	rosterCap := CurrentRoster().Total()
-	atCap := len(myRoster) >= rosterCap
+	// atCap reads the effective (IR-excluding) size, so a team stashing an
+	// injured player on IR correctly sees the spot it frees (SK spec).
+	atCap := effectiveRosterSize(state, teamID) >= rosterCap
 
 	rows := make([]map[string]any, 0, len(pool.players))
 	for _, player := range pool.players {
@@ -245,6 +247,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 		By:     "manager",
 		At:     now,
 	}
+	var dropIDs []string
 	if dropID != "" {
 		dropPlayer, ok := pool.byID[dropID]
 		if !ok || owner[dropID] != teamID { // W7
@@ -254,8 +257,13 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		txn.Drops = []TransactionPlayer{transactionPlayerFromPlayer(dropPlayer)}
-	} else if len(rosters[teamID])+1 > rosterCap { // W6
+		dropIDs = []string{dropID}
+	} else if effectiveRosterSize(state, teamID)+1 > rosterCap { // W6
 		return "", fmt.Errorf("your roster is full; choose a player to drop")
+	}
+	// Limits (optional knob, default off, SK spec).
+	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, dropIDs); breach {
+		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
 
 	id, err := randomTransactionID()
@@ -370,8 +378,18 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		claim.DropID = dropID
-	} else if len(rosters[teamID])+1 > rosterCap { // W6
+	} else if effectiveRosterSize(state, teamID)+1 > rosterCap { // W6
 		return "", fmt.Errorf("your roster is full; choose a player to drop")
+	}
+	// Limits (optional knob, default off, SK spec) — filing-time fail
+	// fast; ProcessWaivers re-checks at resolution time, since roster
+	// composition may shift between filing and the claim's own run.
+	var claimOutgoing []string
+	if claim.DropID != "" {
+		claimOutgoing = []string{claim.DropID}
+	}
+	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, claimOutgoing); breach {
+		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
 
 	if s.cfg.Waivers.Mode == "faab" {

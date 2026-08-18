@@ -402,6 +402,107 @@ func Page() Node {
 								<RosterRow {...player}></RosterRow>
 							</Each>
 						</div>
+						<If cond={data.has_reserve}>
+							<h3 class="lineup-bench-title">
+								Reserve
+								<small class="mono">{data.reserve_capacity}</small>
+							</h3>
+							<If cond={data.reserve_occupants_empty}>
+								<p class="stat-tip__empty">No one is on reserve.</p>
+							</If>
+							<If cond={data.reserve_occupants_empty == false}>
+								<div class="roster-list">
+									<Each of={data.reserve_occupants} as="occ">
+										<div class="roster-row">
+											<div class="position-chip">{occ.position}</div>
+											<div>
+												<strong>{occ.name}</strong>
+												<small>
+													{occ.nfl_team}
+													·
+													{occ.opponent}
+												</small>
+											</div>
+											<form method="post" action={actionPath("reserve-activate")} data-gosx-managed="true">
+												<input type="hidden" name="csrf_token" value={csrf.token}></input>
+												<input type="hidden" name="team_id" value={data.team.id}></input>
+												<input type="hidden" name="player_id" value={occ.id}></input>
+												<button class="button button--compact" type="submit">Activate</button>
+											</form>
+										</div>
+									</Each>
+								</div>
+							</If>
+							<If cond={data.reserve_place_empty == false}>
+								<form method="post" action={actionPath("reserve-place")} data-gosx-managed="true" class="lineup-toolbar">
+									<input type="hidden" name="csrf_token" value={csrf.token}></input>
+									<input type="hidden" name="team_id" value={data.team.id}></input>
+									<select name="player_id" aria-label="Place a player on reserve">
+										<Each of={data.reserve_place_options} as="opt">
+											<option value={opt.id}>{opt.label}</option>
+										</Each>
+									</select>
+									<button class="board-button" type="submit">Place on reserve</button>
+								</form>
+							</If>
+						</If>
+						<If cond={data.has_ir}>
+							<h3 class="lineup-bench-title">
+								IR
+								<small class="mono">{data.ir_capacity}</small>
+							</h3>
+							<If cond={data.ir_occupants_empty}>
+								<p class="stat-tip__empty">No one is on IR.</p>
+							</If>
+							<If cond={data.ir_occupants_empty == false}>
+								<div class="roster-list">
+									<Each of={data.ir_occupants} as="occ">
+										<div class="roster-row">
+											<div class="position-chip">{occ.position}</div>
+											<div>
+												<strong>{occ.name}</strong>
+												<small>
+													{occ.nfl_team}
+													·
+													{occ.opponent}
+												</small>
+												<If cond={occ.healed}>
+													<p class="error-message">
+														Off the injury report — activate before
+														{occ.deadline_label}
+														or the platform auto-cuts him.
+													</p>
+												</If>
+											</div>
+											<form method="post" action={actionPath("ir-activate")} data-gosx-managed="true">
+												<input type="hidden" name="csrf_token" value={csrf.token}></input>
+												<input type="hidden" name="team_id" value={data.team.id}></input>
+												<input type="hidden" name="player_id" value={occ.id}></input>
+												<select name="drop_id" aria-label="Optional drop to make room">
+													<option value="">— no drop —</option>
+													<Each of={data.ir_drop_options} as="opt">
+														<option value={opt.id}>{opt.label}</option>
+													</Each>
+												</select>
+												<button class="button button--compact" type="submit">Activate</button>
+											</form>
+										</div>
+									</Each>
+								</div>
+							</If>
+							<If cond={data.ir_place_empty == false}>
+								<form method="post" action={actionPath("ir-place")} data-gosx-managed="true" class="lineup-toolbar">
+									<input type="hidden" name="csrf_token" value={csrf.token}></input>
+									<input type="hidden" name="team_id" value={data.team.id}></input>
+									<select name="player_id" aria-label="Place a player on IR">
+										<Each of={data.ir_place_options} as="opt">
+											<option value={opt.id}>{opt.label}</option>
+										</Each>
+									</select>
+									<button class="board-button" type="submit">Place on IR</button>
+								</form>
+							</If>
+						</If>
 					</If>
 				</If>
 			</section>

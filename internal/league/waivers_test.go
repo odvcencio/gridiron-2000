@@ -882,6 +882,29 @@ func TestProcessWaiversDropNotOwnedFails(t *testing.T) {
 	}
 }
 
+// TestProcessWaiversLimitsBlocks pins the optional Limits knob's
+// waiver-resolution enforcement point: a won claim that would push a
+// position over its configured cap resolves "failed" with the shared
+// limitMessage pattern, even with roster-cap room to spare.
+func TestProcessWaiversLimitsBlocks(t *testing.T) {
+	setRosterShape(RosterPreset{Name: "limits-fixture", Slots: map[string]int{"RB": 1}, Bench: 5, Limits: map[string]int{"RB": 1}})
+	t.Cleanup(clearRosterShape)
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	draftPlayerToTeam(t, store, "team-7", "d-a", now.Add(-time.Hour)) // d-a is an RB, already at the RB:1 limit
+	if err := store.FileClaim(WaiverClaim{ID: "clm-1", TeamID: "team-7", AddID: "wv-1", FiledAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := store.ProcessWaivers(now, processWaiversCfg(), nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := limitMessage("RB", 1)
+	if len(results) != 1 || results[0].Outcome != "failed" || results[0].Reason != want {
+		t.Fatalf("results = %+v, want one failure with %q", results, want)
+	}
+}
+
 func TestProcessWaiversRosterFullWithNoDropFails(t *testing.T) {
 	store := processWaiversFixtureStore(t)
 	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
