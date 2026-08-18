@@ -2,12 +2,11 @@ package league
 
 import (
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -32,23 +31,57 @@ const currentSchemaVersion = 2
 // silently drop fields a newer one wrote (section 6.3).
 var errSchemaTooNew = errors.New("state file schema version is newer than this binary supports")
 
-// Store keeps the starter deployable without a database while preserving
-// state across restarts. Its methods are safe for concurrent requests.
+// Store holds the league's authoritative state. The record of truth is a
+// SQLite database, one file per league (data/league.db); the in-memory
+// PersistedState below is the working copy every read serves, and every
+// mutator writes its own rows through in one transaction. Its methods are
+// safe for concurrent requests.
+//
+// One process owns one league database, as it always has: the deployment
+// runs a single replica against a ReadWriteOnce volume, with the Recreate
+// rollout strategy, so no two processes ever hold the same file. A second
+// writing process would keep its own working copy and its own record of
+// what it last wrote, so the two copies would drift — the same
+// single-writer rule the JSON state file carried, now backed by a real
+// transaction boundary for the one writer that exists.
 type Store struct {
-	mu       sync.RWMutex
+	mu sync.RWMutex
+	// filePath names the legacy JSON state file. It still anchors the data
+	// directory (the database is its sibling, dbFileName) and it is the
+	// one-time import source; see openLocked. An empty path means "no
+	// persistence": the store runs from memory and every persist is a
+	// no-op.
 	filePath string
+	dbPath   string
+	db       *sql.DB
 	state    PersistedState
-	// loadErr holds a load() failure the constructor could not recover
-	// from: today, only errSchemaTooNew (section 6.3). persistLocked
-	// refuses to write while it is set, so a downgraded binary can never
-	// clobber a newer-schema file with blank in-memory state; see
+	// shadow remembers every row as last committed, so a persist writes
+	// only the rows that actually changed. dirty is the bitmask of
+	// collections a mutator declared; see persistLocked.
+	shadow shadowIndex
+	dirty  uint32
+	// lastPersistRows counts the rows the last successful persist wrote
+	// or deleted. It backs the incremental-write test and is useful when
+	// diagnosing write amplification.
+	lastPersistRows int
+	// loadErr holds a boot failure the constructor could not recover
+	// from: a state whose schema version is newer than this binary
+	// supports (section 6.3), a database that cannot be opened, or a
+	// legacy state file that failed to import. persistLocked refuses to
+	// write while it is set, so a downgraded or broken binary can never
+	// clobber good stored state with blank in-memory state; see
 	// StartupError.
 	loadErr error
+	// persistHook runs inside persistLocked's transaction, just before
+	// the commit. It is nil in production; tests set it to fail a write
+	// or to kill the process with the transaction still open.
+	persistHook func() error
 }
 
 func NewStore(filePath string) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
+		shadow:   shadowIndex{},
 		state: PersistedState{
 			SchemaVersion: currentSchemaVersion,
 			Ready:         map[string]bool{},
@@ -74,20 +107,41 @@ func NewStore(filePath string) *Store {
 			CoInvites:     map[string]string{},
 		},
 	}
-	if err := s.load(); err != nil {
+	if err := s.openLocked(); err != nil {
 		s.loadErr = err
+	}
+	if s.db != nil {
+		// Close the database once the Store becomes unreachable. A
+		// long-lived process holds one Store for its whole life; a test
+		// that drops one gets its file handles back at the next
+		// collection. Call Close to release them at a known point.
+		runtime.AddCleanup(s, func(db *sql.DB) { _ = db.Close() }, s.db)
 	}
 	return s
 }
 
-// StartupError reports a load failure the constructor could not recover
-// from safely: today, only a state file whose SchemaVersion exceeds
-// currentSchemaVersion (section 6.3 — "refuse to start with a clear
-// error"). Every write method fails with the same error while this is set,
-// protecting the on-disk file from a downgraded binary silently
-// overwriting it with blank in-memory state. A malformed (non-JSON) file
-// still decodes to the pre-existing "start fresh" behavior, unchanged by
-// this work package.
+// Close releases the database. A closed Store must not be used again.
+// Production never calls it (the process holds one Store for its whole
+// life); it exists so a caller that builds many stores can release their
+// handles at a known point.
+func (s *Store) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.db == nil {
+		return nil
+	}
+	db := s.db
+	s.db = nil
+	return db.Close()
+}
+
+// StartupError reports a boot failure the constructor could not recover
+// from safely: stored state whose schema version exceeds this binary's
+// (section 6.3 — "refuse to start with a clear error"), a database that
+// could not be opened or migrated, or a legacy JSON state file that could
+// not be imported and verified. Every write method fails with the same
+// error while this is set, protecting the stored state from a downgraded
+// or broken binary silently overwriting it with blank in-memory state.
 func (s *Store) StartupError() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -107,7 +161,7 @@ func (s *Store) ToggleReady(teamID string) (bool, error) {
 		return false, fmt.Errorf("unknown team %q", teamID)
 	}
 	s.state.Ready[teamID] = !s.state.Ready[teamID]
-	return s.state.Ready[teamID], s.persistLocked()
+	return s.state.Ready[teamID], s.persistLocked(colReady)
 }
 
 // MakePick records a manual pick and arms the next deadline in the same
@@ -149,7 +203,7 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	}
 	s.state.Picks = append(s.state.Picks, pick)
 	s.state.ClockDeadline = nextDeadline
-	return pick, s.persistLocked()
+	return pick, s.persistLocked(colPicks, colScalars)
 }
 
 // UndoLastPick removes the most recent pick and, unless the clock is
@@ -172,7 +226,7 @@ func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 		s.state.ClockDeadline = nextDeadline
 		s.state.ClockRemainingSec = 0
 	}
-	return s.persistLocked()
+	return s.persistLocked(colPicks, colScalars)
 }
 
 // AutoPick records a clock-driven pick. Under the lock it re-validates:
@@ -232,7 +286,7 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 	}
 	s.state.Picks = append(s.state.Picks, pick)
 	s.state.ClockDeadline = nextDeadline
-	return pick, s.persistLocked()
+	return pick, s.persistLocked(colPicks, colScalars)
 }
 
 // ArmClock sets the deadline directly. It backs both the ticker's "arm an
@@ -242,7 +296,7 @@ func (s *Store) ArmClock(deadline time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.ClockDeadline = deadline
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // PauseClock stops the running deadline, storing the remaining seconds
@@ -261,7 +315,7 @@ func (s *Store) PauseClock(now time.Time) error {
 	s.state.ClockRemainingSec = remaining
 	s.state.ClockDeadline = time.Time{}
 	s.state.ClockPaused = true
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // ResumeClock restores the deadline from the stored remaining seconds, or
@@ -278,7 +332,7 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	s.state.ClockDeadline = now.Add(remaining)
 	s.state.ClockPaused = false
 	s.state.ClockRemainingSec = 0
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // ExtendClock adds delta to the running deadline, clamped to
@@ -300,7 +354,7 @@ func (s *Store) ExtendClock(now time.Time, delta time.Duration) error {
 		next = ceiling
 	}
 	s.state.ClockDeadline = next
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // SetClockDuration overrides the persisted pick-clock duration, clamped to
@@ -311,7 +365,7 @@ func (s *Store) SetClockDuration(seconds int) error {
 	defer s.mu.Unlock()
 	duration := clampPickClock(time.Duration(seconds) * time.Second)
 	s.state.ClockDurationSec = int(duration.Seconds())
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // ClearClock zeroes every clock field without touching picks or Autopick.
@@ -326,7 +380,7 @@ func (s *Store) ClearClock() error {
 	s.state.ClockDeadline = time.Time{}
 	s.state.ClockPaused = false
 	s.state.ClockRemainingSec = 0
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // SetAutopick toggles a team's away-mode auto-pick flag.
@@ -341,7 +395,7 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 	} else {
 		delete(s.state.Autopick, teamID)
 	}
-	return s.persistLocked()
+	return s.persistLocked(colAutopick)
 }
 
 // AssignMember binds email to the first open seat, or returns the existing
@@ -371,7 +425,7 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		if name != "" && existing.Name != name {
 			existing.Name = name
 			s.state.Members[email] = existing
-			_ = s.persistLocked()
+			_ = s.persistLocked(colMembers)
 		}
 		return existing, false, nil
 	}
@@ -388,7 +442,7 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		}
 		newMember := Member{TeamID: team.ID, Name: name, Email: email}
 		s.state.Members[email] = newMember
-		return newMember, true, s.persistLocked()
+		return newMember, true, s.persistLocked(colMembers)
 	}
 	return Member{}, false, ErrLeagueFull
 }
@@ -412,13 +466,13 @@ func (s *Store) EnsureMember(email, name string) (member Member, created bool, e
 		if name != "" && existing.Name != name {
 			existing.Name = name
 			s.state.Members[email] = existing
-			_ = s.persistLocked()
+			_ = s.persistLocked(colMembers)
 		}
 		return existing, false, nil
 	}
 	newMember := Member{TeamID: "", Name: name, Email: email}
 	s.state.Members[email] = newMember
-	return newMember, true, s.persistLocked()
+	return newMember, true, s.persistLocked(colMembers)
 }
 
 func (s *Store) MemberByEmail(email string) (Member, bool) {
@@ -443,7 +497,7 @@ func (s *Store) AddInvite(email string) error {
 		}
 	}
 	s.state.Invites = append(s.state.Invites, email)
-	return s.persistLocked()
+	return s.persistLocked(colInvites)
 }
 
 // RemoveInvite drops an email from the invite list. Existing seat claims stay.
@@ -458,7 +512,7 @@ func (s *Store) RemoveInvite(email string) error {
 		}
 	}
 	s.state.Invites = kept
-	return s.persistLocked()
+	return s.persistLocked(colInvites)
 }
 
 // Invited reports whether the email is on the stored invite list.
@@ -497,7 +551,7 @@ func (s *Store) ReleaseSeat(teamID string) error {
 		}
 	}
 	delete(s.state.Ready, teamID)
-	return s.persistLocked()
+	return s.persistLocked(colMembers, colCoInvites, colReady)
 }
 
 // errCoManagerLimit is the co-manager registration wave's exact-message
@@ -559,7 +613,7 @@ func (s *Store) InviteCoManager(teamID, email string) error {
 		s.state.CoInvites = map[string]string{}
 	}
 	s.state.CoInvites[email] = teamID
-	return s.persistLocked()
+	return s.persistLocked(colInvites, colCoInvites)
 }
 
 // BindCoManager consumes email's pending co-invite (if any) into a bound
@@ -586,7 +640,7 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 	newMember := Member{TeamID: teamID, Name: name, Email: email, Role: "co"}
 	s.state.Members[email] = newMember
 	delete(s.state.CoInvites, email)
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colMembers, colCoInvites); err != nil {
 		return Member{}, false, err
 	}
 	return newMember, true, nil
@@ -619,7 +673,7 @@ func (s *Store) DetachCoManager(teamID string) error {
 	if !changed {
 		return nil
 	}
-	return s.persistLocked()
+	return s.persistLocked(colMembers, colCoInvites)
 }
 
 // resetDraftSentLogPrefixes are the SentLog key prefixes ResetDraft drops:
@@ -675,7 +729,8 @@ func (s *Store) ResetDraft() error {
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
-	return s.persistLocked()
+	return s.persistLocked(colPicks, colReady, colTransactions, colLineups, colWaiverClaims, colTradeOffers,
+		colRosterZones, colAutopick, colSentLog, colScalars)
 }
 
 // ResetLeague clears picks, seats, ready flags, boards, pick'em picks,
@@ -709,7 +764,8 @@ func (s *Store) ResetLeague() error {
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
-	return s.persistLocked()
+	return s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colBlitzEntries, colTransactions,
+		colLineups, colWaiverClaims, colTradeOffers, colRosterZones, colAutopick, colSentLog, colScalars)
 }
 
 // clearClockFieldsLocked zeroes every clock field and the Autopick map. The
@@ -767,7 +823,7 @@ func (s *Store) SetTeamName(teamID, name string) error {
 	} else {
 		s.state.TeamNames[teamID] = name
 	}
-	return s.persistLocked()
+	return s.persistLocked(colTeamNames)
 }
 
 // SetDraftOrder stores a commissioner-drawn draft order. The order must name
@@ -783,7 +839,7 @@ func (s *Store) SetDraftOrder(order []string) error {
 		return fmt.Errorf("reset the draft before changing the order")
 	}
 	s.state.DraftOrder = append([]string(nil), order...)
-	return s.persistLocked()
+	return s.persistLocked(colDraftOrder)
 }
 
 // validateDraftOrder rejects anything that is not an exact permutation of
@@ -823,7 +879,7 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 	} else {
 		s.state.Scoring[key] = points
 	}
-	return s.persistLocked()
+	return s.persistLocked(colScoring)
 }
 
 // ResetScoring clears every scoring override, restoring the default rules.
@@ -831,7 +887,7 @@ func (s *Store) ResetScoring() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Scoring = map[string]float64{}
-	return s.persistLocked()
+	return s.persistLocked(colScoring)
 }
 
 const boardLimit = 100
@@ -853,7 +909,7 @@ func (s *Store) BoardAdd(owner, playerID string) error {
 		return fmt.Errorf("the board holds at most %d players", boardLimit)
 	}
 	s.state.Boards[owner] = append(board, playerID)
-	return s.persistLocked()
+	return s.persistLocked(colBoards)
 }
 
 // BoardMove shifts a player up (delta -1) or down (delta +1) on the board.
@@ -870,7 +926,7 @@ func (s *Store) BoardMove(owner, playerID string, delta int) error {
 			return nil
 		}
 		board[index], board[target] = board[target], board[index]
-		return s.persistLocked()
+		return s.persistLocked(colBoards)
 	}
 	return fmt.Errorf("that player is not on the board")
 }
@@ -912,7 +968,7 @@ func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
 	updated = append(updated, playerID)
 	updated = append(updated, rest[index:]...)
 	s.state.Boards[owner] = updated
-	return s.persistLocked()
+	return s.persistLocked(colBoards)
 }
 
 // BoardRemove drops a player from the owner's board.
@@ -927,7 +983,7 @@ func (s *Store) BoardRemove(owner, playerID string) error {
 		}
 	}
 	s.state.Boards[owner] = kept
-	return s.persistLocked()
+	return s.persistLocked(colBoards)
 }
 
 // BoardClear removes every player from the owner's board.
@@ -935,7 +991,7 @@ func (s *Store) BoardClear(owner string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.state.Boards, owner)
-	return s.persistLocked()
+	return s.persistLocked(colBoards)
 }
 
 // SetPickem records the owner's pick for one game. It does not validate the
@@ -950,7 +1006,7 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 		s.state.Pickems[owner] = map[string]string{}
 	}
 	s.state.Pickems[owner][gameID] = team
-	return s.persistLocked()
+	return s.persistLocked(colPickems)
 }
 
 // BlitzSetEntry replaces owner's slate entry wholesale. It performs no
@@ -971,7 +1027,7 @@ func (s *Store) BlitzSetEntry(owner, slate string, players []string, now time.Ti
 		Players:   append([]string(nil), players...),
 		UpdatedAt: now.UTC(),
 	}
-	return s.persistLocked()
+	return s.persistLocked(colBlitzEntries)
 }
 
 // FirstSend records key with now (converted to UTC) and returns true when
@@ -990,7 +1046,7 @@ func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
 		return false, nil
 	}
 	s.state.SentLog[key] = now.UTC()
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colSentLog); err != nil {
 		delete(s.state.SentLog, key)
 		return false, err
 	}
@@ -1018,7 +1074,7 @@ func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
 		result[i] = true
 		added = append(added, key)
 	}
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colSentLog); err != nil {
 		for _, key := range added {
 			delete(s.state.SentLog, key)
 		}
@@ -1056,7 +1112,7 @@ func (s *Store) PruneSentLog(cutoff time.Time, prefixes ...string) error {
 	if !deleted {
 		return nil
 	}
-	return s.persistLocked()
+	return s.persistLocked(colSentLog)
 }
 
 // SetNotifyPref records one member's category preference. Only overrides
@@ -1077,7 +1133,7 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 		s.state.NotifyPrefs[email] = map[string]bool{}
 	}
 	s.state.NotifyPrefs[email][category] = enabled
-	return s.persistLocked()
+	return s.persistLocked(colNotifyPrefs)
 }
 
 // SetSchedule replaces the persisted regular-season schedule wholesale. It
@@ -1089,7 +1145,7 @@ func (s *Store) SetSchedule(sch SeasonSchedule) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Schedule = cloneSchedule(&sch)
-	return s.persistLocked()
+	return s.persistLocked(colSchedule, colScalars)
 }
 
 // SetScheduleWeek replaces one week's data (matchups, scores, bye) in the
@@ -1106,7 +1162,7 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 			stored := week
 			stored.Matchups = append([]LeagueMatchup(nil), week.Matchups...)
 			s.state.Schedule.Weeks[i] = stored
-			return s.persistLocked()
+			return s.persistLocked(colSchedule)
 		}
 	}
 	return fmt.Errorf("week %d is not part of the schedule", week.Week)
@@ -1168,7 +1224,7 @@ func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]ma
 		}
 		byWeek[week.Week] = copied
 	}
-	return s.persistLocked()
+	return s.persistLocked(colSchedule, colLineups)
 }
 
 // SetPhase overrides the persisted season phase (section 5.2). season.go
@@ -1179,7 +1235,7 @@ func (s *Store) SetPhase(phase string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Phase = phase
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // SetPlayoffs replaces the persisted playoff bracket state wholesale.
@@ -1187,7 +1243,7 @@ func (s *Store) SetPlayoffs(state PlayoffState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.state.Playoffs = clonePlayoffState(&state)
-	return s.persistLocked()
+	return s.persistLocked(colPlayoffs)
 }
 
 // ClaimBadge sets teamID's badge claim to motif, first-come-first-served:
@@ -1217,7 +1273,7 @@ func (s *Store) ClaimBadge(teamID, motif string) error {
 		s.state.BadgeClaims = map[string]string{}
 	}
 	s.state.BadgeClaims[teamID] = motif
-	return s.persistLocked()
+	return s.persistLocked(colBadgeClaims)
 }
 
 // ReleaseBadge clears teamID's badge claim. Releasing a seat with no
@@ -1230,7 +1286,7 @@ func (s *Store) ReleaseBadge(teamID string) error {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
 	delete(s.state.BadgeClaims, teamID)
-	return s.persistLocked()
+	return s.persistLocked(colBadgeClaims)
 }
 
 // BadgeClaim reports teamID's currently claimed motif slug, if any.
@@ -1269,7 +1325,7 @@ func (s *Store) SetRosterOverride(o RosterOverride) error {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
 	s.state.RosterOverride = cloneRosterOverride(&o)
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // ClearRosterOverride drops any commissioner roster-shape override,
@@ -1282,7 +1338,7 @@ func (s *Store) ClearRosterOverride() error {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
 	s.state.RosterOverride = nil
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // SetLineupSlot persists one lineup-slot assignment for teamID/week, one
@@ -1322,7 +1378,7 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 	playerID = strings.TrimSpace(playerID)
 	if playerID == "" {
 		delete(slots, slot)
-		return s.persistLocked()
+		return s.persistLocked(colLineups)
 	}
 	for otherSlot, occupant := range slots {
 		if otherSlot != slot && occupant == playerID {
@@ -1330,7 +1386,7 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 		}
 	}
 	slots[slot] = playerID
-	return s.persistLocked()
+	return s.persistLocked(colLineups)
 }
 
 // SetLineupWeek replaces teamID's entire explicit lineup for week with
@@ -1361,7 +1417,7 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 		copied[slot] = playerID
 	}
 	byWeek[week] = copied
-	return s.persistLocked()
+	return s.persistLocked(colLineups)
 }
 
 // RecordTransaction appends one add/drop transaction (roster-ops spec
@@ -1409,7 +1465,7 @@ func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 		dropIDs = append(dropIDs, drop.PlayerID)
 	}
 	s.clearZoneAssignmentsLocked(txn.TeamID, dropIDs)
-	return s.persistLocked()
+	return s.persistLocked(colTransactions, colRosterZones)
 }
 
 // BaselineWaiversProcessedThrough sets WaiversProcessedThrough to now
@@ -1425,7 +1481,7 @@ func (s *Store) BaselineWaiversProcessedThrough(now time.Time) error {
 		return nil
 	}
 	s.state.WaiversProcessedThrough = now.UTC()
-	return s.persistLocked()
+	return s.persistLocked(colScalars)
 }
 
 // FileClaim appends one open waiver claim (roster-ops spec section 5.3),
@@ -1458,7 +1514,7 @@ func (s *Store) FileClaim(claim WaiverClaim) error {
 	claim.FiledAt = claim.FiledAt.UTC()
 	claim.Priority = teamOpenClaimCount(s.state.WaiverClaims, claim.TeamID) + 1
 	s.state.WaiverClaims = append(s.state.WaiverClaims, claim)
-	return s.persistLocked()
+	return s.persistLocked(colWaiverClaims)
 }
 
 // CancelClaim removes teamID's open claim named by claimID. Removing a
@@ -1476,7 +1532,7 @@ func (s *Store) CancelClaim(teamID, claimID string) error {
 		kept = append(kept, c)
 	}
 	s.state.WaiverClaims = kept
-	return s.persistLocked()
+	return s.persistLocked(colWaiverClaims)
 }
 
 // ProcessWaivers runs one daily waiver cycle at instant now (roster-ops
@@ -1502,7 +1558,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 
 	if len(s.state.WaiverClaims) == 0 {
 		s.state.WaiversProcessedThrough = now.UTC()
-		if err := s.persistLocked(); err != nil {
+		if err := s.persistLocked(colScalars); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -1602,7 +1658,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 
 	s.state.WaiverClaims = notYetDue
 	s.state.WaiversProcessedThrough = now.UTC()
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colWaiverClaims, colTransactions, colRosterZones, colScalars); err != nil {
 		return nil, err
 	}
 	return results, nil
@@ -1646,7 +1702,7 @@ func (s *Store) ProposeTradeOffer(offer TradeOffer, cfg Config, games []GameInfo
 		return err
 	}
 	s.state.TradeOffers = append(s.state.TradeOffers, offer)
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // CounterTradeOffer implements section 6.1's counter step: the original
@@ -1667,7 +1723,7 @@ func (s *Store) CounterTradeOffer(originalID string, newOffer TradeOffer, cfg Co
 	s.state.TradeOffers[index].Status = TradeStatusCountered
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
 	s.state.TradeOffers = append(s.state.TradeOffers, newOffer)
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // DeclineTradeOffer implements section 6.1's decline step: open → declined.
@@ -1682,7 +1738,7 @@ func (s *Store) DeclineTradeOffer(offerID string, now time.Time) error {
 	}
 	s.state.TradeOffers[index].Status = TradeStatusDeclined
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // WithdrawTradeOffer implements section 6.1's withdraw step: open →
@@ -1697,7 +1753,7 @@ func (s *Store) WithdrawTradeOffer(offerID string, now time.Time) error {
 	}
 	s.state.TradeOffers[index].Status = TradeStatusWithdrawn
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // AcceptTradeOffer implements section 6.1's accept step: open → accepted,
@@ -1718,7 +1774,7 @@ func (s *Store) AcceptTradeOffer(offerID string, cfg Config, games []GameInfo, p
 	}
 	s.state.TradeOffers[index].Status = TradeStatusAccepted
 	s.state.TradeOffers[index].AcceptedAt = now.UTC()
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // ExecuteTradeOffer implements section 6.1's execution step — shared by
@@ -1753,7 +1809,7 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		s.state.TradeOffers[index].Status = TradeStatusFailed
 		s.state.TradeOffers[index].FailReason = err.Error()
 		s.state.TradeOffers[index].ResolvedAt = now.UTC()
-		if perr := s.persistLocked(); perr != nil {
+		if perr := s.persistLocked(colTradeOffers); perr != nil {
 			return Transaction{}, perr
 		}
 		return Transaction{}, err
@@ -1784,7 +1840,7 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 	// both sides' outgoing players' zone assignments in this same persist.
 	s.clearZoneAssignmentsLocked(offer.FromTeamID, offer.Give)
 	s.clearZoneAssignmentsLocked(offer.ToTeamID, offer.Get)
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colTradeOffers, colTransactions, colRosterZones); err != nil {
 		return Transaction{}, err
 	}
 	return txn, nil
@@ -1804,7 +1860,7 @@ func (s *Store) CommissionerVetoTradeOffer(offerID string, now time.Time) error 
 	}
 	s.state.TradeOffers[index].Status = TradeStatusVetoed
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
-	return s.persistLocked()
+	return s.persistLocked(colTradeOffers)
 }
 
 // FileTradeVetoOffer implements section 6.1's veto step under vote or both
@@ -1833,7 +1889,7 @@ func (s *Store) FileTradeVetoOffer(offerID, teamID string, now time.Time, thresh
 		s.state.TradeOffers[index].ResolvedAt = now.UTC()
 		crossed = true
 	}
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colTradeOffers); err != nil {
 		return false, err
 	}
 	return crossed, nil
@@ -1865,7 +1921,7 @@ func (s *Store) ExpireTradeOffer(offerID string, cfg Config, now time.Time) (boo
 	}
 	s.state.TradeOffers[index].Status = TradeStatusExpired
 	s.state.TradeOffers[index].ResolvedAt = now.UTC()
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colTradeOffers); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -1913,7 +1969,7 @@ func (s *Store) PostAnnouncement(body, postedBy string, now time.Time) (Announce
 	if len(s.state.Announcements) > announcementCap {
 		s.state.Announcements = s.state.Announcements[:announcementCap]
 	}
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colAnnouncements); err != nil {
 		return Announcement{}, err
 	}
 	return announcement, nil
@@ -1932,173 +1988,37 @@ func (s *Store) DeleteAnnouncement(id string) error {
 		}
 	}
 	s.state.Announcements = kept
-	return s.persistLocked()
+	return s.persistLocked(colAnnouncements)
 }
 
-func (s *Store) load() error {
-	if s.filePath == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(s.filePath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	var state PersistedState
-	if err := json.Unmarshal(raw, &state); err != nil {
-		return err
-	}
-	if state.SchemaVersion > currentSchemaVersion {
-		return fmt.Errorf("%w: file is version %d, this binary supports up to %d",
-			errSchemaTooNew, state.SchemaVersion, currentSchemaVersion)
-	}
-	// Migrate forward: a missing SchemaVersion decodes as 0 ("version 1"),
-	// and every field this spec adds is additive with a nil-safe zero
-	// value (Schedule and Playoffs are pointers; nil is already correct).
-	// No per-field migration is needed beyond the nil-map guards below;
-	// stamp the file current so the next persist records it.
-	state.SchemaVersion = currentSchemaVersion
-	if state.Ready == nil {
-		state.Ready = map[string]bool{}
-	}
-	if state.Picks == nil {
-		state.Picks = []DraftPick{}
-	}
-	if state.Members == nil {
-		state.Members = map[string]Member{}
-	}
-	if state.Invites == nil {
-		state.Invites = []string{}
-	}
-	if state.Boards == nil {
-		state.Boards = map[string][]string{}
-	}
-	if state.TeamNames == nil {
-		state.TeamNames = map[string]string{}
-	}
-	if state.DraftOrder == nil {
-		state.DraftOrder = []string{}
-	}
-	if state.Scoring == nil {
-		state.Scoring = map[string]float64{}
-	}
-	if state.Pickems == nil {
-		state.Pickems = map[string]map[string]string{}
-	}
-	if state.BlitzEntries == nil {
-		state.BlitzEntries = map[string]map[string]BlitzEntry{}
-	}
-	if state.Autopick == nil {
-		state.Autopick = map[string]bool{}
-	}
-	if state.SentLog == nil {
-		state.SentLog = map[string]time.Time{}
-	}
-	if state.NotifyPrefs == nil {
-		state.NotifyPrefs = map[string]map[string]bool{}
-	}
-	if state.BadgeClaims == nil {
-		state.BadgeClaims = map[string]string{}
-	}
-	if state.Announcements == nil {
-		state.Announcements = []Announcement{}
-	}
-	if state.Lineups == nil {
-		state.Lineups = map[string]map[int]map[string]string{}
-	}
-	if state.Transactions == nil {
-		state.Transactions = []Transaction{}
-	}
-	if state.WaiverClaims == nil {
-		state.WaiverClaims = []WaiverClaim{}
-	}
-	if state.TradeOffers == nil {
-		state.TradeOffers = []TradeOffer{}
-	}
-	if state.RosterZones == nil {
-		state.RosterZones = map[string]map[string]ZoneAssignment{}
-	}
-	if state.CoInvites == nil {
-		state.CoInvites = map[string]string{}
-	}
-	s.state = state
-	return nil
-}
-
-// backupSnapshotLocked copies the current on-disk state file to filePath + ".bak"
-// using the temp-file-plus-rename atomic pattern matching persistLocked. If no state
-// file exists yet, it silently returns nil. Every other read failure is returned to
-// the caller; every call site today treats this as a best-effort backup and ignores
-// the error deliberately (see the "Best-effort backup" comments at each call site).
-func (s *Store) backupSnapshotLocked() error {
-	if s.filePath == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(s.filePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-	bakPath := s.filePath + ".bak"
-	if err := os.MkdirAll(filepath.Dir(bakPath), 0o750); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(bakPath), ".league-state-bak-*.json")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, bakPath)
-}
-
-func (s *Store) persistLocked() error {
+// persistLocked writes every collection named in cols, plus any
+// collection an earlier failed attempt left marked, in one transaction.
+//
+// cols is the mutator's declaration of what it touched. It is the whole
+// dirty-tracking scheme: a mutator that changes picks and the clock calls
+// persistLocked(colPicks, colScalars), and only those two collections'
+// rows are emitted and diffed. Declaring a collection that did not change
+// costs nothing (the row diff finds no change and writes nothing);
+// failing to declare one that did change would skip the write, so the
+// package's own tests run with sqlitePersistVerify on, which re-reads the
+// database after every persist and fails loudly on any mismatch.
+//
+// The marks survive a failed write and clear only after a commit reports
+// success, so a retry always covers everything still unwritten.
+func (s *Store) persistLocked(cols ...collectionID) error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
-	if s.filePath == "" {
+	for _, id := range cols {
+		s.dirty |= 1 << uint(id)
+	}
+	if s.db == nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(s.filePath), 0o750); err != nil {
-		return err
+	if s.dirty == 0 {
+		return nil
 	}
-	raw, err := json.MarshalIndent(s.state, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.filePath), ".league-state-*.json")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, s.filePath)
+	return s.writeDirtyLocked()
 }
 
 func cloneState(in PersistedState) PersistedState {

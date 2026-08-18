@@ -8,7 +8,7 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 
 - Neo-Retro “Stadium OS, year 2000” league HQ, matchup simulator, team terminal, draft room, Signal Wire, and mobile layouts.
 - Google OAuth with PKCE, encrypted HTTP-only sessions, CSRF protection, an optional email allowlist, and a configurable seat count (4 to 14 teams; see `config/league.json.example`).
-- Persistent manager assignments, draft readiness, and snake-draft picks in `data/league-state.json`.
+- Persistent manager assignments, draft readiness, and snake-draft picks in the league database, `data/league.db` (SQLite, write-ahead logging, one transaction per mutation). A pre-existing `data/league-state.json` imports itself into the database on the first start; the file survives as `data/league-state.json.imported`.
 - A no-key RSS/Atom mesh with ESPN NFL, CBS Sports NFL, r/fantasyfootball, and Mastodon hashtag feeds enabled by default, plus optional curated Bluesky Jetstream identities.
 - A signed-in league form for tips, shared news, and human-entered market sightings—including observations from PrizePicks—without account automation or scraping.
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
@@ -138,7 +138,9 @@ The first layer provides the “something just happened” experience without pa
 
 ```text
 data/
-  league-state.json
+  league.db                    authoritative league state (SQLite)
+  league.db.bak                rolling snapshot, written before every draft pick
+  league-state.json.imported   the JSON state file the database was built from
   signal-wire/
     state.json                 current, rewriteable signal excerpts
     events/YYYY-MM-DD.ndjson   metadata-only audit journal
@@ -187,7 +189,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
 | `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |
 | `FANTASY_POOL_LIMIT` | `400` | Maximum pool size |
-| `DATA_FILE` | `data/league-state.json` | League state |
+| `DATA_FILE` | `data/league-state.json` | Names the data directory, and the JSON state file to import once. The league database is `league.db` beside it |
 | `WIRE_ENABLED` | `true` | Enable the public signal listener |
 | `WIRE_FEEDS_ENABLED` | `true` | Enable the RSS/Atom source mesh |
 | `WIRE_SOURCES_FILE` | embedded defaults | Replacement feed-source JSON |

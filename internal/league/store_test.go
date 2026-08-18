@@ -864,6 +864,14 @@ func TestFirstSendBatchRollsBackNewKeysOnPersistFailure(t *testing.T) {
 // that was already recorded (by an earlier, successful call) untouched
 // (finding M1): this call never made that key true, so it has no business
 // un-recording it.
+//
+// The failure is injected through the store's persist hook. The old
+// version of this test made the directory unwritable after the first
+// successful write, which only failed a persist because the JSON engine
+// created a new temporary file for every write. A SQLite write goes to
+// the already-open database, so the directory's mode no longer decides
+// it; failThisStorePersist is the explicit seam that replaces the trick.
+// Everything the test asserts about the rollback is unchanged.
 func TestFirstSendBatchRollsBackOnlyNewKeysOnPersistFailure(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
@@ -873,10 +881,7 @@ func TestFirstSendBatchRollsBackOnlyNewKeysOnPersistFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	failThisStorePersist(store)
 
 	keys := []string{"kickoff:2026:seeded@example.com", "kickoff:2026:new@example.com"}
 	results, err := store.FirstSendBatch(keys, now)
@@ -1305,16 +1310,22 @@ func TestStateFileMigratesFromVersion1(t *testing.T) {
 		t.Errorf("Phase = %q, want empty for a migrated v1 file", state.Phase)
 	}
 
-	// The migrated version must be written back on the next persist.
+	// The migrated version must be written back on the next persist. The
+	// state now lives in the SQLite database, so the check reads the
+	// stored version through the engine instead of grepping the JSON
+	// file's bytes; the file itself has been renamed by the import.
 	if err := store.SetTeamName("team-1", "Renamed"); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	stored := reloadStoredState(t, path)
+	if stored.SchemaVersion != currentSchemaVersion {
+		t.Errorf("stored schema version = %d, want %d", stored.SchemaVersion, currentSchemaVersion)
 	}
-	if !strings.Contains(string(raw), `"schemaVersion": 2`) {
-		t.Errorf("persisted file did not stamp the current schema version:\n%s", raw)
+	if stored.TeamNames["team-1"] != "Renamed" {
+		t.Errorf("stored team name = %q, want Renamed", stored.TeamNames["team-1"])
+	}
+	if _, err := os.Stat(path + importedSuffix); err != nil {
+		t.Errorf("the imported state file must survive under its new name: %v", err)
 	}
 }
 

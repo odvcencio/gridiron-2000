@@ -1,8 +1,6 @@
 package league
 
 import (
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -157,9 +155,14 @@ func TestUndoLastPickPreservesPause(t *testing.T) {
 // TestUndoLastPickWritesRollingBackup checks that UndoLastPick writes the
 // same rolling .bak snapshot MakePick writes, capturing the pre-undo
 // state (still carrying the pick about to be removed).
+//
+// The backup is now a SQLite database written by VACUUM INTO, not a copy
+// of the JSON state file, so the check reads it through the engine
+// (openBackup) instead of decoding raw bytes. Everything it asserts about
+// the backup's contents is unchanged.
 func TestUndoLastPickWritesRollingBackup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
-	bakPath := path + ".bak"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
 	store := NewStore(path)
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	nextDeadline := now.Add(90 * time.Second)
@@ -180,13 +183,9 @@ func TestUndoLastPickWritesRollingBackup(t *testing.T) {
 		t.Fatalf("picks after undo = %d, want 1", got)
 	}
 
-	raw, err := os.ReadFile(bakPath)
+	backup, err := openBackup(filepath.Join(dir, dbFileName))
 	if err != nil {
-		t.Fatalf("reading %s: %v", bakPath, err)
-	}
-	var backup PersistedState
-	if err := json.Unmarshal(raw, &backup); err != nil {
-		t.Fatalf("unmarshal .bak: %v", err)
+		t.Fatalf("reading the rolling backup: %v", err)
 	}
 	if len(backup.Picks) != 2 {
 		t.Fatalf(".bak picks = %d, want 2 (the pre-undo state)", len(backup.Picks))
