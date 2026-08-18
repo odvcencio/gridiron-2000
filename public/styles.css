@@ -4794,16 +4794,6 @@ body.is-on-clock .draft-clock-panel {
   clip: rect(0, 0, 0, 0);
 }
 
-.badge-option__radio:checked + .badge-option__art {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-.badge-option__radio:focus-visible + .badge-option__art {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
 .co-manager-form {
   display: flex;
   flex-wrap: wrap;
@@ -4822,24 +4812,17 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-sm);
 }
 
-/* ---- signup badge picker: make the chosen badge unmistakable ------- */
-/* The radio is visually hidden, so the tile itself has to carry the
-   selected state. Outlining only the masked art (the rule above) is easy
-   to miss on a dense grid, and a picker whose selection is invisible
-   reads as a picker that does not work. */
-.badge-option__radio:checked ~ .badge-option__art,
-.badge-option__radio:focus-visible ~ .badge-option__art {
+/* ---- signup badge picker: selected state ---------------------------- */
+/* The radio is visually hidden, so the tile carries the selected state.
+   One outline on the tile is the whole signal — an earlier version also
+   tinted the background, lifted the tile, and ringed the glyph inside it,
+   which read as noise for a single radio choice. Accent for the current
+   selection, cyan for keyboard focus, matching the app's focus colour. */
+.badge-option--pick:has(.badge-option__radio:checked) {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
 }
-.badge-option--pick:has(.badge-option__radio:checked) {
-  border-color: var(--color-accent);
-  background: var(--color-accent-haze, var(--color-white-faint));
-  transform: translateY(-1px);
-}
 .badge-option--pick:has(.badge-option__radio:focus-visible) {
-  border-color: var(--color-accent-cyan);
-}
-.badge-option--pick:hover {
-  border-color: var(--color-accent-cyan);
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 2px;
 }
