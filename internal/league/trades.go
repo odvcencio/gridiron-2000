@@ -774,19 +774,63 @@ func (s *Service) buildTradeVetoed(offer TradeOffer, member Member, mechanism st
 // /trades page data (roster-ops spec section 8.3)
 // ---------------------------------------------------------------------
 
+// TradePlayerCard is one player named on a trade offer's give or get side:
+// enough to render a name/position/team line without a second pool
+// lookup.
+type TradePlayerCard struct {
+	ID       string
+	Name     string
+	Position string
+	Team     string
+}
+
+// TradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
+// panels: display fields plus the per-viewer action flags that decide
+// which managed form(s) the row shows. HasReviewDeadline/ReviewDeadline
+// are always present (empty/false once not applicable) rather than a
+// conditionally-set key, matching this app's render-tolerant convention
+// for a value a GSX template's <If> guards (see service.go's
+// fantasyCardData doc comment for the same discipline).
+type TradeOfferRow struct {
+	ID                  string
+	Status              string
+	FromTeam            string
+	FromTeamID          string
+	ToTeam              string
+	ToTeamID            string
+	Give                []TradePlayerCard
+	Get                 []TradePlayerCard
+	Note                string
+	HasNote             bool
+	CreatedAt           string
+	FailReason          string
+	VetoesCount         int
+	VetoesThreshold     int
+	CanDecline          bool
+	CanCounter          bool
+	CanAccept           bool
+	CanWithdraw         bool
+	CanApprove          bool
+	CanVetoCommissioner bool
+	CanVote             bool
+	AlreadyVoted        bool
+	HasReviewDeadline   bool
+	ReviewDeadline      string
+}
+
 // tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
-func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, isCommissioner bool, threshold int) map[string]any {
-	give := make([]map[string]any, 0, len(offer.Give))
+func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, isCommissioner bool, threshold int) TradeOfferRow {
+	give := make([]TradePlayerCard, 0, len(offer.Give))
 	for _, id := range offer.Give {
 		p := pool.byID[id]
-		give = append(give, map[string]any{"id": id, "name": p.Name, "position": p.Position, "team": p.NFLTeam})
+		give = append(give, TradePlayerCard{ID: id, Name: p.Name, Position: p.Position, Team: p.NFLTeam})
 	}
-	get := make([]map[string]any, 0, len(offer.Get))
+	get := make([]TradePlayerCard, 0, len(offer.Get))
 	for _, id := range offer.Get {
 		p := pool.byID[id]
-		get = append(get, map[string]any{"id": id, "name": p.Name, "position": p.Position, "team": p.NFLTeam})
+		get = append(get, TradePlayerCard{ID: id, Name: p.Name, Position: p.Position, Team: p.NFLTeam})
 	}
 	outsideParty := teamID != "" && teamID != offer.FromTeamID && teamID != offer.ToTeamID
 	alreadyVoted := false
@@ -795,35 +839,50 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 			alreadyVoted = true
 		}
 	}
-	row := map[string]any{
-		"id":                    offer.ID,
-		"status":                offer.Status,
-		"from_team":             s.teamByID(offer.FromTeamID).Name,
-		"from_team_id":          offer.FromTeamID,
-		"to_team":               s.teamByID(offer.ToTeamID).Name,
-		"to_team_id":            offer.ToTeamID,
-		"give":                  give,
-		"get":                   get,
-		"note":                  offer.Note,
-		"has_note":              offer.Note != "",
-		"created_at":            offer.CreatedAt.Format("Jan 2, 3:04 PM MST"),
-		"fail_reason":           offer.FailReason,
-		"vetoes_count":          len(offer.Vetoes),
-		"vetoes_threshold":      threshold,
-		"can_decline":           canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
-		"can_counter":           canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
-		"can_accept":            canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
-		"can_withdraw":          canEdit && offer.Status == TradeStatusOpen && offer.FromTeamID == teamID,
-		"can_approve":           isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
-		"can_veto_commissioner": isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
-		"can_vote": canEdit && outsideParty && offer.Status == TradeStatusAccepted &&
+	row := TradeOfferRow{
+		ID:                  offer.ID,
+		Status:              offer.Status,
+		FromTeam:            s.teamByID(offer.FromTeamID).Name,
+		FromTeamID:          offer.FromTeamID,
+		ToTeam:              s.teamByID(offer.ToTeamID).Name,
+		ToTeamID:            offer.ToTeamID,
+		Give:                give,
+		Get:                 get,
+		Note:                offer.Note,
+		HasNote:             offer.Note != "",
+		CreatedAt:           offer.CreatedAt.Format("Jan 2, 3:04 PM MST"),
+		FailReason:          offer.FailReason,
+		VetoesCount:         len(offer.Vetoes),
+		VetoesThreshold:     threshold,
+		CanDecline:          canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
+		CanCounter:          canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
+		CanAccept:           canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
+		CanWithdraw:         canEdit && offer.Status == TradeStatusOpen && offer.FromTeamID == teamID,
+		CanApprove:          isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
+		CanVetoCommissioner: isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
+		CanVote: canEdit && outsideParty && offer.Status == TradeStatusAccepted &&
 			(s.cfg.Trades.Veto == "vote" || s.cfg.Trades.Veto == "both") && !alreadyVoted,
-		"already_voted": alreadyVoted,
+		AlreadyVoted: alreadyVoted,
 	}
 	if offer.Status == TradeStatusAccepted {
-		row["review_deadline"] = formatResolvesAt(s.cfg, offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours)*time.Hour))
+		row.HasReviewDeadline = true
+		row.ReviewDeadline = formatResolvesAt(s.cfg, offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours)*time.Hour))
 	}
 	return row
+}
+
+// TradeRosterOption is one player a trade composer's checkbox group
+// offers, from either side's roster.
+type TradeRosterOption struct {
+	ID    string
+	Label string
+}
+
+// TradeCounterparty is one other team the compose panel's partner picker
+// lists.
+type TradeCounterparty struct {
+	ID   string
+	Name string
 }
 
 // TradesData assembles the /trades page (roster-ops spec section 8.3):
@@ -841,25 +900,23 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	rosters := currentRosters(state)
 	threshold := tradeVetoThreshold(len(defaultTeamIDs()))
 
-	rosterOptions := func(id string) []map[string]any {
-		out := make([]map[string]any, 0, len(rosters[id]))
+	rosterOptions := func(id string) []TradeRosterOption {
+		out := make([]TradeRosterOption, 0, len(rosters[id]))
 		for _, playerID := range rosters[id] {
 			if p, ok := pool.byID[playerID]; ok {
-				out = append(out, map[string]any{"id": p.ID, "label": fmt.Sprintf("%s (%s)", p.Name, p.Position)})
+				out = append(out, TradeRosterOption{ID: p.ID, Label: fmt.Sprintf("%s (%s)", p.Name, p.Position)})
 			}
 		}
 		return out
 	}
 
 	myOptions := rosterOptions(teamID)
-	counterparties := make([]map[string]any, 0, len(s.Teams()))
+	counterparties := make([]TradeCounterparty, 0, len(s.Teams()))
 	for _, team := range s.Teams() {
 		if team.ID == teamID {
 			continue
 		}
-		counterparties = append(counterparties, map[string]any{
-			"id": team.ID, "name": team.Name,
-		})
+		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: team.Name})
 	}
 
 	// The composer is a two-step managed form (roster-ops spec section
@@ -871,17 +928,17 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	if composeCounterpartyID == teamID {
 		composeCounterpartyID = ""
 	}
-	composeOptions := []map[string]any{}
+	composeOptions := []TradeRosterOption{}
 	composeCounterpartyName := ""
 	if composeCounterpartyID != "" && knownTeam(composeCounterpartyID) {
 		composeOptions = rosterOptions(composeCounterpartyID)
 		composeCounterpartyName = s.teamByID(composeCounterpartyID).Name
 	}
 
-	inbox := []map[string]any{}
-	outbox := []map[string]any{}
-	review := []map[string]any{}
-	votePanel := []map[string]any{}
+	inbox := []TradeOfferRow{}
+	outbox := []TradeOfferRow{}
+	review := []TradeOfferRow{}
+	votePanel := []TradeOfferRow{}
 	for _, offer := range state.TradeOffers {
 		switch {
 		case offer.Status == TradeStatusOpen && offer.ToTeamID == teamID:
