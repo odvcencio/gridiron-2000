@@ -50,12 +50,11 @@ func sentLogCount(state PersistedState, prefix string) int {
 // ---------------------------------------------------------------------
 
 // TestNotificationCatalogMatrix pins the section 3 summary matrix verbatim
-// (spec section 9, test 18, extended by roster-ops spec section 9): every
-// one of the 14 registered entries (N14-N17 land in later work packages —
-// see buildCatalog's comment) carries a category from the 10-set, the
-// exact urgency and default from the table, a key builder that embeds the
-// recipient email, and a freshness window exactly when (and only when) it
-// is time-driven.
+// (spec section 9, test 18, extended by roster-ops spec section 9 test 25):
+// every one of the 18 registered entries carries a category from the
+// 10-set, the exact urgency and default from the table, a key builder that
+// embeds the recipient email, and a freshness window exactly when (and
+// only when) it is time-driven.
 func TestNotificationCatalogMatrix(t *testing.T) {
 	want := map[string]struct {
 		Category string
@@ -76,6 +75,9 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		"N12": {categoryLeagueNews, urgencyLow, true},
 		"N13": {categoryWeeklyRecap, urgencyLow, true},
 		"N14": {categoryTransactions, urgencyNormal, true},
+		"N15": {categoryTransactions, urgencyHigh, true},
+		"N16": {categoryTransactions, urgencyNormal, true},
+		"N17": {categoryTransactions, urgencyNormal, true},
 		"N18": {categoryLineups, urgencyHigh, true},
 	}
 	if got := len(catalogEntries); got != len(want) {
@@ -95,6 +97,7 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		DraftAt:    time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC),
 		OrderHash8: "abcd1234abcd1234", Season: "2026", Week: 3,
 		ScoringHash8: "deadbeefdeadbeef", BroadcastID: "beefcafe", ClaimID: "clm-cafebabe",
+		OfferID: "trd-cafebabe",
 	}
 	for _, entry := range catalogEntries {
 		w, ok := want[entry.ID]

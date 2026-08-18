@@ -1,7 +1,6 @@
 // Roster-ops ticker: the daily waiver-processing run (roster-ops spec
-// section 5.4). Trade execution and expiry (section 6.1's T-exec/T-expire
-// steps) join rosterOpsTick in WP-R5; this file only ever drives waivers
-// today.
+// section 5.4) plus trade execution and expiry (section 6.1's
+// T-exec/T-expire steps).
 package league
 
 import (
@@ -40,11 +39,52 @@ func (s *Service) StartRosterOps(ctx context.Context) {
 
 // rosterOpsTick is the whole time-driven roster-ops decision for one
 // instant (section 5.4), evaluated in order: the waiver run predicate,
-// then (WP-R5) trade execution and expiry.
+// then trade execution and expiry (section 6.1's T-exec/T-expire steps).
 func (s *Service) rosterOpsTick(now time.Time) {
 	s.evalWaiverRun(now)
-	// TODO(WP-R5): trade execution (T-exec) and expiry (T-expire), section
-	// 6.1 — the same tick, evaluated after waivers.
+	s.evalTradeTick(now)
+}
+
+// evalTradeTick implements section 6.1's T-exec and T-expire steps: every
+// open offer past its 7-day age or the trade deadline expires; every
+// accepted offer past AcceptedAt + review_hours attempts execution
+// (Store.ExecuteTradeOffer — the same routine ApproveTrade's early
+// execution calls). An offer a community veto has already resolved never
+// reaches this switch in "accepted" state (Store.FileTradeVetoOffer's doc
+// comment), so "vetoes below threshold" (section 6.1's T-exec note) needs
+// no separate check here. Each offer resolves through its own Store call,
+// one lock and one persist per offer — trades are rare enough that a
+// shared per-tick persist (ProcessWaivers's batching) buys nothing.
+func (s *Service) evalTradeTick(now time.Time) {
+	state := s.store.Snapshot()
+	if len(state.TradeOffers) == 0 {
+		return
+	}
+	games := s.schedule()
+	pool := s.pool()
+	starterCount, rosterCap := tradeRosterBounds()
+	for _, offer := range state.TradeOffers {
+		switch offer.Status {
+		case TradeStatusOpen:
+			if _, err := s.store.ExpireTradeOffer(offer.ID, s.cfg, now); err != nil {
+				log.Printf("roster ops: ExpireTradeOffer(%s) failed: %v", offer.ID, err)
+			}
+		case TradeStatusAccepted:
+			reviewDeadline := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
+			if now.Before(reviewDeadline) {
+				continue
+			}
+			txn, err := s.store.ExecuteTradeOffer(offer.ID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
+			if err != nil {
+				// The offer already recorded "failed" with FailReason
+				// inside ExecuteTradeOffer; section 9's catalog reserves
+				// no N-entry for a failed execution (only N16 for a
+				// successful one), so no notification fires here.
+				continue
+			}
+			s.notifyTradeExecuted(offer, txn)
+		}
+	}
 }
 
 // evalWaiverRun implements section 5.4 step 1: resolve nextRun from

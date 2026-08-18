@@ -258,6 +258,16 @@ type PersistedState struct {
 	// "omitempty" — see ScoringChangedAt's doc comment above for why
 	// omitempty never omits a time.Time).
 	WaiversProcessedThrough time.Time `json:"waiversProcessedThrough,omitzero"`
+
+	// TradeOffers holds every trade offer ever proposed, with its section
+	// 6.1 lifecycle status — open, terminal (declined/withdrawn/countered/
+	// vetoed/expired/failed), or executed. Nothing is removed: a resolved
+	// offer stays for the /trades INBOX/OUTBOX history and, for an
+	// executed offer, as the OfferID a Transaction's provenance points
+	// back to. Additive under schema version 2 — the WaiverClaims
+	// precedent above: a nil slice decodes safely on an old file, and the
+	// store normalizes it in load/NewStore/cloneState.
+	TradeOffers []TradeOffer `json:"tradeOffers,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

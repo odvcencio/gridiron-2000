@@ -4381,3 +4381,63 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
   color: var(--color-text-secondary);
 }
+
+/* ---- /trades: composer, offer rows, review/vote panels -------------- */
+.trade-row.pool-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-xs);
+}
+.trade-row .pool-player__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.trade-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+}
+.trade-composer__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+.trade-composer__side h3 {
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin: 0 0 var(--space-xs);
+}
+.trade-composer__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0.2rem 0;
+  font-size: var(--type-sm);
+}
+.trade-composer__note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
+.trade-composer__note textarea {
+  font: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  border: 1px solid var(--color-border);
+  padding: var(--space-xs);
+  resize: vertical;
+}
+.trade-counter-details summary {
+  cursor: pointer;
+  font-size: var(--type-xs);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}

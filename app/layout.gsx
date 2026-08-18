@@ -52,11 +52,12 @@ func Layout() Node {
 					<a href="/team" data-gosx-link class="rail-link"><span class="rail-index mono">04</span>Team</a>
 					<a href="/players" data-gosx-link class="rail-link"><span class="rail-index mono">05</span>Players</a>
 					<a href="/board" data-gosx-link class="rail-link"><span class="rail-index mono">06</span>Board</a>
-					<a href="/activity" data-gosx-link class="rail-link"><span class="rail-index mono">07</span>Activity</a>
-					<a href="/scoring" data-gosx-link class="rail-link"><span class="rail-index mono">08</span>Rules</a>
-					<a href="/pickem" data-gosx-link class="rail-link"><span class="rail-index mono">09</span>Pick'em</a>
-					<a href="/blitz" data-gosx-link class="rail-link"><span class="rail-index mono">10</span>Blitz</a>
-					<a href="/draft" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">11</span>Draft</a>
+					<a href="/trades" data-gosx-link class="rail-link"><span class="rail-index mono">07</span>Trades</a>
+					<a href="/activity" data-gosx-link class="rail-link"><span class="rail-index mono">08</span>Activity</a>
+					<a href="/scoring" data-gosx-link class="rail-link"><span class="rail-index mono">09</span>Rules</a>
+					<a href="/pickem" data-gosx-link class="rail-link"><span class="rail-index mono">10</span>Pick'em</a>
+					<a href="/blitz" data-gosx-link class="rail-link"><span class="rail-index mono">11</span>Blitz</a>
+					<a href="/draft" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">12</span>Draft</a>
 				</nav>
 				<div class="rail-foot">
 					<If cond={data.viewer.signed_in}>
