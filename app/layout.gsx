@@ -48,6 +48,9 @@ func Layout() Node {
 				<nav class="rail-nav" aria-label="Primary navigation">
 					<a href="/" data-gosx-link class="rail-link"><span class="rail-index mono">01</span>HQ</a>
 					<a href="/pickem" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02</span>Pick'em</a>
+					<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open}>
+						<a href="/join" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02b</span>Join a team</a>
+					</If>
 					<a href="/matchups" data-gosx-link class="rail-link"><span class="rail-index mono">03</span>Live</a>
 					<a href="/wire" data-gosx-link class="rail-link"><span class="rail-index mono">04</span>Wire</a>
 					<a href="/team" data-gosx-link class="rail-link"><span class="rail-index mono">05</span>Team</a>

@@ -31,6 +31,12 @@ func SeatRow(props any) Node {
 				</If>
 				<If cond={props.seat.claimed == false}>Awaiting a manager</If>
 			</small>
+			<If cond={props.seat.has_co}>
+				<small>
+					co-manager:
+					{props.seat.co_email}
+				</small>
+			</If>
 			<span class="position-chip">{props.seat.division}</span>
 		</div>
 		<If cond={props.seat.ready}>
@@ -44,6 +50,13 @@ func SeatRow(props any) Node {
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="team_id" value={props.seat.id}></input>
 				<button class="board-button board-button--cut" type="submit">Release</button>
+			</form>
+		</If>
+		<If cond={props.seat.has_co}>
+			<form method="post" action={props.CoDetachAction} data-gosx-managed="true">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="team_id" value={props.seat.id}></input>
+				<button class="board-button" type="submit">Detach co</button>
 			</form>
 		</If>
 		<form method="post" action={props.RenameAction} data-gosx-managed="true">
@@ -256,6 +269,7 @@ func Page() Node {
 								RenameAction={actionPath("team-rename")}
 								AutopickAction={actionPath("clock-set-autopick")}
 								AvatarResetAction={actionPath("avatar-reset")}
+								CoDetachAction={actionPath("co-detach")}
 								CSRF={csrf.token}
 							 />
 						</Each>

@@ -71,6 +71,7 @@ func NewStore(filePath string) *Store {
 			WaiverClaims:  []WaiverClaim{},
 			TradeOffers:   []TradeOffer{},
 			RosterZones:   map[string]map[string]ZoneAssignment{},
+			CoInvites:     map[string]string{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -345,10 +346,19 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 
 // AssignMember binds email to the first open seat, or returns the existing
 // member when the email already holds one. created reports whether this
-// call bound a brand-new member — the one-lock check-and-write keeps the
-// report atomic, so two racing callers for the same new email cannot both
+// call bound a brand-new seat claim — the one-lock check-and-write keeps
+// the report atomic, so two racing callers for the same email cannot both
 // see created == true (the N1 seat-claimed notification's hook relies on
 // this; see service.go's assignMember).
+//
+// A member who already exists but carries no seat (TeamID == "" — the
+// EnsureMember-only shape every signed-in member now starts in, since the
+// registration wave's sign-in path never claims a seat on its own) is not
+// short-circuited: this call upgrades that record in place with a claimed
+// seat, exactly as if it were brand new, and reports created == true. A
+// member who already holds a seat (TeamID != "") is the only case that
+// still short-circuits — that decision is already made and does not
+// change here, only the display name may refresh.
 func (s *Store) AssignMember(email, name string) (member Member, created bool, err error) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	name = strings.TrimSpace(name)
@@ -357,7 +367,7 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if existing, ok := s.state.Members[email]; ok {
+	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
 		if name != "" && existing.Name != name {
 			existing.Name = name
 			s.state.Members[email] = existing
@@ -464,7 +474,12 @@ func (s *Store) Invited(email string) bool {
 	return false
 }
 
-// ReleaseSeat unbinds the member holding the team and clears its ready flag.
+// ReleaseSeat unbinds every member holding the team — the primary and, if
+// bound, a co-manager (registration wave, build item 4: "seat release
+// clears both") — and clears its ready flag. Any pending, not-yet-bound
+// co-invite for teamID is dropped too, so a release never leaves an
+// orphaned invite that would silently re-bind a future sign-in to a seat
+// that has since moved on.
 func (s *Store) ReleaseSeat(teamID string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
@@ -476,7 +491,134 @@ func (s *Store) ReleaseSeat(teamID string) error {
 			delete(s.state.Members, email)
 		}
 	}
+	for email, pendingTeamID := range s.state.CoInvites {
+		if pendingTeamID == teamID {
+			delete(s.state.CoInvites, email)
+		}
+	}
 	delete(s.state.Ready, teamID)
+	return s.persistLocked()
+}
+
+// errCoManagerLimit is the co-manager registration wave's exact-message
+// sentinel: "Limit one co per seat with an exact message" (build item 4).
+// It fires whether the existing co is already bound (a Role "co" Member)
+// or only pending (a CoInvites entry awaiting that person's first
+// sign-in) — from the primary's perspective, both mean "this seat already
+// has a co-manager."
+var errCoManagerLimit = errors.New("this seat already has a co-manager; detach them first")
+
+// InviteCoManager records a pending co-manager binding for email against
+// teamID's seat (registration wave, build item 4): email is added to the
+// invite list exactly like AddInvite (a co-manager needs EmailAllowed to
+// pass on their first sign-in too), and the pending teamID binding is
+// recorded in CoInvites so that sign-in lands them as a co-manager
+// (BindCoManager), not a free agent. One co per seat: an already-bound
+// co or an already-pending invite for this seat is rejected with
+// errCoManagerLimit; re-inviting the same email to the same seat it is
+// already pending for is a harmless no-op. An email that already holds a
+// team seat of its own (primary or co, this seat or another) is
+// rejected — a person operates at most one seat.
+func (s *Store) InviteCoManager(teamID, email string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" || !strings.Contains(email, "@") {
+		return fmt.Errorf("enter a valid email address")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
+		return fmt.Errorf("%s already holds a team seat", email)
+	}
+	for _, member := range s.state.Members {
+		if member.TeamID == teamID && member.Role == "co" {
+			return errCoManagerLimit
+		}
+	}
+	if pendingTeamID, ok := s.state.CoInvites[email]; ok && pendingTeamID == teamID {
+		return nil
+	}
+	for candidate, pendingTeamID := range s.state.CoInvites {
+		if pendingTeamID == teamID && candidate != email {
+			return errCoManagerLimit
+		}
+	}
+	inviteExists := false
+	for _, existing := range s.state.Invites {
+		if existing == email {
+			inviteExists = true
+			break
+		}
+	}
+	if !inviteExists {
+		s.state.Invites = append(s.state.Invites, email)
+	}
+	if s.state.CoInvites == nil {
+		s.state.CoInvites = map[string]string{}
+	}
+	s.state.CoInvites[email] = teamID
+	return s.persistLocked()
+}
+
+// BindCoManager consumes email's pending co-invite (if any) into a bound
+// Role "co" Member for that invite's teamID, one lock, one persist. bound
+// reports whether a pending invite existed; false with a nil error means
+// "nothing to bind" — the sign-in path's ordinary EnsureMember fallback
+// applies instead (see Service's sign-in-time binding). Binding
+// overwrites any prior Members[email] entry outright: a co-invitee who
+// already signed up seatless (EnsureMember) upgrades in place to a bound
+// co-manager, the same "overwrite is the whole operation" shape
+// AssignMember/EnsureMember use for a repeat call.
+func (s *Store) BindCoManager(email, name string) (member Member, bound bool, err error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	if email == "" {
+		return Member{}, false, fmt.Errorf("email is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	teamID, pending := s.state.CoInvites[email]
+	if !pending {
+		return Member{}, false, nil
+	}
+	newMember := Member{TeamID: teamID, Name: name, Email: email, Role: "co"}
+	s.state.Members[email] = newMember
+	delete(s.state.CoInvites, email)
+	if err := s.persistLocked(); err != nil {
+		return Member{}, false, err
+	}
+	return newMember, true, nil
+}
+
+// DetachCoManager removes teamID's co-manager, bound or still pending
+// (registration wave, build item 4): a bound Role "co" Member is deleted,
+// and/or a not-yet-claimed CoInvites entry is dropped, whichever exists —
+// either way the seat returns to single-primary. Idempotent: a seat with
+// neither is a harmless no-op, matching ReleaseBadge's precedent.
+func (s *Store) DetachCoManager(teamID string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	changed := false
+	for email, member := range s.state.Members {
+		if member.TeamID == teamID && member.Role == "co" {
+			delete(s.state.Members, email)
+			changed = true
+		}
+	}
+	for email, pendingTeamID := range s.state.CoInvites {
+		if pendingTeamID == teamID {
+			delete(s.state.CoInvites, email)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
 	return s.persistLocked()
 }
 
@@ -594,15 +736,29 @@ func (s *Store) pruneSentLogPrefixesLocked(prefixes ...string) {
 	}
 }
 
+// validateTeamName trims and enforces the shared 40-character ceiling
+// every team-name write obeys (Store.SetTeamName, the fantasy-signup
+// atomic claim in service.go's claimFantasySeat). It does not reject an
+// empty name: SetTeamName's caller may legitimately clear an override,
+// while the signup flow additionally requires a non-empty result — that
+// check lives at the signup call site, not here.
+func validateTeamName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if len(name) > 40 {
+		return "", fmt.Errorf("team names must be 40 characters or fewer")
+	}
+	return name, nil
+}
+
 // SetTeamName overrides a team's display name. An empty name clears the
 // override and restores the default.
 func (s *Store) SetTeamName(teamID, name string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
-	name = strings.TrimSpace(name)
-	if len(name) > 40 {
-		return fmt.Errorf("team names must be 40 characters or fewer")
+	name, err := validateTeamName(name)
+	if err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1864,6 +2020,9 @@ func (s *Store) load() error {
 	if state.RosterZones == nil {
 		state.RosterZones = map[string]map[string]ZoneAssignment{}
 	}
+	if state.CoInvites == nil {
+		state.CoInvites = map[string]string{}
+	}
 	s.state = state
 	return nil
 }
@@ -1975,6 +2134,7 @@ func cloneState(in PersistedState) PersistedState {
 		WaiversProcessedThrough: in.WaiversProcessedThrough,
 		TradeOffers:             make([]TradeOffer, len(in.TradeOffers)),
 		RosterZones:             make(map[string]map[string]ZoneAssignment, len(in.RosterZones)),
+		CoInvites:               make(map[string]string, len(in.CoInvites)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -2083,6 +2243,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, zones := range in.RosterZones {
 		out.RosterZones[teamID] = cloneZoneAssignments(zones)
+	}
+	for email, teamID := range in.CoInvites {
+		out.CoInvites[email] = teamID
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
