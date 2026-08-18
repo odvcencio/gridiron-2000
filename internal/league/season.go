@@ -118,7 +118,8 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 	pins := make(map[string]map[string]string, len(teamIDs))
 	for teamID := range teamIDs {
 		roster, _ := s.rosterForTeam(state, teamID)
-		lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+		general, _, _ := splitRosterZones(state, teamID, roster)
+		lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 		slots := make(map[string]string, len(lineup.Slots))
 		for _, a := range lineup.Slots {
 			if a.HasPlayer {

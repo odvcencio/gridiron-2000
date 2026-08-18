@@ -71,6 +71,29 @@ type RosterPreset struct {
 	Name  string
 	Slots map[string]int
 	Bench int
+	// Reserve is the position-gated reserve zone's capacity, keyed by
+	// position (roster-ops SK spec): an occupant's position must match one
+	// of these keys, and that position's own count caps how many players
+	// may sit there at once. Reserve occupants keep counting toward
+	// Total() — reserve is draftable, in-cap roster space, only zoned
+	// apart from the general bench (see Store.PlaceInZone, zones.go). Nil
+	// or empty means no reserve zone at all — the pre-existing behavior
+	// for every preset and every config that never mentions it.
+	Reserve map[string]int
+	// IR is the injury-gated reserve zone's flat capacity: one count, not
+	// per-position — any position may qualify, gated on injury
+	// designation instead (see irQualifies, zones.go). IR sits OUTSIDE
+	// Total(): an IR occupant frees a general roster spot for the season
+	// (owner decision, SK spec). Not draftable — in-season stash only.
+	// Zero means no IR zone at all.
+	IR int
+	// Limits optionally caps how many players of one position a team may
+	// hold across starters+bench+reserve (IR exempt — an injured stashed
+	// player should never force a cut). An absent or zero entry is
+	// unlimited. Default off everywhere (roster-ops SK spec) — nil is the
+	// pre-existing behavior for every preset and every config that never
+	// mentions it.
+	Limits map[string]int
 }
 
 // Starters returns the preset's total starter count (the sum of every
@@ -83,11 +106,26 @@ func (p RosterPreset) Starters() int {
 	return total
 }
 
-// Total returns the preset's full roster size: starters plus bench. The
-// slot-count/draft-round equality rule (roster-ops spec section 10) requires
-// this to equal DraftRounds for whichever preset is active.
+// ReserveTotal returns the preset's reserve-zone capacity: the sum of
+// every position's reserve count. Zero when Reserve is nil or empty.
+func (p RosterPreset) ReserveTotal() int {
+	total := 0
+	for _, count := range p.Reserve {
+		total += count
+	}
+	return total
+}
+
+// Total returns the preset's full draftable roster size: starters plus
+// bench plus reserve. IR is deliberately excluded — it is not draftable,
+// in-season stash only (roster-ops SK spec: "reserve YES (counts in
+// rounds), IR NO"). The slot-count/draft-round equality rule (roster-ops
+// spec section 10) requires this to equal DraftRounds for whichever
+// preset is active. When Reserve is empty this is exactly the pre-zones
+// formula (starters + bench), so every existing preset and config is
+// unaffected.
 func (p RosterPreset) Total() int {
-	return p.Starters() + p.Bench
+	return p.Starters() + p.Bench + p.ReserveTotal()
 }
 
 // rosterPresets is every named preset the roster-ops spec section 4.1.1
@@ -161,6 +199,14 @@ var ActiveRosterPreset = DefaultConfig().Roster
 type RosterOverride struct {
 	Slots map[string]int `json:"slots"`
 	Bench int            `json:"bench"`
+	// Reserve, IR, and Limits mirror RosterPreset's own fields (see that
+	// type's doc comments) — the roster-shape editor's zones/limits knobs.
+	// Every zero value (nil map, zero IR) is additive: an override written
+	// before these fields existed decodes with none of them, matching the
+	// pre-zones behavior exactly.
+	Reserve map[string]int `json:"reserve,omitempty"`
+	IR      int            `json:"ir,omitempty"`
+	Limits  map[string]int `json:"limits,omitempty"`
 }
 
 // cloneRosterOverride deep-copies o (nil-safe), matching the store's
@@ -169,9 +215,21 @@ func cloneRosterOverride(o *RosterOverride) *RosterOverride {
 	if o == nil {
 		return nil
 	}
-	out := &RosterOverride{Bench: o.Bench, Slots: make(map[string]int, len(o.Slots))}
+	out := &RosterOverride{
+		Bench:   o.Bench,
+		IR:      o.IR,
+		Slots:   make(map[string]int, len(o.Slots)),
+		Reserve: make(map[string]int, len(o.Reserve)),
+		Limits:  make(map[string]int, len(o.Limits)),
+	}
 	for key, count := range o.Slots {
 		out.Slots[key] = count
+	}
+	for key, count := range o.Reserve {
+		out.Reserve[key] = count
+	}
+	for key, count := range o.Limits {
+		out.Limits[key] = count
 	}
 	return out
 }
@@ -179,16 +237,19 @@ func cloneRosterOverride(o *RosterOverride) *RosterOverride {
 // rosterOverridePreset renders o as a RosterPreset, for CurrentRoster and
 // the admin console's computed summary line.
 func rosterOverridePreset(o RosterOverride) RosterPreset {
-	return RosterPreset{Name: "custom", Slots: o.Slots, Bench: o.Bench}
+	return RosterPreset{Name: "custom", Slots: o.Slots, Bench: o.Bench, Reserve: o.Reserve, IR: o.IR, Limits: o.Limits}
 }
 
 // validateRosterOverride is the roster-shape editor's single validation
 // source (roster-ops spec section 10 numbers, reused verbatim): every slot
 // key must be one slotTable names (validRosterSlotKeys, config.go); each
 // slot count is 0-4; at least 1 QB; RB plus WR at least 2; starters total
-// at least 6; bench 0-10; the full roster (starters plus bench) 10-25.
-// Store.SetRosterOverride is the only caller today, keeping validation in
-// one place the way validateDraftOrder backs SetDraftOrder.
+// at least 6; bench 0-10; the full roster (starters plus bench plus
+// reserve) 10-25. Reserve/IR/Limits extend this same source (SK spec) via
+// validateZonesAndLimits (zones.go) — one validation source, extended
+// rather than duplicated. Store.SetRosterOverride is the only caller
+// today, keeping validation in one place the way validateDraftOrder backs
+// SetDraftOrder.
 func validateRosterOverride(o RosterOverride) error {
 	for key, count := range o.Slots {
 		if !validSlotKey(key) {
@@ -198,7 +259,7 @@ func validateRosterOverride(o RosterOverride) error {
 			return fmt.Errorf("roster shape: %s must be 0 to 4", key)
 		}
 	}
-	preset := RosterPreset{Slots: o.Slots}
+	preset := RosterPreset{Slots: o.Slots, Reserve: o.Reserve}
 	if o.Slots["QB"] < 1 {
 		return fmt.Errorf("roster shape: QB must be at least 1")
 	}
@@ -211,9 +272,12 @@ func validateRosterOverride(o RosterOverride) error {
 	if o.Bench < 0 || o.Bench > 10 {
 		return fmt.Errorf("roster shape: bench must be 0 to 10")
 	}
-	total := preset.Starters() + o.Bench
+	if err := validateZonesAndLimits(o.Reserve, o.IR, o.Limits, "roster shape"); err != nil {
+		return err
+	}
+	total := preset.Starters() + o.Bench + preset.ReserveTotal()
 	if total < 10 || total > 25 {
-		return fmt.Errorf("roster shape: total roster size (starters plus bench) must be 10 to 25; got %d", total)
+		return fmt.Errorf("roster shape: total roster size (starters plus bench plus reserve) must be 10 to 25; got %d", total)
 	}
 	return nil
 }
@@ -650,11 +714,16 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 		return "", fmt.Errorf("%s", lineupUnknownSlotMessage(slotID))
 	}
 	roster, _ := s.rosterForTeam(state, teamID)
-	byID := make(map[string]Player, len(roster))
-	for _, p := range roster {
+	// Zone occupants (RESERVE, IR) never reach the lineup engine: they
+	// must be activated first (ActivateFromReserve/ActivateFromIR,
+	// zones.go), which is also why byID below correctly rejects one with
+	// L4's ordinary "not on your roster" message.
+	general, _, _ := splitRosterZones(state, teamID, roster)
+	byID := make(map[string]Player, len(general))
+	for _, p := range general {
 		byID[p.ID] = p
 	}
-	current := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	occupant, _ := current.slotAssignment(slot.ID)
 
 	playerID = strings.TrimSpace(playerID)
@@ -705,8 +774,9 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 	}
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
-	current := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
-	resolved := autoFillWeek(preset, roster, current, week, games, now)
+	general, _, _ := splitRosterZones(state, teamID, roster)
+	current := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
+	resolved := autoFillWeek(preset, general, current, week, games, now)
 	if err := s.store.SetLineupWeek(teamID, week, resolved); err != nil {
 		return "", err
 	}
@@ -719,9 +789,10 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 func (s *Service) effectiveLineupForTeam(state PersistedState, teamID string, week int) EffectiveLineup {
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
+	general, _, _ := splitRosterZones(state, teamID, roster)
 	games := s.schedule()
 	now := s.clock()
-	return effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	return effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 }
 
 // ---------------------------------------------------------------------

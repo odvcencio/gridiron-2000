@@ -208,17 +208,40 @@ func (s *Service) effectiveDeadline(state PersistedState, now time.Time) (time.T
 
 // autopickChoice resolves the player an auto-pick would select for teamID:
 // first the seat's Big Board, walked in order and skipping any ID that is
-// already picked or that does not resolve in the pool (mirrors the
-// board-panel filter in DraftData); then best-available ADP order (the
-// pool's own draft order). ok is false only when neither source has a
-// candidate — an empty or exhausted pool (section 8.6).
+// already picked, does not resolve in the pool, or would breach the
+// league's optional Limits knob (mirrors the board-panel filter in
+// DraftData); then best-available ADP order (the pool's own draft order),
+// same Limits filter. If every remaining candidate would breach some
+// limit — a degenerate config, should not happen in practice — the
+// second pass falls back to ignoring Limits entirely rather than pausing
+// the draft indefinitely; a live draft finishing is more important than a
+// soft cap. ok is false only when neither source has any candidate at all
+// — an empty or exhausted pool (section 8.6).
 func (s *Service) autopickChoice(state PersistedState, teamID string) (string, bool) {
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
 	}
 	pool := s.pool()
+	fits := func(playerID string) bool {
+		_, _, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil)
+		return !breach
+	}
 	key := s.presenceKeyForTeam(state, teamID)
+	for _, id := range state.Boards[key] {
+		if picked[id] {
+			continue
+		}
+		if _, ok := pool.byID[id]; ok && fits(id) {
+			return id, true
+		}
+	}
+	for _, player := range pool.players {
+		if !picked[player.ID] && fits(player.ID) {
+			return player.ID, true
+		}
+	}
+	// Fallback: ignore Limits rather than stall the draft.
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue

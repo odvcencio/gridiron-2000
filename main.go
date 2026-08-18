@@ -65,6 +65,7 @@ func main() {
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
 	league.Default().SetHistoricalSource(historicalSource(openStats))
 	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
+	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	startBlitzPoller(runtimeContext, fantasyPool, league.Default())
 	// startBlitzPre1 makes a handful of REST calls against already-final
 	// games; it backgrounds itself so a slow or unreachable Tank01 never
@@ -662,6 +663,38 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 		}
 		out = append(out, dstWeekStatLines(stats, eastern, week)...)
 		return out
+	}
+}
+
+// leagueInjuryDesignationSource adapts the mirrored nflverse weekly injury
+// report to league.InjuryDesignationSource (roster-ops SK spec: the IR
+// eligibility gate). It is keyed by normalizePlayerKey(name, position) —
+// the same join key historicalSource and leagueWeekStatsSource already
+// use — because internal/fantasy's Tank01-backed live pool carries no
+// GSIS ID (see league.InjuryDesignationSource's doc comment); nflTeam
+// scopes the openstats query so one lookup stays cheap (openstats caps
+// InjuryReports at 1000 rows per call regardless of Limit). Among that
+// team's reports for the matching name+position, the highest-week row's
+// ReportStatus wins — "this player's most recently reported weekly
+// designation." ok is false when no report matches at all.
+func leagueInjuryDesignationSource(stats *openstats.Service) league.InjuryDesignationSource {
+	return func(name, position, nflTeam string) (string, bool) {
+		key := openstats.NormalizePlayerKey(name, position)
+		reports := stats.InjuryReports(openstats.InjuryQuery{Team: nflTeam, Limit: 1000})
+		bestWeek := -1
+		designation := ""
+		found := false
+		for _, r := range reports {
+			if openstats.NormalizePlayerKey(r.PlayerName, r.Position) != key {
+				continue
+			}
+			if r.Week > bestWeek {
+				bestWeek = r.Week
+				designation = r.ReportStatus
+				found = true
+			}
+		}
+		return designation, found
 	}
 }
 

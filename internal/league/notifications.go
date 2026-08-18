@@ -1,12 +1,14 @@
 // Notification catalog, key builders, preference precedence, and the
 // N1-N7 and N8 template builders (design spec "Notification Email System",
-// sections 3, 6.4, 7.1). The catalog registers all 18 entries (N1-N18,
-// roster-ops spec section 9's N14-N18 additions) so the default matrix
-// stays total (spec section 9, test 18; roster-ops spec section 12 test
-// 25); N9-N13 register catalog metadata and a key builder only — their
-// evaluation and templates land in later work packages, N14 in waivers.go,
-// N15-N17 in trades.go, and N18 below (see notifierTick's TODO markers for
-// N9-N13).
+// sections 3, 6.4, 7.1). The catalog registers all 19 entries (N1-N19,
+// roster-ops spec section 9's N14-N18 additions plus the SK IR spec's
+// N19) so the default matrix stays total (spec section 9, test 18;
+// roster-ops spec section 12 test 25); N9-N13 register catalog metadata
+// and a key builder only — their evaluation and templates land in later
+// work packages, N14 in waivers.go, N15-N17 in trades.go, N18 below, and
+// N19 fires from the roster-ops ticker (rosterops.go's evalHealedIR, the
+// N14 precedent) rather than the notifier ticker (see notifierTick's TODO
+// markers for N9-N13).
 package league
 
 import (
@@ -109,6 +111,10 @@ type keyContext struct {
 	// TradeOffer's ID, already unique per offer, the same
 	// naturally-idempotent shape ClaimID uses for N14.
 	OfferID string
+	// PlayerID backs N19's key (roster-ops SK spec): the healed IR
+	// occupant's player ID, so two IR occupants on the same team in the
+	// same week never collide on one idempotency key.
+	PlayerID string
 }
 
 // catalogEntry is one row of the notification catalog (spec section 3):
@@ -131,9 +137,10 @@ type catalogEntry struct {
 	Key func(email string, ctx keyContext) string
 }
 
-// catalogEntries is the full 18-entry registry (spec section 3's summary
-// matrix, extended by roster-ops spec section 9's N14-N18 and the pick'em
-// HQ task's N8). N9-N13 register catalog metadata and a key builder only,
+// catalogEntries is the full 19-entry registry (spec section 3's summary
+// matrix, extended by roster-ops spec section 9's N14-N18, the pick'em
+// HQ task's N8, and the SK IR spec's N19). N9-N13 register catalog
+// metadata and a key builder only,
 // so the pref precedence, ledger, and admin-matrix machinery are total
 // from day one; their template builders land in later work packages.
 var catalogEntries = buildCatalog()
@@ -220,6 +227,13 @@ func buildCatalog() []catalogEntry {
 			ID: "N18", TypeKey: "lineup-warning", Category: categoryLineups, Urgency: urgencyHigh, Default: true,
 			TimeDriven: true, Freshness: 24 * time.Hour,
 			Key: func(email string, ctx keyContext) string { return keyLineupWarning(ctx.Season, ctx.Week, email) },
+		},
+		{
+			ID: "N19", TypeKey: "healed-ir-warning", Category: categoryLineups, Urgency: urgencyHigh, Default: true,
+			TimeDriven: true, Freshness: 24 * time.Hour,
+			Key: func(email string, ctx keyContext) string {
+				return keyHealedIRWarning(ctx.Season, ctx.Week, ctx.PlayerID, email)
+			},
 		},
 	}
 }
@@ -1433,7 +1447,8 @@ func (s *Service) evalLineupWarnings(state PersistedState, now time.Time) {
 		// already threads its own instant through here, and tests drive
 		// this function directly with a fake clock (spec section 6.4).
 		roster, _ := s.rosterForTeam(state, member.TeamID)
-		lineup := effectiveLineup(preset, roster, state.Lineups[member.TeamID], week, games, now)
+		general, _, _ := splitRosterZones(state, member.TeamID, roster)
+		lineup := effectiveLineup(preset, general, state.Lineups[member.TeamID], week, games, now)
 		problems := lineupProblems(lineup, games, now)
 		if len(problems) == 0 {
 			continue
@@ -1481,6 +1496,59 @@ func (s *Service) buildLineupWarning(member Member, lineup EffectiveLineup, prob
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
 		Key: keyLineupWarning(strconv.Itoa(s.cfg.Season), week, member.Email), Category: categoryLineups,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// ---------------------------------------------------------------------
+// N19 — healed-ir-warning (roster-ops SK spec, 2026-08-18 owner decision)
+// ---------------------------------------------------------------------
+
+// keyHealedIRWarning is N19's idempotency key: season+week+player+email,
+// so the same IR occupant only ever warns once per NFL week per seat.
+func keyHealedIRWarning(season string, week int, playerID, email string) string {
+	return fmt.Sprintf("irheal:%s-w%d:%s:%s", season, week, playerID, normalizeEmail(email))
+}
+
+// notifyHealedIRWarning fires N19 for teamID's seat, evaluated by
+// evalHealedIR (rosterops.go) — the roster-ops ticker, not the notifier
+// ticker, matching N14's own precedent (evalWaiverRun fires N14 from the
+// same ticker). Recipient resolution: this league carries one manager per
+// seat (Member), so the seat's single primary manager is the recipient;
+// there is no co-manager list to fan out to yet.
+func (s *Service) notifyHealedIRWarning(state PersistedState, teamID string, player Player, week int, kickoff, now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	member := memberForTeam(state.Members, teamID)
+	if member.Email == "" {
+		return
+	}
+	key := keyHealedIRWarning(strconv.Itoa(s.cfg.Season), week, player.ID, member.Email)
+	s.recordAndSend(state, member.Email, categoryLineups, key, now, func() renderedNotification {
+		return s.buildHealedIRWarning(member, player, week, kickoff)
+	})
+}
+
+func (s *Service) buildHealedIRWarning(member Member, player Player, week int, kickoff time.Time) renderedNotification {
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	subject := fmt.Sprintf("IR DEADLINE: activate %s before kickoff", player.Name)
+	shell := s.shellFor(categoryLineups, fmt.Sprintf("WEEK %d // IR DEADLINE", week))
+	blocks := []emailkit.Block{
+		emailkit.Headline{
+			Title: strings.ToUpper(player.Name) + " IS OFF THE INJURY REPORT.",
+			Lede: fmt.Sprintf("Activate %s (with a corresponding drop) before %s's game at %s, or the platform auto-cuts him.",
+				player.Name, player.NFLTeam, kickoff.In(location).Format("Mon 3:04 PM MST")),
+		},
+		emailkit.CTA{Label: "MANAGE YOUR IR →", URL: s.leagueURL() + "/team"},
+		emailkit.Note{Text: "An unresolved IR slot auto-cuts at kickoff and clears to waivers the following week — never an instant free agent."},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyHealedIRWarning(strconv.Itoa(s.cfg.Season), week, player.ID, member.Email), Category: categoryLineups,
 		To: member.Email, Subject: subject, Text: text, HTML: html,
 	}
 }
