@@ -103,15 +103,6 @@ body {
   line-height: 1.55;
 }
 
-/* gosx-heartbeat-shell wraps every page's body content so the layout can
-   carry data-gosx-heartbeat/-interval (main.go's SetLayout callback) —
-   HTMLDocument has no body-attribute hook. display:contents removes the
-   div from the box tree entirely, so it never affects layout; the runtime
-   still walks it when it scans the document for the heartbeat attribute. */
-.gosx-heartbeat-shell {
-  display: contents;
-}
-
 body::after {
   position: fixed;
   z-index: 100;
