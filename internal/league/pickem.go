@@ -191,13 +191,27 @@ func pickemStreak(games []GameInfo, picks map[string]string) int {
 	return streak
 }
 
+// PickemConsensusView is one game's rendered pick split: the raw counts
+// and each side's share, plus precomputed inline-style strings — the
+// strict-surface .gsx template only ever does string concatenation on
+// server-typed strings (team/page.gsx's --badge-tone precedent), never
+// computes a bar width from a raw percentage itself.
+type PickemConsensusView struct {
+	HasPicks     bool
+	Total        int
+	AwayPct      int
+	HomePct      int
+	AwayBarStyle string
+	HomeBarStyle string
+}
+
 // pickemConsensus reports the league's pick split for one game: how many
 // recorded picks went to each side and each side's share of the total.
 // Callers must only invoke this once a game is locked (build item 2's
 // consensus rule: "never before lock, no information leaks") — the
 // function itself does not gate on lock state, so PickemData is the single
 // place that decides when consensus may be computed at all.
-func pickemConsensus(state PersistedState, game GameInfo) map[string]any {
+func pickemConsensus(state PersistedState, game GameInfo) PickemConsensusView {
 	awayCount, homeCount := 0, 0
 	for _, picks := range state.Pickems {
 		switch picks[game.ID] {
@@ -213,27 +227,21 @@ func pickemConsensus(state PersistedState, game GameInfo) map[string]any {
 		awayPct = int((float64(awayCount)/float64(total))*100 + 0.5)
 		homePct = 100 - awayPct
 	}
-	return map[string]any{
-		"has_picks": total > 0,
-		"total":     total,
-		"away_pct":  awayPct,
-		"home_pct":  homePct,
-		// Precomputed inline-style strings, not raw ints: the strict-surface
-		// .gsx template only ever does string concatenation on server-typed
-		// strings (team/page.gsx's --badge-tone precedent), never on an int.
-		"away_bar_style": fmt.Sprintf("width:%d%%;", awayPct),
-		"home_bar_style": fmt.Sprintf("width:%d%%;", homePct),
+	return PickemConsensusView{
+		HasPicks:     total > 0,
+		Total:        total,
+		AwayPct:      awayPct,
+		HomePct:      homePct,
+		AwayBarStyle: fmt.Sprintf("width:%d%%;", awayPct),
+		HomeBarStyle: fmt.Sprintf("width:%d%%;", homePct),
 	}
 }
 
 // hiddenConsensus is the pre-lock placeholder every game card carries: no
 // pick split is computed or shipped before a game locks, so there is
 // nothing to leak even if a template were to render it by mistake.
-func hiddenConsensus() map[string]any {
-	return map[string]any{
-		"has_picks": false, "total": 0, "away_pct": 0, "home_pct": 0,
-		"away_bar_style": "width:0%;", "home_bar_style": "width:0%;",
-	}
+func hiddenConsensus() PickemConsensusView {
+	return PickemConsensusView{AwayBarStyle: "width:0%;", HomeBarStyle: "width:0%;"}
 }
 
 // PickemData assembles the pick'em HQ page: the viewed week's games with
@@ -243,6 +251,34 @@ func hiddenConsensus() map[string]any {
 // (pickemWeek); ?week=N reuses that same resolver's output only as the
 // default, then moves freely across every week the real schedule carries
 // (build item 2's week navigation).
+
+// PickemGameRow is one game on the pick'em slate as the page renders it:
+// display fields, the viewer's own pick state, and (once locked) the
+// league's consensus. A real struct, not a map, because PickemRow
+// (page.gsx) is a strict component and reads it as a named prop.
+// PickedAway/PickedHome are precomputed rather than compared in the
+// template: the strict server renderer's attribute-value expressions
+// support string concatenation only, not a "==" comparison (gosx check),
+// so aria-pressed's true/false must already be a bool field.
+type PickemGameRow struct {
+	ID             string
+	Label          string
+	KickoffDisplay string
+	Away           string
+	Home           string
+	Pick           string
+	PickedAway     bool
+	PickedHome     bool
+	Picked         bool
+	Locked         bool
+	Final          bool
+	Winner         string
+	Correct        bool
+	Wrong          bool
+	ScoreDisplay   string
+	Consensus      PickemConsensusView
+}
+
 func (s *Service) PickemData(r *http.Request) map[string]any {
 	now := time.Now()
 	state := s.store.Snapshot()
@@ -282,7 +318,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 
 	viewerPicks := state.Pickems[viewerKey]
 	pickedCount, unpickedCount := 0, 0
-	games := make([]map[string]any, 0, len(weekGames))
+	games := make([]PickemGameRow, 0, len(weekGames))
 	for _, game := range weekGames {
 		pick := viewerPicks[game.ID]
 		locked := !now.Before(game.Kickoff)
@@ -302,21 +338,23 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		if locked {
 			consensus = pickemConsensus(state, game)
 		}
-		games = append(games, map[string]any{
-			"id":              game.ID,
-			"label":           game.Away + " @ " + game.Home,
-			"kickoff_display": game.Kickoff.In(location).Format("Mon Jan 2 · 3:04 PM MST"),
-			"away":            game.Away,
-			"home":            game.Home,
-			"pick":            pick,
-			"picked":          pick != "",
-			"locked":          locked,
-			"final":           game.Final,
-			"winner":          winner,
-			"correct":         correct,
-			"wrong":           wrong,
-			"score_display":   scoreDisplay,
-			"consensus":       consensus,
+		games = append(games, PickemGameRow{
+			ID:             game.ID,
+			Label:          game.Away + " @ " + game.Home,
+			KickoffDisplay: game.Kickoff.In(location).Format("Mon Jan 2 · 3:04 PM MST"),
+			Away:           game.Away,
+			Home:           game.Home,
+			Pick:           pick,
+			PickedAway:     pick != "" && pick == game.Away,
+			PickedHome:     pick != "" && pick == game.Home,
+			Picked:         pick != "",
+			Locked:         locked,
+			Final:          game.Final,
+			Winner:         winner,
+			Correct:        correct,
+			Wrong:          wrong,
+			ScoreDisplay:   scoreDisplay,
+			Consensus:      consensus,
 		})
 	}
 
@@ -361,19 +399,31 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	}
 }
 
-// assignSharedRanks sets each entry's "rank" from its position in an
+// PickemLeaderboardEntry is one leaderboard row: a member's rank, display
+// name, team mark, and correct/total tally. A real struct, not a map,
+// because LeaderboardRow (page.gsx) is a strict component and reads it
+// through a spread.
+type PickemLeaderboardEntry struct {
+	Rank    string
+	Name    string
+	Team    string
+	Correct int
+	Total   int
+}
+
+// assignSharedRanks sets each entry's Rank from its position in an
 // already correct-descending, name-tiebroken sort, using competition
-// ranking: entries tied on "correct" share one rank, and the next distinct
+// ranking: entries tied on Correct share one rank, and the next distinct
 // score jumps ahead by the tied count (01, 01, 03 — never 01, 01, 02).
-func assignSharedRanks(out []map[string]any) {
+func assignSharedRanks(out []PickemLeaderboardEntry) {
 	rank := 0
 	prevCorrect := -1
-	for index, entry := range out {
-		correct := entry["correct"].(int)
+	for index := range out {
+		correct := out[index].Correct
 		if index == 0 || correct != prevCorrect {
 			rank = index + 1
 		}
-		entry["rank"] = fmt.Sprintf("%02d", rank)
+		out[index].Rank = fmt.Sprintf("%02d", rank)
 		prevCorrect = correct
 	}
 }
@@ -383,7 +433,7 @@ func assignSharedRanks(out []map[string]any) {
 // final game in that set. Called with the full schedule for the season
 // leaderboard and with one week's games for the weekly leaderboard — both
 // share this one implementation and its shared-rank tie convention.
-func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []map[string]any {
+func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []PickemLeaderboardEntry {
 	byID := make(map[string]GameInfo, len(games))
 	for _, game := range games {
 		byID[game.ID] = game
@@ -415,7 +465,7 @@ func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []ma
 		}
 	}
 
-	out := make([]map[string]any, 0, len(tallies))
+	out := make([]PickemLeaderboardEntry, 0, len(tallies))
 	for email, entry := range tallies {
 		member := state.Members[email]
 		name := strings.TrimSpace(member.Name)
@@ -426,19 +476,18 @@ func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []ma
 		if member.TeamID != "" {
 			team = s.teamAbbreviation(member.TeamID)
 		}
-		out = append(out, map[string]any{
-			"name":    name,
-			"team":    team,
-			"correct": entry.correct,
-			"total":   entry.total,
+		out = append(out, PickemLeaderboardEntry{
+			Name:    name,
+			Team:    team,
+			Correct: entry.correct,
+			Total:   entry.total,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		ci, cj := out[i]["correct"].(int), out[j]["correct"].(int)
-		if ci != cj {
-			return ci > cj
+		if out[i].Correct != out[j].Correct {
+			return out[i].Correct > out[j].Correct
 		}
-		return out[i]["name"].(string) < out[j]["name"].(string)
+		return out[i].Name < out[j].Name
 	})
 	assignSharedRanks(out)
 	return out

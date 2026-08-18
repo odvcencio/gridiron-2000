@@ -1,92 +1,168 @@
 package pickem
 
+// PickemConsensusView structurally mirrors internal/league's
+// PickemConsensusView (the loader's actual type): the same-file schema
+// rule requires a strict component's props, and every struct its body
+// reaches, to be declared in this .gsx file, so this needs only to share
+// shape and field types with the loader's converter, not identity.
+type PickemConsensusView struct {
+	HasPicks     bool
+	Total        int
+	AwayPct      int
+	HomePct      int
+	AwayBarStyle string
+	HomeBarStyle string
+}
+
+// ConsensusBarProps is flat, not a nested Consensus struct: a strict
+// component's props field, when passed to another strict component as a
+// named attribute (not a spread), can only be rendered if it resolves to
+// a string, bool, integer, or floating-point builtin (gosx check) — a
+// struct-typed value is not renderable at that boundary. PickemRow (the
+// caller) is itself strict, so its call here passes each scalar leaf by
+// name instead of the whole Consensus value.
+type ConsensusBarProps struct {
+	AwayBarStyle string
+	HomeBarStyle string
+	AwayPct      int
+	HomePct      int
+	Away         string
+	Home         string
+}
+
 // ConsensusBar renders the league's locked-game pick split as a two-color
 // bar plus the exact percentages — server-computed inline widths, no JS.
 // Callers must only mount this once a game is locked (see
 // pickemConsensus's doc comment: no split ships before lock).
-func ConsensusBar(props any) Node {
+component ConsensusBar(props: ConsensusBarProps) {
 	return <div class="consensus" aria-label="League pick split">
 		<div class="consensus-bar">
-			<div class="consensus-bar__fill consensus-bar__fill--away" style={props.consensus.away_bar_style}></div>
-			<div class="consensus-bar__fill consensus-bar__fill--home" style={props.consensus.home_bar_style}></div>
+			<div class="consensus-bar__fill consensus-bar__fill--away" style={props.AwayBarStyle}></div>
+			<div class="consensus-bar__fill consensus-bar__fill--home" style={props.HomeBarStyle}></div>
 		</div>
 		<div class="consensus-legend mono">
 			<span>
-				{props.away}
-				{props.consensus.away_pct}%
+				{props.Away}
+				{props.AwayPct}%
 			</span>
 			<span>
-				{props.home}
-				{props.consensus.home_pct}%
+				{props.Home}
+				{props.HomePct}%
 			</span>
 		</div>
 	</div>
 }
 
-func PickemRow(props any) Node {
-	return <article class="pickem-row" data-picked={props.game.picked}>
-		<small class="mono">{props.game.kickoff_display}</small>
-		<strong>{props.game.label}</strong>
+// PickemGameRow structurally mirrors internal/league's PickemGameRow.
+type PickemGameRow struct {
+	ID             string
+	Label          string
+	KickoffDisplay string
+	Away           string
+	Home           string
+	Pick           string
+	PickedAway     bool
+	PickedHome     bool
+	Picked         bool
+	Locked         bool
+	Final          bool
+	Winner         string
+	Correct        bool
+	Wrong          bool
+	ScoreDisplay   string
+	Consensus      PickemConsensusView
+}
+
+type PickemRowProps struct {
+	Game   PickemGameRow
+	Action string
+	CSRF   string
+}
+
+component PickemRow(props: PickemRowProps) {
+	return <article class="pickem-row" data-picked={props.Game.Picked}>
+		<small class="mono">{props.Game.KickoffDisplay}</small>
+		<strong>{props.Game.Label}</strong>
 		<div class="pickem-buttons">
-			<If cond={props.game.locked == false}>
+			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input type="hidden" name="game_id" value={props.game.id}></input>
-					<input type="hidden" name="team" value={props.game.away}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.game.pick == props.game.away}>{props.game.away}</button>
+					<input type="hidden" name="game_id" value={props.Game.ID}></input>
+					<input type="hidden" name="team" value={props.Game.Away}></input>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.Away}</button>
 				</form>
 			</If>
-			<If cond={props.game.locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.game.pick == props.game.away}>{props.game.away}</button>
+			<If cond={props.Game.Locked}>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.Away}</button>
 			</If>
-			<If cond={props.game.locked == false}>
+			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input type="hidden" name="game_id" value={props.game.id}></input>
-					<input type="hidden" name="team" value={props.game.home}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.game.pick == props.game.home}>{props.game.home}</button>
+					<input type="hidden" name="game_id" value={props.Game.ID}></input>
+					<input type="hidden" name="team" value={props.Game.Home}></input>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.Home}</button>
 				</form>
 			</If>
-			<If cond={props.game.locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.game.pick == props.game.home}>{props.game.home}</button>
+			<If cond={props.Game.Locked}>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.Home}</button>
 			</If>
 		</div>
 		<div class="pickem-status">
-			<If cond={props.game.final}>
-				<b class="mono">{props.game.score_display}</b>
-				<span class="mono">{props.game.winner}</span>
-				<If cond={props.game.correct}>
+			<If cond={props.Game.Final}>
+				<b class="mono">{props.Game.ScoreDisplay}</b>
+				<span class="mono">{props.Game.Winner}</span>
+				<If cond={props.Game.Correct}>
 					<b class="pickem-hit">✓</b>
 				</If>
-				<If cond={props.game.wrong}>
+				<If cond={props.Game.Wrong}>
 					<b class="pickem-miss">✗</b>
 				</If>
 			</If>
-			<If cond={props.game.locked}>
-				<If cond={props.game.final == false}>
+			<If cond={props.Game.Locked}>
+				<If cond={props.Game.Final == false}>
 					<b class="mono">LOCKED</b>
 				</If>
 			</If>
 		</div>
-		<If cond={props.game.locked}>
-			<If cond={props.game.consensus.has_picks}>
-				<ConsensusBar consensus={props.game.consensus} away={props.game.away} home={props.game.home}></ConsensusBar>
+		<If cond={props.Game.Locked}>
+			<If cond={props.Game.Consensus.HasPicks}>
+				<ConsensusBar
+					AwayBarStyle={props.Game.Consensus.AwayBarStyle}
+					HomeBarStyle={props.Game.Consensus.HomeBarStyle}
+					AwayPct={props.Game.Consensus.AwayPct}
+					HomePct={props.Game.Consensus.HomePct}
+					Away={props.Game.Away}
+					Home={props.Game.Home}
+				></ConsensusBar>
 			</If>
 		</If>
 	</article>
 }
 
-func LeaderboardRow(props any) Node {
+// PickemLeaderboardEntry structurally mirrors internal/league's
+// PickemLeaderboardEntry, and is LeaderboardRow's own props type directly
+// (no wrapper field): a page-level spread proves a root value structurally
+// regardless of its declared type's name, so data.leaderboard's entries
+// need only share this shape.
+type PickemLeaderboardEntry struct {
+	Rank    string
+	Name    string
+	Team    string
+	Correct int
+	Total   int
+}
+
+component LeaderboardRow(props: PickemLeaderboardEntry) {
 	return <div class="rank-row">
-		<span class="pool-rank mono">{props.entry.rank}</span>
+		<span class="pool-rank mono">{props.Rank}</span>
 		<div class="pool-player">
-			<strong>{props.entry.name}</strong>
-			<span class="position-chip">{props.entry.team}</span>
+			<strong>{props.Name}</strong>
+			<span class="position-chip">{props.Team}</span>
 		</div>
 		<b class="mono">
-			{props.entry.correct}
+			{props.Correct}
 			/
-			{props.entry.total}
+			{props.Total}
 		</b>
 	</div>
 }
@@ -218,12 +294,8 @@ func Page() Node {
 				</If>
 			</If>
 			<div class="pool-list">
-				<Each of={data.games} as="game">
-					<PickemRow
-						game={game}
-						Action={actionPath("pickem-set")}
-						CSRF={csrf.token}
-					 />
+				<Each of={data.games} as="row">
+					<PickemRow {...row}></PickemRow>
 				</Each>
 			</div>
 		</section>
@@ -246,7 +318,7 @@ func Page() Node {
 				</If>
 				<div class="pool-list">
 					<Each of={data.leaderboard} as="entry">
-						<LeaderboardRow entry={entry}></LeaderboardRow>
+						<LeaderboardRow {...entry}></LeaderboardRow>
 					</Each>
 				</div>
 			</section>
@@ -272,7 +344,7 @@ func Page() Node {
 				</If>
 				<div class="pool-list">
 					<Each of={data.week_leaderboard} as="entry">
-						<LeaderboardRow entry={entry}></LeaderboardRow>
+						<LeaderboardRow {...entry}></LeaderboardRow>
 					</Each>
 				</div>
 			</section>
