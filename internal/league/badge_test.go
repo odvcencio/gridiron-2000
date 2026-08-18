@@ -327,7 +327,7 @@ func TestStateFingerprintChangesOnBadgeClaimAndRelease(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
 
 	before := service.StateFingerprint(1)
-	if err := service.ClaimBadge(request, "team-5", "kraken"); err != nil {
+	if err := service.ClaimBadge(request, "team-5", "fireball"); err != nil {
 		t.Fatal(err)
 	}
 	afterClaim := service.StateFingerprint(1)
@@ -382,5 +382,44 @@ func TestBadgeGridReflectsClaims(t *testing.T) {
 	}
 	if mine["wolf"]["claimed"] != true || mine["wolf"]["mine"] != true || mine["wolf"]["claimed_by_abbr"] != "" {
 		t.Fatalf("own-claim motif entry wrong: %+v", mine["wolf"])
+	}
+}
+
+// TestLegacyMotifSlugResolvesForward pins the rename migration: a claim
+// persisted by a binary that predates the catalog rename still renders,
+// while the retired slug is refused as new input. Read paths map forward;
+// write paths do not, so a retired slug can never be re-persisted.
+func TestLegacyMotifSlugResolvesForward(t *testing.T) {
+	for old, want := range map[string]string{
+		"marlin": "rocket",
+		"knight": "robot",
+		"planet": "astronaut",
+		"kraken": "fireball",
+	} {
+		if got := resolveMotifSlug(old); got != want {
+			t.Errorf("resolveMotifSlug(%q) = %q, want %q", old, got, want)
+		}
+		if knownMotif(old) {
+			t.Errorf("knownMotif(%q) = true; a retired slug must never be accepted as new input", old)
+		}
+		if !knownMotif(want) {
+			t.Errorf("knownMotif(%q) = false; the replacement must be in the catalog", want)
+		}
+	}
+	if got := resolveMotifSlug("helmet"); got != "helmet" {
+		t.Errorf("resolveMotifSlug(helmet) = %q; a current slug must pass through", got)
+	}
+}
+
+// TestEveryCatalogMotifHasArtwork pins the catalog against the shipped
+// files. A slug with no PNG renders an empty badge in the picker and a
+// broken image on a claimed team, and neither failure is visible from Go
+// tests that only exercise the catalog slice.
+func TestEveryCatalogMotifHasArtwork(t *testing.T) {
+	for _, motif := range BadgeMotifs {
+		path := filepath.Join("..", "..", "public", "avatars", "motifs", motif.Slug+".png")
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("motif %q (%s) has no artwork at %s", motif.Slug, motif.Name, path)
+		}
 	}
 }

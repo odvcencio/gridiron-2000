@@ -36,18 +36,47 @@ var BadgeMotifs = []BadgeMotif{
 	{Slug: "bull", Name: "Bull"},
 	{Slug: "wolf", Name: "Wolf"},
 	{Slug: "bolt", Name: "Bolt"},
-	{Slug: "marlin", Name: "Marlin"},
+	{Slug: "rocket", Name: "Rocket"},
 	{Slug: "star", Name: "Star"},
 	{Slug: "crown", Name: "Crown"},
 	{Slug: "eagle", Name: "Eagle"},
-	{Slug: "knight", Name: "Knight"},
+	{Slug: "robot", Name: "Robot"},
 	{Slug: "ram", Name: "Ram"},
 	{Slug: "shark", Name: "Shark"},
-	{Slug: "planet", Name: "Planet"},
+	{Slug: "astronaut", Name: "Astronaut"},
 	{Slug: "dice", Name: "Dice"},
-	{Slug: "kraken", Name: "Kraken"},
+	{Slug: "fireball", Name: "Fireball"},
 	{Slug: "dolphin", Name: "Dolphin"},
 	{Slug: "phoenix", Name: "Phoenix"},
+}
+
+// legacyMotifSlugs maps the catalog's first-cut slugs to the ones that
+// replaced them. The originals were named from a low-resolution read of the
+// source art; isolating each badge properly showed four of them depict
+// something else — the "marlin" is a rocket, the "knight" a robot visor, the
+// "planet" an astronaut helmet, and the "kraken" a flaming football. The
+// catalog now names what the art shows.
+//
+// No claim carried an old slug when the rename shipped (badge_claims was
+// empty), so this map exists to make that fact unnecessary to rely on: a
+// claim written by an older binary still resolves instead of orphaning its
+// team onto the text-mark fallback. It never accepts an old slug as NEW
+// input — knownMotif still rejects those, so the picker cannot write one.
+var legacyMotifSlugs = map[string]string{
+	"marlin": "rocket",
+	"knight": "robot",
+	"planet": "astronaut",
+	"kraken": "fireball",
+}
+
+// resolveMotifSlug maps a stored slug forward through legacyMotifSlugs. Read
+// paths (rendering a claimed badge) call this; write paths do not, so a
+// retired slug can be honored but never freshly persisted.
+func resolveMotifSlug(slug string) string {
+	if current, ok := legacyMotifSlugs[slug]; ok {
+		return current
+	}
+	return slug
 }
 
 // knownMotif reports whether slug names a catalog entry. Every store and
@@ -296,6 +325,9 @@ func (s *Service) BadgeImage(teamID string) (data []byte, version string, ok boo
 	if !claimed {
 		return nil, "", false
 	}
+	// A claim persisted by an older binary may name a retired slug; map it
+	// forward so the badge still renders (see legacyMotifSlugs).
+	motif = resolveMotifSlug(motif)
 	team := s.teamByID(teamID)
 	data, err := s.tintedBadgePNG(motif, team.Tone)
 	if err != nil {
