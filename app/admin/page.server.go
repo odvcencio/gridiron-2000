@@ -42,7 +42,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -159,6 +159,19 @@ func init() {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
 				session.AddFlash(ctx.Request, "notice", "League state is fully reset: seats, picks, and boards.")
+				ctx.Redirect("/admin")
+				return nil
+			},
+			// seat-trim is the T-1hr action: drop every seat nobody claimed,
+			// then lock the league to its claimed team count. Run it before
+			// order-randomize — randomizing first produces an order that
+			// still lists the seats the trim is about to remove.
+			"seat-trim": func(ctx *action.Context) error {
+				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept)))
 				ctx.Redirect("/admin")
 				return nil
 			},

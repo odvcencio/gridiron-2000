@@ -202,19 +202,29 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">01</span>
 							<div class="checklist-item__text">
-								<strong>About an hour early, randomize the draft order</strong>
-								<small>Use Randomize order in 04 // DRAFT ORDER. It locks once the first pick lands.</small>
+								<strong>About an hour early, drop the seats nobody claimed</strong>
+								<small>
+									Use Drop unclaimed seats in 04 // DRAFT ORDER. Do this before you randomize, or the
+									order still lists the seats you are about to remove.
+								</small>
 							</div>
 						</div>
 						<div class="checklist-item">
 							<span class="checklist-mark mono">02</span>
+							<div class="checklist-item__text">
+								<strong>Randomize the draft order</strong>
+								<small>Use Randomize order in 04 // DRAFT ORDER. It locks once the first pick lands.</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">03</span>
 							<div class="checklist-item__text">
 								<strong>Confirm every seat is ready</strong>
 								<small>Check the ready count above and the Ready badges in 01 // SEATS.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
-							<span class="checklist-mark mono">03</span>
+							<span class="checklist-mark mono">04</span>
 							<div class="checklist-item__text">
 								<strong>
 									At
@@ -225,28 +235,28 @@ func Page() Node {
 							</div>
 						</div>
 						<div class="checklist-item">
-							<span class="checklist-mark mono">04</span>
+							<span class="checklist-mark mono">05</span>
 							<div class="checklist-item__text">
 								<strong>Pause or extend for a break</strong>
 								<small>Use Pause clock, Resume clock, or Extend pick in 06 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
-							<span class="checklist-mark mono">05</span>
+							<span class="checklist-mark mono">06</span>
 							<div class="checklist-item__text">
 								<strong>Undo a misclick</strong>
 								<small>Type UNDO into Undo last pick in 03 // RESET. It re-arms the clock for that slot.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
-							<span class="checklist-mark mono">06</span>
+							<span class="checklist-mark mono">07</span>
 							<div class="checklist-item__text">
 								<strong>Autopick catches an absent manager</strong>
 								<small>Toggle AUTO for a seat in 01 // SEATS, or force one pick now in 06 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
-							<span class="checklist-mark mono">07</span>
+							<span class="checklist-mark mono">08</span>
 							<div class="checklist-item__text">
 								<strong>There's always a backup</strong>
 								<small>A safety copy saves automatically before every pick, undo, and auto-pick — on top of Undo last pick.</small>
@@ -421,6 +431,17 @@ func Page() Node {
 							</article>
 						</Each>
 					</div>
+					<If cond={data.has_unclaimed_seats}>
+						<form method="post" action={actionPath("seat-trim")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button" type="submit">Drop unclaimed seats</button>
+						</form>
+						<p class="scoring-note">
+							{data.unclaimed_seat_count}
+							seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
+							in every round: it runs the full pick clock down, then autopicks a player.
+						</p>
+					</If>
 					<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button class="button button--primary" type="submit">Randomize order</button>
