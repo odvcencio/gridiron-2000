@@ -493,6 +493,113 @@ func TestPersistFailureLeavesStoredStateIntact(t *testing.T) {
 	if stored.Picks[0].PlayerID != "p-01" {
 		t.Fatalf("stored pick = %q, want p-01", stored.Picks[0].PlayerID)
 	}
+
+	// The live store's own in-memory copy must agree with disk: a caller
+	// told MakePick failed must never find the rejected pick still
+	// recorded in Snapshot(), and the next pick attempt must see the same
+	// on-clock team and pick number this one did (draft-concurrency
+	// review finding: MakePick used to append to Picks before persisting
+	// and never rolled the append back on a persist error).
+	inMemory := store.Snapshot()
+	if len(inMemory.Picks) != 1 {
+		t.Fatalf("in-memory picks after a failed MakePick = %d, want 1 (the failed pick must not stick in memory)", len(inMemory.Picks))
+	}
+}
+
+// TestMakePickRollsBackOnPersistFailure is the direct regression test for
+// the finding above: MakePick must undo its own append to Picks and its
+// own ClockDeadline write when persistLocked fails, mirroring the
+// FirstSend/FirstSendBatch rollback precedent (see those tests). Without
+// the rollback, the pick count and on-clock team silently advance in
+// memory even though the caller was told the pick failed.
+func TestMakePickRollsBackOnPersistFailure(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	team1 := teamOnClock(nil, 1)
+	staleDeadline := now.Add(90 * time.Second)
+	if err := store.ArmClock(staleDeadline); err != nil {
+		t.Fatal(err)
+	}
+
+	failThisStorePersist(store)
+	nextDeadline := now.Add(90 * time.Second)
+	if _, err := store.MakePick(team1, "p-01", "manager", now, nextDeadline); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("MakePick error = %v, want the injected persist failure", err)
+	}
+
+	state := store.Snapshot()
+	if len(state.Picks) != 0 {
+		t.Fatalf("picks after a failed persist = %d, want 0 (the append must roll back)", len(state.Picks))
+	}
+	if !state.ClockDeadline.Equal(staleDeadline) {
+		t.Fatalf("ClockDeadline after a failed persist = %v, want the pre-pick deadline %v", state.ClockDeadline, staleDeadline)
+	}
+
+	// A retry with the store healthy again must land pick 1 for team1,
+	// exactly as if the failed attempt never happened.
+	store.mu.Lock()
+	store.persistHook = nil
+	store.mu.Unlock()
+	pick, err := store.MakePick(team1, "p-01", "manager", now, nextDeadline)
+	if err != nil {
+		t.Fatalf("retry after rollback: %v", err)
+	}
+	if pick.Number != 1 || pick.TeamID != team1 {
+		t.Fatalf("retry pick = %+v, want number 1 for %s", pick, team1)
+	}
+}
+
+// TestAutoPickRollsBackOnPersistFailure is AutoPick's counterpart to
+// TestMakePickRollsBackOnPersistFailure: the same rollback rule applies to
+// the clock-driven pick path.
+func TestAutoPickRollsBackOnPersistFailure(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	team1 := teamOnClock(nil, 1)
+	deadline := now.Add(90 * time.Second)
+	if err := store.ArmClock(deadline); err != nil {
+		t.Fatal(err)
+	}
+
+	failThisStorePersist(store)
+	if _, err := store.AutoPick(team1, "p-01", "auto", 1, deadline, now, now.Add(90*time.Second)); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("AutoPick error = %v, want the injected persist failure", err)
+	}
+
+	state := store.Snapshot()
+	if len(state.Picks) != 0 {
+		t.Fatalf("picks after a failed persist = %d, want 0 (the append must roll back)", len(state.Picks))
+	}
+	if !state.ClockDeadline.Equal(deadline) {
+		t.Fatalf("ClockDeadline after a failed persist = %v, want the pre-pick deadline %v", state.ClockDeadline, deadline)
+	}
+}
+
+// TestUndoLastPickRollsBackOnPersistFailure checks the same rule on the
+// removal path: a failed persist must not leave a pick "gone" in memory
+// while the commissioner was told the undo failed, or a retry on the
+// resulting stale count would drop a second pick instead of retrying the
+// same one.
+func TestUndoLastPickRollsBackOnPersistFailure(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	team1 := teamOnClock(nil, 1)
+	if _, err := store.MakePick(team1, "p-01", "manager", now, now.Add(90*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	failThisStorePersist(store)
+	if err := store.UndoLastPick(now.Add(90 * time.Second)); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("UndoLastPick error = %v, want the injected persist failure", err)
+	}
+
+	state := store.Snapshot()
+	if len(state.Picks) != 1 {
+		t.Fatalf("picks after a failed undo persist = %d, want 1 (the removal must roll back)", len(state.Picks))
+	}
+	if state.Picks[0].PlayerID != "p-01" {
+		t.Fatalf("surviving pick = %q, want p-01", state.Picks[0].PlayerID)
+	}
 }
 
 // TestPanicMidTransactionKeepsPreMutationState checks the other crash
