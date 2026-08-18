@@ -53,20 +53,14 @@ spec:
             # source file is gitignored, never committed here.
             - name: LEAGUE_FILE
               value: "/etc/gridiron/league.json"
-            # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are now
-            # redundant with league.json's own draft.at / league.timezone /
-            # season_start_at / scoring_format fields (env still wins over
-            # the file per spec section 3.3, so these stay authoritative
-            # until removed). Kept as a defense-in-depth migration step;
-            # removing them is optional per the spec's migration steps.
-            - name: DRAFT_AT
-              value: "2026-08-22T16:00:00-04:00"
-            - name: DRAFT_TZ
-              value: "America/New_York"
-            - name: SEASON_START_AT
-              value: "2026-09-10T20:20:00-04:00"
-            - name: SCORING_FORMAT
-              value: "half_ppr"
+            # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
+            # deliberately NOT set here. Env wins over league.json (spec
+            # section 3.3), so duplicating them made a ConfigMap-only date
+            # change silently do nothing — the commissioner would edit the
+            # date, restart, and see the old one. The four values now live
+            # only in league.json, verified identical to the env block they
+            # replaced before it was removed. Changing the draft date is one
+            # ConfigMap edit plus a rollout restart.
           volumeMounts:
             - name: data
               mountPath: /app/data
