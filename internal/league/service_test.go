@@ -617,7 +617,7 @@ func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
 		ProjStats: map[string]float64{"rushYds": 80, "rushTD": 1},
 		Hist:      "2025 · 16 G · 900 rush yds · 6 TD · 12.4 FPts",
 	}
-	entry := playerMap(loaded, service.currentScoringValues())
+	entry := playerMap(loaded, service.currentScoringValues(), matchupIndex{})
 	if entry["jersey"] != "#26" {
 		t.Errorf("jersey = %v, want #26", entry["jersey"])
 	}
@@ -636,7 +636,7 @@ func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
 	}
 
 	bare := Player{ID: "p-bare", Name: "No Data", Position: "WR", NFLTeam: "CIN"}
-	bareEntry := playerMap(bare)
+	bareEntry := playerMap(bare, nil, matchupIndex{})
 	if bareEntry["jersey"] != "" {
 		t.Errorf("jersey = %v, want empty", bareEntry["jersey"])
 	}
@@ -666,7 +666,7 @@ func TestPlayerMapEmitsRookieAndDraftCapitalKeys(t *testing.T) {
 		ID: "p-rookie", Name: "Capital Rookie", Position: "RB", NFLTeam: "ARI",
 		Rookie: true, DraftCapital: "R1 · P3",
 	}
-	entry := playerMap(rookie, service.currentScoringValues())
+	entry := playerMap(rookie, service.currentScoringValues(), matchupIndex{})
 	if entry["is_rookie"] != true {
 		t.Errorf("is_rookie = %v, want true", entry["is_rookie"])
 	}
@@ -678,7 +678,7 @@ func TestPlayerMapEmitsRookieAndDraftCapitalKeys(t *testing.T) {
 	}
 
 	veteran := Player{ID: "p-veteran", Name: "No Capital Veteran", Position: "WR", NFLTeam: "CIN"}
-	veteranEntry := playerMap(veteran, service.currentScoringValues())
+	veteranEntry := playerMap(veteran, service.currentScoringValues(), matchupIndex{})
 	if veteranEntry["is_rookie"] != false {
 		t.Errorf("is_rookie = %v, want false", veteranEntry["is_rookie"])
 	}

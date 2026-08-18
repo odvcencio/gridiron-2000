@@ -97,6 +97,16 @@ type Service struct {
 	// data is available yet — the board falls back to its non-pre1
 	// rookie/ADP tiering, never a crash.
 	blitzPre1Fn BlitzPre1Source
+	// matchupFn supplies the matchup-rank cache (main.go's matchup-rank
+	// pipeline); see matchup.go's SetMatchupSource. nil means the cache
+	// has not computed yet — every row still shows its opponent, just no
+	// rank chip, never a crash.
+	matchupFn MatchupSource
+	// matchupLabel is matchupFn's honest season-source label ("2025
+	// season" or "2026 thru wk N", design point 4), set alongside
+	// matchupFn by SetMatchupSource. Empty means no cache has computed
+	// yet; see MatchupSourceLabel.
+	matchupLabel string
 
 	// notifyQueue is the delivery queue every notification hook enqueues to
 	// (internal/notify). nil means notifications were never wired (most
@@ -1144,6 +1154,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
 	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	scoringValues := s.currentScoringValues()
+	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	filled := 0
 	for _, a := range lineup.Slots {
 		if a.HasPlayer {
@@ -1187,20 +1198,20 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"starters":        s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled": strconv.Itoa(filled),
 		"starters_total":  strconv.Itoa(len(lineup.Slots)),
-		"bench":           playerMapsWithScoring(lineup.Bench, scoringValues),
+		"bench":           playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
 		"bench_empty":     len(lineup.Bench) == 0,
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
 		// whenever the active roster shape carries no such zone.
 		"has_reserve":             len(preset.Reserve) > 0,
 		"reserve_capacity":        fmt.Sprintf("%d / %d", len(reserveOccupants), preset.ReserveTotal()),
-		"reserve_occupants":       s.zoneOccupantRows(reserveOccupants, scoringValues, games, now, false),
+		"reserve_occupants":       s.zoneOccupantRows(reserveOccupants, scoringValues, games, week, now, false),
 		"reserve_occupants_empty": len(reserveOccupants) == 0,
 		"reserve_place_options":   placeOptions,
 		"reserve_place_empty":     len(placeOptions) == 0,
 		"has_ir":                  preset.IR > 0,
 		"ir_capacity":             fmt.Sprintf("%d / %d", len(irOccupants), preset.IR),
-		"ir_occupants":            s.zoneOccupantRows(irOccupants, scoringValues, games, now, true),
+		"ir_occupants":            s.zoneOccupantRows(irOccupants, scoringValues, games, week, now, true),
 		"ir_occupants_empty":      len(irOccupants) == 0,
 		"ir_place_options":        placeOptions,
 		"ir_place_empty":          len(placeOptions) == 0,
@@ -1217,7 +1228,9 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		// stays present anyway — the same "every branch carries the same
 		// key set" discipline fantasyCardData's own "team" field follows —
 		// so a template read never depends on which branch built the map.
-		"fantasy_card": s.fantasyCardData(state, viewer),
+		"fantasy_card":         s.fantasyCardData(state, viewer),
+		"matchup_source_label": matchupLabel,
+		"has_matchup_source":   hasMatchupLabel,
 	}
 }
 
@@ -1414,6 +1427,11 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 	// per page, and scoreBreakdown would otherwise snapshot store state once
 	// per player. See currentScoringValues.
 	scoringValues := s.currentScoringValues()
+	// Resolved once for the same reason: matchupIndexFor scans the whole
+	// schedule, and a draft-room page can render hundreds of pool rows.
+	games := s.schedule()
+	matchup := s.matchupIndexFor(games, s.pickemWeek(games, now))
+	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
@@ -1438,36 +1456,38 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 			continue
 		}
 		if player, ok := pool.byID[id]; ok {
-			boardPanel = append(boardPanel, playerMap(player, scoringValues))
+			boardPanel = append(boardPanel, playerMap(player, scoringValues, matchup))
 			if len(boardPanel) == 5 {
 				break
 			}
 		}
 	}
 	return map[string]any{
-		"viewer":           viewer,
-		"draft":            s.draftSummary(now),
-		"teams":            s.draftTeamMaps(state, onClockID),
-		"picks":            s.pickMaps(state, pool.byID, scoringValues),
-		"available":        playerMapsWithScoring(available, scoringValues),
-		"board":            boardPanel,
-		"board_count":      len(boardPanel),
-		"pool_label":       pool.label,
-		"pool_live":        pool.label == "live" || pool.label == "cache",
-		"pool_count":       len(pool.players),
-		"on_clock":         s.teamMap(onClock),
-		"on_clock_id":      onClockID,
-		"pick_number":      nextNumber,
-		"picks_empty":      len(state.Picks) == 0,
-		"round":            pickRound(activeTeamCount(state.DraftOrder), nextNumber),
-		"can_pick":         canPick,
-		"demo_mode":        s.demoMode,
-		"ready_count":      readyCount(state.Ready),
-		"manager_count":    len(s.Teams()),
-		"order_randomized": len(state.DraftOrder) > 0,
-		"league_mode":      s.cfg.ModeLabel,
-		"clock":            s.clockView(state, now),
-		"league":           s.leagueMap(),
+		"viewer":               viewer,
+		"draft":                s.draftSummary(now),
+		"teams":                s.draftTeamMaps(state, onClockID),
+		"picks":                s.pickMaps(state, pool.byID, scoringValues),
+		"available":            playerMapsWithScoring(available, scoringValues, matchup),
+		"board":                boardPanel,
+		"board_count":          len(boardPanel),
+		"pool_label":           pool.label,
+		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"pool_count":           len(pool.players),
+		"on_clock":             s.teamMap(onClock),
+		"on_clock_id":          onClockID,
+		"pick_number":          nextNumber,
+		"picks_empty":          len(state.Picks) == 0,
+		"round":                pickRound(activeTeamCount(state.DraftOrder), nextNumber),
+		"can_pick":             canPick,
+		"demo_mode":            s.demoMode,
+		"ready_count":          readyCount(state.Ready),
+		"manager_count":        len(s.Teams()),
+		"order_randomized":     len(state.DraftOrder) > 0,
+		"league_mode":          s.cfg.ModeLabel,
+		"clock":                s.clockView(state, now),
+		"league":               s.leagueMap(),
+		"matchup_source_label": matchupLabel,
+		"has_matchup_source":   hasMatchupLabel,
 	}
 }
 
@@ -2024,10 +2044,14 @@ func (s *Service) pickMaps(state PersistedState, players map[string]Player, scor
 			madeBy = "manager"
 		}
 		out = append(out, map[string]any{
-			"number":          pick.Number,
-			"round":           pick.Round,
-			"team":            s.teamMap(team),
-			"player":          playerMap(player, scoringValues),
+			"number": pick.Number,
+			"round":  pick.Round,
+			"team":   s.teamMap(team),
+			// The pick tape never renders a projection (app/draft/page.gsx
+			// shows only name/position/nfl_team for a pick-tape row), so no
+			// schedule context is threaded here — zero-value matchupIndex{}
+			// renders no opponent/matchup, matching the tape's own template.
+			"player":          playerMap(player, scoringValues, matchupIndex{}),
 			"made_by":         madeBy,
 			"is_auto":         madeBy == "auto",
 			"is_commissioner": madeBy == "commissioner",
@@ -2154,12 +2178,17 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 
 // playerMap renders one player's view-model map. scoringValues is the
 // league's live, override-aware point values (see currentScoringValues);
-// pass none to score the player's breakdown against the stock default
-// rules instead, at no store-access cost. Callers that render many players
-// per request should resolve scoringValues once and reuse it — see
-// playerMapsWithScoring — rather than call playerMap in a bare loop, which
-// forces every breakdown onto the default-only path.
-func playerMap(player Player, scoringValues ...map[string]float64) map[string]any {
+// pass nil to score the player's breakdown against the stock default
+// rules instead, at no store-access cost. matchup resolves the player's
+// live opponent and, when a ranking source is wired, that opponent's
+// matchup-difficulty chip (see matchup.go's matchupIndex); pass the zero
+// value matchupIndex{} where no schedule context applies (for example
+// the draft pick tape, which never displays a projection). Callers that
+// render many players per request should resolve scoringValues and
+// matchup once and reuse them — see playerMapsWithScoring — rather than
+// call playerMap in a bare loop, which forces every breakdown onto the
+// default-only path and repeats the schedule scan per row.
+func playerMap(player Player, scoringValues map[string]float64, matchup matchupIndex) map[string]any {
 	rank := "—"
 	if player.ADPRank > 0 {
 		rank = fmt.Sprintf("%03d", player.ADPRank)
@@ -2182,16 +2211,12 @@ func playerMap(player Player, scoringValues ...map[string]float64) map[string]an
 	var breakdownRows []map[string]any
 	breakdownTotal := ""
 	if hasBreakdown {
-		var values map[string]float64
-		if len(scoringValues) > 0 {
-			values = scoringValues[0]
-		}
-		breakdownRows, breakdownTotal = scoreBreakdownWithValues(player.ProjStats, values)
+		breakdownRows, breakdownTotal = scoreBreakdownWithValues(player.ProjStats, scoringValues)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
-		"opponent": player.Opponent, "projection": fmt.Sprintf("%.1f", player.Projection),
-		"points": fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
+		"projection": fmt.Sprintf("%.1f", player.Projection),
+		"points":     fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
 		"rank": rank, "detail": detail,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
@@ -2213,22 +2238,28 @@ func playerMap(player Player, scoringValues ...map[string]float64) map[string]an
 		"draft_capital":     player.DraftCapital,
 		"has_draft_capital": player.DraftCapital != "",
 	}
+	for k, v := range matchup.fields(player) {
+		out[k] = v
+	}
+	return out
 }
 
-// playerMaps renders many players against the stock default scoring rules.
-// Pool-rendering callers should call playerMapsWithScoring instead, passing
-// a scoringValues map resolved once per render; see currentScoringValues.
+// playerMaps renders many players against the stock default scoring rules
+// and no matchup context. Pool-rendering callers should call
+// playerMapsWithScoring instead, passing a scoringValues map and a
+// matchupIndex resolved once per render; see currentScoringValues.
 func playerMaps(players []Player) []map[string]any {
-	return playerMapsWithScoring(players, nil)
+	return playerMapsWithScoring(players, nil, matchupIndex{})
 }
 
 // playerMapsWithScoring renders many players' view models against one
-// already-resolved scoringValues map, so a page with hundreds of players
-// pays for one store snapshot, not one per player. See currentScoringValues.
-func playerMapsWithScoring(players []Player, scoringValues map[string]float64) []map[string]any {
+// already-resolved scoringValues map and matchupIndex, so a page with
+// hundreds of players pays for one store snapshot and one schedule scan,
+// not one per player. See currentScoringValues and matchupIndexFor.
+func playerMapsWithScoring(players []Player, scoringValues map[string]float64, matchup matchupIndex) []map[string]any {
 	out := make([]map[string]any, 0, len(players))
 	for _, player := range players {
-		out = append(out, playerMap(player, scoringValues))
+		out = append(out, playerMap(player, scoringValues, matchup))
 	}
 	return out
 }
@@ -2240,8 +2271,8 @@ func playerMapsWithScoring(players []Player, scoringValues map[string]float64) [
 // deadline state surfaced honestly" requirement. A nil injury source
 // (never wired) or a schedule with no upcoming game for the player's NFL
 // team both render "healed" false rather than guess.
-func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]float64, games []GameInfo, now time.Time, checkHealed bool) []map[string]any {
-	rows := playerMapsWithScoring(players, scoringValues)
+func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]float64, games []GameInfo, week int, now time.Time, checkHealed bool) []map[string]any {
+	rows := playerMapsWithScoring(players, scoringValues, s.matchupIndexFor(games, week))
 	if !checkHealed {
 		return rows
 	}
