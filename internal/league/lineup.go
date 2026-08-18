@@ -864,6 +864,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 	if location == nil {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
+	matchup := s.matchupIndexFor(games, lineup.Week)
 	out := make([]map[string]any, 0, len(lineup.Slots))
 	for _, a := range lineup.Slots {
 		row := map[string]any{
@@ -876,7 +877,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		currentID := ""
 		if a.HasPlayer {
 			currentID = a.Player.ID
-			for k, v := range playerMap(a.Player, scoringValues) {
+			for k, v := range playerMap(a.Player, scoringValues, matchup) {
 				row[k] = v
 			}
 			if a.Locked {

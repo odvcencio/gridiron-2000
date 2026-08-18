@@ -58,6 +58,15 @@ func DraftQueue(props any) Node {
 						<div class="pool-player__text">
 							<strong>{player.name}</strong>
 							<small>{player.detail}</small>
+							<If cond={player.has_opponent}>
+								<small class="mono">
+									{player.opponent}
+									<If cond={player.has_matchup}>
+										·
+										<span class="matchup-chip" data-matchup-tier={player.matchup_tier}>{player.matchup_chip}</span>
+									</If>
+								</small>
+							</If>
 						</div>
 						<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 							<div class="stat-tip__head">
@@ -82,6 +91,9 @@ func DraftQueue(props any) Node {
 							</If>
 							<If cond={player.has_breakdown == false}>
 								<p class="stat-tip__empty">No projection detail for this position.</p>
+							</If>
+							<If cond={player.has_matchup}>
+								<p class="stat-tip__hist mono">{player.matchup_detail}</p>
 							</If>
 							<If cond={player.has_hist}>
 								<p class="stat-tip__hist mono">{player.hist}</p>
@@ -257,6 +269,12 @@ func Page() Node {
 				<p class="demo-message">
 					<strong>OFFLINE POOL:</strong>
 					player ranks are approximate. Set TANK01_API_KEY to sync live ADP and projections.
+				</p>
+			</If>
+			<If cond={data.has_matchup_source}>
+				<p class="demo-message">
+					<strong>MATCHUP RANKS:</strong>
+					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
 				</p>
 			</If>
 		</div>

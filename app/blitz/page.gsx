@@ -71,6 +71,15 @@ func BlitzPoolRow(props any) Node {
 				</If>
 				<small>{props.Player.detail}</small>
 				<small class="pre1-line" data-has-pre1={props.Player.has_pre1}>{props.Player.pre1_summary}</small>
+				<If cond={props.Player.has_opponent}>
+					<small class="mono">
+						{props.Player.opponent}
+						<If cond={props.Player.has_matchup}>
+							·
+							<span class="matchup-chip" data-matchup-tier={props.Player.matchup_tier}>{props.Player.matchup_chip}</span>
+						</If>
+					</small>
+				</If>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 				<div class="stat-tip__head">
@@ -95,6 +104,9 @@ func BlitzPoolRow(props any) Node {
 				</If>
 				<If cond={props.Player.has_breakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
+				</If>
+				<If cond={props.Player.has_matchup}>
+					<p class="stat-tip__hist mono">{props.Player.matchup_detail}</p>
 				</If>
 			</div>
 		</div>
@@ -237,6 +249,12 @@ func Page() Node {
 				<p class="demo-message">
 					<strong>SLATE CLOSED:</strong>
 					every game in this slate is final. The leaderboard is frozen.
+				</p>
+			</If>
+			<If cond={data.has_matchup_source}>
+				<p class="demo-message">
+					<strong>MATCHUP RANKS:</strong>
+					ranked from the {data.matchup_source_label} — regular-season data used as a proxy for this preseason matchup. A higher "-toughest" number is a softer matchup; a lower one is tougher.
 				</p>
 			</If>
 		</div>

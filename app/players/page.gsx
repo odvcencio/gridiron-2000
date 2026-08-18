@@ -55,6 +55,12 @@ func Page() Node {
 					player data is approximate until the live pool syncs.
 				</p>
 			</If>
+			<If cond={data.has_matchup_source}>
+				<p class="demo-message">
+					<strong>MATCHUP RANKS:</strong>
+					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+				</p>
+			</If>
 		</div>
 		<section class="player-pool">
 			<div class="pool-toolbar">
@@ -95,6 +101,15 @@ func Page() Node {
 							<div class="pool-player__text">
 								<strong>{player.name}</strong>
 								<small>{player.detail}</small>
+								<If cond={player.has_opponent}>
+									<small class="mono">
+										{player.opponent}
+										<If cond={player.has_matchup}>
+											·
+											<span class="matchup-chip" data-matchup-tier={player.matchup_tier}>{player.matchup_chip}</span>
+										</If>
+									</small>
+								</If>
 							</div>
 						</div>
 						<span class="position-chip">{player.position}</span>

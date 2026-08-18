@@ -31,6 +31,11 @@ type RosterCard struct {
 	Name           string
 	NFLTeam        string
 	Opponent       string
+	HasOpponent    bool
+	HasMatchup     bool
+	MatchupTier    string
+	MatchupChip    string
+	MatchupDetail  string
 	Jersey         string
 	HasBreakdown   bool
 	Breakdown      []league.BreakdownRow
@@ -110,6 +115,11 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			Name:           stringField(player, "name"),
 			NFLTeam:        stringField(player, "nfl_team"),
 			Opponent:       stringField(player, "opponent"),
+			HasOpponent:    boolField(player, "has_opponent"),
+			HasMatchup:     boolField(player, "has_matchup"),
+			MatchupTier:    stringField(player, "matchup_tier"),
+			MatchupChip:    stringField(player, "matchup_chip"),
+			MatchupDetail:  stringField(player, "matchup_detail"),
 			Jersey:         stringField(player, "jersey"),
 			HasBreakdown:   boolField(player, "has_breakdown"),
 			Breakdown:      breakdownRowsFromMaps(breakdown),

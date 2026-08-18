@@ -87,6 +87,17 @@ func (s *Service) currentScoringValues() map[string]float64 {
 	return values
 }
 
+// CurrentScoringValues exports currentScoringValues for callers outside
+// this package that must score raw stat lines under this league's own
+// live rules (default values, overridden by any commissioner edit) —
+// main.go's matchup-rank cache is the first such caller: it scores a
+// full season of box scores through the identical engine every in-app
+// projection uses (see ScoreStatLine), so a defense's fantasy-points-
+// allowed rank is never a generic, rule-blind formula.
+func (s *Service) CurrentScoringValues() map[string]float64 {
+	return s.currentScoringValues()
+}
+
 // scoreBreakdown renders one player's projected-stat line against the
 // league's live scoring settings: defaults from defaultScoringRules(),
 // overridden by any commissioner-edited values. It snapshots store state
@@ -161,6 +172,17 @@ func scoreBreakdownWithValues(stats map[string]float64, values map[string]float6
 // once (design spec section 4.3: "sum floats, then format %.1f; never sum
 // formatted strings") — calls this directly instead of parsing
 // scoreBreakdownWithValues' rendered total back into a number.
+// ScoreStatLine sums stats against values through the same engine every
+// other scoring surface uses (see scoreStatsWithValues) — the seam
+// main.go's matchup-rank cache scores through, so a defense's
+// fantasy-points-allowed rank (or an offense's fantasy-points-scored
+// rank, for a DST matchup) always reflects this league's own rules,
+// never a forked formula. values nil scores against the stock defaults
+// (breakdownDefaultValues).
+func ScoreStatLine(stats map[string]float64, values map[string]float64) float64 {
+	return scoreStatsWithValues(stats, values)
+}
+
 func scoreStatsWithValues(stats map[string]float64, values map[string]float64) float64 {
 	if len(stats) == 0 {
 		return 0
