@@ -37,7 +37,7 @@ func Page() Node {
 					LEAGUE RUNS.
 				</h1>
 				<p>
-					Roster shape, scoring values, the draft, the season, and where transactions stand today — every number below is live, not a static description.
+					Every rule below renders live from this league's own configuration and engine state — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. Nothing here is a static description; a new manager can read this page start to finish and play with no questions left.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -73,7 +73,71 @@ func Page() Node {
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">01 // ROSTER</span>
+					<span class="section-index">01 // LEAGUE</span>
+					<h2>League identity</h2>
+				</div>
+			</div>
+			<p class="scoring-note">
+				{data.identity_rules.name}
+				({data.identity_rules.short_code}) runs a
+				{data.identity_rules.mode_label}
+				format for the
+				{data.identity_rules.season}
+				season, across
+				{data.identity_rules.team_count}
+				teams.
+			</p>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Timezone</span>
+					<b class="mono">{data.identity_rules.timezone}</b>
+				</div>
+				<div class="pool-stat">
+					<span>Draft date</span>
+					<b class="mono">{data.identity_rules.draft_date}</b>
+				</div>
+				<div class="pool-stat">
+					<span>Season start</span>
+					<b class="mono">{data.identity_rules.season_start}</b>
+				</div>
+			</div>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">02 // MEMBERSHIP</span>
+					<h2>Who can join</h2>
+				</div>
+			</div>
+			<If cond={data.membership_rules.open}>
+				<p class="scoring-note">
+					This league is
+					<b class="mono">OPEN</b>
+					— any Google account can claim an unclaimed seat.
+				</p>
+			</If>
+			<If cond={data.membership_rules.open == false}>
+				<p class="scoring-note">
+					This league is
+					<b class="mono">INVITE-ONLY</b>
+					— only an allowed or invited email can claim a seat. Ask the commissioner for an invite.
+				</p>
+			</If>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Seats claimed</span>
+					<b class="mono">
+						{data.membership_rules.claimed_seats}
+						/
+						{data.membership_rules.seat_count}
+					</b>
+				</div>
+			</div>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">03 // ROSTER</span>
 					<h2>Starting lineup and bench</h2>
 				</div>
 			</div>
@@ -102,12 +166,68 @@ func Page() Node {
 				-round draft. Draft rounds derive from the roster shape; they are never set independently.
 			</p>
 		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">04 // DRAFT</span>
+					<h2>Startup snake draft</h2>
+				</div>
+			</div>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Date</span>
+					<b class="mono">
+						{data.draft_rules.date}
+						·
+						{data.draft_rules.time}
+					</b>
+				</div>
+				<div class="pool-stat">
+					<span>Timezone</span>
+					<b class="mono">{data.draft_rules.timezone}</b>
+				</div>
+				<div class="pool-stat">
+					<span>Format</span>
+					<b class="mono">{data.draft_rules.format}</b>
+				</div>
+				<div class="pool-stat">
+					<span>Pick clock</span>
+					<b class="mono">
+						{data.draft_rules.clock_seconds}
+						S
+					</b>
+				</div>
+			</div>
+			<p class="scoring-note">
+				An away or idle manager's pick fires automatically from their Big Board, or best available by ADP when the board is empty. The commissioner can undo the most recent pick and reopen that slot.
+			</p>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">05 // LINEUPS &amp; LOCKS</span>
+					<h2>Setting your lineup</h2>
+				</div>
+			</div>
+			<p class="scoring-note">
+				Each player locks at their own NFL team's kickoff, not one league-wide lock time — a Sunday player can still be swapped Monday morning if their game has not kicked off yet.
+			</p>
+			<p class="scoring-note">
+				An empty or locked-but-suboptimal slot auto-fills from your bench: the highest-projection eligible player who is not on a bye and carries no injury warning, when one exists. A slot flags a warning when it is empty, on a bye week, or when the player's injury note starts with
+				{data.lineup_rules.warn_prefixes}
+				.
+			</p>
+			<p class="scoring-note">
+				The commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.
+			</p>
+			<a href="/team" data-gosx-link class="button button--compact">Open your team terminal →</a>
+		</section>
 		<Each of={data.groups} as="group">
 			<section class="player-pool">
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">
-							02 // SCORING //
+							06 // SCORING //
 							{group.name}
 						</span>
 						<h2>{group.name}</h2>
@@ -151,40 +271,14 @@ func Page() Node {
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">03 // DRAFT</span>
-					<h2>Startup snake draft</h2>
+					<span class="section-index">07 // WEEK CLOSE</span>
+					<h2>Schedule, playoffs, and closing a week</h2>
 				</div>
 			</div>
 			<div class="pool-stats">
 				<div class="pool-stat">
-					<span>Date</span>
-					<b class="mono">
-						{data.draft_rules.date}
-						·
-						{data.draft_rules.time}
-					</b>
-				</div>
-				<div class="pool-stat">
-					<span>Format</span>
-					<b class="mono">{data.draft_rules.format}</b>
-				</div>
-				<div class="pool-stat">
-					<span>Pick clock</span>
-					<b class="mono">
-						{data.draft_rules.clock_seconds}
-						S
-					</b>
-				</div>
-			</div>
-			<p class="scoring-note">
-				An away or idle manager's pick fires automatically from their Big Board, or best available by ADP when the board is empty. The commissioner can undo the most recent pick and reopen that slot.
-			</p>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
-				<div>
-					<span class="section-index">04 // SEASON</span>
-					<h2>Schedule and playoffs</h2>
+					<span>Current phase</span>
+					<b class="mono">{data.season_rules.phase}</b>
 				</div>
 			</div>
 			<If cond={data.season_rules.schedule_generated}>
@@ -211,20 +305,206 @@ func Page() Node {
 			<If cond={data.season_rules.playoffs_seeded == false}>
 				<p class="scoring-note">No playoff bracket has been seeded yet.</p>
 			</If>
+			<p class="scoring-note">
+				Closing a week scores every matchup and marks it final. The same close also pins every starting lineup that scored that week — a later drop, trade, or roster-shape edit can never change a closed week's score.
+			</p>
 		</section>
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">05 // WAIVERS &amp; TRANSACTIONS</span>
-					<h2>Current state</h2>
+					<span class="section-index">08 // FREE AGENCY</span>
+					<h2>Signing free agents</h2>
 				</div>
 			</div>
-			<p class="scoring-note">{data.waivers_rules.note}</p>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Status</span>
+					<If cond={data.free_agency_rules.open}>
+						<b class="mono">OPEN</b>
+					</If>
+					<If cond={data.free_agency_rules.open == false}>
+						<b class="mono">NOT YET OPEN</b>
+					</If>
+				</div>
+				<div class="pool-stat">
+					<span>Roster cap</span>
+					<b class="mono">{data.free_agency_rules.roster_cap}</b>
+				</div>
+			</div>
+			<p class="scoring-note">
+				Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one atomic transaction, never a two-step add and a separate drop.
+			</p>
+			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
 		</section>
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">06 // PRESEASON BLITZ</span>
+					<span class="section-index">09 // WAIVERS</span>
+					<h2>Claiming a dropped or locked player</h2>
+				</div>
+			</div>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Mode</span>
+					<b class="mono">{data.waivers_rules.mode}</b>
+				</div>
+				<If cond={data.waivers_rules.faab}>
+					<div class="pool-stat">
+						<span>FAAB budget</span>
+						<b class="mono">
+							$
+							{data.waivers_rules.faab_budget}
+						</b>
+					</div>
+				</If>
+				<If cond={data.waivers_rules.faab == false}>
+					<div class="pool-stat">
+						<span>Season weight</span>
+						<b class="mono">
+							{data.waivers_rules.season_weight_pct}
+							%
+						</b>
+					</div>
+				</If>
+				<If cond={data.waivers_rules.faab == false}>
+					<div class="pool-stat">
+						<span>This-week weight</span>
+						<b class="mono">
+							{data.waivers_rules.weekly_weight_pct}
+							%
+						</b>
+					</div>
+				</If>
+				<div class="pool-stat">
+					<span>Clear window</span>
+					<b class="mono">
+						{data.waivers_rules.clear_days}
+						day(s)
+					</b>
+				</div>
+				<div class="pool-stat">
+					<span>Claims process</span>
+					<b class="mono">{data.waivers_rules.process_display}</b>
+				</div>
+			</div>
+			<If cond={data.waivers_rules.faab == false}>
+				<p class="scoring-note">
+					Claim priority blends
+					{data.waivers_rules.season_weight_pct}
+					% season rank with
+					{data.waivers_rules.weekly_weight_pct}
+					% this week's rank — the worst combined performance claims first. Winning a claim moves that team to the back of the order until the next weekly close. Before Week 1 closes, the order runs the reverse of round 1 of the draft.
+				</p>
+			</If>
+			<If cond={data.waivers_rules.faab}>
+				<p class="scoring-note">
+					Each team bids its own FAAB budget on a claim; the highest bid wins, ties broken by the perf-priority order above.
+				</p>
+			</If>
+			<p class="scoring-note">
+				A dropped player enters ON WAIVERS: the clear window above must pass, and the next daily run must fire, before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and the next run clears.
+			</p>
+			<a href="/players" data-gosx-link class="button button--compact">Open the waiver desk →</a>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">10 // TRADES</span>
+					<h2>This league's veto policy</h2>
+				</div>
+			</div>
+			<div class="pool-stats">
+				<div class="pool-stat">
+					<span>Veto policy</span>
+					<b class="mono">{data.trades_rules.veto_mode}</b>
+				</div>
+				<div class="pool-stat">
+					<span>Review window</span>
+					<b class="mono">
+						{data.trades_rules.review_hours}
+						H
+					</b>
+				</div>
+				<div class="pool-stat">
+					<span>Offer expiry</span>
+					<b class="mono">
+						{data.trades_rules.expiry_days}
+						day(s)
+					</b>
+				</div>
+				<If cond={data.trades_rules.has_deadline}>
+					<div class="pool-stat">
+						<span>Trade deadline</span>
+						<b class="mono">{data.trades_rules.deadline}</b>
+					</div>
+				</If>
+			</div>
+			<If cond={data.trades_rules.is_commissioner}>
+				<p class="scoring-note">
+					Every accepted trade enters a
+					{data.trades_rules.review_hours}
+					-hour commissioner review window. The commissioner may approve it early or veto it; otherwise it executes automatically once the window passes.
+				</p>
+			</If>
+			<If cond={data.trades_rules.is_vote}>
+				<p class="scoring-note">
+					Every accepted trade enters a
+					{data.trades_rules.review_hours}
+					-hour review window. Any
+					{data.trades_rules.veto_threshold}
+					of the
+					{data.trades_rules.seat_count}
+					managers outside the trade can veto it by vote; short of that, it executes automatically once the window passes.
+				</p>
+			</If>
+			<If cond={data.trades_rules.is_both}>
+				<p class="scoring-note">
+					Every accepted trade enters a
+					{data.trades_rules.review_hours}
+					-hour review window. The commissioner can approve or veto it, and so can a league vote of
+					{data.trades_rules.veto_threshold}
+					of the
+					{data.trades_rules.seat_count}
+					managers outside the trade — whichever resolves it first stands.
+				</p>
+			</If>
+			<If cond={data.trades_rules.is_none}>
+				<p class="scoring-note">
+					A trade executes the instant the receiving manager accepts it — no review window, no veto.
+				</p>
+			</If>
+			<p class="scoring-note">
+				Both managers may counter or withdraw an open offer before it is accepted. An open offer nobody answers expires after
+				{data.trades_rules.expiry_days}
+				days. Trades exchange rostered players only in this version — draft picks are not yet tradable.
+			</p>
+			<a href="/trades" data-gosx-link class="button button--compact">Open the trade desk →</a>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">11 // PICK'EM</span>
+					<h2>The weekly side game</h2>
+				</div>
+			</div>
+			<p class="scoring-note">
+				Every signed-in member may make pick'em picks — a team seat is not required. Each game locks at its own kickoff; a pick made after that does not count.
+			</p>
+			<p class="scoring-note">
+				Pick'em ranks
+				{data.pickem_rules.tiebreak_rank}
+				of
+				{data.pickem_rules.tiebreak_total}
+				in the standings tiebreaker chain:
+				{data.pickem_rules.tiebreak_chain}
+				.
+			</p>
+			<a href="/pickem" data-gosx-link class="button button--compact">Make this week's picks →</a>
+		</section>
+		<section class="player-pool">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">12 // PRESEASON BLITZ</span>
 					<h2>A side contest before the real thing</h2>
 				</div>
 			</div>
@@ -233,5 +513,13 @@ func Page() Node {
 			</p>
 			<a href="/blitz" data-gosx-link class="button button--compact">Open Preseason Blitz →</a>
 		</section>
+		<p class="scoring-note mono">
+			RULES VERSION //
+			{data.rules_version.config_source}
+			· fingerprint
+			{data.rules_version.fingerprint}
+			· rendered
+			{data.rules_version.generated_at}
+		</p>
 	</main>
 }
