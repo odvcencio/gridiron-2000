@@ -240,6 +240,24 @@ type PersistedState struct {
 	// 2 — the BadgeClaims precedent above: a nil slice decodes safely on
 	// an old file, and the store normalizes it in load/NewStore/cloneState.
 	Transactions []Transaction `json:"transactions,omitempty"`
+
+	// WaiverClaims holds every open, unprocessed waiver claim (roster-ops
+	// spec section 3.1, 5.3). Store.ProcessWaivers removes a claim the
+	// instant it resolves — won, beaten, or failed — so this slice only
+	// ever names claims still waiting on a future run. Additive under
+	// schema version 2 — the Transactions precedent above: a nil slice
+	// decodes safely on an old file, and the store normalizes it in
+	// load/NewStore/cloneState.
+	WaiverClaims []WaiverClaim `json:"waiverClaims,omitempty"`
+
+	// WaiversProcessedThrough is the instant of the last completed waiver
+	// run (roster-ops spec section 3.1, 5.4). Zero means no run has ever
+	// completed; Service.rosterOpsTick's first tick sets it to now without
+	// processing anything, so a fresh or migrated state never replays the
+	// past. Additive under schema version 2, "omitzero" (not
+	// "omitempty" — see ScoringChangedAt's doc comment above for why
+	// omitempty never omits a time.Time).
+	WaiversProcessedThrough time.Time `json:"waiversProcessedThrough,omitzero"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

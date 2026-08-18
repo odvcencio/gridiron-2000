@@ -75,6 +75,7 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		"N11": {categoryBroadcast, urgencyNormal, true},
 		"N12": {categoryLeagueNews, urgencyLow, true},
 		"N13": {categoryWeeklyRecap, urgencyLow, true},
+		"N14": {categoryTransactions, urgencyNormal, true},
 		"N18": {categoryLineups, urgencyHigh, true},
 	}
 	if got := len(catalogEntries); got != len(want) {
@@ -93,7 +94,7 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		TeamID: "team-1", Epoch: 42, LeadHours: 24,
 		DraftAt:    time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC),
 		OrderHash8: "abcd1234abcd1234", Season: "2026", Week: 3,
-		ScoringHash8: "deadbeefdeadbeef", BroadcastID: "beefcafe",
+		ScoringHash8: "deadbeefdeadbeef", BroadcastID: "beefcafe", ClaimID: "clm-cafebabe",
 	}
 	for _, entry := range catalogEntries {
 		w, ok := want[entry.ID]

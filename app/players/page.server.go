@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"strconv"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -44,12 +45,18 @@ func init() {
 			}
 			data["has_players_error"] = false
 			data["players_error"] = ""
-			for _, name := range []string{"player-add", "player-drop"} {
+			for _, name := range []string{"player-add", "player-drop", "claim-file"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("player_id"); message != "" {
 						data["has_players_error"] = true
 						data["players_error"] = message
 					}
+				}
+			}
+			if view, ok := ctx.ActionState("claim-cancel"); ok {
+				if message := view.Error("claim_id"); message != "" {
+					data["has_players_error"] = true
+					data["players_error"] = message
 				}
 			}
 			return data, nil
@@ -78,6 +85,31 @@ func init() {
 				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				return nil
+			},
+			// claim-file applies the section 5.3 claim-filing action. bid
+			// is only meaningful in faab mode; an empty field parses to 0,
+			// which FileClaim rejects outside faab mode (W11) if a stray
+			// non-zero value ever arrives instead.
+			"claim-file": func(ctx *action.Context) error {
+				bid, _ := strconv.Atoi(ctx.FormData["bid"])
+				message, err := league.Default().FileClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"], bid)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				return nil
+			},
+			// claim-cancel withdraws one of the acting team's own open
+			// claims (section 5.3).
+			"claim-cancel": func(ctx *action.Context) error {
+				message, err := league.Default().CancelClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["claim_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"claim_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", message)
 				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
