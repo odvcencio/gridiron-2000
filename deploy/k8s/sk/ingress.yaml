@@ -1,0 +1,39 @@
+# Mirrors ../ingress.yaml's cluster conventions: ingressClassName
+# "traefik", cert-manager.io/cluster-issuer: cloudflare-issuer (DNS-01
+# through Cloudflare, so the certificate can be ready before the public DNS
+# record exists), and a short "<app>-tls" TLS secret name.
+#
+# DNS REQUIREMENT (do not assume this record exists): sk.gridiron.draco.quest
+# needs a public DNS A/CNAME record pointed at the cluster's ingress, the
+# same way gridiron.draco.quest already does for the flagship
+# (docs/launch-checklist.md step "Point DNS at the cluster"). This host is
+# also a placeholder pending the owner's actual choice of subdomain — league
+# config's league.url field (deploy/local/league-sk.json) must match
+# whatever host is finally chosen here.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gridiron-2000-sk
+  namespace: stablekernel
+  labels:
+    app: gridiron-2000-sk
+  annotations:
+    cert-manager.io/cluster-issuer: cloudflare-issuer
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sk.gridiron.draco.quest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gridiron-2000-sk
+                port:
+                  name: http
+  tls:
+    - hosts:
+        - sk.gridiron.draco.quest
+      secretName: gridiron-2000-sk-tls

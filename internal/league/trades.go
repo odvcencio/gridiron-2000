@@ -852,8 +852,8 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	}
 
 	myOptions := rosterOptions(teamID)
-	counterparties := make([]map[string]any, 0, len(s.teams))
-	for _, team := range s.teams {
+	counterparties := make([]map[string]any, 0, len(s.Teams()))
+	for _, team := range s.Teams() {
 		if team.ID == teamID {
 			continue
 		}

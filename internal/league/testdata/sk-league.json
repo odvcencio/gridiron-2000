@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "league": {
+    "name": "STABLE KERNEL LEAGUE",
+    "short_code": "SKL",
+    "tagline": "",
+    "mode_label": "REDRAFT",
+    "url": "https://sk.gridiron.draco.quest",
+    "timezone": "America/New_York",
+    "season": 2026
+  },
+  "teams": [
+    {
+      "id": "team-1",
+      "name": "East 1",
+      "abbreviation": "E1",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-2",
+      "name": "East 2",
+      "abbreviation": "E2",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-3",
+      "name": "East 3",
+      "abbreviation": "E3",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-4",
+      "name": "East 4",
+      "abbreviation": "E4",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-5",
+      "name": "East 5",
+      "abbreviation": "E5",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-6",
+      "name": "East 6",
+      "abbreviation": "E6",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-7",
+      "name": "East 7",
+      "abbreviation": "E7",
+      "division": "East",
+      "tone": ""
+    },
+    {
+      "id": "team-8",
+      "name": "West 1",
+      "abbreviation": "W1",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-9",
+      "name": "West 2",
+      "abbreviation": "W2",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-10",
+      "name": "West 3",
+      "abbreviation": "W3",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-11",
+      "name": "West 4",
+      "abbreviation": "W4",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-12",
+      "name": "West 5",
+      "abbreviation": "W5",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-13",
+      "name": "West 6",
+      "abbreviation": "W6",
+      "division": "West",
+      "tone": ""
+    },
+    {
+      "id": "team-14",
+      "name": "West 7",
+      "abbreviation": "W7",
+      "division": "West",
+      "tone": ""
+    }
+  ],
+  "draft": {
+    "at": "2026-08-29T16:00:00-04:00",
+    "rounds": 17,
+    "format_label": ""
+  },
+  "season_start_at": "2026-09-10T20:20:00-04:00",
+  "scoring_format": "half_ppr",
+  "copy": {
+    "hero_kicker": "",
+    "footer_line": "",
+    "venue_line": "",
+    "invite_blurb": ""
+  },
+  "roster": {
+    "preset": "gridiron-house"
+  },
+  "waivers": {
+    "mode": "perf-priority",
+    "season_weight_pct": 60,
+    "faab_budget": 100,
+    "clear_days": 2,
+    "process_time": "09:00"
+  },
+  "trades": {
+    "deadline": "",
+    "veto": "commissioner",
+    "review_hours": 24
+  },
+  "membership": {
+    "allowed_domain": "stablekernel.com"
+  }
+}

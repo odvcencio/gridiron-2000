@@ -1,0 +1,20 @@
+# Mirrors ../pvc.yaml exactly: the cluster's default StorageClass is
+# "local-path" (rancher.io/local-path, ReadWriteOnce only, no volume
+# expansion, WaitForFirstConsumer binding). storageClassName is left unset
+# so the claim uses that default. This is the Stable Kernel instance's own
+# volume, in its own namespace — a separate SQLite database file from the
+# flagship gridiron-2000 deployment, proving instance isolation at the
+# storage layer as well as the config layer.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gridiron-2000-sk-data
+  namespace: stablekernel
+  labels:
+    app: gridiron-2000-sk
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
