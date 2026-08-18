@@ -32,7 +32,9 @@ RUN go build -trimpath -ldflags="-s -w" -o /out/gridiron-2000 .
 # Client assets: dist/ is excluded from the build context, so this always
 # generates fresh island programs that match the GSX sources in the image.
 # Keep the CLI version equal to the m31labs.dev/gosx version in go.mod.
-RUN go install m31labs.dev/gosx/cmd/gosx@v0.43.0 && /go/bin/gosx build --dev .
+# GOSX_SKIP_VERSION_CHECK: the v0.46.0 CLI self-reports v0.45.2 (upstream
+# release quirk, gosx issue pending) and would refuse its own pin.
+RUN go install m31labs.dev/gosx/cmd/gosx@v0.46.0 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
 
 # Runtime data directory. The PVC mount in Kubernetes covers /app/data in
 # production; this pre-created, owner-only directory lets the same image
