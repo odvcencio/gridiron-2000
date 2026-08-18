@@ -1,8 +1,13 @@
 package league
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -154,6 +159,9 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		})
 	}
 
+	now := time.Now()
+	scoringValues := s.currentScoringValues()
+
 	return map[string]any{
 		"viewer":          s.Viewer(r),
 		"is_commissioner": isCommissioner,
@@ -164,13 +172,23 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
 		"league":          s.leagueMap(),
-		// Rules page sections beyond the scoring table (rules-page spec):
-		// roster shape (data-driven off Feature A's live accessors), draft
-		// mechanics, season/playoff shape, and an honest waivers note.
-		"roster_rules":  s.rulesRosterMap(),
-		"draft_rules":   s.rulesDraftMap(state, time.Now()),
-		"season_rules":  s.rulesSeasonMap(state),
-		"waivers_rules": s.rulesWaiversMap(),
+		// Every section below renders THIS instance's live ruleset: config
+		// (s.cfg), the runtime roster/draft accessors (CurrentRoster,
+		// CurrentDraftRounds), the scoring values store, and each system's
+		// own exported constants (roster-ops spec sections 4-6, 8). Nothing
+		// here is retyped prose that could drift from the code that
+		// enforces it — see each rulesXMap's doc comment for its source.
+		"identity_rules":    s.rulesIdentityMap(now, location),
+		"membership_rules":  s.rulesMembershipMap(state),
+		"roster_rules":      s.rulesRosterMap(),
+		"draft_rules":       s.rulesDraftMap(state, now),
+		"lineup_rules":      s.rulesLineupsMap(),
+		"season_rules":      s.rulesSeasonMap(state, now),
+		"free_agency_rules": s.rulesFreeAgencyMap(state),
+		"waivers_rules":     s.rulesWaiversMap(),
+		"trades_rules":      s.rulesTradesMap(),
+		"pickem_rules":      s.rulesPickemMap(),
+		"rules_version":     s.rulesVersionMap(now, location, scoringValues),
 	}
 }
 
@@ -187,11 +205,55 @@ func scoringGroupNote(group string) string {
 	return ""
 }
 
+// rulesIdentityMap renders the Rules page's League identity section: name,
+// short code, mode, season, timezone, and the draft/season-start dates —
+// every field read straight from s.cfg, so the reference deployment's own
+// league.json (or a test fixture's Config) renders as this section's
+// facts with no code change (owner directive: "the same binary with SK's
+// league.json must produce SK's rules").
+func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[string]any {
+	return map[string]any{
+		"name":         s.cfg.Name,
+		"short_code":   s.cfg.ShortCode,
+		"mode_label":   s.cfg.ModeLabel,
+		"season":       s.cfg.Season,
+		"team_count":   len(s.teams),
+		"timezone":     s.cfg.Timezone,
+		"draft_date":   s.draftAt.In(location).Format("Monday, January 2, 2006"),
+		"season_start": s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006"),
+	}
+}
+
+// rulesMembershipMap renders the Rules page's Membership section from
+// EmailAllowed's own "both lists empty" open/restricted rule (service.go)
+// — the one membership concept this config actually expresses today — plus
+// how many of the league's seats are claimed. No invented invite-only /
+// public toggle: this reports exactly what already gates a seat claim.
+func (s *Service) rulesMembershipMap(state PersistedState) map[string]any {
+	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
+	claimed := 0
+	for _, team := range s.teams {
+		if memberForTeam(state.Members, team.ID).Email != "" {
+			claimed++
+		}
+	}
+	return map[string]any{
+		"open":          len(envEmails) == 0 && len(state.Invites) == 0,
+		"seat_count":    len(s.teams),
+		"claimed_seats": claimed,
+	}
+}
+
 // rulesRosterMap renders the Rules page's Roster section: every starting
 // slot in engine order with its live count and a one-line eligibility
 // note, plus bench, total, and the derived draft-round count. It reads
 // CurrentRoster/CurrentDraftRounds (lineup.go), so a commissioner's
-// roster-shape edit (Feature A) reflects here immediately.
+// roster-shape edit (Feature A) reflects here immediately. Iterating
+// slotTable rather than naming slot keys is what keeps this section
+// render-tolerant of a future shape concept (a reserve zone, IR, a
+// per-position cap): a new slot key that starts showing up in
+// CurrentRoster().Slots renders here automatically, with no template or
+// Go change, the day it lands.
 func (s *Service) rulesRosterMap() map[string]any {
 	roster := CurrentRoster()
 	slots := make([]map[string]any, 0, len(slotTable))
@@ -232,9 +294,12 @@ func slotEligibilityNote(key string) string {
 }
 
 // rulesDraftMap renders the Rules page's Draft section: the configured
-// date/time, the snake format label, the live pick-clock duration,
-// autopick behavior, and undo's existence — all honest, current facts, not
-// a static description (rules-page spec).
+// date/time/timezone, the snake format label, and the live pick-clock
+// duration — all honest, current facts, not a static description
+// (rules-page spec). Autopick and undo are stable engine behavior (every
+// league on this binary gets the same two capabilities; no config knob
+// varies them), so the page states their existence in prose rather than a
+// derived field — see app/scoring/page.gsx.
 func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]any {
 	draft := s.draftSummary(now)
 	return map[string]any{
@@ -242,19 +307,35 @@ func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]
 		"long_date":     draft["long_date"],
 		"time":          draft["time"],
 		"format":        draft["format"],
+		"timezone":      s.cfg.Timezone,
 		"clock_seconds": int(s.pickClock(state).Seconds()),
 	}
 }
 
-// rulesSeasonMap renders the Rules page's Season section from whatever the
-// service actually has: honest "not generated/seeded yet" states when
-// state.Schedule/state.Playoffs are nil, or the real shape once they
-// exist (schedule.go, playoffs.go). Never invents a schedule or bracket
-// that has not been built.
-func (s *Service) rulesSeasonMap(state PersistedState) map[string]any {
+// rulesLineupsMap renders the Rules page's Lineups & locks section. The
+// lock-per-player and auto-fill algorithms are stable engine behavior
+// (lineup.go's playerLocked/bestAutoFillCandidate — no config knob varies
+// them), so the page describes them in prose; the one number that could
+// drift if the code ever changes it — which injury-text prefixes count as
+// a lineup warning — is read straight from injuryWarnPrefixes instead of
+// retyped.
+func (s *Service) rulesLineupsMap() map[string]any {
+	return map[string]any{
+		"warn_prefixes": strings.Join(injuryWarnPrefixes, ", "),
+	}
+}
+
+// rulesSeasonMap renders the Rules page's Week close / Season section from
+// whatever the service actually has: honest "not generated/seeded yet"
+// states when state.Schedule/state.Playoffs are nil, or the real shape
+// once they exist (schedule.go, playoffs.go), plus the season's current
+// lifecycle phase (season.go's SeasonPhase). Never invents a schedule or
+// bracket that has not been built.
+func (s *Service) rulesSeasonMap(state PersistedState, now time.Time) map[string]any {
 	out := map[string]any{
 		"schedule_generated": state.Schedule != nil,
 		"playoffs_seeded":    state.Playoffs != nil,
+		"phase":              s.SeasonPhase(now),
 	}
 	if state.Schedule != nil {
 		out["weeks"] = len(state.Schedule.Weeks)
@@ -272,11 +353,125 @@ func (s *Service) rulesSeasonMap(state PersistedState) map[string]any {
 	return out
 }
 
-// rulesWaiversMap renders the Rules page's Waivers/transactions section:
-// the honest current state (rosters lock post-draft; waivers, free
-// agency, and trades have no live UI yet), with no promised dates.
-func (s *Service) rulesWaiversMap() map[string]any {
+// rulesFreeAgencyMap renders the Rules page's Free agency section: whether
+// free agency has opened (draftComplete, roster.go — every roster spot
+// drafted), and the live roster cap every add validates against
+// (CurrentRoster().Total(), the same cap AddPlayer's W6 check reads).
+// One-move atomicity (an add-with-drop is a single transaction) is stable
+// engine behavior (players.go's AddPlayer), described in prose.
+func (s *Service) rulesFreeAgencyMap(state PersistedState) map[string]any {
 	return map[string]any{
-		"note": "Rosters lock at the final draft pick. Waivers, free agency, and trades are not live yet on this server; this page updates the day that work lands.",
+		"open":       draftComplete(state),
+		"roster_cap": CurrentRoster().Total(),
 	}
+}
+
+// rulesWaiversMap renders the Rules page's Waivers section: the live
+// mode and its season/weekly performance-priority blend (or the FAAB
+// budget in faab mode) from cfg.Waivers, the clear-days window, and when
+// the daily processing run fires — every number read straight from
+// s.cfg.Waivers/s.cfg.Timezone, never retyped (roster-ops spec section 5).
+// Worst-first ordering, the in-period move-to-back penalty, and the
+// pre-week-1 inverse-draft-order rule are the waiverOrder algorithm's
+// stable shape (rosterops.go), described in prose.
+func (s *Service) rulesWaiversMap() map[string]any {
+	w := s.cfg.Waivers
+	hour, minute, loc := waiverProcessClock(s.cfg)
+	return map[string]any{
+		"mode":              w.Mode,
+		"faab":              w.Mode == "faab",
+		"season_weight_pct": w.SeasonWeightPct,
+		"weekly_weight_pct": 100 - w.SeasonWeightPct,
+		"faab_budget":       w.FAABBudget,
+		"clear_days":        w.ClearDays,
+		"process_display":   fmt.Sprintf("%02d:%02d %s", hour, minute, loc.String()),
+	}
+}
+
+// rulesTradesMap renders the Rules page's Trades section: this league's
+// ACTIVE veto policy (cfg.Trades.Veto) plus its live review window and
+// deadline, the fixed expiry (tradeOfferMaxAge, trades.go — a code
+// constant, "not a knob" per its own doc comment, so it is read here
+// rather than retyped), and the vote threshold formula's live result for
+// this league's seat count (tradeVetoThreshold, trades.go). The template
+// renders only the active mode's mechanics prominently; the other modes
+// list as a footnote (app/scoring/page.gsx).
+func (s *Service) rulesTradesMap() map[string]any {
+	t := s.cfg.Trades
+	hasDeadline := strings.TrimSpace(t.Deadline) != ""
+	deadlineDisplay := ""
+	if deadline, ok := parseTradeDeadline(s.cfg); ok {
+		deadlineDisplay = formatResolvesAt(s.cfg, deadline)
+	}
+	seats := len(defaultTeamIDs())
+	return map[string]any{
+		"veto_mode":       t.Veto,
+		"is_commissioner": t.Veto == "commissioner",
+		"is_vote":         t.Veto == "vote",
+		"is_both":         t.Veto == "both",
+		"is_none":         t.Veto == "none",
+		"review_hours":    t.ReviewHours,
+		"has_deadline":    hasDeadline,
+		"deadline":        deadlineDisplay,
+		"expiry_days":     int(tradeOfferMaxAge.Hours() / 24),
+		"veto_threshold":  tradeVetoThreshold(seats),
+		"seat_count":      seats,
+	}
+}
+
+// rulesPickemMap renders the Rules page's Pick'em section: pick'em's live
+// position in the standings tiebreaker chain (DefaultTiebreakChain,
+// standings.go), computed rather than retyped, so a future reorder of
+// that chain updates this section with no template change. Open-to-every-
+// member and the kickoff lock are stable engine behavior (pickem.go's
+// boardOwner/PickemSet), described in prose.
+func (s *Service) rulesPickemMap() map[string]any {
+	rank := 0
+	for index, rule := range DefaultTiebreakChain {
+		if rule == "pickem" {
+			rank = index + 1
+		}
+	}
+	return map[string]any{
+		"tiebreak_chain": strings.Join(DefaultTiebreakChain, " → "),
+		"tiebreak_rank":  rank,
+		"tiebreak_total": len(DefaultTiebreakChain),
+	}
+}
+
+// rulesVersionMap renders the Rules page's foot-of-page version line: the
+// config source (s.cfg.Source — "defaults" or "file:<path>", config.go)
+// and a short digest of the live roster shape plus effective scoring
+// values (rulesFingerprint), so a scoring or roster dispute can cite
+// exactly what was in force at a given moment, and a rendered timestamp.
+func (s *Service) rulesVersionMap(now time.Time, location *time.Location, scoringValues map[string]float64) map[string]any {
+	return map[string]any{
+		"config_source": s.cfg.Source,
+		"fingerprint":   rulesFingerprint(scoringValues),
+		"generated_at":  now.In(location).Format("Jan 2, 2006 · 3:04 PM MST"),
+	}
+}
+
+// rulesFingerprint hashes the currently active roster shape (CurrentRoster,
+// lineup.go) and the effective scoring values (defaults overridden by any
+// commissioner edit) into a short, stable digest: the same roster shape
+// plus the same scoring values always yields the same fingerprint, and a
+// change to either always changes it — the citable "what was in force"
+// mark the rules-version line exists for.
+func rulesFingerprint(scoringValues map[string]float64) string {
+	encodedRoster, err := json.Marshal(CurrentRoster())
+	if err != nil {
+		encodedRoster = []byte(err.Error())
+	}
+	keys := make([]string, 0, len(scoringValues))
+	for key := range scoringValues {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var scoring strings.Builder
+	for _, key := range keys {
+		fmt.Fprintf(&scoring, "%s=%s;", key, strconv.FormatFloat(scoringValues[key], 'f', -1, 64))
+	}
+	digest := sha256.Sum256(append(encodedRoster, []byte(scoring.String())...))
+	return hex.EncodeToString(digest[:8])
 }
