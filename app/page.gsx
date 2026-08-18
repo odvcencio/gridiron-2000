@@ -44,10 +44,49 @@ func MiniMatchup(props any) Node {
 	</article>
 }
 
-func StandingRow(props any) Node {
+// StandingRowProps is the typed spread source for StandingRow (fix,
+// registration wave): StandingRow used to declare "props any" and
+// re-spread the whole, unmodified props value into strict TeamMark. That
+// works for MiniMatchup's TeamMark calls (below) because those spread a
+// nested struct *field* (props.Away/props.Home), but spreading "props"
+// itself, whole, is different: calling any non-strict ("props any")
+// component with a {...} spread first flattens the source struct into a
+// map[string]any (route.spreadProps, so the component body can do
+// dynamic field access) before "props" is ever bound — and a map can
+// never satisfy a strict component's spread boundary afterward
+// (strictSpreadProps rejects anything that is not reflect.Struct). This
+// was unreachable in this repo's test suite (which never renders the
+// .gsx template, only asserts DashboardData's map shape) and in demo
+// mode (Viewer never reports signed_in for an anonymous demo visitor),
+// so nothing had exercised this render path until the registration
+// wave's manual browser verification hit a hard render error here. A
+// strict `component` declaration with an explicit prop type sidesteps
+// the flattening entirely: StandingRowProps must structurally cover
+// StandingTeamCard (page.server.go) since dashboardDivisions' output is
+// exactly that shape.
+type StandingRowProps struct {
+	Rank           string
+	Name           string
+	Manager        string
+	Record         string
+	PointsFor      string
+	Streak         string
+	Tone           string
+	Abbreviation   string
+	HasAvatarImage bool
+	AvatarImageURL string
+}
+
+component StandingRow(props: StandingRowProps) {
 	return <div class="standing-row">
 		<span class="rank mono">{props.Rank}</span>
-		<TeamMark {...props}></TeamMark>
+		<TeamMark
+			Tone={props.Tone}
+			Abbreviation={props.Abbreviation}
+			Name={props.Name}
+			HasAvatarImage={props.HasAvatarImage}
+			AvatarImageURL={props.AvatarImageURL}
+		></TeamMark>
 		<div class="standing-team">
 			<strong>{props.Name}</strong>
 			<small>{props.Manager}</small>
@@ -126,33 +165,50 @@ func Page() Node {
 				</aside>
 			</section>
 		</If>
-		<If cond={data.viewer.signed_in && data.has_seat == false}>
-			<section class="hero-command">
-				<div class="hero-command__copy">
+		<If cond={data.viewer.signed_in}>
+			<section class="status-cards">
+				<article class="status-card status-card--fantasy">
 					<div class="signal-label">
 						<span class="live-dot" aria-hidden="true"></span>
-						PICK 'EM HQ // ONLINE
+						FANTASY
 					</div>
-					<p class="hero-kicker">
-						{data.league.hero_kicker}
-					</p>
-					<h1>
-						CALL YOUR
-						<br></br>
-						<span>SHOTS EVERY WEEK.</span>
-					</h1>
-					<p class="hero-deck">
-						No fantasy team, no problem — pick'em is a complete game of its own here. Straight-up winner
-						picks against the whole league, every week of the season.
-					</p>
-					<div class="hero-actions">
-						<a href="/pickem" data-gosx-link class="button button--primary">
-							Open Pick'em HQ
-							<span aria-hidden="true">→</span>
-						</a>
+					<If cond={data.fantasy_card.has_seat}>
+						<div class="status-card__team">
+							<span class={"team-mark tone-" + data.fantasy_card.team.tone} aria-hidden="true">
+								<If cond={data.fantasy_card.team.has_avatar_image}>
+									<img class="avatar-mark__photo" src={data.fantasy_card.team.avatar_image_url} alt={data.fantasy_card.team.name} loading="lazy" />
+								</If>
+								<If cond={data.fantasy_card.team.has_avatar_image == false}>
+									{data.fantasy_card.team.abbreviation}
+								</If>
+							</span>
+							<div>
+								<strong>{data.fantasy_card.team.name}</strong>
+								<small class="mono">
+									{data.fantasy_card.team.record}
+									·
+									{data.fantasy_card.team.streak}
+								</small>
+							</div>
+						</div>
+						<a href="/team" data-gosx-link class="button button--compact">Open your team →</a>
+					</If>
+					<If cond={data.fantasy_card.has_seat == false && data.fantasy_card.league_full == false}>
+						<p class="status-card__line">
+							{data.fantasy_card.open_seats}
+							seat(s) open — build your roster before the room fills.
+						</p>
+						<a href="/join" data-gosx-link class="button button--primary">Claim a team →</a>
+					</If>
+					<If cond={data.fantasy_card.has_seat == false && data.fantasy_card.league_full}>
+						<p class="status-card__line">Every manager seat is claimed. Pick'em is always open.</p>
+					</If>
+				</article>
+				<article class="status-card status-card--pickem">
+					<div class="signal-label">
+						<span class="live-dot" aria-hidden="true"></span>
+						PICK'EM
 					</div>
-				</div>
-				<aside class="pickem-home-panel">
 					<div class="pickem-home-panel__row">
 						<span>This week</span>
 						<strong class="mono">
@@ -185,8 +241,8 @@ func Page() Node {
 							<strong class="mono">—</strong>
 						</If>
 					</div>
-					<a href="/pickem" data-gosx-link class="button button--compact">Make this week's picks →</a>
-				</aside>
+					<a href="/pickem" data-gosx-link class="button button--compact">Open Pick'em HQ →</a>
+				</article>
 			</section>
 		</If>
 		<If cond={data.viewer.signed_in && data.has_seat}>
@@ -322,8 +378,8 @@ func Page() Node {
 				<div class="standings-list">
 					<Each of={data.divisions} as="division">
 						<div class="division-group">
-							<span class="division-heading mono">{division.name}</span>
-							<Each of={division.teams} as="team">
+							<span class="division-heading mono">{division.Name}</span>
+							<Each of={division.Teams} as="team">
 								<StandingRow {...team}></StandingRow>
 							</Each>
 						</div>

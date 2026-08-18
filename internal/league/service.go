@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -334,11 +335,23 @@ func (s *Service) DraftAt() time.Time { return s.draftAt }
 
 func (s *Service) DemoMode() bool { return s.demoMode }
 
-// EmailAllowed reports whether the email may claim a seat: it must appear in
-// the LEAGUE_ALLOWED_EMAILS environment list or the stored invite list. When
-// both lists are empty the league is open (initial setup).
+// EmailAllowed reports whether the email may join the league (registration
+// wave, build item 5 — the domain-gate membership rule): it is admitted
+// unconditionally when its domain matches the config's
+// membership.allowed_domain (when one is set), otherwise it must appear
+// in the LEAGUE_ALLOWED_EMAILS environment list or the stored invite
+// list. When both of those lists are empty the league is open (initial
+// setup) regardless of the domain gate. The domain gate and the invite
+// list are additive, not exclusive — "the invite list still works
+// alongside" a configured domain, so a non-domain guest can still be
+// invited by email.
 func (s *Service) EmailAllowed(email string) bool {
 	email = strings.ToLower(strings.TrimSpace(email))
+	if domain := strings.ToLower(strings.TrimSpace(s.cfg.Membership.AllowedDomain)); domain != "" {
+		if strings.HasSuffix(email, "@"+domain) {
+			return true
+		}
+	}
 	envList := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	invites := s.store.Snapshot().Invites
 	if len(envList) == 0 && len(invites) == 0 {
@@ -662,6 +675,224 @@ func (s *Service) ensureMember(email, name string) (Member, error) {
 	return member, nil
 }
 
+// BindCoManagerOnSignIn consumes email's pending co-invite, if any
+// (registration wave, build item 4): main.go's Google sign-in callback
+// calls this before its ordinary EnsureMember fallback, so a co-invitee's
+// first sign-in lands them bound to their seat instead of as a free
+// agent. bound reports whether a pending invite existed; when it did, N1
+// (notifySeatClaimed) fires for the co-manager's own email, exactly as it
+// does for a primary's seat claim — this is that person's own welcome,
+// not a fan-out.
+func (s *Service) BindCoManagerOnSignIn(email, name string) (member Member, bound bool, err error) {
+	member, bound, err = s.store.BindCoManager(email, name)
+	if err != nil || !bound {
+		return member, bound, err
+	}
+	s.notifySeatClaimed(member)
+	return member, bound, nil
+}
+
+// isPrimaryOfTeam reports whether the request's signed-in identity is
+// teamID's own primary manager (Role == ""). Demo mode has no real
+// per-seat identity, so it treats every named seat as actable — the same
+// "demo mode may act as any seat" precedent actingTeam sets.
+func (s *Service) isPrimaryOfTeam(r *http.Request, teamID string) bool {
+	if s.demoMode {
+		return knownTeam(teamID)
+	}
+	user, ok := auth.Current(r)
+	if !ok {
+		return false
+	}
+	member, exists := s.store.MemberByEmail(user.Email)
+	return exists && member.TeamID == teamID && member.Role == ""
+}
+
+// canManageCoManager reports whether the request may detach teamID's
+// co-manager: the commissioner (any seat), or that seat's own primary
+// manager (registration wave, build item 4: "Commissioner and primary
+// can detach the co").
+func (s *Service) canManageCoManager(r *http.Request, teamID string) bool {
+	return s.IsCommissioner(r) || s.isPrimaryOfTeam(r, teamID)
+}
+
+// InviteCoManager lets teamID's primary manager invite email as the
+// seat's co-manager (registration wave, build item 4): only the primary
+// may invite (not the commissioner, not a co — see the build note),
+// enforced here before the call ever reaches Store.InviteCoManager's own
+// one-co-per-seat and already-seated checks.
+func (s *Service) InviteCoManager(r *http.Request, teamID, email string) error {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if !s.isPrimaryOfTeam(r, teamID) {
+		return errors.New("only the seat's primary manager may invite a co-manager")
+	}
+	return s.store.InviteCoManager(teamID, email)
+}
+
+// DetachCoManager lets teamID's primary manager or the commissioner
+// remove the seat's co-manager, bound or still pending (registration
+// wave, build item 4).
+func (s *Service) DetachCoManager(r *http.Request, teamID string) error {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if !s.canManageCoManager(r, teamID) {
+		return errors.New("only the seat's primary manager or the commissioner can detach a co-manager")
+	}
+	return s.store.DetachCoManager(teamID)
+}
+
+// NextOpenSeatTone resolves the tone the next AssignMember call would
+// claim: the first default team with no member bound to it, in team
+// order — the same "first team not already used" scan AssignMember
+// itself runs (store.go), reused here so the fantasy-signup page's badge
+// previews (build item 2) tint in the exact tone the claimed seat will
+// carry. ok is false once every seat is claimed.
+func (s *Service) NextOpenSeatTone() (tone string, ok bool) {
+	used := claimedSeatIDs(s.store.Snapshot().Members)
+	for _, team := range defaultTeams() {
+		if !used[team.ID] {
+			return team.Tone, true
+		}
+	}
+	return "", false
+}
+
+// unclaimedBadgeGrid renders the fantasy-signup page's badge picker
+// (build item 2): every motif no team currently holds. Unlike the team
+// page's full 16-motif grid (badgeGrid), a pre-signup visitor has no
+// "mine" state of their own yet, and a taken motif is not worth showing
+// at all — there is nothing to compare it against before the seat
+// exists.
+func (s *Service) unclaimedBadgeGrid(state PersistedState) []map[string]any {
+	taken := make(map[string]bool, len(state.BadgeClaims))
+	for _, motif := range state.BadgeClaims {
+		taken[motif] = true
+	}
+	out := make([]map[string]any, 0, len(BadgeMotifs))
+	for _, motif := range BadgeMotifs {
+		if taken[motif.Slug] {
+			continue
+		}
+		out = append(out, map[string]any{"slug": motif.Slug, "name": motif.Name})
+	}
+	return out
+}
+
+// SignupData assembles the /join fantasy-signup page (build item 2): a
+// signed-in member with no seat sees a one-form signup (team name + an
+// unclaimed badge motif, previewed in the next open seat's tone). The
+// page itself owns the already-seated redirect (main.go's
+// redirectSeatedFromJoin) and renders the honest closed state when
+// league_full is true.
+func (s *Service) SignupData(r *http.Request) map[string]any {
+	state := s.store.Snapshot()
+	viewer := s.Viewer(r)
+	hasSeat, _ := viewer["has_seat"].(bool)
+	open := len(s.teams) - claimedSeatCount(state.Members)
+	if open < 0 {
+		open = 0
+	}
+	tone, ok := s.NextOpenSeatTone()
+	toneHex := ""
+	if ok {
+		toneHex, _ = BadgeToneHex(tone)
+	}
+	return map[string]any{
+		"viewer":         viewer,
+		"has_seat":       hasSeat,
+		"league_full":    open == 0,
+		"open_seats":     open,
+		"badge_tone_hex": toneHex,
+		"badge_grid":     s.unclaimedBadgeGrid(state),
+		"league":         s.leagueMap(),
+		"league_mode":    s.cfg.ModeLabel,
+	}
+}
+
+// ClaimFantasySeat resolves the signed-in member's email/name from r and
+// completes the fantasy-signup atomic claim (build item 2: team name +
+// badge motif in one seat claim). An anonymous request or an
+// already-seated member is rejected before any store write; see
+// claimFantasySeat for the seat/name/badge write sequence and its
+// rollback contract.
+func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Team, error) {
+	user, ok := auth.Current(r)
+	if !ok {
+		return Team{}, fmt.Errorf("Google sign-in is required for league actions")
+	}
+	if member, exists := s.store.MemberByEmail(user.Email); exists && member.TeamID != "" {
+		return Team{}, fmt.Errorf("you already hold a team seat")
+	}
+	return s.claimFantasySeat(user.Email, user.Name, teamName, motif)
+}
+
+// claimFantasySeat is the fantasy-signup atomic-claim primitive (build
+// item 2), driven by email/name directly rather than an *http.Request so
+// it is unit-testable without forging Google auth (see ClaimFantasySeat,
+// the thin public wrapper that resolves those two from the request).
+//
+// Atomicity design: the three writes — AssignMember (claim the next open
+// seat), Store.SetTeamName, Store.ClaimBadge — are not one store
+// transaction; each of those three primitives already owns its own
+// lock/persist, and merging them would mean either duplicating all three
+// under Store or growing a bespoke fourth Store method whose only caller
+// is this one path, for a rollback need that is otherwise rare (a badge
+// motif race between two concurrent signups is the only realistic
+// failure once the seat itself is claimed). Instead this method rolls
+// back on a later failure: a name-set failure releases the just-claimed
+// seat, and a badge-claim failure releases both the name and the seat —
+// so a half-finished signup (a claimed seat with a placeholder name, or a
+// name with no badge) never sits there for the next visitor to trip
+// over. A best-effort motif-availability pre-check runs before the seat
+// is even claimed, to keep the common "stale page, someone else already
+// took that motif" case from claiming (and then rolling back) a seat at
+// all; the store-level ClaimBadge call afterward remains the one
+// authoritative check for the true concurrent-signup race, and its exact
+// "that badge is already claimed by <team>" message is what both paths
+// surface.
+func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, error) {
+	displayName, err := validateTeamName(teamName)
+	if err != nil {
+		return Team{}, err
+	}
+	if displayName == "" {
+		return Team{}, fmt.Errorf("enter a team name")
+	}
+	motif = strings.TrimSpace(motif)
+	if !knownMotif(motif) {
+		return Team{}, ErrBadgeUnknownMotif
+	}
+	for holderTeamID, claimedMotif := range s.store.BadgeClaims() {
+		if claimedMotif == motif {
+			return Team{}, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name}
+		}
+	}
+	member, err := s.assignMember(email, name)
+	if err != nil {
+		return Team{}, err
+	}
+	teamID := member.TeamID
+	if err := s.store.SetTeamName(teamID, displayName); err != nil {
+		_ = s.store.ReleaseSeat(teamID)
+		return Team{}, err
+	}
+	if err := s.store.ClaimBadge(teamID, motif); err != nil {
+		_ = s.store.SetTeamName(teamID, "")
+		_ = s.store.ReleaseSeat(teamID)
+		var claimed *badgeClaimedError
+		if errors.As(err, &claimed) {
+			return Team{}, &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name}
+		}
+		return Team{}, err
+	}
+	return s.teamByID(teamID), nil
+}
+
 func (s *Service) Viewer(r *http.Request) map[string]any {
 	user, signedIn := auth.Current(r)
 	if !signedIn {
@@ -731,6 +962,10 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"divisions":    s.divisionMaps(state),
 		"transactions": transactions,
 		"pickem_home":  s.pickemHomeSummary(r, state, now),
+		// fantasy_card is the dashboard's FANTASY status card (registration
+		// wave, build item 3): both status cards are always present for a
+		// signed-in member, seated or not — see fantasyCardData.
+		"fantasy_card": s.fantasyCardData(state, viewer),
 		// GSX conditions cannot call .length on server data; ship the bools.
 		"transactions_empty":  len(transactions) == 0,
 		"featured_empty":      len(featured) == 0,
@@ -740,6 +975,39 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"league":              s.leagueMap(),
 		"announcements":       announcements,
 		"announcements_empty": len(announcements) == 0,
+	}
+}
+
+// fantasyCardData assembles the dashboard's FANTASY status card
+// (registration wave, build item 3): a seated member sees their team
+// mark/name/record with a link to /team; a seatless member sees the
+// signup CTA with the open-seat count while seats remain, or the honest
+// closed line once the league is full. viewer is the caller's own
+// already-resolved Viewer() map (DashboardData and TeamData both already
+// hold one), so this never re-derives has_seat/team_id itself.
+func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) map[string]any {
+	hasSeat, _ := viewer["has_seat"].(bool)
+	open := len(s.teams) - claimedSeatCount(state.Members)
+	if open < 0 {
+		open = 0
+	}
+	// "team" is always present (a zero-valued map when seatless) rather
+	// than an absent key: GSX templates render map[string]any data
+	// dynamically, so every branch app/page.gsx's <If> guards needs the
+	// same key set to stay safe to evaluate regardless of which branch
+	// actually renders — the same discipline pickem_home's
+	// always-present map follows for the seatless-vs-seated split above
+	// it.
+	team := map[string]any{}
+	if hasSeat {
+		teamID, _ := viewer["team_id"].(string)
+		team = s.teamMap(s.teamView(state, teamID))
+	}
+	return map[string]any{
+		"has_seat":    hasSeat,
+		"league_full": open == 0,
+		"open_seats":  open,
+		"team":        team,
 	}
 }
 
@@ -769,6 +1037,20 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
 	state := s.store.Snapshot()
+	// A seatless member (no team_id) gets the honest "no franchise" state
+	// with the signup CTA, never team-1's roster (registration wave, build
+	// item 6 — the flagged paper cut: teamView's empty-TeamID fallback to
+	// s.teams[0] used to leak team-1's own lineup to every seatless
+	// visitor of /team).
+	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
+		return map[string]any{
+			"viewer":       viewer,
+			"has_seat":     false,
+			"league":       s.leagueMap(),
+			"league_mode":  s.cfg.ModeLabel,
+			"fantasy_card": s.fantasyCardData(state, viewer),
+		}
+	}
 	team := s.teamView(state, teamID)
 	roster, drafted := s.rosterForTeam(state, teamID)
 	projected := 0.0
@@ -820,6 +1102,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 
 	return map[string]any{
 		"viewer":          viewer,
+		"has_seat":        true,
 		"team":            teamMap,
 		"drafted":         drafted,
 		"projected":       fmt.Sprintf("%.1f", projected),
@@ -857,6 +1140,55 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"ir_place_empty":          len(placeOptions) == 0,
 		"ir_drop_options":         placeOptions,
 		"ir_drop_empty":           len(placeOptions) == 0,
+		// co_manager (registration wave, build item 4): "Operated by X ·
+		// with Y" plus the invite/detach forms' authority gates. can_invite
+		// is primary-only (only the primary may invite); can_detach also
+		// admits the commissioner (canManageCoManager), matching
+		// InviteCoManager/DetachCoManager's own authority rules.
+		"co_manager": s.coManagerMap(r, state, teamID),
+		// fantasy_card is unused on the seated branch's own template path
+		// (its <If> only reaches the seatless section above), but the key
+		// stays present anyway — the same "every branch carries the same
+		// key set" discipline fantasyCardData's own "team" field follows —
+		// so a template read never depends on which branch built the map.
+		"fantasy_card": s.fantasyCardData(state, viewer),
+	}
+}
+
+// coManagerMap renders TeamData's "Operated by X · with Y" block: the
+// primary's display name, the co-manager's (if bound or still pending),
+// and whether the viewing request may invite or detach one.
+func (s *Service) coManagerMap(r *http.Request, state PersistedState, teamID string) map[string]any {
+	members := teamMembers(state.Members, teamID)
+	primaryName, coName := "", ""
+	hasCo := false
+	for _, member := range members {
+		if member.Role == "co" {
+			coName = member.Name
+			if coName == "" {
+				coName = member.Email
+			}
+			hasCo = true
+		} else {
+			primaryName = member.Name
+		}
+	}
+	pendingEmail := ""
+	for email, pendingTeamID := range state.CoInvites {
+		if pendingTeamID == teamID {
+			pendingEmail = email
+			break
+		}
+	}
+	canInvite := s.isPrimaryOfTeam(r, teamID)
+	return map[string]any{
+		"primary_name":  primaryName,
+		"has_co":        hasCo,
+		"co_name":       coName,
+		"has_pending":   pendingEmail != "" && !hasCo,
+		"pending_email": pendingEmail,
+		"can_invite":    canInvite && !hasCo && pendingEmail == "",
+		"can_detach":    s.canManageCoManager(r, teamID) && (hasCo || pendingEmail != ""),
 	}
 }
 
@@ -1422,6 +1754,12 @@ func (s *Service) leagueMap() map[string]any {
 		"seat_count_word":    countWord(len(s.teams)),
 		"seat_numbers":       seatNumbers(len(s.teams)),
 		"season_open_line":   s.seasonOpenLine(),
+		// fantasy_seats_open (registration wave, build item 3): whether any
+		// fantasy seat remains unclaimed — the shared layout's nav uses
+		// this, alongside the viewer's own has_seat, to show the /join link
+		// only "while seats remain" (the build directive's own phrase),
+		// without every page's own data function computing it separately.
+		"fantasy_seats_open": claimedSeatCount(s.store.Snapshot().Members) < len(s.teams),
 		// latest_announcement carries the shared layout's dismiss-free
 		// banner data (league-announcements spec). It lives here, not in a
 		// separate data key, because leagueMap is the one map every page's
@@ -1856,13 +2194,82 @@ func (s *Service) leaderMaps() []map[string]any {
 	return out
 }
 
+// memberForTeam resolves "the" manager of a team seat: the primary
+// (Role == "") when one is bound, otherwise a co-manager if that is all
+// the seat has. A team seat holds at most one primary and one co Member
+// (Store.InviteCoManager enforces the limit), so preferring the primary
+// here — rather than returning whichever the map iteration visits first,
+// which Go leaves undefined — is what keeps every single-manager display
+// site (teamView's Manager name, the presence tracker, most notification
+// recipient resolution) deterministic once a seat carries a co-manager.
+// Callers that must reach every operator of a seat, not just one, use
+// teamMembers instead.
 func memberForTeam(members map[string]Member, teamID string) Member {
+	var fallback Member
+	haveFallback := false
 	for _, member := range members {
-		if member.TeamID == teamID {
+		if member.TeamID != teamID {
+			continue
+		}
+		if member.Role == "" {
 			return member
 		}
+		fallback, haveFallback = member, true
+	}
+	if haveFallback {
+		return fallback
 	}
 	return Member{}
+}
+
+// teamMembers returns every member bound to teamID, primary first (then
+// the co-manager, if any) — the co-manager registration wave's "both
+// operate the team identically" contract needs this wherever a
+// team-scoped effect (a notification, an admin display) must reach every
+// operator of a seat, not just the primary memberForTeam resolves.
+func teamMembers(members map[string]Member, teamID string) []Member {
+	var primary, co Member
+	havePrimary, haveCo := false, false
+	for _, member := range members {
+		if member.TeamID != teamID {
+			continue
+		}
+		if member.Role == "co" {
+			co, haveCo = member, true
+		} else {
+			primary, havePrimary = member, true
+		}
+	}
+	out := make([]Member, 0, 2)
+	if havePrimary {
+		out = append(out, primary)
+	}
+	if haveCo {
+		out = append(out, co)
+	}
+	return out
+}
+
+// claimedSeatIDs is the set of team IDs currently bound to a member — a
+// co-manager shares its primary's TeamID rather than opening a second
+// seat, so this naturally de-duplicates: every "how many seats are
+// open/claimed" computation (the fantasy dashboard card, the signup
+// page, NextOpenSeatTone's AssignMember-mirroring scan) reads through
+// this one function so they always agree, and a seat with both a primary
+// and a co-manager still counts once.
+func claimedSeatIDs(members map[string]Member) map[string]bool {
+	out := make(map[string]bool, len(members))
+	for _, member := range members {
+		if member.TeamID != "" {
+			out[member.TeamID] = true
+		}
+	}
+	return out
+}
+
+// claimedSeatCount is claimedSeatIDs' count-only shorthand.
+func claimedSeatCount(members map[string]Member) int {
+	return len(claimedSeatIDs(members))
 }
 
 func readyCount(ready map[string]bool) int {

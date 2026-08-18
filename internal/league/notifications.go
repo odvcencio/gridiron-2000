@@ -1239,24 +1239,27 @@ func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotif
 // ---------------------------------------------------------------------
 
 // notifyWaiverResult fires N14 for one resolved claim (won, beaten, or
-// failed), to the claiming manager only. Called from
-// Service.evalWaiverRun after Store.ProcessWaivers's single persist has
-// already committed (section 5.4 step 6): a claim's outcome is never
-// emailed before it is durable. processedAt is the run's instant
-// (nextRun), the Headline's "WAIVERS // RUN {date}" anchor.
+// failed), to every operator of the claiming seat — the primary and, if
+// bound, the co-manager (registration wave, build item 4: team-scoped
+// notifications reach both). Called from Service.evalWaiverRun after
+// Store.ProcessWaivers's single persist has already committed (section
+// 5.4 step 6): a claim's outcome is never emailed before it is durable.
+// processedAt is the run's instant (nextRun), the Headline's "WAIVERS //
+// RUN {date}" anchor.
 func (s *Service) notifyWaiverResult(result WaiverResult, processedAt time.Time) {
 	if !s.notifyReady() {
 		return
 	}
 	state := s.store.Snapshot()
-	member := memberForTeam(state.Members, result.Claim.TeamID)
-	if member.Email == "" {
-		return
+	for _, member := range teamMembers(state.Members, result.Claim.TeamID) {
+		if member.Email == "" {
+			continue
+		}
+		key := keyWaiverResult(result.Claim.ID, member.Email)
+		s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+			return s.buildWaiverResult(state, result, member, processedAt)
+		})
 	}
-	key := keyWaiverResult(result.Claim.ID, member.Email)
-	s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
-		return s.buildWaiverResult(state, result, member, processedAt)
-	})
 }
 
 func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, member Member, processedAt time.Time) renderedNotification {

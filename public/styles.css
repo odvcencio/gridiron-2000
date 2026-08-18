@@ -2682,8 +2682,24 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-white-faint);
 }
 
+/* .seat-row grows taller than the fixed-column grid was sized for once a
+   seat carries a co-manager line (registration wave, build item 4): the
+   admin console's own two-column layout (01 // SEATS beside
+   02 // INVITES) narrows this row well below the rigid 8-column grid's
+   comfortable width even before that extra line, so this switches to
+   the same flex-wrap layout the existing narrow-viewport media query
+   (below) already defines for .seat-row — applied unconditionally here
+   rather than only past a breakpoint, since the two-column admin layout
+   hits the same width pressure at desktop sizes too. */
 .seat-row {
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.seat-identity {
+  flex: 1 1 14rem;
 }
 
 .seat-row[data-claimed="false"] .seat-identity strong {
@@ -4392,6 +4408,7 @@ body.is-on-clock .draft-clock-panel {
   flex: 1;
   min-width: 0;
   max-width: 18rem;
+}
 /* ---- /trades: composer, offer rows, review/vote panels -------------- */
 .trade-row.pool-row {
   display: flex;
@@ -4565,4 +4582,132 @@ body.is-on-clock .draft-clock-panel {
   .pickem-boards {
     grid-template-columns: 1fr;
   }
+}
+
+/* Registration wave: dashboard dual-status cards (app/page.gsx), the
+   fantasy-signup page (app/join), the /team seatless "no franchise"
+   state, and the co-manager invite/detach forms. */
+
+.status-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.status-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel-glass);
+  box-shadow: var(--shadow-panel);
+}
+
+.status-card__team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.status-card__line {
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+@media (max-width: 55rem) {
+  .status-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.no-franchise {
+  max-width: 42rem;
+  margin: var(--space-2xl) auto;
+  padding: var(--space-2xl);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel-glass);
+  box-shadow: var(--shadow-panel);
+}
+
+.signup-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 32rem;
+}
+
+.signup-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.signup-form__field input {
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--type-sm);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+/* .badge-option--pick reuses .badge-option's card look (styles.css's
+   team-badge picker block above) for a radio-driven single-select grid:
+   the native input hides visually but stays keyboard/screen-reader
+   operable, and the immediately-following .badge-option__art sibling
+   picks up the checked state through the plain CSS sibling combinator. */
+.badge-option--pick {
+  cursor: pointer;
+}
+
+.badge-option__radio {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  clip: rect(0, 0, 0, 0);
+}
+
+.badge-option__radio:checked + .badge-option__art {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.badge-option__radio:focus-visible + .badge-option__art {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.co-manager-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.co-manager-form input[type="email"] {
+  min-width: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-deep);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
 }
