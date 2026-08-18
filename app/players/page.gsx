@@ -184,7 +184,7 @@ func Page() Node {
 				<div class="empty-tape">
 					<strong>NO OPEN CLAIMS</strong>
 					<p>
-						File a claim from an ON WAIVERS row above; it resolves at the next daily run.
+						File a claim from an ON WAIVERS row above; it resolves once waivers clear.
 					</p>
 				</div>
 			</If>

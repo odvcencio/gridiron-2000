@@ -9,7 +9,7 @@ func Page() Node {
 			WENT DARK.
 		</h1>
 		<p>
-			The league system hit an unexpected error while rendering this page. The score feed and your saved state are separate, so a provider hiccup will not erase league data.
+			Something broke loading this page. Your league data is safe and nothing was lost.
 		</p>
 		<a href="/" data-gosx-link class="button button--primary">Return to HQ</a>
 	</main>

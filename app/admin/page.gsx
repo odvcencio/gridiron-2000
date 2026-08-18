@@ -221,7 +221,7 @@ func Page() Node {
 									{data.draft.time}
 									, the clock arms the first pick on its own
 								</strong>
-								<small>No action is needed. The server arms the deadline the instant the draft time arrives, as long as it stays running.</small>
+								<small>No action is needed — the clock starts automatically at draft time.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -248,8 +248,8 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">07</span>
 							<div class="checklist-item__text">
-								<strong>league-state.json.bak is the rolling safety net</strong>
-								<small>The server saves it before every pick, undo, and auto-pick, on top of Undo last pick.</small>
+								<strong>There's always a backup</strong>
+								<small>A safety copy saves automatically before every pick, undo, and auto-pick — on top of Undo last pick.</small>
 							</div>
 						</div>
 					</div>
@@ -524,7 +524,7 @@ func Page() Node {
 								<b class="mono">OVERRIDE</b>
 							</If>
 							<If cond={data.clock.duration_overridden == false}>
-								<b class="mono">ENV DEFAULT</b>
+								<b class="mono">DEFAULT</b>
 							</If>
 						</div>
 						<div class="pool-stat">
@@ -573,7 +573,7 @@ func Page() Node {
 							<span class="position-chip">CUSTOM</span>
 						</If>
 						<If cond={data.roster_shape.has_override == false}>
-							<span class="position-chip">CONFIG DEFAULT</span>
+							<span class="position-chip">DEFAULT</span>
 						</If>
 					</div>
 					<div class="roster-shape-grid">
@@ -665,7 +665,7 @@ func Page() Node {
 						<If cond={data.roster_shape.has_override}>
 							<form method="post" action={actionPath("roster-shape-reset")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
-								<button class="button button--ghost" type="submit">Reset to config default</button>
+								<button class="button button--ghost" type="submit">Reset to default</button>
 							</form>
 						</If>
 					</If>

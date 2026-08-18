@@ -741,7 +741,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: "FATE HAS SPOKEN.",
-			Lede: fmt.Sprintf("A cryptographic shuffle set the order — no re-rolls, unless the commissioner "+
+			Lede: fmt.Sprintf("A random draw set the order — no re-rolls, unless the commissioner "+
 				"resets, and everyone will see that. You hold slot %d. Round 2 snakes back to you at pick %d.",
 				slot, 2*n+1-slot),
 		},
@@ -820,7 +820,7 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 			{Label: "YOUR BOARD", Value: s.onClockBoardRow(state, boardKey)},
 		}},
 		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: s.leagueURL() + "/draft"},
-		emailkit.Note{Text: "If the cap hits zero, the server drafts the top of your Big Board for you. " +
+		emailkit.Note{Text: "If the cap hits zero, autopick drafts the top of your Big Board for you. " +
 			"No board? Best available by ADP. Either way the tape reads AUTO next to your name — forever. " +
 			"One tap fixes that."},
 	}
@@ -841,7 +841,7 @@ func (s *Service) onClockClockRow(state PersistedState, now time.Time) string {
 	remaining := effective.Sub(now)
 	switch reason {
 	case "away-cap":
-		return fmt.Sprintf("%s away cap armed — the server reads you as AWAY. Reconnect and your full %s comes back.",
+		return fmt.Sprintf("%s away cap armed — you're marked AWAY. Reconnect and your full %s comes back.",
 			formatMMSS(remaining), formatMMSS(duration))
 	case "paused":
 		return "PAUSED — the commissioner stopped the clock. Your pick waits for you."
@@ -1543,7 +1543,7 @@ func (s *Service) buildHealedIRWarning(member Member, player Player, week int, k
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: strings.ToUpper(player.Name) + " IS OFF THE INJURY REPORT.",
-			Lede: fmt.Sprintf("Activate %s (with a corresponding drop) before %s's game at %s, or the platform auto-cuts him.",
+			Lede: fmt.Sprintf("Activate %s (with a corresponding drop) before %s's game at %s, or the league drops him automatically.",
 				player.Name, player.NFLTeam, kickoff.In(location).Format("Mon 3:04 PM MST")),
 		},
 		emailkit.CTA{Label: "MANAGE YOUR IR →", URL: s.leagueURL() + "/team"},

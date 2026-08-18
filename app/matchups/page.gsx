@@ -159,15 +159,15 @@ func Page() Node {
 			</div>
 			<div class="masthead-console">
 				<div>
-					<span>Provider</span>
+					<span>Source</span>
 					<strong>{data.live.source_label}</strong>
 				</div>
 				<div>
-					<span>Last packet</span>
+					<span>Last update</span>
 					<strong class="mono" data-live-updated data-gosx-live-bind="liveUpdated">{data.live.last_updated}</strong>
 				</div>
 				<div>
-					<span>Refresh</span>
+					<span>Updates</span>
 					<strong class="mono">60 SEC</strong>
 				</div>
 			</div>
@@ -217,9 +217,9 @@ func Page() Node {
 					</Each>
 				</div>
 				<div class="data-note">
-					<span>How live works</span>
+					<span>Live scoring</span>
 					<p>
-						The browser asks this GoSX server for one fresh snapshot per minute. The server deduplicates requests for 45 seconds before contacting the configured league provider.
+						Scores update on their own. No need to refresh the page.
 					</p>
 				</div>
 			</aside>
