@@ -135,7 +135,7 @@ func Layout() Node {
 			</div>
 			<div class="footer-status">
 				<span class="live-dot" aria-hidden="true"></span>
-					20 SEC SIGNAL CHECK · LOCAL OPEN-DATA CACHE
+					LIVE LEAGUE FEED
 			</div>
 		</footer>
 	</div>

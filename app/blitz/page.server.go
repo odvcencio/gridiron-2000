@@ -39,7 +39,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("Preseason Blitz")},
-				Description: "A preseason-only, five-player DFS-style contest. Play money, bragging rights, nothing else.",
+				Description: "A short preseason contest: pick five players for bragging rights.",
 			}, nil
 		},
 		Actions: route.FileActions{

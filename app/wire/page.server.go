@@ -104,7 +104,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("Signal Wire")},
-				Description: "The private league's no-key publisher, community, social, and open NFL intelligence mesh.",
+				Description: "League news, community chatter, and NFL intel in one feed.",
 			}, nil
 		},
 		Actions: route.FileActions{
@@ -296,7 +296,7 @@ func signalCardNode(props map[string]any) gosx.Node {
 // structural sync with WireEmptyState by hand.
 func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 	body := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("NO RELEVANT PACKETS YET")),
+		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("NO SIGNALS YET")),
 		gosx.El("h3", nil, gosx.Text("Your wire is quiet—not broken.")),
 	}
 	if !wireConfigured {
@@ -309,7 +309,7 @@ func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 			),
 		)
 	} else {
-		body = append(body, gosx.El("p", nil, gosx.Text("The server is listening. Relevant feed items and league sightings appear here and remain provisional until reconciliation.")))
+		body = append(body, gosx.El("p", nil, gosx.Text("Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.")))
 	}
 	return gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-empty"), gosx.BoolAttr("data-wire-empty")), gosx.Fragment(body...))
 }
@@ -332,7 +332,7 @@ func boolProp(props map[string]any, key string) bool {
 func PulseData(signals *signalwire.Service) map[string]any {
 	wireStatus := signals.Status()
 	count := wireStatus.RelevantSignals
-	status := fmt.Sprintf("%d relevant packet%s · %s", count, pluralSuffix(count), displayTime(time.Now()))
+	status := fmt.Sprintf("%d relevant signal%s · %s", count, pluralSuffix(count), displayTime(time.Now()))
 	return map[string]any{
 		"mode":   strings.ToUpper(strings.ReplaceAll(wireStatus.Mode, "_", " ")),
 		"count":  count,

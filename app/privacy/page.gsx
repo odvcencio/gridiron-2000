@@ -15,24 +15,22 @@ func Page() Node {
 		<section>
 			<h2>What this league stores</h2>
 			<p>
-				When Google OAuth is configured, this league room stores the name, email address, and provider identifier returned by Google so one account can be mapped to one league seat. It also stores league actions such as draft readiness and picks.
+				When Google sign-in is turned on, this league stores the name, email address, and account ID Google provides, so each account matches one league seat. It also stores league actions such as draft readiness and picks.
 			</p>
 			<h2>Where it lives</h2>
 			<p>
-				The starter stores league state in the server-side JSON file configured by
-				<span class="inline-code">DATA_FILE</span>
-				. Authentication state lives in an encrypted, HTTP-only cookie. Google client secrets remain server-side environment variables.
+				League data lives on this league's own server, not with an outside company. Your sign-in details stay in your browser.
 			</p>
 			<h2>Football data</h2>
 			<p>
-				The server reads the commissioner-approved public RSS, Atom, and Bluesky sources and caches open nflverse schedules, injury reports, and weekly player statistics. Source text is kept only in rewriteable current state; an upstream social deletion removes that text. The metadata journal retains provenance, hashes, rules, trust tiers, and timestamps so the league can audit its own classifier.
+				This league also collects public NFL news the commissioner approves, plus schedules, injury reports, and weekly player stats from open sources. If a source deletes a post, it disappears from the league too.
 			</p>
 			<p>
-				A signed-in manager may submit a short summary, source name, optional link, and sighting type. Their display name is retained with the sighting inside this private league. Local data exports require a private bearer token. This league room does not store NFL+ or PrizePicks credentials and does not authenticate to betting or paid sports-data services.
+				A signed-in manager may submit a short summary, source name, optional link, and sighting type. Their display name stays with the sighting inside this private league. Only the commissioner can export league data, and it isn't public. This league doesn't store NFL+ or PrizePicks logins, and doesn't connect to betting or paid sports-data services.
 			</p>
 			<h2>Your controls</h2>
 			<p>
-				Ask the commissioner to remove your league assignment and stored identity. Signing out destroys your current authenticated session.
+				Ask the commissioner to remove you from the league. Signing out ends your session on this device.
 			</p>
 		</section>
 		<a href="/login" data-gosx-link class="button button--primary">Return to league access</a>

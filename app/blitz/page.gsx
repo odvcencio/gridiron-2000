@@ -230,7 +230,7 @@ func Page() Node {
 			<If cond={data.feed_offline}>
 				<p class="demo-message">
 					<strong>FEED OFFLINE:</strong>
-					the live preseason feed is not configured on this run. Schedules and live scores stay empty until it is.
+					the live preseason feed isn't set up yet. Schedules and live scores stay empty until it is.
 				</p>
 			</If>
 			<If cond={data.slate_closed}>
