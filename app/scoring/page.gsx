@@ -1,21 +1,42 @@
 package scoring
 
-func ScoringRow(props any) Node {
+// ScoringRuleRow structurally mirrors internal/league's ScoringRuleRow (the
+// loader's actual type) so ScoringRow's named "rule" prop proves at the
+// strict-call boundary: the file renderer requires a named struct-typed
+// attribute's runtime value to carry the exact type name declared here
+// (requireStrictStructValue), by name only, so the two declarations may
+// live in different packages as long as they agree on that name and on
+// every field this component reads.
+type ScoringRuleRow struct {
+	Key       string
+	Label     string
+	Points    string
+	IsDefault bool
+}
+
+type ScoringRowProps struct {
+	Rule      ScoringRuleRow
+	Editable  bool
+	SetAction string
+	CSRF      string
+}
+
+component ScoringRow(props: ScoringRowProps) {
 	return <div class="scoring-row">
 		<div class="scoring-row__label">
-			<strong>{props.rule.label}</strong>
-			<If cond={props.rule.is_default == false}>
+			<strong>{props.Rule.Label}</strong>
+			<If cond={props.Rule.IsDefault == false}>
 				<span class="position-chip">CUSTOM</span>
 			</If>
 		</div>
 		<If cond={props.Editable == false}>
-			<b class="mono">{props.rule.points}</b>
+			<b class="mono">{props.Rule.Points}</b>
 		</If>
 		<If cond={props.Editable}>
 			<form class="scoring-row__form" method="post" action={props.SetAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="key" value={props.rule.key}></input>
-				<input type="text" name="points" value={props.rule.points} class="scoring-input"></input>
+				<input type="hidden" name="key" value={props.Rule.Key}></input>
+				<input type="text" name="points" value={props.Rule.Points} class="scoring-input"></input>
 				<button class="board-button" type="submit">Set</button>
 			</form>
 		</If>
@@ -237,22 +258,17 @@ func Page() Node {
 					<div>
 						<span class="section-index">
 							06 // SCORING //
-							{group.name}
+							{group.Name}
 						</span>
-						<h2>{group.name}</h2>
+						<h2>{group.Name}</h2>
 					</div>
 				</div>
-				<If cond={group.note != ""}>
-					<p class="scoring-note">{group.note}</p>
+				<If cond={group.Note != ""}>
+					<p class="scoring-note">{group.Note}</p>
 				</If>
 				<div class="pool-list">
-					<Each of={group.rules} as="rule">
-						<ScoringRow
-							rule={rule}
-							Editable={data.editable}
-							SetAction={actionPath("scoring-set")}
-							CSRF={csrf.token}
-						 />
+					<Each of={group.Rules} as="row">
+						<ScoringRow {...row}></ScoringRow>
 					</Each>
 				</div>
 			</section>

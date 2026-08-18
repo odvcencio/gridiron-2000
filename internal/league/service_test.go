@@ -427,13 +427,13 @@ func TestScoringDataDefaultsAndOverride(t *testing.T) {
 	if data["locked"] != false || data["editable"] != true {
 		t.Fatalf("scoring should be open before the season starts: %+v", data)
 	}
-	groups, _ := data["groups"].([]map[string]any)
-	if len(groups) == 0 || groups[0]["name"] != "PASSING" {
+	groups, _ := data["groups"].([]ScoringRuleGroup)
+	if len(groups) == 0 || groups[0].Name != "PASSING" {
 		t.Fatalf("first group = %v, want PASSING", groups)
 	}
-	rules, _ := groups[0]["rules"].([]map[string]any)
+	rules := groups[0].Rules
 	passYards := rules[0]
-	if passYards["key"] != "passYards" || passYards["points"] != "0.04" || passYards["is_default"] != true {
+	if passYards.Key != "passYards" || passYards.Points != "0.04" || passYards.IsDefault != true {
 		t.Fatalf("passYards default wrong: %+v", passYards)
 	}
 
@@ -446,10 +446,10 @@ func TestScoringDataDefaultsAndOverride(t *testing.T) {
 	}
 
 	data = service.ScoringData(request)
-	groups, _ = data["groups"].([]map[string]any)
-	rules, _ = groups[0]["rules"].([]map[string]any)
+	groups, _ = data["groups"].([]ScoringRuleGroup)
+	rules = groups[0].Rules
 	passYards = rules[0]
-	if passYards["points"] != "0.06" || passYards["is_default"] != false {
+	if passYards.Points != "0.06" || passYards.IsDefault != false {
 		t.Fatalf("override not reflected: %+v", passYards)
 	}
 
@@ -457,10 +457,10 @@ func TestScoringDataDefaultsAndOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	data = service.ScoringData(request)
-	groups, _ = data["groups"].([]map[string]any)
-	rules, _ = groups[0]["rules"].([]map[string]any)
+	groups, _ = data["groups"].([]ScoringRuleGroup)
+	rules = groups[0].Rules
 	passYards = rules[0]
-	if passYards["is_default"] != true || passYards["points"] != "0.04" {
+	if passYards.IsDefault != true || passYards.Points != "0.04" {
 		t.Fatalf("setting the default value must clear the override: %+v", passYards)
 	}
 
