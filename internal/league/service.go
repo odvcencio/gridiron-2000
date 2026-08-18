@@ -920,6 +920,16 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 		return Team{}, fmt.Errorf("enter a team name")
 	}
 	motif = strings.TrimSpace(motif)
+	// An empty motif means the signup form was submitted with no badge
+	// picked. That is a different mistake from naming a motif the catalog
+	// does not have, and it is the one a person actually makes, so it gets
+	// its own message instead of "unknown badge motif". The form cannot
+	// enforce this in the browser: the radios are visually hidden for
+	// styling, and a required control that cannot be shown makes Chrome
+	// block submission with no visible message at all.
+	if motif == "" {
+		return Team{}, errors.New("choose a badge for your team")
+	}
 	if !knownMotif(motif) {
 		return Team{}, ErrBadgeUnknownMotif
 	}

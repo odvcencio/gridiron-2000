@@ -40,7 +40,7 @@ func Page() Node {
 						<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
 							<Each of={data.badge_grid} as="badge">
 								<label class="badge-option badge-option--pick" title={badge.name}>
-									<input type="radio" name="motif" value={badge.slug} required="required" class="badge-option__radio"></input>
+									<input type="radio" name="motif" value={badge.slug} class="badge-option__radio"></input>
 									<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + badge.slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + badge.slug + ".png);"} aria-hidden="true"></span>
 									<small>{badge.name}</small>
 								</label>
