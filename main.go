@@ -777,14 +777,30 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
 			return
 		}
+		// AssignManager is the deliberate seat-claim act (league.Service's
+		// only caller of assignMember directly): a Google sign-in with an
+		// open seat claims it, exactly as before. Once every seat is
+		// claimed, the league still has room for pick'em — EnsureMember
+		// records membership with no team, and the sign-in proceeds rather
+		// than turning the person away (many more people want pick'em than
+		// want a fantasy team; see the pick'em HQ task).
 		member, err := league.Default().AssignManager(user.Email, user.Name)
+		seatless := false
+		if err != nil && errors.Is(err, league.ErrLeagueFull) {
+			member, err = league.Default().EnsureMember(user.Email, user.Name)
+			seatless = true
+		}
 		if err != nil {
 			manager.SignOut(r)
 			session.AddFlash(r, "notice", fmt.Sprintf("All %d manager seats are currently claimed.", league.Default().TeamCount()))
 			http.Redirect(w, r, "/login?error=full", http.StatusSeeOther)
 			return
 		}
-		session.AddFlash(r, "notice", "Welcome to "+member.TeamID+", "+user.Name+".")
+		if seatless {
+			session.AddFlash(r, "notice", "Every manager seat is claimed. You're in for Pick'em, "+user.Name+".")
+		} else {
+			session.AddFlash(r, "notice", "Welcome to "+member.TeamID+", "+user.Name+".")
+		}
 		if target == "" {
 			target = "/"
 		}

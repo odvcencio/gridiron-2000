@@ -126,7 +126,70 @@ func Page() Node {
 				</aside>
 			</section>
 		</If>
-		<If cond={data.viewer.signed_in}>
+		<If cond={data.viewer.signed_in && data.has_seat == false}>
+			<section class="hero-command">
+				<div class="hero-command__copy">
+					<div class="signal-label">
+						<span class="live-dot" aria-hidden="true"></span>
+						PICK 'EM HQ // ONLINE
+					</div>
+					<p class="hero-kicker">
+						{data.league.hero_kicker}
+					</p>
+					<h1>
+						CALL YOUR
+						<br></br>
+						<span>SHOTS EVERY WEEK.</span>
+					</h1>
+					<p class="hero-deck">
+						No fantasy team, no problem — pick'em is a complete game of its own here. Straight-up winner
+						picks against the whole league, every week of the season.
+					</p>
+					<div class="hero-actions">
+						<a href="/pickem" data-gosx-link class="button button--primary">
+							Open Pick'em HQ
+							<span aria-hidden="true">→</span>
+						</a>
+					</div>
+				</div>
+				<aside class="pickem-home-panel">
+					<div class="pickem-home-panel__row">
+						<span>This week</span>
+						<strong class="mono">
+							{data.pickem_home.unpicked_count}
+							unpicked
+						</strong>
+					</div>
+					<div class="pickem-home-panel__row">
+						<span>Season record</span>
+						<If cond={data.pickem_home.has_record}>
+							<strong class="mono">
+								{data.pickem_home.season_correct}
+								/
+								{data.pickem_home.season_total}
+							</strong>
+						</If>
+						<If cond={data.pickem_home.has_record == false}>
+							<strong class="mono">No picks yet</strong>
+						</If>
+					</div>
+					<div class="pickem-home-panel__row">
+						<span>Current streak</span>
+						<If cond={data.pickem_home.has_streak}>
+							<strong class="mono">
+								{data.pickem_home.streak}
+								W
+							</strong>
+						</If>
+						<If cond={data.pickem_home.has_streak == false}>
+							<strong class="mono">—</strong>
+						</If>
+					</div>
+					<a href="/pickem" data-gosx-link class="button button--compact">Make this week's picks →</a>
+				</aside>
+			</section>
+		</If>
+		<If cond={data.viewer.signed_in && data.has_seat}>
 		<section class="hero-command">
 			<div class="hero-command__copy">
 				<div class="signal-label">

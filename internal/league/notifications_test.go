@@ -736,3 +736,144 @@ func TestLineupWarningStaysSilentForCleanLineup(t *testing.T) {
 		t.Fatalf("queue depth for a clean lineup = %d, want 0", got)
 	}
 }
+
+// ---------------------------------------------------------------------
+// N8 — pickem-reminder (pick'em HQ task)
+// ---------------------------------------------------------------------
+
+// pickemReminderTestService builds a notify-ready service (fake clock,
+// queue wired but never started) with games attached, mirroring
+// lineupWarningTestService's shape for the same reasons.
+func pickemReminderTestService(t *testing.T, now time.Time, games []GameInfo) *Service {
+	t.Helper()
+	svc, _ := newNotifyTestService(t, now.Add(72*time.Hour), now.Add(-72*time.Hour))
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	return svc
+}
+
+// TestPickemReminderSendsForUnpickedGameWithin24h pins N8's due-window
+// core: a member who has already picked this season (eligible) with an
+// unpicked game due inside 24 hours gets exactly one send, and a second
+// evaluation in the same window does not re-send (FirstSend's
+// at-most-once ledger — the idempotency half of build item 4's tests).
+func TestPickemReminderSendsForUnpickedGameWithin24h(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(20 * time.Hour), Away: "PIT", Home: "NYJ"},
+	}
+	svc := pickemReminderTestService(t, now, games)
+	if _, _, err := svc.store.AssignMember("a@example.com", "Alice"); err != nil {
+		t.Fatal(err)
+	}
+	// Prior-season pick makes Alice an eligible, known pick'em participant.
+	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now)
+	state := svc.store.Snapshot()
+	if got := sentLogCount(state, "pickem-remind:"); got != 1 {
+		t.Fatalf("SentLog pickem-remind: entries = %d, want 1", got)
+	}
+	if got := svc.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("queue depth = %d, want 1", got)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now.Add(time.Hour))
+	if got := svc.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("queue depth after a second in-window tick = %d, want still 1", got)
+	}
+}
+
+// TestPickemReminderStaysSilentMoreThan24hOut checks the due-window's
+// other edge: a game more than 24 hours out is not due yet, so a later
+// tick can still catch it.
+func TestPickemReminderStaysSilentMoreThan24hOut(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(48 * time.Hour), Away: "PIT", Home: "NYJ"},
+	}
+	svc := pickemReminderTestService(t, now, games)
+	if _, _, err := svc.store.AssignMember("a@example.com", "Alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now)
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth for a game 48h out = %d, want 0", got)
+	}
+	if got := sentLogCount(svc.store.Snapshot(), "pickem-remind:"); got != 0 {
+		t.Fatalf("SentLog entries for a game 48h out = %d, want 0", got)
+	}
+}
+
+// TestPickemReminderStaysSilentOncePicked checks that a member with no
+// outstanding unpicked game in the due window never sends, even though
+// they are otherwise eligible.
+func TestPickemReminderStaysSilentOncePicked(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(6 * time.Hour), Away: "PIT", Home: "NYJ"},
+	}
+	svc := pickemReminderTestService(t, now, games)
+	if _, _, err := svc.store.AssignMember("a@example.com", "Alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetPickem("a@example.com", "g1", "PIT"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now)
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth once every due game is picked = %d, want 0", got)
+	}
+}
+
+// TestPickemReminderGatesFFOnlyMembers pins build item 4's documented
+// gating choice: a member who has never made a pick and has not touched
+// the pickem preference stays silent, even with an unpicked game due
+// within 24 hours — the reminder must never spam a fantasy-only member.
+func TestPickemReminderGatesFFOnlyMembers(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(6 * time.Hour), Away: "PIT", Home: "NYJ"},
+	}
+	svc := pickemReminderTestService(t, now, games)
+	if _, _, err := svc.store.AssignMember("ffonly@example.com", "FF Only"); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now)
+	if got := svc.notifyQueue.Depth(); got != 0 {
+		t.Fatalf("queue depth for an FF-only member = %d, want 0", got)
+	}
+	if got := sentLogCount(svc.store.Snapshot(), "pickem-remind:"); got != 0 {
+		t.Fatalf("SentLog entries for an FF-only member = %d, want 0", got)
+	}
+}
+
+// TestPickemReminderExplicitOptInWithoutPriorPicks checks the gate's other
+// branch: a member with no pick history who has explicitly turned the
+// pickem category on still qualifies (the default-on category setting
+// alone does not count — see pickemReminderEligible's doc comment).
+func TestPickemReminderExplicitOptInWithoutPriorPicks(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(6 * time.Hour), Away: "PIT", Home: "NYJ"},
+	}
+	svc := pickemReminderTestService(t, now, games)
+	if _, _, err := svc.store.AssignMember("optin@example.com", "Opt In"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetNotifyPref("optin@example.com", categoryPickem, true); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.evalPickemReminders(svc.store.Snapshot(), now)
+	if got := svc.notifyQueue.Depth(); got != 1 {
+		t.Fatalf("queue depth for an explicit opt-in with no pick history = %d, want 1", got)
+	}
+}

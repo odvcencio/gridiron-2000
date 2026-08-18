@@ -96,6 +96,68 @@ func TestReleaseSeatAndResets(t *testing.T) {
 	}
 }
 
+// TestEnsureMemberCreatesSeatlessMember pins the seatless-membership audit
+// fix's store-level primitive: EnsureMember records a member with no team
+// seat, updates the name on a repeat call exactly as AssignMember does,
+// and never allocates a TeamID.
+func TestEnsureMemberCreatesSeatlessMember(t *testing.T) {
+	store := newTestStore(t)
+	member, created, err := store.EnsureMember("a@example.com", "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("the first EnsureMember call for a new email must report created")
+	}
+	if member.TeamID != "" {
+		t.Fatalf("EnsureMember assigned a team seat: %+v", member)
+	}
+	if member.Email != "a@example.com" || member.Name != "A" {
+		t.Fatalf("member shape wrong: %+v", member)
+	}
+
+	again, created2, err := store.EnsureMember("a@example.com", "A2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created2 {
+		t.Error("a repeat EnsureMember call for an existing email must not report created")
+	}
+	if again.Name != "A2" {
+		t.Fatalf("EnsureMember must still refresh the display name: %+v", again)
+	}
+	if again.TeamID != "" {
+		t.Fatalf("the repeat call must not have gained a seat: %+v", again)
+	}
+}
+
+// TestEnsureMemberNeverClaimsSeat checks that EnsureMember leaves every
+// team seat open even after several calls, so the first real AssignMember
+// still lands on the league's first seat (team-1) — EnsureMember and
+// AssignMember read and write disjoint halves of the Members map's TeamID
+// space.
+func TestEnsureMemberNeverClaimsSeat(t *testing.T) {
+	store := newTestStore(t)
+	if _, _, err := store.EnsureMember("a@example.com", "A"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.EnsureMember("b@example.com", "B"); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if state.Members["a@example.com"].TeamID != "" || state.Members["b@example.com"].TeamID != "" {
+		t.Fatalf("EnsureMember must never assign a team seat: %+v", state.Members)
+	}
+
+	claimed, _, err := store.AssignMember("c@example.com", "C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed.TeamID != "team-1" {
+		t.Fatalf("first AssignMember after two EnsureMember calls = %q, want team-1", claimed.TeamID)
+	}
+}
+
 func TestBoardOperations(t *testing.T) {
 	store := newTestStore(t)
 	owner := "me@example.com"
