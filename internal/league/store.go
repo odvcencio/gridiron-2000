@@ -202,9 +202,21 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 		MadeAt:   now.UTC(),
 		MadeBy:   madeBy,
 	}
+	prevDeadline := s.state.ClockDeadline
 	s.state.Picks = append(s.state.Picks, pick)
 	s.state.ClockDeadline = nextDeadline
-	return pick, s.persistLocked(colPicks, colScalars)
+	// A failed persist must not leave the pick "real" in memory while the
+	// caller was told it failed (the FirstSend/FirstSendBatch rollback
+	// precedent above): roll the append and the deadline back so the next
+	// attempt sees the same on-clock team and number it saw before this
+	// call, instead of silently landing a pick the manager believes never
+	// happened.
+	if err := s.persistLocked(colPicks, colScalars); err != nil {
+		s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
+		s.state.ClockDeadline = prevDeadline
+		return DraftPick{}, err
+	}
+	return pick, nil
 }
 
 // UndoLastPick removes the most recent pick and, unless the clock is
@@ -222,12 +234,25 @@ func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 	}
 	// Best-effort backup: a failure here must not block the undo itself.
 	_ = s.backupSnapshotLocked()
+	removed := s.state.Picks[len(s.state.Picks)-1]
+	prevDeadline := s.state.ClockDeadline
+	prevRemaining := s.state.ClockRemainingSec
 	s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
 	if !s.state.ClockPaused {
 		s.state.ClockDeadline = nextDeadline
 		s.state.ClockRemainingSec = 0
 	}
-	return s.persistLocked(colPicks, colScalars)
+	// Same rollback rule as MakePick/AutoPick: a failed persist must not
+	// leave the pick "gone" in memory while the commissioner was told the
+	// undo failed — a retry on that stale in-memory count would drop a
+	// second pick instead of retrying the same one.
+	if err := s.persistLocked(colPicks, colScalars); err != nil {
+		s.state.Picks = append(s.state.Picks, removed)
+		s.state.ClockDeadline = prevDeadline
+		s.state.ClockRemainingSec = prevRemaining
+		return err
+	}
+	return nil
 }
 
 // AutoPick records a clock-driven pick. Under the lock it re-validates:
@@ -285,9 +310,18 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 		MadeAt:   now.UTC(),
 		MadeBy:   madeBy,
 	}
+	prevDeadline := s.state.ClockDeadline
 	s.state.Picks = append(s.state.Picks, pick)
 	s.state.ClockDeadline = nextDeadline
-	return pick, s.persistLocked(colPicks, colScalars)
+	// Same rollback-on-persist-failure rule as MakePick: an unwound append
+	// keeps the in-memory number and on-clock team matching whatever the
+	// caller (the ticker or AdminForceAutopick) is told actually happened.
+	if err := s.persistLocked(colPicks, colScalars); err != nil {
+		s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
+		s.state.ClockDeadline = prevDeadline
+		return DraftPick{}, err
+	}
+	return pick, nil
 }
 
 // ArmClock sets the deadline directly. It backs both the ticker's "arm an
