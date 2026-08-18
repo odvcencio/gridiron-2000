@@ -94,6 +94,9 @@ func Page() Node {
 							</If>
 							<div class="pool-player__text">
 								<strong>{player.name}</strong>
+								<If cond={player.has_draft_capital}>
+									<span class="badge-rookie">{player.draft_capital}</span>
+								</If>
 								<small>{player.detail}</small>
 							</div>
 						</div>

@@ -652,6 +652,44 @@ func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
 	}
 }
 
+// TestPlayerMapEmitsRookieAndDraftCapitalKeys checks the rookie chip's
+// frontend contract (owner directive 2026-08-18 — "show the reasoning"):
+// is_rookie, draft_capital, and has_draft_capital all appear, and a player
+// with no DraftCapital set (the graceful-degradation case: main.go's
+// fantasy.Player.DraftCapitalLabel found no usable Tank01 draft slot, or
+// the player is not a rookie at all) renders has_draft_capital == false
+// with an empty label — never a placeholder — so a row template's chip
+// stays hidden rather than showing garbage.
+func TestPlayerMapEmitsRookieAndDraftCapitalKeys(t *testing.T) {
+	service := newTestService(t, true)
+	rookie := Player{
+		ID: "p-rookie", Name: "Capital Rookie", Position: "RB", NFLTeam: "ARI",
+		Rookie: true, DraftCapital: "R1 · P3",
+	}
+	entry := playerMap(rookie, service.currentScoringValues())
+	if entry["is_rookie"] != true {
+		t.Errorf("is_rookie = %v, want true", entry["is_rookie"])
+	}
+	if entry["draft_capital"] != "R1 · P3" {
+		t.Errorf("draft_capital = %v, want %q", entry["draft_capital"], "R1 · P3")
+	}
+	if entry["has_draft_capital"] != true {
+		t.Errorf("has_draft_capital = %v, want true", entry["has_draft_capital"])
+	}
+
+	veteran := Player{ID: "p-veteran", Name: "No Capital Veteran", Position: "WR", NFLTeam: "CIN"}
+	veteranEntry := playerMap(veteran, service.currentScoringValues())
+	if veteranEntry["is_rookie"] != false {
+		t.Errorf("is_rookie = %v, want false", veteranEntry["is_rookie"])
+	}
+	if veteranEntry["draft_capital"] != "" {
+		t.Errorf("draft_capital = %v, want empty (no placeholder)", veteranEntry["draft_capital"])
+	}
+	if veteranEntry["has_draft_capital"] != false {
+		t.Errorf("has_draft_capital = %v, want false", veteranEntry["has_draft_capital"])
+	}
+}
+
 // TestHistoricalSourceAppliesInBuildPool checks that buildPool fills Hist
 // from the attached HistoricalSource for matching players, on both the
 // ordered players slice and the byID lookup, and leaves an existing Hist

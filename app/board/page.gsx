@@ -10,6 +10,9 @@ func BoardRow(props any) Node {
 			</If>
 			<div class="pool-player__text">
 				<strong>{props.player.name}</strong>
+				<If cond={props.player.has_draft_capital}>
+					<span class="badge-rookie">{props.player.draft_capital}</span>
+				</If>
 				<small>{props.player.detail}</small>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
@@ -165,6 +168,9 @@ func Page() Node {
 								</If>
 								<div class="pool-player__text">
 									<strong>{player.name}</strong>
+									<If cond={player.has_draft_capital}>
+										<span class="badge-rookie">{player.draft_capital}</span>
+									</If>
 									<small>{player.detail}</small>
 								</div>
 								<div class="stat-tip__panel" role="tooltip" aria-hidden="true">

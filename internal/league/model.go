@@ -84,8 +84,20 @@ type Player struct {
 	// fantasyPlayerSource sets it; Preseason Blitz uses it to keep
 	// first-year players near the top of its zero-pre1 group instead of
 	// buried behind established names (owner directive, 2026-08-16 —
-	// blitz.go's blitzEligiblePlayers). Every other page ignores it today.
+	// blitz.go's blitzEligiblePlayers).
 	Rookie bool `json:"rookie,omitempty"`
+	// DraftCapital is the rookie's real NFL draft slot, pre-rendered as the
+	// compact chip text a pool row shows (for example "R1 · P8") —
+	// main.go's fantasyPlayerSource sets it from
+	// fantasy.Player.DraftCapitalLabel(). Empty for anyone who is not this
+	// year's rookie class, or for an undrafted rookie Tank01 reports no
+	// draft slot for. Display-only: the default pool ORDER a rookie with
+	// draft capital receives is decided upstream, in internal/fantasy's
+	// mergePool, before this field is ever read — this field never
+	// reorders a row on its own (owner directive, 2026-08-18 — "show the
+	// reasoning," the same principle Preseason Blitz's pre1 evidence line
+	// already follows).
+	DraftCapital string `json:"draftCapital,omitempty"`
 }
 
 // BlitzEntry is one member's 5-player slate entry for Preseason Blitz
