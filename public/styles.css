@@ -4826,3 +4826,26 @@ body.is-on-clock .draft-clock-panel {
   outline: 2px solid var(--color-accent-cyan);
   outline-offset: 2px;
 }
+
+/* ---- Matchup context chip: an opponent's fantasy-points-allowed rank
+   at a position (or, for a DST row, the opponent's own fantasy-points-
+   scored rank) — owner ask: "we should see the opponent at a glance."
+   The chip text itself ("31st-toughest") is unambiguous on its own; this
+   tints it too, so the direction reads even faster at a glance. See
+   internal/league/matchup.go's matchupIndex.fields, which sets
+   data-matchup-tier from internal/matchup.TeamRank.Tier. ---- */
+.matchup-chip {
+  font-family: var(--font-mono);
+}
+
+.matchup-chip[data-matchup-tier="favorable"] {
+  color: var(--color-accent);
+}
+
+.matchup-chip[data-matchup-tier="neutral"] {
+  color: var(--color-text-muted);
+}
+
+.matchup-chip[data-matchup-tier="difficult"] {
+  color: var(--color-accent-hot);
+}

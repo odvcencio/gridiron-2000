@@ -527,6 +527,10 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 		teams[game.Away] = true
 		teams[game.Home] = true
 	}
+	// Resolved once for the same reason scoringValues is: a matchupIndex
+	// scans every slate game, and this eligible list renders every pool
+	// player on the slate.
+	matchup := s.matchupIndexForSlate(slateGames)
 	rows := make([]blitzEligibleRow, 0, len(pool.players))
 	for _, player := range pool.players {
 		if player.Position == "" || player.Position == "DST" {
@@ -548,7 +552,7 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		card := playerMap(row.player, scoringValues)
+		card := playerMap(row.player, scoringValues, matchup)
 		summary := "no pre1 snaps"
 		switch {
 		case row.hasData && row.statLine != "":
@@ -754,6 +758,9 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"archive":           map[string]any{},
 		"league":            s.leagueMap(),
 	}
+	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
+	data["matchup_source_label"] = matchupLabel
+	data["has_matchup_source"] = hasMatchupLabel
 	if archived {
 		data["has_archive"] = true
 		data["archive"] = s.blitzArchiveMap(state, snapshot, scoringValues, pool, now)

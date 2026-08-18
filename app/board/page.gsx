@@ -14,6 +14,15 @@ func BoardRow(props any) Node {
 					<span class="badge-rookie">{props.player.draft_capital}</span>
 				</If>
 				<small>{props.player.detail}</small>
+				<If cond={props.player.has_opponent}>
+					<small class="mono">
+						{props.player.opponent}
+						<If cond={props.player.has_matchup}>
+							·
+							<span class="matchup-chip" data-matchup-tier={props.player.matchup_tier}>{props.player.matchup_chip}</span>
+						</If>
+					</small>
+				</If>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 				<div class="stat-tip__head">
@@ -38,6 +47,9 @@ func BoardRow(props any) Node {
 				</If>
 				<If cond={props.player.has_breakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
+				</If>
+				<If cond={props.player.has_matchup}>
+					<p class="stat-tip__hist mono">{props.player.matchup_detail}</p>
 				</If>
 				<If cond={props.player.has_hist}>
 					<p class="stat-tip__hist mono">{props.player.hist}</p>
@@ -101,6 +113,12 @@ func Page() Node {
 				<p class="demo-message">
 					<strong>OFFLINE POOL:</strong>
 					player ranks are approximate until the live pool syncs.
+				</p>
+			</If>
+			<If cond={data.has_matchup_source}>
+				<p class="demo-message">
+					<strong>MATCHUP RANKS:</strong>
+					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
 				</p>
 			</If>
 		</div>
@@ -172,6 +190,15 @@ func Page() Node {
 										<span class="badge-rookie">{player.draft_capital}</span>
 									</If>
 									<small>{player.detail}</small>
+									<If cond={player.has_opponent}>
+										<small class="mono">
+											{player.opponent}
+											<If cond={player.has_matchup}>
+												·
+												<span class="matchup-chip" data-matchup-tier={player.matchup_tier}>{player.matchup_chip}</span>
+											</If>
+										</small>
+									</If>
 								</div>
 								<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 									<div class="stat-tip__head">
@@ -196,6 +223,9 @@ func Page() Node {
 									</If>
 									<If cond={player.has_breakdown == false}>
 										<p class="stat-tip__empty">No projection detail for this position.</p>
+									</If>
+									<If cond={player.has_matchup}>
+										<p class="stat-tip__hist mono">{player.matchup_detail}</p>
 									</If>
 									<If cond={player.has_hist}>
 										<p class="stat-tip__hist mono">{player.hist}</p>

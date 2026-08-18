@@ -14,6 +14,11 @@ type RosterRowProps struct {
 	Name           string
 	NFLTeam        string
 	Opponent       string
+	HasOpponent    bool
+	HasMatchup     bool
+	MatchupTier    string
+	MatchupChip    string
+	MatchupDetail  string
 	Jersey         string
 	HasBreakdown   bool
 	Breakdown      []BreakdownRow
@@ -92,8 +97,14 @@ component RosterRow(props: RosterRowProps) {
 				<strong>{props.Name}</strong>
 				<small>
 					{props.NFLTeam}
-					·
-					{props.Opponent}
+					<If cond={props.HasOpponent}>
+						·
+						{props.Opponent}
+						<If cond={props.HasMatchup}>
+							·
+							<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
+						</If>
+					</If>
 				</small>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
@@ -119,6 +130,9 @@ component RosterRow(props: RosterRowProps) {
 				</If>
 				<If cond={props.HasBreakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
+				</If>
+				<If cond={props.HasMatchup}>
+					<p class="stat-tip__hist mono">{props.MatchupDetail}</p>
 				</If>
 				<If cond={props.HasHist}>
 					<p class="stat-tip__hist mono">{props.Hist}</p>
@@ -182,6 +196,12 @@ func Page() Node {
 			</If>
 			<If cond={data.has_co_error}>
 				<p class="error-message">{data.co_error}</p>
+			</If>
+			<If cond={data.has_matchup_source}>
+				<p class="demo-message">
+					<strong>MATCHUP RANKS:</strong>
+					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+				</p>
 			</If>
 		</div>
 		<section class={"team-hero tone-" + data.team.tone}>
@@ -374,8 +394,14 @@ func Page() Node {
 												{slot.position}
 												·
 												{slot.nfl_team}
-												·
-												{slot.opponent}
+												<If cond={slot.has_opponent}>
+													·
+													{slot.opponent}
+													<If cond={slot.has_matchup}>
+														·
+														<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
+													</If>
+												</If>
 											</small>
 										</div>
 										<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
@@ -401,6 +427,9 @@ func Page() Node {
 											</If>
 											<If cond={slot.has_breakdown == false}>
 												<p class="stat-tip__empty">No projection detail for this position.</p>
+											</If>
+											<If cond={slot.has_matchup}>
+												<p class="stat-tip__hist mono">{slot.matchup_detail}</p>
 											</If>
 										</div>
 									</div>
@@ -470,8 +499,14 @@ func Page() Node {
 												<strong>{occ.name}</strong>
 												<small>
 													{occ.nfl_team}
-													·
-													{occ.opponent}
+													<If cond={occ.has_opponent}>
+														·
+														{occ.opponent}
+														<If cond={occ.has_matchup}>
+															·
+															<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
+														</If>
+													</If>
 												</small>
 											</div>
 											<form method="post" action={actionPath("reserve-activate")} data-gosx-managed="true">
@@ -514,8 +549,14 @@ func Page() Node {
 												<strong>{occ.name}</strong>
 												<small>
 													{occ.nfl_team}
-													·
-													{occ.opponent}
+													<If cond={occ.has_opponent}>
+														·
+														{occ.opponent}
+														<If cond={occ.has_matchup}>
+															·
+															<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
+														</If>
+													</If>
 												</small>
 												<If cond={occ.healed}>
 													<p class="error-message">
