@@ -9,7 +9,7 @@ func Page() Node {
 			THIS FREQUENCY.
 		</h1>
 		<p>
-			The route does not exist, the commissioner moved it, or someone traded it for a future second.
+			This page doesn't exist, the commissioner moved it, or someone traded it for a future second.
 		</p>
 		<a href="/" data-gosx-link class="button button--primary">Return to HQ</a>
 	</main>

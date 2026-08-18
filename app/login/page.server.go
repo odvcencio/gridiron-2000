@@ -31,7 +31,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("League Access")},
-				Description: "Claim one of " + league.SeatCountWord() + " manager seats with Google OAuth.",
+				Description: "Sign in with Google and claim your manager seat.",
 			}, nil
 		},
 	}); err != nil {

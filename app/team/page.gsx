@@ -521,7 +521,7 @@ func Page() Node {
 													<p class="error-message">
 														Off the injury report — activate before
 														{occ.deadline_label}
-														or the platform auto-cuts him.
+														or the league drops him automatically.
 													</p>
 												</If>
 											</div>

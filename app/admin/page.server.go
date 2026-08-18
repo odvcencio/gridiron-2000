@@ -299,7 +299,7 @@ func init() {
 				if err := league.Default().AdminResetRosterShape(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Roster shape reset to the config default.")
+				session.AddFlash(ctx.Request, "notice", "Roster shape reset to the default.")
 				ctx.Redirect("/admin")
 				return nil
 			},

@@ -47,7 +47,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
 	for _, email := range envEmails {
 		envSet[email] = true
-		invites = append(invites, map[string]any{"email": email, "source": "ENV", "removable": false, "mailto": inviteMailto(s, email)})
+		invites = append(invites, map[string]any{"email": email, "source": "PRESET", "removable": false, "mailto": inviteMailto(s, email)})
 	}
 	for _, email := range state.Invites {
 		if envSet[email] {
