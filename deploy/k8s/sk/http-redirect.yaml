@@ -1,0 +1,40 @@
+# Mirrors ../http-redirect.yaml: redirect plain HTTP to HTTPS so a manager
+# who types the bare hostname over HTTP gets a redirect instead of a
+# traefik 404. The middleware reference format is
+# "<namespace>-<middleware-name>@kubernetescrd" — note the namespace here
+# is "stablekernel", not "gridiron".
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: stablekernel
+  labels:
+    app: gridiron-2000-sk
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gridiron-2000-sk-http
+  namespace: stablekernel
+  labels:
+    app: gridiron-2000-sk
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.middlewares: stablekernel-redirect-https@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: sk.gridiron.draco.quest
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gridiron-2000-sk
+                port:
+                  name: http

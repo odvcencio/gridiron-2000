@@ -7,6 +7,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -293,6 +294,103 @@ func TestScoringDataVariesAcrossConfigFixtures(t *testing.T) {
 	if versionA["config_source"] == versionB["config_source"] {
 		t.Errorf("config_source identical across fixtures: %v", versionA["config_source"])
 	}
+}
+
+// TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership is
+// the SK launch-prep isolation proof (owner decision, 2026-08-18: "SK
+// should get flagship scoring rules and roster... i think its fun that
+// way"): the real SK league.json (loaded through LoadConfig, not a hand-
+// built literal — the same file deploy/k8s/sk's ConfigMap ships) and a
+// config carrying the flagship's own real shape (gridiron-house preset, no
+// membership block) render, from the same binary and the same code path,
+// an IDENTICAL roster/draft-rounds ruleset and a DIFFERENT identity and
+// membership ruleset — proving the platform's isolation thesis on exactly
+// what the owner decided should differ, not on the roster (which no longer
+// does).
+func TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership(t *testing.T) {
+	skCfg, err := loadConfigFromEnvFile(t, mustReadFile(t, skConfigFixture))
+	if err != nil {
+		t.Fatalf("loading the real SK config: %v", err)
+	}
+
+	flagshipCfg := DefaultConfig()
+	flagshipCfg.Name = "GRIDIRON 2000"
+	flagshipCfg.ShortCode = "G2K"
+	flagshipCfg.ModeLabel = "DYNASTY"
+	flagshipCfg.RosterPresetName = "gridiron-house"
+	flagshipCfg.Roster = rosterPresets["gridiron-house"]
+	flagshipCfg.Rounds = flagshipCfg.Roster.Total()
+	flagshipCfg.Membership = MembershipBlock{} // no domain gate: invite/env-list only, same as the real deploy/local/league.json
+
+	// newRulesTestService never calls applyActiveConfig (that doc comment's
+	// "avoid the global-state hazard" rule), so cfg.Teams/cfg.Roster alone
+	// do not drive s.Teams()/CurrentRoster() the way a booted Default()
+	// singleton would; set both explicitly per-instance, the same override
+	// admin_test.go's TestInviteEmailTemplateReproducesDeployedLeagueFacts
+	// already establishes for exactly this "render a specific config's
+	// actual shape in a test Service" need. CurrentRoster() itself is a
+	// package-level global (not per-instance), but that is harmless here:
+	// both configs select the identical gridiron-house preset, so one
+	// setRosterShape call correctly backs both services' ScoringData call.
+	t.Cleanup(clearRosterShape)
+	setRosterShape(skCfg.Roster)
+
+	svcSK := newRulesTestService(t, skCfg, time.Now().Add(48*time.Hour))
+	svcSK.teams = teamsFromSeeds(skCfg.Teams)
+	dataSK := svcSK.ScoringData(rulesTestRequest(t))
+
+	svcFlagship := newRulesTestService(t, flagshipCfg, time.Now().Add(72*time.Hour))
+	svcFlagship.teams = teamsFromSeeds(flagshipCfg.Teams)
+	dataFlagship := svcFlagship.ScoringData(rulesTestRequest(t))
+
+	// Same platform, same roster decision: SAME ruleset.
+	rosterSK := dataSK["roster_rules"].(map[string]any)
+	rosterFlagship := dataFlagship["roster_rules"].(map[string]any)
+	for _, key := range []string{"starters", "bench", "total", "rounds"} {
+		if rosterSK[key] != rosterFlagship[key] {
+			t.Errorf("roster_rules[%q] differs: SK=%v flagship=%v, want identical (both run gridiron-house)", key, rosterSK[key], rosterFlagship[key])
+		}
+	}
+	if rosterSK["rounds"] != 17 {
+		t.Errorf("roster_rules[\"rounds\"] = %v, want 17", rosterSK["rounds"])
+	}
+
+	// Different membership rules: the isolation proof.
+	membershipSK := dataSK["membership_rules"].(map[string]any)
+	membershipFlagship := dataFlagship["membership_rules"].(map[string]any)
+	if membershipSK["domain_gated"] != true || membershipSK["domain"] != "stablekernel.com" {
+		t.Errorf("SK membership_rules = %+v, want domain_gated=true domain=stablekernel.com", membershipSK)
+	}
+	if membershipFlagship["domain_gated"] != false {
+		t.Errorf("flagship membership_rules = %+v, want domain_gated=false", membershipFlagship)
+	}
+
+	// Different identity: name, short code, seat count.
+	identitySK := dataSK["identity_rules"].(map[string]any)
+	identityFlagship := dataFlagship["identity_rules"].(map[string]any)
+	for _, key := range []string{"name", "short_code", "team_count"} {
+		if identitySK[key] == identityFlagship[key] {
+			t.Errorf("identity_rules[%q] identical across SK/flagship: %v", key, identitySK[key])
+		}
+	}
+	if identitySK["team_count"] != 14 {
+		t.Errorf("SK identity_rules[\"team_count\"] = %v, want 14", identitySK["team_count"])
+	}
+}
+
+// mustReadFile reads path and fails the test on error — a small local
+// helper so TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership
+// can load skConfigFixture's real bytes through loadConfigFromEnvFile
+// (config_test.go), the same $LEAGUE_FILE path LoadConfig uses in
+// production, rather than a hand-typed literal that could drift from the
+// committed file.
+func mustReadFile(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	return string(raw)
 }
 
 // TestRulesFingerprintTracksRosterAndScoring pins rulesFingerprint's actual

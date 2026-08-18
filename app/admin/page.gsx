@@ -290,6 +290,14 @@ func Page() Node {
 							manager emails below.
 						</p>
 					</If>
+					<If cond={data.league_domain_gated}>
+						<p class="demo-message">
+							<strong>DOMAIN-GATED:</strong>
+							any Google account ending in
+							<b class="mono">@{data.league_domain}</b>
+							may claim a seat automatically. Add an email below only to invite someone outside that domain.
+						</p>
+					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input

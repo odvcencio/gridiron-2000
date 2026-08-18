@@ -1,6 +1,9 @@
 package league
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // DraftRounds, DefaultDraftAt, DefaultDraftTZ, and DefaultSeasonStartAt are
 // config-derived (productization spec section 3.4). Each starts at
@@ -302,6 +305,19 @@ type PersistedState struct {
 	// a nil map decodes safely on an old file, and the store normalizes
 	// it in load/NewStore/cloneState.
 	CoInvites map[string]string `json:"coInvites,omitempty"`
+
+	// TrimmedTeamIDs holds the team IDs a commissioner's seat trim (SK
+	// unclaimed-seat spec, Store.TrimUnclaimedSeats) removed as unclaimed.
+	// Empty means no trim has run: defaultTeams() returns the full
+	// config-seeded list. Once set, Default()'s boot restore recomputes the
+	// kept list from activeTeams minus this set and calls applySeatTrim, so
+	// a redeploy never un-trims the league — but a *kept* team's own
+	// cosmetic fields (name, tone) still track a league.json edit, since
+	// only team-ID membership is durable here, not a frozen team snapshot.
+	// Additive under schema version 2 — the WaiverClaims precedent above: a
+	// nil slice decodes safely on an old file, and the store normalizes it
+	// in load/NewStore/cloneState.
+	TrimmedTeamIDs []string `json:"trimmedTeamIds,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-
@@ -352,6 +368,45 @@ type LiveSnapshot struct {
 // defaultTeamIDs) and for divisionMaps' first-seen division order.
 var activeTeams = teamsFromSeeds(DefaultConfig().Teams)
 
+// teamRuntimeMu guards the commissioner's seat trim (SK unclaimed-seat
+// spec: "basically whatever seats are filled by an hour before draft
+// time"). Mirrors rosterRuntimeMu/runtimeRoster's "config baseline, runtime
+// override" shape (lineup.go): activeTeams stays the full config-seeded
+// list — the trim never rewrites it — and defaultTeams() prefers the
+// trimmed list once one is applied. Set by applySeatTrim (Default()'s
+// boot-restore of a persisted trim, and Service.TrimUnclaimedSeats after
+// Store.TrimUnclaimedSeats succeeds); no test calls it, so every test
+// Service literal keeps seeing the full config-seeded list for the life of
+// the test binary — the same guarantee applyActiveConfig's doc comment
+// pins for the roster override.
+var (
+	teamRuntimeMu   sync.RWMutex
+	runtimeTeams    []Team
+	runtimeTeamsSet bool
+)
+
+// applySeatTrim installs kept as the runtime team-list override: every
+// defaultTeams() read — package-level call sites (draftclock.go, roster.go,
+// store.go, notifications.go) and every Service method, which all read
+// defaultTeams() directly rather than a per-instance field — reflects it
+// immediately.
+func applySeatTrim(kept []Team) {
+	teamRuntimeMu.Lock()
+	runtimeTeams = append([]Team(nil), kept...)
+	runtimeTeamsSet = true
+	teamRuntimeMu.Unlock()
+}
+
+// clearSeatTrim reverts defaultTeams() to the config baseline (activeTeams).
+// Production never calls this — a seat trim is one-way, matching the
+// owner's "lock to whatever is filled" model — kept for test cleanup
+// symmetry with clearRosterShape (lineup.go).
+func clearSeatTrim() {
+	teamRuntimeMu.Lock()
+	runtimeTeamsSet = false
+	teamRuntimeMu.Unlock()
+}
+
 // teamsFromSeeds converts config.TeamSeed entries into the runtime Team
 // shape: Manager, Record, and Streak stay empty until a real member claims
 // the seat and games are played (the UI renders unclaimed seats
@@ -390,8 +445,14 @@ func teamsFromSeeds(seeds []TeamSeed) []Team {
 //
 // The name is historical (it once returned one hardcoded reference
 // league); it now returns whichever config is active — see activeTeams
-// and applyActiveConfig in config.go.
+// and applyActiveConfig in config.go — or, once a commissioner's seat trim
+// has run (SK unclaimed-seat spec, applySeatTrim above), the trimmed list.
 func defaultTeams() []Team {
+	teamRuntimeMu.RLock()
+	defer teamRuntimeMu.RUnlock()
+	if runtimeTeamsSet {
+		return runtimeTeams
+	}
 	return activeTeams
 }
 

@@ -1,0 +1,198 @@
+package league
+
+import (
+	"fmt"
+	"net/http"
+	"testing"
+	"time"
+)
+
+// claimSeat is the seat_trim_test.go fixture helper: assigns email the
+// next open seat directly through the store (Store.AssignMember — the same
+// primitive registration_test.go uses), without forging Google auth.
+// AssignMember always claims the first unclaimed team in defaultTeams()
+// order, so calling this n times in a row claims exactly team-1..team-n.
+func claimSeat(t *testing.T, svc *Service, email string) Member {
+	t.Helper()
+	member, _, err := svc.store.AssignMember(email, email)
+	if err != nil {
+		t.Fatalf("AssignMember(%s): %v", email, err)
+	}
+	return member
+}
+
+// TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed is the trim's core
+// contract (SK unclaimed-seat spec): a claimed seat's own record (ID,
+// name, division, tone) survives untouched; every unclaimed seat is
+// dropped, and defaultTeams() reflects the drop immediately.
+func TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	all := defaultTeams()
+	if len(all) != 8 {
+		t.Fatalf("neutral default team count = %d, want 8", len(all))
+	}
+	// Claim the first 5 of 8 (team-1..team-5); leave team-6..team-8 open.
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+
+	kept, removed, err := svc.TrimUnclaimedSeats(request)
+	if err != nil {
+		t.Fatalf("TrimUnclaimedSeats: %v", err)
+	}
+	if len(kept) != 5 {
+		t.Fatalf("kept = %d teams, want 5", len(kept))
+	}
+	if len(removed) != 3 {
+		t.Fatalf("removed = %d teams, want 3", len(removed))
+	}
+	for i, team := range kept {
+		if team != all[i] {
+			t.Fatalf("kept[%d] = %+v, want the untouched original %+v", i, team, all[i])
+		}
+	}
+	wantRemoved := map[string]bool{"team-6": true, "team-7": true, "team-8": true}
+	for _, id := range removed {
+		if !wantRemoved[id] {
+			t.Fatalf("unexpected removed team id %q", id)
+		}
+	}
+
+	// The runtime override is visible immediately, package-wide.
+	if got := len(defaultTeams()); got != 5 {
+		t.Fatalf("defaultTeams() after trim = %d, want 5", got)
+	}
+	if got := len(defaultTeamIDs()); got != 5 {
+		t.Fatalf("defaultTeamIDs() after trim = %d, want 5", got)
+	}
+
+	// Draft rounds derive from the roster shape alone, never team count.
+	if got := CurrentDraftRounds(); got != ActiveRosterPreset.Total() {
+		t.Fatalf("CurrentDraftRounds() after trim = %d, want %d (unaffected by the trim)", got, ActiveRosterPreset.Total())
+	}
+
+	if got := svc.store.Snapshot().TrimmedTeamIDs; len(got) != 3 {
+		t.Fatalf("persisted TrimmedTeamIDs = %v, want 3 entries", got)
+	}
+}
+
+// TestTrimUnclaimedSeatsRequiresCommissioner mirrors every other Admin*
+// method's non-commissioner rejection precedent (roster_shape_test.go).
+func TestTrimUnclaimedSeatsRequiresCommissioner(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, false) // not demo mode: no free commissioner grant
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+		t.Fatal("a non-commissioner request must be rejected")
+	}
+	if got := len(defaultTeams()); got != 8 {
+		t.Fatalf("defaultTeams() after a rejected trim = %d, want 8 (untouched)", got)
+	}
+}
+
+// TestTrimUnclaimedSeatsLocksOnceDraftStarts mirrors SetDraftOrder/
+// SetRosterOverride's post-first-pick lock (store.go).
+func TestTrimUnclaimedSeatsLocksOnceDraftStarts(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	all := defaultTeams()
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	if _, err := svc.store.MakePick(all[0].ID, "p-01", "manager", time.Now(), time.Time{}); err != nil {
+		t.Fatalf("MakePick: %v", err)
+	}
+	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+		t.Fatal("a trim must be rejected once the draft has picks on the tape")
+	}
+	if got := len(defaultTeams()); got != 8 {
+		t.Fatalf("defaultTeams() after a rejected trim = %d, want 8 (untouched)", got)
+	}
+}
+
+// TestTrimUnclaimedSeatsMinFloor rejects a trim that would leave the league
+// under the engine's own team floor (config.go's minTeams).
+func TestTrimUnclaimedSeatsMinFloor(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	for i := 0; i < 2; i++ { // fewer than minTeams (4)
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+		t.Fatal("a trim leaving fewer than minTeams claimed seats must be rejected")
+	}
+	if got := len(defaultTeams()); got != 8 {
+		t.Fatalf("defaultTeams() after a rejected trim = %d, want 8 (untouched)", got)
+	}
+	if got := svc.store.Snapshot().TrimmedTeamIDs; len(got) != 0 {
+		t.Fatalf("a rejected trim must not persist TrimmedTeamIDs, got %v", got)
+	}
+}
+
+// TestTrimUnclaimedSeatsIdempotent proves a repeat call (the commissioner
+// running the action twice, or a retried request) recomputes the same,
+// stable answer rather than compounding.
+func TestTrimUnclaimedSeatsIdempotent(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	kept1, removed1, err := svc.TrimUnclaimedSeats(request)
+	if err != nil {
+		t.Fatalf("first trim: %v", err)
+	}
+	kept2, removed2, err := svc.TrimUnclaimedSeats(request)
+	if err != nil {
+		t.Fatalf("second trim: %v", err)
+	}
+	if len(kept1) != len(kept2) || len(removed1) != len(removed2) {
+		t.Fatalf("trim is not idempotent: first (kept=%d removed=%d), second (kept=%d removed=%d)",
+			len(kept1), len(removed1), len(kept2), len(removed2))
+	}
+	for i := range kept1 {
+		if kept1[i] != kept2[i] {
+			t.Fatalf("kept[%d] changed across repeat trims: %+v vs %+v", i, kept1[i], kept2[i])
+		}
+	}
+}
+
+// TestTrimUnclaimedSeatsClearsStaleDraftOrder proves a draft order drawn
+// before the trim (against the full, untrimmed team set) does not survive
+// the trim as a stale, wrong-length order — activeTeamCount must read the
+// trimmed count, not a leftover full-size order (store.go).
+func TestTrimUnclaimedSeatsClearsStaleDraftOrder(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	fullOrder := defaultTeamIDs()
+	if err := svc.store.SetDraftOrder(fullOrder); err != nil {
+		t.Fatalf("SetDraftOrder: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	if _, _, err := svc.TrimUnclaimedSeats(request); err != nil {
+		t.Fatalf("TrimUnclaimedSeats: %v", err)
+	}
+	if got := svc.store.Snapshot().DraftOrder; len(got) != 0 {
+		t.Fatalf("draft order survived the trim: %v, want cleared", got)
+	}
+	if got := activeTeamCount(svc.store.Snapshot().DraftOrder); got != 5 {
+		t.Fatalf("activeTeamCount after trim = %d, want 5 (falls back to the trimmed defaultTeamIDs())", got)
+	}
+}
