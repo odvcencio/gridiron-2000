@@ -35,6 +35,15 @@ func (s *Service) schedule() []GameInfo {
 // kicking off within the last four hours or later, or the largest week when
 // every game has already passed that window. An empty schedule returns 1.
 func (s *Service) pickemWeek(games []GameInfo, now time.Time) int {
+	return pickemWeekAt(games, now)
+}
+
+// pickemWeekAt is pickemWeek's pure core, extracted so Store methods that
+// need "the current league week" (roster-ops spec's claim-commit Week,
+// section 7.1) can resolve it without a Service reference — the same
+// week resolver every caller shares, never a second one (spec section
+// 4.4: "reuse it; do not write a second week resolver").
+func pickemWeekAt(games []GameInfo, now time.Time) int {
 	if len(games) == 0 {
 		return 1
 	}

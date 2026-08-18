@@ -1543,6 +1543,129 @@ func TestResetLeagueClearsTransactions(t *testing.T) {
 	}
 }
 
+// TestWaiverClaimsDecodeFromOldStateFile pins the roster-ops spec section
+// 3.1 additive-field contract for WaiverClaims/WaiversProcessedThrough —
+// the same old-state-file-load pattern TestTransactionsDecodeFromOldStateFile
+// pins for Transactions.
+func TestWaiverClaimsDecodeFromOldStateFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	oldJSON := `{
+		"ready": {},
+		"picks": [],
+		"members": {},
+		"invites": [],
+		"boards": {},
+		"teamNames": {},
+		"draftOrder": [],
+		"scoring": {},
+		"pickems": {}
+	}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	state := store.Snapshot()
+	if state.WaiverClaims == nil || len(state.WaiverClaims) != 0 {
+		t.Fatalf("WaiverClaims = %#v, want an empty, non-nil slice", state.WaiverClaims)
+	}
+	if !state.WaiversProcessedThrough.IsZero() {
+		t.Fatalf("WaiversProcessedThrough = %v, want zero", state.WaiversProcessedThrough)
+	}
+	claim := WaiverClaim{ID: "clm-1", TeamID: "team-1", AddID: "p-1", FiledAt: time.Now()}
+	if err := store.FileClaim(claim); err != nil {
+		t.Fatalf("a claim filed after loading an old file must succeed: %v", err)
+	}
+}
+
+// TestCloneStateDeepCopiesWaiverClaims checks cloneState's WaiverClaims
+// branch: mutating a snapshot's slice must never leak back into the
+// store's own state.
+func TestCloneStateDeepCopiesWaiverClaims(t *testing.T) {
+	store := newTestStore(t)
+	claim := WaiverClaim{ID: "clm-1", TeamID: "team-1", AddID: "p-1", FiledAt: time.Now()}
+	if err := store.FileClaim(claim); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := store.Snapshot()
+	snapshot.WaiverClaims[0].AddID = "tampered"
+	if got := store.Snapshot().WaiverClaims[0].AddID; got != "p-1" {
+		t.Fatalf("mutating a snapshot leaked into the store's own state: got %q, want p-1", got)
+	}
+}
+
+// TestResetDraftClearsWaiverState and TestResetLeagueClearsWaiverState pin
+// section 7.3: every WaiverClaim references a rostered/free-agent player
+// against the current draft, so both reset paths clear WaiverClaims and
+// rebaseline WaiversProcessedThrough alongside Picks/Transactions/Lineups.
+func TestResetDraftClearsWaiverState(t *testing.T) {
+	store := newTestStore(t)
+	claim := WaiverClaim{ID: "clm-1", TeamID: "team-1", AddID: "p-1", FiledAt: time.Now()}
+	if err := store.FileClaim(claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BaselineWaiversProcessedThrough(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 0 {
+		t.Fatalf("WaiverClaims after ResetDraft = %+v, want empty", state.WaiverClaims)
+	}
+	if !state.WaiversProcessedThrough.IsZero() {
+		t.Fatalf("WaiversProcessedThrough after ResetDraft = %v, want zero", state.WaiversProcessedThrough)
+	}
+}
+
+func TestResetLeagueClearsWaiverState(t *testing.T) {
+	store := newTestStore(t)
+	claim := WaiverClaim{ID: "clm-1", TeamID: "team-1", AddID: "p-1", FiledAt: time.Now()}
+	if err := store.FileClaim(claim); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.BaselineWaiversProcessedThrough(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 0 {
+		t.Fatalf("WaiverClaims after ResetLeague = %+v, want empty", state.WaiverClaims)
+	}
+	if !state.WaiversProcessedThrough.IsZero() {
+		t.Fatalf("WaiversProcessedThrough after ResetLeague = %v, want zero", state.WaiversProcessedThrough)
+	}
+}
+
+// TestResetDraftPrunesWaiverAndLineupWarnSentLog checks section 7.3's
+// SentLog prefix additions: "waiver:" (N14) and "lineupwarn:" (N18)
+// entries are pruned by ResetDraft, and draftrem: (the existing
+// regression pin) still survives it.
+func TestResetDraftPrunesWaiverAndLineupWarnSentLog(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Now()
+	for _, key := range []string{"waiver:clm-1:a@example.com", "lineupwarn:2026-w1:a@example.com", "draftrem:24:x:a@example.com"} {
+		if _, err := store.FirstSend(key, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+	state := store.Snapshot()
+	if _, ok := state.SentLog["waiver:clm-1:a@example.com"]; ok {
+		t.Fatal("waiver: prefix must be pruned by ResetDraft")
+	}
+	if _, ok := state.SentLog["lineupwarn:2026-w1:a@example.com"]; ok {
+		t.Fatal("lineupwarn: prefix must be pruned by ResetDraft")
+	}
+	if _, ok := state.SentLog["draftrem:24:x:a@example.com"]; !ok {
+		t.Fatal("draftrem: must survive ResetDraft (regression)")
+	}
+}
+
 // TestSetScheduleWeekWithLineupsWorksAfterOldStateFileLoad pins WP-R2's
 // materialize-at-close store method against the same old-file migration
 // guarantee TestLineupsDecodeFromOldStateFile pins for plain lineup
