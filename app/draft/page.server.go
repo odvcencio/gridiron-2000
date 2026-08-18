@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"gridiron-2000/internal/league"
@@ -104,6 +106,64 @@ func init() {
 			}, nil
 		},
 		Actions: route.FileActions{
+			// The commissioner clock controls render on THIS page (the
+			// clock panel in page.gsx) and actionPath resolves against the
+			// draft module, so the five clock actions must be registered
+			// here as well as on /admin — the service methods carry the
+			// requireCommissioner gate, so this is routing, not authority.
+			// Before this registration the draft-room clock forms posted
+			// into a 404 (found during the gosx v0.46 adoption pass).
+			"clock-pause": func(ctx *action.Context) error {
+				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Pick clock paused.")
+				ctx.Redirect("/draft")
+				return nil
+			},
+			"clock-resume": func(ctx *action.Context) error {
+				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Pick clock resumed.")
+				ctx.Redirect("/draft")
+				return nil
+			},
+			"clock-force-autopick": func(ctx *action.Context) error {
+				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
+				ctx.Redirect("/draft")
+				return nil
+			},
+			"clock-extend": func(ctx *action.Context) error {
+				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
+				if err != nil {
+					message := "enter seconds as a whole number"
+					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
+				}
+				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Clock extended by %d seconds.", secs))
+				ctx.Redirect("/draft")
+				return nil
+			},
+			"clock-set-duration": func(ctx *action.Context) error {
+				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
+				if err != nil {
+					message := "enter seconds as a whole number"
+					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
+				}
+				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick clock set to %d seconds.", secs))
+				ctx.Redirect("/draft")
+				return nil
+			},
 			"toggle-ready": func(ctx *action.Context) error {
 				ready, teamName, err := league.Default().ToggleReady(ctx.Request, ctx.FormData["team_id"])
 				if err != nil {
