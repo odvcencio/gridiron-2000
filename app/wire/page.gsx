@@ -33,7 +33,7 @@ func SignalCard(props any) Node {
 // FeedFragment in page.server.go).
 func WireEmptyState(props any) Node {
 	return <div class="wire-empty" data-wire-empty>
-		<span class="mono">NO RELEVANT PACKETS YET</span>
+		<span class="mono">NO SIGNALS YET</span>
 		<h3>Your wire is quiet—not broken.</h3>
 		<If cond={props.wire_configured == false}>
 			<p>{props.wire_issue}</p>
@@ -43,7 +43,7 @@ func WireEmptyState(props any) Node {
 			</p>
 		</If>
 		<If cond={props.wire_configured}>
-			<p>The server is listening. Relevant feed items and league sightings appear here and remain provisional until reconciliation.</p>
+			<p>Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.</p>
 		</If>
 	</div>
 }
@@ -56,7 +56,7 @@ func Page() Node {
 					<span class="live-dot" aria-hidden="true"></span>
 					PRIVATE INTELLIGENCE MESH
 				</span>
-				<p class="page-kicker">RSS + community + social · no paid API</p>
+				<p class="page-kicker">News, community tips, and social · always free</p>
 				<h1>
 					SIGNAL
 					<br></br>
@@ -73,11 +73,11 @@ func Page() Node {
 					<strong class="mono">{data.source_count}</strong>
 				</div>
 				<div>
-					<span>Local signals</span>
+					<span>Signals</span>
 					<strong class="mono" data-wire-count data-gosx-live-bind="count">{data.signal_count}</strong>
 				</div>
 				<div>
-					<span>Browser check</span>
+					<span>Updates</span>
 					<strong class="mono">{data.refresh_seconds} SEC</strong>
 				</div>
 			</div>
@@ -93,7 +93,7 @@ func Page() Node {
 			<div>
 				<span>02</span>
 				<strong>League clusters the evidence</strong>
-				<small>Links, hashes, trust tier, timestamps</small>
+				<small>Links, trust tier, timestamps</small>
 			</div>
 			<i aria-hidden="true">→</i>
 			<div>
@@ -139,13 +139,13 @@ func Page() Node {
 				<section class="wire-system-panel">
 					<header>
 						<span class="section-index">OUR DATA // NOT RENTED</span>
-						<b>Owner-operated stack</b>
+						<b>Owner-operated data</b>
 					</header>
 					<div class="wire-system-row">
 						<span class="status-pin" aria-hidden="true"></span>
 						<div>
-							<strong>Public feed mesh</strong>
-							<small>{data.feed_ready}/{data.feed_count} ready · two-minute poll</small>
+							<strong>Public feeds</strong>
+							<small>{data.feed_ready}/{data.feed_count} ready · updates every 2 min</small>
 						</div>
 					</div>
 					<If cond={data.bluesky_count > 0}>
@@ -153,29 +153,29 @@ func Page() Node {
 							<span class="status-pin" aria-hidden="true"></span>
 							<div>
 								<strong>Bluesky event wire</strong>
-								<small>{data.wire_mode} · {data.bluesky_count} curated identities</small>
+								<small>{data.wire_mode} · {data.bluesky_count} tracked accounts</small>
 							</div>
 						</div>
 					</If>
 					<div class="wire-system-row">
 						<span class="status-pin status-pin--cyan" aria-hidden="true"></span>
 						<div>
-							<strong>Schedule mirror</strong>
-							<small>{data.schedule_state} · {data.schedule_rows} rows · {data.schedule_updated}</small>
+							<strong>Schedule data</strong>
+							<small>{data.schedule_state} · {data.schedule_rows} games · {data.schedule_updated}</small>
 						</div>
 					</div>
 					<div class="wire-system-row">
 						<span class="status-pin status-pin--hot" aria-hidden="true"></span>
 						<div>
 							<strong>{data.season} player ledger</strong>
-							<small>{data.player_state} · {data.player_rows} rows · {data.player_updated}</small>
+							<small>{data.player_state} · {data.player_rows} players · {data.player_updated}</small>
 						</div>
 					</div>
 					<div class="wire-system-row">
 						<span class="status-pin status-pin--cyan" aria-hidden="true"></span>
 						<div>
 							<strong>{data.season} injury ledger</strong>
-							<small>{data.injury_state} · {data.injury_rows} rows · {data.injury_updated}</small>
+							<small>{data.injury_state} · {data.injury_rows} reports · {data.injury_updated}</small>
 						</div>
 					</div>
 					<a href={data.attribution_url} target="_blank" rel="noreferrer" class="wire-license">
@@ -244,7 +244,7 @@ func Page() Node {
 							</If>
 							<button class="button button--primary" type="submit">Transmit sighting</button>
 						</form>
-						<p class="wire-submit-note">Market sightings are human-entered. The server never logs into or scrapes PrizePicks—or any consumer account.</p>
+						<p class="wire-submit-note">Market sightings are human-entered. This app never logs into or scrapes PrizePicks—or any consumer account.</p>
 					</If>
 					<If cond={data.can_submit == false}>
 						<p>Only signed-in league managers can add a sighting.</p>

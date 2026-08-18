@@ -126,7 +126,7 @@ func Page() Node {
 					<If cond={data.viewer.demo}>
 						<p class="demo-message">
 							<strong>REHEARSAL MODE:</strong>
-							every page opens without a sign-in in this preview league.
+							explore every page without signing in.
 						</p>
 					</If>
 					<div class="oss-invite">
@@ -330,7 +330,7 @@ func Page() Node {
 					{data.live.week_label}
 					//
 					{data.live.status}
-					// local fixture refreshes every 60 seconds
+					// updates every 60 seconds
 				</p>
 				<a href="/matchups" data-gosx-link>All matchups →</a>
 			</div>

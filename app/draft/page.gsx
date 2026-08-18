@@ -223,12 +223,12 @@ func Page() Node {
 				<form id="ready-toggle" method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-					<button class="button button--primary" type="submit">Toggle my ready state</button>
+					<button class="button button--primary" type="submit">Toggle ready</button>
 				</form>
 				<form id="autopick-toggle" method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-					<button class="button autopick-toggle" type="submit">Toggle my autopick</button>
+					<button class="button autopick-toggle" type="submit">Toggle autopick</button>
 				</form>
 			</div>
 		</section>
@@ -256,7 +256,7 @@ func Page() Node {
 			<If cond={data.pool_live == false}>
 				<p class="demo-message">
 					<strong>OFFLINE POOL:</strong>
-					player ranks are approximate. Set TANK01_API_KEY to sync live ADP and projections.
+					player ranks are approximate until live data is turned on.
 				</p>
 			</If>
 		</div>

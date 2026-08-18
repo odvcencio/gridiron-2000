@@ -212,7 +212,7 @@ func Page() Node {
 					<div class="empty-tape">
 						<strong>PICK 'EM OPENS WITH THE SCHEDULE</strong>
 						<p>
-							The schedule syncs from the open nflverse mirror once the season is set. Check back soon.
+							The schedule loads once the season is set. Check back soon.
 						</p>
 					</div>
 				</If>

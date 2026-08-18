@@ -17,7 +17,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("Terms")},
-				Description: "House rules for this private league installation.",
+				Description: "House rules for this private league.",
 			}, nil
 		},
 	}); err != nil {

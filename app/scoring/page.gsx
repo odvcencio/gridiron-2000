@@ -37,7 +37,7 @@ func Page() Node {
 					LEAGUE RUNS.
 				</h1>
 				<p>
-					Every rule below renders live from this league's own configuration and engine state — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. Nothing here is a static description; a new manager can read this page start to finish and play with no questions left.
+					Every rule below matches exactly how this league is set up right now — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. A new manager can read this page start to finish and play with no questions left.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -341,7 +341,7 @@ func Page() Node {
 				</div>
 			</div>
 			<p class="scoring-note">
-				Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one atomic transaction, never a two-step add and a separate drop.
+				Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one single step, never a separate add and drop.
 			</p>
 			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
 		</section>
@@ -411,7 +411,7 @@ func Page() Node {
 				</p>
 			</If>
 			<p class="scoring-note">
-				A dropped player enters ON WAIVERS: the clear window above must pass, and the next daily run must fire, before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and the next run clears.
+				A dropped player enters ON WAIVERS: the clear window above must pass before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and waivers clear.
 			</p>
 			<a href="/players" data-gosx-link class="button button--compact">Open the waiver desk →</a>
 		</section>
@@ -523,11 +523,7 @@ func Page() Node {
 			<a href="/blitz" data-gosx-link class="button button--compact">Open Preseason Blitz →</a>
 		</section>
 		<p class="scoring-note mono">
-			RULES VERSION //
-			{data.rules_version.config_source}
-			· fingerprint
-			{data.rules_version.fingerprint}
-			· rendered
+			RULES LAST CONFIRMED //
 			{data.rules_version.generated_at}
 		</p>
 	</main>
