@@ -1,7 +1,8 @@
 package board
 
 func BoardRow(props any) Node {
-	return <article class="board-row" data-picked={props.player.picked}>
+	return <article class="board-row" data-picked={props.player.picked} data-gosx-reorder-item={props.player.id}>
+		<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + props.player.name}>⠿</span>
 		<span class="pool-rank mono">{props.player.board_rank}</span>
 		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 			<If cond={props.player.has_headshot}>
@@ -43,18 +44,6 @@ func BoardRow(props any) Node {
 		<span class="position-chip">{props.player.position}</span>
 		<b class="mono">{props.player.projection}</b>
 		<div class="board-controls">
-			<form method="post" action={props.MoveAction} data-gosx-managed="true">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="player_id" value={props.player.id}></input>
-				<input type="hidden" name="direction" value="up"></input>
-				<button class="board-button" type="submit" aria-label={"Move " + props.player.name + " up"}>▲</button>
-			</form>
-			<form method="post" action={props.MoveAction} data-gosx-managed="true">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="player_id" value={props.player.id}></input>
-				<input type="hidden" name="direction" value="down"></input>
-				<button class="board-button" type="submit" aria-label={"Move " + props.player.name + " down"}>▼</button>
-			</form>
 			<form method="post" action={props.RemoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="player_id" value={props.player.id}></input>
@@ -134,11 +123,15 @@ func Page() Node {
 						</p>
 					</div>
 				</If>
-				<div class="pool-list">
+				<div
+					class="pool-list"
+					data-gosx-reorder
+					data-gosx-reorder-action={"POST " + actionPath("board-move-to")}
+					data-gosx-csrf-token={csrf.token}
+				>
 					<Each of={data.board} as="entry">
 						<BoardRow
 							player={entry}
-							MoveAction={actionPath("board-move")}
 							RemoveAction={actionPath("board-remove")}
 							CSRF={csrf.token}
 						 />
