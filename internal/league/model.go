@@ -116,6 +116,15 @@ type Member struct {
 	TeamID string `json:"teamId"`
 	Name   string `json:"name"`
 	Email  string `json:"email"`
+	// Role marks a co-manager: "" (the zero value) means the seat's
+	// primary manager, "co" means a co-manager sharing the same TeamID
+	// (registration wave, build item 4). A seat holds at most one primary
+	// and one co Member at a time — Store.InviteCoManager enforces the
+	// one-co-per-seat limit. Every place that reads "the" manager of a
+	// team (teamView's Manager display, memberForTeam) prefers Role == ""
+	// so a co-manager never displaces the primary's name; teamMembers
+	// (service.go) is the one place that reads both.
+	Role string `json:"role,omitempty"`
 }
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
@@ -268,6 +277,15 @@ type PersistedState struct {
 	// precedent above: a nil slice decodes safely on an old file, and the
 	// store normalizes it in load/NewStore/cloneState.
 	TradeOffers []TradeOffer `json:"tradeOffers,omitempty"`
+
+	// CoInvites maps a pending co-manager's email to the team seat they
+	// will bind to on their first sign-in (registration wave, build item
+	// 4): Store.InviteCoManager records the entry, and the sign-in path
+	// (BindCoManager) consumes it, exactly once, into a Role "co" Member.
+	// Additive under schema version 2 — the WaiverClaims precedent above:
+	// a nil map decodes safely on an old file, and the store normalizes
+	// it in load/NewStore/cloneState.
+	CoInvites map[string]string `json:"coInvites,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

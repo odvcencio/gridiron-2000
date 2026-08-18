@@ -146,6 +146,27 @@ component RosterRow(props: RosterRowProps) {
 // path — see avatar_handlers.go in the repo root for why it does not today.
 func Page() Node {
 	return <main class="page team-page" id="main-content">
+		<If cond={data.has_seat == false}>
+			<section class="no-franchise tone-lime">
+				<div class="signal-label">
+					<span class="live-dot" aria-hidden="true"></span>
+					MANAGER TERMINAL // NO FRANCHISE
+				</div>
+				<h1>NO TEAM YET.</h1>
+				<If cond={data.fantasy_card.league_full == false}>
+					<p>
+						{data.fantasy_card.open_seats}
+						seat(s) are still open. Claim one and build your roster.
+					</p>
+					<a href="/join" data-gosx-link class="button button--primary">Claim a team →</a>
+				</If>
+				<If cond={data.fantasy_card.league_full}>
+					<p>Every manager seat is claimed. Pick'em is always open — no seat required.</p>
+				</If>
+				<a href="/pickem" data-gosx-link class="button button--ghost">Open Pick'em HQ →</a>
+			</section>
+		</If>
+		<If cond={data.has_seat}>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
@@ -158,6 +179,9 @@ func Page() Node {
 			</If>
 			<If cond={data.has_rename_error}>
 				<p class="error-message">{data.rename_error}</p>
+			</If>
+			<If cond={data.has_co_error}>
+				<p class="error-message">{data.co_error}</p>
 			</If>
 		</div>
 		<section class="team-hero tone-lime">
@@ -180,7 +204,15 @@ func Page() Node {
 						{data.team.division}
 						DIVISION
 					</small>
-					<If cond={data.team.claimed}>
+					<If cond={data.team.claimed && data.co_manager.has_co}>
+						<p>
+							Operated by
+							{data.team.manager}
+							· with
+							{data.co_manager.co_name}
+						</p>
+					</If>
+					<If cond={data.team.claimed && data.co_manager.has_co == false}>
 						<p>
 							Operated by
 							{data.team.manager}
@@ -190,6 +222,25 @@ func Page() Node {
 						<p>
 							Awaiting a manager — sign in to claim this seat.
 						</p>
+					</If>
+					<If cond={data.co_manager.has_pending}>
+						<p class="status-card__line">
+							Co-manager invite pending:
+							{data.co_manager.pending_email}
+						</p>
+					</If>
+					<If cond={data.co_manager.can_invite}>
+						<form method="post" action={actionPath("co-invite")} data-gosx-managed="true" class="co-manager-form">
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<input type="email" name="email" placeholder="co-manager@gmail.com" autocomplete="off" required="required"></input>
+							<button class="button button--compact" type="submit">Invite co-manager</button>
+						</form>
+					</If>
+					<If cond={data.co_manager.can_detach}>
+						<form method="post" action={actionPath("co-detach")} data-gosx-managed="true" class="co-manager-form">
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<button class="button button--compact button--ghost" type="submit">Detach co-manager</button>
+						</form>
 					</If>
 					<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
 						<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -438,5 +489,6 @@ func Page() Node {
 				</div>
 			</aside>
 		</div>
+		</If>
 	</main>
 }

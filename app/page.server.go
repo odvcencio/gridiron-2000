@@ -95,11 +95,32 @@ func dashboardMatchupCards(raw []map[string]any) []MatchupCard {
 	return out
 }
 
+// DivisionCard is the typed data.divisions entry (fix, registration
+// wave): Teams must be a concrete typed slice at the top level, not
+// nested inside a map[string]any wrapper. A []StandingTeamCard nested
+// inside a plain map value loses its concrete Go type by the time
+// <Each of={division.teams}> reaches StandingRow's {...props} spread
+// into strict TeamMark — the render pipeline only preserves a value's
+// real struct type through a directly, statically typed field, the same
+// reason dashboardMatchupCards returns []MatchupCard at the top level
+// rather than wrapping it in another map. Before this fix, any signed-in
+// seated visit to the dashboard hit a hard render error at this spread
+// ("spread source has type map[string]interface {}") — unreachable in
+// this repo's test suite (which only asserts DashboardData's map shape,
+// never renders the .gsx template) and in demo mode (Viewer never
+// reports signed_in for an anonymous demo visitor), so nothing had
+// exercised this render path until the registration wave's manual
+// browser verification.
+type DivisionCard struct {
+	Name  string
+	Teams []StandingTeamCard
+}
+
 // dashboardDivisions rebuilds DashboardData's "divisions" slice, converting
 // each division's "teams" entries into typed StandingTeamCard values for
 // StandingRow's {...props} spread into strict TeamMark.
-func dashboardDivisions(raw []map[string]any) []map[string]any {
-	out := make([]map[string]any, 0, len(raw))
+func dashboardDivisions(raw []map[string]any) []DivisionCard {
+	out := make([]DivisionCard, 0, len(raw))
 	for _, division := range raw {
 		rawTeams, _ := division["teams"].([]map[string]any)
 		teams := make([]StandingTeamCard, 0, len(rawTeams))
@@ -117,9 +138,9 @@ func dashboardDivisions(raw []map[string]any) []map[string]any {
 				AvatarImageURL: stringField(team, "avatar_image_url"),
 			})
 		}
-		out = append(out, map[string]any{
-			"name":  stringField(division, "name"),
-			"teams": teams,
+		out = append(out, DivisionCard{
+			Name:  stringField(division, "name"),
+			Teams: teams,
 		})
 	}
 	return out

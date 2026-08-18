@@ -158,6 +158,33 @@ func TestEnsureMemberNeverClaimsSeat(t *testing.T) {
 	}
 }
 
+// TestAssignMemberUpgradesExistingSeatlessMember pins the registration
+// wave's real-world precondition (build item 2): a's EnsureMember record
+// already exists (every signed-in member's first record, post build item
+// 1) when AssignMember is later called for the same email — that call
+// must claim a seat and upgrade the existing record in place, reporting
+// created == true, not short-circuit on "a Members[email] entry already
+// exists" and hand back the still-seatless record unchanged.
+func TestAssignMemberUpgradesExistingSeatlessMember(t *testing.T) {
+	store := newTestStore(t)
+	if _, _, err := store.EnsureMember("a@example.com", "A"); err != nil {
+		t.Fatal(err)
+	}
+	claimed, created, err := store.AssignMember("a@example.com", "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created {
+		t.Error("upgrading a seatless member into a seat claim must report created")
+	}
+	if claimed.TeamID != "team-1" {
+		t.Fatalf("claimed.TeamID = %q, want team-1", claimed.TeamID)
+	}
+	if got := store.Snapshot().Members["a@example.com"].TeamID; got != "team-1" {
+		t.Fatalf("stored member still seatless: %q", got)
+	}
+}
+
 func TestBoardOperations(t *testing.T) {
 	store := newTestStore(t)
 	owner := "me@example.com"

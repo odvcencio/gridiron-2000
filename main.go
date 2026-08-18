@@ -239,7 +239,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app.Mount("/", requireLeagueSession(rootHandler))
+	app.Mount("/", requireLeagueSession(redirectSeatedFromJoin(rootHandler)))
 
 	if !googleConfigured {
 		log.Printf("Google OAuth is in setup mode; add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env")
@@ -303,6 +303,25 @@ func requireLeagueSession(next http.Handler) http.Handler {
 		}
 		session.AddFlash(r, "notice", "Sign in to enter the league.")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
+}
+
+// redirectSeatedFromJoin sends an already-seated visitor straight to
+// their team terminal instead of the fantasy-signup form (registration
+// wave, build item 2: "already-seated visitors get redirected to
+// /team") — the gosx file router has no Load-time redirect hook, so this
+// small pre-check runs ahead of it, GET only (the signup action itself
+// posts to /join/__actions/signup-claim, a distinct path this leaves
+// untouched). Every other path passes through unchanged.
+func redirectSeatedFromJoin(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.TrimSuffix(r.URL.Path, "/") == "/join" {
+			if hasSeat, _ := league.Default().Viewer(r)["has_seat"].(bool); hasSeat {
+				http.Redirect(w, r, "/team", http.StatusSeeOther)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -777,29 +796,39 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
 			return
 		}
-		// AssignManager is the deliberate seat-claim act (league.Service's
-		// only caller of assignMember directly): a Google sign-in with an
-		// open seat claims it, exactly as before. Once every seat is
-		// claimed, the league still has room for pick'em — EnsureMember
-		// records membership with no team, and the sign-in proceeds rather
-		// than turning the person away (many more people want pick'em than
-		// want a fantasy team; see the pick'em HQ task).
-		member, err := league.Default().AssignManager(user.Email, user.Name)
-		seatless := false
-		if err != nil && errors.Is(err, league.ErrLeagueFull) {
-			member, err = league.Default().EnsureMember(user.Email, user.Name)
-			seatless = true
-		}
+		// Sign-in creates membership only (registration wave, build item 1 —
+		// AssignManager's auto-seating at sign-in retires). Every signed-in,
+		// allowed email is pick'em-enrolled by definition; claiming a
+		// fantasy seat is now a deliberate act at /join (build item 2), not
+		// a side effect of the first sign-in a member ever makes.
+		// AssignManager itself stays live — /join's atomic claim calls it —
+		// this is the only call site that retires.
+		//
+		// A co-manager invite is checked first: an email a primary invited
+		// (Store.InviteCoManager) binds to that seat on this, its first
+		// sign-in (BindCoManagerOnSignIn), rather than landing seatless.
+		member, bound, err := league.Default().BindCoManagerOnSignIn(user.Email, user.Name)
 		if err != nil {
 			manager.SignOut(r)
-			session.AddFlash(r, "notice", fmt.Sprintf("All %d manager seats are currently claimed.", league.Default().TeamCount()))
-			http.Redirect(w, r, "/login?error=full", http.StatusSeeOther)
+			session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
+			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}
-		if seatless {
-			session.AddFlash(r, "notice", "Every manager seat is claimed. You're in for Pick'em, "+user.Name+".")
+		if !bound {
+			member, err = league.Default().EnsureMember(user.Email, user.Name)
+			if err != nil {
+				manager.SignOut(r)
+				session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
+				http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
+				return
+			}
+		}
+		if bound {
+			session.AddFlash(r, "notice", "You're co-managing "+member.TeamID+" alongside its primary manager, "+user.Name+".")
+		} else if member.TeamID != "" {
+			session.AddFlash(r, "notice", "Welcome back to "+member.TeamID+", "+user.Name+".")
 		} else {
-			session.AddFlash(r, "notice", "Welcome to "+member.TeamID+", "+user.Name+".")
+			session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
 		}
 		if target == "" {
 			target = "/"
