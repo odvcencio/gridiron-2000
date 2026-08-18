@@ -12,11 +12,62 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+// scoringRuleRowView is one scoring-rule line as ScoringRow (page.gsx, a
+// strict component) reads it: the rule itself plus the per-request fields
+// (edit permission, the set-scoring action path, the CSRF token) the
+// template used to read from data.editable/actionPath/csrf.token
+// directly. Editable/SetAction/CSRF are request-scoped, so they are
+// resolved once here and carried on every row rather than recomputed by
+// the template per row, and Rule nests league.ScoringRuleRow structurally
+// (gosx#230): a spread's nested struct-typed field is proved by the
+// fields the callee reads, not by its declared type's name, so this needs
+// only to share shape with page.gsx's own ScoringRuleRow declaration.
+type scoringRuleRowView struct {
+	Rule      league.ScoringRuleRow
+	Editable  bool
+	SetAction string
+	CSRF      string
+}
+
+// scoringRuleGroupView is one scoring section as page.gsx's Page() reads
+// it: unchanged from league.ScoringRuleGroup except each Rule Rules entry
+// carries the render-time view above instead of the bare data.
+type scoringRuleGroupView struct {
+	Name  string
+	Note  string
+	Rules []scoringRuleRowView
+}
+
+// scoringRuleGroupViews converts ScoringData's typed groups into the
+// page's render view, baking in the one request-scoped state
+// (editability, the scoring-set action path, the CSRF token) every row
+// needs to render its own inline edit form.
+func scoringRuleGroupViews(groups []league.ScoringRuleGroup, editable bool, setAction, csrfToken string) []scoringRuleGroupView {
+	out := make([]scoringRuleGroupView, 0, len(groups))
+	for _, group := range groups {
+		rows := make([]scoringRuleRowView, 0, len(group.Rules))
+		for _, rule := range group.Rules {
+			rows = append(rows, scoringRuleRowView{
+				Rule:      rule,
+				Editable:  editable,
+				SetAction: setAction,
+				CSRF:      csrfToken,
+			})
+		}
+		out = append(out, scoringRuleGroupView{Name: group.Name, Note: group.Note, Rules: rows})
+	}
+	return out
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().ScoringData(ctx.Request)
+			if groups, ok := data["groups"].([]league.ScoringRuleGroup); ok {
+				editable, _ := data["editable"].(bool)
+				data["groups"] = scoringRuleGroupViews(groups, editable, ctx.ActionPath("scoring-set"), session.Token(ctx.Request))
+			}
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

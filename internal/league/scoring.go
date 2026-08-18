@@ -123,6 +123,29 @@ func (s *Service) ScoringLocked(now time.Time) bool {
 	return !now.Before(seasonStartAt())
 }
 
+// ScoringRuleRow is one rendered scoring-rule line: its key, label, and
+// current point value (already formatted for display), plus whether that
+// value is still the shipped default or a commissioner override. A real
+// struct, not a map, because ScoringRow (page.gsx) is a strict component
+// and reads it as a named prop (rule={rule}): the file renderer proves a
+// named struct-typed attribute by exact runtime type name (Name() ==
+// "ScoringRuleRow"), so page.gsx declares its own same-named struct for
+// that proof — see requireStrictStructValue (gosx's route package).
+type ScoringRuleRow struct {
+	Key       string
+	Label     string
+	Points    string
+	IsDefault bool
+}
+
+// ScoringRuleGroup is one scoring section (PASSING, RUSHING, ...): its
+// display name, an optional header note, and every rule line in it.
+type ScoringRuleGroup struct {
+	Name  string
+	Note  string
+	Rules []ScoringRuleRow
+}
+
 // ScoringData assembles the scoring settings page: lock state and every
 // rule, grouped for display, with its live or default point value.
 func (s *Service) ScoringData(r *http.Request) map[string]any {
@@ -135,14 +158,14 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
 
-	groups := make([]map[string]any, 0, 6)
-	var current map[string]any
+	groups := make([]ScoringRuleGroup, 0, 6)
+	currentIndex := -1
 	var currentGroup string
 	for _, rule := range defaultScoringRules() {
-		if current == nil || rule.Group != currentGroup {
+		if currentIndex == -1 || rule.Group != currentGroup {
 			currentGroup = rule.Group
-			current = map[string]any{"name": rule.Group, "note": scoringGroupNote(rule.Group), "rules": []map[string]any{}}
-			groups = append(groups, current)
+			groups = append(groups, ScoringRuleGroup{Name: rule.Group, Note: scoringGroupNote(rule.Group)})
+			currentIndex = len(groups) - 1
 		}
 		points := rule.Points
 		isDefault := true
@@ -150,12 +173,11 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 			points = override
 			isDefault = false
 		}
-		rules := current["rules"].([]map[string]any)
-		current["rules"] = append(rules, map[string]any{
-			"key":        rule.Key,
-			"label":      rule.Label,
-			"points":     strconv.FormatFloat(points, 'f', -1, 64),
-			"is_default": isDefault,
+		groups[currentIndex].Rules = append(groups[currentIndex].Rules, ScoringRuleRow{
+			Key:       rule.Key,
+			Label:     rule.Label,
+			Points:    strconv.FormatFloat(points, 'f', -1, 64),
+			IsDefault: isDefault,
 		})
 	}
 
