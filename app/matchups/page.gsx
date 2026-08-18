@@ -32,7 +32,9 @@ component TeamMark(props: TeamMarkProps) {
 // another strict component's body is not provable at transpile time —
 // only a legacy (non-strict) caller's spread is proven, at the file
 // renderer's own top-level call sites (see MatchupCard below and
-// app/page.gsx's StandingRow).
+// app/page.gsx's StandingRow). MatchupCardProps below reuses this exact
+// type for its Away/Home fields, so page.server.go's converter needs no
+// sibling type of this name at all.
 type ScoreTeamProps struct {
 	ID             string
 	Name           string
@@ -61,21 +63,18 @@ component ScoreTeam(props: ScoreTeamProps) {
 	</div>
 }
 
-// MatchupCardProps mirrors page.server.go's MatchupCardData converter
-// type field for field — flat (AwayID, AwayName, ... HomeID, HomeName,
-// ...), not nested Away/Home sub-structs, on purpose: Page() below is a
-// legacy (non-strict) caller, so it must reach this strict component
-// through exactly one {...matchup} spread (a legacy caller cannot pass
-// named attributes to a strict callee — proven only at the file
-// renderer's boundary). That boundary proves the spread source
-// structurally covers MatchupCardProps at the top level, but nested
-// struct-typed fields inside the source are checked by exact type
-// identity, not structural coverage; keeping every field a plain scalar
-// here sidesteps that entirely, and it is what lets this props struct's
-// fields (all strings and one bool) resolve without needing any
-// sibling-file struct type declared "beside the component" (gosx's
-// strict-component check requires that for any struct type a strict
-// component's body reaches through field access).
+// MatchupCardProps nests Away/Home as ScoreTeamProps-typed fields, the
+// natural shape for one matchup's two sides. A prior gosx checker
+// version proved a nested struct-typed field inside a spread by exact
+// type identity, which conflicted with the rule that a strict
+// component's prop types live in its own .gsx file: page.server.go's
+// converter could never declare a type identical to a .gsx-local one,
+// so this struct used to flatten Away/Home into scalar fields
+// (AwayID, AwayName, ...) purely to dodge the conflict. gosx v0.48.0
+// proves a nested struct field structurally instead (gosx#230), so
+// page.server.go's MatchupCardData is free to nest its own Away/Home
+// struct type — matching this one field for field, not by name — and
+// the flattening serves no purpose anymore.
 //
 // It is not named MatchupCard (matching this strict component's own
 // name) because a strict `component` compiles to a package-level Go
@@ -83,28 +82,17 @@ component ScoreTeam(props: ScoreTeamProps) {
 // type is named MatchupCardData instead, precisely to leave this
 // component free to keep the name MatchupCard, matching the template
 // tag Page() already calls it by. ScoreTeam below is still called with
-// explicit attributes, not a spread, for the same "not provable from a
-// strict body" reason TeamMark is above.
+// explicit attributes, not a spread, because a spread into a strict
+// callee from inside another strict component's body is not provable
+// at transpile time — only a legacy (non-strict) caller's spread is
+// proven, at the file renderer's own top-level call sites (Page()
+// below spreads into MatchupCard itself the same way).
 type MatchupCardProps struct {
-	ID                 string
-	Status             string
-	Clock              string
-	AwayID             string
-	AwayName           string
-	AwayManager        string
-	AwayScore          string
-	AwayTone           string
-	AwayAbbreviation   string
-	AwayHasAvatarImage bool
-	AwayAvatarImageURL string
-	HomeID             string
-	HomeName           string
-	HomeManager        string
-	HomeScore          string
-	HomeTone           string
-	HomeAbbreviation   string
-	HomeHasAvatarImage bool
-	HomeAvatarImageURL string
+	ID     string
+	Status string
+	Clock  string
+	Away   ScoreTeamProps
+	Home   ScoreTeamProps
 }
 
 component MatchupCard(props: MatchupCardProps) {
@@ -117,33 +105,44 @@ component MatchupCard(props: MatchupCardProps) {
 			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</header>
 		<ScoreTeam
-			ID={props.AwayID}
-			Name={props.AwayName}
-			Manager={props.AwayManager}
-			Score={props.AwayScore}
-			Tone={props.AwayTone}
-			Abbreviation={props.AwayAbbreviation}
-			HasAvatarImage={props.AwayHasAvatarImage}
-			AvatarImageURL={props.AwayAvatarImageURL}
+			ID={props.Away.ID}
+			Name={props.Away.Name}
+			Manager={props.Away.Manager}
+			Score={props.Away.Score}
+			Tone={props.Away.Tone}
+			Abbreviation={props.Away.Abbreviation}
+			HasAvatarImage={props.Away.HasAvatarImage}
+			AvatarImageURL={props.Away.AvatarImageURL}
 		></ScoreTeam>
 		<div class="matchup-rule">
 			<span>VS</span>
 		</div>
 		<ScoreTeam
-			ID={props.HomeID}
-			Name={props.HomeName}
-			Manager={props.HomeManager}
-			Score={props.HomeScore}
-			Tone={props.HomeTone}
-			Abbreviation={props.HomeAbbreviation}
-			HasAvatarImage={props.HomeHasAvatarImage}
-			AvatarImageURL={props.HomeAvatarImageURL}
+			ID={props.Home.ID}
+			Name={props.Home.Name}
+			Manager={props.Home.Manager}
+			Score={props.Home.Score}
+			Tone={props.Home.Tone}
+			Abbreviation={props.Home.Abbreviation}
+			HasAvatarImage={props.Home.HasAvatarImage}
+			AvatarImageURL={props.Home.AvatarImageURL}
 		></ScoreTeam>
 	</article>
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version" data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m">
+	// data-gosx-live-signal (gosx#228) restores the "Sync now" control
+	// deleted during the v0.47 live-bind migration (the region primitive
+	// had no manual trigger yet): a click on the button below writes the
+	// $matchupsSync shared signal through data-gosx-set — no managed
+	// action or WASM engine needed, data-gosx-set never depended on one —
+	// and this live region's own subscription to that same signal name
+	// forces one immediate /api/live/week fetch, deliberately bypassing
+	// the hidden-tab pause (a discrete, user-caused trigger, not a
+	// background poll) and never overlapping an already-in-flight fetch
+	// (the fetch path's own inFlight latch, shared with the 1m interval
+	// trigger, is what keeps a fast double click from firing twice).
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version" data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m" data-gosx-live-signal="$matchupsSync">
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">
@@ -170,6 +169,7 @@ func Page() Node {
 					<span>Refresh</span>
 					<strong class="mono">60 SEC</strong>
 				</div>
+				<button class="button button--primary button--compact" type="button" data-live-refresh data-gosx-set="$matchupsSync">Sync now</button>
 			</div>
 		</header>
 		<div class="matchup-layout">

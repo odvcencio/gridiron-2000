@@ -5,19 +5,44 @@ import (
 	"log"
 	"net/http"
 	neturl "net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/openstats"
 	signalwire "gridiron-2000/internal/wire"
-	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
+
+// pagePath is this package's own page.gsx, resolved independent of the
+// process's working directory (route.LoadFileProgram's documented
+// pattern). runtime.Caller(0) names this very file's real absolute path
+// under `go run`/`go test`, but the release image builds with `go build
+// -trimpath` (Dockerfile), which replaces that recorded path with a
+// module-relative one ("gridiron-2000/app/wire/page.server.go") instead
+// of a real filesystem path — os.Stat on the runtime.Caller candidate
+// below fails in that case, so this falls back to
+// server.ResolveAppRoot, the same GOSX_APP_ROOT/executable-dir
+// resolution main.go itself uses to find the app root the release image
+// sets GOSX_APP_ROOT to.
+var pagePath = resolvePagePath()
+
+func resolvePagePath() string {
+	if _, file, _, ok := runtime.Caller(0); ok {
+		candidate := filepath.Join(filepath.Dir(file), "page.gsx")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return filepath.Join(server.ResolveAppRoot(""), "app", "wire", "page.gsx")
+}
 
 // wireFilterOption is one entry in the wire page's category filter strip
 // (WireFilterOptions below). Slug is the query-string value the fragment
@@ -225,103 +250,42 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 // GET /wire/fragment handler): the data-gosx-region primitive (gosx#217)
 // replaces the wire feed's children with this response verbatim.
 //
-// It cannot call Page()'s own SignalCard/WireEmptyState: a .gsx file's
-// component functions are resolved through gosx's own file-routing render
-// pipeline, not linked as ordinary Go symbols, so no hand-written .go file
-// outside that pipeline — this one included — can call them directly (a
-// plain `go build` reports them "undefined", confirmed against this
-// module's own build server-binary step). signalCardNode and
-// wireEmptyStateNode below re-express the same two markup shapes with
-// gosx's low-level Node API (El/Attrs/Text) instead, over the exact same
-// signalMap data each row already uses, so only the HTML structure is
-// duplicated, not the field derivation. Keep both pairs in sync by hand;
-// see the doc comment on signalCardNode for the upstream gap this reflects.
-func FeedFragment(request *http.Request, signals *signalwire.Service) gosx.Node {
+// It renders Page()'s own SignalCard/WireEmptyState components, not a
+// hand-mirrored second copy of their markup (gosx#226 closed that gap):
+// route.LoadFileProgram loads page.gsx through the same cached program a
+// file-routed request renders through, and route.RenderProgramComponent
+// renders one named component from it — SignalCard once per signal, or
+// WireEmptyState when there are none — over the exact signalMap data
+// each row already uses. An edit to page.gsx's markup reaches this
+// fragment the same way it reaches the page's own hot reload; there is
+// no second, independently-stale copy left to drift out of sync.
+func FeedFragment(request *http.Request, signals *signalwire.Service) (string, error) {
+	prog, err := route.LoadFileProgram(pagePath)
+	if err != nil {
+		return "", fmt.Errorf("load wire page program: %w", err)
+	}
 	category := strings.TrimSpace(request.URL.Query().Get("category"))
 	wireStatus := signals.Status()
 	recent := signals.Recent(50, category)
 	if len(recent) == 0 {
-		return wireEmptyStateNode(wireStatus.Configured, wireStatus.ConfigurationIssue)
+		return route.RenderProgramComponent(prog, "WireEmptyState", route.ProgramRenderEnv{
+			Values: map[string]any{"props": map[string]any{
+				"wire_configured": wireStatus.Configured,
+				"wire_issue":      wireStatus.ConfigurationIssue,
+			}},
+		})
 	}
-	cards := make([]gosx.Node, 0, len(recent))
+	var body strings.Builder
 	for _, signal := range recent {
-		cards = append(cards, signalCardNode(signalMap(signal)))
+		html, err := route.RenderProgramComponent(prog, "SignalCard", route.ProgramRenderEnv{
+			Values: map[string]any{"props": signalMap(signal)},
+		})
+		if err != nil {
+			return "", fmt.Errorf("render SignalCard: %w", err)
+		}
+		body.WriteString(html)
 	}
-	return gosx.Fragment(cards...)
-}
-
-// signalCardNode is a hand-written mirror of page.gsx's SignalCard
-// component — see FeedFragment's doc comment for why a fragment handler
-// outside the file-routing pipeline cannot call SignalCard itself. Keep
-// this in exact structural sync with SignalCard by hand; a mismatch here
-// is invisible to `gosx check` (it only validates the .gsx side).
-func signalCardNode(props map[string]any) gosx.Node {
-	category := stringProp(props, "category")
-	footer := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(stringProp(props, "source"))),
-	}
-	if boolProp(props, "has_reporter") {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("VIA "+stringProp(props, "reported_by"))))
-	}
-	if boolProp(props, "has_corroboration") {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__corroboration mono")), gosx.Text(stringProp(props, "corroboration_label"))))
-	}
-	footer = append(footer, gosx.El("time", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(stringProp(props, "time"))))
-	if boolProp(props, "has_url") {
-		footer = append(footer, gosx.El("a", gosx.Attrs(
-			gosx.Attr("href", stringProp(props, "url")),
-			gosx.Attr("target", "_blank"),
-			gosx.Attr("rel", "noreferrer"),
-		), gosx.Text("Inspect source ↗")))
-	}
-	return gosx.El("article", gosx.Attrs(
-		gosx.Attr("class", "wire-event wire-event--"+category),
-		gosx.Attr("data-wire-event", stringProp(props, "id")),
-		gosx.Attr("data-wire-category", category),
-	),
-		gosx.El("header", nil,
-			gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-event__heading")),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__label")), gosx.Text(stringProp(props, "label"))),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__evidence")), gosx.Text(stringProp(props, "evidence"))),
-			),
-			gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__trust mono")), gosx.Text(stringProp(props, "trust")+" · "+stringProp(props, "confidence")+"%")),
-		),
-		gosx.El("p", nil, gosx.Text(stringProp(props, "text"))),
-		gosx.El("footer", nil, gosx.Fragment(footer...)),
-	)
-}
-
-// wireEmptyStateNode is a hand-written mirror of page.gsx's WireEmptyState
-// component — see FeedFragment's doc comment for why. Keep this in exact
-// structural sync with WireEmptyState by hand.
-func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
-	body := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("NO RELEVANT PACKETS YET")),
-		gosx.El("h3", nil, gosx.Text("Your wire is quiet—not broken.")),
-	}
-	if !wireConfigured {
-		body = append(body,
-			gosx.El("p", nil, gosx.Text(wireIssue)),
-			gosx.El("p", nil,
-				gosx.Text("Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in "),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "inline-code")), gosx.Text("BLUESKY_HANDLES")),
-				gosx.Text("."),
-			),
-		)
-	} else {
-		body = append(body, gosx.El("p", nil, gosx.Text("The server is listening. Relevant feed items and league sightings appear here and remain provisional until reconciliation.")))
-	}
-	return gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-empty"), gosx.BoolAttr("data-wire-empty")), gosx.Fragment(body...))
-}
-
-func stringProp(props map[string]any, key string) string {
-	value, _ := props[key].(string)
-	return value
-}
-
-func boolProp(props map[string]any, key string) bool {
-	value, _ := props[key].(bool)
-	return value
+	return body.String(), nil
 }
 
 // PulseData is the small polled JSON object /api/wire/pulse answers with

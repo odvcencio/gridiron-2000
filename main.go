@@ -146,8 +146,16 @@ func main() {
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
 		})
+		// server.HTMLDocument's own document shell already writes
+		// <meta name="viewport" content="width=device-width, initial-scale=1">
+		// unconditionally into every page's <head> (server/server.go); a
+		// hand-rolled duplicate of that exact tag used to render here too,
+		// so ctx.AddHead no longer repeats it. gosx#237 (typed/defaulted
+		// viewport in server.Metadata) tracks making this content
+		// configurable per page; today's fixed default already matches
+		// what this app needs, so no application-level construct — El or
+		// otherwise — is needed to get it.
 		ctx.AddHead(
-			gosx.El("meta", gosx.Attrs(gosx.Attr("name", "viewport"), gosx.Attr("content", "width=device-width, initial-scale=1"))),
 			// The page-navigation runtime soft-swaps links and managed forms,
 			// so the site works without full page reloads.
 			server.NavigationScript(),
@@ -164,6 +172,14 @@ func main() {
 		// display:contents shell (.gosx-heartbeat-shell, public/styles.css)
 		// that is invisible to layout but still walked by the runtime's
 		// element scan.
+		//
+		// TODO(gosx#236): once HTMLDocument (or DocumentContext) exposes a
+		// body-attribute hook, set data-gosx-heartbeat/-interval directly
+		// on <body> and delete this gosx.El wrapper and the
+		// .gosx-heartbeat-shell CSS rule in public/styles.css. Confirmed
+		// against v0.48.0's server package: no such hook exists yet
+		// (documentBodyAttrValues in server/document_attrs.go is a fixed,
+		// framework-owned attribute set with no app extension point).
 		heartbeatShell := gosx.El("div", gosx.Attrs(
 			gosx.Attr("class", "gosx-heartbeat-shell"),
 			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
@@ -228,16 +244,21 @@ func main() {
 	})
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
 	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragment
-	// renders the same wire-event/empty-state markup the page itself shows
-	// on first load, over the same signalMap data (see FeedFragment's own
-	// doc comment for why it cannot call the .gsx page's own SignalCard /
-	// WireEmptyState component functions directly). It is a plain HTML
-	// fragment, not a JSON API, so it lives next to the page it serves
-	// rather than under mountOwnedDataAPI's external data contract.
+	// renders the page's own SignalCard/WireEmptyState components through
+	// route.LoadFileProgram/RenderProgramComponent (gosx#226), so the
+	// fragment and the page's own first-load markup can never drift apart.
+	// It is a plain HTML fragment, not a JSON API, so it lives next to the
+	// page it serves rather than under mountOwnedDataAPI's external data
+	// contract.
 	app.Mount("GET /wire/fragment", requireLeagueAccess(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		html, err := wirepage.FeedFragment(request, signalFeed)
+		if err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(writer, gosx.RenderHTML(wirepage.FeedFragment(request, signalFeed)))
+		_, _ = io.WriteString(writer, html)
 	})))
 	app.API("GET /api/wire/pulse", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
