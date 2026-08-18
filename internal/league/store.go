@@ -68,6 +68,7 @@ func NewStore(filePath string) *Store {
 			Announcements: []Announcement{},
 			Lineups:       map[string]map[int]map[string]string{},
 			Transactions:  []Transaction{},
+			WaiverClaims:  []WaiverClaim{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -452,8 +453,12 @@ func (s *Store) ReleaseSeat(teamID string) error {
 // resetDraftSentLogPrefixes are the SentLog key prefixes ResetDraft drops:
 // a re-run draft is a new subject entity. draftrem: (reminder keys) is
 // deliberately absent: same draftAt, same reminder, no resend (spec
-// section 6.2).
-var resetDraftSentLogPrefixes = []string{"onclock:", "autopick:", "draftdone:"}
+// section 6.2). "waiver:" (N14) and "lineupwarn:" (N18, a WP-R2 omission
+// this closes) join the list under the roster-ops spec section 7.3: every
+// waiver claim and lineup reference a rostered player, and a redrawn draft
+// orphans them all. WP-R5 appends "tradeoffer:", "tradedone:", and
+// "tradeveto:" when trades land — out of this work package's scope.
+var resetDraftSentLogPrefixes = []string{"onclock:", "autopick:", "draftdone:", "waiver:", "lineupwarn:"}
 
 // resetLeagueSentLogPrefixes extends resetDraftSentLogPrefixes: a rebuilt
 // league starts a clean ledger for these key spaces too. order: and
@@ -478,6 +483,11 @@ func (s *Store) ResetDraft() error {
 	// clears Picks must clear them too (roster-ops spec section 7.3 —
 	// a WP-R1 omission this closes).
 	s.state.Lineups = map[string]map[int]map[string]string{}
+	// WaiverClaims name add/drop players that only exist against the
+	// current roster; a redrawn draft orphans them, same rationale as
+	// Transactions and Lineups above (roster-ops spec section 7.3).
+	s.state.WaiverClaims = []WaiverClaim{}
+	s.state.WaiversProcessedThrough = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
 	return s.persistLocked()
@@ -505,6 +515,9 @@ func (s *Store) ResetLeague() error {
 	// clears Picks must clear them too (roster-ops spec section 7.3 —
 	// a WP-R1 omission this closes).
 	s.state.Lineups = map[string]map[int]map[string]string{}
+	// See ResetDraft's WaiverClaims comment; same rationale.
+	s.state.WaiverClaims = []WaiverClaim{}
+	s.state.WaiversProcessedThrough = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
@@ -1148,6 +1161,190 @@ func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 	return s.persistLocked()
 }
 
+// BaselineWaiversProcessedThrough sets WaiversProcessedThrough to now
+// without processing any claim (section 5.4 step 1): the fresh- or
+// migrated-state guard against a retroactive run, the notifyLastPruneAt
+// boot precedent (notifications.go) inverted. A no-op once already set —
+// only the tick's own zero-check calls this, but the guard here keeps the
+// method itself safe to call idempotently.
+func (s *Store) BaselineWaiversProcessedThrough(now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.state.WaiversProcessedThrough.IsZero() {
+		return nil
+	}
+	s.state.WaiversProcessedThrough = now.UTC()
+	return s.persistLocked()
+}
+
+// FileClaim appends one open waiver claim (roster-ops spec section 5.3),
+// one lock, one persist. It re-validates against the freshest locked
+// state — RecordTransaction's re-validate-under-lock discipline: the add
+// player must still be unrostered and not already claimed by this team,
+// and a named drop player must still sit on the claiming team's roster.
+// The service layer performs the same checks first (for the exact
+// W-table messages); this is defense-in-depth, not the primary
+// validation path, so its messages are generic rather than name-exact —
+// Store carries no player-identity lookup. Priority is assigned here,
+// under the lock, as one past the filing team's current open-claim count,
+// so two near-simultaneous claims by the same team can never collide.
+func (s *Store) FileClaim(claim WaiverClaim) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !knownTeam(claim.TeamID) {
+		return fmt.Errorf("unknown team %q", claim.TeamID)
+	}
+	owner := rosterOwner(currentRosters(s.state))
+	if owner[claim.AddID] != "" {
+		return fmt.Errorf("that player is already on a roster")
+	}
+	if _, exists := waiverClaimByTeamAndPlayer(s.state.WaiverClaims, claim.TeamID, claim.AddID); exists {
+		return fmt.Errorf("you already hold a claim for that player")
+	}
+	if claim.DropID != "" && owner[claim.DropID] != claim.TeamID {
+		return fmt.Errorf("%s", lineupNotOnRosterMessage)
+	}
+	claim.FiledAt = claim.FiledAt.UTC()
+	claim.Priority = teamOpenClaimCount(s.state.WaiverClaims, claim.TeamID) + 1
+	s.state.WaiverClaims = append(s.state.WaiverClaims, claim)
+	return s.persistLocked()
+}
+
+// CancelClaim removes teamID's open claim named by claimID. Removing a
+// claim that does not exist, or belongs to another team, is a harmless
+// no-op — ReleaseBadge's idempotent precedent (badge.go) — so a stale
+// double-submit never surfaces a confusing error.
+func (s *Store) CancelClaim(teamID, claimID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]WaiverClaim, 0, len(s.state.WaiverClaims))
+	for _, c := range s.state.WaiverClaims {
+		if c.ID == claimID && c.TeamID == teamID {
+			continue
+		}
+		kept = append(kept, c)
+	}
+	s.state.WaiverClaims = kept
+	return s.persistLocked()
+}
+
+// ProcessWaivers runs one daily waiver cycle at instant now (roster-ops
+// spec section 5.4): due claims resolve in deterministic priority order,
+// each re-validated against the state left by every earlier win in the
+// same run, in one lock and one persist (or zero writes to Transactions
+// when nothing is due — WaiversProcessedThrough still advances). cfg
+// supplies the mode (perf-priority | faab), season_weight_pct, and
+// clear_days; games backs both the due-instant and drop-lock
+// re-validation; poolByID resolves player identity for the Transaction
+// snapshot and NFL-team lock/kickoff checks; rosterCap bounds a
+// no-drop-named win.
+//
+// Determinism (test 15): waiverOrder is re-derived from the mutating,
+// in-memory state after every win, so a later contest for the same add
+// player, or a later claim by the winning team, always sees the fresh
+// back-of-order penalty before its own turn resolves — "re-derive the
+// order after each win before comparing the next contested player"
+// (section 5.4 step 3).
+func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, poolByID map[string]Player, rosterCap int) ([]WaiverResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if len(s.state.WaiverClaims) == 0 {
+		s.state.WaiversProcessedThrough = now.UTC()
+		if err := s.persistLocked(); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+
+	pending := append([]WaiverClaim(nil), s.state.WaiverClaims...)
+	var due, notYetDue []WaiverClaim
+	for _, c := range pending {
+		player := poolByID[c.AddID]
+		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
+		if status.State == AvailabilityOnWaivers {
+			notYetDue = append(notYetDue, c)
+			continue
+		}
+		due = append(due, c)
+	}
+
+	var results []WaiverResult
+	remaining := due
+	for len(remaining) > 0 {
+		order := waiverOrder(s.state, cfg)
+		var budget map[string]int
+		if cfg.Waivers.Mode == "faab" {
+			budget = faabRemaining(s.state, cfg.Waivers.FAABBudget)
+		}
+
+		var next WaiverClaim
+		next, remaining = pickNextClaim(remaining, order, cfg.Waivers.Mode)
+
+		result := WaiverResult{Claim: next}
+		owner := rosterOwner(currentRosters(s.state))
+		addPlayer, addKnown := poolByID[next.AddID]
+
+		switch {
+		case owner[next.AddID] != "":
+			result.Outcome = "beaten"
+			result.WinningTeamID = owner[next.AddID]
+		case !addKnown:
+			result.Outcome = "failed"
+			result.Reason = "that player is no longer available"
+		case next.DropID != "" && owner[next.DropID] != next.TeamID:
+			result.Outcome = "failed"
+			result.Reason = lineupNotOnRosterMessage
+		case next.DropID != "" && playerLocked(games, pickemWeekAt(games, now), poolByID[next.DropID].NFLTeam, now):
+			result.Outcome = "failed"
+			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
+		case next.DropID == "" && len(currentRosters(s.state)[next.TeamID])+1 > rosterCap:
+			result.Outcome = "failed"
+			result.Reason = "your roster is full; choose a player to drop"
+		case cfg.Waivers.Mode == "faab" && next.Bid > budget[next.TeamID]:
+			result.Outcome = "failed"
+			result.Reason = fmt.Sprintf("your bid exceeds your remaining budget ($%d left)", budget[next.TeamID])
+		default:
+			week := pickemWeekAt(games, now)
+			txn := Transaction{
+				Season: cfg.Season,
+				Week:   week,
+				Type:   "claim",
+				TeamID: next.TeamID,
+				Adds:   []TransactionPlayer{transactionPlayerFromPlayer(addPlayer)},
+				By:     "manager",
+				At:     now.UTC(),
+			}
+			if next.DropID != "" {
+				txn.Drops = []TransactionPlayer{transactionPlayerFromPlayer(poolByID[next.DropID])}
+			}
+			if cfg.Waivers.Mode == "faab" {
+				txn.Bid = next.Bid
+				result.WinningBid = next.Bid
+			} else {
+				txn.Position = waiverOrderPosition(order, next.TeamID)
+				result.Position = txn.Position
+			}
+			id, err := randomTransactionID()
+			if err != nil {
+				return results, err
+			}
+			txn.ID = id
+			s.state.Transactions = append(s.state.Transactions, txn)
+			result.Outcome = "won"
+			result.Week = week
+		}
+		results = append(results, result)
+	}
+
+	s.state.WaiverClaims = notYetDue
+	s.state.WaiversProcessedThrough = now.UTC()
+	if err := s.persistLocked(); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
 // announcementBodyMaxRunes and announcementCap bound one announcement's
 // text and the feed's stored length (league-announcements spec).
 const (
@@ -1288,6 +1485,9 @@ func (s *Store) load() error {
 	if state.Transactions == nil {
 		state.Transactions = []Transaction{}
 	}
+	if state.WaiverClaims == nil {
+		state.WaiverClaims = []WaiverClaim{}
+	}
 	s.state = state
 	return nil
 }
@@ -1368,33 +1568,35 @@ func (s *Store) persistLocked() error {
 
 func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
-		SchemaVersion:     in.SchemaVersion,
-		Ready:             make(map[string]bool, len(in.Ready)),
-		Picks:             append([]DraftPick(nil), in.Picks...),
-		Members:           make(map[string]Member, len(in.Members)),
-		Invites:           append([]string(nil), in.Invites...),
-		Boards:            make(map[string][]string, len(in.Boards)),
-		TeamNames:         make(map[string]string, len(in.TeamNames)),
-		DraftOrder:        append([]string(nil), in.DraftOrder...),
-		Scoring:           make(map[string]float64, len(in.Scoring)),
-		Pickems:           make(map[string]map[string]string, len(in.Pickems)),
-		BlitzEntries:      make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
-		ClockDeadline:     in.ClockDeadline,
-		ClockPaused:       in.ClockPaused,
-		ClockRemainingSec: in.ClockRemainingSec,
-		ClockDurationSec:  in.ClockDurationSec,
-		Autopick:          make(map[string]bool, len(in.Autopick)),
-		SentLog:           make(map[string]time.Time, len(in.SentLog)),
-		NotifyPrefs:       make(map[string]map[string]bool, len(in.NotifyPrefs)),
-		ScoringChangedAt:  in.ScoringChangedAt,
-		Schedule:          cloneSchedule(in.Schedule),
-		Playoffs:          clonePlayoffState(in.Playoffs),
-		Phase:             in.Phase,
-		BadgeClaims:       make(map[string]string, len(in.BadgeClaims)),
-		RosterOverride:    cloneRosterOverride(in.RosterOverride),
-		Announcements:     append([]Announcement(nil), in.Announcements...),
-		Lineups:           make(map[string]map[int]map[string]string, len(in.Lineups)),
-		Transactions:      make([]Transaction, len(in.Transactions)),
+		SchemaVersion:           in.SchemaVersion,
+		Ready:                   make(map[string]bool, len(in.Ready)),
+		Picks:                   append([]DraftPick(nil), in.Picks...),
+		Members:                 make(map[string]Member, len(in.Members)),
+		Invites:                 append([]string(nil), in.Invites...),
+		Boards:                  make(map[string][]string, len(in.Boards)),
+		TeamNames:               make(map[string]string, len(in.TeamNames)),
+		DraftOrder:              append([]string(nil), in.DraftOrder...),
+		Scoring:                 make(map[string]float64, len(in.Scoring)),
+		Pickems:                 make(map[string]map[string]string, len(in.Pickems)),
+		BlitzEntries:            make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
+		ClockDeadline:           in.ClockDeadline,
+		ClockPaused:             in.ClockPaused,
+		ClockRemainingSec:       in.ClockRemainingSec,
+		ClockDurationSec:        in.ClockDurationSec,
+		Autopick:                make(map[string]bool, len(in.Autopick)),
+		SentLog:                 make(map[string]time.Time, len(in.SentLog)),
+		NotifyPrefs:             make(map[string]map[string]bool, len(in.NotifyPrefs)),
+		ScoringChangedAt:        in.ScoringChangedAt,
+		Schedule:                cloneSchedule(in.Schedule),
+		Playoffs:                clonePlayoffState(in.Playoffs),
+		Phase:                   in.Phase,
+		BadgeClaims:             make(map[string]string, len(in.BadgeClaims)),
+		RosterOverride:          cloneRosterOverride(in.RosterOverride),
+		Announcements:           append([]Announcement(nil), in.Announcements...),
+		Lineups:                 make(map[string]map[int]map[string]string, len(in.Lineups)),
+		Transactions:            make([]Transaction, len(in.Transactions)),
+		WaiverClaims:            make([]WaiverClaim, len(in.WaiverClaims)),
+		WaiversProcessedThrough: in.WaiversProcessedThrough,
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -1473,6 +1675,13 @@ func cloneState(in PersistedState) PersistedState {
 			At:          txn.At,
 		}
 	}
+	// WaiverClaim carries only value fields, so a plain element copy is
+	// already a full deep copy — the same "make, then copy" shape as
+	// Transactions above, chosen over append([]WaiverClaim(nil), ...) so a
+	// non-nil-but-empty in.WaiverClaims clones to a non-nil, empty slice
+	// too (append with zero elements to append returns the nil it started
+	// from, which would silently break the old-state-file-load contract).
+	copy(out.WaiverClaims, in.WaiverClaims)
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
 }

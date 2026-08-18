@@ -71,6 +71,11 @@ func main() {
 	// delays the server accepting requests (see blitz_pre1.go).
 	go startBlitzPre1(runtimeContext, fantasyPool, league.Default())
 	league.Default().StartDraftClock(runtimeContext)
+	// StartRosterOps always runs, mail wired or not: waiver processing
+	// (and WP-R5's trade execution/expiry) are state mutations, not sends
+	// — only the send step at the end of each tick is itself
+	// notifyReady-gated (roster-ops spec section 5.4).
+	league.Default().StartRosterOps(runtimeContext)
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
 	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())

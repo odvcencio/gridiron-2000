@@ -102,7 +102,10 @@ func Page() Node {
 						<If cond={player.rostered}>
 							<span class="position-chip position-chip--locked">{player.owner_abbr}</span>
 						</If>
-						<If cond={player.rostered == false}>
+						<If cond={player.on_waivers}>
+							<span class="position-chip">ON WAIVERS · {player.waiver_resolves}</span>
+						</If>
+						<If cond={player.free_agent}>
 							<span class="position-chip">FREE AGENT</span>
 						</If>
 						<div class="board-controls">
@@ -124,7 +127,31 @@ func Page() Node {
 									<button class="draft-button" type="submit">Add</button>
 								</form>
 							</If>
-							<If cond={player.can_add == false && player.rostered == false}>
+							<If cond={player.can_claim}>
+								<form method="post" action={actionPath("claim-file")} data-gosx-managed="true" class="lineup-slot__form">
+									<input type="hidden" name="csrf_token" value={csrf.token}></input>
+									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+									<input type="hidden" name="player_id" value={player.id}></input>
+									<input type="hidden" name="pos" value={data.pos}></input>
+									<input type="hidden" name="q" value={data.query}></input>
+									<If cond={player.needs_drop}>
+										<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
+											<option value="">Choose a player to drop</option>
+											<Each of={data.drop_options} as="opt">
+												<option value={opt.id}>{opt.label}</option>
+											</Each>
+										</select>
+									</If>
+									<If cond={data.waivers_faab}>
+										<input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid $" aria-label={"Bid for " + player.name}></input>
+									</If>
+									<button class="draft-button" type="submit">Claim</button>
+								</form>
+							</If>
+							<If cond={player.claimed_by_me}>
+								<span class="position-chip">CLAIM FILED</span>
+							</If>
+							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}>
 								<button class="draft-button" type="button" disabled="disabled">Add</button>
 							</If>
 							<If cond={player.mine}>
@@ -139,6 +166,74 @@ func Page() Node {
 					</article>
 				</Each>
 			</div>
+		</section>
+		<section class="player-pool" id="waivers">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">02 // WAIVER DESK</span>
+					<h2>My claims</h2>
+				</div>
+				<If cond={data.waivers_faab == false}>
+					<span class="mono">Priority {data.my_waiver_position} of {data.waiver_team_count}</span>
+				</If>
+				<If cond={data.waivers_faab}>
+					<span class="mono">Budget ${data.my_faab_remaining}</span>
+				</If>
+			</div>
+			<If cond={data.my_claims_empty}>
+				<div class="empty-tape">
+					<strong>NO OPEN CLAIMS</strong>
+					<p>
+						File a claim from an ON WAIVERS row above; it resolves at the next daily run.
+					</p>
+				</div>
+			</If>
+			<div class="pool-list">
+				<Each of={data.my_claims} as="claim">
+					<article class="pool-row">
+						<div class="pool-player">
+							<div class="pool-player__text">
+								<strong>{claim.add_name}</strong>
+								<small>
+									<If cond={claim.has_drop}>
+										drops {claim.drop_label} ·
+									</If>
+									filed {claim.filed_at}
+								</small>
+							</div>
+						</div>
+						<span class="position-chip">{claim.add_position}</span>
+						<If cond={claim.faab}>
+							<b class="mono">${claim.bid}</b>
+						</If>
+						<If cond={claim.faab == false}>
+							<b class="mono">Pos {claim.priority}</b>
+						</If>
+						<div class="board-controls">
+							<form method="post" action={actionPath("claim-cancel")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+								<input type="hidden" name="claim_id" value={claim.id}></input>
+								<button class="board-button board-button--cut" type="submit" aria-label={"Cancel claim for " + claim.add_name}>Cancel</button>
+							</form>
+						</div>
+					</article>
+				</Each>
+			</div>
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">03 // WAIVER ORDER</span>
+					<h2>This week's claim order</h2>
+				</div>
+			</div>
+			<ol class="waiver-order-strip">
+				<Each of={data.waiver_order} as="slot">
+					<li aria-current={slot.mine}>
+						<span class="mono">{slot.position}</span>
+						<span>{slot.abbr}</span>
+					</li>
+				</Each>
+			</ol>
 		</section>
 	</main>
 }

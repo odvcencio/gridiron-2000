@@ -99,6 +99,10 @@ type keyContext struct {
 	Week         int
 	ScoringHash8 string
 	BroadcastID  string
+	// ClaimID backs N14's key (roster-ops spec section 9): a resolved
+	// WaiverClaim's ID, already unique per claim, so the key is naturally
+	// idempotent across restarts with no epoch or hash needed.
+	ClaimID string
 }
 
 // catalogEntry is one row of the notification catalog (spec section 3):
@@ -190,8 +194,12 @@ func buildCatalog() []catalogEntry {
 			TimeDriven: true, Freshness: 7 * 24 * time.Hour,
 			Key: func(email string, ctx keyContext) string { return keyMatchupRecap(ctx.Season, ctx.Week, email) },
 		},
-		// N14-N17 (roster-ops spec section 9, transactions category) are
-		// WP-R4/WP-R5 scope — not registered here.
+		{
+			ID: "N14", TypeKey: "waiver-result", Category: categoryTransactions, Urgency: urgencyNormal, Default: true,
+			Key: func(email string, ctx keyContext) string { return keyWaiverResult(ctx.ClaimID, email) },
+		},
+		// N15-N17 (roster-ops spec section 9, transactions category) are
+		// WP-R5 scope — not registered here.
 		{
 			ID: "N18", TypeKey: "lineup-warning", Category: categoryLineups, Urgency: urgencyHigh, Default: true,
 			TimeDriven: true, Freshness: 24 * time.Hour,
@@ -253,6 +261,13 @@ func keyKickoff(season, email string) string {
 
 func keyMatchupRecap(season string, week int, email string) string {
 	return fmt.Sprintf("recap:%s-w%d:%s", season, week, normalizeEmail(email))
+}
+
+// keyWaiverResult backs N14's catalog entry (roster-ops spec section 9):
+// one key per resolved claim per recipient — claim IDs are unique, so the
+// key is naturally idempotent across restarts.
+func keyWaiverResult(claimID, email string) string {
+	return fmt.Sprintf("waiver:%s:%s", claimID, normalizeEmail(email))
 }
 
 // keyLineupWarning backs N18's catalog entry: one warning per team per
@@ -1075,6 +1090,122 @@ func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotif
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
 		Key: keyBroadcast(a.ID, member.Email), Category: categoryBroadcast,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// ---------------------------------------------------------------------
+// N14 — waiver-result (roster-ops spec section 9)
+// ---------------------------------------------------------------------
+
+// notifyWaiverResult fires N14 for one resolved claim (won, beaten, or
+// failed), to the claiming manager only. Called from
+// Service.evalWaiverRun after Store.ProcessWaivers's single persist has
+// already committed (section 5.4 step 6): a claim's outcome is never
+// emailed before it is durable. processedAt is the run's instant
+// (nextRun), the Headline's "WAIVERS // RUN {date}" anchor.
+func (s *Service) notifyWaiverResult(result WaiverResult, processedAt time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	state := s.store.Snapshot()
+	member := memberForTeam(state.Members, result.Claim.TeamID)
+	if member.Email == "" {
+		return
+	}
+	key := keyWaiverResult(result.Claim.ID, member.Email)
+	s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+		return s.buildWaiverResult(state, result, member, processedAt)
+	})
+}
+
+func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, member Member, processedAt time.Time) renderedNotification {
+	pool := s.pool()
+	addPlayer := pool.byID[result.Claim.AddID]
+	var dropPlayer Player
+	if result.Claim.DropID != "" {
+		dropPlayer = pool.byID[result.Claim.DropID]
+	}
+	faab := s.cfg.Waivers.Mode == "faab"
+	order := waiverOrder(state, s.cfg)
+	n := len(order)
+	winningTeamName := ""
+	if result.WinningTeamID != "" {
+		winningTeamName = s.teamByID(result.WinningTeamID).Name
+	}
+
+	var subject, title string
+	switch result.Outcome {
+	case "won":
+		title = "THE WIRE DELIVERS."
+		if faab {
+			subject = fmt.Sprintf("CLAIM WON: %s is yours — $%d", addPlayer.Name, result.WinningBid)
+		} else {
+			subject = fmt.Sprintf("CLAIM WON: %s is yours — priority %d of %d", addPlayer.Name, result.Position, n)
+		}
+	case "beaten":
+		if faab {
+			title = "OUTBID."
+			subject = fmt.Sprintf("OUTBID: %s went to %s for $%d", addPlayer.Name, winningTeamName, result.WinningBid)
+		} else {
+			title = "BEATEN TO IT."
+			subject = fmt.Sprintf("MISSED: %s went to %s on priority", addPlayer.Name, winningTeamName)
+		}
+	default: // failed
+		title = "CLAIM BOUNCED."
+		subject = fmt.Sprintf("CLAIM FAILED: %s — %s", addPlayer.Name, result.Reason)
+	}
+
+	lede := fmt.Sprintf("You filed for %s", addPlayer.Name)
+	if dropPlayer.Name != "" {
+		lede += fmt.Sprintf(", dropping %s", dropPlayer.Name)
+	}
+	if faab {
+		lede += fmt.Sprintf(" — bid $%d.", result.Claim.Bid)
+	} else {
+		lede += "."
+	}
+
+	rows := []emailkit.PanelRow{
+		{Label: "PLAYER", Value: fmt.Sprintf("%s · %s · %s", addPlayer.Name, addPlayer.Position, addPlayer.NFLTeam)},
+	}
+	switch {
+	case result.Outcome == "won" && !faab:
+		rows = append(rows,
+			emailkit.PanelRow{Label: "PRIORITY", Value: fmt.Sprintf("you claimed at position %d of %d", result.Position, n)},
+			emailkit.PanelRow{Label: "NEXT", Value: fmt.Sprintf("a win drops you to the back until the week-%d recompute", result.Week+1)},
+		)
+	case result.Outcome == "won" && faab:
+		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
+		rows = append(rows,
+			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: $%d", result.Claim.Bid)},
+			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("$%d remaining", remaining)},
+		)
+	case result.Outcome == "beaten" && !faab:
+		rows = append(rows, emailkit.PanelRow{Label: "PRIORITY", Value: fmt.Sprintf("%s claimed it first", winningTeamName)})
+	case result.Outcome == "beaten" && faab:
+		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
+		rows = append(rows,
+			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: $%d · winning: $%d", result.Claim.Bid, result.WinningBid)},
+			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("$%d remaining", remaining)},
+		)
+	default: // failed
+		rows = append(rows, emailkit.PanelRow{Label: "REASON", Value: result.Reason})
+	}
+
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	shell := s.shellFor(categoryTransactions, fmt.Sprintf("WAIVERS // RUN %s", processedAt.In(location).Format("Jan 2")))
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: title, Lede: lede},
+		emailkit.Panel{Rows: rows},
+		emailkit.CTA{Label: "SCAN THE WIRE →", URL: s.leagueURL() + "/players"},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyWaiverResult(result.Claim.ID, member.Email), Category: categoryTransactions,
 		To: member.Email, Subject: subject, Text: text, HTML: html,
 	}
 }
