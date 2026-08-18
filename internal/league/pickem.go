@@ -447,7 +447,7 @@ func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []ma
 // teamAbbreviation resolves a known team ID to its abbreviation, ignoring
 // commissioner name overrides which never touch the abbreviation.
 func (s *Service) teamAbbreviation(teamID string) string {
-	for _, team := range s.teams {
+	for _, team := range s.Teams() {
 		if team.ID == teamID {
 			return team.Abbreviation
 		}

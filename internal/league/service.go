@@ -42,8 +42,17 @@ type Service struct {
 	draftAt  time.Time
 	draftTZ  *time.Location
 	demoMode bool
-	teams    []Team
-	players  []Player
+	// teamsMu guards teams: a plain field set once at construction for
+	// every test Service literal (including a test that reassigns it
+	// directly afterward — see admin_test.go's
+	// TestInviteEmailTemplateReproducesDeployedLeagueFacts), but mutated
+	// once more, post-construction, on the production singleton by
+	// TrimUnclaimedSeats (SK unclaimed-seat spec). Every read goes through
+	// Teams() below, never the bare field, so that later mutation is race-
+	// free against concurrent request handling.
+	teamsMu sync.RWMutex
+	teams   []Team
+	players []Player
 
 	// cfg is the resolved league.json (or DefaultConfig() when none loads)
 	// every identity string and copy fragment reads from — see config.go.
@@ -206,6 +215,29 @@ func Default() *Service {
 		if override := defaultSvc.store.Snapshot().RosterOverride; override != nil {
 			setRosterShape(rosterOverridePreset(*override))
 		}
+		// A commissioner's seat trim (SK unclaimed-seat spec) similarly
+		// survives a restart in the state file's TrimmedTeamIDs, not in
+		// league.json: the commissioner runs it once, against real
+		// membership, and a redeploy must never un-trim the league back to
+		// the full configured seat count. Recomputed against the
+		// just-published activeTeams baseline (never stored as a frozen
+		// team snapshot), so a *kept* team's own league.json edit (name,
+		// tone) still applies after a restart — only which team IDs
+		// survive is durable.
+		if trimmed := defaultSvc.store.Snapshot().TrimmedTeamIDs; len(trimmed) > 0 {
+			removed := make(map[string]bool, len(trimmed))
+			for _, id := range trimmed {
+				removed[id] = true
+			}
+			kept := make([]Team, 0, len(activeTeams))
+			for _, team := range activeTeams {
+				if !removed[team.ID] {
+					kept = append(kept, team)
+				}
+			}
+			applySeatTrim(kept)
+			defaultSvc.setTeams(kept)
+		}
 	})
 	return defaultSvc
 }
@@ -248,8 +280,32 @@ func article(word string) string {
 	return "a"
 }
 
+// Teams returns the league's current team list: whatever s.teams currently
+// holds — the config-seeded default a construction literal sets it to
+// (newTestService, Default()), a test's own direct override (see
+// admin_test.go), or, on the production singleton, a commissioner's
+// trimmed list once TrimUnclaimedSeats has run. Every Service-method read
+// site in the package calls this instead of the bare field, so a runtime
+// trim is visible to every in-flight request immediately and race-free.
+// Package-level code with no Service receiver (store.go, roster.go's
+// draftComplete) reads defaultTeams() instead, which the same trim keeps
+// in sync via applySeatTrim.
+func (s *Service) Teams() []Team {
+	s.teamsMu.RLock()
+	defer s.teamsMu.RUnlock()
+	return s.teams
+}
+
+// setTeams installs teams as s.teams under the write lock. Called only by
+// TrimUnclaimedSeats today.
+func (s *Service) setTeams(teams []Team) {
+	s.teamsMu.Lock()
+	s.teams = teams
+	s.teamsMu.Unlock()
+}
+
 // TeamCount returns the active league's team count.
-func (s *Service) TeamCount() int { return len(s.teams) }
+func (s *Service) TeamCount() int { return len(s.Teams()) }
 
 // RosterSpots returns the active roster shape's total size (starters plus
 // bench) — the reference count main.go uses to scale FANTASY_POOL_LIMIT's
@@ -754,7 +810,7 @@ func (s *Service) DetachCoManager(r *http.Request, teamID string) error {
 // carry. ok is false once every seat is claimed.
 func (s *Service) NextOpenSeatTone() (tone string, ok bool) {
 	used := claimedSeatIDs(s.store.Snapshot().Members)
-	for _, team := range defaultTeams() {
+	for _, team := range s.Teams() {
 		if !used[team.ID] {
 			return team.Tone, true
 		}
@@ -793,7 +849,7 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	viewer := s.Viewer(r)
 	hasSeat, _ := viewer["has_seat"].(bool)
-	open := len(s.teams) - claimedSeatCount(state.Members)
+	open := len(s.Teams()) - claimedSeatCount(state.Members)
 	if open < 0 {
 		open = 0
 	}
@@ -896,7 +952,7 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 func (s *Service) Viewer(r *http.Request) map[string]any {
 	user, signedIn := auth.Current(r)
 	if !signedIn {
-		team := s.teams[0]
+		team := s.Teams()[0]
 		return map[string]any{
 			"signed_in":       false,
 			"demo":            s.demoMode,
@@ -969,7 +1025,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		// GSX conditions cannot call .length on server data; ship the bools.
 		"transactions_empty":  len(transactions) == 0,
 		"featured_empty":      len(featured) == 0,
-		"league_size":         len(s.teams),
+		"league_size":         len(s.Teams()),
 		"season":              strconv.Itoa(s.cfg.Season),
 		"league_mode":         s.cfg.ModeLabel,
 		"league":              s.leagueMap(),
@@ -987,7 +1043,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 // hold one), so this never re-derives has_seat/team_id itself.
 func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) map[string]any {
 	hasSeat, _ := viewer["has_seat"].(bool)
-	open := len(s.teams) - claimedSeatCount(state.Members)
+	open := len(s.Teams()) - claimedSeatCount(state.Members)
 	if open < 0 {
 		open = 0
 	}
@@ -1040,7 +1096,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	// A seatless member (no team_id) gets the honest "no franchise" state
 	// with the signup CTA, never team-1's roster (registration wave, build
 	// item 6 — the flagged paper cut: teamView's empty-TeamID fallback to
-	// s.teams[0] used to leak team-1's own lineup to every seatless
+	// defaultTeams()[0] used to leak team-1's own lineup to every seatless
 	// visitor of /team).
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
 		return map[string]any{
@@ -1397,7 +1453,7 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"can_pick":         canPick,
 		"demo_mode":        s.demoMode,
 		"ready_count":      readyCount(state.Ready),
-		"manager_count":    len(s.teams),
+		"manager_count":    len(s.Teams()),
 		"order_randomized": len(state.DraftOrder) > 0,
 		"league_mode":      s.cfg.ModeLabel,
 		"clock":            s.clockView(state, now),
@@ -1468,8 +1524,8 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 		"viewer":       s.Viewer(r),
 		"configured":   configured,
 		"demo_mode":    s.demoMode,
-		"seats":        len(s.teams),
-		"seat_numbers": seatNumbers(len(s.teams)),
+		"seats":        len(s.Teams()),
+		"seat_numbers": seatNumbers(len(s.Teams())),
 		"league":       s.leagueMap(),
 	}
 }
@@ -1577,7 +1633,7 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
 	// pick — pause freezes the timer, not the draft — and the final pick
 	// leaves the clock unarmed for good.
-	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
+	totalPicks := len(s.Teams()) * CurrentDraftRounds()
 	nextDeadline := time.Time{}
 	if !state.ClockPaused && len(state.Picks)+1 < totalPicks {
 		nextDeadline = now.Add(s.pickClock(state))
@@ -1751,7 +1807,7 @@ func (s *Service) leagueURL() string {
 func (s *Service) divisionList() []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, team := range s.teams {
+	for _, team := range s.Teams() {
 		if team.Division == "" || seen[team.Division] {
 			continue
 		}
@@ -1769,7 +1825,7 @@ func (s *Service) heroKicker() string {
 	if kicker := strings.TrimSpace(s.cfg.Copy.HeroKicker); kicker != "" {
 		return kicker
 	}
-	label := fmt.Sprintf("%s-manager %s league", countWord(len(s.teams)), strings.ToLower(s.cfg.ModeLabel))
+	label := fmt.Sprintf("%s-manager %s league", countWord(len(s.Teams())), strings.ToLower(s.cfg.ModeLabel))
 	if divisions := s.divisionList(); len(divisions) > 0 {
 		label += " · " + strings.Join(divisions, " and ") + " divisions"
 	}
@@ -1812,16 +1868,16 @@ func (s *Service) leagueMap() map[string]any {
 		"hero_kicker":        s.heroKicker(),
 		"footer_line":        s.cfg.Copy.FooterLine,
 		"has_footer_line":    s.cfg.Copy.FooterLine != "",
-		"seat_count":         len(s.teams),
-		"seat_count_word":    countWord(len(s.teams)),
-		"seat_numbers":       seatNumbers(len(s.teams)),
+		"seat_count":         len(s.Teams()),
+		"seat_count_word":    countWord(len(s.Teams())),
+		"seat_numbers":       seatNumbers(len(s.Teams())),
 		"season_open_line":   s.seasonOpenLine(),
 		// fantasy_seats_open (registration wave, build item 3): whether any
 		// fantasy seat remains unclaimed — the shared layout's nav uses
 		// this, alongside the viewer's own has_seat, to show the /join link
 		// only "while seats remain" (the build directive's own phrase),
 		// without every page's own data function computing it separately.
-		"fantasy_seats_open": claimedSeatCount(s.store.Snapshot().Members) < len(s.teams),
+		"fantasy_seats_open": claimedSeatCount(s.store.Snapshot().Members) < len(s.Teams()),
 		// latest_announcement carries the shared layout's dismiss-free
 		// banner data (league-announcements spec). It lives here, not in a
 		// separate data key, because leagueMap is the one map every page's
@@ -1906,7 +1962,7 @@ func pluralUnit(n int, unit string) string {
 }
 
 func (s *Service) standingsMaps() []map[string]any {
-	teams := append([]Team(nil), s.teams...)
+	teams := append([]Team(nil), s.Teams()...)
 	sort.Slice(teams, func(i, j int) bool { return teams[i].Rank < teams[j].Rank })
 	out := make([]map[string]any, 0, len(teams))
 	for _, team := range teams {
@@ -2020,7 +2076,7 @@ func (s *Service) teamByID(id string) Team {
 // teamView resolves a team against an already-taken snapshot so callers in a
 // loop pay for one state copy, not one per team.
 func (s *Service) teamView(state PersistedState, id string) Team {
-	for _, team := range s.teams {
+	for _, team := range s.Teams() {
 		if team.ID == id {
 			if member := memberForTeam(state.Members, id); member.Name != "" {
 				team.Manager = member.Name
@@ -2031,7 +2087,7 @@ func (s *Service) teamView(state PersistedState, id string) Team {
 			return team
 		}
 	}
-	return s.teams[0]
+	return s.Teams()[0]
 }
 
 func (s *Service) teamMap(team Team) map[string]any {
@@ -2053,7 +2109,7 @@ func (s *Service) teamMap(team Team) map[string]any {
 	}
 }
 
-// divisionMaps groups the league into the divisions found in s.teams, in
+// divisionMaps groups the league into the divisions found in defaultTeams(), in
 // first-occurrence (config) order, each with its teams sorted by rank.
 // Zero divisions (every team's Division is "") renders one table; divisions
 // of unequal size are legal (competition-formats spec section 1.3). Names
@@ -2063,7 +2119,7 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 	byDivision := map[string][]Team{}
 	seen := map[string]bool{}
 	order := make([]string, 0, 2)
-	for _, team := range s.teams {
+	for _, team := range s.Teams() {
 		if !seen[team.Division] {
 			seen[team.Division] = true
 			order = append(order, team.Division)

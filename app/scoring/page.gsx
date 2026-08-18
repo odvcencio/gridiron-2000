@@ -116,7 +116,16 @@ func Page() Node {
 					— any Google account can claim an unclaimed seat.
 				</p>
 			</If>
-			<If cond={data.membership_rules.open == false}>
+			<If cond={data.membership_rules.domain_gated}>
+				<p class="scoring-note">
+					This league is
+					<b class="mono">DOMAIN-GATED</b>
+					— any Google account ending in
+					<b class="mono">@{data.membership_rules.domain}</b>
+					can claim an unclaimed seat automatically, first come first served. An invited email outside that domain can still claim one too.
+				</p>
+			</If>
+			<If cond={data.membership_rules.invite_only}>
 				<p class="scoring-note">
 					This league is
 					<b class="mono">INVITE-ONLY</b>

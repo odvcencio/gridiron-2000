@@ -1,0 +1,135 @@
+# Mirrors ../deployment.yaml exactly, except: namespace (stablekernel, not
+# gridiron), resource names (the -sk suffix), the ConfigMap/Secret names
+# this Deployment references, and the env block below — see its own
+# comments for what differs and why. Same image
+# (harbor.draco.quest/orchard/gridiron-2000:latest): this is the platform's
+# isolation thesis proof — one binary, two independently configured,
+# independently stateful league instances.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gridiron-2000-sk
+  namespace: stablekernel
+  labels:
+    app: gridiron-2000-sk
+spec:
+  replicas: 1
+  # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
+  # the app keeps its authoritative state in one SQLite file, so two pods
+  # must never run at once — the same reasoning ../deployment.yaml
+  # documents for the flagship.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: gridiron-2000-sk
+  template:
+    metadata:
+      labels:
+        app: gridiron-2000-sk
+    spec:
+      imagePullSecrets:
+        # This namespace holds its own copy of regcred — Harbor pull
+        # secrets do not cross namespace boundaries. See deploy/k8s/sk's
+        # README.md.
+        - name: regcred
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: gridiron-2000
+          image: harbor.draco.quest/orchard/gridiron-2000:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: gridiron-2000-sk-secrets
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: DEMO_MODE
+              value: "false"
+            - name: PORT
+              value: "8080"
+            # LEAGUE_FILE points at the mounted league-sk.json ConfigMap
+            # (productization spec section 3.3, lookup rule 1): SK's real
+            # identity, teams/divisions, domain gate, draft date, and the
+            # flagship's own roster preset (owner decision, 2026-08-18).
+            # See deploy/k8s/sk/README.md for how the ConfigMap is created.
+            - name: LEAGUE_FILE
+              value: "/etc/gridiron/league.json"
+            # Deliberately NOT setting DRAFT_AT/DRAFT_TZ/SEASON_START_AT/
+            # SCORING_FORMAT here, unlike ../deployment.yaml's flagship
+            # copies. Those four env vars win over the config file (spec
+            # section 3.3's precedence table), so keeping them would mean a
+            # ConfigMap-only edit to league.json's draft.at silently does
+            # nothing until this Deployment's env is *also* edited — a real
+            # operational trap, and SK's draft date is explicitly TBD and
+            # will move at least once (owner, 2026-08-18: "tentatively...
+            # Friday or next weekend"). Leaving them unset makes
+            # league.json the single place that date lives for this
+            # instance: edit the ConfigMap, `kubectl rollout restart`, done.
+            # ../deployment.yaml's own comment already calls these four
+            # "optional... removing is optional per the spec's migration
+            # steps" — SK is a fresh deployment, so it starts without them
+            # rather than inheriting a trap the flagship predates.
+            #
+            # TANK01_BASE_URL points at the shared statrelay cache in the
+            # gridiron namespace (deploy/README.md's "Shared Tank01 relay"
+            # section) so both league instances split one metered RapidAPI
+            # quota. The fully-qualified <service>.<namespace>.svc.cluster.
+            # local form resolves correctly from any namespace, including
+            # this one (stablekernel) — verified against the cluster's
+            # CoreDNS convention; no per-namespace DNS setup is needed.
+            - name: TANK01_BASE_URL
+              value: "http://statrelay.gridiron.svc.cluster.local"
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: league-config
+              mountPath: /etc/gridiron
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: gridiron-2000-sk-data
+        # league-config is a ConfigMap, NOT a file tracked in this repo:
+        # deploy/ is a tracked directory, so SK's real league.json (its
+        # actual team list, domain gate, and draft date) never lands here.
+        # Create the ConfigMap out-of-band from a gitignored local file —
+        # see deploy/k8s/sk/README.md for the exact command.
+        - name: league-config
+          configMap:
+            name: gridiron-2000-sk-league-config

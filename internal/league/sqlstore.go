@@ -387,6 +387,7 @@ const (
 	kvWaiversProcessedThrough = "waivers_processed_through"
 	kvRosterOverride          = "roster_override"
 	kvScheduleHeader          = "schedule_header"
+	kvTrimmedTeamIDs          = "trimmed_team_ids"
 )
 
 // scheduleHeader is the SeasonSchedule minus its weeks: the part that has
@@ -425,6 +426,11 @@ var collectionSpecs = [collectionCount]collectionSpec{
 					GeneratedAt: st.Schedule.GeneratedAt,
 					StartWeek:   st.Schedule.StartWeek,
 				}))
+			}
+			// An empty TrimmedTeamIDs writes no row, matching the override/
+			// schedule "absent" convention above: no trim has run.
+			if len(st.TrimmedTeamIDs) > 0 {
+				put(kvTrimmedTeamIDs, sink.jsonValue(st.TrimmedTeamIDs))
 			}
 		},
 	},
@@ -967,6 +973,13 @@ func loadStateFromDB(db *sql.DB) (PersistedState, error) {
 		}
 		state.RosterOverride = &override
 	}
+	if raw, ok := scalars[kvTrimmedTeamIDs]; ok {
+		var trimmed []string
+		if err := json.Unmarshal([]byte(raw), &trimmed); err != nil {
+			return state, fmt.Errorf("kv %s: %w", kvTrimmedTeamIDs, err)
+		}
+		state.TrimmedTeamIDs = trimmed
+	}
 
 	if err := queryRows(db, `SELECT "number", "round", "team_id", "player_id", "made_at", "made_by" FROM picks ORDER BY "number"`,
 		func(rows *sql.Rows) error {
@@ -1500,5 +1513,8 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.CoInvites == nil {
 		state.CoInvites = map[string]string{}
+	}
+	if state.TrimmedTeamIDs == nil {
+		state.TrimmedTeamIDs = []string{}
 	}
 }

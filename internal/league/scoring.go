@@ -217,7 +217,7 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 		"short_code":   s.cfg.ShortCode,
 		"mode_label":   s.cfg.ModeLabel,
 		"season":       s.cfg.Season,
-		"team_count":   len(s.teams),
+		"team_count":   len(s.Teams()),
 		"timezone":     s.cfg.Timezone,
 		"draft_date":   s.draftAt.In(location).Format("Monday, January 2, 2006"),
 		"season_start": s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006"),
@@ -225,21 +225,34 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 }
 
 // rulesMembershipMap renders the Rules page's Membership section from
-// EmailAllowed's own "both lists empty" open/restricted rule (service.go)
-// — the one membership concept this config actually expresses today — plus
-// how many of the league's seats are claimed. No invented invite-only /
-// public toggle: this reports exactly what already gates a seat claim.
+// EmailAllowed's own actual gate (service.go) — the domain gate
+// (membership.allowed_domain), then the "both lists empty" open/restricted
+// rule — plus how many of the league's seats are claimed. No invented
+// toggle: this reports exactly what already gates a seat claim. Before the
+// SK unclaimed-seat/domain-gate finding (build item 1's dry run against a
+// real @stablekernel.com-gated config), this section always reported
+// "OPEN — any Google account can claim an unclaimed seat" whenever no
+// invite/env list was set, even when a domain gate WAS configured — a
+// materially false statement for a domain-gated league; domain_gated is
+// mutually exclusive with open and invite_only so exactly one of the three
+// is true, matching page.gsx's three-branch render.
 func (s *Service) rulesMembershipMap(state PersistedState) map[string]any {
 	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	claimed := 0
-	for _, team := range s.teams {
+	for _, team := range s.Teams() {
 		if memberForTeam(state.Members, team.ID).Email != "" {
 			claimed++
 		}
 	}
+	domain := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
+	domainGated := domain != ""
+	open := !domainGated && len(envEmails) == 0 && len(state.Invites) == 0
 	return map[string]any{
-		"open":          len(envEmails) == 0 && len(state.Invites) == 0,
-		"seat_count":    len(s.teams),
+		"open":          open,
+		"domain_gated":  domainGated,
+		"domain":        domain,
+		"invite_only":   !domainGated && !open,
+		"seat_count":    len(s.Teams()),
 		"claimed_seats": claimed,
 	}
 }

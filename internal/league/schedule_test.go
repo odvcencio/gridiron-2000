@@ -351,6 +351,49 @@ func TestGenerateScheduleOddCountHasByeEveryWeek(t *testing.T) {
 	}
 }
 
+// TestGenerateScheduleEveryCountFourToFourteen proves every team count a
+// seat trim could plausibly land the SK instance on (config's engine floor
+// through the engine max, minTeams/maxTeams — config.go) produces a valid
+// schedule: an odd count carries exactly one bye per week and every team,
+// bye included, is scheduled exactly once a week (SK unclaimed-seat spec:
+// "odd resulting counts are expected and fine"). An even count carries no
+// bye at all.
+func TestGenerateScheduleEveryCountFourToFourteen(t *testing.T) {
+	for n := minTeams; n <= maxTeams; n++ {
+		n := n
+		t.Run(fmt.Sprintf("teams-%d", n), func(t *testing.T) {
+			ids := genTeamIDs(n)
+			sched, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: ids, StartWeek: 1, Weeks: 6, Seed: 11})
+			if err != nil {
+				t.Fatalf("GenerateSchedule(%d teams) failed: %v", n, err)
+			}
+			wantBye := n%2 == 1
+			for _, wk := range sched.Weeks {
+				if wantBye && wk.ByeTeamID == "" {
+					t.Fatalf("%d teams, week %d: expected a bye team, got none", n, wk.Week)
+				}
+				if !wantBye && wk.ByeTeamID != "" {
+					t.Fatalf("%d teams, week %d: expected no bye team, got %q", n, wk.Week, wk.ByeTeamID)
+				}
+				seen := map[string]bool{}
+				if wk.ByeTeamID != "" {
+					seen[wk.ByeTeamID] = true
+				}
+				for _, m := range wk.Matchups {
+					if seen[m.HomeTeamID] || seen[m.AwayTeamID] {
+						t.Fatalf("%d teams, week %d: team scheduled twice in %+v", n, wk.Week, wk)
+					}
+					seen[m.HomeTeamID] = true
+					seen[m.AwayTeamID] = true
+				}
+				if len(seen) != n {
+					t.Fatalf("%d teams, week %d: %d of %d teams scheduled (bye included)", n, wk.Week, len(seen), n)
+				}
+			}
+		})
+	}
+}
+
 func TestGenerateScheduleGeneratedAtStaysZero(t *testing.T) {
 	sched, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: genTeamIDs(8), StartWeek: 1, Weeks: 1, Seed: 1})
 	if err != nil {
