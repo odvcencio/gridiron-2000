@@ -144,7 +144,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	viewer := league.Default().Viewer(request)
 	category := strings.TrimSpace(request.URL.Query().Get("category"))
 	recent := signals.Recent(50, category)
-	items := make([]map[string]any, 0, len(recent))
+	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {
 		items = append(items, signalMap(signal))
 	}
@@ -184,17 +184,23 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		lastID = recent[0].ID
 	}
 	return map[string]any{
-		"viewer":           viewer,
-		"signals":          items,
-		"empty":            len(items) == 0,
-		"last_event_id":    lastID,
-		"category":         category,
-		"filters":          wireFilterMaps(category),
-		"fragment_url":     wireFragmentURL(category),
-		"wire_mode":        strings.ToUpper(strings.ReplaceAll(wireStatus.Mode, "_", " ")),
-		"wire_configured":  wireStatus.Configured,
-		"wire_issue":       wireStatus.ConfigurationIssue,
-		"wire_error":       wireStatus.LastError,
+		"viewer":          viewer,
+		"signals":         items,
+		"empty":           len(items) == 0,
+		"last_event_id":   lastID,
+		"category":        category,
+		"filters":         wireFilterMaps(category),
+		"fragment_url":    wireFragmentURL(category),
+		"wire_mode":       strings.ToUpper(strings.ReplaceAll(wireStatus.Mode, "_", " ")),
+		"wire_configured": wireStatus.Configured,
+		"wire_issue":      wireStatus.ConfigurationIssue,
+		"wire_error":      wireStatus.LastError,
+		// wire_empty is WireEmptyState's spread source: a strict component
+		// called from this legacy Page() body must receive one {...} spread,
+		// never named attributes built from separate map keys (gosx's
+		// legacy-caller rule), so wire_configured/wire_issue are bundled
+		// here as the one struct the template spreads.
+		"wire_empty":       WireEmptyView{WireConfigured: wireStatus.Configured, WireIssue: wireStatus.ConfigurationIssue},
 		"source_count":     len(wireStatus.Sources) + len(wireStatus.Feeds),
 		"bluesky_count":    len(wireStatus.Sources),
 		"feed_count":       len(wireStatus.Feeds),
@@ -255,38 +261,37 @@ func FeedFragment(request *http.Request, signals *signalwire.Service) gosx.Node 
 // outside the file-routing pipeline cannot call SignalCard itself. Keep
 // this in exact structural sync with SignalCard by hand; a mismatch here
 // is invisible to `gosx check` (it only validates the .gsx side).
-func signalCardNode(props map[string]any) gosx.Node {
-	category := stringProp(props, "category")
+func signalCardNode(card WireSignalCard) gosx.Node {
 	footer := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(stringProp(props, "source"))),
+		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(card.Source)),
 	}
-	if boolProp(props, "has_reporter") {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("VIA "+stringProp(props, "reported_by"))))
+	if card.HasReporter {
+		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("VIA "+card.ReportedBy)))
 	}
-	if boolProp(props, "has_corroboration") {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__corroboration mono")), gosx.Text(stringProp(props, "corroboration_label"))))
+	if card.HasCorroboration {
+		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__corroboration mono")), gosx.Text(card.CorroborationLabel)))
 	}
-	footer = append(footer, gosx.El("time", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(stringProp(props, "time"))))
-	if boolProp(props, "has_url") {
+	footer = append(footer, gosx.El("time", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(card.Time)))
+	if card.HasURL {
 		footer = append(footer, gosx.El("a", gosx.Attrs(
-			gosx.Attr("href", stringProp(props, "url")),
+			gosx.Attr("href", card.URL),
 			gosx.Attr("target", "_blank"),
 			gosx.Attr("rel", "noreferrer"),
 		), gosx.Text("Inspect source ↗")))
 	}
 	return gosx.El("article", gosx.Attrs(
-		gosx.Attr("class", "wire-event wire-event--"+category),
-		gosx.Attr("data-wire-event", stringProp(props, "id")),
-		gosx.Attr("data-wire-category", category),
+		gosx.Attr("class", "wire-event wire-event--"+card.Category),
+		gosx.Attr("data-wire-event", card.ID),
+		gosx.Attr("data-wire-category", card.Category),
 	),
 		gosx.El("header", nil,
 			gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-event__heading")),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__label")), gosx.Text(stringProp(props, "label"))),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__evidence")), gosx.Text(stringProp(props, "evidence"))),
+				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__label")), gosx.Text(card.Label)),
+				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__evidence")), gosx.Text(card.Evidence)),
 			),
-			gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__trust mono")), gosx.Text(stringProp(props, "trust")+" · "+stringProp(props, "confidence")+"%")),
+			gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__trust mono")), gosx.Text(card.Trust+" · "+card.Confidence+"%")),
 		),
-		gosx.El("p", nil, gosx.Text(stringProp(props, "text"))),
+		gosx.El("p", nil, gosx.Text(card.Text)),
 		gosx.El("footer", nil, gosx.Fragment(footer...)),
 	)
 }
@@ -314,16 +319,6 @@ func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 	return gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-empty"), gosx.BoolAttr("data-wire-empty")), gosx.Fragment(body...))
 }
 
-func stringProp(props map[string]any, key string) string {
-	value, _ := props[key].(string)
-	return value
-}
-
-func boolProp(props map[string]any, key string) bool {
-	value, _ := props[key].(bool)
-	return value
-}
-
 // PulseData is the small polled JSON object /api/wire/pulse answers with
 // (main.go's wirePulseHandler): the data-gosx-live-bind text region on the
 // wire page's masthead and status line (gosx#217) reads these three flat
@@ -347,7 +342,38 @@ func pluralSuffix(count int64) string {
 	return "s"
 }
 
-func signalMap(signal signalwire.Signal) map[string]any {
+// WireSignalCard is one wire feed item as SignalCard (page.gsx, a strict
+// component) reads it: a real struct, not a map, because a legacy Page()
+// body spreading a slice entry into a strict component needs each entry
+// to carry its own proven struct type (gosx's field-coverage boundary).
+type WireSignalCard struct {
+	ID                 string
+	Category           string
+	Label              string
+	Text               string
+	Source             string
+	ReportedBy         string
+	HasReporter        bool
+	Evidence           string
+	Trust              string
+	Time               string
+	URL                string
+	HasURL             bool
+	Rule               string
+	Confidence         string
+	Corroborations     int
+	HasCorroboration   bool
+	CorroborationLabel string
+}
+
+// WireEmptyView is WireEmptyState's (page.gsx, a strict component) spread
+// source: whether the wire is configured and, when not, why.
+type WireEmptyView struct {
+	WireConfigured bool
+	WireIssue      string
+}
+
+func signalMap(signal signalwire.Signal) WireSignalCard {
 	source := signal.SourceName
 	if source == "" {
 		source = signal.SourceHandle
@@ -362,24 +388,24 @@ func signalMap(signal signalwire.Signal) map[string]any {
 	if signal.Corroborations > 1 {
 		corroborationLabel = fmt.Sprintf("%d SOURCES", signal.Corroborations)
 	}
-	return map[string]any{
-		"id":                  signal.ID,
-		"category":            signal.Category,
-		"label":               signal.Label,
-		"text":                signal.Text,
-		"source":              source,
-		"reported_by":         signal.ReportedBy,
-		"has_reporter":        signal.ReportedBy != "",
-		"evidence":            strings.ToUpper(strings.ReplaceAll(signal.EvidenceType, "_", " ")),
-		"trust":               signal.TrustTier,
-		"time":                displayTime(signal.OccurredAt),
-		"url":                 signal.SourceURL,
-		"has_url":             signal.SourceURL != "",
-		"rule":                signal.Rule,
-		"confidence":          fmt.Sprintf("%.0f", signal.Confidence*100),
-		"corroborations":      signal.Corroborations,
-		"has_corroboration":   signal.Corroborations > 1,
-		"corroboration_label": corroborationLabel,
+	return WireSignalCard{
+		ID:                 signal.ID,
+		Category:           signal.Category,
+		Label:              signal.Label,
+		Text:               signal.Text,
+		Source:             source,
+		ReportedBy:         signal.ReportedBy,
+		HasReporter:        signal.ReportedBy != "",
+		Evidence:           strings.ToUpper(strings.ReplaceAll(signal.EvidenceType, "_", " ")),
+		Trust:              signal.TrustTier,
+		Time:               displayTime(signal.OccurredAt),
+		URL:                signal.SourceURL,
+		HasURL:             signal.SourceURL != "",
+		Rule:               signal.Rule,
+		Confidence:         fmt.Sprintf("%.0f", signal.Confidence*100),
+		Corroborations:     signal.Corroborations,
+		HasCorroboration:   signal.Corroborations > 1,
+		CorroborationLabel: corroborationLabel,
 	}
 }
 

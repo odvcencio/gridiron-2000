@@ -1,29 +1,58 @@
 package wire
 
-func SignalCard(props any) Node {
-	return <article class={"wire-event wire-event--" + props.category} data-wire-event={props.id} data-wire-category={props.category}>
+// SignalCardProps structurally mirrors page.server.go's WireSignalCard
+// (the loader's actual type): the same-file schema rule requires a strict
+// component's props to be declared in this .gsx file, so this needs only
+// to share shape with the loader's converter, not identity.
+type SignalCardProps struct {
+	ID                 string
+	Category           string
+	Label              string
+	Text               string
+	Source             string
+	ReportedBy         string
+	HasReporter        bool
+	Evidence           string
+	Trust              string
+	Time               string
+	URL                string
+	HasURL             bool
+	Rule               string
+	Confidence         string
+	Corroborations     int
+	HasCorroboration   bool
+	CorroborationLabel string
+}
+
+component SignalCard(props: SignalCardProps) {
+	return <article class={"wire-event wire-event--" + props.Category} data-wire-event={props.ID} data-wire-category={props.Category}>
 		<header>
 			<div class="wire-event__heading">
-				<span class="wire-event__label">{props.label}</span>
-				<span class="wire-event__evidence">{props.evidence}</span>
+				<span class="wire-event__label">{props.Label}</span>
+				<span class="wire-event__evidence">{props.Evidence}</span>
 			</div>
-			<span class="wire-event__trust mono">{props.trust} · {props.confidence}%</span>
+			<span class="wire-event__trust mono">{props.Trust} · {props.Confidence}%</span>
 		</header>
-		<p>{props.text}</p>
+		<p>{props.Text}</p>
 		<footer>
-			<span class="mono">{props.source}</span>
-			<If cond={props.has_reporter}>
-				<span class="mono">VIA {props.reported_by}</span>
+			<span class="mono">{props.Source}</span>
+			<If cond={props.HasReporter}>
+				<span class="mono">VIA {props.ReportedBy}</span>
 			</If>
-			<If cond={props.has_corroboration}>
-				<span class="wire-event__corroboration mono">{props.corroboration_label}</span>
+			<If cond={props.HasCorroboration}>
+				<span class="wire-event__corroboration mono">{props.CorroborationLabel}</span>
 			</If>
-			<time class="mono">{props.time}</time>
-			<If cond={props.has_url}>
-				<a href={props.url} target="_blank" rel="noreferrer">Inspect source ↗</a>
+			<time class="mono">{props.Time}</time>
+			<If cond={props.HasURL}>
+				<a href={props.URL} target="_blank" rel="noreferrer">Inspect source ↗</a>
 			</If>
 		</footer>
 	</article>
+}
+
+type WireEmptyStateProps struct {
+	WireConfigured bool
+	WireIssue      string
 }
 
 // WireEmptyState is the "no signals yet" panel shown inside the wire feed
@@ -31,18 +60,18 @@ func SignalCard(props any) Node {
 // data-gosx-region fragment /wire/fragment answers when a later poll finds
 // zero signals, so the two paths render byte-identical markup (see
 // FeedFragment in page.server.go).
-func WireEmptyState(props any) Node {
+component WireEmptyState(props: WireEmptyStateProps) {
 	return <div class="wire-empty" data-wire-empty>
 		<span class="mono">NO SIGNALS YET</span>
 		<h3>Your wire is quiet—not broken.</h3>
-		<If cond={props.wire_configured == false}>
-			<p>{props.wire_issue}</p>
+		<If cond={props.WireConfigured == false}>
+			<p>{props.WireIssue}</p>
 			<p>
 				Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in
 				<span class="inline-code">BLUESKY_HANDLES</span>.
 			</p>
 		</If>
-		<If cond={props.wire_configured}>
+		<If cond={props.WireConfigured}>
 			<p>Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.</p>
 		</If>
 	</div>
@@ -127,7 +156,7 @@ func Page() Node {
 				</div>
 				<div class="wire-feed" data-wire-list data-gosx-region data-gosx-region-url={data.fragment_url} data-gosx-region-interval="20s">
 					<If cond={data.empty}>
-						<WireEmptyState wire_configured={data.wire_configured} wire_issue={data.wire_issue}></WireEmptyState>
+						<WireEmptyState {...data.wire_empty}></WireEmptyState>
 					</If>
 					<Each of={data.signals} as="signal">
 						<SignalCard {...signal}></SignalCard>
