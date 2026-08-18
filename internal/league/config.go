@@ -704,9 +704,9 @@ func applyActiveConfig(cfg Config) {
 
 func validateTrades(t TradesBlock) error {
 	switch t.Veto {
-	case "commissioner", "vote", "none":
+	case "commissioner", "vote", "both", "none":
 	default:
-		return fmt.Errorf("league config: trades.veto must be one of commissioner, vote, none")
+		return fmt.Errorf("league config: trades.veto must be one of commissioner, vote, both, none")
 	}
 	if t.ReviewHours < 1 || t.ReviewHours > 72 {
 		return fmt.Errorf("league config: trades.review_hours must be 1 to 72")

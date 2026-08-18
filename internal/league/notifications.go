@@ -1,9 +1,12 @@
 // Notification catalog, key builders, preference precedence, and the
 // N1-N7 template builders (design spec "Notification Email System",
-// sections 3, 6.4, 7.1). The catalog registers all 13 entries so the
-// default matrix stays total (spec section 9, test 18); only N1-N7 carry
-// template builders here. N8-N13's evaluation and templates land in later
-// work packages — see notifierTick's TODO markers.
+// sections 3, 6.4, 7.1). The catalog registers all 18 entries (N1-N18,
+// roster-ops spec section 9's N14-N18 additions) so the default matrix
+// stays total (spec section 9, test 18; roster-ops spec section 12 test
+// 25); only N1-N7 carry template builders in this file's original scope
+// — N8-N13's evaluation and templates land in later work packages, N14 in
+// waivers.go, N15-N17 in trades.go, and N18 below (see notifierTick's TODO
+// markers for N8-N13).
 package league
 
 import (
@@ -24,9 +27,8 @@ import (
 // roster-ops spec section 9). Every notification type belongs to exactly
 // one of these ten; /settings (WP-E5) groups toggles by category, not by
 // individual type. transactions and lineups are the roster-ops spec
-// section 9 additions — WP-R2 registers both categories (the file this
-// work package owns) even though only lineups gets a catalog entry (N18)
-// here; N14-N17 (transactions) land in WP-R4/WP-R5.
+// section 9 additions: N14 (waivers.go) and N15-N17 (trades.go) carry
+// transactions; N18 (below) carries lineups.
 const (
 	categoryOnboarding     = "onboarding"
 	categoryDraftReminders = "draft_reminders"
@@ -103,6 +105,10 @@ type keyContext struct {
 	// WaiverClaim's ID, already unique per claim, so the key is naturally
 	// idempotent across restarts with no epoch or hash needed.
 	ClaimID string
+	// OfferID backs N15/N16/N17's keys (roster-ops spec section 9): a
+	// TradeOffer's ID, already unique per offer, the same
+	// naturally-idempotent shape ClaimID uses for N14.
+	OfferID string
 }
 
 // catalogEntry is one row of the notification catalog (spec section 3):
@@ -198,8 +204,18 @@ func buildCatalog() []catalogEntry {
 			ID: "N14", TypeKey: "waiver-result", Category: categoryTransactions, Urgency: urgencyNormal, Default: true,
 			Key: func(email string, ctx keyContext) string { return keyWaiverResult(ctx.ClaimID, email) },
 		},
-		// N15-N17 (roster-ops spec section 9, transactions category) are
-		// WP-R5 scope — not registered here.
+		{
+			ID: "N15", TypeKey: "trade-offer", Category: categoryTransactions, Urgency: urgencyHigh, Default: true,
+			Key: func(email string, ctx keyContext) string { return keyTradeOffer(ctx.OfferID, email) },
+		},
+		{
+			ID: "N16", TypeKey: "trade-executed", Category: categoryTransactions, Urgency: urgencyNormal, Default: true,
+			Key: func(email string, ctx keyContext) string { return keyTradeExecuted(ctx.OfferID, email) },
+		},
+		{
+			ID: "N17", TypeKey: "trade-vetoed", Category: categoryTransactions, Urgency: urgencyNormal, Default: true,
+			Key: func(email string, ctx keyContext) string { return keyTradeVetoed(ctx.OfferID, email) },
+		},
 		{
 			ID: "N18", TypeKey: "lineup-warning", Category: categoryLineups, Urgency: urgencyHigh, Default: true,
 			TimeDriven: true, Freshness: 24 * time.Hour,
