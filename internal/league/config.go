@@ -78,6 +78,16 @@ type RosterBlock struct {
 	Preset string         `json:"preset,omitempty"`
 	Slots  map[string]int `json:"slots,omitempty"`
 	Bench  int            `json:"bench,omitempty"`
+	// Reserve, IR, and Limits are the SK roster-zones spec's optional
+	// additions: a position-gated reserve zone, an injury-gated IR zone,
+	// and an optional per-position roster cap. They ride along with
+	// either a preset or an explicit slots/bench shape (resolveRosterBlock
+	// merges them onto whichever base resolves); absent means none of the
+	// three, the pre-existing behavior for every config that never
+	// mentions them.
+	Reserve map[string]int `json:"reserve,omitempty"`
+	IR      int            `json:"ir,omitempty"`
+	Limits  map[string]int `json:"limits,omitempty"`
 }
 
 // WaiversBlock is the "waivers" config block (roster-ops spec section 10).
@@ -413,16 +423,33 @@ func unknownFieldName(err error) (string, bool) {
 // validateConfig to catch with its exact messages; this function never
 // itself errors.
 func resolveRosterBlock(block RosterBlock, draftRounds int) RosterPreset {
-	if block.Preset != "" {
-		if preset, ok := rosterPresets[block.Preset]; ok {
-			return preset
+	var preset RosterPreset
+	switch {
+	case block.Preset != "":
+		if p, ok := rosterPresets[block.Preset]; ok {
+			preset = p
+		} else {
+			preset = RosterPreset{Name: block.Preset}
 		}
-		return RosterPreset{Name: block.Preset}
+	case len(block.Slots) == 0 && block.Bench == 0:
+		preset = rosterPresets["gridiron-house"]
+	default:
+		preset = RosterPreset{Name: "", Slots: block.Slots, Bench: block.Bench}
 	}
-	if len(block.Slots) == 0 && block.Bench == 0 {
-		return rosterPresets["gridiron-house"]
+	// Reserve/IR/Limits merge onto whichever base resolved above (SK
+	// spec): they ride along with either a preset or an explicit shape.
+	// Absent (nil/zero) leaves the base untouched — every existing preset
+	// and every config that never mentions them is unaffected.
+	if len(block.Reserve) > 0 {
+		preset.Reserve = block.Reserve
 	}
-	return RosterPreset{Name: "", Slots: block.Slots, Bench: block.Bench}
+	if block.IR > 0 {
+		preset.IR = block.IR
+	}
+	if len(block.Limits) > 0 {
+		preset.Limits = block.Limits
+	}
+	return preset
 }
 
 // envOverride applies value to *target when value is non-empty (spec
@@ -602,23 +629,32 @@ var validRosterSlotKeys = []string{"QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX", 
 func validateRoster(cfg *Config) error {
 	explicit := len(cfg.Roster.Slots) > 0 || cfg.Roster.Bench > 0
 	if cfg.RosterPresetName != "" {
-		preset, ok := rosterPresets[cfg.RosterPresetName]
-		if !ok {
+		if _, ok := rosterPresets[cfg.RosterPresetName]; !ok {
 			names := presetNames()
 			return fmt.Errorf("league config: unknown roster.preset %q; valid presets: %s", cfg.RosterPresetName, strings.Join(names, ", "))
 		}
 		if cfg.RosterConflict {
 			return fmt.Errorf("league config: set roster.preset or roster.slots/roster.bench, not both")
 		}
-		if preset.Total() != cfg.Rounds {
-			return fmt.Errorf("league config: roster.preset %q needs %d roster spots but draft.rounds is %d", cfg.RosterPresetName, preset.Total(), cfg.Rounds)
+		if err := validateZonesAndLimits(cfg.Roster.Reserve, cfg.Roster.IR, cfg.Roster.Limits, "league config"); err != nil {
+			return err
+		}
+		// cfg.Roster is the preset already merged with any Reserve/IR/
+		// Limits (resolveRosterBlock) — its own Total() is the one that
+		// must equal draft.rounds, not the raw, unmerged preset's.
+		if cfg.Roster.Total() != cfg.Rounds {
+			return fmt.Errorf("league config: roster.preset %q needs %d roster spots but draft.rounds is %d", cfg.RosterPresetName, cfg.Roster.Total(), cfg.Rounds)
 		}
 		return nil
 	}
 	if !explicit {
 		// Absent block: resolveRosterBlock already set the gridiron-house
 		// fallback; nothing further to validate here (its own totals are
-		// pinned by TestGridironHousePresetShape).
+		// pinned by TestGridironHousePresetShape). Unreachable through the
+		// real load path today (loadConfigFile always stamps
+		// RosterPresetName to "gridiron-house" when the block is absent,
+		// so cfg.RosterPresetName != "" catches it above); kept as a
+		// defensive branch for any other Config construction path.
 		return nil
 	}
 	for key, count := range cfg.Roster.Slots {
@@ -635,9 +671,12 @@ func validateRoster(cfg *Config) error {
 	if cfg.Roster.Bench < 0 || cfg.Roster.Bench > 10 {
 		return fmt.Errorf("league config: roster.bench must be 0 to 10")
 	}
+	if err := validateZonesAndLimits(cfg.Roster.Reserve, cfg.Roster.IR, cfg.Roster.Limits, "league config"); err != nil {
+		return err
+	}
 	if cfg.Roster.Total() != cfg.Rounds {
-		return fmt.Errorf("league config: roster slots plus bench must equal draft.rounds; got %d + %d with %d rounds",
-			cfg.Roster.Starters(), cfg.Roster.Bench, cfg.Rounds)
+		return fmt.Errorf("league config: roster slots plus bench plus reserve must equal draft.rounds; got %d + %d + %d with %d rounds",
+			cfg.Roster.Starters(), cfg.Roster.Bench, cfg.Roster.ReserveTotal(), cfg.Rounds)
 	}
 	return nil
 }

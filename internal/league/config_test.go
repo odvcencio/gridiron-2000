@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -236,7 +237,7 @@ func TestValidateConfigExactMessages(t *testing.T) {
 		{"slot count out of range", func(c *Config) { c.Roster.Slots = map[string]int{"QB": 5} }, "league config: roster.slots.QB must be 0 to 4"},
 		{"no starters", func(c *Config) { c.Roster.Slots = map[string]int{"QB": 0}; c.Roster.Bench = 15; c.Rounds = 15 }, "league config: roster.slots must total at least 1 starter"},
 		{"bench out of range", func(c *Config) { c.Roster.Bench = 11; c.Rounds = 1 + 11 }, "league config: roster.bench must be 0 to 10"},
-		{"slots+bench != rounds", func(c *Config) { c.Rounds = 20 }, "league config: roster slots plus bench must equal draft.rounds; got 5 + 10 with 20 rounds"},
+		{"slots+bench != rounds", func(c *Config) { c.Rounds = 20 }, "league config: roster slots plus bench plus reserve must equal draft.rounds; got 5 + 10 + 0 with 20 rounds"},
 		{"waiver mode", func(c *Config) { c.Waivers.Mode = "snake" }, "league config: waivers.mode must be one of perf-priority, faab"},
 		{"season weight range", func(c *Config) { c.Waivers.SeasonWeightPct = 101 }, "league config: waivers.season_weight_pct must be 0 to 100"},
 		{"faab budget range", func(c *Config) { c.Waivers.FAABBudget = 0 }, "league config: waivers.faab_budget must be 1 to 1000"},
@@ -467,5 +468,187 @@ func TestReferenceDeploymentConfigValidates(t *testing.T) {
 	}
 	if cfg.Name != "GRIDIRON 2000" || cfg.Roster.Name != "gridiron-house" || cfg.Rounds != 17 {
 		t.Errorf("cfg = %+v, want the reference deployment's shape", cfg)
+	}
+}
+
+// TestShippedExampleConfigCarriesNoZones is the regression half of the SK
+// roster-zones wave: the flagship shipped example (no reserve/ir/limits
+// block at all) must resolve with every zone concept at its pre-zones
+// zero value — zero behavior change when the concepts are absent.
+func TestShippedExampleConfigCarriesNoZones(t *testing.T) {
+	path := filepath.Join("..", "..", "config", "league.json.example")
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("could not read %s: %v", path, err)
+	}
+	t.Setenv("LEAGUE_FILE", writeConfig(t, string(body)))
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("config/league.json.example must load and validate cleanly: %v", err)
+	}
+	if len(cfg.Roster.Reserve) != 0 || cfg.Roster.IR != 0 || len(cfg.Roster.Limits) != 0 {
+		t.Fatalf("Roster = %+v, want no reserve/ir/limits (the flagship config never mentions them)", cfg.Roster)
+	}
+	if cfg.Roster.ReserveTotal() != 0 || cfg.Roster.Total() != cfg.Roster.Starters()+cfg.Roster.Bench {
+		t.Fatalf("Roster.Total() = %d, want Starters()+Bench() exactly (no reserve contribution)", cfg.Roster.Total())
+	}
+}
+
+// skLeagueConfigJSON is the Stable Kernel instance's league.json (owner
+// decision, 2026-08-18): 10 teams, QB/RB×3/WR×2/SUPERFLEX/DST/P/K starters
+// (no TE, no FLEX — TE enters only via superflex), 4 general bench, a
+// QB-only reserve slot, and a 2-player IR — 15 draftable spots (10+4+1),
+// 15 draft rounds; IR sits outside that total.
+const skLeagueConfigJSON = `{
+  "version": 1,
+  "league": {
+    "name": "STABLE KERNEL LEAGUE",
+    "short_code": "SKL",
+    "tagline": "Stable Kernel",
+    "mode_label": "DYNASTY",
+    "url": "http://localhost:8080",
+    "timezone": "America/New_York",
+    "season": 2026
+  },
+  "teams": [
+    {"id": "team-1", "name": "East 1", "abbreviation": "E1", "division": "East", "tone": "cyan"},
+    {"id": "team-2", "name": "East 2", "abbreviation": "E2", "division": "East", "tone": "blue"},
+    {"id": "team-3", "name": "East 3", "abbreviation": "E3", "division": "East", "tone": "violet"},
+    {"id": "team-4", "name": "East 4", "abbreviation": "E4", "division": "East", "tone": "lime"},
+    {"id": "team-5", "name": "East 5", "abbreviation": "E5", "division": "East", "tone": "gold"},
+    {"id": "team-6", "name": "West 1", "abbreviation": "W1", "division": "West", "tone": "orange"},
+    {"id": "team-7", "name": "West 2", "abbreviation": "W2", "division": "West", "tone": "magenta"},
+    {"id": "team-8", "name": "West 3", "abbreviation": "W3", "division": "West", "tone": "pink"},
+    {"id": "team-9", "name": "West 4", "abbreviation": "W4", "division": "West", "tone": "cyan"},
+    {"id": "team-10", "name": "West 5", "abbreviation": "W5", "division": "West", "tone": "blue"}
+  ],
+  "draft": {"at": "2099-01-01T00:00:00Z", "rounds": 15, "format_label": ""},
+  "season_start_at": "2099-01-08T00:00:00Z",
+  "scoring_format": "half_ppr",
+  "copy": {"hero_kicker": "", "footer_line": "", "venue_line": "", "invite_blurb": ""},
+  "roster": {
+    "slots": {"QB": 1, "RB": 3, "WR": 2, "SUPERFLEX": 1, "DST": 1, "P": 1, "K": 1},
+    "bench": 4,
+    "reserve": {"QB": 1},
+    "ir": 2
+  }
+}`
+
+// TestSKLeagueConfigLoadsExactShape loads the Stable Kernel fixture end to
+// end and pins its exact resolved shape: 10 starters (no TE, no FLEX), 4
+// bench, a 1-slot QB reserve (counted in the 15 draftable spots and in
+// draft.rounds), and a 2-player IR (not counted).
+func TestSKLeagueConfigLoadsExactShape(t *testing.T) {
+	cfg, err := loadConfigFromEnvFile(t, skLeagueConfigJSON)
+	if err != nil {
+		t.Fatalf("the Stable Kernel fixture must load and validate cleanly: %v", err)
+	}
+	wantSlots := map[string]int{"QB": 1, "RB": 3, "WR": 2, "SUPERFLEX": 1, "DST": 1, "P": 1, "K": 1}
+	if !reflect.DeepEqual(cfg.Roster.Slots, wantSlots) {
+		t.Errorf("Slots = %+v, want %+v", cfg.Roster.Slots, wantSlots)
+	}
+	if _, hasTE := cfg.Roster.Slots["TE"]; hasTE {
+		t.Error("SK shape must not carry a TE slot; TE enters only through SUPERFLEX")
+	}
+	if _, hasFlex := cfg.Roster.Slots["FLEX"]; hasFlex {
+		t.Error("SK shape must not carry a FLEX slot")
+	}
+	if cfg.Roster.Starters() != 10 {
+		t.Errorf("Starters() = %d, want 10", cfg.Roster.Starters())
+	}
+	if cfg.Roster.Bench != 4 {
+		t.Errorf("Bench = %d, want 4", cfg.Roster.Bench)
+	}
+	if !reflect.DeepEqual(cfg.Roster.Reserve, map[string]int{"QB": 1}) {
+		t.Errorf("Reserve = %+v, want {QB:1}", cfg.Roster.Reserve)
+	}
+	if cfg.Roster.ReserveTotal() != 1 {
+		t.Errorf("ReserveTotal() = %d, want 1", cfg.Roster.ReserveTotal())
+	}
+	if cfg.Roster.IR != 2 {
+		t.Errorf("IR = %d, want 2", cfg.Roster.IR)
+	}
+	if cfg.Roster.Total() != 15 {
+		t.Errorf("Total() = %d, want 15 (10 starters + 4 bench + 1 reserve; IR excluded)", cfg.Roster.Total())
+	}
+	if cfg.Rounds != 15 {
+		t.Errorf("draft.rounds = %d, want 15", cfg.Rounds)
+	}
+	if len(cfg.Teams) != 10 {
+		t.Errorf("Teams = %d, want 10", len(cfg.Teams))
+	}
+}
+
+// TestCustomSlotsEquivalentToNamedPreset pins the "config-level custom
+// slots" contract: an explicit roster.slots/roster.bench shape that
+// happens to match a named preset's own shape resolves to the identical
+// RosterPreset the preset name would — one validation source behind both
+// paths, not two.
+func TestCustomSlotsEquivalentToNamedPreset(t *testing.T) {
+	named, err := loadConfigFromEnvFile(t, minimalValidConfigJSON) // roster.preset "standard"
+	if err != nil {
+		t.Fatalf("named preset load: %v", err)
+	}
+	explicitBody := strings.NewReplacer(
+		`"roster": {"preset": "standard"}`,
+		`"roster": {"slots": {"QB":1,"RB":2,"WR":2,"TE":1,"FLEX":1,"DST":1,"K":1}, "bench": 6}`,
+	).Replace(minimalValidConfigJSON)
+	explicit, err := loadConfigFromEnvFile(t, explicitBody)
+	if err != nil {
+		t.Fatalf("explicit shape load: %v", err)
+	}
+	if !reflect.DeepEqual(named.Roster.Slots, explicit.Roster.Slots) {
+		t.Errorf("Slots differ: named=%+v explicit=%+v", named.Roster.Slots, explicit.Roster.Slots)
+	}
+	if named.Roster.Bench != explicit.Roster.Bench {
+		t.Errorf("Bench differ: named=%d explicit=%d", named.Roster.Bench, explicit.Roster.Bench)
+	}
+	if named.Roster.Total() != explicit.Roster.Total() || named.Roster.Starters() != explicit.Roster.Starters() {
+		t.Errorf("Total()/Starters() differ: named=%+v explicit=%+v", named.Roster, explicit.Roster)
+	}
+}
+
+// TestValidateZonesAndLimitsExactMessages pins the zone/limit config
+// validation matrix: an unknown reserve position, an out-of-range IR
+// count, and an out-of-range limit all fail closed with the shared
+// validateZonesAndLimits message shape.
+func TestValidateZonesAndLimitsExactMessages(t *testing.T) {
+	base := strings.NewReplacer(
+		`"roster": {"preset": "standard"}`,
+		`"roster": {"slots": {"QB":1,"RB":2,"WR":2,"TE":1,"FLEX":1,"DST":1,"K":1}, "bench": 5, "reserve": {"TE": 1}}`,
+	).Replace(minimalValidConfigJSON)
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			"unknown reserve position",
+			strings.Replace(base, `"reserve": {"TE": 1}`, `"reserve": {"FLEX": 1}`, 1),
+			`league config: reserve: unknown position "FLEX"; valid positions: QB, RB, WR, TE, DST, K, P`,
+		},
+		{
+			"reserve count out of range",
+			strings.Replace(base, `"reserve": {"TE": 1}`, `"reserve": {"TE": 5}`, 1),
+			"league config: reserve.TE must be 0 to 4",
+		},
+		{
+			"ir out of range",
+			strings.Replace(base, `"bench": 5, "reserve": {"TE": 1}`, `"bench": 5, "reserve": {"TE": 1}, "ir": 11`, 1),
+			"league config: ir must be 0 to 10",
+		},
+		{
+			"limit out of range",
+			strings.Replace(base, `"bench": 5, "reserve": {"TE": 1}`, `"bench": 5, "reserve": {"TE": 1}, "limits": {"QB": 0}`, 1),
+			`league config: limits.QB must be 1 to 20`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := loadConfigFromEnvFile(t, tc.body)
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
 	}
 }

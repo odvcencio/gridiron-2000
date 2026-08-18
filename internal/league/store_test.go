@@ -1605,6 +1605,46 @@ func TestResetLeagueClearsTransactions(t *testing.T) {
 	}
 }
 
+// TestResetDraftClearsRosterZones and TestResetLeagueClearsRosterZones pin
+// the SK IR spec's own reset rationale (matching Transactions/Lineups/
+// WaiverClaims/TradeOffers above): a zone assignment names a player
+// against the pre-reset roster, so a redrawn draft or a full league reset
+// must not leave a stale reserve/IR tag behind.
+func TestResetDraftClearsRosterZones(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.PlaceInZone("team-1", "p-1", zoneReserve, "QB", time.Now()); err == nil {
+		t.Fatal("PlaceInZone must fail for an unowned player") // seed via MakePick instead
+	}
+	if _, err := store.MakePick("team-1", "p-1", "manager", time.Now(), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PlaceInZone("team-1", "p-1", zoneReserve, "QB", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetDraft(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().RosterZones; len(got) != 0 {
+		t.Fatalf("RosterZones after ResetDraft = %+v, want empty", got)
+	}
+}
+
+func TestResetLeagueClearsRosterZones(t *testing.T) {
+	store := newTestStore(t)
+	if _, err := store.MakePick("team-1", "p-1", "manager", time.Now(), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PlaceInZone("team-1", "p-1", zoneReserve, "QB", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetLeague(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().RosterZones; len(got) != 0 {
+		t.Fatalf("RosterZones after ResetLeague = %+v, want empty", got)
+	}
+}
+
 // TestWaiverClaimsDecodeFromOldStateFile pins the roster-ops spec section
 // 3.1 additive-field contract for WaiverClaims/WaiversProcessedThrough —
 // the same old-state-file-load pattern TestTransactionsDecodeFromOldStateFile

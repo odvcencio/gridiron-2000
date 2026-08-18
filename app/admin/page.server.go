@@ -225,7 +225,7 @@ func init() {
 				return nil
 			},
 			"roster-shape-apply": func(ctx *action.Context) error {
-				override := league.RosterOverride{Slots: map[string]int{}}
+				override := league.RosterOverride{Slots: map[string]int{}, Reserve: map[string]int{}, Limits: map[string]int{}}
 				for _, key := range rosterShapeSlotKeys {
 					n, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["slot_"+key]))
 					if err != nil {
@@ -240,13 +240,48 @@ func init() {
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				override.Bench = bench
+				// Reserve/IR/Limits (roster-ops SK spec): additive fields
+				// on the same form. A blank or absent field defaults to 0
+				// (no zone/limit for that key) rather than failing the
+				// whole submit — every existing deployment's form posts
+				// none of these fields today.
+				for _, position := range rosterZonePositionKeys {
+					if raw := strings.TrimSpace(ctx.FormData["reserve_"+position]); raw != "" {
+						n, err := strconv.Atoi(raw)
+						if err != nil {
+							message := "enter whole numbers for the reserve zone"
+							return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+						}
+						if n > 0 {
+							override.Reserve[position] = n
+						}
+					}
+					if raw := strings.TrimSpace(ctx.FormData["limit_"+position]); raw != "" {
+						n, err := strconv.Atoi(raw)
+						if err != nil {
+							message := "enter whole numbers for roster limits"
+							return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+						}
+						if n > 0 {
+							override.Limits[position] = n
+						}
+					}
+				}
+				if raw := strings.TrimSpace(ctx.FormData["ir"]); raw != "" {
+					n, err := strconv.Atoi(raw)
+					if err != nil {
+						message := "enter a whole number for ir"
+						return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+					}
+					override.IR = n
+				}
 				preset, err := league.Default().AdminSetRosterShape(ctx.Request, override)
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", fmt.Sprintf(
-					"Roster shape set: %d starters + %d bench = %d draft rounds.",
-					preset.Starters(), preset.Bench, preset.Total()))
+					"Roster shape set: %d starters + %d bench + %d reserve = %d draft rounds (IR %d, outside the cap).",
+					preset.Starters(), preset.Bench, preset.ReserveTotal(), preset.Total(), preset.IR))
 				ctx.Redirect("/admin")
 				return nil
 			},
@@ -285,3 +320,10 @@ func init() {
 // order ("slot_QB", "slot_RB", ...): the fixed, small slot-key set the
 // roster-shape-editor spec pins (mirrors league.validRosterSlotKeys).
 var rosterShapeSlotKeys = []string{"QB", "RB", "WR", "TE", "FLEX", "SUPERFLEX", "DST", "K", "P"}
+
+// rosterZonePositionKeys names every roster-shape editor's reserve/limit
+// form field position ("reserve_QB", "limit_QB", ...): the seven real
+// player positions (mirrors league's playerPoolPositions), not the slot
+// key set above — a reserve zone or a roster limit gates on a player's
+// actual position, never a lineup slot name.
+var rosterZonePositionKeys = []string{"QB", "RB", "WR", "TE", "DST", "K", "P"}

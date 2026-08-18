@@ -167,6 +167,59 @@ func TestValidateTradeAssetsExactMessages(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
+// Zones/Limits at trade execution (roster-ops SK spec)
+// ---------------------------------------------------------------------
+
+// TestValidateTradeAssetsIRExcludedFromCapMath pins T7's IR-exclusion
+// rule: an IR occupant never counts against the [starterCount, rosterCap]
+// bound (SK spec: "placing a player in IR frees a general roster spot").
+// team-1 raw-owns 4 players (one, t1-ir, parked on IR) — a 1-for-1 trade
+// that keeps team-1 at its true 3-player effective size must pass, even
+// though the raw ownership count (4) would otherwise read as already
+// over a 3-player cap before the trade even starts.
+func TestValidateTradeAssetsIRExcludedFromCapMath(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	state := tradeAssetsFixtureState()
+	state.Transactions = append(state.Transactions, Transaction{
+		Type: "add", TeamID: "team-1", Adds: []TransactionPlayer{{PlayerID: "t1-ir"}},
+	})
+	state.RosterZones = map[string]map[string]ZoneAssignment{
+		"team-1": {"t1-ir": {Zone: zoneIR, Position: "RB"}},
+	}
+	pool := tradeAssetsFixturePool()
+	pool["t1-ir"] = Player{ID: "t1-ir", Name: "Team1 IR", Position: "RB", NFLTeam: "PIT"}
+	games := tradeAssetsFixtureGames(now)
+
+	offer := TradeOffer{FromTeamID: "team-1", ToTeamID: "team-2", Give: []string{"t1-a"}, Get: []string{"t2-a"}}
+	if err := validateTradeAssets(state, DefaultConfig(), games, pool, now, offer, 1, 3); err != nil {
+		t.Fatalf("a 1-for-1 trade must pass once the IR occupant is excluded from the cap count: %v", err)
+	}
+}
+
+// TestValidateTradeAssetsLimitsBlocks pins the optional Limits knob's
+// trade-execution enforcement point: an incoming player that would push a
+// position over its configured cap fails with the shared limitMessage
+// pattern, even though the trade's raw player counts fit comfortably
+// within [starterCount, rosterCap].
+func TestValidateTradeAssetsLimitsBlocks(t *testing.T) {
+	setRosterShape(RosterPreset{Name: "limits-fixture", Slots: map[string]int{"RB": 1}, Bench: 2, Limits: map[string]int{"RB": 2}})
+	t.Cleanup(clearRosterShape)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	state := tradeAssetsFixtureState()
+	pool := tradeAssetsFixturePool()
+	games := tradeAssetsFixtureGames(now)
+
+	// team-1 already owns 2 RBs (t1-a, t1-locked); trading its WR (t1-b)
+	// for team-2's RB (t2-a) would make 3, over the RB:2 limit.
+	offer := TradeOffer{FromTeamID: "team-1", ToTeamID: "team-2", Give: []string{"t1-b"}, Get: []string{"t2-a"}}
+	err := validateTradeAssets(state, DefaultConfig(), games, pool, now, offer, 1, 3)
+	want := limitMessage("RB", 2)
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
+// ---------------------------------------------------------------------
 // Service-level fixture: 8 seated teams, tiny roster shape, a completed
 // draft giving team-1 and team-2 three players each.
 // ---------------------------------------------------------------------
