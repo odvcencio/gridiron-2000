@@ -344,7 +344,7 @@ func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Ti
 		s.state.RosterZones[teamID] = map[string]ZoneAssignment{}
 	}
 	s.state.RosterZones[teamID][playerID] = ZoneAssignment{Zone: zone, Position: position, PlacedAt: now.UTC()}
-	return s.persistLocked()
+	return s.persistLocked(colRosterZones)
 }
 
 // ClearZone removes playerID's zone assignment for teamID, one lock, one
@@ -360,7 +360,7 @@ func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
 	}
 	delete(s.state.RosterZones[teamID], playerID)
-	return s.persistLocked()
+	return s.persistLocked(colRosterZones)
 }
 
 // ActivateFromIRWithDrop clears playerID's IR zone assignment and appends
@@ -384,7 +384,7 @@ func (s *Store) ActivateFromIRWithDrop(teamID, playerID string, dropTxn Transact
 	delete(s.state.RosterZones[teamID], playerID)
 	dropTxn.At = dropTxn.At.UTC()
 	s.state.Transactions = append(s.state.Transactions, dropTxn)
-	return s.persistLocked()
+	return s.persistLocked(colRosterZones, colTransactions)
 }
 
 // AutoCutHealedIR appends one "auto-drop" Transaction and clears
@@ -418,7 +418,7 @@ func (s *Store) AutoCutHealedIR(teamID string, player TransactionPlayer, season,
 		At:     now.UTC(),
 	}
 	s.state.Transactions = append(s.state.Transactions, txn)
-	if err := s.persistLocked(); err != nil {
+	if err := s.persistLocked(colRosterZones, colTransactions); err != nil {
 		return Transaction{}, err
 	}
 	return txn, nil
