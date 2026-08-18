@@ -4821,3 +4821,25 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-text-primary);
   font-size: var(--type-sm);
 }
+
+/* ---- signup badge picker: make the chosen badge unmistakable ------- */
+/* The radio is visually hidden, so the tile itself has to carry the
+   selected state. Outlining only the masked art (the rule above) is easy
+   to miss on a dense grid, and a picker whose selection is invisible
+   reads as a picker that does not work. */
+.badge-option__radio:checked ~ .badge-option__art,
+.badge-option__radio:focus-visible ~ .badge-option__art {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.badge-option--pick:has(.badge-option__radio:checked) {
+  border-color: var(--color-accent);
+  background: var(--color-accent-haze, var(--color-white-faint));
+  transform: translateY(-1px);
+}
+.badge-option--pick:has(.badge-option__radio:focus-visible) {
+  border-color: var(--color-accent-cyan);
+}
+.badge-option--pick:hover {
+  border-color: var(--color-accent-cyan);
+}
