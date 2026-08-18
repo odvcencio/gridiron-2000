@@ -3,6 +3,7 @@ package league
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"html"
 	"math/big"
@@ -520,6 +521,26 @@ func (s *Service) AdminResetLeague(r *http.Request) error {
 func (s *Service) AdminRenameTeam(r *http.Request, teamID, name string) (Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return Team{}, err
+	}
+	if err := s.store.SetTeamName(teamID, name); err != nil {
+		return Team{}, err
+	}
+	return s.teamView(s.store.Snapshot(), teamID), nil
+}
+
+// RenameTeam sets teamID's display name for the seat's own manager, or
+// for the commissioner acting on any seat — the canSetAvatar authority
+// model: team identity (name, avatar, badge) is the manager's own to
+// shape, unlike the Admin* league-management actions above. Validation
+// (trim, 40-character cap, empty clears the override back to the config
+// name) lives in Store.SetTeamName, shared with the commissioner path.
+func (s *Service) RenameTeam(r *http.Request, teamID, name string) (Team, error) {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return Team{}, fmt.Errorf("unknown team %q", teamID)
+	}
+	if !s.canSetAvatar(r, teamID) {
+		return Team{}, errors.New("only the seat's manager or the commissioner can rename this team")
 	}
 	if err := s.store.SetTeamName(teamID, name); err != nil {
 		return Team{}, err
