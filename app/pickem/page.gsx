@@ -77,7 +77,7 @@ func PickemRow(props any) Node {
 }
 
 func LeaderboardRow(props any) Node {
-	return <div class="board-row">
+	return <div class="rank-row">
 		<span class="pool-rank mono">{props.entry.rank}</span>
 		<div class="pool-player">
 			<strong>{props.entry.name}</strong>

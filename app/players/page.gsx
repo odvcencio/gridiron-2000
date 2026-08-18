@@ -65,7 +65,7 @@ func Page() Node {
 			</div>
 			<div class="position-filters" aria-label="Filter the player pool by position">
 				<Each of={data.positions} as="tab">
-					<a href={tab.href} data-gosx-link class="filter-button" aria-pressed={tab.active}>{tab.label}</a>
+					<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>
 				</Each>
 			</div>
 			<form method="get" action="/players" class="pool-search-bar">
@@ -86,7 +86,7 @@ func Page() Node {
 			</If>
 			<div class="pool-list pool-list--tall">
 				<Each of={data.players} as="player">
-					<article class="pool-row" data-player-position={player.position}>
+					<article class="pool-row pool-row--status" data-player-position={player.position}>
 						<span class="pool-rank mono">{player.rank}</span>
 						<div class="pool-player" tabindex="0">
 							<If cond={player.has_headshot}>
@@ -190,7 +190,7 @@ func Page() Node {
 			</If>
 			<div class="pool-list">
 				<Each of={data.my_claims} as="claim">
-					<article class="pool-row">
+					<article class="pool-row pool-row--claim">
 						<div class="pool-player">
 							<div class="pool-player__text">
 								<strong>{claim.add_name}</strong>

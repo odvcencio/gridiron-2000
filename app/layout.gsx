@@ -18,7 +18,7 @@ func Layout() Node {
 		<div class="ambient-grid" aria-hidden="true"></div>
 
 		<If cond={data.viewer.signed_in || data.viewer.demo}>
-			<input type="checkbox" id="nav-drawer" class="drawer-check" aria-hidden="true"></input>
+			<input type="checkbox" id="nav-drawer" class="drawer-check" aria-label="Open menu"></input>
 
 			<header class="mobile-bar">
 				<a href="/" data-gosx-link class="mobile-brand" aria-label={data.league.name + " league home"}>

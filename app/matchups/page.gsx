@@ -44,13 +44,6 @@ func MatchupCard(props any) Node {
 			<span>VS</span>
 		</div>
 		<ScoreTeam {...props.Home}></ScoreTeam>
-		<footer>
-			<span>Win probability</span>
-			<div class="probability-track" aria-hidden="true">
-				<i></i>
-			</div>
-			<strong class="mono">52 / 48</strong>
-		</footer>
 	</article>
 }
 
