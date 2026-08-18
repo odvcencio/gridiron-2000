@@ -83,28 +83,29 @@ func NewStore(filePath string) *Store {
 		filePath: strings.TrimSpace(filePath),
 		shadow:   shadowIndex{},
 		state: PersistedState{
-			SchemaVersion: currentSchemaVersion,
-			Ready:         map[string]bool{},
-			Picks:         []DraftPick{},
-			Members:       map[string]Member{},
-			Invites:       []string{},
-			Boards:        map[string][]string{},
-			TeamNames:     map[string]string{},
-			DraftOrder:    []string{},
-			Scoring:       map[string]float64{},
-			Pickems:       map[string]map[string]string{},
-			BlitzEntries:  map[string]map[string]BlitzEntry{},
-			Autopick:      map[string]bool{},
-			SentLog:       map[string]time.Time{},
-			NotifyPrefs:   map[string]map[string]bool{},
-			BadgeClaims:   map[string]string{},
-			Announcements: []Announcement{},
-			Lineups:       map[string]map[int]map[string]string{},
-			Transactions:  []Transaction{},
-			WaiverClaims:  []WaiverClaim{},
-			TradeOffers:   []TradeOffer{},
-			RosterZones:   map[string]map[string]ZoneAssignment{},
-			CoInvites:     map[string]string{},
+			SchemaVersion:  currentSchemaVersion,
+			Ready:          map[string]bool{},
+			Picks:          []DraftPick{},
+			Members:        map[string]Member{},
+			Invites:        []string{},
+			Boards:         map[string][]string{},
+			TeamNames:      map[string]string{},
+			DraftOrder:     []string{},
+			Scoring:        map[string]float64{},
+			Pickems:        map[string]map[string]string{},
+			BlitzEntries:   map[string]map[string]BlitzEntry{},
+			Autopick:       map[string]bool{},
+			SentLog:        map[string]time.Time{},
+			NotifyPrefs:    map[string]map[string]bool{},
+			BadgeClaims:    map[string]string{},
+			Announcements:  []Announcement{},
+			Lineups:        map[string]map[int]map[string]string{},
+			Transactions:   []Transaction{},
+			WaiverClaims:   []WaiverClaim{},
+			TradeOffers:    []TradeOffer{},
+			RosterZones:    map[string]map[string]ZoneAssignment{},
+			CoInvites:      map[string]string{},
+			TrimmedTeamIDs: []string{},
 		},
 	}
 	if err := s.openLocked(); err != nil {
@@ -860,6 +861,49 @@ func validateDraftOrder(order []string) error {
 		seen[teamID] = true
 	}
 	return nil
+}
+
+// TrimUnclaimedSeats drops every currently-unclaimed seat (SK unclaimed-
+// seat spec: "basically whatever seats are filled by an hour before draft
+// time"), locking the league to its claimed team count. A seat counts as
+// claimed when memberForTeam finds a primary or co-manager Member for it;
+// a kept team's own record (ID, name, division, tone) is untouched — this
+// only shrinks which team IDs defaultTeams() returns going forward, never
+// mutates a surviving team. Rejected once the draft has picks on the tape,
+// mirroring SetDraftOrder/SetRosterOverride's post-first-pick lock.
+// Rejected below minTeams kept, so a trim can never leave the league under
+// the engine's own floor (config.go, also GenerateSchedule's own 4-team
+// floor). Always evaluated against activeTeams (the full config-seeded
+// list), never against an already-trimmed defaultTeams() result, so a
+// repeat call recomputes the same answer instead of compounding —
+// idempotent. Also clears any already-drawn DraftOrder: an order drawn
+// before the trim named the full, now-stale team set (SetDraftOrder's own
+// permutation check would fail against the new, smaller defaultTeamIDs()
+// on the next redraw regardless), so the trim itself resets it rather than
+// leaving a stale order that activeTeamCount would keep reading as the old
+// count.
+func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.state.Picks) > 0 {
+		return nil, nil, fmt.Errorf("seats lock once the draft starts")
+	}
+	for _, team := range activeTeams {
+		if memberForTeam(s.state.Members, team.ID).Email != "" {
+			kept = append(kept, team)
+		} else {
+			removedIDs = append(removedIDs, team.ID)
+		}
+	}
+	if len(kept) < minTeams {
+		return nil, nil, fmt.Errorf("at least %d seats must be claimed before trimming", minTeams)
+	}
+	s.state.TrimmedTeamIDs = append([]string(nil), removedIDs...)
+	s.state.DraftOrder = nil
+	if err := s.persistLocked(colScalars, colDraftOrder); err != nil {
+		return nil, nil, err
+	}
+	return kept, removedIDs, nil
 }
 
 // SetScoringValue overrides one scoring rule's point value. Setting the
@@ -2055,6 +2099,7 @@ func cloneState(in PersistedState) PersistedState {
 		TradeOffers:             make([]TradeOffer, len(in.TradeOffers)),
 		RosterZones:             make(map[string]map[string]ZoneAssignment, len(in.RosterZones)),
 		CoInvites:               make(map[string]string, len(in.CoInvites)),
+		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value

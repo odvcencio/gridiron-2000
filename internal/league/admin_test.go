@@ -39,6 +39,28 @@ func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 	}
 }
 
+// TestInviteEmailTemplateCarryoverLineMatchesMode proves the "rosters
+// carry over" claim only appears for a DYNASTY-mode league (SK launch-prep
+// finding: the invite text asserted this unconditionally, which was false
+// for a REDRAFT-labeled league).
+func TestInviteEmailTemplateCarryoverLineMatchesMode(t *testing.T) {
+	service := newTestService(t, true)
+	service.cfg.ModeLabel = "DYNASTY"
+	_, dynastyText, _ := service.InviteEmailTemplate("manager@example.com")
+	if !strings.Contains(dynastyText, "Rosters carry over") {
+		t.Errorf("DYNASTY mode: text missing the carryover line:\n%s", dynastyText)
+	}
+
+	service.cfg.ModeLabel = "REDRAFT"
+	_, redraftText, _ := service.InviteEmailTemplate("manager@example.com")
+	if strings.Contains(redraftText, "Rosters carry over") {
+		t.Errorf("REDRAFT mode: text must not claim rosters carry over:\n%s", redraftText)
+	}
+	if !strings.Contains(redraftText, "— The Commissioner") {
+		t.Errorf("REDRAFT mode: text missing its sign-off:\n%s", redraftText)
+	}
+}
+
 // TestInviteEmailTemplateReproducesDeployedLeagueFacts simulates the
 // reference deployment's own league.json (Aqua/Orange divisions, the
 // Dolphins venue line) and checks the derived blurb and venue clause carry

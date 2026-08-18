@@ -23,8 +23,8 @@ import (
 // non-commissioners; every action re-checks authority server-side.
 func (s *Service) AdminData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
-	seats := make([]map[string]any, 0, len(s.teams))
-	for _, team := range s.teams {
+	seats := make([]map[string]any, 0, len(s.Teams()))
+	for _, team := range s.Teams() {
 		member := memberForTeam(state.Members, team.ID)
 		item := s.teamMap(s.teamView(state, team.ID))
 		item["email"] = member.Email
@@ -65,16 +65,24 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	}
 	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
 	now := s.clock()
+	// domainGate mirrors rulesMembershipMap's fix (scoring.go): "no invite
+	// list" alone does not mean any Google account may claim a seat when a
+	// membership.allowed_domain gate is configured — the admin console's
+	// own "Who may claim a seat" banner made exactly that false claim for
+	// a domain-gated league (SK launch-prep dry run finding) until this.
+	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
 	return map[string]any{
-		"viewer":          s.Viewer(r),
-		"is_commissioner": s.IsCommissioner(r),
-		"seats":           seats,
-		"invites":         invites,
-		"invite_count":    len(invites),
-		"league_open":     len(invites) == 0,
-		"member_count":    len(state.Members),
-		"pick_count":      len(state.Picks),
-		"seat_count":      len(s.teams),
+		"viewer":              s.Viewer(r),
+		"is_commissioner":     s.IsCommissioner(r),
+		"seats":               seats,
+		"invites":             invites,
+		"invite_count":        len(invites),
+		"league_open":         domainGate == "" && len(invites) == 0,
+		"league_domain_gated": domainGate != "",
+		"league_domain":       domainGate,
+		"member_count":        len(state.Members),
+		"pick_count":          len(state.Picks),
+		"seat_count":          len(s.Teams()),
 		// ready_count feeds the masthead's "N/seats ready" line: the same
 		// aggregate the draft room shows, so the commissioner reads seat
 		// readiness at a glance without scrolling to 01 // SEATS.
@@ -242,6 +250,34 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 	return nil
 }
 
+// TrimUnclaimedSeats applies the SK unclaimed-seat spec's T-1hr commissioner
+// action: every seat with no member (primary or co-manager) is dropped, and
+// the league locks to its claimed team count for the rest of the season —
+// schedule generation, draft order, and waiver priority all read
+// defaultTeams() from this point on and see only the kept teams. Draft
+// rounds are unaffected: they derive from the roster shape
+// (CurrentDraftRounds), never from team count. Commissioner-only; rejected
+// once the draft has picks on the tape or the claimed count would fall
+// below the engine's team floor (Store.TrimUnclaimedSeats).
+func (s *Service) TrimUnclaimedSeats(r *http.Request) (kept []Team, removed []string, err error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return nil, nil, err
+	}
+	kept, removed, err = s.store.TrimUnclaimedSeats()
+	if err != nil {
+		return nil, nil, err
+	}
+	// Two writes, deliberately: applySeatTrim updates the package-level
+	// override every non-Service call site reads (store.go, roster.go's
+	// draftComplete, draftclock.go), and setTeams updates this Service
+	// instance's own teams field, which every Service-method read site
+	// reads through Teams() instead. Production only ever runs one
+	// Service instance, so both agree from this call onward.
+	applySeatTrim(kept)
+	s.setTeams(kept)
+	return kept, removed, nil
+}
+
 // AdminPostAnnouncement posts a new league announcement (league-
 // announcements spec). alsoEmail fires the N11 commissioner-broadcast
 // email to every seated member, respecting each member's own notify
@@ -288,7 +324,7 @@ func (s *Service) inviteBlurb() string {
 	if blurb := strings.TrimSpace(s.cfg.Copy.InviteBlurb); blurb != "" {
 		return blurb
 	}
-	word := countWord(len(s.teams))
+	word := countWord(len(s.Teams()))
 	blurb := fmt.Sprintf("%s %s-manager %s league", article(word), word, strings.ToLower(s.cfg.ModeLabel))
 	if divisions := s.divisionList(); len(divisions) > 0 {
 		blurb += " split into the " + strings.Join(divisions, " and ") + " divisions"
@@ -318,6 +354,19 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
 		venueClause = " " + venue
 	}
+	// carryoverLine asserted "rosters carry over season to season"
+	// unconditionally until this fix — true for the flagship's own
+	// dynasty format, false for any other mode.ModeLabel (SK's "REDRAFT",
+	// or a future keeper/dynasty-hybrid league): this platform now runs
+	// more than one format, so the invite copy must not assume the
+	// flagship's own. Any label other than exactly "DYNASTY" omits the
+	// claim entirely rather than guess at what a redraft or keeper league
+	// wants said instead — the same "omit rather than invent" rule
+	// copy.venue_line's empty-string case already follows.
+	carryoverLine := ""
+	if strings.EqualFold(s.cfg.ModeLabel, "DYNASTY") {
+		carryoverLine = "\n\nRosters carry over season to season, so draft like it matters."
+	}
 
 	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
 	text = fmt.Sprintf(`Hi there,
@@ -332,11 +381,9 @@ Here's what to do before then:
   3. Claim your seat and rename your team
   4. Build your draft board before the clock starts
 
-The full scoring system is on the Rules page.
+The full scoring system is on the Rules page.%s
 
-Rosters carry over season to season, so draft like it matters.
-
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, leagueURL, email)
+— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, leagueURL, email, carryoverLine)
 	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb)
 	return subject, text, htmlBody
 }
@@ -719,7 +766,7 @@ func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, 
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
 	}
 	state := s.store.Snapshot()
-	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
+	totalPicks := len(s.Teams()) * CurrentDraftRounds()
 	number := len(state.Picks) + 1
 	if number > totalPicks {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft is complete")
@@ -817,8 +864,8 @@ func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64) (Seaso
 	}
 	sched, err := GenerateSchedule(ScheduleParams{
 		Season:    seasonStartAt().Year(),
-		TeamIDs:   teamIDList(s.teams),
-		Divisions: teamDivisionMap(s.teams),
+		TeamIDs:   teamIDList(s.Teams()),
+		Divisions: teamDivisionMap(s.Teams()),
 		StartWeek: startWeek,
 		Weeks:     weeks,
 		Seed:      seed,
