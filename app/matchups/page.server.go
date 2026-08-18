@@ -8,32 +8,44 @@ import (
 	"m31labs.dev/gosx/server"
 )
 
-// MatchupTeamCard is the typed spread source for TeamMark's strict props
-// (Tone, Abbreviation, Name, HasAvatarImage, AvatarImageURL), plus the
-// extra fields ScoreTeam's own legacy body reads (Manager, ID, Score). The
-// strict call-site boundary (gosx#184) proves struct values field by
-// field, so this only needs to structurally cover TeamMarkProps, not share
-// its name or identity.
-type MatchupTeamCard struct {
-	ID             string
-	Name           string
-	Manager        string
-	Score          string
-	Tone           string
-	Abbreviation   string
-	HasAvatarImage bool
-	AvatarImageURL string
-}
-
-// MatchupCard is the typed data.matchups entry MatchupCard's legacy body
-// reads (ID, Status, Clock) and spreads (Away, Home) into ScoreTeam, which
-// bare-spreads its own props straight into strict TeamMark.
-type MatchupCard struct {
-	ID     string
-	Status string
-	Clock  string
-	Away   MatchupTeamCard
-	Home   MatchupTeamCard
+// MatchupCardData is the typed data.matchups entry: structurally
+// identical to page.gsx's strict MatchupCardProps, field for field. It
+// is flat (AwayID, AwayName, ... HomeID, HomeName, ...) rather than
+// nesting Away/Home sub-structs, because Page() (page.gsx) reaches the
+// strict MatchupCard component through exactly one {...matchup} spread;
+// that spread proves this type structurally covers MatchupCardProps at
+// the top level, but a nested struct-typed field would additionally
+// need to match MatchupCardProps' corresponding field by exact type
+// identity — impossible to arrange cleanly across a .go/.gsx file pair,
+// since gosx's strict-component check separately requires that any
+// struct type MatchupCard's own body reaches through field access be
+// declared beside the component, in the .gsx file, not here. Flattening
+// removes every nested struct field, so only plain scalars (string,
+// bool) cross the boundary, and both requirements are satisfied without
+// contradiction. It is named MatchupCardData, not MatchupCard, because
+// page.gsx's strict `component MatchupCard` compiles to a package-level
+// Go declaration named MatchupCard too; a converter type sharing that
+// exact name here would collide with it.
+type MatchupCardData struct {
+	ID                 string
+	Status             string
+	Clock              string
+	AwayID             string
+	AwayName           string
+	AwayManager        string
+	AwayScore          string
+	AwayTone           string
+	AwayAbbreviation   string
+	AwayHasAvatarImage bool
+	AwayAvatarImageURL string
+	HomeID             string
+	HomeName           string
+	HomeManager        string
+	HomeScore          string
+	HomeTone           string
+	HomeAbbreviation   string
+	HomeHasAvatarImage bool
+	HomeAvatarImageURL string
 }
 
 func stringField(m map[string]any, key string) string {
@@ -46,34 +58,37 @@ func boolField(m map[string]any, key string) bool {
 	return value
 }
 
-func matchupTeamCardFromMap(raw map[string]any) MatchupTeamCard {
-	return MatchupTeamCard{
-		ID:             stringField(raw, "id"),
-		Name:           stringField(raw, "name"),
-		Manager:        stringField(raw, "manager"),
-		Score:          stringField(raw, "score"),
-		Tone:           stringField(raw, "tone"),
-		Abbreviation:   stringField(raw, "abbreviation"),
-		HasAvatarImage: boolField(raw, "has_avatar_image"),
-		AvatarImageURL: stringField(raw, "avatar_image_url"),
-	}
-}
-
 // matchupsPageCards converts MatchupsData's map[string]any "matchups" slice
-// into typed MatchupCard values so ScoreTeam's bare {...props} spread into
-// strict TeamMark proves clean: the tier-2 spread boundary rejects a
-// map[string]any source outright (it "cannot prove field coverage").
-func matchupsPageCards(raw []map[string]any) []MatchupCard {
-	out := make([]MatchupCard, 0, len(raw))
+// (each entry carrying nested "away"/"home" maps) into flat typed
+// MatchupCardData values, so page.gsx's strict MatchupCard/ScoreTeam/
+// TeamMark spread and attribute boundaries all prove clean: the tier-2
+// spread boundary rejects a map[string]any source outright (it "cannot
+// prove field coverage").
+func matchupsPageCards(raw []map[string]any) []MatchupCardData {
+	out := make([]MatchupCardData, 0, len(raw))
 	for _, entry := range raw {
 		away, _ := entry["away"].(map[string]any)
 		home, _ := entry["home"].(map[string]any)
-		out = append(out, MatchupCard{
-			ID:     stringField(entry, "id"),
-			Status: stringField(entry, "status"),
-			Clock:  stringField(entry, "clock"),
-			Away:   matchupTeamCardFromMap(away),
-			Home:   matchupTeamCardFromMap(home),
+		out = append(out, MatchupCardData{
+			ID:                 stringField(entry, "id"),
+			Status:             stringField(entry, "status"),
+			Clock:              stringField(entry, "clock"),
+			AwayID:             stringField(away, "id"),
+			AwayName:           stringField(away, "name"),
+			AwayManager:        stringField(away, "manager"),
+			AwayScore:          stringField(away, "score"),
+			AwayTone:           stringField(away, "tone"),
+			AwayAbbreviation:   stringField(away, "abbreviation"),
+			AwayHasAvatarImage: boolField(away, "has_avatar_image"),
+			AwayAvatarImageURL: stringField(away, "avatar_image_url"),
+			HomeID:             stringField(home, "id"),
+			HomeName:           stringField(home, "name"),
+			HomeManager:        stringField(home, "manager"),
+			HomeScore:          stringField(home, "score"),
+			HomeTone:           stringField(home, "tone"),
+			HomeAbbreviation:   stringField(home, "abbreviation"),
+			HomeHasAvatarImage: boolField(home, "has_avatar_image"),
+			HomeAvatarImageURL: stringField(home, "avatar_image_url"),
 		})
 	}
 	return out
