@@ -39,10 +39,10 @@ func Page() Node {
 						<h2 class="badge-picker-title">Choose your badge</h2>
 						<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
 							<Each of={data.badge_grid} as="badge">
-								<label class="badge-option badge-option--pick" title={badge.name}>
-									<input type="radio" name="motif" value={badge.slug} class="badge-option__radio"></input>
-									<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + badge.slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + badge.slug + ".png);"} aria-hidden="true"></span>
-									<small>{badge.name}</small>
+								<label class="badge-option badge-option--pick" title={badge.Name}>
+									<input type="radio" name="motif" value={badge.Slug} class="badge-option__radio"></input>
+									<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + badge.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + badge.Slug + ".png);"} aria-hidden="true"></span>
+									<small>{badge.Name}</small>
 								</label>
 							</Each>
 						</div>

@@ -828,23 +828,31 @@ func (s *Service) NextOpenSeatTone() (tone string, ok bool) {
 	return "", false
 }
 
+// UnclaimedBadgeOption is one motif the fantasy-signup page's badge picker
+// offers: its slug (the claimed value and the avatar image filename stem)
+// and its display name.
+type UnclaimedBadgeOption struct {
+	Slug string
+	Name string
+}
+
 // unclaimedBadgeGrid renders the fantasy-signup page's badge picker
 // (build item 2): every motif no team currently holds. Unlike the team
 // page's full 16-motif grid (badgeGrid), a pre-signup visitor has no
 // "mine" state of their own yet, and a taken motif is not worth showing
 // at all — there is nothing to compare it against before the seat
 // exists.
-func (s *Service) unclaimedBadgeGrid(state PersistedState) []map[string]any {
+func (s *Service) unclaimedBadgeGrid(state PersistedState) []UnclaimedBadgeOption {
 	taken := make(map[string]bool, len(state.BadgeClaims))
 	for _, motif := range state.BadgeClaims {
 		taken[motif] = true
 	}
-	out := make([]map[string]any, 0, len(BadgeMotifs))
+	out := make([]UnclaimedBadgeOption, 0, len(BadgeMotifs))
 	for _, motif := range BadgeMotifs {
 		if taken[motif.Slug] {
 			continue
 		}
-		out = append(out, map[string]any{"slug": motif.Slug, "name": motif.Name})
+		out = append(out, UnclaimedBadgeOption{Slug: motif.Slug, Name: motif.Name})
 	}
 	return out
 }
