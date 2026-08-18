@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	// PollPeriod documents the client heartbeat in gridiron.js. Keep in
-	// sync with public/gridiron.js's checkLeagueVersion interval.
+	// PollPeriod documents the client heartbeat: main.go's SetLayout
+	// callback pings /api/league/version every PollPeriod via
+	// data-gosx-heartbeat-interval (gosx#216). Keep the two in sync.
 	PollPeriod = 4 * time.Second
 
 	// PresenceConnectedWithin: three poll periods. One lost poll plus

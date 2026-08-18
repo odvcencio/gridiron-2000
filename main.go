@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
@@ -149,9 +151,25 @@ func main() {
 			// The page-navigation runtime soft-swaps links and managed forms,
 			// so the site works without full page reloads.
 			server.NavigationScript(),
-			gosx.El("script", gosx.Attrs(gosx.Attr("src", "/gridiron.js"), gosx.Attr("defer", "defer")), gosx.Text("")),
 		)
-		return server.HTMLDocument(ctx.Title(appName), ctx.Head(), body)
+		// data-gosx-heartbeat/-interval (gosx#216) replaces gridiron.js's old
+		// sendPresenceHeartbeat loop on every page, not just the ones that
+		// also carry data-gosx-revalidate-interval: the heartbeat ping is
+		// visibility-aware (it pauses while the tab is hidden) but, unlike
+		// revalidation and every other periodic primitive here, it carries
+		// no focused-control interaction guard, so it keeps presence current
+		// while a manager is typing in a search box — the exact gap the old
+		// JS's focusedControlActive() special case existed only to close.
+		// HTMLDocument has no body-attribute hook, so this wraps body in a
+		// display:contents shell (.gosx-heartbeat-shell, public/styles.css)
+		// that is invisible to layout but still walked by the runtime's
+		// element scan.
+		heartbeatShell := gosx.El("div", gosx.Attrs(
+			gosx.Attr("class", "gosx-heartbeat-shell"),
+			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
+			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
+		), body)
+		return server.HTMLDocument(ctx.Title(appName), ctx.Head(), heartbeatShell)
 	})
 	if err := router.AddDir(filepath.Join(root, "app"), route.FileRoutesOptions{}); err != nil {
 		log.Fatal(err)
@@ -198,7 +216,7 @@ func main() {
 	})
 	app.API("GET /api/live/week", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
-		return league.Default().LiveScores(ctx.Request.Context()), nil
+		return league.Default().LiveScoresView(ctx.Request.Context()), nil
 	})
 	app.API("GET /api/league/version", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
@@ -207,6 +225,23 @@ func main() {
 		return map[string]any{
 			"fingerprint": league.Default().StateFingerprint(poolVersion),
 		}, nil
+	})
+	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
+	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragment
+	// renders the same wire-event/empty-state markup the page itself shows
+	// on first load, over the same signalMap data (see FeedFragment's own
+	// doc comment for why it cannot call the .gsx page's own SignalCard /
+	// WireEmptyState component functions directly). It is a plain HTML
+	// fragment, not a JSON API, so it lives next to the page it serves
+	// rather than under mountOwnedDataAPI's external data contract.
+	app.Mount("GET /wire/fragment", requireLeagueAccess(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(writer, gosx.RenderHTML(wirepage.FeedFragment(request, signalFeed)))
+	})))
+	app.API("GET /api/wire/pulse", func(ctx *server.Context) (any, error) {
+		ctx.NoStore()
+		return wirepage.PulseData(signalFeed), nil
 	})
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 

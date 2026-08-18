@@ -6,7 +6,8 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/net v0.52.0
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx v0.46.0
+	m31labs.dev/gosx v0.47.0
+	modernc.org/sqlite v1.56.0
 )
 
 require (
@@ -36,5 +37,4 @@ require (
 	modernc.org/libc v1.74.4 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
-	modernc.org/sqlite v1.56.0 // indirect
 )
