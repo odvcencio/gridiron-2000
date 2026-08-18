@@ -49,7 +49,7 @@ func Page() Node {
 			</div>
 			<div class="position-filters" aria-label="Choose a trade partner">
 				<Each of={data.counterparties} as="team">
-					<a href={"/trades?counterparty=" + team.id} data-gosx-link class="filter-button" aria-pressed={team.id == data.compose_counterparty_id}>{team.name}</a>
+					<a href={"/trades?counterparty=" + team.id} data-gosx-link class="filter-button" aria-current={team.id == data.compose_counterparty_id}>{team.name}</a>
 				</Each>
 			</div>
 			<If cond={data.compose_active == false}>
@@ -116,7 +116,7 @@ func Page() Node {
 			</If>
 			<div class="pool-list">
 				<Each of={data.inbox} as="offer">
-					<article class="pool-row trade-row">
+					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
 							<strong>{"From " + offer.from_team}</strong>
 							<small>
@@ -200,7 +200,7 @@ func Page() Node {
 			</If>
 			<div class="pool-list">
 				<Each of={data.outbox} as="offer">
-					<article class="pool-row trade-row">
+					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
 							<strong>{"To " + offer.to_team + " · " + offer.status}</strong>
 							<small>
@@ -249,7 +249,7 @@ func Page() Node {
 				</If>
 				<div class="pool-list">
 					<Each of={data.review} as="offer">
-						<article class="pool-row trade-row">
+						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
 								<strong>{offer.from_team + " ↔ " + offer.to_team}</strong>
 								<small>
@@ -291,7 +291,7 @@ func Page() Node {
 				</div>
 				<div class="pool-list">
 					<Each of={data.vote_panel} as="offer">
-						<article class="pool-row trade-row">
+						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
 								<strong>{offer.from_team + " ↔ " + offer.to_team}</strong>
 								<small>

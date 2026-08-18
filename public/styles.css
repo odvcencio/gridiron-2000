@@ -5,7 +5,7 @@
   --font-body: "Plus Jakarta Sans", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
-  --type-xs: clamp(0.68rem, 0.66rem + 0.10vw, 0.75rem);
+  --type-xs: clamp(0.75rem, 0.66rem + 0.10vw, 0.75rem);
   --type-sm: clamp(0.78rem, 0.75rem + 0.14vw, 0.875rem);
   --type-base: clamp(0.94rem, 0.90rem + 0.20vw, 1rem);
   --type-md: clamp(1.08rem, 1rem + 0.38vw, 1.25rem);
@@ -565,12 +565,22 @@ button.access-link {
     width: min(20rem, 85vw);
     height: 100vh;
     transform: translateX(-100%);
+    /* Closed rail leaves the tab order (defect 6, wave-1 UI repair): a
+       transform-only slide keeps 17 offscreen links focusable, so a
+       keyboard user tabs through the whole closed drawer before reaching
+       page content. visibility: hidden removes them from the tab order;
+       transition-behavior: allow-discrete keeps the slide animated by
+       flipping visibility only at the end (open) / start (close) of the
+       transition instead of instantly. */
+    visibility: hidden;
     box-shadow: var(--shadow-panel);
-    transition: transform var(--duration-standard) var(--ease-out);
+    transition: transform var(--duration-standard) var(--ease-out), visibility var(--duration-standard) var(--ease-out);
+    transition-behavior: allow-discrete;
   }
 
   .drawer-check:checked ~ .site-rail {
     transform: translateX(0);
+    visibility: visible;
   }
 
   .drawer-check:focus-visible ~ .site-rail .drawer-close {
@@ -578,9 +588,21 @@ button.access-link {
     outline-offset: 2px;
   }
 
-  .site-frame,
-  .site-footer {
+  /* .site-footer never sits under the fixed top bar (it is always past
+     the page's own content), so it needs no clearance of its own —
+     defect 7, wave-1 UI repair: padding it here only added 84px of dead
+     space at the bottom of every mobile page. */
+  .site-frame {
     padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
+  }
+
+  /* When the announcement banner renders, it is .site-frame's immediate
+     sibling and already clears the fixed bar itself (see its own
+     max-width: 56.1875rem rule below), plus its own margin-bottom
+     (space-lg). Padding .site-frame by the full bar height again on top
+     of that double-offset the content — the other half of defect 7. */
+  .announcement-banner + .site-frame {
+    padding-top: var(--space-lg);
   }
 }
 
@@ -596,6 +618,7 @@ button.access-link {
 
 .mono {
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .signal-label,
@@ -659,7 +682,8 @@ h2 {
 .button,
 .google-button,
 .draft-button,
-.filter-button {
+.filter-button,
+.board-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -681,7 +705,8 @@ h2 {
 .button:hover,
 .google-button:hover,
 .draft-button:hover,
-.filter-button:hover {
+.filter-button:hover,
+.board-button:hover {
   transform: translateY(-2px);
   border-color: var(--color-text-secondary);
   background: var(--color-white-soft);
@@ -690,7 +715,8 @@ h2 {
 .button:active,
 .google-button:active,
 .draft-button:active,
-.filter-button:active {
+.filter-button:active,
+.board-button:active {
   transform: translateY(1px) scale(0.99);
 }
 
@@ -726,6 +752,58 @@ h2 {
   background: var(--color-white-faint);
   box-shadow: none;
   cursor: not-allowed;
+}
+
+/* ---- Shared field recipe (defect 2, wave-1 UI repair): every select,
+   text-ish input, and textarea in the app rendered with the raw
+   user-agent control until this rule, save the one panel
+   (.wire-submit-panel) that already carried its own field styling. Base
+   is the .pool-search-bar input idiom (mono terminal chrome); select
+   additionally loses its native arrow (appearance: none) and gets a
+   mono caret glyph so the control still reads as a dropdown. ---- */
+.field,
+select,
+input[type="text"],
+input[type="email"],
+input[type="number"],
+input[type="search"],
+textarea {
+  min-height: 2.35rem;
+  padding: 0.35rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.field:focus-visible,
+select:focus-visible,
+input[type="text"]:focus-visible,
+input[type="email"]:focus-visible,
+input[type="number"]:focus-visible,
+input[type="search"]:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 1px;
+}
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 1.75rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238995B8'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right var(--space-sm) center;
+  background-size: 0.6rem 0.4rem;
+}
+
+select::-ms-expand {
+  display: none;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .hero-command {
@@ -1194,6 +1272,16 @@ button.badge-option:hover {
   background: var(--color-white-faint);
 }
 
+/* .tone-lime (defect 4, wave-1 UI repair): config.go's eight valid team
+   tones include "lime", but no rule declared it, so .team-hero's
+   `border: 1px solid currentColor` fell through to inherited text color
+   instead of an accent. --color-accent (#D9FF43) is the app's own lime
+   shade, already paired with --color-accent-haze. */
+.tone-lime {
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
 .score {
   color: var(--color-text-primary);
   font-family: var(--font-display);
@@ -1526,31 +1614,6 @@ button.badge-option:hover {
 
 .matchup-rule::after {
   right: var(--space-md);
-}
-
-.matchup-card > footer {
-  padding: var(--space-sm) var(--space-md);
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  align-items: center;
-  gap: var(--space-sm);
-  border-top: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-  font-size: var(--type-xs);
-}
-
-.probability-track {
-  overflow: hidden;
-  height: 0.35rem;
-  border-radius: var(--radius-pill);
-  background: var(--color-surface-raised);
-}
-
-.probability-track i {
-  display: block;
-  width: 52%;
-  height: 100%;
-  background: var(--gradient-signal);
 }
 
 .leader-rail,
@@ -2217,7 +2280,8 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-.filter-button[aria-pressed="true"] {
+.filter-button[aria-pressed="true"],
+.filter-button[aria-current="true"] {
   border-color: var(--color-accent-cyan);
   color: var(--color-ink-on-accent);
   background: var(--color-accent-cyan);
@@ -2247,6 +2311,25 @@ body.is-on-clock .draft-clock-panel {
 .pool-row:hover {
   transform: translateX(3px);
   background: var(--color-white-faint);
+}
+
+/* .pool-row--status (defect 3, wave-1 UI repair): a 6-track variant for
+   the /players main pool row, which renders one extra child (the
+   rostered/waivers/free-agent status chip) that .pool-row's 5 tracks
+   never accounted for. Kept alongside .pool-row, not instead of it, so
+   the position-filter and search-miss selectors above (which key off
+   .pool-row) keep matching. Reference idiom: N children, N tracks — see
+   /draft (5/5) and /board (6/6). */
+.pool-row--status {
+  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem 5rem;
+}
+
+/* .pool-row--claim (defect 3, wave-1 UI repair): a 4-track variant for
+   the /players "my claims" waiver row, which has no rank child at all
+   (it is a personal list, not a ranked pool) — .pool-row's leading 3rem
+   rank track was swallowing the player name instead. */
+.pool-row--claim {
+  grid-template-columns: minmax(14rem, 1fr) 3.5rem 4rem 5rem;
 }
 
 .player-pool[data-filter="RB"] .pool-row:not([data-player-position="RB"]),
@@ -2611,6 +2694,46 @@ body.is-on-clock .draft-clock-panel {
 
 .board-button--cut {
   color: var(--color-accent-magenta, #ff5ec4);
+}
+
+/* .rank-row (defect 3, wave-1 UI repair): a dedicated 3-track row for
+   the pick'em leaderboards (rank, player, score) — previously borrowed
+   .board-row's 6 tracks for 3 children, so the manager name rendered in
+   the 3rem rank track and the score sprawled across the rest. Shares
+   .board-row's chrome (border, padding) but its own track widths.
+   Reference idiom: N children, N tracks — see /draft (5/5), /board (6/6). */
+.rank-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 3rem minmax(10rem, 1fr) 4rem;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-top: none;
+}
+
+.rank-row:first-child {
+  border-top: 1px solid var(--color-border);
+}
+
+/* .rank-row--wide: the /trades offer row shape (content, then actions,
+   with an optional third child — the counter <details> — spanning the
+   full row). Replaces the .trade-row.pool-row { flex-direction: column }
+   workaround, which fought .pool-row's 5-track grid instead of giving
+   the row its own contract. */
+.rank-row--wide {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rank-row--wide .pool-player__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.rank-row--wide .trade-counter-details {
+  grid-column: 1 / -1;
 }
 
 .pool-list--tall {
@@ -4410,17 +4533,9 @@ body.is-on-clock .draft-clock-panel {
   max-width: 18rem;
 }
 /* ---- /trades: composer, offer rows, review/vote panels -------------- */
-.trade-row.pool-row {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--space-xs);
-}
-.trade-row .pool-player__text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
+/* Offer-row layout (.rank-row / .rank-row--wide) now lives with the rest
+   of the row-contract family near .board-row; see defect 3, wave-1 UI
+   repair. */
 .trade-composer {
   display: flex;
   flex-direction: column;

@@ -184,7 +184,7 @@ func Page() Node {
 				<p class="error-message">{data.co_error}</p>
 			</If>
 		</div>
-		<section class="team-hero tone-lime">
+		<section class={"team-hero tone-" + data.team.tone}>
 			<div class="team-hero__identity">
 				<span class="team-monogram">
 					<If cond={data.team.has_avatar_image}>

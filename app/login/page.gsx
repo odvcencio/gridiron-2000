@@ -34,7 +34,9 @@ func Page() Node {
 						<span class="google-mark" aria-hidden="true">G</span>
 						Continue with Google
 					</a>
-					<a href="/" data-gosx-link class="button button--ghost">Explore demo league</a>
+					<If cond={data.viewer.demo}>
+						<a href="/" data-gosx-link class="button button--ghost">Explore demo league</a>
+					</If>
 					<If cond={data.configured == false}>
 						<div class="setup-note">
 							<strong>Setup mode</strong>
