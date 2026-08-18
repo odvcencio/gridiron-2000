@@ -156,6 +156,9 @@ func Page() Node {
 			<If cond={data.has_lineup_error}>
 				<p class="error-message">{data.lineup_error}</p>
 			</If>
+			<If cond={data.has_rename_error}>
+				<p class="error-message">{data.rename_error}</p>
+			</If>
 		</div>
 		<section class="team-hero tone-lime">
 			<div class="team-hero__identity">
@@ -188,6 +191,11 @@ func Page() Node {
 							Awaiting a manager — sign in to claim this seat.
 						</p>
 					</If>
+					<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
+						<input type="hidden" name="team_id" value={data.team.id}></input>
+						<input type="text" name="name" value={data.team.name} maxlength="40" aria-label="Team name"></input>
+						<button class="button button--compact" type="submit">Rename</button>
+					</form>
 					<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="team_id" value={data.team.id}></input>

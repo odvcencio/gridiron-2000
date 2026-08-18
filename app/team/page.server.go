@@ -166,6 +166,14 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
+			data["has_rename_error"] = false
+			data["rename_error"] = ""
+			if view, ok := ctx.ActionState("team-rename"); ok {
+				if message := view.Error("name"); message != "" {
+					data["has_rename_error"] = true
+					data["rename_error"] = message
+				}
+			}
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{"lineup-set", "lineup-auto"} {
@@ -205,6 +213,19 @@ func init() {
 			}, nil
 		},
 		Actions: route.FileActions{
+			// team-rename lets the seat's own manager (or the commissioner)
+			// set the team's display name from the team page — the same
+			// self-service authority model avatars and badge claims use.
+			// An empty name clears the override back to the config name.
+			"team-rename": func(ctx *action.Context) error {
+				team, err := league.Default().RenameTeam(ctx.Request, ctx.FormData["team_id"], ctx.FormData["name"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"name": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Team renamed to %s.", team.Name))
+				ctx.Redirect("/team")
+				return nil
+			},
 			// lineup-set applies one roster-ops spec section 4.4
 			// lineup-set(week, slot, player_id) action: an empty
 			// player_id clears the slot. week/slot/team_id travel as

@@ -4381,3 +4381,15 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
   color: var(--color-text-secondary);
 }
+
+/* ---- team page: self-service rename ------------------------------- */
+.team-rename-form {
+  display: flex;
+  gap: var(--space-xs);
+  margin: var(--space-sm) 0;
+}
+.team-rename-form input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  max-width: 18rem;
+}
