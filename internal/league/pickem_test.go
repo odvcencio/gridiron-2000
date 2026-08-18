@@ -65,35 +65,35 @@ func TestPickemDataShape(t *testing.T) {
 		t.Fatalf("picked_count = %v, want 1", data["picked_count"])
 	}
 
-	gamesOut, ok := data["games"].([]map[string]any)
+	gamesOut, ok := data["games"].([]PickemGameRow)
 	if !ok || len(gamesOut) != 3 {
 		t.Fatalf("games = %+v, want 3 week-1 entries", data["games"])
 	}
-	if gamesOut[0]["id"] != "g-final" || gamesOut[1]["id"] != "g-locked" || gamesOut[2]["id"] != "g-open" {
-		t.Fatalf("games must sort by kickoff: %v %v %v", gamesOut[0]["id"], gamesOut[1]["id"], gamesOut[2]["id"])
+	if gamesOut[0].ID != "g-final" || gamesOut[1].ID != "g-locked" || gamesOut[2].ID != "g-open" {
+		t.Fatalf("games must sort by kickoff: %v %v %v", gamesOut[0].ID, gamesOut[1].ID, gamesOut[2].ID)
 	}
 
 	final := gamesOut[0]
-	if final["final"] != true || final["winner"] != "BUF" {
+	if final.Final != true || final.Winner != "BUF" {
 		t.Fatalf("final game shape wrong: %+v", final)
 	}
-	if final["pick"] != "BUF" || final["correct"] != true || final["wrong"] != false {
+	if final.Pick != "BUF" || final.Correct != true || final.Wrong != false {
 		t.Fatalf("correct pick not reflected: %+v", final)
 	}
-	if final["locked"] != true {
+	if final.Locked != true {
 		t.Error("a final game must also read as locked")
 	}
-	if final["label"] != "BUF @ MIA" {
-		t.Fatalf("label = %v, want BUF @ MIA", final["label"])
+	if final.Label != "BUF @ MIA" {
+		t.Fatalf("label = %v, want BUF @ MIA", final.Label)
 	}
 
 	locked := gamesOut[1]
-	if locked["locked"] != true || locked["final"] != false {
+	if locked.Locked != true || locked.Final != false {
 		t.Fatalf("past-kickoff, not-yet-final game must be locked and not final: %+v", locked)
 	}
 
 	open := gamesOut[2]
-	if open["locked"] != false {
+	if open.Locked != false {
 		t.Fatalf("future game must not be locked: %+v", open)
 	}
 }
@@ -109,9 +109,9 @@ func TestPickemDataWrongPickFlag(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
-	gamesOut, _ := data["games"].([]map[string]any)
+	gamesOut, _ := data["games"].([]PickemGameRow)
 	final := gamesOut[0]
-	if final["pick"] != "MIA" || final["correct"] != false || final["wrong"] != true {
+	if final.Pick != "MIA" || final.Correct != false || final.Wrong != true {
 		t.Fatalf("wrong pick not reflected: %+v", final)
 	}
 }
@@ -175,7 +175,7 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
-	board, ok := data["leaderboard"].([]map[string]any)
+	board, ok := data["leaderboard"].([]PickemLeaderboardEntry)
 	if !ok || len(board) != 2 {
 		t.Fatalf("leaderboard = %+v, want 2 entries", data["leaderboard"])
 	}
@@ -185,20 +185,20 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 
 	alice := board[0]
 	teamAbbr := service.teamAbbreviation("team-1")
-	if alice["name"] != "Alice" || alice["correct"] != 1 || alice["total"] != 1 || alice["rank"] != "01" {
+	if alice.Name != "Alice" || alice.Correct != 1 || alice.Total != 1 || alice.Rank != "01" {
 		t.Fatalf("alice entry wrong: %+v", alice)
 	}
-	if alice["team"] != teamAbbr {
-		t.Fatalf("alice team = %v, want %v", alice["team"], teamAbbr)
+	if alice.Team != teamAbbr {
+		t.Fatalf("alice team = %v, want %v", alice.Team, teamAbbr)
 	}
 
 	bob := board[1]
-	if bob["name"] != "Bob" || bob["correct"] != 0 || bob["total"] != 1 || bob["rank"] != "02" {
+	if bob.Name != "Bob" || bob.Correct != 0 || bob.Total != 1 || bob.Rank != "02" {
 		t.Fatalf("bob entry wrong: %+v", bob)
 	}
 
 	for _, entry := range board {
-		if entry["name"] == "Cara" {
+		if entry.Name == "Cara" {
 			t.Fatalf("a member with no final-game pick must not rank: %+v", entry)
 		}
 	}
@@ -279,15 +279,15 @@ func TestSeatlessMemberPicksAppearsOnLeaderboardNoSeatAssigned(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
-	board, ok := data["leaderboard"].([]map[string]any)
+	board, ok := data["leaderboard"].([]PickemLeaderboardEntry)
 	if !ok || len(board) != 1 {
 		t.Fatalf("leaderboard = %+v, want the seatless member's one entry", data["leaderboard"])
 	}
 	entry := board[0]
-	if entry["name"] != "Sea Tless" || entry["correct"] != 1 || entry["total"] != 1 {
+	if entry.Name != "Sea Tless" || entry.Correct != 1 || entry.Total != 1 {
 		t.Fatalf("seatless leaderboard entry wrong: %+v", entry)
 	}
-	if entry["team"] != "" {
+	if entry.Team != "" {
 		t.Fatalf("a seatless member must show no team abbreviation: %+v", entry)
 	}
 
@@ -327,34 +327,34 @@ func TestPickemConsensusHiddenBeforeLockVisibleAfter(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
-	gamesOut, _ := data["games"].([]map[string]any)
+	gamesOut, _ := data["games"].([]PickemGameRow)
 
-	var open, locked map[string]any
-	for _, g := range gamesOut {
-		switch g["id"] {
+	var open, locked *PickemGameRow
+	for index := range gamesOut {
+		switch gamesOut[index].ID {
 		case "g-open":
-			open = g
+			open = &gamesOut[index]
 		case "g-locked":
-			locked = g
+			locked = &gamesOut[index]
 		}
 	}
 	if open == nil || locked == nil {
 		t.Fatalf("fixture games missing from output: %+v", gamesOut)
 	}
 
-	openConsensus, _ := open["consensus"].(map[string]any)
-	if openConsensus["has_picks"] != false || openConsensus["total"] != 0 {
+	openConsensus := open.Consensus
+	if openConsensus.HasPicks != false || openConsensus.Total != 0 {
 		t.Fatalf("an unlocked game must never expose a pick split: %+v", openConsensus)
 	}
 
-	lockedConsensus, _ := locked["consensus"].(map[string]any)
-	if lockedConsensus["has_picks"] != true {
+	lockedConsensus := locked.Consensus
+	if lockedConsensus.HasPicks != true {
 		t.Fatalf("a locked game with picks must expose a split: %+v", lockedConsensus)
 	}
-	if lockedConsensus["total"] != 3 {
-		t.Fatalf("consensus total = %v, want 3", lockedConsensus["total"])
+	if lockedConsensus.Total != 3 {
+		t.Fatalf("consensus total = %v, want 3", lockedConsensus.Total)
 	}
-	if lockedConsensus["away_pct"] != 67 || lockedConsensus["home_pct"] != 33 {
+	if lockedConsensus.AwayPct != 67 || lockedConsensus.HomePct != 33 {
 		t.Fatalf("consensus split = %+v, want away 67 / home 33", lockedConsensus)
 	}
 }
@@ -466,7 +466,7 @@ func TestPickemWeeklyLeaderboardScopedToViewedWeek(t *testing.T) {
 	if data2["week"] != 2 {
 		t.Fatalf("week = %v, want 2 (from the query param)", data2["week"])
 	}
-	weekBoard2, _ := data2["week_leaderboard"].([]map[string]any)
+	weekBoard2, _ := data2["week_leaderboard"].([]PickemLeaderboardEntry)
 	if len(weekBoard2) != 0 {
 		t.Fatalf("week-2 leaderboard must be empty (Alice's only pick is week 1): %+v", weekBoard2)
 	}
@@ -476,13 +476,13 @@ func TestPickemWeeklyLeaderboardScopedToViewedWeek(t *testing.T) {
 
 	week1, _ := http.NewRequest(http.MethodGet, "/pickem?week=1", nil)
 	data1 := service.PickemData(week1)
-	weekBoard1, _ := data1["week_leaderboard"].([]map[string]any)
-	if len(weekBoard1) != 1 || weekBoard1[0]["name"] != "Alice" {
+	weekBoard1, _ := data1["week_leaderboard"].([]PickemLeaderboardEntry)
+	if len(weekBoard1) != 1 || weekBoard1[0].Name != "Alice" {
 		t.Fatalf("week-1 leaderboard = %+v, want Alice's one entry", weekBoard1)
 	}
 	// The season leaderboard must still carry Alice regardless of the
 	// viewed week — it is never scoped to it.
-	seasonBoard, _ := data2["leaderboard"].([]map[string]any)
+	seasonBoard, _ := data2["leaderboard"].([]PickemLeaderboardEntry)
 	if len(seasonBoard) != 1 {
 		t.Fatalf("season leaderboard while viewing week 2 = %+v, want Alice's entry still present", seasonBoard)
 	}
@@ -516,17 +516,17 @@ func TestPickemLeaderboardSharedRankOnTie(t *testing.T) {
 
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
-	board, _ := data["leaderboard"].([]map[string]any)
+	board, _ := data["leaderboard"].([]PickemLeaderboardEntry)
 	if len(board) != 3 {
 		t.Fatalf("leaderboard = %+v, want 3 entries", board)
 	}
-	if board[0]["name"] != "Alice" || board[0]["rank"] != "01" {
+	if board[0].Name != "Alice" || board[0].Rank != "01" {
 		t.Fatalf("board[0] = %+v, want Alice at rank 01", board[0])
 	}
-	if board[1]["name"] != "Bob" || board[1]["rank"] != "01" {
+	if board[1].Name != "Bob" || board[1].Rank != "01" {
 		t.Fatalf("board[1] = %+v, want Bob sharing rank 01", board[1])
 	}
-	if board[2]["name"] != "Cara" || board[2]["rank"] != "03" {
+	if board[2].Name != "Cara" || board[2].Rank != "03" {
 		t.Fatalf("board[2] = %+v, want Cara at rank 03 (competition ranking skips 02)", board[2])
 	}
 }
@@ -547,8 +547,8 @@ func TestPickemDataWeekNavigationAcrossSchedule(t *testing.T) {
 		t.Fatalf("week nav shape wrong: week=%v current_week=%v is_current_week=%v",
 			data["week"], data["current_week"], data["is_current_week"])
 	}
-	gamesOut, _ := data["games"].([]map[string]any)
-	if len(gamesOut) != 1 || gamesOut[0]["id"] != "g-nextweek" {
+	gamesOut, _ := data["games"].([]PickemGameRow)
+	if len(gamesOut) != 1 || gamesOut[0].ID != "g-nextweek" {
 		t.Fatalf("week-2 games = %+v, want just g-nextweek", gamesOut)
 	}
 	if data["has_next_week"] != false {

@@ -11,11 +11,38 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+// pickemGameRowView is one pick'em game row as PickemRow (page.gsx, a
+// strict component) reads it: the game itself plus the per-request fields
+// (the pickem-set action path, the CSRF token) the template used to read
+// from actionPath/csrf.token directly. Game nests league.PickemGameRow
+// structurally (gosx#230): a spread's nested struct-typed field is proved
+// by the fields the callee reads, not by its declared type's name, so
+// this needs only to share shape with page.gsx's own PickemGameRow
+// declaration.
+type pickemGameRowView struct {
+	Game   league.PickemGameRow
+	Action string
+	CSRF   string
+}
+
+// pickemGameRowViews bakes the one request-scoped state every row needs
+// (the pickem-set action path, the CSRF token) into each game.
+func pickemGameRowViews(games []league.PickemGameRow, actionPath, csrfToken string) []pickemGameRowView {
+	out := make([]pickemGameRowView, 0, len(games))
+	for _, game := range games {
+		out = append(out, pickemGameRowView{Game: game, Action: actionPath, CSRF: csrfToken})
+	}
+	return out
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().PickemData(ctx.Request)
+			if games, ok := data["games"].([]league.PickemGameRow); ok {
+				data["games"] = pickemGameRowViews(games, ctx.ActionPath("pickem-set"), session.Token(ctx.Request))
+			}
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
