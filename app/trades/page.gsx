@@ -49,7 +49,7 @@ func Page() Node {
 			</div>
 			<div class="position-filters" aria-label="Choose a trade partner">
 				<Each of={data.counterparties} as="team">
-					<a href={"/trades?counterparty=" + team.id} data-gosx-link class="filter-button" aria-current={team.id == data.compose_counterparty_id}>{team.name}</a>
+					<a href={"/trades?counterparty=" + team.ID} data-gosx-link class="filter-button" aria-current={team.ID == data.compose_counterparty_id}>{team.Name}</a>
 				</Each>
 			</div>
 			<If cond={data.compose_active == false}>
@@ -73,8 +73,8 @@ func Page() Node {
 							</If>
 							<Each of={data.my_options} as="opt">
 								<label class="trade-composer__option">
-									<input type="checkbox" name="give" value={opt.id}></input>
-									{opt.label}
+									<input type="checkbox" name="give" value={opt.ID}></input>
+									{opt.Label}
 								</label>
 							</Each>
 						</div>
@@ -85,8 +85,8 @@ func Page() Node {
 							</If>
 							<Each of={data.compose_options} as="opt">
 								<label class="trade-composer__option">
-									<input type="checkbox" name="get" value={opt.id}></input>
-									{opt.label}
+									<input type="checkbox" name="get" value={opt.ID}></input>
+									{opt.Label}
 								</label>
 							</Each>
 						</div>
@@ -118,31 +118,31 @@ func Page() Node {
 				<Each of={data.inbox} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>{"From " + offer.from_team}</strong>
+							<strong>{"From " + offer.FromTeam}</strong>
 							<small>
-								<Each of={offer.give} as="p">
-									{p.name + " (" + p.position + ") "}
+								<Each of={offer.Give} as="p">
+									{p.Name + " (" + p.Position + ") "}
 								</Each>
 								→ you send
-								<Each of={offer.get} as="p">
-									{" " + p.name + " (" + p.position + ")"}
+								<Each of={offer.Get} as="p">
+									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
 							</small>
-							<If cond={offer.has_note}>
-								<small>"{offer.note}"</small>
+							<If cond={offer.HasNote}>
+								<small>"{offer.Note}"</small>
 							</If>
 						</div>
 						<div class="board-controls">
 							<form method="post" action={actionPath("trade-accept")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-								<input type="hidden" name="offer_id" value={offer.id}></input>
+								<input type="hidden" name="offer_id" value={offer.ID}></input>
 								<button class="draft-button" type="submit">Accept</button>
 							</form>
 							<form method="post" action={actionPath("trade-decline")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-								<input type="hidden" name="offer_id" value={offer.id}></input>
+								<input type="hidden" name="offer_id" value={offer.ID}></input>
 								<button class="board-button board-button--cut" type="submit">Decline</button>
 							</form>
 						</div>
@@ -151,23 +151,23 @@ func Page() Node {
 							<form method="post" action={actionPath("trade-counter")} data-gosx-managed="true" class="trade-composer">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-								<input type="hidden" name="offer_id" value={offer.id}></input>
+								<input type="hidden" name="offer_id" value={offer.ID}></input>
 								<div class="trade-composer__sides">
 									<div class="trade-composer__side">
 										<h3>You give</h3>
 										<Each of={data.my_options} as="opt">
 											<label class="trade-composer__option">
-												<input type="checkbox" name="give" value={opt.id}></input>
-												{opt.label}
+												<input type="checkbox" name="give" value={opt.ID}></input>
+												{opt.Label}
 											</label>
 										</Each>
 									</div>
 									<div class="trade-composer__side">
-										<h3>{"You get from " + offer.from_team}</h3>
-										<Each of={offer.give} as="p">
+										<h3>{"You get from " + offer.FromTeam}</h3>
+										<Each of={offer.Give} as="p">
 											<label class="trade-composer__option">
-												<input type="checkbox" name="get" value={p.id}></input>
-												{p.name + " (" + p.position + ")"}
+												<input type="checkbox" name="get" value={p.ID}></input>
+												{p.Name + " (" + p.Position + ")"}
 											</label>
 										</Each>
 									</div>
@@ -202,27 +202,27 @@ func Page() Node {
 				<Each of={data.outbox} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>{"To " + offer.to_team + " · " + offer.status}</strong>
+							<strong>{"To " + offer.ToTeam + " · " + offer.Status}</strong>
 							<small>
 								You send
-								<Each of={offer.give} as="p">
-									{" " + p.name + " (" + p.position + ")"}
+								<Each of={offer.Give} as="p">
+									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
 								for
-								<Each of={offer.get} as="p">
-									{" " + p.name + " (" + p.position + ")"}
+								<Each of={offer.Get} as="p">
+									{" " + p.Name + " (" + p.Position + ")"}
 								</Each>
 							</small>
-							<If cond={offer.status == "accepted"}>
-								<small>Review window ends {offer.review_deadline} · {offer.vetoes_count} of {offer.vetoes_threshold} vetoes filed</small>
+							<If cond={offer.Status == "accepted"}>
+								<small>Review window ends {offer.ReviewDeadline} · {offer.VetoesCount} of {offer.VetoesThreshold} vetoes filed</small>
 							</If>
 						</div>
 						<div class="board-controls">
-							<If cond={offer.can_withdraw}>
+							<If cond={offer.CanWithdraw}>
 								<form method="post" action={actionPath("trade-withdraw")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-									<input type="hidden" name="offer_id" value={offer.id}></input>
+									<input type="hidden" name="offer_id" value={offer.ID}></input>
 									<button class="board-button board-button--cut" type="submit">Withdraw</button>
 								</form>
 							</If>
@@ -251,28 +251,28 @@ func Page() Node {
 					<Each of={data.review} as="offer">
 						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
-								<strong>{offer.from_team + " ↔ " + offer.to_team}</strong>
+								<strong>{offer.FromTeam + " ↔ " + offer.ToTeam}</strong>
 								<small>
-									{offer.from_team} sends
-									<Each of={offer.give} as="p">
-										{" " + p.name + " (" + p.position + ")"}
+									{offer.FromTeam} sends
+									<Each of={offer.Give} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
 									for
-									<Each of={offer.get} as="p">
-										{" " + p.name + " (" + p.position + ")"}
+									<Each of={offer.Get} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
 								</small>
-								<small>Review window ends {offer.review_deadline} · {offer.vetoes_count} of {offer.vetoes_threshold} vetoes filed</small>
+								<small>Review window ends {offer.ReviewDeadline} · {offer.VetoesCount} of {offer.VetoesThreshold} vetoes filed</small>
 							</div>
 							<div class="board-controls">
 								<form method="post" action={actionPath("trade-approve")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
-									<input type="hidden" name="offer_id" value={offer.id}></input>
+									<input type="hidden" name="offer_id" value={offer.ID}></input>
 									<button class="draft-button" type="submit">Approve</button>
 								</form>
 								<form method="post" action={actionPath("trade-veto-commissioner")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
-									<input type="hidden" name="offer_id" value={offer.id}></input>
+									<input type="hidden" name="offer_id" value={offer.ID}></input>
 									<button class="board-button board-button--cut" type="submit">Veto</button>
 								</form>
 							</div>
@@ -293,28 +293,28 @@ func Page() Node {
 					<Each of={data.vote_panel} as="offer">
 						<article class="rank-row rank-row--wide">
 							<div class="pool-player__text">
-								<strong>{offer.from_team + " ↔ " + offer.to_team}</strong>
+								<strong>{offer.FromTeam + " ↔ " + offer.ToTeam}</strong>
 								<small>
-									{offer.from_team} sends
-									<Each of={offer.give} as="p">
-										{" " + p.name + " (" + p.position + ")"}
+									{offer.FromTeam} sends
+									<Each of={offer.Give} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
 									for
-									<Each of={offer.get} as="p">
-										{" " + p.name + " (" + p.position + ")"}
+									<Each of={offer.Get} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
 									</Each>
 								</small>
-								<small>{offer.vetoes_count} of {offer.vetoes_threshold} vetoes filed · window ends {offer.review_deadline}</small>
+								<small>{offer.VetoesCount} of {offer.VetoesThreshold} vetoes filed · window ends {offer.ReviewDeadline}</small>
 							</div>
 							<div class="board-controls">
-								<If cond={offer.already_voted}>
+								<If cond={offer.AlreadyVoted}>
 									<span class="position-chip">VOTE RECORDED</span>
 								</If>
-								<If cond={offer.can_vote}>
+								<If cond={offer.CanVote}>
 									<form method="post" action={actionPath("trade-veto-vote")} data-gosx-managed="true">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
 										<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-										<input type="hidden" name="offer_id" value={offer.id}></input>
+										<input type="hidden" name="offer_id" value={offer.ID}></input>
 										<button class="board-button board-button--cut" type="submit">File veto vote</button>
 									</form>
 								</If>
