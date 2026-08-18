@@ -91,9 +91,17 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
-		"pool":             s.poolStatusMap(),
-		"mail_enabled":     mailer.FromEnv().Enabled(),
-		"invite_preview":   map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
+		// unclaimed_seat_count drives the seat-trim control (04 // DRAFT
+		// ORDER). The commissioner runs the trim an hour before the draft,
+		// so the console must state exactly how many seats it would remove
+		// before they commit to it. claimedSeatIDs counts a seat as claimed
+		// for a primary manager or a co-manager, matching what
+		// Store.TrimUnclaimedSeats itself drops.
+		"unclaimed_seat_count": len(s.Teams()) - claimedSeatCount(state.Members),
+		"has_unclaimed_seats":  len(s.Teams())-claimedSeatCount(state.Members) > 0,
+		"pool":                 s.poolStatusMap(),
+		"mail_enabled":         mailer.FromEnv().Enabled(),
+		"invite_preview":       map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
 		// Draft clock card: armed/paused state, both deadlines, and where
 		// the duration comes from (env default or a commissioner override).
 		"clock":                 s.clockView(state, now),
