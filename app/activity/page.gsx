@@ -44,11 +44,11 @@ func Page() Node {
 			<div class="activity-feed">
 				<Each of={data.transactions} as="move">
 					<div class="activity-item">
-						<time class="mono">{move.time}</time>
+						<time class="mono">{move.Time}</time>
 						<p>
-							<strong>{move.team}</strong>
-							{move.action}
-							<b>{move.player}</b>
+							<strong>{move.Team}</strong>
+							{move.Action}
+							<b>{move.Player}</b>
 						</p>
 					</div>
 				</Each>
