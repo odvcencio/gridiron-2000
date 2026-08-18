@@ -71,6 +71,12 @@ type Service struct {
 	scheduleFn   ScheduleSource
 	historicalFn HistoricalSource
 	weekStatsFn  WeekStatsSource
+	// injuryFn supplies the openstats mirror's weekly injury-report
+	// designation (roster-ops SK spec): IR placement and the healed-IR
+	// ticker both read it via injuryDesignationSource() (zones.go). nil
+	// means no source is wired (every test Service literal by default) —
+	// IR placement fails closed and the healed-IR ticker is a no-op.
+	injuryFn InjuryDesignationSource
 	// blitzFn supplies the Preseason Blitz feed (games plus live stats,
 	// WP-B1); see blitz.go's SetBlitzSource. nil means the feature is
 	// disabled — no TANK01_API_KEY, or the contest has sunset — and
@@ -783,7 +789,12 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		}
 	}
 	preset := CurrentRoster()
-	lineup := effectiveLineup(preset, roster, state.Lineups[teamID], week, games, now)
+	// Zone occupants (RESERVE, IR) never reach the lineup engine: general
+	// is the starters/bench pool effectiveLineup/autoFillWeek may draw
+	// from (roster-ops SK spec: "effectiveLineup/lineupStarters NEVER
+	// include zone occupants").
+	general, reserveOccupants, irOccupants := splitRosterZones(state, teamID, roster)
+	lineup := effectiveLineup(preset, general, state.Lineups[teamID], week, games, now)
 	scoringValues := s.currentScoringValues()
 	filled := 0
 	for _, a := range lineup.Slots {
@@ -797,6 +808,13 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 			"value":    strconv.Itoa(w),
 			"label":    fmt.Sprintf("WEEK %d", w),
 			"selected": w == week,
+		})
+	}
+
+	placeOptions := make([]map[string]any, 0, len(general))
+	for _, p := range general {
+		placeOptions = append(placeOptions, map[string]any{
+			"id": p.ID, "label": fmt.Sprintf("%s (%s)", p.Name, p.Position),
 		})
 	}
 
@@ -814,14 +832,31 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"has_badge_claim": hasBadgeClaim,
 		"badge_grid":      s.badgeGrid(state, teamID),
 		"roster_shape":    rosterShapeRows(),
-		"shape_summary":   rosterShapeSummary(len(roster)),
+		"shape_summary":   rosterShapeSummary(len(general) + len(reserveOccupants)),
 		"week":            strconv.Itoa(week),
 		"week_options":    weekOptions,
-		"starters":        s.starterRowMaps(lineup, roster, games, now, scoringValues),
+		"starters":        s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled": strconv.Itoa(filled),
 		"starters_total":  strconv.Itoa(len(lineup.Slots)),
 		"bench":           playerMapsWithScoring(lineup.Bench, scoringValues),
 		"bench_empty":     len(lineup.Bench) == 0,
+		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
+		// has_reserve/has_ir are false, and the section stays hidden,
+		// whenever the active roster shape carries no such zone.
+		"has_reserve":             len(preset.Reserve) > 0,
+		"reserve_capacity":        fmt.Sprintf("%d / %d", len(reserveOccupants), preset.ReserveTotal()),
+		"reserve_occupants":       s.zoneOccupantRows(reserveOccupants, scoringValues, games, now, false),
+		"reserve_occupants_empty": len(reserveOccupants) == 0,
+		"reserve_place_options":   placeOptions,
+		"reserve_place_empty":     len(placeOptions) == 0,
+		"has_ir":                  preset.IR > 0,
+		"ir_capacity":             fmt.Sprintf("%d / %d", len(irOccupants), preset.IR),
+		"ir_occupants":            s.zoneOccupantRows(irOccupants, scoringValues, games, now, true),
+		"ir_occupants_empty":      len(irOccupants) == 0,
+		"ir_place_options":        placeOptions,
+		"ir_place_empty":          len(placeOptions) == 0,
+		"ir_drop_options":         placeOptions,
+		"ir_drop_empty":           len(placeOptions) == 0,
 	}
 }
 
@@ -832,7 +867,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 // explaining "QB" would be noise.
 func rosterShapeRows() []map[string]any {
 	preset := CurrentRoster()
-	out := make([]map[string]any, 0, len(slotTable)+1)
+	out := make([]map[string]any, 0, len(slotTable)+3)
 	for _, slot := range slotTable {
 		count := preset.Slots[slot.Key]
 		if count == 0 {
@@ -853,14 +888,42 @@ func rosterShapeRows() []map[string]any {
 		"eligible":     "",
 		"has_eligible": false,
 	})
+	// Reserve/IR rows only appear when the active shape carries that zone
+	// (roster-ops SK spec) — a flagship config with neither renders byte-
+	// identical to before this rule existed.
+	if reserveTotal := preset.ReserveTotal(); reserveTotal > 0 {
+		keys := make([]string, 0, len(preset.Reserve))
+		for key := range preset.Reserve {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		labels := make([]string, 0, len(keys))
+		for _, key := range keys {
+			labels = append(labels, fmt.Sprintf("%s ×%d", key, preset.Reserve[key]))
+		}
+		out = append(out, map[string]any{
+			"label":        fmt.Sprintf("RESERVE ×%d", reserveTotal),
+			"eligible":     strings.Join(labels, ", "),
+			"has_eligible": true,
+		})
+	}
+	if preset.IR > 0 {
+		out = append(out, map[string]any{
+			"label":        fmt.Sprintf("IR ×%d", preset.IR),
+			"eligible":     "",
+			"has_eligible": false,
+		})
+	}
 	return out
 }
 
 // rosterShapeSummary is the one-line count summary under the shape strip:
-// starters + bench = total, and how many of those spots the team has
-// filled so far. Slot-level assignment (who is the FLEX) is WP-R1's
-// lineup engine; until it lands this stays an honest count, not a claim
-// about which player sits in which slot.
+// starters + bench + reserve = total, and how many of those spots the
+// team has filled so far (reserve occupants counted; IR excluded — it
+// sits outside Total(), the SK spec's cap-math rule). Slot-level
+// assignment (who is the FLEX) is WP-R1's lineup engine; until it lands
+// this stays an honest count, not a claim about which player sits in
+// which slot.
 func rosterShapeSummary(filled int) string {
 	preset := CurrentRoster()
 	total := preset.Total()
@@ -868,8 +931,15 @@ func rosterShapeSummary(filled int) string {
 	if open < 0 {
 		open = 0
 	}
-	return fmt.Sprintf("%d starters + %d bench = %d spots · %d filled · %d open",
-		preset.Starters(), preset.Bench, total, filled, open)
+	base := fmt.Sprintf("%d starters + %d bench", preset.Starters(), preset.Bench)
+	if reserveTotal := preset.ReserveTotal(); reserveTotal > 0 {
+		base += fmt.Sprintf(" + %d reserve", reserveTotal)
+	}
+	summary := fmt.Sprintf("%s = %d spots · %d filled · %d open", base, total, filled, open)
+	if preset.IR > 0 {
+		summary += fmt.Sprintf(" · IR %d (outside cap)", preset.IR)
+	}
+	return summary
 }
 
 // rosterForTeam returns the team's current roster in currentRosters order
@@ -1103,6 +1173,11 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	now := s.clock()
 	if !s.draftIsLive(now) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
+	}
+	// Limits (optional knob, default off, SK spec): a draft pick is an
+	// enforcement point too, just like an add/claim/trade.
+	if position, limit, breach := teamWouldBreachLimit(state, s.pool().byID, teamID, []string{playerID}, nil); breach {
+		return DraftPick{}, Player{}, Team{}, fmt.Errorf("%s", limitMessage(position, limit))
 	}
 	// The pick and its clock reset land in one store transaction (section
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
@@ -1679,6 +1754,37 @@ func playerMapsWithScoring(players []Player, scoringValues map[string]float64) [
 		out = append(out, playerMap(player, scoringValues))
 	}
 	return out
+}
+
+// zoneOccupantRows renders a RESERVE or IR zone's occupants for the team
+// page: playerMap's usual fields plus, for IR only (checkHealed), whether
+// the player no longer carries a qualifying injury designation and, when
+// so, the activation deadline label (SK IR rule) — the "non-compliance/
+// deadline state surfaced honestly" requirement. A nil injury source
+// (never wired) or a schedule with no upcoming game for the player's NFL
+// team both render "healed" false rather than guess.
+func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]float64, games []GameInfo, now time.Time, checkHealed bool) []map[string]any {
+	rows := playerMapsWithScoring(players, scoringValues)
+	if !checkHealed {
+		return rows
+	}
+	source := s.injuryDesignationSource()
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	for i, player := range players {
+		healed := source != nil && !irEligible(source, player)
+		rows[i]["healed"] = healed
+		rows[i]["deadline_label"] = ""
+		if !healed {
+			continue
+		}
+		if kickoff, ok := nextKickoffForTeam(games, player.NFLTeam, now); ok {
+			rows[i]["deadline_label"] = kickoff.In(location).Format("Mon 3:04 PM MST")
+		}
+	}
+	return rows
 }
 
 // activityMaps merges Picks and Transactions into one time-sorted feed,

@@ -176,7 +176,10 @@ func init() {
 			}
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
-			for _, name := range []string{"lineup-set", "lineup-auto"} {
+			for _, name := range []string{
+				"lineup-set", "lineup-auto",
+				"reserve-place", "reserve-activate", "ir-place", "ir-activate",
+			} {
 				if view, ok := ctx.ActionState(name); ok {
 					message := view.Error("player_id")
 					if message == "" {
@@ -258,6 +261,48 @@ func init() {
 				}
 				session.AddFlash(ctx.Request, "notice", message)
 				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				return nil
+			},
+			// reserve-place/reserve-activate and ir-place/ir-activate
+			// apply the roster-ops SK spec's zone actions: place moves a
+			// general-pool player into the position-gated reserve zone or
+			// the injury-gated IR zone; activate returns a zone occupant
+			// to the general pool (IR activation optionally names a
+			// simultaneous drop, drop_id, when the roster is at cap).
+			"reserve-place": func(ctx *action.Context) error {
+				message, err := league.Default().PlaceInReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team")
+				return nil
+			},
+			"reserve-activate": func(ctx *action.Context) error {
+				message, err := league.Default().ActivateFromReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team")
+				return nil
+			},
+			"ir-place": func(ctx *action.Context) error {
+				message, err := league.Default().PlaceInIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team")
+				return nil
+			},
+			"ir-activate": func(ctx *action.Context) error {
+				message, err := league.Default().ActivateFromIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", message)
+				ctx.Redirect("/team")
 				return nil
 			},
 		},

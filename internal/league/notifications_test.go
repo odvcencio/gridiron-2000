@@ -79,6 +79,7 @@ func TestNotificationCatalogMatrix(t *testing.T) {
 		"N16": {categoryTransactions, urgencyNormal, true},
 		"N17": {categoryTransactions, urgencyNormal, true},
 		"N18": {categoryLineups, urgencyHigh, true},
+		"N19": {categoryLineups, urgencyHigh, true},
 	}
 	if got := len(catalogEntries); got != len(want) {
 		t.Fatalf("catalog has %d entries, want %d", got, len(want))
