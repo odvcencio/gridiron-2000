@@ -1,6 +1,7 @@
 package fantasy
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -37,6 +38,20 @@ type Player struct {
 	// this player. Verified live 2026-08-16: 976 of 4271 listed players
 	// carried "R" that day. See IsRookie.
 	Exp string `json:"exp,omitempty"`
+	// DraftRound and DraftPick are the player's NFL draft slot, read
+	// straight off Tank01's own getNFLPlayerList response
+	// (parsePlayerList's draftInfo.round / draftInfo.pick in tank01.go) —
+	// not a second data source, and not a computed value. Pick is the
+	// OVERALL pick number, not a within-round index: verified live
+	// 2026-08-18 against getNFLPlayerList and cross-checked against
+	// nflverse's draft_picks release (round 2 begins at pick 33, not
+	// pick 1). Both are present for most drafted players, rookie and
+	// veteran alike, since Tank01 keeps a player's original draft slot on
+	// his record for his whole career — DraftCapital is the one place
+	// that decides when this is a meaningful "presumed usage" signal for
+	// THIS season versus a stale artifact of a past draft class.
+	DraftRound int `json:"draftRound,omitempty"`
+	DraftPick  int `json:"draftPick,omitempty"`
 }
 
 // IsRookie reports whether Tank01's raw player list marked p a rookie:
@@ -45,6 +60,41 @@ type Player struct {
 // honestly, rather than guessing.
 func (p Player) IsRookie() bool {
 	return strings.EqualFold(strings.TrimSpace(p.Exp), "R")
+}
+
+// DraftCapital reports p's NFL draft slot as an overall pick number, but
+// only when it is a meaningful "presumed usage" signal for the CURRENT
+// season: p must be this year's rookie class (IsRookie) and Tank01 must
+// have reported a real pick (DraftPick > 0). A veteran's DraftRound /
+// DraftPick, when Tank01 reports one, reflects a past draft class and is
+// not usage evidence for this season, so ok is false for every non-rookie.
+// An undrafted rookie (DraftPick == 0 — Tank01 reports no draftInfo for a
+// UDFA) also reports ok == false, honestly, rather than guessing a slot
+// that does not exist. mergePool's tiebreak and DraftCapitalLabel both
+// call this so ranking and display can never disagree.
+func (p Player) DraftCapital() (overallPick int, ok bool) {
+	if !p.IsRookie() || p.DraftPick <= 0 {
+		return 0, false
+	}
+	return p.DraftPick, true
+}
+
+// DraftCapitalLabel renders p's draft slot as the compact chip a pool row
+// shows (for example "R1 · P8") so a manager can see, at a glance, why a
+// stats-less rookie ranks where he does — the same "show the reasoning"
+// principle Preseason Blitz's pre1 evidence line already follows
+// (internal/league/blitz.go). It returns "" whenever DraftCapital reports
+// no usable slot; every caller (playerMap, and every row template) treats
+// an empty label as "render nothing," never a placeholder dash.
+func (p Player) DraftCapitalLabel() string {
+	pick, ok := p.DraftCapital()
+	if !ok {
+		return ""
+	}
+	if p.DraftRound <= 0 {
+		return fmt.Sprintf("P%d", pick)
+	}
+	return fmt.Sprintf("R%d · P%d", p.DraftRound, pick)
 }
 
 // Status reports pool health for /api/health, the admin console, and the

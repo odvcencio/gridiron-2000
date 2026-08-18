@@ -89,3 +89,59 @@ func TestPlayerIsRookie(t *testing.T) {
 		})
 	}
 }
+
+// TestPlayerDraftCapital pins the exact gate a "presumed usage" signal must
+// clear: this year's rookie class (IsRookie) AND a real Tank01 pick
+// (DraftPick > 0). A veteran's own draftInfo (Tank01 keeps a player's
+// original draft slot on his record for his whole career — verified live
+// 2026-08-18) is a stale artifact of a past class, not usage evidence for
+// the current season, so it must never leak into DraftCapital. An
+// undrafted rookie (no draftInfo at all — a UDFA) must report false
+// honestly rather than guessing a slot that does not exist.
+func TestPlayerDraftCapital(t *testing.T) {
+	cases := []struct {
+		name     string
+		player   Player
+		wantPick int
+		wantOK   bool
+	}{
+		{"rookie with draft capital", Player{Exp: "R", DraftRound: 1, DraftPick: 3}, 3, true},
+		{"rookie without draft capital (UDFA)", Player{Exp: "R"}, 0, false},
+		{"veteran with a past draft slot", Player{Exp: "3", DraftRound: 1, DraftPick: 3}, 0, false},
+		{"unreported exp with a draft slot", Player{DraftRound: 1, DraftPick: 3}, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotPick, gotOK := tc.player.DraftCapital()
+			if gotOK != tc.wantOK || gotPick != tc.wantPick {
+				t.Errorf("DraftCapital() = (%d, %v), want (%d, %v)", gotPick, gotOK, tc.wantPick, tc.wantOK)
+			}
+		})
+	}
+}
+
+// TestPlayerDraftCapitalLabel pins the compact chip text a pool row shows
+// (owner directive 2026-08-18 — "show the reasoning," matching the example
+// format "R1 · P8"). It renders "" whenever DraftCapital reports no usable
+// slot — no placeholder dash, no partial label — so a row template's
+// has_draft_capital gate and this label can never disagree.
+func TestPlayerDraftCapitalLabel(t *testing.T) {
+	cases := []struct {
+		name   string
+		player Player
+		want   string
+	}{
+		{"round and pick both known", Player{Exp: "R", DraftRound: 1, DraftPick: 8}, "R1 · P8"},
+		{"late round", Player{Exp: "R", DraftRound: 6, DraftPick: 204}, "R6 · P204"},
+		{"pick known, round missing", Player{Exp: "R", DraftPick: 40}, "P40"},
+		{"undrafted rookie", Player{Exp: "R"}, ""},
+		{"veteran carrying a past draft slot", Player{Exp: "3", DraftRound: 1, DraftPick: 8}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.player.DraftCapitalLabel(); got != tc.want {
+				t.Errorf("DraftCapitalLabel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
