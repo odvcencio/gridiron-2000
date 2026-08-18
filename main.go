@@ -73,6 +73,11 @@ func main() {
 	// games; it backgrounds itself so a slow or unreachable Tank01 never
 	// delays the server accepting requests (see blitz_pre1.go).
 	go startBlitzPre1(runtimeContext, fantasyPool, league.Default())
+	// startMatchupRanks computes the matchup-difficulty rank cache (owner
+	// ask: "we should see the opponent at a glance" plus a difficulty
+	// rank) and keeps it refreshed; it backgrounds itself for the same
+	// reason startBlitzPre1 does — see matchup_cache.go.
+	go startMatchupRanks(runtimeContext, openStats, league.Default())
 	league.Default().StartDraftClock(runtimeContext)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends
@@ -675,6 +680,32 @@ func addPuntingStatsFromBoxScore(statLine map[string]float64, row openstats.Play
 // openstats.Service.PlayerStats caps results at 1000 rows per call
 // regardless of Limit, an existing openstats constraint this adapter does
 // not change.
+// offenseStatLine maps one openstats weekly player row onto the league's
+// scoring-rule keys for PASSING/RUSHING/RECEIVING/MISC plus KICKING —
+// every group a single player-week row can feed (DEFENSE and PUNTING's
+// per-punt keys need a different source; see dstWeekStatLines and
+// addPuntingStatsFromPBP/addPuntingStatsFromBoxScore). Both live weekly
+// scoring (leagueWeekStatsSource) and the matchup-rank cache
+// (matchup_cache.go) score through this one mapping, so a fantasy-
+// points-allowed rank is computed from the exact same fields a live
+// score is.
+func offenseStatLine(row openstats.PlayerWeekStat) map[string]float64 {
+	return map[string]float64{
+		"passYards":  row.PassingYards,
+		"passTD":     row.PassingTDs,
+		"passInt":    row.PassingInterceptions,
+		"rushYards":  row.RushingYards,
+		"rushTD":     row.RushingTDs,
+		"reception":  row.Receptions,
+		"recYards":   row.ReceivingYards,
+		"recTD":      row.ReceivingTDs,
+		"fumbleLost": row.FumblesLost,
+		"fgMade":     row.FGMade,
+		"fgMissed":   row.FGMissed,
+		"xpMade":     row.XPMade,
+	}
+}
+
 func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 	eastern := openStatsEastern()
 	return func(week int) []league.WeekStatLine {
@@ -685,20 +716,7 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 		}
 		out := make([]league.WeekStatLine, 0, len(rows)+32)
 		for _, row := range rows {
-			statLine := map[string]float64{
-				"passYards":  row.PassingYards,
-				"passTD":     row.PassingTDs,
-				"passInt":    row.PassingInterceptions,
-				"rushYards":  row.RushingYards,
-				"rushTD":     row.RushingTDs,
-				"reception":  row.Receptions,
-				"recYards":   row.ReceivingYards,
-				"recTD":      row.ReceivingTDs,
-				"fumbleLost": row.FumblesLost,
-				"fgMade":     row.FGMade,
-				"fgMissed":   row.FGMissed,
-				"xpMade":     row.XPMade,
-			}
+			statLine := offenseStatLine(row)
 			if row.Position == "P" {
 				if puntsByPunter != nil {
 					// A non-nil map with no entry for this punter is a

@@ -56,6 +56,11 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	open := draftComplete(state)
 	now := s.clock()
 	games := s.schedule()
+	// Resolved once for the same reason scoringValues is: matchupIndexFor
+	// scans the whole schedule, and this pool renders every player in the
+	// league.
+	matchup := s.matchupIndexFor(games, s.pickemWeek(games, now))
+	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	faab := s.cfg.Waivers.Mode == "faab"
 
 	pos := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("pos")))
@@ -78,7 +83,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		}
 		ownerID := owner[player.ID]
 		rostered := ownerID != ""
-		row := playerMap(player, scoringValues)
+		row := playerMap(player, scoringValues, matchup)
 		row["rostered"] = rostered
 
 		status := waiverStatus{State: AvailabilityRostered}
@@ -165,29 +170,31 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	}
 
 	return map[string]any{
-		"viewer":             viewer,
-		"league":             s.leagueMap(),
-		"can_edit":           canEdit,
-		"free_agency_open":   open,
-		"pos":                pos,
-		"positions":          positionFilterTabs(pos),
-		"query":              rawQuery,
-		"players":            rows,
-		"players_empty":      len(rows) == 0,
-		"pool_live":          pool.label == "live" || pool.label == "cache",
-		"pool_label":         pool.label,
-		"at_cap":             atCap,
-		"roster_size":        len(myRoster),
-		"roster_cap":         rosterCap,
-		"drop_options":       dropOptions,
-		"drop_options_empty": len(dropOptions) == 0,
-		"waivers_faab":       faab,
-		"waiver_order":       orderRows,
-		"waiver_team_count":  len(order),
-		"my_waiver_position": myPosition,
-		"my_faab_remaining":  faabRemainingByTeam[teamID],
-		"my_claims":          myClaims,
-		"my_claims_empty":    len(myClaims) == 0,
+		"viewer":               viewer,
+		"league":               s.leagueMap(),
+		"can_edit":             canEdit,
+		"free_agency_open":     open,
+		"pos":                  pos,
+		"positions":            positionFilterTabs(pos),
+		"query":                rawQuery,
+		"players":              rows,
+		"players_empty":        len(rows) == 0,
+		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"pool_label":           pool.label,
+		"at_cap":               atCap,
+		"roster_size":          len(myRoster),
+		"roster_cap":           rosterCap,
+		"drop_options":         dropOptions,
+		"drop_options_empty":   len(dropOptions) == 0,
+		"waivers_faab":         faab,
+		"waiver_order":         orderRows,
+		"waiver_team_count":    len(order),
+		"my_waiver_position":   myPosition,
+		"my_faab_remaining":    faabRemainingByTeam[teamID],
+		"my_claims":            myClaims,
+		"my_claims_empty":      len(myClaims) == 0,
+		"matchup_source_label": matchupLabel,
+		"has_matchup_source":   hasMatchupLabel,
 	}
 }
 

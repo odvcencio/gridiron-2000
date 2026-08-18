@@ -15,6 +15,12 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	// Resolve commissioner scoring overrides once so board tooltips show the
 	// same breakdown math as the draft room.
 	scoringValues := s.currentScoringValues()
+	// Resolved once for the same reason: matchupIndexFor scans the whole
+	// schedule, and the board can render hundreds of pool rows.
+	now := s.clock()
+	games := s.schedule()
+	matchup := s.matchupIndexFor(games, s.pickemWeek(games, now))
+	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
@@ -28,7 +34,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 			continue
 		}
 		onBoard[id] = true
-		entry := playerMap(player, scoringValues)
+		entry := playerMap(player, scoringValues, matchup)
 		entry["board_rank"] = fmt.Sprintf("%02d", index+1)
 		entry["picked"] = picked[id]
 		entries = append(entries, entry)
@@ -38,17 +44,19 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		if onBoard[player.ID] || picked[player.ID] {
 			continue
 		}
-		available = append(available, playerMap(player, scoringValues))
+		available = append(available, playerMap(player, scoringValues, matchup))
 	}
 	return map[string]any{
-		"viewer":          viewer,
-		"can_edit":        key != "",
-		"board":           entries,
-		"board_count":     len(entries),
-		"available":       available,
-		"pool_live":       pool.label == "live" || pool.label == "cache",
-		"is_commissioner": s.IsCommissioner(r),
-		"league":          s.leagueMap(),
+		"viewer":               viewer,
+		"can_edit":             key != "",
+		"board":                entries,
+		"board_count":          len(entries),
+		"available":            available,
+		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"is_commissioner":      s.IsCommissioner(r),
+		"league":               s.leagueMap(),
+		"matchup_source_label": matchupLabel,
+		"has_matchup_source":   hasMatchupLabel,
 	}
 }
 

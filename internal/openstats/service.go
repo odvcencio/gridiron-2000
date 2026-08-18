@@ -254,6 +254,28 @@ func (service *Service) Games(week int) []ScheduleGame {
 func (service *Service) PlayerStats(query PlayerQuery) []PlayerWeekStat {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
+	return filterPlayerStats(service.stats, query)
+}
+
+// PlayerStatsPrevSeason returns weekly player stat lines from the
+// mirrored PREVIOUS season ("player_stats_prev"), filtered the same way
+// PlayerStats filters the live season. It exists because
+// PlayerSeasonSummaries collapses the prior season into one row per
+// player with no per-week Opponent — useless for attributing a defense
+// against a specific week's game — while a season-long aggregate (main.
+// go's matchup-rank cache) needs exactly that per-week, per-opponent
+// granularity. Same 1000-row cap per call as PlayerStats: a caller that
+// needs a full season loops by week (each week's row count is well
+// under the cap), never trusting one Week:0 call for a whole season.
+func (service *Service) PlayerStatsPrevSeason(query PlayerQuery) []PlayerWeekStat {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	return filterPlayerStats(service.statsPrev, query)
+}
+
+// filterPlayerStats applies query's filters to rows, shared by
+// PlayerStats and PlayerStatsPrevSeason so the two never drift.
+func filterPlayerStats(rows []PlayerWeekStat, query PlayerQuery) []PlayerWeekStat {
 	limit := query.Limit
 	if limit <= 0 {
 		limit = 100
@@ -264,8 +286,8 @@ func (service *Service) PlayerStats(query PlayerQuery) []PlayerWeekStat {
 	playerID := strings.TrimSpace(query.PlayerID)
 	team := strings.ToUpper(strings.TrimSpace(query.Team))
 	seasonType := strings.ToUpper(strings.TrimSpace(query.SeasonType))
-	out := make([]PlayerWeekStat, 0, min(limit, len(service.stats)))
-	for _, stat := range service.stats {
+	out := make([]PlayerWeekStat, 0, min(limit, len(rows)))
+	for _, stat := range rows {
 		if query.Week > 0 && stat.Week != query.Week {
 			continue
 		}
