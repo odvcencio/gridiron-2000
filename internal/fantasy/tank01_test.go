@@ -79,6 +79,33 @@ func TestParsePlayerListFiltersAndNormalizes(t *testing.T) {
 	}
 }
 
+// TestParsePlayerListCapturesDraftInfo checks that getNFLPlayerList's own
+// draftInfo object (round, pick — verified live 2026-08-18, no second Tank01
+// call and no external dataset needed) lands on the parsed Player, and that
+// a player with no draftInfo at all (a UDFA, or any position Tank01 does not
+// report a draft slot for) decodes to the honest zero value rather than a
+// missing key crashing the parse.
+func TestParsePlayerListCapturesDraftInfo(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"playerID":"300","longName":"Rookie First Rounder","pos":"RB","team":"ARI","exp":"R",
+		 "draftInfo":{"round":"1","pick":"3","year":"2026","teamID":"1"}},
+		{"playerID":"301","longName":"Undrafted Rookie","pos":"WR","team":"IND","exp":"R"}
+	]`)
+	players := parsePlayerList(raw)
+	if players["300"].DraftRound != 1 || players["300"].DraftPick != 3 {
+		t.Errorf("draftInfo not captured: round=%d pick=%d", players["300"].DraftRound, players["300"].DraftPick)
+	}
+	if pick, ok := players["300"].DraftCapital(); !ok || pick != 3 {
+		t.Errorf("DraftCapital() = (%d, %v), want (3, true)", pick, ok)
+	}
+	if players["301"].DraftRound != 0 || players["301"].DraftPick != 0 {
+		t.Errorf("UDFA with no draftInfo should decode to zero values: round=%d pick=%d", players["301"].DraftRound, players["301"].DraftPick)
+	}
+	if _, ok := players["301"].DraftCapital(); ok {
+		t.Errorf("UDFA with no draftInfo should report DraftCapital ok=false")
+	}
+}
+
 // TestParsePlayerListIncludesPunters checks that pos "P" parses into the
 // pool as Position "P" (roster-ops spec section 4.1.2 / WP-R0), carrying
 // jerseyNum and espnHeadshot the same as any other position — the live
@@ -488,6 +515,89 @@ func TestMergePoolPuntersSortToTailWithNoCrash(t *testing.T) {
 		}
 		if punter.Projection != 0 {
 			t.Errorf("punter %s Projection = %v, want 0 (no Tank01 projection)", punter.ID, punter.Projection)
+		}
+	}
+}
+
+// TestMergePoolRookieDraftCapitalTiebreak is the ranking fix's own
+// regression test (owner directive 2026-08-18 — "rookie presumed usage,"
+// ESPN-style big-board nuance instead of burying every stats-less rookie at
+// the bottom by construction). It pins every case the design constraints
+// call out: a rookie with ADP keeps his ADP position untouched; a rookie
+// with neither ADP nor a projection ranks by draft capital ahead of the
+// alphabetical tail instead of last; a veteran carrying a real (nonzero)
+// projection is never displaced by any rookie's draft slot, however early;
+// an undrafted rookie (no draftInfo) falls back to the same alphabetical
+// order as before this fix existed.
+func TestMergePoolRookieDraftCapitalTiebreak(t *testing.T) {
+	base := map[string]Player{
+		// Rookie already priced by market ADP — mergePool must not move him.
+		"adp-rookie": {ID: "adp-rookie", Name: "ADP Rookie", Position: "RB", NFLTeam: "ARI", Exp: "R", DraftRound: 1, DraftPick: 3},
+		// Zero/zero tier: two rookies with draft capital, one late-round
+		// non-rookie prospect flag absent (a plain zero-proj veteran), and
+		// one undrafted rookie — every one of these has NO ADP and NO
+		// projection, so only the tiebreak can distinguish them.
+		"r1-rookie":   {ID: "r1-rookie", Name: "Zzz First Round Rookie", Position: "WR", NFLTeam: "DEN", Exp: "R", DraftRound: 2, DraftPick: 40},
+		"r6-rookie":   {ID: "r6-rookie", Name: "Aaa Sixth Round Rookie", Position: "WR", NFLTeam: "HOU", Exp: "R", DraftRound: 6, DraftPick: 204},
+		"udfa-rookie": {ID: "udfa-rookie", Name: "Mmm Undrafted Rookie", Position: "WR", NFLTeam: "IND", Exp: "R"},
+		"vet-scrub":   {ID: "vet-scrub", Name: "Bbb Veteran Scrub", Position: "WR", NFLTeam: "NYJ", Exp: "9"},
+		// A veteran with a REAL projection, deliberately lower than nothing
+		// isn't possible — any nonzero projection must still outrank every
+		// zero-projection rookie regardless of how early his draft slot is.
+		"vet-projected": {ID: "vet-projected", Name: "Zzz Marginal Veteran", Position: "WR", NFLTeam: "SF", Exp: "6"},
+	}
+	adp := []adpEntry{{PlayerID: "adp-rookie", ADP: 38.7}}
+	projections := map[string]projEntry{
+		"vet-projected": {Points: 0.4},
+	}
+	pool := mergePool(base, adp, projections, nil, nil, 10)
+	rank := make(map[string]int, len(pool))
+	for i, player := range pool {
+		rank[player.ID] = i
+	}
+
+	if pool[0].ID != "adp-rookie" {
+		t.Fatalf("rookie with ADP must keep his ADP position; pool[0] = %+v", pool[0])
+	}
+	if pool[0].ADPRank != 1 {
+		t.Errorf("ADP-ranked rookie's ADPRank = %d, want 1", pool[0].ADPRank)
+	}
+	if pool[1].ID != "vet-projected" {
+		t.Fatalf("veteran with a real (nonzero) projection must not be displaced by any rookie's draft slot; pool[1] = %+v", pool[1])
+	}
+	if rank["r1-rookie"] >= rank["vet-scrub"] {
+		t.Errorf("rookie with draft capital (round 2) must outrank a zero-projection veteran with none: r1-rookie=%d vet-scrub=%d", rank["r1-rookie"], rank["vet-scrub"])
+	}
+	if rank["r6-rookie"] >= rank["vet-scrub"] {
+		t.Errorf("rookie with draft capital (round 6) must outrank a zero-projection veteran with none: r6-rookie=%d vet-scrub=%d", rank["r6-rookie"], rank["vet-scrub"])
+	}
+	if rank["r1-rookie"] >= rank["r6-rookie"] {
+		t.Errorf("earlier draft capital must sort first: r1-rookie(pick 40)=%d, r6-rookie(pick 204)=%d", rank["r1-rookie"], rank["r6-rookie"])
+	}
+	// The undrafted rookie carries no capital signal at all, so he falls
+	// back to the exact same alphabetical rule as before this fix: his name
+	// ("Mmm...") sorts between the two capital-tagged rookies' names
+	// ("Zzz...", "Aaa...") only by accident of the fixture — what matters is
+	// that he sorts alongside vet-scrub by name, not by any invented score.
+	if rank["udfa-rookie"] <= rank["r1-rookie"] || rank["udfa-rookie"] <= rank["r6-rookie"] {
+		t.Errorf("undrafted rookie has no capital signal and must not outrank a rookie who has one: udfa-rookie=%d r1-rookie=%d r6-rookie=%d", rank["udfa-rookie"], rank["r1-rookie"], rank["r6-rookie"])
+	}
+
+	// The draft-capital tiebreak must be exactly as deterministic as the
+	// alphabetical fallback it sits beside — same fixture, repeated calls,
+	// byte-identical JSON every time.
+	first, err := json.Marshal(pool)
+	if err != nil {
+		t.Fatalf("marshal first: %v", err)
+	}
+	for i := 0; i < 10; i++ {
+		next := mergePool(base, adp, projections, nil, nil, 10)
+		nextJSON, err := json.Marshal(next)
+		if err != nil {
+			t.Fatalf("run %d: marshal: %v", i, err)
+		}
+		if !bytes.Equal(first, nextJSON) {
+			t.Fatalf("run %d: draft-capital tiebreak is not deterministic:\nfirst: %s\nnext:  %s", i, first, nextJSON)
 		}
 	}
 }

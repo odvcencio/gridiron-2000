@@ -2201,6 +2201,17 @@ func playerMap(player Player, scoringValues ...map[string]float64) map[string]an
 		"has_hist":        player.Hist != "",
 		"hist":            player.Hist,
 		"search":          strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position),
+		// is_rookie/draft_capital/has_draft_capital back the pool row's
+		// rookie chip (owner directive 2026-08-18 — "show the reasoning"):
+		// draft_capital is a compact label like "R1 · P8" pre-rendered by
+		// fantasy.Player.DraftCapitalLabel and carried through untouched by
+		// league.Player.DraftCapital, empty when Tank01 reports no usable
+		// draft slot for this player. Display-only — see model.go's
+		// Player.DraftCapital doc comment for why this can never change a
+		// row's ORDER, only whether the chip renders.
+		"is_rookie":         player.Rookie,
+		"draft_capital":     player.DraftCapital,
+		"has_draft_capital": player.DraftCapital != "",
 	}
 }
 
