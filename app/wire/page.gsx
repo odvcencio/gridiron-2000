@@ -26,8 +26,30 @@ func SignalCard(props any) Node {
 	</article>
 }
 
+// WireEmptyState is the "no signals yet" panel shown inside the wire feed
+// region — both on the page's own first render and inside the
+// data-gosx-region fragment /wire/fragment answers when a later poll finds
+// zero signals, so the two paths render byte-identical markup (see
+// FeedFragment in page.server.go).
+func WireEmptyState(props any) Node {
+	return <div class="wire-empty" data-wire-empty>
+		<span class="mono">NO RELEVANT PACKETS YET</span>
+		<h3>Your wire is quiet—not broken.</h3>
+		<If cond={props.wire_configured == false}>
+			<p>{props.wire_issue}</p>
+			<p>
+				Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in
+				<span class="inline-code">BLUESKY_HANDLES</span>.
+			</p>
+		</If>
+		<If cond={props.wire_configured}>
+			<p>The server is listening. Relevant feed items and league sightings appear here and remain provisional until reconciliation.</p>
+		</If>
+	</div>
+}
+
 func Page() Node {
-	return <main class="page wire-page" id="main-content" data-wire-root data-wire-last={data.last_event_id}>
+	return <main class="page wire-page" id="main-content" data-wire-root data-wire-last={data.last_event_id} data-gosx-live-src="/api/wire/pulse" data-gosx-live-interval="20s">
 		<header class="page-masthead wire-masthead">
 			<div>
 				<span class="signal-label">
@@ -44,7 +66,7 @@ func Page() Node {
 			<div class="masthead-console wire-console">
 				<div>
 					<span>Wire state</span>
-					<strong data-wire-mode>{data.wire_mode}</strong>
+					<strong data-wire-mode data-gosx-live-bind="mode">{data.wire_mode}</strong>
 				</div>
 				<div>
 					<span>Open channels</span>
@@ -52,7 +74,7 @@ func Page() Node {
 				</div>
 				<div>
 					<span>Local signals</span>
-					<strong class="mono" data-wire-count>{data.signal_count}</strong>
+					<strong class="mono" data-wire-count data-gosx-live-bind="count">{data.signal_count}</strong>
 				</div>
 				<div>
 					<span>Browser check</span>
@@ -90,38 +112,23 @@ func Page() Node {
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot" aria-hidden="true"></span>
-						<span data-wire-status>Monitoring the free-source mesh</span>
+						<span data-wire-status data-gosx-live-bind="status">Monitoring the free-source mesh</span>
 					</div>
 				</header>
 				<div class="wire-filters" aria-label="Filter signals">
-					<button type="button" class="wire-filter is-active" data-wire-filter="">All</button>
-					<button type="button" class="wire-filter" data-wire-filter="touchdown">Scores</button>
-					<button type="button" class="wire-filter" data-wire-filter="injury">Injuries</button>
-					<button type="button" class="wire-filter" data-wire-filter="practice">Practice</button>
-					<button type="button" class="wire-filter" data-wire-filter="inactive">Inactive</button>
-					<button type="button" class="wire-filter" data-wire-filter="transaction">Moves</button>
-					<button type="button" class="wire-filter" data-wire-filter="weather">Weather</button>
-					<button type="button" class="wire-filter" data-wire-filter="news">News</button>
-					<button type="button" class="wire-filter" data-wire-filter="market">Market</button>
-					<button type="button" class="wire-filter" data-wire-filter="community">Tips</button>
+					<Each of={data.filters} as="filter">
+						<If cond={filter.active}>
+							<a class="wire-filter is-active" href={filter.href}>{filter.label}</a>
+						</If>
+						<If cond={filter.active == false}>
+							<a class="wire-filter" href={filter.href}>{filter.label}</a>
+						</If>
+					</Each>
 				</div>
-				<If cond={data.empty}>
-					<div class="wire-empty" data-wire-empty>
-						<span class="mono">NO RELEVANT PACKETS YET</span>
-						<h3>Your wire is quiet—not broken.</h3>
-						<If cond={data.wire_configured == false}>
-							<p>{data.wire_issue}</p>
-							<p>
-								Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in
-								<span class="inline-code">BLUESKY_HANDLES</span>.
-							</p>
-						</If>
-						<If cond={data.wire_configured}>
-							<p>The server is listening. Relevant feed items and league sightings appear here and remain provisional until reconciliation.</p>
-						</If>
-					</div>
-				</If>
-				<div class="wire-feed" data-wire-list>
+				<div class="wire-feed" data-wire-list data-gosx-region data-gosx-region-url={data.fragment_url} data-gosx-region-interval="20s">
+					<If cond={data.empty}>
+						<WireEmptyState wire_configured={data.wire_configured} wire_issue={data.wire_issue}></WireEmptyState>
+					</If>
 					<Each of={data.signals} as="signal">
 						<SignalCard {...signal}></SignalCard>
 					</Each>

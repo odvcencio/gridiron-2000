@@ -1478,6 +1478,68 @@ func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
 	return s.feed.Snapshot(ctx, time.Now())
 }
 
+// LiveScoresView flattens LiveScores into the shape /api/live/week actually
+// serves: matchups/page.gsx's data-gosx-live-bind text region (gosx#217)
+// can only walk a top-level key, or one level of nested-object keys, into
+// the polled JSON — never through an array — so the per-team score and
+// per-matchup status/clock this used to read out of the "matchups" array
+// live in their own flat, ID-keyed objects instead ("scores", per team ID;
+// "matchupStatus" and "matchupClock", per matchup ID). liveStatus and
+// liveUpdated are the same "source · timestamp[, FALLBACK]" label and bare
+// timestamp the old score-sync JS composed client-side in applySnapshot.
+func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
+	live := s.LiveScores(ctx)
+	scores := make(map[string]string, len(live.Matchups)*2)
+	matchupStatus := make(map[string]string, len(live.Matchups))
+	matchupClock := make(map[string]string, len(live.Matchups))
+	for _, matchup := range live.Matchups {
+		scores[matchup.Away.ID] = fmt.Sprintf("%.1f", matchup.Away.Score)
+		scores[matchup.Home.ID] = fmt.Sprintf("%.1f", matchup.Home.Score)
+		status := matchup.Status
+		if status == "" {
+			status = "SYNCED"
+		}
+		matchupStatus[matchup.ID] = status
+		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
+	}
+	timestamp := live.LastUpdated.Local().Format("3:04:05 PM")
+	label := live.SourceLabel
+	if label == "" {
+		label = live.Source
+	}
+	if label == "" {
+		label = "Live feed"
+	}
+	liveStatus := label + " · " + timestamp
+	if live.Warning != "" {
+		liveStatus += " · FALLBACK"
+	}
+	return map[string]any{
+		"ok":            live.OK,
+		"source":        live.Source,
+		"sourceLabel":   live.SourceLabel,
+		"week":          live.Week,
+		"weekLabel":     live.WeekLabel,
+		"status":        live.Status,
+		"warning":       live.Warning,
+		"scores":        scores,
+		"matchupStatus": matchupStatus,
+		"matchupClock":  matchupClock,
+		"liveStatus":    liveStatus,
+		"liveUpdated":   timestamp,
+	}
+}
+
+// matchupClockLabel is the shared clock-cell fallback matchupMaps (initial
+// render) and LiveScoresView (live-bind poll) both apply, so the two never
+// disagree — see DefaultMatchupClockLabel's own doc comment.
+func matchupClockLabel(clock string) string {
+	if clock == "" {
+		return DefaultMatchupClockLabel
+	}
+	return clock
+}
+
 func (s *Service) ToggleReady(r *http.Request, requestedTeam string) (bool, string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam)
 	if err != nil {
@@ -1945,7 +2007,7 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 				"has_avatar": homeHasAvatar, "has_avatar_image": homeHasImage, "avatar_image_url": homeAvatarURL,
 			},
 			"status": matchup.Status,
-			"clock":  matchup.Clock,
+			"clock":  matchupClockLabel(matchup.Clock),
 		})
 	}
 	return out

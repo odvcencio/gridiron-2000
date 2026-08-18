@@ -201,6 +201,9 @@ skip the demo-mode pick rehearsal.
 The image builder runs `gosx build --dev .` with the CLI version pinned to
 the go.mod module version. The image therefore serves the hashed runtime
 and island assets, and the draft-room island hydrates in production. Every
-user flow also works without JavaScript through plain HTML forms. The
-position filters and the pool search additionally have a plain JavaScript
-fallback in `public/gridiron.js`.
+user flow also works without JavaScript through plain HTML forms. There is
+no bespoke application JavaScript file: the big-board and blitz pool
+searches, the live matchup scores, the signal wire feed, and the presence
+heartbeat all run on gosx's own declarative runtime primitives
+(`data-gosx-filter`, `data-gosx-live-*`, `data-gosx-region*`, and
+`data-gosx-heartbeat`).

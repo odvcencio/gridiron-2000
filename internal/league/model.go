@@ -27,6 +27,14 @@ var (
 	DefaultSeasonStartAt = placeholderSeasonStartAt
 )
 
+// DefaultMatchupClockLabel is the broadcast-delay disclaimer every matchup
+// card's clock field shows: ScoreMatchup.Clock carries no real per-game
+// game-clock source (design note: the league provider integration section
+// 2.5 wires scores, not play clocks), so both the initial server render
+// (matchupMaps) and the live-bind poll payload (LiveScoresView) show this
+// fixed label rather than an empty cell.
+const DefaultMatchupClockLabel = "60 SEC"
+
 // Team is one franchise in the private league.
 type Team struct {
 	ID           string  `json:"id"`
