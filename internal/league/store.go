@@ -69,6 +69,7 @@ func NewStore(filePath string) *Store {
 			Lineups:       map[string]map[int]map[string]string{},
 			Transactions:  []Transaction{},
 			WaiverClaims:  []WaiverClaim{},
+			TradeOffers:   []TradeOffer{},
 		},
 	}
 	if err := s.load(); err != nil {
@@ -456,9 +457,14 @@ func (s *Store) ReleaseSeat(teamID string) error {
 // section 6.2). "waiver:" (N14) and "lineupwarn:" (N18, a WP-R2 omission
 // this closes) join the list under the roster-ops spec section 7.3: every
 // waiver claim and lineup reference a rostered player, and a redrawn draft
-// orphans them all. WP-R5 appends "tradeoffer:", "tradedone:", and
-// "tradeveto:" when trades land — out of this work package's scope.
-var resetDraftSentLogPrefixes = []string{"onclock:", "autopick:", "draftdone:", "waiver:", "lineupwarn:"}
+// orphans them all. "tradeoffer:", "tradedone:", and "tradeveto:" (N15-N17,
+// roster-ops spec section 9) join the list here (WP-R5): every trade offer
+// names rostered players too, and a redrawn draft orphans them the same
+// way.
+var resetDraftSentLogPrefixes = []string{
+	"onclock:", "autopick:", "draftdone:", "waiver:", "lineupwarn:",
+	"tradeoffer:", "tradedone:", "tradeveto:",
+}
 
 // resetLeagueSentLogPrefixes extends resetDraftSentLogPrefixes: a rebuilt
 // league starts a clean ledger for these key spaces too. order: and
@@ -488,6 +494,10 @@ func (s *Store) ResetDraft() error {
 	// Transactions and Lineups above (roster-ops spec section 7.3).
 	s.state.WaiverClaims = []WaiverClaim{}
 	s.state.WaiversProcessedThrough = time.Time{}
+	// TradeOffers name rostered players (Give/Get) against the pre-reset
+	// draft; same rationale as WaiverClaims above (roster-ops spec section
+	// 7.3).
+	s.state.TradeOffers = []TradeOffer{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
 	return s.persistLocked()
@@ -518,6 +528,8 @@ func (s *Store) ResetLeague() error {
 	// See ResetDraft's WaiverClaims comment; same rationale.
 	s.state.WaiverClaims = []WaiverClaim{}
 	s.state.WaiversProcessedThrough = time.Time{}
+	// See ResetDraft's TradeOffers comment; same rationale.
+	s.state.TradeOffers = []TradeOffer{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	return s.persistLocked()
@@ -1385,6 +1397,264 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 	return results, nil
 }
 
+// ---------------------------------------------------------------------
+// Trade offers (roster-ops spec section 6). Every content check here
+// (T4-T8, T12) runs through validateTradeAssets — the one function the
+// Service layer's exact-message validation, the propose write, the
+// accept write, and the execution write (commissioner approve or the
+// rosterOpsTick T-exec step, trades.go) all call, so "applied at propose,
+// re-applied at accept, re-applied at execution" (section 6.3) is one
+// function called three times, never three hand-duplicated rule sets.
+// Actor-identity checks (T2, T3, T10, T11, T13) and the note-length check
+// (T14) live at the Service layer only: they are derived fresh from the
+// authenticated request on every call, never from stale client-submitted
+// state, so there is no TOCTOU window for Store to re-close.
+// ---------------------------------------------------------------------
+
+// findTradeOfferIndexLocked returns offerID's index into s.state.TradeOffers,
+// or -1. The caller must hold s.mu.
+func (s *Store) findTradeOfferIndexLocked(offerID string) int {
+	for index, offer := range s.state.TradeOffers {
+		if offer.ID == offerID {
+			return index
+		}
+	}
+	return -1
+}
+
+// ProposeTradeOffer appends a new "open" offer (section 6.1's propose
+// step), one lock, one persist, after re-validating its content under the
+// lock (T4-T8, T12) — the propose-time half of "applied at propose."
+func (s *Store) ProposeTradeOffer(offer TradeOffer, cfg Config, games []GameInfo, poolByID map[string]Player, starterCount, rosterCap int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !knownTeam(offer.FromTeamID) || !knownTeam(offer.ToTeamID) {
+		return fmt.Errorf("unknown team")
+	}
+	if err := validateTradeAssets(s.state, cfg, games, poolByID, offer.CreatedAt, offer, starterCount, rosterCap); err != nil {
+		return err
+	}
+	s.state.TradeOffers = append(s.state.TradeOffers, offer)
+	return s.persistLocked()
+}
+
+// CounterTradeOffer implements section 6.1's counter step: the original
+// offer must still be "open" (T9), the new (swapped-sides) offer's content
+// re-validates (T4-T8, T12), and both status changes — original "open" →
+// "countered", new offer appended "open" with ParentID set — commit in the
+// same lock and persist ("one open offer chain").
+func (s *Store) CounterTradeOffer(originalID string, newOffer TradeOffer, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(originalID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
+		return fmt.Errorf("this offer is no longer open")
+	}
+	if err := validateTradeAssets(s.state, cfg, games, poolByID, now, newOffer, starterCount, rosterCap); err != nil {
+		return err
+	}
+	s.state.TradeOffers[index].Status = TradeStatusCountered
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	s.state.TradeOffers = append(s.state.TradeOffers, newOffer)
+	return s.persistLocked()
+}
+
+// DeclineTradeOffer implements section 6.1's decline step: open → declined.
+// Re-checks T9 (still open) under the lock; the actor check (T10-shaped,
+// "only the receiving manager") already ran at the Service layer.
+func (s *Store) DeclineTradeOffer(offerID string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
+		return fmt.Errorf("this offer is no longer open")
+	}
+	s.state.TradeOffers[index].Status = TradeStatusDeclined
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	return s.persistLocked()
+}
+
+// WithdrawTradeOffer implements section 6.1's withdraw step: open →
+// withdrawn. Re-checks T9 under the lock; T11's actor check already ran at
+// the Service layer.
+func (s *Store) WithdrawTradeOffer(offerID string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
+		return fmt.Errorf("this offer is no longer open")
+	}
+	s.state.TradeOffers[index].Status = TradeStatusWithdrawn
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	return s.persistLocked()
+}
+
+// AcceptTradeOffer implements section 6.1's accept step: open → accepted,
+// AcceptedAt set, starting the review window. Re-checks T9 and re-applies
+// T4-T8/T12 under the lock (validateTradeAssets) — the accept-time half of
+// "re-applied at accept." T10's actor check already ran at the Service
+// layer.
+func (s *Store) AcceptTradeOffer(offerID string, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
+		return fmt.Errorf("this offer is no longer open")
+	}
+	offer := s.state.TradeOffers[index]
+	if err := validateTradeAssets(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
+		return err
+	}
+	s.state.TradeOffers[index].Status = TradeStatusAccepted
+	s.state.TradeOffers[index].AcceptedAt = now.UTC()
+	return s.persistLocked()
+}
+
+// ExecuteTradeOffer implements section 6.1's execution step — shared by
+// the commissioner's early "approve" action and rosterOpsTick's T-exec
+// step, so both trigger paths run exactly one execution routine. Requires
+// the offer to currently be "accepted"; a community veto that has already
+// crossed threshold (FileTradeVetoOffer) has already moved it to "vetoed"
+// by the time this runs, so an approve racing a completed veto sees a
+// non-"accepted" status here and fails closed — the "both" mode's
+// "approve does not override a completed community veto" rule, and the
+// section 6.1 amendment's "whichever mutation persists first wins,
+// deterministically" race resolution, both fall out of this one status
+// check under one lock.
+//
+// On success: re-validates content (T5-T8; T4/T12 cannot newly fail post-
+// propose) and, only then, appends one "trade" Transaction covering both
+// sides and marks the offer executed, in the same persist ("executed
+// trades append ONE Type trade transaction ... in the same persist that
+// resolves the offer"). On a re-validation failure — a player moved or
+// locked since accept — fails closed: the offer moves to "failed" with
+// FailReason set, in the same persist, and no Transaction is appended
+// ("never half-applies").
+func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) (Transaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
+		return Transaction{}, fmt.Errorf("this trade is no longer under review")
+	}
+	offer := s.state.TradeOffers[index]
+	if err := validateTradeAssets(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
+		s.state.TradeOffers[index].Status = TradeStatusFailed
+		s.state.TradeOffers[index].FailReason = err.Error()
+		s.state.TradeOffers[index].ResolvedAt = now.UTC()
+		if perr := s.persistLocked(); perr != nil {
+			return Transaction{}, perr
+		}
+		return Transaction{}, err
+	}
+	week := pickemWeekAt(games, now)
+	id, err := randomTransactionID()
+	if err != nil {
+		return Transaction{}, err
+	}
+	txn := Transaction{
+		ID:          id,
+		Season:      cfg.Season,
+		Week:        week,
+		Type:        "trade",
+		TeamID:      offer.FromTeamID,
+		OtherTeamID: offer.ToTeamID,
+		Adds:        transactionPlayersFromIDs(poolByID, offer.Get),
+		Drops:       transactionPlayersFromIDs(poolByID, offer.Give),
+		OfferID:     offer.ID,
+		By:          "manager",
+		At:          now.UTC(),
+	}
+	s.state.Transactions = append(s.state.Transactions, txn)
+	s.state.TradeOffers[index].Status = TradeStatusExecuted
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	if err := s.persistLocked(); err != nil {
+		return Transaction{}, err
+	}
+	return txn, nil
+}
+
+// CommissionerVetoTradeOffer implements section 6.1's veto step under
+// commissioner or both mode: accepted → vetoed. Requires the offer to
+// currently be "accepted" — an offer already executed by a racing approve
+// fails closed here, the same store-lock-order race resolution
+// ExecuteTradeOffer's doc comment describes.
+func (s *Store) CommissionerVetoTradeOffer(offerID string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
+		return fmt.Errorf("this trade is no longer under review")
+	}
+	s.state.TradeOffers[index].Status = TradeStatusVetoed
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	return s.persistLocked()
+}
+
+// FileTradeVetoOffer implements section 6.1's veto step under vote or both
+// mode: one veto per non-party seat, accumulated in Vetoes. Voting twice
+// from the same team is a harmless no-op (the CancelClaim idempotent
+// precedent). Once len(Vetoes) reaches threshold the offer flips straight
+// to "vetoed" in this same lock and persist — the vote that crosses the
+// line performs the accepted → vetoed transition itself, synchronously, so
+// there is no separate tick step for vote-mode vetoes and no window for a
+// racing approve to see a stale "accepted" status once threshold is met.
+func (s *Store) FileTradeVetoOffer(offerID, teamID string, now time.Time, threshold int) (crossed bool, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
+		return false, fmt.Errorf("this trade is no longer under review")
+	}
+	for _, voter := range s.state.TradeOffers[index].Vetoes {
+		if voter == teamID {
+			return false, nil
+		}
+	}
+	s.state.TradeOffers[index].Vetoes = append(s.state.TradeOffers[index].Vetoes, teamID)
+	if len(s.state.TradeOffers[index].Vetoes) >= threshold {
+		s.state.TradeOffers[index].Status = TradeStatusVetoed
+		s.state.TradeOffers[index].ResolvedAt = now.UTC()
+		crossed = true
+	}
+	if err := s.persistLocked(); err != nil {
+		return false, err
+	}
+	return crossed, nil
+}
+
+// ExpireTradeOffer implements section 6.1's T-expire step for one open
+// offer: 7 days since CreatedAt, or the configured trade deadline,
+// whichever comes first. Re-derives the due predicate under the lock
+// (now, cfg) rather than trusting the caller's snapshot-time judgment —
+// the re-validate-under-lock discipline every mutation in this file uses.
+// Returns (false, nil), not an error, when the offer no longer qualifies
+// (already resolved by a concurrent action, or not actually due yet):
+// rosterOpsTick's caller only invokes this for offers its own snapshot
+// judged due, so a false return here just means another mutation raced it.
+func (s *Store) ExpireTradeOffer(offerID string, cfg Config, now time.Time) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.findTradeOfferIndexLocked(offerID)
+	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
+		return false, nil
+	}
+	offer := s.state.TradeOffers[index]
+	due := now.Sub(offer.CreatedAt) >= tradeOfferMaxAge
+	if deadline, ok := parseTradeDeadline(cfg); ok && !now.Before(deadline) {
+		due = true
+	}
+	if !due {
+		return false, nil
+	}
+	s.state.TradeOffers[index].Status = TradeStatusExpired
+	s.state.TradeOffers[index].ResolvedAt = now.UTC()
+	if err := s.persistLocked(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // announcementBodyMaxRunes and announcementCap bound one announcement's
 // text and the feed's stored length (league-announcements spec).
 const (
@@ -1528,6 +1798,9 @@ func (s *Store) load() error {
 	if state.WaiverClaims == nil {
 		state.WaiverClaims = []WaiverClaim{}
 	}
+	if state.TradeOffers == nil {
+		state.TradeOffers = []TradeOffer{}
+	}
 	s.state = state
 	return nil
 }
@@ -1637,6 +1910,7 @@ func cloneState(in PersistedState) PersistedState {
 		Transactions:            make([]Transaction, len(in.Transactions)),
 		WaiverClaims:            make([]WaiverClaim, len(in.WaiverClaims)),
 		WaiversProcessedThrough: in.WaiversProcessedThrough,
+		TradeOffers:             make([]TradeOffer, len(in.TradeOffers)),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value
@@ -1722,6 +1996,27 @@ func cloneState(in PersistedState) PersistedState {
 	// too (append with zero elements to append returns the nil it started
 	// from, which would silently break the old-state-file-load contract).
 	copy(out.WaiverClaims, in.WaiverClaims)
+	// TradeOffer carries slice fields (Give/Get/Picks/Vetoes), so a plain
+	// element copy would still alias them; copy each field explicitly, the
+	// same shape Transactions above uses for its Adds/Drops slices.
+	for index, offer := range in.TradeOffers {
+		out.TradeOffers[index] = TradeOffer{
+			ID:         offer.ID,
+			FromTeamID: offer.FromTeamID,
+			ToTeamID:   offer.ToTeamID,
+			Give:       append([]string(nil), offer.Give...),
+			Get:        append([]string(nil), offer.Get...),
+			Picks:      append([]string(nil), offer.Picks...),
+			Note:       offer.Note,
+			Status:     offer.Status,
+			ParentID:   offer.ParentID,
+			Vetoes:     append([]string(nil), offer.Vetoes...),
+			FailReason: offer.FailReason,
+			CreatedAt:  offer.CreatedAt,
+			AcceptedAt: offer.AcceptedAt,
+			ResolvedAt: offer.ResolvedAt,
+		}
+	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out
 }
