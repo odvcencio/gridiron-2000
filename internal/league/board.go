@@ -86,6 +86,18 @@ func (s *Service) BoardMove(r *http.Request, playerID, direction string) error {
 	return s.store.BoardMove(owner, playerID, delta)
 }
 
+// BoardMoveTo moves a board entry to an absolute zero-based position, the
+// action the declarative reorder primitive (data-gosx-reorder, see
+// app/board/page.gsx) posts on drop. It mirrors BoardMove's ownership
+// check; the store clamps an out-of-range index rather than rejecting it.
+func (s *Service) BoardMoveTo(r *http.Request, playerID string, index int) error {
+	owner, err := s.boardOwner(r)
+	if err != nil {
+		return err
+	}
+	return s.store.BoardMoveTo(owner, playerID, index)
+}
+
 // BoardRemove drops a board entry.
 func (s *Service) BoardRemove(r *http.Request, playerID string) error {
 	owner, err := s.boardOwner(r)

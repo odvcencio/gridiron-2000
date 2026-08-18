@@ -262,197 +262,21 @@
     if (presenceHeartbeatTimer) clearInterval(presenceHeartbeatTimer);
     presenceHeartbeatTimer = setInterval(function () {
       sendPresenceHeartbeat();
-      evalDraftClockAlert();
     }, 4000);
   }
 
-  // ---- Draft-room on-clock alert + pick-clock urgency ----------------
-  //
-  // Rides presenceHeartbeatTimer's existing 4-second tick above instead of
-  // starting a new timer loop: evalDraftClockAlert() runs there, plus once
-  // at boot/navigate below, so it re-evaluates on the same cadence this
-  // file already uses for its sync polling.
-  //
-  // The draft page carries no dedicated "viewer team" or "on-clock team"
-  // data attribute, so this reads the two hidden team_id inputs the page
-  // already renders for other reasons: the "Toggle my ready state" form
-  // (data.viewer.team_id — see app/draft/page.gsx) identifies the viewer's
-  // own seat, and any pick-form row in the player pool (data.on_clock_id,
-  // repeated once per row) identifies the team currently on the clock.
-
-  var draftClockState = {
-    initialized: false,
-    onClock: false,
-    originalTitle: null,
-    titleFlashTimer: null,
-    under10Beeped: false
-  };
-
-  var draftAudioCtx = null;
-
-  function ensureDraftAudioContext() {
-    if (draftAudioCtx) return draftAudioCtx;
-    var Ctor = window.AudioContext || window.webkitAudioContext;
-    if (!Ctor) return null;
-    try {
-      draftAudioCtx = new Ctor();
-    } catch (err) {
-      draftAudioCtx = null;
-    }
-    return draftAudioCtx;
-  }
-
-  function primeDraftAudioContext() {
-    var ctx = ensureDraftAudioContext();
-    if (ctx && ctx.state === "suspended") ctx.resume().catch(function () {});
-  }
-
-  document.addEventListener("pointerdown", primeDraftAudioContext, { once: true });
-  document.addEventListener("keydown", primeDraftAudioContext, { once: true });
-
-  // playDraftTone schedules one short sine-wave tone starting startOffset
-  // seconds from now, ramping in and out (no click), lasting duration
-  // seconds. No audio asset files: every tone is synthesized.
-  function playDraftTone(ctx, freq, startOffset, duration) {
-    var osc = ctx.createOscillator();
-    var gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    var startAt = ctx.currentTime + startOffset;
-    gain.gain.setValueAtTime(0.0001, startAt);
-    gain.gain.exponentialRampToValueAtTime(0.2, startAt + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(startAt);
-    osc.stop(startAt + duration + 0.05);
-  }
-
-  // playOnClockChime plays two quick rising tones: the "it's your pick"
-  // alert. A missing or blocked AudioContext is a silent no-op — the
-  // title flash and the is-on-clock class still carry the alert.
-  function playOnClockChime() {
-    var ctx = ensureDraftAudioContext();
-    if (!ctx) return;
-    if (ctx.state === "suspended") ctx.resume().catch(function () {});
-    playDraftTone(ctx, 660, 0, 0.12);
-    playDraftTone(ctx, 880, 0.14, 0.16);
-  }
-
-  // playCountdownBeep plays the single short beep fired once when the
-  // pick clock first crosses under 10 seconds.
-  function playCountdownBeep() {
-    var ctx = ensureDraftAudioContext();
-    if (!ctx) return;
-    if (ctx.state === "suspended") ctx.resume().catch(function () {});
-    playDraftTone(ctx, 740, 0, 0.1);
-  }
-
-  function restoreDraftTitle() {
-    if (draftClockState.titleFlashTimer) {
-      clearInterval(draftClockState.titleFlashTimer);
-      draftClockState.titleFlashTimer = null;
-    }
-    if (draftClockState.originalTitle !== null) {
-      document.title = draftClockState.originalTitle;
-    }
-  }
-
-  function flashDraftTitle(message) {
-    if (draftClockState.originalTitle === null) draftClockState.originalTitle = document.title;
-    if (draftClockState.titleFlashTimer) clearInterval(draftClockState.titleFlashTimer);
-    var showingAlert = true;
-    document.title = message;
-    draftClockState.titleFlashTimer = setInterval(function () {
-      showingAlert = !showingAlert;
-      document.title = showingAlert ? message : draftClockState.originalTitle;
-    }, 1000);
-  }
-
-  window.addEventListener("focus", restoreDraftTitle);
-
-  function draftViewerTeamID() {
-    var input = document.querySelector('form[action*="toggle-ready"] input[name="team_id"]');
-    return input ? input.value : "";
-  }
-
-  function draftOnClockTeamID() {
-    var input = document.querySelector('.pool-list form input[name="team_id"]');
-    return input ? input.value : null;
-  }
-
-  // evalOnClockWatch fires once per turn-transition when the viewer's own
-  // seat becomes on-clock: a chime, a flashing document title, and an
-  // is-on-clock class on <body> the stylesheet uses for a restrained glow
-  // on the pick-clock panel. Leaving the draft page (no viewer marker)
-  // resets the baseline so returning to it never replays a stale alert.
-  function evalOnClockWatch() {
-    var viewerID = draftViewerTeamID();
-    if (!viewerID) {
-      if (draftClockState.initialized) {
-        draftClockState.initialized = false;
-        draftClockState.onClock = false;
-        document.body.classList.remove("is-on-clock");
-        restoreDraftTitle();
-      }
-      return;
-    }
-    var onClockID = draftOnClockTeamID();
-    var isOnClock = onClockID !== null && onClockID === viewerID;
-    var wasOnClock = draftClockState.onClock;
-    var justInitialized = !draftClockState.initialized;
-    draftClockState.initialized = true;
-    draftClockState.onClock = isOnClock;
-    document.body.classList.toggle("is-on-clock", isOnClock);
-    if (justInitialized || isOnClock === wasOnClock) return;
-    if (isOnClock) {
-      playOnClockChime();
-      flashDraftTitle("YOUR PICK IS ON THE CLOCK");
-    } else {
-      restoreDraftTitle();
-    }
-  }
-
-  // parsePickClockSeconds reads the pick-clock countdown's rendered m:ss
-  // text (data-gosx-countdown-format="mm:ss" — see app/draft/page.gsx)
-  // back into a whole-second count.
-  function parsePickClockSeconds(text) {
-    var match = /^(\d+):(\d{2})$/.exec(String(text || "").trim());
-    if (!match) return null;
-    return Number(match[1]) * 60 + Number(match[2]);
-  }
-
-  // evalPickClockCountdown adds pick-clock--warn under 30 seconds and
-  // fires one short beep the first time the clock crosses under 10.
-  function evalPickClockCountdown() {
-    var node = document.querySelector(".pick-clock[data-gosx-countdown]");
-    if (!node) {
-      draftClockState.under10Beeped = false;
-      return;
-    }
-    var seconds = parsePickClockSeconds(node.textContent);
-    if (seconds === null) return;
-    node.classList.toggle("pick-clock--warn", seconds < 30);
-    if (seconds < 10) {
-      if (!draftClockState.under10Beeped) {
-        draftClockState.under10Beeped = true;
-        playCountdownBeep();
-      }
-    } else {
-      draftClockState.under10Beeped = false;
-    }
-  }
-
-  function evalDraftClockAlert() {
-    evalOnClockWatch();
-    evalPickClockCountdown();
-  }
+  // Pending upstream gosx adoptions (see gridiron-2000's gosx v0.46.0
+  // adoption pass): score sync, wire sync, pool search, and the presence
+  // heartbeat above are still bespoke JS. Each is slated to move to a
+  // declarative gosx primitive once its upstream counterpart lands
+  // (tracked as gosx#215-#217); this file drops only the draft on-clock
+  // alert and pick-clock urgency machinery this pass, replaced by
+  // data-gosx-watch and data-gosx-countdown-cue (see app/draft/page.gsx).
 
   function bootPageEnhancers() {
     startScoreSync();
     startWireSync();
     startPresenceHeartbeat();
-    evalDraftClockAlert();
   }
 
   document.addEventListener("click", function (event) {

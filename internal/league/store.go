@@ -659,6 +659,46 @@ func (s *Store) BoardMove(owner, playerID string, delta int) error {
 	return fmt.Errorf("that player is not on the board")
 }
 
+// BoardMoveTo moves a player to an absolute zero-based index on the
+// owner's board, mirroring BoardMove's known-player check. An index
+// outside the board's bounds clamps to the nearest valid position instead
+// of failing — the declarative reorder primitive (gosx#212) already
+// clamps its own drop target client-side, so this is a defense-in-depth
+// clamp, not the primary bound.
+func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	board := s.state.Boards[owner]
+	pos := -1
+	for i, existing := range board {
+		if existing == playerID {
+			pos = i
+			break
+		}
+	}
+	if pos == -1 {
+		return fmt.Errorf("that player is not on the board")
+	}
+	if index < 0 {
+		index = 0
+	}
+	if index > len(board)-1 {
+		index = len(board) - 1
+	}
+	if index == pos {
+		return nil
+	}
+	rest := make([]string, 0, len(board)-1)
+	rest = append(rest, board[:pos]...)
+	rest = append(rest, board[pos+1:]...)
+	updated := make([]string, 0, len(board))
+	updated = append(updated, rest[:index]...)
+	updated = append(updated, playerID)
+	updated = append(updated, rest[index:]...)
+	s.state.Boards[owner] = updated
+	return s.persistLocked()
+}
+
 // BoardRemove drops a player from the owner's board.
 func (s *Store) BoardRemove(owner, playerID string) error {
 	s.mu.Lock()
