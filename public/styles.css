@@ -103,6 +103,15 @@ body {
   line-height: 1.55;
 }
 
+/* gosx-heartbeat-shell wraps every page's body content so the layout can
+   carry data-gosx-heartbeat/-interval (main.go's SetLayout callback) —
+   HTMLDocument has no body-attribute hook. display:contents removes the
+   div from the box tree entirely, so it never affects layout; the runtime
+   still walks it when it scans the document for the heartbeat attribute. */
+.gosx-heartbeat-shell {
+  display: contents;
+}
+
 body::after {
   position: fixed;
   z-index: 100;
@@ -2339,7 +2348,7 @@ body.is-on-clock .draft-clock-panel {
 .player-pool[data-filter="K"] .pool-row:not([data-player-position="K"]),
 .player-pool[data-filter="DST"] .pool-row:not([data-player-position="DST"]),
 .player-pool[data-filter="P"] .pool-row:not([data-player-position="P"]),
-.pool-row[data-search-miss] {
+.pool-row.gosx-filter-row--hidden {
   display: none;
 }
 
@@ -3858,15 +3867,6 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-.wire-event.is-entering {
-  animation: wire-enter var(--duration-reveal) var(--ease-out) both;
-}
-
-.is-syncing [data-live-status],
-.is-syncing [data-live-updated] {
-  color: var(--color-accent-cyan);
-}
-
 .score-flash {
   animation: score-pulse var(--duration-cinematic) var(--ease-out);
 }
@@ -3884,11 +3884,6 @@ body.is-on-clock .draft-clock-panel {
 @keyframes score-pulse {
   0% { color: var(--color-accent-cyan); text-shadow: 0 0 1.6rem var(--color-accent-cyan); }
   100% { color: var(--color-text-primary); text-shadow: none; }
-}
-
-@keyframes wire-enter {
-  from { opacity: 0; transform: translateX(-1rem); }
-  to { opacity: 1; transform: translateX(0); }
 }
 
 @media (max-width: 72rem) {

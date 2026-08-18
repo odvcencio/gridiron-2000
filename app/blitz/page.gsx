@@ -55,7 +55,7 @@ func BlitzSlotRow(props any) Node {
 }
 
 func BlitzPoolRow(props any) Node {
-	return <article class="pool-row" data-player-position={props.Player.position} data-search={props.Player.search}>
+	return <article class="pool-row" data-player-position={props.Player.position} data-gosx-filter-text={props.Player.search}>
 		<span class="pool-rank mono">{props.Player.rank}</span>
 		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 			<If cond={props.Player.has_headshot}>
@@ -279,7 +279,7 @@ func Page() Node {
 					<input
 						id="blitz-search"
 						type="search"
-						data-pool-search="true"
+						data-gosx-filter="blitz-pool-rows"
 						placeholder="Search player, team, or position"
 						autocomplete="off"
 					 />
@@ -290,7 +290,7 @@ func Page() Node {
 						<p>The slate schedule has not synced. Check back once the feed is online.</p>
 					</div>
 				</If>
-				<div class="pool-list pool-list--tall">
+				<div class="pool-list pool-list--tall" id="blitz-pool-rows">
 					<Each of={data.eligible} as="player">
 						<BlitzPoolRow
 							Player={player}

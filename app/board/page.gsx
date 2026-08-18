@@ -150,14 +150,14 @@ func Page() Node {
 					<input
 						id="board-search"
 						type="search"
-						data-pool-search="true"
+						data-gosx-filter="board-pool-rows"
 						placeholder="Search player, team, or position"
 						autocomplete="off"
 					 />
 				</div>
-				<div class="pool-list pool-list--tall">
+				<div class="pool-list pool-list--tall" id="board-pool-rows">
 					<Each of={data.available} as="player">
-						<article class="pool-row" data-player-position={player.position} data-search={player.search}>
+						<article class="pool-row" data-player-position={player.position} data-gosx-filter-text={player.search}>
 							<span class="pool-rank mono">{player.rank}</span>
 							<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 								<If cond={player.has_headshot}>

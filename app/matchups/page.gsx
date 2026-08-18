@@ -26,7 +26,7 @@ func ScoreTeam(props any) Node {
 			<strong>{props.Name}</strong>
 			<small>{props.Manager}</small>
 		</div>
-		<b class="score score--large" data-score-team={props.ID}>{props.Score}</b>
+		<b class="score score--large" data-score-team={props.ID} data-gosx-live-bind={"scores." + props.ID} data-gosx-live-flash-class="score-flash">{props.Score}</b>
 	</div>
 }
 
@@ -35,9 +35,9 @@ func MatchupCard(props any) Node {
 		<header>
 			<span>
 				<span class="live-dot" aria-hidden="true"></span>
-				<b data-matchup-status>{props.Status}</b>
+				<b data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</b>
 			</span>
-			<span class="mono" data-matchup-clock>{props.Clock}</span>
+			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</header>
 		<ScoreTeam {...props.Away}></ScoreTeam>
 		<div class="matchup-rule">
@@ -48,7 +48,7 @@ func MatchupCard(props any) Node {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version" data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m">
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">
@@ -69,13 +69,12 @@ func Page() Node {
 				</div>
 				<div>
 					<span>Last packet</span>
-					<strong class="mono" data-live-updated>{data.live.last_updated}</strong>
+					<strong class="mono" data-live-updated data-gosx-live-bind="liveUpdated">{data.live.last_updated}</strong>
 				</div>
 				<div>
 					<span>Refresh</span>
 					<strong class="mono">60 SEC</strong>
 				</div>
-				<button class="button button--primary button--compact" type="button" data-live-refresh>Sync now</button>
 			</div>
 		</header>
 		<div class="matchup-layout">
@@ -87,7 +86,7 @@ func Page() Node {
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot" aria-hidden="true"></span>
-						<span data-live-status>Feed connected</span>
+						<span data-live-status data-gosx-live-bind="liveStatus">Feed connected</span>
 					</div>
 				</header>
 				<If cond={data.matchups_empty}>
