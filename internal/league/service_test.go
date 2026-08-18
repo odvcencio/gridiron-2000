@@ -535,6 +535,68 @@ func TestDashboardDataFeaturedEmptyOnFreshService(t *testing.T) {
 	}
 }
 
+// TestDashboardDataIncludesHasSeatAndPickemHome pins build item 3's
+// plumbing: DashboardData precomputes has_seat (from viewer["has_seat"])
+// and always carries a pickem_home summary, so app/page.gsx can branch on
+// a plain server-computed bool rather than deriving seat state itself.
+// Demo mode is the only signed-in-like state reachable without forging
+// auth (see TestCommissionerForceAutopick's doc comment), and demo mode
+// is always fully seated (Viewer's has_seat == s.demoMode) — the seatless
+// branch itself is covered directly by TestPickemHomeSummaryComputation
+// and verified visually in the HQ page screenshot.
+func TestDashboardDataIncludesHasSeatAndPickemHome(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+	data := service.DashboardData(context.Background(), request)
+	if data["has_seat"] != true {
+		t.Fatalf("has_seat in demo mode = %v, want true", data["has_seat"])
+	}
+	home, ok := data["pickem_home"].(map[string]any)
+	if !ok {
+		t.Fatalf("pickem_home missing or wrong shape: %+v", data["pickem_home"])
+	}
+	for _, key := range []string{"week", "unpicked_count", "season_correct", "season_total", "has_record", "streak", "has_streak", "has_games_this_week"} {
+		if _, ok := home[key]; !ok {
+			t.Errorf("pickem_home missing key %q: %+v", key, home)
+		}
+	}
+}
+
+// TestPickemHomeSummaryComputation exercises pickemHomeSummary directly —
+// the seatless home dashboard's data source — with a real schedule and a
+// mix of picked and unpicked games, since a seatless Viewer branch is not
+// reachable through the public request API in this test package.
+func TestPickemHomeSummaryComputation(t *testing.T) {
+	service := newTestService(t, true) // demo mode: viewerKey is "demo-guest"
+	now := time.Now()
+	games := pickemFixture(now)
+	service.SetScheduleSource(func() []GameInfo { return games })
+
+	if err := service.store.SetPickem("demo-guest", "g-final", "BUF"); err != nil {
+		t.Fatal(err)
+	}
+	// g-locked and g-open are both week 1 and still unpicked; g-locked has
+	// already kicked off so it does not count toward "unpicked this week".
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+	summary := service.pickemHomeSummary(request, service.store.Snapshot(), now)
+
+	if summary["week"] != 1 {
+		t.Fatalf("week = %v, want 1", summary["week"])
+	}
+	if summary["unpicked_count"] != 1 {
+		t.Fatalf("unpicked_count = %v, want 1 (only g-open is still open and unpicked)", summary["unpicked_count"])
+	}
+	if summary["season_correct"] != 1 || summary["season_total"] != 1 {
+		t.Fatalf("season record = %v/%v, want 1/1", summary["season_correct"], summary["season_total"])
+	}
+	if summary["has_record"] != true {
+		t.Error("has_record should be true")
+	}
+	if summary["has_games_this_week"] != true {
+		t.Error("has_games_this_week should be true")
+	}
+}
+
 func TestViewerIncludesIsCommissionerInDemoMode(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/", nil)

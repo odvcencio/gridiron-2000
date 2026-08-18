@@ -614,11 +614,14 @@ func (s *Service) AssignManager(email, name string) (Member, error) {
 	return s.assignMember(email, name)
 }
 
-// assignMember is the single call path for every AssignMember use in the
-// service (Google sign-in via AssignManager, a demo-mode first visit via
-// Viewer, and the acting-team resolver), so the N1 seat-claimed hook fires
-// exactly once per real seat claim, from whichever entry point reached it
-// first (spec section 3, N1).
+// assignMember is the single deliberate seat-claim path in the service:
+// Google sign-in calls it through AssignManager, and nothing else does.
+// created == true fires the N1 seat-claimed hook exactly once per real
+// seat claim (spec section 3, N1). Any code that merely needs "a member
+// record exists for this signed-in email" — a page view, an FF action's
+// acting-team resolver — must call ensureMember instead: it never grabs a
+// seat as a side effect (seatless-membership audit, gridiron-2000 pick'em
+// HQ task).
 func (s *Service) assignMember(email, name string) (Member, error) {
 	member, created, err := s.store.AssignMember(email, name)
 	if err != nil {
@@ -626,6 +629,29 @@ func (s *Service) assignMember(email, name string) (Member, error) {
 	}
 	if created {
 		s.notifySeatClaimed(member)
+	}
+	return member, nil
+}
+
+// EnsureMember records email as a league member without claiming a team
+// seat: the seatless-membership counterpart to AssignManager. Every
+// signed-in, allowed email has somewhere to land, seat or no seat, and
+// pick'em treats a TeamID "" member as a full participant. main.go's
+// Google sign-in callback falls back to this when every seat is already
+// claimed, rather than turning the sign-in away.
+func (s *Service) EnsureMember(email, name string) (Member, error) {
+	return s.ensureMember(email, name)
+}
+
+// ensureMember is the membership-only counterpart to assignMember: it
+// records email as a league member but never assigns a team seat, and
+// never fires N1 (no seat was claimed). Viewer's just-in-time record and
+// actingTeam's both call this, not assignMember, so loading a page or
+// attempting a non-team action never claims a seat as a side effect.
+func (s *Service) ensureMember(email, name string) (Member, error) {
+	member, _, err := s.store.EnsureMember(email, name)
+	if err != nil {
+		return Member{}, err
 	}
 	return member, nil
 }
@@ -642,14 +668,20 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 			"initials":        "GC",
 			"team_id":         team.ID,
 			"team_name":       team.Name,
+			"has_seat":        s.demoMode,
 			"is_commissioner": s.demoMode,
 		}
 	}
 	member, ok := s.store.MemberByEmail(user.Email)
 	if !ok {
-		member, _ = s.assignMember(user.Email, user.Name)
+		member, _ = s.ensureMember(user.Email, user.Name)
 	}
-	team := s.teamByID(member.TeamID)
+	hasSeat := member.TeamID != ""
+	teamID, teamName := "", ""
+	if hasSeat {
+		team := s.teamByID(member.TeamID)
+		teamID, teamName = team.ID, team.Name
+	}
 	name := strings.TrimSpace(user.Name)
 	if name == "" {
 		name = strings.Split(user.Email, "@")[0]
@@ -660,27 +692,39 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 		"name":            name,
 		"email":           user.Email,
 		"initials":        initials(name),
-		"team_id":         team.ID,
-		"team_name":       team.Name,
+		"team_id":         teamID,
+		"team_name":       teamName,
+		"has_seat":        hasSeat,
 		"is_commissioner": s.IsCommissioner(r),
 	}
 }
 
+// DashboardData assembles the home page. A seated member gets the full FF
+// command center (live matchups, standings, activity); a signed-in member
+// with no team seat gets a pick'em-forward dashboard instead — their
+// record, this week's outstanding picks, and a link into the HQ — rather
+// than an empty fantasy dashboard with nothing to show (build item 3).
+// viewer["has_seat"] is precomputed server-side so app/page.gsx only ever
+// branches on a plain bool, never re-derives seat state itself.
 func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string]any {
 	now := time.Now()
 	live := s.feed.Snapshot(ctx, now)
 	state := s.store.Snapshot()
+	viewer := s.Viewer(r)
+	hasSeat, _ := viewer["has_seat"].(bool)
 	featured := s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))])
 	announcements := s.announcementListMaps(5)
 	transactions := s.activityMaps(state, 5)
 	return map[string]any{
-		"viewer":       s.Viewer(r),
+		"viewer":       viewer,
+		"has_seat":     hasSeat,
 		"draft":        s.draftSummary(now),
 		"live":         s.liveMap(live),
 		"featured":     featured,
 		"standings":    s.standingsMaps(),
 		"divisions":    s.divisionMaps(state),
 		"transactions": transactions,
+		"pickem_home":  s.pickemHomeSummary(r, state, now),
 		// GSX conditions cannot call .length on server data; ship the bools.
 		"transactions_empty":  len(transactions) == 0,
 		"featured_empty":      len(featured) == 0,
@@ -1093,10 +1137,13 @@ func (s *Service) actingTeam(r *http.Request, requested string) (string, error) 
 		member, exists := s.store.MemberByEmail(user.Email)
 		if !exists {
 			var err error
-			member, err = s.assignMember(user.Email, user.Name)
+			member, err = s.ensureMember(user.Email, user.Name)
 			if err != nil {
 				return "", err
 			}
+		}
+		if member.TeamID == "" {
+			return "", fmt.Errorf("claim a team seat before taking this action")
 		}
 		return member.TeamID, nil
 	}

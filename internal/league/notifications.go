@@ -1,12 +1,12 @@
 // Notification catalog, key builders, preference precedence, and the
-// N1-N7 template builders (design spec "Notification Email System",
+// N1-N7 and N8 template builders (design spec "Notification Email System",
 // sections 3, 6.4, 7.1). The catalog registers all 18 entries (N1-N18,
 // roster-ops spec section 9's N14-N18 additions) so the default matrix
 // stays total (spec section 9, test 18; roster-ops spec section 12 test
-// 25); only N1-N7 carry template builders in this file's original scope
-// — N8-N13's evaluation and templates land in later work packages, N14 in
-// waivers.go, N15-N17 in trades.go, and N18 below (see notifierTick's TODO
-// markers for N8-N13).
+// 25); N9-N13 register catalog metadata and a key builder only — their
+// evaluation and templates land in later work packages, N14 in waivers.go,
+// N15-N17 in trades.go, and N18 below (see notifierTick's TODO markers for
+// N9-N13).
 package league
 
 import (
@@ -131,11 +131,11 @@ type catalogEntry struct {
 	Key func(email string, ctx keyContext) string
 }
 
-// catalogEntries is the full 13-entry registry (spec section 3's summary
-// matrix, verbatim). Only N1-N7 have template builders in this package;
-// N8-N13 register catalog metadata and a key builder now so the pref
-// precedence, ledger, and admin-matrix machinery are total from day one,
-// and their template builders land in WP-E4 (N8-N11) and WP-E5 (N12-N13).
+// catalogEntries is the full 18-entry registry (spec section 3's summary
+// matrix, extended by roster-ops spec section 9's N14-N18 and the pick'em
+// HQ task's N8). N9-N13 register catalog metadata and a key builder only,
+// so the pref precedence, ledger, and admin-matrix machinery are total
+// from day one; their template builders land in later work packages.
 var catalogEntries = buildCatalog()
 
 func buildCatalog() []catalogEntry {
@@ -1068,6 +1068,116 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 }
 
 // ---------------------------------------------------------------------
+// N8 — pickem-reminder (pick'em HQ task)
+// ---------------------------------------------------------------------
+
+// pickemDueGames returns games (already narrowed to the current pick'em
+// week) that the recipient has not picked and that kick off within the
+// next 24 hours — the reminder's whole subject: "you have N unpicked games
+// kicking off within 24 hours." A game already locked (kickoff at or
+// before now) is never due; there is nothing left to remind about.
+func pickemDueGames(games []GameInfo, picks map[string]string, now time.Time) []GameInfo {
+	horizon := now.Add(24 * time.Hour)
+	due := make([]GameInfo, 0, len(games))
+	for _, game := range games {
+		if !game.Kickoff.After(now) || game.Kickoff.After(horizon) {
+			continue
+		}
+		if picks[game.ID] != "" {
+			continue
+		}
+		due = append(due, game)
+	}
+	return due
+}
+
+// pickemReminderEligible gates N8 to members pick'em already knows: anyone
+// who has recorded at least one pick this season, or who has explicitly
+// turned the pickem category on in /settings. Every category defaults to
+// enabled (categoryCatalogDefault), so a bare, never-touched default
+// cannot count as "on" here — otherwise every fantasy-only member who has
+// never opened pick'em would qualify by default, which is exactly the
+// spam this gate exists to prevent (documented gating choice, pick'em HQ
+// task item 4).
+func (s *Service) pickemReminderEligible(state PersistedState, email string) bool {
+	key := normalizeEmail(email)
+	if len(state.Pickems[key]) > 0 {
+		return true
+	}
+	if prefs, ok := state.NotifyPrefs[key]; ok {
+		if on, ok := prefs[categoryPickem]; ok && on {
+			return true
+		}
+	}
+	return false
+}
+
+// evalPickemReminders evaluates N8 on every notifier tick: for the current
+// pick'em week, an eligible member (pickemReminderEligible) with at least
+// one unpicked game kicking off within 24 hours (pickemDueGames) is due.
+// One send per member per week — keyPickemRemind's shape already carries
+// season and week, so a second due game later the same week never re-sends
+// (FirstSend's at-most-once ledger). The window is self-closing: once
+// every game in the week has kicked off, pickemDueGames returns empty and
+// evaluation quietly stops mattering for that week — no recordOnly needed,
+// unlike N2/N3/N18's fixed windows.
+func (s *Service) evalPickemReminders(state PersistedState, now time.Time) {
+	games := s.schedule()
+	week := s.pickemWeek(games, now)
+	weekGames := gamesInWeek(games, week)
+	if len(weekGames) == 0 {
+		return
+	}
+	season := strconv.Itoa(s.cfg.Season)
+	for email, member := range state.Members {
+		if !s.pickemReminderEligible(state, email) {
+			continue
+		}
+		due := pickemDueGames(weekGames, state.Pickems[normalizeEmail(email)], now)
+		if len(due) == 0 {
+			continue
+		}
+		key := keyPickemRemind(season, week, email)
+		s.recordAndSend(state, email, categoryPickem, key, now, func() renderedNotification {
+			return s.buildPickemReminder(member, week, due)
+		})
+	}
+}
+
+func (s *Service) buildPickemReminder(member Member, week int, due []GameInfo) renderedNotification {
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	n := len(due)
+	plural, verb := "s", "are"
+	if n == 1 {
+		plural, verb = "", "is"
+	}
+	subject := fmt.Sprintf("PICK'EM: %d game%s kick off within 24 hours", n, plural)
+	shell := s.shellFor(categoryPickem, fmt.Sprintf("WEEK %d // PICK'EM", week))
+
+	rows := make([][]string, 0, n)
+	for _, game := range due {
+		rows = append(rows, []string{game.Away + " @ " + game.Home, game.Kickoff.In(location).Format("Mon 3:04 PM MST")})
+	}
+	blocks := []emailkit.Block{
+		emailkit.Headline{
+			Title: "THE CLOCK IS RUNNING OUT.",
+			Lede: fmt.Sprintf("%d game%s on your week-%d slate kick off within 24 hours and %s still unpicked.",
+				n, plural, week, verb),
+		},
+		emailkit.StatTable{Title: "UNPICKED", Header: []string{"MATCHUP", "KICKOFF"}, Rows: rows},
+		emailkit.CTA{Label: "MAKE YOUR PICKS →", URL: s.leagueURL() + "/pickem"},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyPickemRemind(strconv.Itoa(s.cfg.Season), week, member.Email), Category: categoryPickem,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+// ---------------------------------------------------------------------
 // N11 — commissioner-broadcast (league announcements)
 // ---------------------------------------------------------------------
 
@@ -1415,19 +1525,19 @@ func (s *Service) StartNotifier(ctx context.Context) {
 
 // notifierTick is the whole time-driven and derived trigger evaluation for
 // one instant (spec section 6.4), in the spec's exact order: N2/N3
-// reminder windows, then N7's draft-complete derivation, then the entries
-// N8-N13 own (their evaluation lands in later work packages — see the TODO
-// markers), then N18's lineup-warning window (roster-ops spec section 9,
-// WP-R2 — it is pure notification evaluation, so it belongs beside the
-// N2/N3/N7 checks, not in season.go's closeWeek), then the daily SentLog
-// prune.
+// reminder windows, then N7's draft-complete derivation, then N8's
+// pick'em-reminder window, then the entries N9-N13 own (their evaluation
+// lands in later work packages — see the TODO markers), then N18's
+// lineup-warning window (roster-ops spec section 9, WP-R2 — it is pure
+// notification evaluation, so it belongs beside the N2/N3/N7/N8 checks,
+// not in season.go's closeWeek), then the daily SentLog prune.
 func (s *Service) notifierTick(now time.Time) {
 	state := s.store.Snapshot()
 
-	s.evalDraftReminders(state, now) // N2, N3
-	s.evalDraftComplete(state, now)  // N7
+	s.evalDraftReminders(state, now)  // N2, N3
+	s.evalDraftComplete(state, now)   // N7
+	s.evalPickemReminders(state, now) // N8
 
-	// TODO(WP-E4): N8 pickem-reminder window evaluation.
 	// TODO(WP-E4): N9 pickem-results derivation.
 	// TODO(WP-E4): N10 scoring-change coalescing.
 	// TODO(WP-E5): N12 season-kickoff window evaluation (gated on

@@ -4451,3 +4451,118 @@ body.is-on-clock .draft-clock-panel {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
+/* ===== PICK'EM HQ: week record strip, week navigation, per-game consensus
+   bar, picked/unpicked row state, the two-leaderboard layout, and the
+   seatless-member home dashboard panel (app/pickem/page.gsx, app/page.gsx).
+   Appended 2026-08-17; see gridiron-2000 pick'em HQ task. ===== */
+
+.pickem-record {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.pickem-record__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.pickem-record__stat strong {
+  font-size: var(--type-md);
+}
+
+.pickem-weeknav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.pickem-weeknav .lineup-week-form {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.pickem-row[data-picked="true"] {
+  border-left: 2px solid var(--color-accent);
+}
+
+.pickem-row[data-picked="false"] {
+  opacity: 0.82;
+}
+
+.consensus {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.3rem;
+}
+
+.consensus-bar {
+  display: flex;
+  height: 0.4rem;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--color-border);
+}
+
+.consensus-bar__fill {
+  flex: none;
+  height: 100%;
+}
+
+.consensus-bar__fill--away {
+  background: var(--color-accent-cyan);
+}
+
+.consensus-bar__fill--home {
+  background: var(--color-accent);
+}
+
+.consensus-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
+
+.pickem-boards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+}
+
+.pickem-home-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.pickem-home-panel__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  font-size: var(--type-sm);
+}
+
+@media (max-width: 45rem) {
+  .pickem-record {
+    grid-template-columns: 1fr;
+  }
+
+  .pickem-boards {
+    grid-template-columns: 1fr;
+  }
+}

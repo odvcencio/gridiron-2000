@@ -382,6 +382,34 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 	return Member{}, false, ErrLeagueFull
 }
 
+// EnsureMember records email as a league member without claiming a team
+// seat, or returns the existing member unchanged. It is the
+// membership-only counterpart to AssignMember (the deliberate seat-claim
+// path, called only from Google sign-in): a TeamID "" member is a full
+// pick'em participant with no fantasy seat (see pickem.go's
+// pickemLeaderboard, which already renders that shape). created reports
+// whether this call recorded a brand-new member.
+func (s *Store) EnsureMember(email, name string) (member Member, created bool, err error) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	name = strings.TrimSpace(name)
+	if email == "" {
+		return Member{}, false, fmt.Errorf("email is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if existing, ok := s.state.Members[email]; ok {
+		if name != "" && existing.Name != name {
+			existing.Name = name
+			s.state.Members[email] = existing
+			_ = s.persistLocked()
+		}
+		return existing, false, nil
+	}
+	newMember := Member{TeamID: "", Name: name, Email: email}
+	s.state.Members[email] = newMember
+	return newMember, true, s.persistLocked()
+}
+
 func (s *Store) MemberByEmail(email string) (Member, bool) {
 	email = strings.ToLower(strings.TrimSpace(email))
 	s.mu.RLock()
