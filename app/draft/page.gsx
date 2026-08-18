@@ -206,12 +206,20 @@ func Page() Node {
 							class="pick-clock mono"
 							data-gosx-countdown={data.clock.effective_deadline}
 							data-gosx-countdown-format="mm:ss"
-							data-gosx-countdown-warn="15s"
+							data-gosx-countdown-warn="30s:pick-clock--warn"
+							data-gosx-countdown-cue="10s:beep"
 							data-gosx-countdown-then="revalidate"
 						>{data.clock.remaining_label}</strong>
 					</If>
 					<span class="mono pick-clock-reason">{data.clock.reason}</span>
 				</div>
+				<span
+					class="visually-hidden"
+					data-on-clock={data.viewer.team_id == data.on_clock_id}
+					data-gosx-watch="data-on-clock=true"
+					data-gosx-watch-effect="class:is-on-clock@body,title,cue:chime"
+					data-gosx-watch-title="YOUR PICK IS ON THE CLOCK"
+				></span>
 				<form id="ready-toggle" method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>

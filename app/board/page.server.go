@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -60,6 +61,22 @@ func init() {
 				}
 				ctx.Redirect("/board")
 				return nil
+			},
+			// board-move-to is the absolute-index action the declarative
+			// reorder primitive (data-gosx-reorder-action, see page.gsx)
+			// posts on drop or keyboard commit. It answers with a plain JSON
+			// success, never a redirect: the reorder runtime issues a lean
+			// background POST, not a form submission, and following a
+			// redirect would cost a second, pointless round trip.
+			"board-move-to": func(ctx *action.Context) error {
+				index, err := strconv.Atoi(ctx.FormData["index"])
+				if err != nil {
+					return action.Validation("invalid position", map[string]string{"item_id": "invalid position"}, ctx.FormData)
+				}
+				if err := league.Default().BoardMoveTo(ctx.Request, ctx.FormData["item_id"], index); err != nil {
+					return action.Validation(err.Error(), map[string]string{"item_id": err.Error()}, ctx.FormData)
+				}
+				return ctx.Success("", nil)
 			},
 			"board-remove": func(ctx *action.Context) error {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {

@@ -350,6 +350,23 @@ button.access-link {
   display: none;
 }
 
+/* visually-hidden: content read by assistive tech and reachable by
+   scripted attribute reads, invisible on screen. Used by the draft page's
+   on-clock watch marker (data-gosx-watch, see app/draft/page.gsx) — a
+   dedicated element with no visible role of its own, only a condition the
+   navigation runtime evaluates. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .site-rail {
   position: fixed;
   top: 0;
@@ -1911,10 +1928,12 @@ button.badge-option:hover {
   font-size: var(--type-sm);
 }
 
-/* body.is-on-clock (public/gridiron.js) marks the moment the viewer's own
-   seat is on the clock: a restrained gold glow layered onto the pick
-   clock panel's existing --shadow-panel, matching the presence dot's own
-   "idle" glow pattern below instead of introducing a new visual language. */
+/* body.is-on-clock marks the moment the viewer's own seat is on the
+   clock: a restrained gold glow layered onto the pick clock panel's
+   existing --shadow-panel, matching the presence dot's own "idle" glow
+   pattern below instead of introducing a new visual language. gosx
+   v0.46.0's data-gosx-watch (see app/draft/page.gsx's on-clock marker)
+   toggles the class itself, edge-triggered on the viewer's own seat. */
 body.is-on-clock .draft-clock-panel {
   border-color: var(--color-gold);
   box-shadow: var(--shadow-panel), 0 0 1.5rem var(--color-gold);
@@ -1941,36 +1960,17 @@ body.is-on-clock .draft-clock-panel {
   transition: color var(--duration-fast) var(--ease-out);
 }
 
-/* pick-clock--warn (public/gridiron.js) is the client's own early-warning
-   tier, added under 30 seconds remaining — ahead of the runtime's own
-   15-second gosx-countdown--warn critical tier just below, which wins on
-   specificity once both apply. */
+/* pick-clock--warn is the early-warning tier under 30 seconds remaining.
+   gosx v0.46.0's data-gosx-countdown-warn="30s:pick-clock--warn" (see
+   app/draft/page.gsx) names this class directly, so the runtime toggles
+   it itself — no bespoke JS drives it. */
 .pick-clock.pick-clock--warn {
   color: var(--color-gold);
-}
-
-/* data-gosx-countdown-warn="15s" (the pick clock's own red/critical
-   threshold — see app/draft/page.gsx) toggles this class on the countdown
-   element itself; the runtime has no hook to also toggle it on an
-   ancestor or a sibling card, so the wider page-border and on-clock-card
-   pulse the old hand-rolled JS drove are not reproduced here. */
-.pick-clock.gosx-countdown--warn {
-  color: var(--color-danger);
-  animation: pick-clock-pulse 1s var(--ease-in-out) infinite;
 }
 
 .pick-clock-reason {
   color: var(--color-text-muted);
   font-size: var(--type-xs);
-}
-
-@keyframes pick-clock-pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.45;
-  }
 }
 
 .notice-stack {
@@ -2458,7 +2458,7 @@ body.is-on-clock .draft-clock-panel {
 .board-row {
   position: relative;
   display: grid;
-  grid-template-columns: 3rem minmax(10rem, 1fr) 3.5rem 4rem 8rem;
+  grid-template-columns: 1.75rem 3rem minmax(10rem, 1fr) 3.5rem 4rem 3.25rem;
   align-items: center;
   gap: var(--space-sm);
   padding: 0.45rem var(--space-sm);
@@ -2468,6 +2468,84 @@ body.is-on-clock .draft-clock-panel {
 
 .board-row:first-child {
   border-top: 1px solid var(--color-border);
+}
+
+/* Declarative reorder (data-gosx-reorder, gosx#212) — see app/board/page.gsx
+   and app/board/page.server.go's board-move-to action. The runtime owns
+   pointer and keyboard drag entirely; these hooks style the four states it
+   toggles and write no positioning of their own beyond the contract's own
+   `position: absolute` requirement on the lifted item. */
+.board-row__handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-muted);
+  font-size: var(--type-md);
+  line-height: 1;
+  cursor: grab;
+  user-select: none;
+  border-radius: var(--radius-sm);
+  transition: color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
+}
+
+.board-row__handle:hover,
+.board-row__handle:focus-visible {
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+.board-row__handle:active {
+  cursor: grabbing;
+}
+
+/* gosx-reorder--dragging marks the container for the whole gesture
+   (pointer or keyboard), pointer or key. A faint accent rail on the list
+   itself confirms a drag is live even while the pointer sits over a
+   placeholder rather than the lifted row. */
+.pool-list.gosx-reorder--dragging {
+  outline: 1px dashed var(--color-border-strong);
+  outline-offset: 0.25rem;
+  border-radius: var(--radius-sm);
+}
+
+/* gosx-reorder-item--lifted: the pointer-dragged row. The contract
+   requires position: absolute with no top/left so the runtime's own
+   translateY starts from the row's static in-flow position; everything
+   else here is this app's visual language for "this row is floating". */
+.board-row.gosx-reorder-item--lifted {
+  position: absolute;
+  z-index: 42;
+  width: 100%;
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-panel), 0 0 1.5rem var(--color-accent-haze);
+  cursor: grabbing;
+}
+
+/* gosx-reorder-item--placeholder: the clone marking the live drop target
+   during a pointer drag. */
+.board-row.gosx-reorder-item--placeholder {
+  border: 1px dashed var(--color-border-strong);
+  background: transparent;
+  box-shadow: none;
+  opacity: 0.5;
+}
+
+.board-row.gosx-reorder-item--placeholder > * {
+  visibility: hidden;
+}
+
+/* gosx-reorder-item--grabbed: a keyboard grab, no pointer involved — same
+   accent language as the lifted state, without the floating position or
+   shadow a keyboard reorder has no use for. */
+.board-row.gosx-reorder-item--grabbed {
+  border-color: var(--color-accent);
+  background: var(--color-surface-raised);
+}
+
+.board-row.gosx-reorder-item--grabbed .board-row__handle {
+  color: var(--color-accent);
 }
 
 /* Locked/picked rows dim their own visible content only, never the whole
@@ -2480,6 +2558,7 @@ body.is-on-clock .draft-clock-panel {
   text-decoration: line-through;
 }
 
+.board-row[data-picked="true"] > .board-row__handle,
 .board-row[data-picked="true"] > .pool-rank,
 .board-row[data-picked="true"] > .position-chip,
 .board-row[data-picked="true"] > b,
