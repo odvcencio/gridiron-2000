@@ -77,6 +77,12 @@ func startMatchupRanks(ctx context.Context, stats *openstats.Service, lg *league
 			return false
 		}
 		lg.SetMatchupSource(matchupSourceFromSnapshot(snap), snap.SourceLabel)
+		// Log the success too, not only the failures below. Without this
+		// line a healthy deploy and a deploy whose ranks never loaded look
+		// identical in the logs, because the degraded path is deliberately
+		// silent per row. Confirming a rollout then costs several commands
+		// and still rests on inferring from absence.
+		log.Printf("matchup: rank source live (%s), %d teams ranked", snap.SourceLabel, len(snap.Offense))
 		return true
 	}
 	wait := matchupRefreshInterval
