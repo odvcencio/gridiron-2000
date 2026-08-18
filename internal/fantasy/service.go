@@ -219,9 +219,18 @@ func (s *Service) SyncNow(ctx context.Context) error {
 }
 
 // mergePool builds the final ADP-ordered pool. Players with ADP sort first in
-// ADP order; the rest sort by projection. ADP entries missing from the player
-// list (defenses, kickers on some feeds) are synthesized when they carry
-// enough identity to draft.
+// ADP order — market consensus, never overridden here — and the rest sort by
+// projection descending. Within that rest tier, a true zero/zero player (no
+// ADP, no projection) is no longer ordered by name alone: a rookie carrying
+// real NFL draft capital (round/overall pick, from Tank01's own draftInfo —
+// see Player.DraftCapital) sorts ahead of the alphabetical tail by pick, so a
+// highly drafted rookie is not indistinguishable from an anonymous camp body
+// just because neither has produced a stat line yet (owner directive
+// 2026-08-18 — "rookie presumed usage," ESPN-style big-board nuance). Any
+// player, rookie or not, who already carries a real projection is placed by
+// the branch above and can never be displaced by a rookie's draft slot. ADP
+// entries missing from the player list (defenses, kickers on some feeds) are
+// synthesized when they carry enough identity to draft.
 func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int) []Player {
 	ranked := make([]Player, 0, len(adp))
 	seen := map[string]bool{}
@@ -264,6 +273,26 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 		left, right := projections[rest[i].ID].Points, projections[rest[j].ID].Points
 		if left != right {
 			return left > right
+		}
+		if left == 0 {
+			// Both players carry no ADP and no projection at all — the true
+			// zero/zero tier (this branch never runs for a tie on a real,
+			// nonzero projection). A rookie's NFL draft capital is a real,
+			// market-set signal of presumed usage; it breaks the tie here,
+			// ahead of the alphabetical fallback below, so a first-round
+			// rookie no longer lands wherever his NAME happens to fall among
+			// hundreds of camp bodies. A non-rookie, or a rookie Tank01
+			// reports no draft slot for (an undrafted free agent), carries no
+			// capital and falls straight through to that same alphabetical
+			// order, unchanged from before this tiebreak existed.
+			leftPick, leftHasCapital := rest[i].DraftCapital()
+			rightPick, rightHasCapital := rest[j].DraftCapital()
+			if leftHasCapital != rightHasCapital {
+				return leftHasCapital
+			}
+			if leftHasCapital && leftPick != rightPick {
+				return leftPick < rightPick
+			}
 		}
 		if rest[i].Name != rest[j].Name {
 			return rest[i].Name < rest[j].Name

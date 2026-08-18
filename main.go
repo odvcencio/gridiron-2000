@@ -407,21 +407,22 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 			converted = make([]league.Player, 0, len(players))
 			for _, player := range players {
 				converted = append(converted, league.Player{
-					ID:         player.ID,
-					Name:       player.Name,
-					Position:   player.Position,
-					NFLTeam:    player.NFLTeam,
-					ADP:        player.ADP,
-					ADPRank:    player.ADPRank,
-					ByeWeek:    player.ByeWeek,
-					Injury:     player.Injury,
-					Headshot:   player.Headshot,
-					Jersey:     player.Jersey,
-					ProjStats:  player.ProjStats,
-					Projection: player.Projection,
-					News:       player.News,
-					Status:     "Available",
-					Rookie:     player.IsRookie(),
+					ID:           player.ID,
+					Name:         player.Name,
+					Position:     player.Position,
+					NFLTeam:      player.NFLTeam,
+					ADP:          player.ADP,
+					ADPRank:      player.ADPRank,
+					ByeWeek:      player.ByeWeek,
+					Injury:       player.Injury,
+					Headshot:     player.Headshot,
+					Jersey:       player.Jersey,
+					ProjStats:    player.ProjStats,
+					Projection:   player.Projection,
+					News:         player.News,
+					Status:       "Available",
+					Rookie:       player.IsRookie(),
+					DraftCapital: player.DraftCapitalLabel(),
 				})
 			}
 			lastVersion = version

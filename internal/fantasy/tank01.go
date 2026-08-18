@@ -143,6 +143,17 @@ func parsePlayerList(raw json.RawMessage) map[string]Player {
 			}
 		}
 		player.Exp = flexString(entry["exp"])
+		// draftInfo carries the player's real NFL draft slot (round, pick)
+		// straight on the same getNFLPlayerList row — no second Tank01 call,
+		// no ID cross-reference against another provider. pick is the
+		// OVERALL pick number (verified live 2026-08-18: round 2 begins at
+		// pick 33). Absent entirely for an undrafted free agent; DraftCapital
+		// (model.go) is the one place that decides whether a nonzero value
+		// here is a meaningful "presumed usage" signal for THIS season.
+		if draftInfo, ok := entry["draftInfo"].(map[string]any); ok {
+			player.DraftRound = flexInt(draftInfo["round"])
+			player.DraftPick = flexInt(draftInfo["pick"])
+		}
 		players[id] = player
 	}
 	return players
