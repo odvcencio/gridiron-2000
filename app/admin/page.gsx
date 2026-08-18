@@ -432,15 +432,17 @@ func Page() Node {
 						</Each>
 					</div>
 					<If cond={data.has_unclaimed_seats}>
-						<form method="post" action={actionPath("seat-trim")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<button class="button" type="submit">Drop unclaimed seats</button>
-						</form>
-						<p class="scoring-note">
-							{data.unclaimed_seat_count}
-							seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
-							in every round: it runs the full pick clock down, then autopicks a player.
-						</p>
+						<If cond={data.draft_started == false}>
+							<form method="post" action={actionPath("seat-trim")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<button class="button" type="submit">Drop unclaimed seats</button>
+							</form>
+							<p class="scoring-note">
+								{data.unclaimed_seat_count}
+								seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
+								in every round: it runs the full pick clock down, then autopicks a player.
+							</p>
+						</If>
 					</If>
 					<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>

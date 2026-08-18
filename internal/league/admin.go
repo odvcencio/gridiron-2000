@@ -99,9 +99,15 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// Store.TrimUnclaimedSeats itself drops.
 		"unclaimed_seat_count": len(s.Teams()) - claimedSeatCount(state.Members),
 		"has_unclaimed_seats":  len(s.Teams())-claimedSeatCount(state.Members) > 0,
-		"pool":                 s.poolStatusMap(),
-		"mail_enabled":         mailer.FromEnv().Enabled(),
-		"invite_preview":       map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
+		// draft_started hides the seat-trim control once the first pick
+		// lands, matching the roster-shape panel's own lock. The store
+		// rejects a late trim anyway ("seats lock once the draft starts"),
+		// but a live draft is the worst moment to offer a commissioner a
+		// button whose only outcome is an error.
+		"draft_started":  len(state.Picks) > 0,
+		"pool":           s.poolStatusMap(),
+		"mail_enabled":   mailer.FromEnv().Enabled(),
+		"invite_preview": map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
 		// Draft clock card: armed/paused state, both deadlines, and where
 		// the duration comes from (env default or a commissioner override).
 		"clock":                 s.clockView(state, now),

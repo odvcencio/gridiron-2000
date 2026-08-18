@@ -3,6 +3,7 @@ package league
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 // TestAdminDataCountsUnclaimedSeats pins the two fields the commissioner
@@ -47,5 +48,38 @@ func TestAdminDataCountsUnclaimedSeats(t *testing.T) {
 	}
 	if data["has_unclaimed_seats"] != true {
 		t.Errorf("has_unclaimed_seats = %v with seats still open, want true", data["has_unclaimed_seats"])
+	}
+}
+
+// TestAdminDataLocksSeatTrimOnceDraftStarts is the companion to
+// app/admin's TestAdminPageOffersSeatTrimBeforeTheDraft. The console hides
+// the seat-trim control on this flag once the first pick lands, because
+// Store.TrimUnclaimedSeats rejects a late trim outright ("seats lock once
+// the draft starts"). Offering a commissioner a button whose only possible
+// outcome is an error is worst during a live draft, which is the one time
+// they are under pressure.
+//
+// This lives here rather than in app/admin because league.Default() is a
+// sync.Once singleton: a second render in that package cannot be handed
+// different state. Driving the store directly is the only way to reach the
+// after-first-pick case.
+func TestAdminDataLocksSeatTrimOnceDraftStarts(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	if got := service.AdminData(request)["draft_started"]; got != false {
+		t.Fatalf("draft_started = %v before any pick, want false", got)
+	}
+
+	teamID := service.Teams()[0].ID
+	if _, err := service.store.MakePick(teamID, "test-player-1", "manager", service.clock(), time.Time{}); err != nil {
+		t.Fatalf("store.MakePick: %v", err)
+	}
+
+	if got := service.AdminData(request)["draft_started"]; got != true {
+		t.Errorf("draft_started = %v after a pick landed, want true", got)
+	}
+	if _, _, err := service.TrimUnclaimedSeats(request); err == nil {
+		t.Errorf("TrimUnclaimedSeats succeeded after the draft started, want it rejected")
 	}
 }
