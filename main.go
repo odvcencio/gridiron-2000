@@ -165,16 +165,13 @@ func main() {
 		// no focused-control interaction guard, so it keeps presence current
 		// while a manager is typing in a search box — the exact gap the old
 		// JS's focusedControlActive() special case existed only to close.
-		// HTMLDocument has no body-attribute hook, so this wraps body in a
-		// display:contents shell (.gosx-heartbeat-shell, public/styles.css)
-		// that is invisible to layout but still walked by the runtime's
-		// element scan.
-		heartbeatShell := gosx.El("div", gosx.Attrs(
-			gosx.Attr("class", "gosx-heartbeat-shell"),
+		// HTMLDocumentWithBodyAttrs (v0.49.0) puts the two heartbeat
+		// attributes directly on <body>, so no wrapper element is needed.
+		bodyAttrs := gosx.Attrs(
 			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
 			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
-		), body)
-		return server.HTMLDocument(ctx.Title(appName), ctx.Head(), heartbeatShell)
+		)
+		return server.HTMLDocumentWithBodyAttrs(ctx.Title(appName), ctx.Head(), body, bodyAttrs)
 	})
 	if err := router.AddDir(filepath.Join(root, "app"), route.FileRoutesOptions{}); err != nil {
 		log.Fatal(err)
