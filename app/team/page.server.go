@@ -174,6 +174,20 @@ func init() {
 					data["rename_error"] = message
 				}
 			}
+			data["has_co_error"] = false
+			data["co_error"] = ""
+			for _, name := range []string{"co-invite", "co-detach"} {
+				if view, ok := ctx.ActionState(name); ok {
+					message := view.Error("email")
+					if message == "" {
+						message = view.Error("team_id")
+					}
+					if message != "" {
+						data["has_co_error"] = true
+						data["co_error"] = message
+					}
+				}
+			}
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{"lineup-set", "lineup-auto"} {
@@ -243,6 +257,28 @@ func init() {
 				}
 				session.AddFlash(ctx.Request, "notice", message)
 				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				return nil
+			},
+			// co-invite lets a seat's primary manager invite a co-manager by
+			// email (registration wave, build item 4). league.Service
+			// re-checks that the caller actually is that seat's primary
+			// before touching the store.
+			"co-invite": func(ctx *action.Context) error {
+				if err := league.Default().InviteCoManager(ctx.Request, ctx.FormData["team_id"], ctx.FormData["email"]); err != nil {
+					return action.Validation(err.Error(), map[string]string{"email": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Co-manager invited: "+ctx.FormData["email"]+".")
+				ctx.Redirect("/team")
+				return nil
+			},
+			// co-detach lets the seat's primary manager or the commissioner
+			// remove a bound or still-pending co-manager.
+			"co-detach": func(ctx *action.Context) error {
+				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
+					return action.Validation(err.Error(), map[string]string{"team_id": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", "Co-manager detached.")
+				ctx.Redirect("/team")
 				return nil
 			},
 			// lineup-auto applies the section 4.7 SET BEST LINEUP action.

@@ -29,6 +29,17 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		item := s.teamMap(s.teamView(state, team.ID))
 		item["email"] = member.Email
 		item["ready"] = state.Ready[team.ID]
+		// co_email (registration wave, build item 4): the admin seats grid
+		// shows both managers, not just the primary — teamMembers returns
+		// primary first, then the co-manager if one is bound.
+		item["co_email"] = ""
+		item["has_co"] = false
+		for _, candidate := range teamMembers(state.Members, team.ID) {
+			if candidate.Role == "co" {
+				item["co_email"] = candidate.Email
+				item["has_co"] = true
+			}
+		}
 		seats = append(seats, item)
 	}
 	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))

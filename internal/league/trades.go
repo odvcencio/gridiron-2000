@@ -551,21 +551,23 @@ func tradeOfferShortID(offerID string) string {
 	return offerID
 }
 
-// notifyTradeOffer fires N15 to the receiving manager when an offer opens
-// (propose or counter).
+// notifyTradeOffer fires N15 to every operator of the receiving seat
+// (primary and, if bound, co-manager — registration wave, build item 4)
+// when an offer opens (propose or counter).
 func (s *Service) notifyTradeOffer(offer TradeOffer) {
 	if !s.notifyReady() {
 		return
 	}
 	state := s.store.Snapshot()
-	member := memberForTeam(state.Members, offer.ToTeamID)
-	if member.Email == "" {
-		return
+	for _, member := range teamMembers(state.Members, offer.ToTeamID) {
+		if member.Email == "" {
+			continue
+		}
+		key := keyTradeOffer(offer.ID, member.Email)
+		s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+			return s.buildTradeOffer(offer, member)
+		})
 	}
-	key := keyTradeOffer(offer.ID, member.Email)
-	s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
-		return s.buildTradeOffer(offer, member)
-	})
 }
 
 func (s *Service) buildTradeOffer(offer TradeOffer, member Member) renderedNotification {
@@ -607,24 +609,26 @@ func (s *Service) buildTradeOffer(offer TradeOffer, member Member) renderedNotif
 	}
 }
 
-// notifyTradeExecuted fires N16 to both party managers when an accepted
-// offer executes (tick, early approval, or immediate execution under
-// veto "none").
+// notifyTradeExecuted fires N16 to every operator of both party seats —
+// each side's primary and, if bound, co-manager (registration wave,
+// build item 4) — when an accepted offer executes (tick, early approval,
+// or immediate execution under veto "none").
 func (s *Service) notifyTradeExecuted(offer TradeOffer, txn Transaction) {
 	if !s.notifyReady() {
 		return
 	}
 	state := s.store.Snapshot()
 	for _, teamID := range [2]string{offer.FromTeamID, offer.ToTeamID} {
-		member := memberForTeam(state.Members, teamID)
-		if member.Email == "" {
-			continue
-		}
 		recipientTeamID := teamID
-		key := keyTradeExecuted(offer.ID, member.Email)
-		s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
-			return s.buildTradeExecuted(state, offer, member, recipientTeamID)
-		})
+		for _, member := range teamMembers(state.Members, teamID) {
+			if member.Email == "" {
+				continue
+			}
+			key := keyTradeExecuted(offer.ID, member.Email)
+			s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+				return s.buildTradeExecuted(state, offer, member, recipientTeamID)
+			})
+		}
 	}
 }
 
@@ -689,24 +693,26 @@ func (s *Service) buildTradeExecuted(state PersistedState, offer TradeOffer, mem
 	}
 }
 
-// notifyTradeVetoed fires N17 to both party managers when an accepted
-// offer vetoes (commissioner action, or the vote threshold trips).
-// mechanism is "commissioner review" or "league vote" — named without
-// naming individual voters (section 9's N17 lede rule).
+// notifyTradeVetoed fires N17 to every operator of both party seats
+// (registration wave, build item 4) when an accepted offer vetoes
+// (commissioner action, or the vote threshold trips). mechanism is
+// "commissioner review" or "league vote" — named without naming
+// individual voters (section 9's N17 lede rule).
 func (s *Service) notifyTradeVetoed(offer TradeOffer, mechanism string) {
 	if !s.notifyReady() {
 		return
 	}
 	state := s.store.Snapshot()
 	for _, teamID := range [2]string{offer.FromTeamID, offer.ToTeamID} {
-		member := memberForTeam(state.Members, teamID)
-		if member.Email == "" {
-			continue
+		for _, member := range teamMembers(state.Members, teamID) {
+			if member.Email == "" {
+				continue
+			}
+			key := keyTradeVetoed(offer.ID, member.Email)
+			s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+				return s.buildTradeVetoed(offer, member, mechanism)
+			})
 		}
-		key := keyTradeVetoed(offer.ID, member.Email)
-		s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
-			return s.buildTradeVetoed(offer, member, mechanism)
-		})
 	}
 }
 

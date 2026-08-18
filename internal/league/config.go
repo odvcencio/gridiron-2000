@@ -96,6 +96,20 @@ type TradesBlock struct {
 	ReviewHours int    `json:"review_hours"`
 }
 
+// MembershipBlock is the "membership" config block (registration wave,
+// build item 5 — the platform thesis proof: "separate setups (scoring
+// rules, membership rules, etc) with the same underlying platform").
+// AllowedDomain is a bare domain (no "@"); when set, any Google sign-in
+// whose email carries that domain is admitted as a member without
+// needing an invite-list entry — the invite list still works alongside
+// it (Service.EmailAllowed). An empty AllowedDomain (the zero value, and
+// every config that omits the "membership" block entirely) means no
+// domain gate: membership is invite/env-list only, unchanged from
+// before this block existed.
+type MembershipBlock struct {
+	AllowedDomain string `json:"allowed_domain,omitempty"`
+}
+
 // Config is the resolved, in-memory shape every package reads (spec
 // section 3.4). It is a flattened view of league.json's nested wire
 // format (configFile, below): callers never see the JSON nesting.
@@ -138,6 +152,11 @@ type Config struct {
 
 	Waivers WaiversBlock
 	Trades  TradesBlock
+	// Membership is the "membership" config block's resolved form (build
+	// item 5): the domain-gate rule. Absent from the flagship reference
+	// config; a deployment that wants it (for example a company league
+	// gating on its own email domain) sets it explicitly.
+	Membership MembershipBlock
 
 	// Source records where this config came from: "defaults", or
 	// "file:<path>". AdminData and /api/health surface it.
@@ -165,12 +184,13 @@ type configFile struct {
 		Rounds      int    `json:"rounds"`
 		FormatLabel string `json:"format_label"`
 	} `json:"draft"`
-	SeasonStartAt string       `json:"season_start_at"`
-	ScoringFormat string       `json:"scoring_format"`
-	Copy          CopyBlock    `json:"copy"`
-	Roster        RosterBlock  `json:"roster"`
-	Waivers       WaiversBlock `json:"waivers"`
-	Trades        TradesBlock  `json:"trades"`
+	SeasonStartAt string          `json:"season_start_at"`
+	ScoringFormat string          `json:"scoring_format"`
+	Copy          CopyBlock       `json:"copy"`
+	Roster        RosterBlock     `json:"roster"`
+	Waivers       WaiversBlock    `json:"waivers"`
+	Trades        TradesBlock     `json:"trades"`
+	Membership    MembershipBlock `json:"membership"`
 }
 
 // neutralTeams is the shipped, unconfigured checkout's team list: 8 teams,
@@ -349,6 +369,7 @@ func loadConfigFile(path string) (Config, error) {
 		Copy:          file.Copy,
 		Waivers:       file.Waivers,
 		Trades:        file.Trades,
+		Membership:    file.Membership,
 	}
 	// Absent waivers/trades blocks resolve to their defaults (roster-ops
 	// spec section 10: "Absent blocks resolve to the defaults below"). A
@@ -582,6 +603,9 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 	if err := validateTrades(cfg.Trades); err != nil {
 		return nil, err
 	}
+	if err := validateMembership(cfg.Membership); err != nil {
+		return nil, err
+	}
 
 	if n > teamCountWarnAbove {
 		warnings = append(warnings, fmt.Sprintf(
@@ -700,6 +724,30 @@ func applyActiveConfig(cfg Config) {
 	DefaultDraftTZ = cfg.Timezone
 	DefaultSeasonStartAt = cfg.SeasonStartAt.Format(time.RFC3339)
 	ActiveRosterPreset = cfg.Roster
+}
+
+// domainPattern accepts a bare domain: one or more dot-separated labels
+// of letters, digits, and hyphens, ending in a letters-only label of at
+// least two characters (registration wave, build item 5's "bare domain,
+// no @" validation rule).
+var domainPattern = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$`)
+
+// validateMembership checks the "membership" config block (build item
+// 5): an empty allowed_domain (the default) needs no validation — no
+// domain gate. A set value must be a bare domain, not an email address,
+// and must match domainPattern.
+func validateMembership(m MembershipBlock) error {
+	domain := strings.ToLower(strings.TrimSpace(m.AllowedDomain))
+	if domain == "" {
+		return nil
+	}
+	if strings.Contains(domain, "@") {
+		return fmt.Errorf("league config: membership.allowed_domain must be a bare domain, not an email address")
+	}
+	if !domainPattern.MatchString(domain) {
+		return fmt.Errorf("league config: membership.allowed_domain %q is not a valid domain", domain)
+	}
+	return nil
 }
 
 func validateTrades(t TradesBlock) error {
