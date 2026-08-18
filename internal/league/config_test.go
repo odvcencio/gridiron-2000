@@ -242,7 +242,7 @@ func TestValidateConfigExactMessages(t *testing.T) {
 		{"faab budget range", func(c *Config) { c.Waivers.FAABBudget = 0 }, "league config: waivers.faab_budget must be 1 to 1000"},
 		{"clear days range", func(c *Config) { c.Waivers.ClearDays = 8 }, "league config: waivers.clear_days must be 0 to 7"},
 		{"process time format", func(c *Config) { c.Waivers.ProcessTime = "9am" }, "league config: waivers.process_time must be HH:MM"},
-		{"veto value", func(c *Config) { c.Trades.Veto = "coinflip" }, "league config: trades.veto must be one of commissioner, vote, none"},
+		{"veto value", func(c *Config) { c.Trades.Veto = "coinflip" }, "league config: trades.veto must be one of commissioner, vote, both, none"},
 		{"review hours range", func(c *Config) { c.Trades.ReviewHours = 0 }, "league config: trades.review_hours must be 1 to 72"},
 		{"deadline format", func(c *Config) { c.Trades.Deadline = "next tuesday" }, "league config: trades.deadline must be an RFC3339 timestamp or empty"},
 	}
