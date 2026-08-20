@@ -24,7 +24,7 @@ There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account int
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.43.0.
+Requirements: Go 1.26 and GoSX v0.49.0.
 
 ```bash
 cp .env.example .env
@@ -189,6 +189,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
 | `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |
 | `FANTASY_POOL_LIMIT` | `400` | Maximum pool size |
+| `AVATAR_ROOT` | `data/avatars` | Immutable avatar-object target; must remain strictly below `AVATAR_DURABLE_ROOT` |
+| `AVATAR_DURABLE_ROOT` | `data` (`/app/data` in the container) | Pre-existing PVC/storage anchor. Avatar writes never create or fsync outside this directory; custom roots require an existing matching anchor |
 | `DATA_FILE` | `data/league-state.json` | Names the data directory, and the JSON state file to import once. The league database is `league.db` beside it |
 | `WIRE_ENABLED` | `true` | Enable the public signal listener |
 | `WIRE_FEEDS_ENABLED` | `true` | Enable the RSS/Atom source mesh |

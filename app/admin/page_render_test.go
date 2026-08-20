@@ -3,6 +3,7 @@ package admin
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -73,6 +74,30 @@ func TestAdminPageOffersSeatTrimBeforeTheDraft(t *testing.T) {
 	}
 	if randomizeStep >= 0 && trimStep >= 0 && trimStep > randomizeStep {
 		t.Errorf("runbook lists randomize before trim; the trim resets draft order, so it must come first")
+	}
+}
+
+func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	if got := strings.Count(markup, `role="status"`); got != 1 {
+		t.Fatalf("admin page has %d status roles, want exactly one page-level identity warning", got)
+	}
+	warning := strings.Index(markup, `id="admin-identity-status"`)
+	seatList := strings.Index(markup, `<div class="seat-list">`)
+	if warning < 0 || seatList < 0 || warning > seatList {
+		t.Fatalf("identity warning must appear once above seat list: warning=%d seatList=%d", warning, seatList)
+	}
+	seatRow := strings.Index(markup, "func SeatRow")
+	page := strings.Index(markup, "func Page")
+	if seatRow < 0 || page < 0 || seatRow >= page {
+		t.Fatal("could not isolate SeatRow source")
+	}
+	if strings.Contains(markup[seatRow:page], `role="status"`) {
+		t.Fatal("SeatRow repeats the identity status warning; rows should only hide identity controls")
 	}
 }
 

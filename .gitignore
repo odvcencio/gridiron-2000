@@ -5,6 +5,7 @@ dist/
 .canopy/
 artifacts/
 *.log
+*.orig
 .analyses/
 docs/superpowers/
 

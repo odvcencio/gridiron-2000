@@ -2,6 +2,8 @@ package league
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +26,14 @@ import (
 type BadgeMotif struct {
 	Slug string
 	Name string
+}
+
+// BadgeTransition describes the identity side effect of selecting a badge.
+// AvatarCleared is true only when the same durable Store transaction removed
+// a previous custom-avatar reference, allowing the handler to tell the user
+// exactly what changed without inferring from a later read.
+type BadgeTransition struct {
+	AvatarCleared bool
 }
 
 // BadgeMotifs is the ordered catalog of every badge motif a team may
@@ -48,35 +59,6 @@ var BadgeMotifs = []BadgeMotif{
 	{Slug: "fireball", Name: "Fireball"},
 	{Slug: "dolphin", Name: "Dolphin"},
 	{Slug: "phoenix", Name: "Phoenix"},
-}
-
-// legacyMotifSlugs maps the catalog's first-cut slugs to the ones that
-// replaced them. The originals were named from a low-resolution read of the
-// source art; isolating each badge properly showed four of them depict
-// something else — the "marlin" is a rocket, the "knight" a robot visor, the
-// "planet" an astronaut helmet, and the "kraken" a flaming football. The
-// catalog now names what the art shows.
-//
-// No claim carried an old slug when the rename shipped (badge_claims was
-// empty), so this map exists to make that fact unnecessary to rely on: a
-// claim written by an older binary still resolves instead of orphaning its
-// team onto the text-mark fallback. It never accepts an old slug as NEW
-// input — knownMotif still rejects those, so the picker cannot write one.
-var legacyMotifSlugs = map[string]string{
-	"marlin": "rocket",
-	"knight": "robot",
-	"planet": "astronaut",
-	"kraken": "fireball",
-}
-
-// resolveMotifSlug maps a stored slug forward through legacyMotifSlugs. Read
-// paths (rendering a claimed badge) call this; write paths do not, so a
-// retired slug can be honored but never freshly persisted.
-func resolveMotifSlug(slug string) string {
-	if current, ok := legacyMotifSlugs[slug]; ok {
-		return current
-	}
-	return slug
 }
 
 // knownMotif reports whether slug names a catalog entry. Every store and
@@ -199,6 +181,12 @@ func badgeArtKey(motif, tone string) string {
 // grid preview links, the served badge itself) never re-decodes and
 // re-tints the same motif+tone pair twice.
 func (s *Service) tintedBadgePNG(motif, tone string) ([]byte, error) {
+	// Keep the catalog gate immediately beside the filesystem path join. A
+	// persisted value is not trusted merely because it came from the store:
+	// pre-v1 databases may still contain a retired or otherwise hostile slug.
+	if !knownMotif(motif) {
+		return nil, ErrBadgeUnknownMotif
+	}
 	key := badgeArtKey(motif, tone)
 	s.badgeArt.mu.Lock()
 	if cached, ok := s.badgeArt.cache[key]; ok {
@@ -309,31 +297,32 @@ func parseHexColor(hex string) (r, g, b uint8, err error) {
 }
 
 // BadgeImage resolves teamID's claimed motif and tone and returns the
-// tinted PNG. version is the claimed motif's slug: the serving URL (see
-// avatarView's badge tier and the GET /avatars/badge/{teamID}.png
-// handler) only needs to bust its cache when the claim itself changes,
-// not on every render, exactly matching how AvatarVersion's mtime feeds
-// the uploaded-photo tier's ?v= query. ok is false when teamID is unknown
-// or has no badge claim — the caller (the HTTP handler) must check it
-// before serving anything, the same discipline AvatarFilePath's doc
-// comment describes for teamID traversal safety.
+// tinted PNG. version is the SHA-256 of the exact rendered bytes, so the
+// caller can include it in the URL and use an immutable cache policy without
+// serving changed bytes under an old mutable URL. ok is false when teamID is
+// unknown, identity persistence is unhealthy, or the team has no badge claim.
 func (s *Service) BadgeImage(teamID string) (data []byte, version string, ok bool) {
-	if !knownTeam(teamID) {
+	if !knownTeam(teamID) || !s.store.IdentityHealthy() {
 		return nil, "", false
 	}
 	motif, claimed := s.store.BadgeClaim(teamID)
 	if !claimed {
 		return nil, "", false
 	}
-	// A claim persisted by an older binary may name a retired slug; map it
-	// forward so the badge still renders (see legacyMotifSlugs).
-	motif = resolveMotifSlug(motif)
+	// This is deliberately immediately before tintedBadgePNG's artwork path
+	// gate. Invalid persisted claims are stripped by state normalization, but
+	// this second check keeps a future store/read path from turning arbitrary
+	// state into a filesystem path.
+	if !knownMotif(motif) {
+		return nil, "", false
+	}
 	team := s.teamByID(teamID)
 	data, err := s.tintedBadgePNG(motif, team.Tone)
 	if err != nil {
 		return nil, "", false
 	}
-	return data, motif, true
+	digest := sha256.Sum256(data)
+	return data, hex.EncodeToString(digest[:]), true
 }
 
 // ClaimBadge sets teamID's badge to motif. Order of checks matters, the
@@ -341,30 +330,42 @@ func (s *Service) BadgeImage(teamID string) (data []byte, version string, ok boo
 // reach any store or filesystem path, authorization is checked before
 // the store mutation is attempted, and only a store-level failure (an
 // unknown motif slipping past knownMotif, or another team already
-// holding motif) can still fail after that. Claiming implicitly swaps
-// away this team's own previous claim, if any — Store.ClaimBadge just
-// overwrites the map entry; the freed motif needs no separate release
-// call.
+// holding motif) can still fail after that. Selecting a badge atomically
+// claims the motif and clears this team's custom-avatar reference, so the
+// two identity choices can never be published as an uncertain pair. A
+// previous badge claim is replaced in the same transaction; its freed motif
+// needs no separate release call.
 func (s *Service) ClaimBadge(r *http.Request, teamID, motif string) error {
+	_, err := s.ClaimBadgeWithTransition(r, teamID, motif)
+	return err
+}
+
+// ClaimBadgeWithTransition is ClaimBadge plus the exact identity transition
+// metadata needed by the browser flash. The claim and custom-avatar clear
+// still happen in one Store transaction; the metadata is returned only after
+// that transaction succeeds.
+func (s *Service) ClaimBadgeWithTransition(r *http.Request, teamID, motif string) (BadgeTransition, error) {
 	teamID = strings.TrimSpace(teamID)
 	motif = strings.TrimSpace(motif)
 	if !knownTeam(teamID) {
-		return fmt.Errorf("unknown team %q", teamID)
+		return BadgeTransition{}, fmt.Errorf("unknown team %q", teamID)
 	}
 	if !s.canSetAvatar(r, teamID) {
-		return ErrBadgeForbidden
+		return BadgeTransition{}, ErrBadgeForbidden
 	}
 	if !knownMotif(motif) {
-		return ErrBadgeUnknownMotif
+		return BadgeTransition{}, ErrBadgeUnknownMotif
 	}
-	if err := s.store.ClaimBadge(teamID, motif); err != nil {
+	actor := s.seatActor(r)
+	cleared, err := s.store.claimBadgeForActorTransition(teamID, motif, actor)
+	if err != nil {
 		var claimed *badgeClaimedError
 		if errors.As(err, &claimed) {
-			return &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name}
+			return BadgeTransition{}, &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name}
 		}
-		return err
+		return BadgeTransition{}, err
 	}
-	return nil
+	return BadgeTransition{AvatarCleared: cleared}, nil
 }
 
 // ReleaseBadge clears teamID's badge claim, restoring the tone-default
@@ -380,7 +381,9 @@ func (s *Service) ReleaseBadge(r *http.Request, teamID string) error {
 	if !s.canSetAvatar(r, teamID) {
 		return ErrBadgeForbidden
 	}
-	return s.store.ReleaseBadge(teamID)
+	actor := s.seatActor(r)
+	_, err := s.store.releaseBadgeForActor(teamID, actor)
+	return err
 }
 
 // badgeGrid renders the full 16-motif catalog for the team-badge picker
@@ -391,7 +394,37 @@ func (s *Service) ReleaseBadge(r *http.Request, teamID string) error {
 // anything the viewer could not already see on the standings or roster
 // pages.
 func (s *Service) badgeGrid(state PersistedState, teamID string) []map[string]any {
-	claims := state.BadgeClaims
+	if !s.store.IdentityHealthy() {
+		return []map[string]any{}
+	}
+	// Treat the supplied snapshot as untrusted persisted state too. The
+	// normal load path strips these rows, but filtering here keeps a future
+	// caller from rendering a retired slug or allowing duplicate canonical
+	// art to appear occupied after a hand-edited/imported state.
+	claims := make(map[string]string, len(state.BadgeClaims))
+	claimedMotifs := make(map[string]struct{}, len(state.BadgeClaims))
+	holders := make([]string, 0, len(state.BadgeClaims))
+	for holder := range state.BadgeClaims {
+		holders = append(holders, holder)
+	}
+	sort.Strings(holders)
+	for _, holder := range holders {
+		claimedMotif := state.BadgeClaims[holder]
+		if !knownTeam(holder) || !knownMotif(claimedMotif) {
+			continue
+		}
+		// A valid custom avatar is the active identity for this seat; do not
+		// let a hand-edited/imported conflicting badge row make the picker
+		// advertise canonical art that cannot actually be claimed by it.
+		if ref := state.AvatarRefs[holder]; validAvatarRef(ref) {
+			continue
+		}
+		if _, duplicate := claimedMotifs[claimedMotif]; duplicate {
+			continue
+		}
+		claims[holder] = claimedMotif
+		claimedMotifs[claimedMotif] = struct{}{}
+	}
 	out := make([]map[string]any, 0, len(BadgeMotifs))
 	for _, motif := range BadgeMotifs {
 		holder, taken := "", false

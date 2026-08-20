@@ -1,11 +1,12 @@
 package admin
 
 // SeatRow's avatar-upload form posts to /avatar/upload as a plain,
-// unmanaged (data-gosx-managed="false") full-page submission. TODO(gosx#187):
-// once ctx.Files lands upstream, revisit whether it can move to the managed
-// path — the raw handler exists today because m31labs.dev/gosx/action caps
-// every managed-form request body at 1MB, well under the 2MB avatar limit
-// (see avatar_handlers.go in the repo root).
+// unmanaged (data-gosx-managed="false") full-page submission. GoSX v0.49.0
+// supports File/Files and MaxActionBodyBytes for managed actions, but this
+// native route remains until the production consumer adopts a
+// bounded-multipart contract; its outer middleware applies the complete-
+// envelope limit before sessions and CSRF parsing (see avatar_handlers.go in
+// the repo root).
 func SeatRow(props any) Node {
 	return <article class="seat-row" data-claimed={props.seat.claimed}>
 		<span class={"team-mark tone-" + props.seat.tone}>
@@ -81,6 +82,7 @@ func SeatRow(props any) Node {
 				<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
 			</form>
 		</If>
+		<If cond={props.seat.identity_available}>
 		<form
 			method="post"
 			action="/avatar/upload"
@@ -91,7 +93,15 @@ func SeatRow(props any) Node {
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.seat.id}></input>
 			<input type="hidden" name="redirect_to" value="/admin"></input>
-			<input type="file" name="avatar" accept="image/png,image/jpeg" required="required"></input>
+			<label for={"avatar-upload-" + props.seat.id}>Upload custom image for {props.seat.name}</label>
+			<input
+				id={"avatar-upload-" + props.seat.id}
+				type="file"
+				name="avatar"
+				accept="image/png,image/jpeg"
+				aria-describedby="admin-avatar-upload-help"
+				required="required"
+			></input>
 			<button class="board-button" type="submit">Set avatar</button>
 		</form>
 		<If cond={props.seat.has_avatar}>
@@ -100,6 +110,7 @@ func SeatRow(props any) Node {
 				<input type="hidden" name="team_id" value={props.seat.id}></input>
 				<button class="board-button board-button--cut" type="submit">Reset avatar</button>
 			</form>
+		</If>
 		</If>
 	</article>
 }
@@ -269,8 +280,12 @@ func Page() Node {
 						<div>
 							<span class="section-index">01 // SEATS</span>
 							<h2>Franchise claims</h2>
+							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
 						</div>
 					</div>
+					<If cond={data.identity_available == false}>
+						<p class="error-message" id="admin-identity-status" role="status">{data.identity_error}</p>
+					</If>
 					<div class="seat-list">
 						<Each of={data.seats} as="seat">
 							<SeatRow

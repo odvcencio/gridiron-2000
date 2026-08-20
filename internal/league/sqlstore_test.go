@@ -1,6 +1,8 @@
 package league
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -133,7 +135,10 @@ func realisticFixture() PersistedState {
 		},
 		ScoringChangedAt: at(2, 11),
 		Phase:            PhaseRegularSeason,
-		BadgeClaims:      map[string]string{"team-1": "bolt", "team-2": "flame"},
+		BadgeClaims:      map[string]string{"team-1": "bolt", "team-2": "fireball"},
+		// A valid custom ref exercises JSON import, cloneState, and the
+		// SQLite round-trip without inventing an object-file fixture.
+		AvatarRefs: map[string]string{"team-3": strings.Repeat("c", 64)},
 		RosterOverride: &RosterOverride{
 			Slots:   map[string]int{"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "K": 1, "DST": 1},
 			Bench:   6,
@@ -412,6 +417,420 @@ func TestImportRunsOnlyOnce(t *testing.T) {
 	}
 	if got := second.Snapshot().TeamNames["team-1"]; got != "From Database" {
 		t.Fatalf("team name = %q, want From Database (the stale file must not import twice)", got)
+	}
+}
+
+func writeUnmarkedLegacyDatabase(t *testing.T, path string, state PersistedState) []byte {
+	t.Helper()
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openDB(filepath.Join(filepath.Dir(path), dbFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDB(db); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	normalizeState(&state)
+	state.SchemaVersion = currentSchemaVersion
+	legacy := &Store{db: db, state: state, shadow: shadowIndex{}}
+	for _, id := range allCollections() {
+		legacy.dirty |= 1 << uint(id)
+	}
+	if err := legacy.writeDirtyLocked(); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestImportAuthorityMarkerCommitsWithImportedState(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	state := PersistedState{SchemaVersion: currentSchemaVersion, TeamNames: map[string]string{"team-1": "Imported"}}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	var marker string
+	if err := store.db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvPersistenceAuthority).Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != legacyAuthorityMarker(raw) {
+		t.Fatalf("authority marker = %q, want %q", marker, legacyAuthorityMarker(raw))
+	}
+	if got := store.Snapshot().TeamNames["team-1"]; got != "Imported" {
+		t.Fatalf("imported state = %q, want Imported", got)
+	}
+}
+
+func TestLegacyImportRecoveryAfterCommitBeforeRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	raw := writeUnmarkedLegacyDatabase(t, path, PersistedState{
+		SchemaVersion: currentSchemaVersion,
+		TeamNames:     map[string]string{"team-1": "Committed"},
+	})
+	store := NewStore(path)
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().TeamNames["team-1"]; got != "Committed" {
+		t.Fatalf("recovered team name = %q, want Committed", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("recovered source file still exists: %v", err)
+	}
+	kept, err := os.ReadFile(path + importedSuffix)
+	if err != nil || !bytes.Equal(kept, raw) {
+		t.Fatalf("recovered .imported bytes = %q, err %v; want original", kept, err)
+	}
+	var marker string
+	if err := store.db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvPersistenceAuthority).Scan(&marker); err != nil {
+		t.Fatal(err)
+	}
+	if marker != legacyAuthorityMarker(raw) {
+		t.Fatalf("recovery marker = %q, want %q", marker, legacyAuthorityMarker(raw))
+	}
+}
+
+func TestLegacyImportRecoveryRejectsDivergentFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	_ = writeUnmarkedLegacyDatabase(t, path, PersistedState{
+		SchemaVersion: currentSchemaVersion,
+		TeamNames:     map[string]string{"team-1": "Database"},
+	})
+	if err := os.WriteFile(path, []byte(`{"schemaVersion":3,"teamNames":{"team-1":"Divergent file"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); err == nil {
+		t.Fatal("divergent JSON must refuse startup")
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("divergent JSON was removed: %v", err)
+	}
+	db, err := openDB(filepath.Join(dir, dbFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	stored, err := loadStateFromDB(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stored.TeamNames["team-1"]; got != "Database" {
+		t.Fatalf("database after divergent recovery = %q, want Database", got)
+	}
+}
+
+func TestLogicalSchemaTooNewRefusesBeforePendingMigration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	dbPath := filepath.Join(dir, dbFileName)
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDB(db); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`, kvSchemaVersion, currentSchemaVersion+1); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d", currentDBVersion-1)); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); !errors.Is(err, errSchemaTooNew) {
+		t.Fatalf("StartupError = %v, want logical schema-too-new before migration", err)
+	}
+	db, err = openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version string
+	if err := db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvSchemaVersion).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != fmt.Sprint(currentSchemaVersion+1) {
+		t.Fatalf("logical schema marker after refusal = %q, want %d", version, currentSchemaVersion+1)
+	}
+}
+
+func TestAbandonPreservesCommittedAuthorityAfterPostCommitFailure(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, dbFileName)
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDB(db); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO kv (key, value) VALUES (?, ?)`, kvPersistenceAuthority, authorityNative); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	store := &Store{db: db, dbPath: dbPath}
+	want := errors.New("post-commit directory barrier failed")
+	if got := store.abandonLocked(true, want); !errors.Is(got, want) {
+		t.Fatalf("abandon error = %v, want %v", got, want)
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("committed authoritative database was removed: %v", err)
+	}
+	reopened, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+	marker, err := readPersistenceAuthority(reopened)
+	if err != nil || marker != authorityNative {
+		t.Fatalf("retained authority marker = %q, err %v; want %q", marker, err, authorityNative)
+	}
+}
+
+func TestImportRetainsCommittedDatabaseWhenRenameSyncFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	raw := []byte(`{"schemaVersion":3,"teamNames":{"team-1":"Durable import"}}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalSync := syncImportDirectoryHook
+	syncErr := errors.New("injected import directory sync failure")
+	syncImportDirectoryHook = func(string) error { return syncErr }
+	t.Cleanup(func() { syncImportDirectoryHook = originalSync })
+	failed := NewStore(path)
+	if err := failed.StartupError(); !errors.Is(err, syncErr) {
+		t.Fatalf("post-rename sync StartupError = %v, want %v", err, syncErr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, dbFileName)); err != nil {
+		t.Fatalf("committed database was removed after rename sync failure: %v", err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("source file after successful rename = err %v, want absent", err)
+	}
+	if _, err := os.Stat(path + importedSuffix); err != nil {
+		t.Fatalf("imported backup after successful rename = %v", err)
+	}
+	_ = failed.Close()
+	syncImportDirectoryHook = originalSync
+
+	restarted := NewStore(path)
+	t.Cleanup(func() { _ = restarted.Close() })
+	if err := restarted.StartupError(); err != nil {
+		t.Fatalf("restart after post-rename sync failure = %v", err)
+	}
+	if got := restarted.Snapshot().TeamNames["team-1"]; got != "Durable import" {
+		t.Fatalf("restart team name = %q, want Durable import", got)
+	}
+}
+
+func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	dbPath := filepath.Join(dir, dbFileName)
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := migrate001Initial(tx); err != nil {
+		_ = tx.Rollback()
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`PRAGMA user_version = 1`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO badge_claims (team_id, motif) VALUES ('team-1', 'fireball')`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(path)
+	if err := store.StartupError(); err != nil {
+		_ = store.Close()
+		t.Fatal(err)
+	}
+	var gotVersion int
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&gotVersion); err != nil || gotVersion != 2 {
+		_ = store.Close()
+		t.Fatalf("migrated user_version = %d (err %v), want 2", gotVersion, err)
+	}
+	var tableName string
+	if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'avatar_refs'`).Scan(&tableName); err != nil {
+		_ = store.Close()
+		t.Fatalf("avatar_refs table missing after v1->v2 migration: %v", err)
+	}
+	got := store.Snapshot()
+	if got.BadgeClaims["team-1"] != "fireball" {
+		_ = store.Close()
+		t.Fatalf("migrated canonical badge = %q, want fireball", got.BadgeClaims["team-1"])
+	}
+	if len(got.AvatarRefs) != 0 {
+		_ = store.Close()
+		t.Fatalf("v1 migration invented avatar refs: %#v", got.AvatarRefs)
+	}
+	want := got
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if err := reloaded.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Snapshot(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("reloaded v1->v2 state differs:\n%s", diffStates(t, want, got))
+	}
+}
+
+func TestLogicalSchemaTooNewRefusesBeforeIdentityRepair(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "league-state.json")
+	dbPath := filepath.Join(dir, dbFileName)
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateDB(db); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	var pragmaVersion int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&pragmaVersion); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if pragmaVersion != currentDBVersion {
+		_ = db.Close()
+		t.Fatalf("fixture user_version = %d, want supported version %d", pragmaVersion, currentDBVersion)
+	}
+	if _, err := db.Exec(`PRAGMA ignore_check_constraints = ON`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO avatar_refs (team_id, ref) VALUES ('team-4', 'not-a-ref')`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO badge_claims (team_id, motif) VALUES ('team-4', 'flame')`); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`, kvSchemaVersion, currentSchemaVersion+1); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+
+	readRows := func(open *sql.DB) (avatars, badges []string) {
+		rows, err := open.Query(`SELECT "team_id", "ref" FROM avatar_refs ORDER BY "team_id", "ref"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var teamID, ref string
+			if err := rows.Scan(&teamID, &ref); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			avatars = append(avatars, teamID+"\x00"+ref)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		rows, err = open.Query(`SELECT "team_id", "motif" FROM badge_claims ORDER BY "team_id", "motif"`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var teamID, motif string
+			if err := rows.Scan(&teamID, &motif); err != nil {
+				_ = rows.Close()
+				t.Fatal(err)
+			}
+			badges = append(badges, teamID+"\x00"+motif)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			t.Fatal(err)
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		return avatars, badges
+	}
+	beforeAvatars, beforeBadges := readRows(db)
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := NewStore(path)
+	if err := reopened.StartupError(); !errors.Is(err, errSchemaTooNew) {
+		_ = reopened.Close()
+		t.Fatalf("logical schema startup error = %v, want errSchemaTooNew", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err = openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	afterAvatars, afterBadges := readRows(db)
+	if !reflect.DeepEqual(afterAvatars, beforeAvatars) || !reflect.DeepEqual(afterBadges, beforeBadges) {
+		t.Fatalf("logical schema refusal repaired identity rows: avatars before=%#v after=%#v; badges before=%#v after=%#v",
+			beforeAvatars, afterAvatars, beforeBadges, afterBadges)
 	}
 }
 

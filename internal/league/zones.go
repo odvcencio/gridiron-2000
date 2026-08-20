@@ -330,6 +330,9 @@ func nextKickoffForTeam(games []GameInfo, nflTeam string, now time.Time) (time.T
 func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	owner := rosterOwner(currentRosters(s.state))
 	if owner[playerID] != teamID {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
@@ -355,6 +358,9 @@ func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Ti
 func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	za, ok := s.state.RosterZones[teamID][playerID]
 	if !ok || za.Zone != expectZone {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
@@ -372,6 +378,9 @@ func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
 func (s *Store) ActivateFromIRWithDrop(teamID, playerID string, dropTxn Transaction) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if za, ok := s.state.RosterZones[teamID][playerID]; !ok || za.Zone != zoneIR {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
 	}
@@ -399,6 +408,9 @@ func (s *Store) ActivateFromIRWithDrop(teamID, playerID string, dropTxn Transact
 func (s *Store) AutoCutHealedIR(teamID string, player TransactionPlayer, season, week int, now time.Time) (Transaction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Transaction{}, err
+	}
 	if za, ok := s.state.RosterZones[teamID][player.PlayerID]; !ok || za.Zone != zoneIR {
 		return Transaction{}, fmt.Errorf("%s is no longer on IR", player.Name)
 	}

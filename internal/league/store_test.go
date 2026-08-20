@@ -812,6 +812,50 @@ func newPersistFailingStore(t *testing.T) *Store {
 	return store
 }
 
+func TestPersistenceErrorStaysUnreadyUntilLaterDurableWriteSucceeds(t *testing.T) {
+	store := newTestStore(t)
+	failThisStorePersist(store)
+	if err := store.SetTeamName("team-1", "First attempt"); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("failed write error = %v, want injected persist error", err)
+	}
+	if got := store.PersistenceError(); !errors.Is(got, errInjectedPersist) {
+		t.Fatalf("PersistenceError after failed write = %v, want injected persist error", got)
+	}
+	// Removing the seam alone is not a recovery signal. The next call must
+	// complete a real durable transaction before readiness is restored.
+	store.persistHook = nil
+	if err := store.SetTeamName("team-1", "Recovered write"); err != nil {
+		t.Fatalf("recovery write: %v", err)
+	}
+	if got := store.PersistenceError(); got != nil {
+		t.Fatalf("PersistenceError after successful write = %v, want nil", got)
+	}
+}
+
+func TestOrdinaryWriteFailureSurvivesEmptyDiffUntilRealChange(t *testing.T) {
+	store := newTestStore(t)
+	failThisStorePersist(store)
+	when := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	if _, err := store.FirstSend("empty-diff-health", when); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("ordinary precommit error = %v, want injected persist error", err)
+	}
+	store.persistHook = nil
+	// FirstSend rolled its state back but left its dirty collection marked;
+	// this call therefore exercises a successful empty-diff transaction.
+	if err := store.SetTeamName("team-2", ""); err != nil {
+		t.Fatalf("empty-diff retry = %v, want nil", err)
+	}
+	if got := store.PersistenceError(); !errors.Is(got, errInjectedPersist) {
+		t.Fatalf("PersistenceError after ordinary empty diff = %v, want injected persist error", got)
+	}
+	if err := store.SetTeamName("team-2", "Recovered ordinary write"); err != nil {
+		t.Fatalf("real ordinary recovery write: %v", err)
+	}
+	if got := store.PersistenceError(); got != nil {
+		t.Fatalf("PersistenceError after real ordinary change = %v, want nil", got)
+	}
+}
+
 // TestFirstSendRollsBackMapEntryOnPersistFailure checks that a persist
 // failure rolls back FirstSend's in-memory SentLog entry and reports
 // (false, err), so "true" always means "on disk" (finding M1).

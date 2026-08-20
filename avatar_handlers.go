@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"io"
+	"log"
 	"net/http"
-	"os"
 	"strings"
+	"time"
 
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/navigation"
 	"m31labs.dev/gosx/session"
 )
 
@@ -17,40 +21,79 @@ import (
 // not the "image must be 2MB or smaller" check itself.
 const avatarReadLimit = league.AvatarMaxBytes + 64*1024
 
-// avatarUploadHandler serves POST /avatar/upload: a plain http.Handler
-// outside gosx's action registry (m31labs.dev/gosx/action). That registry's
-// ServeHandler hard-caps every request body at 1 MiB
-// (action.maxActionBodyBytes, unexported but load-bearing: see
-// m31labs.dev/gosx@v0.42.2/action/action.go), well under the 2 MB avatar
-// limit this feature needs, and there is no ctx.Files seam yet to read a
-// raw upload through route.FileActions at any size (gosx#187). Session and
-// CSRF protection still apply here: both are wired as global app.Use
-// middleware in main(), ahead of every mount, including this one.
+// avatarMultipartEnvelopeMaxBytes caps the complete multipart request — all
+// boundaries, headers, fields, and the avatar file together. It deliberately
+// leaves bounded room above AvatarMaxBytes for the form envelope while
+// keeping unrelated fields from turning a 2 MB upload into an unbounded body.
+const avatarMultipartEnvelopeMaxBytes = league.AvatarMaxBytes + 256*1024
+
+// avatarMultipartEnvelopeLimit is the path-specific outer middleware for the
+// native multipart upload. It must run before the session/CSRF middleware's
+// FormValue call, because parsing FormValue first would consume an unlimited
+// multipart body before this route handler can apply a file-part limit.
+// main.go integration is one outermost line, before sessions.Middleware and
+// Protect: app.Use(avatarMultipartEnvelopeLimit).
+//
+// The middleware buffers at most max+1 bytes and replaces the request body
+// with those exact bytes for the downstream global middleware and handler.
+// Thus Content-Length and chunked requests receive the same whole-envelope
+// cap, while malformed-but-small multipart input still reaches the ordinary
+// parser and its normal validation path.
+func avatarMultipartEnvelopeLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/avatar/upload" || r.Body == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.ContentLength > avatarMultipartEnvelopeMaxBytes {
+			_ = r.Body.Close()
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		body, err := io.ReadAll(io.LimitReader(r.Body, avatarMultipartEnvelopeMaxBytes+1))
+		_ = r.Body.Close()
+		if err != nil {
+			http.Error(w, "could not read request body", http.StatusBadRequest)
+			return
+		}
+		if int64(len(body)) > avatarMultipartEnvelopeMaxBytes {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+		next.ServeHTTP(w, r)
+	})
+}
+
+type avatarUploader interface {
+	UploadAvatar(*http.Request, string, []byte) (league.AvatarUploadResult, error)
+}
+
+type avatarReader interface {
+	ReadAvatarObject(string, string) ([]byte, time.Time, bool)
+	IdentityHealthy() bool
+}
+
+// avatarUploadHandler serves POST /avatar/upload as a plain http.Handler
+// outside GoSX's managed action registry. GoSX v0.49.0 now has File/Files and
+// MaxActionBodyBytes for managed actions, but this route still needs the
+// outer complete-multipart cap until the bounded-multipart contract is
+// released and adopted by the production consumer. Session and CSRF
+// protection still apply here: both are wired as global app.Use middleware in
+// main(), ahead of every mount, including this one.
 //
 // The form ships data-gosx-managed="false" (a native, full-page POST) —
 // see app/team/page.gsx and app/admin/page.gsx's SeatRow doc comments.
-// Reading gosx's navigation-runtime source (client/runtime/host/navigation.ts)
-// shows the managed-fetch path actually would carry the file correctly (it
-// passes the form's real FormData straight to fetch's body, which the
-// Fetch API multipart-encodes with the File blob intact) — so the brief's
-// "may or may not carry files" uncertainty resolves in files' favor at the
-// JS layer. The blocker is server-side: reusing the managed contract here
-// would mean hand-rolling action.Result's JSON shape and redirect handling
-// outside the framework's own tested dispatch, a materially larger and
-// riskier surface than a plain multipart POST + 303 redirect for a
-// rehearsal-week ship. TODO(gosx#187): once ctx.Files lands upstream and
-// the action-body cap question is resolved, revisit moving this to the
-// managed path.
-func avatarUploadHandler(svc *league.Service) http.Handler {
+func avatarUploadHandler(svc avatarUploader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		redirectTo := strings.TrimSpace(r.FormValue("redirect_to"))
-		// Only a same-site, absolute path is accepted: a leading "//" is a
-		// scheme-relative URL (an open-redirect vector), not a path.
-		if redirectTo == "" || !strings.HasPrefix(redirectTo, "/") || strings.HasPrefix(redirectTo, "//") {
+		rawRedirect := r.FormValue("redirect_to")
+		redirectTo := navigation.SafeReturnPath(rawRedirect)
+		if rawRedirect == "" || (redirectTo == navigation.DefaultReturnPath && rawRedirect != navigation.DefaultReturnPath) {
 			redirectTo = "/team"
 		}
 		teamID := strings.TrimSpace(r.FormValue("team_id"))
@@ -63,30 +106,53 @@ func avatarUploadHandler(svc *league.Service) http.Handler {
 		defer file.Close()
 		data, err := io.ReadAll(io.LimitReader(file, avatarReadLimit+1))
 		if err != nil {
-			session.AddFlash(r, "avatar_error", "could not read the uploaded file")
+			log.Printf("avatar upload: reading file part failed: %v", err)
+			session.AddFlash(r, "avatar_error", "could not save the image")
 			http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 			return
 		}
-		if _, err := svc.UploadAvatar(r, teamID, data); err != nil {
-			session.AddFlash(r, "avatar_error", err.Error())
+		result, err := svc.UploadAvatar(r, teamID, data)
+		if err != nil {
+			session.AddFlash(r, "avatar_error", avatarUploadErrorMessage(err))
 			http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 			return
 		}
-		session.AddFlash(r, "notice", "Avatar updated.")
+		notice := "Avatar updated."
+		if result.BadgeReleased {
+			notice += " This seat’s former badge is now available to the league."
+		}
+		session.AddFlash(r, "notice", notice)
 		http.Redirect(w, r, redirectTo, http.StatusSeeOther)
 	})
 }
 
-// avatarServeHandler serves GET /avatars/{file}, where file must be
-// "{teamID}.png" for a known team (design decision 3). It serves the
-// persisted upload straight from disk with a fixed 24-hour public cache
-// lifetime; the render layer's ?v= query (see league.Service.AvatarVersion)
-// busts that cache the instant a replacement avatar is written, since the
-// query string — not the path — is what changes. A missing file or an
-// unrecognized {file} value 404s with no body, so a page never renders an
-// <img> pointing at a URL this handler cannot serve (the render layer's own
-// has_avatar_image gate is what actually keeps that from happening — this
-// 404 is the defense-in-depth backstop, not the primary control).
+// avatarUploadErrorMessage exposes only the explicit validation/auth contract
+// to a browser. Filesystem, database, path, and other operational details go
+// to the server log and become one neutral user-facing message.
+func avatarUploadErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, league.ErrAvatarWrongType):
+		return league.ErrAvatarWrongType.Error()
+	case errors.Is(err, league.ErrAvatarTooLarge):
+		return league.ErrAvatarTooLarge.Error()
+	case errors.Is(err, league.ErrAvatarBadDimensions):
+		return league.ErrAvatarBadDimensions.Error()
+	case errors.Is(err, league.ErrAvatarForbidden):
+		return league.ErrAvatarForbidden.Error()
+	case errors.Is(err, league.ErrPersistenceIndeterminate):
+		return identityUnavailableFlash
+	default:
+		log.Printf("avatar upload failed: %v", err)
+		return "could not save the image"
+	}
+}
+
+// avatarServeHandler serves GET /avatars/custom/{teamID}/{sha256}.png. It
+// resolves through the current DB AvatarRef; a legacy file, stale hash, stable
+// alias, or guessed team never reaches the filesystem. The opened bytes are
+// re-hashed before serving, so local corruption cannot masquerade under a
+// valid content address. The URL can be cached for a year because replacing
+// an avatar publishes a different hash.
 //
 // The route is registered as the subtree pattern "GET /avatars/" (see
 // main.go), and file is read from r.URL.Path directly rather than
@@ -95,32 +161,30 @@ func avatarUploadHandler(svc *league.Service) http.Handler {
 // is explicit that it "does not populate named path wildcards, so
 // r.PathValue will always return the empty string" — a {name} wildcard
 // pattern would silently never match anything through Mount.
-func avatarServeHandler(svc *league.Service) http.Handler {
+func avatarServeHandler(svc avatarReader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		file := strings.TrimPrefix(r.URL.Path, "/avatars/")
-		teamID := strings.TrimSuffix(file, ".png")
-		if teamID == "" || teamID == file {
+		if !svc.IdentityHealthy() {
+			http.Error(w, "avatar identity unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		parts := strings.Split(file, "/")
+		if len(parts) != 3 || parts[0] != "custom" || !strings.HasSuffix(parts[2], ".png") {
 			http.NotFound(w, r)
 			return
 		}
-		path, ok := svc.AvatarFilePath(teamID)
+		teamID := parts[1]
+		ref := strings.TrimSuffix(parts[2], ".png")
+		data, modTime, ok := svc.ReadAvatarObject(teamID, ref)
 		if !ok {
 			http.NotFound(w, r)
 			return
 		}
-		f, err := os.Open(path)
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		defer f.Close()
-		info, err := f.Stat()
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Cache-Control", "public, max-age=86400")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Type", "image/png")
-		http.ServeContent(w, r, file, info.ModTime(), f)
+		// Serve the exact bytes that were bounded and hashed above. Reopening
+		// or seeking the path after hashing would reintroduce a TOCTOU window.
+		http.ServeContent(w, r, parts[2], modTime, bytes.NewReader(data))
 	})
 }

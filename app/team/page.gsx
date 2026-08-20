@@ -62,20 +62,20 @@ component BadgeCell(props: BadgeCellProps) {
 				<input type="hidden" name="team_id" value={props.TeamID}></input>
 				<input type="hidden" name="motif" value={props.Slug}></input>
 				<input type="hidden" name="redirect_to" value={props.RedirectTo}></input>
-				<button type="submit" class="badge-option" title={props.Name}>
+				<button type="submit" class="badge-option" title={props.Name} data-badge-state="available" aria-label={"Choose " + props.Name + " badge (available)"}>
 					<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
 					<small>{props.Name}</small>
 				</button>
 			</form>
 		</If>
 		<If cond={props.Mine}>
-			<div class="badge-option badge-option--mine" title={props.Name}>
+			<div class="badge-option badge-option--mine" role="img" title={props.Name} data-badge-state="current" aria-label={"Current badge: " + props.Name} aria-current="true">
 				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
 				<small>{props.Name}</small>
 			</div>
 		</If>
 		<If cond={props.TakenByOther}>
-			<div class="badge-option badge-option--taken" title={props.Name} aria-disabled="true">
+			<div class="badge-option badge-option--taken" role="img" title={props.Name} data-badge-state="taken" aria-label={props.Name + " badge is taken by " + props.ClaimedByAbbr} aria-disabled="true">
 				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
 				<small>{props.ClaimedByAbbr}</small>
 			</div>
@@ -155,9 +155,11 @@ component RosterRow(props: RosterRowProps) {
 }
 
 // Page's avatar-upload form posts to /avatar/upload as a plain, unmanaged
-// (data-gosx-managed="false") full-page submission. TODO(gosx#187): once
-// ctx.Files lands upstream, revisit whether it can move to the managed
-// path — see avatar_handlers.go in the repo root for why it does not today.
+// (data-gosx-managed="false") full-page submission. GoSX v0.49.0 supports
+// File/Files and MaxActionBodyBytes for managed actions, but this native route
+// remains until the production consumer adopts a bounded-multipart contract;
+// its outer middleware applies the complete-envelope limit before sessions
+// and CSRF parsing (see avatar_handlers.go in the repo root).
 func Page() Node {
 	return <main class="page team-page" id="main-content">
 		<If cond={data.has_seat == false}>
@@ -267,14 +269,25 @@ func Page() Node {
 						<input type="text" name="name" value={data.team.name} maxlength="40" aria-label="Team name"></input>
 						<button class="button button--compact" type="submit">Rename</button>
 					</form>
+					<If cond={data.identity_available}>
 					<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="team_id" value={data.team.id}></input>
 						<input type="hidden" name="redirect_to" value="/team"></input>
-						<input type="file" name="avatar" accept="image/png,image/jpeg" required="required"></input>
+						<label for="team-avatar-upload">Upload custom team image</label>
+						<input
+							id="team-avatar-upload"
+							type="file"
+							name="avatar"
+							accept="image/png,image/jpeg"
+							aria-describedby="team-avatar-upload-help"
+							required="required"
+						></input>
 						<button class="button button--compact" type="submit">Upload team avatar</button>
 					</form>
+					<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can claim it.</p>
 					<h2 class="badge-picker-title">Team badge</h2>
+					<p class="scoring-note">Choosing a badge replaces this seat’s active custom image. Release the badge to use the league fallback badge, or the text mark when no fallback artwork is configured.</p>
 					<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
 						<Each of={data.badge_grid} as="badge">
 							<BadgeCell {...badge}></BadgeCell>
@@ -287,8 +300,13 @@ func Page() Node {
 							<input type="hidden" name="motif" value=""></input>
 							<input type="hidden" name="action" value="release"></input>
 							<input type="hidden" name="redirect_to" value="/team"></input>
-							<button class="button button--compact" type="submit">Use default badge</button>
-						</form>
+					<button class="button button--compact" type="submit">Release badge</button>
+					</form>
+					<p class="scoring-note">After release, this seat uses the league fallback badge, or its text mark if no fallback artwork is configured.</p>
+					</If>
+					</If>
+					<If cond={data.identity_available == false}>
+						<p class="error-message" role="status">{data.identity_error}</p>
 					</If>
 				</div>
 			</div>
