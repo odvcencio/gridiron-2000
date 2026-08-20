@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
+	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
 	"gridiron-2000/internal/wire"
@@ -33,6 +35,27 @@ import (
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
+
+// gridironSessionOptions keeps the cookie policy explicit at the one place
+// where the application decides whether it is serving local plain HTTP or a
+// deployed HTTPS environment. gosx defaults to Secure when AllowInsecure is
+// omitted, so only known local/default environments opt in to plain HTTP.
+func gridironSessionOptions(appEnv string) session.Options {
+	localHTTP := false
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "", "local", "development", "test":
+		localHTTP = true
+	}
+	return session.Options{
+		CookieName:    "gridiron_session",
+		Secure:        !localHTTP,
+		AllowInsecure: localHTTP,
+		HTTPOnly:      true,
+		Encrypt:       true,
+		MaxAge:        30 * 24 * time.Hour,
+		SameSite:      http.SameSiteLaxMode,
+	}
+}
 
 func main() {
 	_, thisFile, _, _ := runtime.Caller(0)
@@ -112,15 +135,9 @@ func main() {
 	// independent getenv call so the two never disagree.
 	appName := league.Default().Config().Name
 	port := getenv("PORT", "8080")
-	production := strings.EqualFold(os.Getenv("APP_ENV"), "production")
+	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
-	sessions, err := session.New(secret, session.Options{
-		CookieName: "gridiron_session",
-		Secure:     production,
-		Encrypt:    true,
-		MaxAge:     30 * 24 * time.Hour,
-		SameSite:   http.SameSiteLaxMode,
-	})
+	sessions, err := session.New(secret, gridironSessionOptions(appEnv))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -319,11 +336,17 @@ func main() {
 // service: anonymous visitors see the landing page, the login page, and the
 // legal pages only. Demo mode leaves everything open for local rehearsal.
 func requireLeagueSession(next http.Handler) http.Handler {
+	return requireLeagueSessionWithDemoMode(next, func() bool {
+		return league.Default().DemoMode()
+	})
+}
+
+func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) http.Handler {
 	open := map[string]bool{
 		"/": true, "/login": true, "/privacy": true, "/terms": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if league.Default().DemoMode() {
+		if demoMode != nil && demoMode() {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -340,7 +363,7 @@ func requireLeagueSession(next http.Handler) http.Handler {
 			return
 		}
 		session.AddFlash(r, "notice", "Sign in to enter the league.")
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		http.Redirect(w, r, navigation.LoginPathForRequest(r), http.StatusSeeOther)
 	})
 }
 
@@ -854,7 +877,16 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 
 func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 	if configured {
-		return flow.BeginHandler("google")
+		begin := flow.BeginHandler("google")
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			request := r.Clone(r.Context())
+			request.URL = new(url.URL)
+			*request.URL = *r.URL
+			query := request.URL.Query()
+			query.Set("next", navigation.SafeReturnPath(query.Get("next")))
+			request.URL.RawQuery = query.Encode()
+			begin.ServeHTTP(w, request)
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session.AddFlash(r, "notice", "Google OAuth needs a client ID and secret. Follow the setup guide, or keep exploring in demo mode.")
@@ -862,7 +894,17 @@ func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 	})
 }
 
+type googleMembership interface {
+	EmailAllowed(email string) bool
+	BindCoManagerOnSignIn(email, name string) (league.Member, bool, error)
+	EnsureMember(email, name string) (league.Member, error)
+}
+
 func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured bool) http.Handler {
+	return googleCallbackHandlerWithMembership(flow, manager, configured, league.Default())
+}
+
+func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager, configured bool, membership googleMembership) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !configured {
 			http.Redirect(w, r, "/login?setup=google", http.StatusSeeOther)
@@ -874,7 +916,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}
-		if !league.Default().EmailAllowed(user.Email) {
+		if !membership.EmailAllowed(user.Email) {
 			manager.SignOut(r)
 			session.AddFlash(r, "notice", "That Google account is not on this league's invite list.")
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
@@ -891,7 +933,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 		// A co-manager invite is checked first: an email a primary invited
 		// (Store.InviteCoManager) binds to that seat on this, its first
 		// sign-in (BindCoManagerOnSignIn), rather than landing seatless.
-		member, bound, err := league.Default().BindCoManagerOnSignIn(user.Email, user.Name)
+		member, bound, err := membership.BindCoManagerOnSignIn(user.Email, user.Name)
 		if err != nil {
 			manager.SignOut(r)
 			session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
@@ -899,7 +941,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 			return
 		}
 		if !bound {
-			member, err = league.Default().EnsureMember(user.Email, user.Name)
+			member, err = membership.EnsureMember(user.Email, user.Name)
 			if err != nil {
 				manager.SignOut(r)
 				session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
@@ -914,9 +956,7 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 		} else {
 			session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
 		}
-		if target == "" {
-			target = "/"
-		}
+		target = navigation.SafeReturnPath(target)
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	})
 }

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
 
 	"m31labs.dev/gosx/auth"
@@ -1558,13 +1559,20 @@ func (s *Service) StaticPageData(r *http.Request) map[string]any {
 }
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
+	next := navigation.DefaultReturnPath
+	if r != nil && r.URL != nil {
+		next = navigation.SafeReturnPath(r.URL.Query().Get("next"))
+	}
 	return map[string]any{
-		"viewer":       s.Viewer(r),
-		"configured":   configured,
-		"demo_mode":    s.demoMode,
-		"seats":        len(s.Teams()),
-		"seat_numbers": seatNumbers(len(s.Teams())),
-		"league":       s.leagueMap(),
+		"viewer":          s.Viewer(r),
+		"configured":      configured,
+		"demo_mode":       s.demoMode,
+		"seats":           len(s.Teams()),
+		"seat_numbers":    seatNumbers(len(s.Teams())),
+		"league":          s.leagueMap(),
+		"oauth_start":     navigation.OAuthStartPath(next),
+		"return_path":     next,
+		"has_return_path": next != navigation.DefaultReturnPath,
 	}
 }
 
@@ -1891,6 +1899,20 @@ func (s *Service) scoringNote() string {
 	return fmt.Sprintf("Draft ADP and projections use the %s consensus feed.", label)
 }
 
+// formatBlurb is the short, human-readable league-format phrase shared by
+// public product copy. Dynasty and redraft describe league formats, not
+// scoring systems; unknown labels use an honest neutral fallback.
+func (s *Service) formatBlurb() string {
+	switch strings.ToUpper(strings.TrimSpace(s.cfg.ModeLabel)) {
+	case "DYNASTY":
+		return "dynasty format"
+	case "REDRAFT":
+		return "redraft format"
+	default:
+		return "custom fantasy format"
+	}
+}
+
 // leagueMap is the identity block every page's data map carries as
 // data["league"] (spec section 5.1): the layout's header/footer, the
 // landing page's wordmark and kicker, and every derived copy fragment
@@ -1901,6 +1923,7 @@ func (s *Service) leagueMap() map[string]any {
 		"short_code":         s.cfg.ShortCode,
 		"tagline":            s.cfg.Tagline,
 		"mode_label":         s.cfg.ModeLabel,
+		"format_blurb":       s.formatBlurb(),
 		"season":             strconv.Itoa(s.cfg.Season),
 		"prior_season_short": fmt.Sprintf("%02d", (s.cfg.Season-1)%100),
 		"hero_kicker":        s.heroKicker(),

@@ -28,9 +28,14 @@ func Page() Node {
 					<span class="section-index">GOOGLE SIGN-IN</span>
 					<h2>Manager check-in</h2>
 					<p>
-						Use the Google account your commissioner invited. Your franchise will be waiting.
+						Use the Google account your commissioner invited. Your league access will be waiting. You can claim an open fantasy seat after sign-in.
 					</p>
-					<a href="/auth/google/start?next=/" class="google-button">
+					<If cond={data.has_return_path}>
+						<p class="login-return-note">
+							After sign-in, we'll return you to the page you requested.
+						</p>
+					</If>
+					<a href={data.oauth_start} class="google-button">
 						<span class="google-mark" aria-hidden="true">G</span>
 						Continue with Google
 					</a>
