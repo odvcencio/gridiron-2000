@@ -1,12 +1,16 @@
 package league
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 
 	"database/sql"
 )
@@ -46,21 +50,68 @@ func (s *Store) openLocked() error {
 	}
 	s.db = db
 
+	// This check must precede pending SQLite migrations. A database can have
+	// a lower PRAGMA user_version while its logical state marker was written
+	// by a newer binary; migrating first could overwrite that marker (or
+	// repair identity rows) before the downgrade is refused.
+	if err := checkLogicalSchemaVersion(db); err != nil {
+		return s.abandonLocked(fresh, err)
+	}
 	if err := migrateDB(db); err != nil {
 		return s.abandonLocked(fresh, err)
 	}
-	if fresh {
-		imported, err := s.importJSONLocked()
+	authority, err := readPersistenceAuthority(db)
+	if err != nil {
+		return s.abandonLocked(fresh, err)
+	}
+	legacyRaw, legacyExists, err := readLegacyStateFile(s.filePath)
+	if err != nil {
+		return s.abandonLocked(fresh, err)
+	}
+	if authority != "" {
+		if err := s.reconcileMarkedAuthority(authority, legacyRaw, legacyExists); err != nil {
+			return s.abandonLocked(fresh, err)
+		}
+	} else if legacyExists {
+		populated, err := databaseHasStateRows(db)
 		if err != nil {
 			return s.abandonLocked(fresh, err)
 		}
-		if imported {
-			return nil
+		if populated {
+			// This is the recovery path for databases produced by the old
+			// importer, which committed state before the JSON rename but had
+			// no authority marker. Compare every byte-derived field before
+			// adopting the database; a divergent file must never be allowed
+			// to overwrite or silently coexist with stored state.
+			if err := s.recoverUnmarkedImport(legacyRaw); err != nil {
+				return s.abandonLocked(fresh, err)
+			}
+		} else {
+			imported, err := s.importJSONLocked()
+			if err != nil {
+				return s.abandonLocked(fresh, err)
+			}
+			if imported {
+				return nil
+			}
 		}
+	}
+	initializeNative := false
+	if !legacyExists && authority == "" {
+		populated, err := databaseHasStateRows(db)
+		if err != nil {
+			return s.abandonLocked(fresh, err)
+		}
+		initializeNative = !populated
+	}
+	if initializeNative {
 		// A brand-new league with nothing to import: write the empty
 		// state's scalar rows once, so the file describes itself (its
 		// schema version above all) from the moment it exists instead of
-		// waiting for the first mutation.
+		// waiting for the first mutation. The native marker also makes a
+		// later, unexpectedly reappearing JSON file fail closed rather than
+		// being mistaken for a first import.
+		s.state.persistenceAuthority = authorityNative
 		for _, id := range allCollections() {
 			s.dirty |= 1 << uint(id)
 		}
@@ -79,17 +130,254 @@ func (s *Store) openLocked() error {
 	return nil
 }
 
+const (
+	authorityNative       = "sqlite-native-v1"
+	authorityLegacyPrefix = "legacy-json-sha256:"
+)
+
+// validateAuthorityMarker accepts only markers this binary understands. A
+// malformed marker is an operationally ambiguous database, not an invitation
+// to fall back to blank state.
+func validateAuthorityMarker(raw string) (string, error) {
+	if raw == authorityNative {
+		return raw, nil
+	}
+	if !strings.HasPrefix(raw, authorityLegacyPrefix) {
+		return "", fmt.Errorf("unknown persistence authority marker %q", raw)
+	}
+	digest := strings.TrimPrefix(raw, authorityLegacyPrefix)
+	if len(digest) != sha256.Size*2 || strings.ToLower(digest) != digest {
+		return "", fmt.Errorf("invalid persistence authority marker %q", raw)
+	}
+	if _, err := hex.DecodeString(digest); err != nil {
+		return "", fmt.Errorf("invalid persistence authority marker %q: %w", raw, err)
+	}
+	return raw, nil
+}
+
+func legacyAuthorityMarker(raw []byte) string {
+	digest := sha256.Sum256(raw)
+	return authorityLegacyPrefix + hex.EncodeToString(digest[:])
+}
+
+// readPersistenceAuthority is intentionally read-only. It is called before
+// migrations and before identity repair so a logical authority claim can
+// never be overwritten while deciding whether a database is safe to load.
+func readPersistenceAuthority(db *sql.DB) (string, error) {
+	if db == nil {
+		return "", errors.New("persistence authority requires an open database")
+	}
+	var raw string
+	err := db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvPersistenceAuthority).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil && strings.Contains(err.Error(), "no such table") {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return validateAuthorityMarker(raw)
+}
+
+func readLegacyStateFile(path string) ([]byte, bool, error) {
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return raw, true, nil
+}
+
+// databaseHasStateRows distinguishes a schema-only database left by a crash
+// before the import transaction committed from a populated database whose
+// authority must be proved before any legacy file is considered.
+func databaseHasStateRows(db *sql.DB) (bool, error) {
+	for _, table := range []string{
+		"kv", "picks", "ready", "members", "co_invites", "invites", "boards",
+		"board_owners", "team_names", "draft_order", "scoring", "pickems",
+		"pickem_owners", "blitz_entries", "blitz_owners", "autopick", "sent_log",
+		"notify_prefs", "notify_pref_owners", "badge_claims", "avatar_refs",
+		"announcements", "lineups", "lineup_weeks", "lineup_teams", "transactions",
+		"waiver_claims", "trade_offers", "roster_zones", "roster_zone_teams", "schedule",
+		"playoffs",
+	} {
+		var present int
+		query := `SELECT 1 FROM "` + table + `" LIMIT 1`
+		if table == "kv" {
+			// migrate002 stamps the supported logical schema version even
+			// before any league state exists; that migration row alone does
+			// not make a database authoritative over a legacy JSON file.
+			query = `SELECT 1 FROM "kv" WHERE "key" != ? LIMIT 1`
+		}
+		var err error
+		if table == "kv" {
+			err = db.QueryRow(query, kvSchemaVersion).Scan(&present)
+		} else {
+			err = db.QueryRow(query).Scan(&present)
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		return present == 1, nil
+	}
+	return false, nil
+}
+
+func (s *Store) reconcileMarkedAuthority(authority string, raw []byte, exists bool) error {
+	marker, err := validateAuthorityMarker(authority)
+	if err != nil {
+		return err
+	}
+	if marker == authorityNative {
+		if exists {
+			return fmt.Errorf("persistence authority is native SQLite but legacy state file %s still exists", s.filePath)
+		}
+		return nil
+	}
+	if exists && legacyAuthorityMarker(raw) != marker {
+		// A completed import keeps the original bytes under .imported. If
+		// an operator later drops a different JSON file at the old path,
+		// the preserved copy proves it is unrelated stale input; leave it
+		// untouched and continue serving the already-authoritative DB.
+		kept, keptErr := os.ReadFile(s.filePath + importedSuffix)
+		if keptErr == nil && legacyAuthorityMarker(kept) == marker {
+			return nil
+		}
+		return fmt.Errorf("legacy state file %s differs from the committed SQLite import; refusing to choose an authority", s.filePath)
+	}
+	if !exists {
+		return nil
+	}
+	return s.finishLegacyImportFile(raw)
+}
+
+// recoverUnmarkedImport adopts only the old importer state that exactly
+// round-trips from the still-present JSON file. The new importer never needs
+// this path because its marker is in the same SQLite transaction as state;
+// this compatibility recovery closes the historical post-commit/pre-rename
+// window without ever overwriting divergent data.
+func (s *Store) recoverUnmarkedImport(raw []byte) error {
+	var decoded PersistedState
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return fmt.Errorf("recover import %s: %w", s.filePath, err)
+	}
+	if decoded.SchemaVersion > currentSchemaVersion {
+		return fmt.Errorf("recover import %s: file is version %d, this binary supports up to %d",
+			s.filePath, decoded.SchemaVersion, currentSchemaVersion)
+	}
+	decoded.SchemaVersion = currentSchemaVersion
+	normalizeState(&decoded)
+	stored, err := loadStateFromDBUnrepaired(s.db)
+	if err != nil {
+		return fmt.Errorf("recover import %s: read back: %w", s.filePath, err)
+	}
+	if err := compareImportedState(decoded, stored); err != nil {
+		return fmt.Errorf("recover import %s: %w", s.filePath, err)
+	}
+	marker := legacyAuthorityMarker(raw)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`, kvPersistenceAuthority, marker); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	return s.finishLegacyImportFile(raw)
+}
+
+// finishLegacyImportFile makes the post-commit rename restart-safe. It never
+// overwrites an existing .imported copy: equal bytes mean a prior rename
+// completed and the source can be removed, while different bytes are an
+// authority conflict that must stop startup.
+func (s *Store) finishLegacyImportFile(raw []byte) error {
+	if len(raw) == 0 {
+		// Empty is valid input to this helper only when the source has already
+		// disappeared; an empty JSON file is rejected by json.Unmarshal in the
+		// importer before reaching here.
+		return nil
+	}
+	current, err := os.ReadFile(s.filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(current, raw) {
+		return fmt.Errorf("legacy state file %s changed after the SQLite import; refusing to rename it", s.filePath)
+	}
+	backupPath := s.filePath + importedSuffix
+	kept, keptErr := os.ReadFile(backupPath)
+	if keptErr == nil {
+		if !bytes.Equal(kept, raw) {
+			return fmt.Errorf("existing imported state %s differs from the committed import", backupPath)
+		}
+		if err := os.Remove(s.filePath); err != nil {
+			return err
+		}
+		return syncImportDirectoryHook(filepath.Dir(s.filePath))
+	}
+	if !errors.Is(keptErr, os.ErrNotExist) {
+		return keptErr
+	}
+	if err := os.Rename(s.filePath, backupPath); err != nil {
+		return err
+	}
+	return syncImportDirectoryHook(filepath.Dir(s.filePath))
+}
+
+func syncImportDirectory(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
+}
+
+// syncImportDirectoryHook is a test seam for the post-rename directory
+// durability boundary. Production always uses syncImportDirectory; a test
+// can force the error that must retain a committed database for restart.
+var syncImportDirectoryHook = syncImportDirectory
+
 // abandonLocked closes the database after a failed boot and, when this
-// boot created the file, removes it. A half-built database must never
-// survive to be mistaken for the authoritative state on the next boot,
-// which would strand the JSON state file that is still the real record.
+// boot created only an unmarked/half-built file, removes it. Once the
+// authority marker is durable, the database is retained even if a later
+// rename or directory-sync barrier failed: restart can safely finish from
+// the marker instead of stranding the imported state.
 // The returned error is the caller's, unchanged.
 func (s *Store) abandonLocked(created bool, cause error) error {
+	preserveAuthority := false
+	if created && s.db != nil {
+		// A committed import/native initialization is authoritative even if a
+		// later post-commit filesystem barrier reports an error. Removing that
+		// database would strand the only copy of the imported state and let the
+		// next boot create a blank native database beside only .imported bytes.
+		// Leave it in place so restart can reconcile from its marker; only a
+		// schema-only/unmarked database is safe to remove here.
+		if authority, err := readPersistenceAuthority(s.db); err == nil && authority != "" {
+			preserveAuthority = true
+		}
+	}
 	if s.db != nil {
 		_ = s.db.Close()
 		s.db = nil
 	}
-	if created && s.dbPath != "" {
+	if created && !preserveAuthority && s.dbPath != "" {
 		_ = os.Remove(s.dbPath)
 		_ = os.Remove(s.dbPath + "-wal")
 		_ = os.Remove(s.dbPath + "-shm")
@@ -113,9 +401,10 @@ func (s *Store) abandonLocked(created bool, cause error) error {
 //     under the new name; nothing is deleted.
 //
 // Any failure returns an error, which becomes the Store's StartupError and
-// blocks every write. The caller (openLocked) then removes the partial
-// database, so the JSON file stays authoritative and the operator can fix
-// the cause and boot again.
+// blocks every write. An unmarked partial database is removed by openLocked,
+// so the JSON file stays authoritative; once the marker transaction has
+// committed, the database is retained so a restart can finish the rename
+// without ever creating blank state beside the durable import.
 func (s *Store) importJSONLocked() (bool, error) {
 	raw, err := os.ReadFile(s.filePath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -137,6 +426,11 @@ func (s *Store) importJSONLocked() (bool, error) {
 	// a nil-safe zero value, so the version is stamped current.
 	decoded.SchemaVersion = currentSchemaVersion
 	normalizeState(&decoded)
+	// This marker is emitted by colScalars in the same writeDirtyLocked
+	// transaction as every imported collection. A restart can therefore
+	// distinguish a committed import from a database created before the
+	// import transaction committed.
+	decoded.persistenceAuthority = legacyAuthorityMarker(raw)
 
 	s.state = decoded
 	s.shadow = shadowIndex{}
@@ -154,7 +448,7 @@ func (s *Store) importJSONLocked() (bool, error) {
 	if err := compareImportedState(decoded, stored); err != nil {
 		return false, fmt.Errorf("import %s: %w", s.filePath, err)
 	}
-	if err := os.Rename(s.filePath, s.filePath+importedSuffix); err != nil {
+	if err := s.finishLegacyImportFile(raw); err != nil {
 		return false, fmt.Errorf("import %s: %w", s.filePath, err)
 	}
 	// Fold the import's pages out of the write-ahead log into the

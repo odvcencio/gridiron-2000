@@ -171,8 +171,14 @@ func init() {
 				data["bench"] = rosterRowProps(bench)
 			}
 			if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
-				teamID := stringField(data["team"].(map[string]any), "id")
-				data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team")
+				// Seatless viewers still receive an explicit empty badge_grid
+				// alongside identity_available=false. There is no team map in
+				// that view, so do not assert one merely because the field is
+				// present.
+				if team, ok := data["team"].(map[string]any); ok {
+					teamID := stringField(team, "id")
+					data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team")
+				}
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
@@ -216,9 +222,10 @@ func init() {
 				}
 			}
 			// avatar_error is flashed by the raw POST /avatar/upload handler
-			// (main package), which sits outside gosx's action registry — see
-			// avatar_handlers.go's doc comment for why a 2MB upload cannot go
-			// through route.FileActions's 1MB action-body cap.
+			// (main package). GoSX v0.49.0 has File/Files and
+			// MaxActionBodyBytes for managed actions; this native route remains
+			// so its complete multipart cap can run before session/CSRF parsing
+			// until the bounded-multipart contract is adopted.
 			data["has_avatar_error"] = false
 			data["avatar_error"] = ""
 			if store := session.Current(ctx.Request); store != nil {

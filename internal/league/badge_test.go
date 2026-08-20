@@ -2,6 +2,8 @@ package league
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"image"
 	"image/color"
@@ -9,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -173,11 +176,31 @@ func TestClaimBadgeAllowsCommissionerForAnyTeam(t *testing.T) {
 	}
 }
 
+func TestClaimBadgeWithTransitionReportsCustomAvatarClear(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
+	if _, err := service.UploadAvatar(request, "team-1", solidPNG(t, 96, 96, color.RGBA{R: 7, G: 11, B: 13, A: 255})); err != nil {
+		t.Fatalf("upload custom avatar: %v", err)
+	}
+	transition, err := service.ClaimBadgeWithTransition(request, "team-1", "wolf")
+	if err != nil {
+		t.Fatalf("claim badge with transition: %v", err)
+	}
+	if !transition.AvatarCleared {
+		t.Fatal("badge transition did not report clearing the custom avatar")
+	}
+	if _, ok := service.store.AvatarRef("team-1"); ok {
+		t.Fatal("custom avatar survived badge selection")
+	}
+}
+
 // TestAvatarViewBadgePrecedence checks the extended fallback chain: a
 // claimed badge outranks the tone default, and an uploaded photo still
 // outranks a claimed badge — see avatarView's doc comment.
 func TestAvatarViewBadgePrecedence(t *testing.T) {
 	service := newTestService(t, true)
+	service.motifRoot = t.TempDir()
+	writeMotifFixture(t, service.motifRoot, "wolf")
 	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
 
 	// Tier c: a tone default badge exists, no claim, no upload.
@@ -200,21 +223,36 @@ func TestAvatarViewBadgePrecedence(t *testing.T) {
 	if hasAvatar {
 		t.Fatal("hasAvatar must stay false for the badge-claim tier")
 	}
-	if !hasImage || url != "/avatars/badge/team-2.png?v=wolf" {
+	_, version, ok := service.BadgeImage("team-2")
+	if !ok {
+		t.Fatal("BadgeImage should render the claimed motif for the avatar view")
+	}
+	if !hasImage || url != "/avatars/badge/team-2.png?v="+version {
 		t.Fatalf("tier b resolution wrong: hasImage=%v url=%q", hasImage, url)
 	}
 
 	// Tier a: an uploaded avatar still outranks the badge claim.
 	data := solidPNG(t, 100, 100, color.RGBA{R: 9, G: 9, B: 9, A: 255})
-	if _, err := service.UploadAvatar(request, "team-2", data); err != nil {
+	result, err := service.UploadAvatar(request, "team-2", data)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if !result.BadgeReleased {
+		t.Fatal("uploading over a claimed badge must report BadgeReleased=true")
+	}
+	if _, ok := service.store.BadgeClaim("team-2"); ok {
+		t.Fatal("uploading a custom avatar must clear BadgeClaim")
 	}
 	hasAvatar, hasImage, url = service.avatarView("team-2", "blue")
 	if !hasAvatar || !hasImage {
 		t.Fatalf("tier a resolution wrong: hasAvatar=%v hasImage=%v", hasAvatar, hasImage)
 	}
-	if url != "/avatars/team-2.png?v="+formatVersion(t, service, "team-2") {
-		t.Fatalf("tier a url = %q, want a versioned /avatars/team-2.png URL", url)
+	ref, ok := service.store.AvatarRef("team-2")
+	if !ok {
+		t.Fatal("uploaded avatar ref missing")
+	}
+	if url != "/avatars/custom/team-2/"+ref+".png" {
+		t.Fatalf("tier a url = %q, want an unqueryed content-addressed URL", url)
 	}
 }
 
@@ -225,6 +263,12 @@ func TestBadgeImageUnknownTeamAndNoClaimReportNotOK(t *testing.T) {
 	}
 	if _, _, ok := service.BadgeImage("team-3"); ok {
 		t.Fatal("BadgeImage for a team with no claim must report ok=false")
+	}
+	service.store.mu.Lock()
+	service.store.state.BadgeClaims["team-3"] = "marlin"
+	service.store.mu.Unlock()
+	if _, _, ok := service.BadgeImage("team-3"); ok {
+		t.Fatal("BadgeImage must reject a retired persisted motif instead of resolving an alias")
 	}
 }
 
@@ -256,8 +300,9 @@ func TestBadgeImageRendersTintedPNGWithAlphaPreserved(t *testing.T) {
 	if !ok {
 		t.Fatal("BadgeImage reported ok=false for a claimed team")
 	}
-	if version != "helmet" {
-		t.Fatalf("version = %q, want \"helmet\"", version)
+	digest := sha256.Sum256(data)
+	if version != hex.EncodeToString(digest[:]) {
+		t.Fatalf("version = %q, want rendered-byte SHA-256 %q", version, hex.EncodeToString(digest[:]))
 	}
 	img, err := png.Decode(bytes.NewReader(data))
 	if err != nil {
@@ -385,29 +430,40 @@ func TestBadgeGridReflectsClaims(t *testing.T) {
 	}
 }
 
-// TestLegacyMotifSlugResolvesForward pins the rename migration: a claim
-// persisted by a binary that predates the catalog rename still renders,
-// while the retired slug is refused as new input. Read paths map forward;
-// write paths do not, so a retired slug can never be re-persisted.
-func TestLegacyMotifSlugResolvesForward(t *testing.T) {
-	for old, want := range map[string]string{
-		"marlin": "rocket",
-		"knight": "robot",
-		"planet": "astronaut",
-		"kraken": "fireball",
-	} {
-		if got := resolveMotifSlug(old); got != want {
-			t.Errorf("resolveMotifSlug(%q) = %q, want %q", old, got, want)
-		}
-		if knownMotif(old) {
-			t.Errorf("knownMotif(%q) = true; a retired slug must never be accepted as new input", old)
-		}
-		if !knownMotif(want) {
-			t.Errorf("knownMotif(%q) = false; the replacement must be in the catalog", want)
+func TestNormalizeBadgeClaimsStripsRetiredUnknownAndDuplicateMotifs(t *testing.T) {
+	state := PersistedState{BadgeClaims: map[string]string{
+		"team-1": "rocket",
+		"team-2": "rocket", // duplicate canonical art: team-1 wins deterministically
+		"team-3": "marlin", // retired pre-v1 alias: never translate
+		"team-4": "not-in-catalog",
+		"team-9": "helmet", // unknown team ID
+		"team-5": "helmet",
+	}}
+	normalizeState(&state)
+	if got := state.BadgeClaims["team-1"]; got != "rocket" {
+		t.Fatalf("canonical winner = %q, want rocket", got)
+	}
+	for _, teamID := range []string{"team-2", "team-3", "team-4", "team-9"} {
+		if _, ok := state.BadgeClaims[teamID]; ok {
+			t.Fatalf("invalid/duplicate claim for %s survived normalization: %#v", teamID, state.BadgeClaims)
 		}
 	}
-	if got := resolveMotifSlug("helmet"); got != "helmet" {
-		t.Errorf("resolveMotifSlug(helmet) = %q; a current slug must pass through", got)
+	if got := state.BadgeClaims["team-5"]; got != "helmet" {
+		t.Fatalf("independent canonical claim = %q, want helmet", got)
+	}
+}
+
+func TestBadgeGridSuppressesClaimShadowedByCustomAvatar(t *testing.T) {
+	service := newTestService(t, true)
+	state := PersistedState{
+		BadgeClaims: map[string]string{"team-1": "wolf"},
+		AvatarRefs:  map[string]string{"team-1": strings.Repeat("a", 64)},
+	}
+	grid := service.badgeGrid(state, "team-2")
+	for _, cell := range grid {
+		if cell["slug"] == "wolf" && cell["claimed"] == true {
+			t.Fatal("a custom-avatar seat's conflicting badge must not appear occupied")
+		}
 	}
 }
 

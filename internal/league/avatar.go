@@ -2,6 +2,8 @@ package league
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"image"
@@ -11,10 +13,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"m31labs.dev/gosx/auth"
 )
 
 // Avatar dimension and size limits (design decision 1). AvatarOutputSize is
@@ -40,6 +43,29 @@ var (
 	ErrAvatarBadDimensions = errors.New("image must be between 64x64 and 4096x4096")
 	ErrAvatarForbidden     = errors.New("only the seat's manager or the commissioner can set this avatar")
 )
+
+// AvatarUploadResult describes the durable identity transition completed by
+// UploadAvatar. Ref is the immutable content address used by the serving
+// route; BadgeReleased tells the UI whether the previous badge reservation
+// was returned to the catalog in the same Store transaction.
+type AvatarUploadResult struct {
+	Ref           string
+	BadgeReleased bool
+}
+
+type seatActor struct {
+	email        string
+	commissioner bool
+	demo         bool
+}
+
+func (s *Service) seatActor(r *http.Request) seatActor {
+	actor := seatActor{commissioner: s.IsCommissioner(r), demo: s.demoMode}
+	if user, ok := auth.Current(r); ok {
+		actor.email = strings.ToLower(strings.TrimSpace(user.Email))
+	}
+	return actor
+}
 
 // defaultBadgeCacheTTL bounds how long defaultBadgeExists trusts its last
 // directory scan. The defaults directory only changes when the commissioner
@@ -71,12 +97,25 @@ func avatarEnvString(key, fallback string) string {
 // avatarDir resolves the directory uploaded avatar PNGs live in: AVATAR_ROOT
 // when the service was constructed with one (see Default), else
 // "data/avatars" — the same data/<subsystem> convention
-// internal/fantasy, internal/openstats, and internal/wire already use.
+// internal/fantasy, internal/openstats, and internal/wire already use. The
+// path is only writable when it remains strictly below avatarDurableDir.
 func (s *Service) avatarDir() string {
 	if s.avatarRoot != "" {
 		return s.avatarRoot
 	}
 	return filepath.Join("data", "avatars")
+}
+
+// avatarDurableDir resolves the pre-existing filesystem boundary for avatar
+// writes. It is intentionally independent from avatarDir: retries must use
+// the same stable anchor even after a failed attempt has created target
+// directories. In the container, the relative default "data" resolves to
+// the deployed /app/data PVC root.
+func (s *Service) avatarDurableDir() string {
+	if s.avatarDurableRoot != "" {
+		return s.avatarDurableRoot
+	}
+	return "data"
 }
 
 // defaultBadgeDir resolves the directory the commissioner-supplied default
@@ -89,44 +128,191 @@ func (s *Service) defaultBadgeDir() string {
 	return filepath.Join("public", "avatars", "defaults")
 }
 
-// avatarFilePath joins root and teamID.png. teamID must already be
-// validated against knownTeam before this is called — see the traversal
-// safety note on AvatarFilePath and UploadAvatar. defaultTeams() defines a
-// fixed, binary-owned set of IDs ("team-1".."team-8"); none of this
-// package's exported entry points path-join a caller-supplied teamID
-// without checking it against that set first.
-func (s *Service) avatarFilePath(teamID string) string {
-	return filepath.Join(s.avatarDir(), teamID+".png")
+// validAvatarRef accepts only the lower-case SHA-256 spelling used by the
+// immutable object store. Keeping this check beside every path resolver
+// prevents a caller from turning a content-addressed reference into a path
+// traversal or alternate object name.
+func validAvatarRef(ref string) bool {
+	if len(ref) != sha256.Size*2 || strings.ToLower(ref) != ref {
+		return false
+	}
+	_, err := hex.DecodeString(ref)
+	return err == nil
 }
 
-// AvatarFilePath resolves teamID's on-disk avatar path and reports whether
-// teamID is known. Callers (the GET /avatars/{file}.png handler) must check
-// ok before using path — an unknown teamID never yields a path at all,
-// which is what keeps a request like GET /avatars/../../etc/passwd.png from
-// ever reaching a filesystem join with attacker-controlled input.
-func (s *Service) AvatarFilePath(teamID string) (path string, ok bool) {
-	if !knownTeam(teamID) {
+func (s *Service) avatarObjectDir() string {
+	return filepath.Join(s.avatarDir(), "objects")
+}
+
+// AvatarObjectPath resolves only the exact currently referenced object for a
+// known team. A stale, guessed, or unreferenced hash never reaches disk.
+func (s *Service) AvatarObjectPath(teamID, ref string) (path string, ok bool) {
+	teamID = strings.TrimSpace(teamID)
+	ref = strings.TrimSpace(ref)
+	if !knownTeam(teamID) || !validAvatarRef(ref) || !s.store.IdentityHealthy() {
 		return "", false
 	}
-	return s.avatarFilePath(teamID), true
+	paths, err := canonicalAvatarStoragePaths(s.avatarDurableDir(), s.avatarDir())
+	if err != nil {
+		return "", false
+	}
+	current, ok := s.store.AvatarRef(teamID)
+	if !ok || current != ref {
+		return "", false
+	}
+	return filepath.Join(paths.objectDir, ref+".png"), true
 }
 
-// AvatarVersion reports teamID's stored avatar file's modification time, as
-// Unix seconds, and whether an avatar exists at all. The version feeds both
-// the cache-busting ?v= query on the serving URL and the StateFingerprint
-// avatars digest (see avatarDigest), so a fresh upload is visible
-// immediately on every open page despite the serving route's 24-hour
-// Cache-Control lifetime.
-func (s *Service) AvatarVersion(teamID string) (version int64, ok bool) {
-	path, known := s.AvatarFilePath(teamID)
-	if !known {
-		return 0, false
+// avatarObjectHandle owns both the rooted directory and the opened object
+// descriptor. The directory root must stay alive while the descriptor is in
+// use; closing it after the file also makes the ownership boundary explicit
+// to callers that need to read immutable object bytes.
+type avatarObjectHandle struct {
+	root *os.Root
+	file *os.File
+	info os.FileInfo
+}
+
+func (h *avatarObjectHandle) Close() error {
+	if h == nil {
+		return nil
 	}
-	info, err := os.Stat(path)
+	fileErr := h.file.Close()
+	rootErr := h.root.Close()
+	if fileErr != nil {
+		return fileErr
+	}
+	return rootErr
+}
+
+// openVerifiedAvatarObject opens one immutable object beneath the configured
+// durable anchor without ever following a final-leaf symlink. The anchor is
+// pinned by comparing its Lstat identity with the descriptor-backed rooted
+// Stat result; a path replacement between those checks is rejected. The
+// object directory is then opened relative to that root, so a directory
+// replacement cannot escape to a sibling or outside path. Finally, Lstat
+// rejects a symlink/non-regular leaf and the descriptor's Stat identity must
+// still match it, closing the final-leaf replacement window between check and
+// open. All bytes consumed by callers come from this descriptor, never from a
+// path reopened after validation.
+func openVerifiedAvatarObject(anchor, objectDir, name string) (*avatarObjectHandle, error) {
+	if name == "" || filepath.Base(name) != name || name == "." || name == ".." {
+		return nil, fmt.Errorf("invalid avatar object name %q", name)
+	}
+	relative, err := filepath.Rel(anchor, objectDir)
 	if err != nil {
-		return 0, false
+		return nil, err
 	}
-	return info.ModTime().Unix(), true
+	if relative == "." {
+		return nil, fmt.Errorf("avatar object directory must be strictly below durable anchor")
+	}
+	if err := avatarPathStrictlyUnder(anchor, objectDir); err != nil {
+		return nil, err
+	}
+
+	anchorInfo, err := os.Lstat(anchor)
+	if err != nil {
+		return nil, err
+	}
+	if anchorInfo.Mode()&os.ModeSymlink != 0 || !anchorInfo.IsDir() {
+		return nil, fmt.Errorf("avatar durable anchor %s must be a real directory", anchor)
+	}
+	anchorRoot, err := os.OpenRoot(anchor)
+	if err != nil {
+		return nil, err
+	}
+	rootInfo, err := anchorRoot.Stat(".")
+	if err != nil {
+		_ = anchorRoot.Close()
+		return nil, err
+	}
+	if !os.SameFile(anchorInfo, rootInfo) {
+		_ = anchorRoot.Close()
+		return nil, fmt.Errorf("avatar durable anchor changed while opening")
+	}
+	objectRoot, err := anchorRoot.OpenRoot(filepath.ToSlash(relative))
+	if err != nil {
+		_ = anchorRoot.Close()
+		return nil, err
+	}
+	_ = anchorRoot.Close()
+
+	leafInfo, err := objectRoot.Lstat(name)
+	if err != nil {
+		_ = objectRoot.Close()
+		return nil, err
+	}
+	if leafInfo.Mode()&os.ModeSymlink != 0 || !leafInfo.Mode().IsRegular() {
+		_ = objectRoot.Close()
+		return nil, fmt.Errorf("avatar object %s must be a regular non-symlink file", name)
+	}
+	file, err := objectRoot.Open(name)
+	if err != nil {
+		_ = objectRoot.Close()
+		return nil, err
+	}
+	openedInfo, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		_ = objectRoot.Close()
+		return nil, err
+	}
+	if !os.SameFile(leafInfo, openedInfo) || !openedInfo.Mode().IsRegular() {
+		_ = file.Close()
+		_ = objectRoot.Close()
+		return nil, fmt.Errorf("avatar object %s changed while opening", name)
+	}
+	return &avatarObjectHandle{root: objectRoot, file: file, info: openedInfo}, nil
+}
+
+func readAvatarObjectBytes(file *os.File, limit int64) ([]byte, error) {
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
+	return io.ReadAll(io.LimitReader(file, limit+1))
+}
+
+// ReadAvatarObject returns the exact bytes and descriptor timestamp of the
+// currently referenced immutable object. The handler uses this instead of
+// reopening AvatarObjectPath, so a final-leaf replacement cannot redirect a
+// request to an outside file after the identity lookup.
+func (s *Service) ReadAvatarObject(teamID, ref string) ([]byte, time.Time, bool) {
+	teamID = strings.TrimSpace(teamID)
+	ref = strings.TrimSpace(ref)
+	if !knownTeam(teamID) || !validAvatarRef(ref) || !s.store.IdentityHealthy() {
+		return nil, time.Time{}, false
+	}
+	paths, err := canonicalAvatarStoragePaths(s.avatarDurableDir(), s.avatarDir())
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	current, ok := s.store.AvatarRef(teamID)
+	if !ok || current != ref {
+		return nil, time.Time{}, false
+	}
+	handle, err := openVerifiedAvatarObject(paths.anchor, paths.objectDir, ref+".png")
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	defer handle.Close()
+	if handle.info.Mode().Perm()&0o222 != 0 {
+		return nil, time.Time{}, false
+	}
+	data, err := readAvatarObjectBytes(handle.file, AvatarMaxBytes)
+	if err != nil || len(data) > AvatarMaxBytes {
+		return nil, time.Time{}, false
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != ref {
+		return nil, time.Time{}, false
+	}
+	return data, handle.info.ModTime(), true
+}
+
+// IdentityHealthy reports whether an uncertain identity commit has been
+// reconciled. Serving fails closed while it is false.
+func (s *Service) IdentityHealthy() bool {
+	return s.store.IdentityHealthy()
 }
 
 // defaultBadgeExists reports whether tone has a default badge PNG in
@@ -182,11 +368,27 @@ func scanDefaultBadgeTones(dir string) map[string]bool {
 // confirmed exists (a badge claim always has a matching motif PNG; see
 // knownMotif's gate at claim time).
 func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url string) {
-	if version, ok := s.AvatarVersion(teamID); ok {
-		return true, true, fmt.Sprintf("/avatars/%s.png?v=%d", teamID, version)
+	if !s.store.IdentityHealthy() {
+		// A poisoned identity store must not render a fallback that could be
+		// mistaken for the authoritative avatar/badge pair. The caller can
+		// keep the text mark while the process is restarted or repaired.
+		return false, false, ""
 	}
-	if motif, ok := s.store.BadgeClaim(teamID); ok {
-		return false, true, fmt.Sprintf("/avatars/badge/%s.png?v=%s", teamID, motif)
+	if ref, referenced := s.store.AvatarRef(teamID); referenced {
+		// The database ref is the only identity authority and the hash is the
+		// cache version. The serving route verifies the exact ref and fails
+		// closed if its immutable object is missing or corrupt.
+		return true, true, fmt.Sprintf("/avatars/custom/%s/%s.png", teamID, ref)
+	}
+	if _, ok := s.store.BadgeClaim(teamID); ok {
+		// The query value is the hash of the exact rendered PNG, not the
+		// mutable motif slug. This keeps a changed tone/render from being
+		// served from a URL whose bytes were cached under the old claim.
+		_, version, rendered := s.BadgeImage(teamID)
+		if !rendered {
+			return false, false, ""
+		}
+		return false, true, fmt.Sprintf("/avatars/badge/%s.png?v=%s", teamID, version)
 	}
 	if s.defaultBadgeExists(tone) {
 		return false, true, fmt.Sprintf("/avatars/defaults/%s.png", tone)
@@ -194,24 +396,19 @@ func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url
 	return false, false, ""
 }
 
-// avatarDigest renders "team-1:169..,team-3:169..." across every default
-// team ID that currently has a stored avatar, in order (defaultTeamIDs is
-// already sorted team-1..team-8), followed by "team-1=wolf" pairs across
-// every team that currently holds a badge claim. It is appended to
-// StateFingerprint's suffix the same way the Blitz source's version
-// already is (see StateFingerprint's |blitz: suffix), so a page open when
-// a manager uploads or resets an avatar, or claims/releases a badge,
-// picks it up on its next poll. Badge claims already live in
-// PersistedState (unlike an uploaded photo's file), so StateFingerprint's
-// own json.Marshal(state) already changes on a claim; folding the claims
-// in here too keeps this digest — and its "which team, which asset"
-// shape — the one place every avatar-tier change is legible together.
+// avatarDigest renders "team-1:<sha256>,team-3:<sha256>" across every
+// default team ID that currently has a stored avatar, in order
+// (defaultTeamIDs is already sorted team-1..team-8), followed by
+// "team-1=wolf" pairs across every team that currently holds a badge claim.
+// Custom-avatar refs are content hashes; badge claims use the canonical motif
+// slug for this lightweight state fingerprint, while avatarView derives the
+// rendered badge URL's exact-byte hash through BadgeImage.
 func (s *Service) avatarDigest() string {
 	order := defaultTeamIDs()
 	parts := make([]string, 0, len(order))
 	for _, teamID := range order {
-		if version, ok := s.AvatarVersion(teamID); ok {
-			parts = append(parts, teamID+":"+strconv.FormatInt(version, 10))
+		if ref, ok := s.store.AvatarRef(teamID); ok {
+			parts = append(parts, teamID+":"+ref)
 		}
 	}
 	claims := s.store.BadgeClaims()
@@ -239,32 +436,39 @@ func (s *Service) canSetAvatar(r *http.Request, teamID string) bool {
 // UploadAvatar validates, normalizes, and stores teamID's avatar from the
 // raw uploaded file body. Order of operations matters for both security and
 // the exact-message contract: teamID is checked against the known team list
-// before it ever reaches a filesystem path (traversal safety — see
-// AvatarFilePath), authorization is checked before any image decoding work
-// happens, and only then does the request body run through
+// before it can influence an object path, authorization is checked before any
+// image decoding work happens, and only then does the request body run through
 // processAvatarImage's validate/normalize/re-encode pipeline (itself
-// directly unit-testable without an HTTP request at all). The final PNG is
-// written atomically (temp file + rename — see writeAvatarAtomic), so a
-// concurrent reader of GET /avatars/{teamID}.png never observes a partial
-// file. It returns the new avatar version (the written file's mtime, Unix
-// seconds) on success.
-func (s *Service) UploadAvatar(r *http.Request, teamID string, data []byte) (int64, error) {
+// directly unit-testable without an HTTP request at all). The final PNG object
+// is installed before the Store transaction, so a crash can leave
+// only an invisible orphan. The Store transaction then publishes the ref and
+// removes any badge claim atomically. It returns the immutable ref and whether
+// the former badge was released.
+func (s *Service) UploadAvatar(r *http.Request, teamID string, data []byte) (AvatarUploadResult, error) {
 	teamID = strings.TrimSpace(teamID)
 	if !knownTeam(teamID) {
-		return 0, fmt.Errorf("unknown team %q", teamID)
+		return AvatarUploadResult{}, fmt.Errorf("unknown team %q", teamID)
+	}
+	if !s.store.IdentityHealthy() {
+		return AvatarUploadResult{}, ErrPersistenceIndeterminate
 	}
 	if !s.canSetAvatar(r, teamID) {
-		return 0, ErrAvatarForbidden
+		return AvatarUploadResult{}, ErrAvatarForbidden
 	}
 	normalized, err := processAvatarImage(data)
 	if err != nil {
-		return 0, err
+		return AvatarUploadResult{}, err
 	}
-	if err := writeAvatarAtomic(s.avatarDir(), teamID, normalized); err != nil {
-		return 0, err
+	ref, err := writeAvatarBlob(s.avatarDurableDir(), s.avatarDir(), normalized)
+	if err != nil {
+		return AvatarUploadResult{}, err
 	}
-	version, _ := s.AvatarVersion(teamID)
-	return version, nil
+	actor := s.seatActor(r)
+	released, err := s.store.activateAvatar(teamID, ref, actor)
+	if err != nil {
+		return AvatarUploadResult{}, err
+	}
+	return AvatarUploadResult{Ref: ref, BadgeReleased: released}, nil
 }
 
 // ResetAvatar deletes teamID's stored avatar, restoring the default-badge
@@ -278,11 +482,8 @@ func (s *Service) ResetAvatar(r *http.Request, teamID string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
-	path, _ := s.AvatarFilePath(teamID)
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return nil
+	actor := s.seatActor(r)
+	return s.store.clearAvatar(teamID, actor)
 }
 
 // processAvatarImage validates raw upload bytes and normalizes them into a
@@ -354,30 +555,298 @@ func centerSquareAndScale(src image.Image, outSize int) *image.RGBA {
 	return dst
 }
 
-// writeAvatarAtomic writes data to root/teamID.png via a temp file plus
-// rename, matching Store.persistLocked's exact atomicity pattern: a reader
-// of the final path never observes a partial write, and a failed write
-// never corrupts whatever avatar was already stored there.
-func writeAvatarAtomic(root, teamID string, data []byte) error {
-	if err := os.MkdirAll(root, 0o750); err != nil {
-		return err
+// writeAvatarBlob installs normalized bytes under their SHA-256 object name.
+// The temporary file is fsynced before an install-without-replacement hard
+// link, and the containing directory is fsynced after a new object appears.
+// If another request already installed the same hash, its bytes must match;
+// a mismatch is treated as corruption rather than silently reused.
+var avatarSyncDirectory = syncAvatarDirectoryOnDisk
+
+type avatarStoragePaths struct {
+	anchor    string
+	root      string
+	objectDir string
+}
+
+// canonicalAvatarPath makes the configured paths stable across retries
+// without following symlinks. The component checks below deliberately use
+// Lstat, so a symlink cannot turn a lexically-contained path into an object
+// outside the configured durability boundary.
+func canonicalAvatarPath(path, label string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", fmt.Errorf("%s must not be empty", label)
 	}
-	tmp, err := os.CreateTemp(root, ".avatar-*.png")
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize %s: %w", label, err)
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func avatarPathStrictlyUnder(anchor, target string) error {
+	relative, err := filepath.Rel(anchor, target)
 	if err != nil {
 		return err
 	}
+	if relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return fmt.Errorf("avatar target %s must be strictly below durable anchor %s", target, anchor)
+	}
+	return nil
+}
+
+// rejectAvatarSymlinkPath verifies the stable anchor and all of its existing
+// ancestors. The anchor is never provisioned by an upload; it must already be
+// a real directory before any child is created.
+func rejectAvatarSymlinkPath(path, label string) error {
+	for current := path; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", label, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s %s must not contain a symlink", label, path)
+		}
+		if current == filepath.Dir(current) {
+			break
+		}
+	}
+	return nil
+}
+
+// rejectExistingAvatarTargetSymlinks checks the target's already-existing
+// prefix. Missing components are intentionally left for
+// ensureAvatarDirectory, which creates and checks each one immediately
+// before syncing its parent.
+func rejectExistingAvatarTargetSymlinks(anchor, target string) error {
+	relative, err := filepath.Rel(anchor, target)
+	if err != nil {
+		return err
+	}
+	current := anchor
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("avatar target %s must not contain a symlink", target)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("avatar path %s is not a directory", current)
+		}
+	}
+	return nil
+}
+
+func canonicalAvatarStoragePaths(anchor, root string) (avatarStoragePaths, error) {
+	anchor, err := canonicalAvatarPath(anchor, "avatar durable anchor")
+	if err != nil {
+		return avatarStoragePaths{}, err
+	}
+	root, err = canonicalAvatarPath(root, "avatar root")
+	if err != nil {
+		return avatarStoragePaths{}, err
+	}
+	objectDir := filepath.Join(root, "objects")
+	if err := avatarPathStrictlyUnder(anchor, root); err != nil {
+		return avatarStoragePaths{}, err
+	}
+	if err := avatarPathStrictlyUnder(anchor, objectDir); err != nil {
+		return avatarStoragePaths{}, err
+	}
+	anchorInfo, err := os.Lstat(anchor)
+	if err != nil {
+		return avatarStoragePaths{}, fmt.Errorf("avatar durable anchor %s must pre-exist: %w", anchor, err)
+	}
+	if anchorInfo.Mode()&os.ModeSymlink != 0 || !anchorInfo.IsDir() {
+		return avatarStoragePaths{}, fmt.Errorf("avatar durable anchor %s must be a real directory", anchor)
+	}
+	if err := rejectAvatarSymlinkPath(anchor, "avatar durable anchor"); err != nil {
+		return avatarStoragePaths{}, err
+	}
+	if err := rejectExistingAvatarTargetSymlinks(anchor, root); err != nil {
+		return avatarStoragePaths{}, err
+	}
+	if err := rejectExistingAvatarTargetSymlinks(anchor, objectDir); err != nil {
+		return avatarStoragePaths{}, err
+	}
+	return avatarStoragePaths{anchor: anchor, root: root, objectDir: objectDir}, nil
+}
+
+// ensureAvatarDirectory creates one component at a time from the pre-existing
+// anchor through target. Every edge is re-checked and its parent is fsynced on
+// every attempt, including when the child already exists after an earlier
+// failed attempt. The anchor itself and the anchor's parent are never synced.
+func ensureAvatarDirectory(anchor, target string) error {
+	anchor, err := canonicalAvatarPath(anchor, "avatar durable anchor")
+	if err != nil {
+		return err
+	}
+	target, err = canonicalAvatarPath(target, "avatar target")
+	if err != nil {
+		return err
+	}
+	if err := avatarPathStrictlyUnder(anchor, target); err != nil {
+		return err
+	}
+	anchorInfo, err := os.Lstat(anchor)
+	if err != nil {
+		return fmt.Errorf("avatar durable anchor %s must pre-exist: %w", anchor, err)
+	}
+	if anchorInfo.Mode()&os.ModeSymlink != 0 || !anchorInfo.IsDir() {
+		return fmt.Errorf("avatar durable anchor %s must be a real directory", anchor)
+	}
+	if err := rejectAvatarSymlinkPath(anchor, "avatar durable anchor"); err != nil {
+		return err
+	}
+	if err := rejectExistingAvatarTargetSymlinks(anchor, target); err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(anchor, target)
+	if err != nil {
+		return err
+	}
+	current := anchor
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		child := filepath.Join(current, component)
+		info, err := os.Lstat(child)
+		if os.IsNotExist(err) {
+			if err := os.Mkdir(child, 0o750); err != nil && !os.IsExist(err) {
+				return err
+			}
+			info, err = os.Lstat(child)
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("avatar path %s is not a real directory", child)
+		}
+		if err := avatarSyncDirectory(current); err != nil {
+			return err
+		}
+		current = child
+	}
+	return nil
+}
+
+func writeAvatarBlob(anchor, root string, data []byte) (string, error) {
+	digest := sha256.Sum256(data)
+	ref := hex.EncodeToString(digest[:])
+	paths, err := canonicalAvatarStoragePaths(anchor, root)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureAvatarDirectory(paths.anchor, paths.objectDir); err != nil {
+		return "", err
+	}
+	objectDir := paths.objectDir
+	objectPath := filepath.Join(objectDir, ref+".png")
+	tmp, err := os.CreateTemp(objectDir, ".avatar-object-*.tmp")
+	if err != nil {
+		return "", err
+	}
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return err
-	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return err
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	// Make the installed object read-only only after its bytes are durable,
+	// then fsync again so the mode change is durable metadata too.
+	if err := tmp.Chmod(0o444); err != nil {
+		_ = tmp.Close()
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+
+	if err := os.Link(tmpPath, objectPath); err != nil {
+		if !os.IsExist(err) {
+			return "", err
+		}
+		handle, openErr := openVerifiedAvatarObject(paths.anchor, objectDir, ref+".png")
+		if openErr != nil {
+			return "", openErr
+		}
+		defer handle.Close()
+		existing, readErr := readAvatarObjectBytes(handle.file, int64(len(data)))
+		if readErr != nil {
+			return "", readErr
+		}
+		if !bytes.Equal(existing, data) {
+			return "", fmt.Errorf("avatar object %s failed content-address verification", ref)
+		}
+		if handle.info.Mode().Perm() != 0o444 {
+			return "", fmt.Errorf("avatar object %s is not immutable", ref)
+		}
+		// Even an idempotent EEXIST path must complete the same directory
+		// durability barrier as a newly linked object. This closes the
+		// window where metadata from a concurrent/previous install remains
+		// only in the page cache.
+		if err := syncAvatarObjectDir(objectDir); err != nil {
+			return "", err
+		}
+		if err := removeAvatarTempAndSync(objectDir, tmpPath); err != nil {
+			return "", err
+		}
+		return ref, nil
+	}
+
+	if err := syncAvatarObjectDir(objectDir); err != nil {
+		return "", err
+	}
+	if err := removeAvatarTempAndSync(objectDir, tmpPath); err != nil {
+		return "", err
+	}
+	return ref, nil
+}
+
+// syncAvatarObjectDir is the directory metadata durability barrier used by
+// both the new-link and idempotent-EEXIST install paths.
+func syncAvatarObjectDir(objectDir string) error {
+	return avatarSyncDirectory(objectDir)
+}
+
+func syncAvatarDirectoryOnDisk(dirPath string) error {
+	dir, err := os.Open(dirPath)
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, filepath.Join(root, teamID+".png"))
+	if err := dir.Sync(); err != nil {
+		_ = dir.Close()
+		return err
+	}
+	return dir.Close()
+}
+
+// removeAvatarTempAndSync durably removes the second hard link left by the
+// staging file after the final object is installed. The deferred Remove in
+// writeAvatarBlob remains the error-path backstop; successful installs use
+// this helper so no temporary name is left after a crash/restart barrier.
+func removeAvatarTempAndSync(objectDir, tmpPath string) error {
+	if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return syncAvatarObjectDir(objectDir)
 }

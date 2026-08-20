@@ -2,7 +2,10 @@ package league
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"errors"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -11,7 +14,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strconv"
+	"reflect"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -229,49 +234,682 @@ func TestCenterSquareAndScaleCropsToCenter(t *testing.T) {
 	}
 }
 
-func TestWriteAvatarAtomicIsAtomicAndLeavesNoTempFiles(t *testing.T) {
-	root := t.TempDir()
-	if err := writeAvatarAtomic(root, "team-1", []byte("first")); err != nil {
+func TestWriteAvatarBlobIsContentAddressedAndIdempotent(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	first := []byte("first")
+	ref, err := writeAvatarBlob(anchor, root, first)
+	if err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeAvatarAtomic(root, "team-1", []byte("second, replacing the first")); err != nil {
+	if !validAvatarRef(ref) {
+		t.Fatalf("invalid content reference %q", ref)
+	}
+	again, err := writeAvatarBlob(anchor, root, first)
+	if err != nil {
+		t.Fatalf("idempotent write: %v", err)
+	}
+	if again != ref {
+		t.Fatalf("same bytes produced refs %q and %q", ref, again)
+	}
+	second, err := writeAvatarBlob(anchor, root, []byte("second"))
+	if err != nil {
 		t.Fatalf("second write: %v", err)
 	}
-	got, err := os.ReadFile(filepath.Join(root, "team-1.png"))
-	if err != nil {
-		t.Fatalf("read stored avatar: %v", err)
+	if second == ref {
+		t.Fatal("different bytes reused the first content reference")
 	}
-	if string(got) != "second, replacing the first" {
-		t.Fatalf("stored avatar = %q, want the second write's content", got)
-	}
-	entries, err := os.ReadDir(root)
+	entries, err := os.ReadDir(filepath.Join(root, "objects"))
 	if err != nil {
-		t.Fatalf("read root: %v", err)
+		t.Fatalf("read object directory: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("object directory has %d entries, want two immutable objects", len(entries))
 	}
 	for _, entry := range entries {
-		if entry.Name() != "team-1.png" {
-			t.Fatalf("leftover file in avatar root: %s", entry.Name())
+		if filepath.Ext(entry.Name()) != ".png" {
+			t.Fatalf("leftover temporary object: %s", entry.Name())
+		}
+		info, err := entry.Info()
+		if err != nil {
+			t.Fatalf("stat immutable object %s: %v", entry.Name(), err)
+		}
+		if got := info.Mode().Perm(); got != 0o444 {
+			t.Fatalf("object %s mode = %o, want read-only 0444", entry.Name(), got)
 		}
 	}
 }
 
-func TestAvatarFilePathRejectsUnknownTeamTraversal(t *testing.T) {
+func TestWriteAvatarBlobRejectsFinalLeafSymlinkWithoutTouchingOutside(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	data := []byte("symlink-safe avatar bytes")
+	ref, err := writeAvatarBlob(anchor, root, data)
+	if err != nil {
+		t.Fatalf("initial object write: %v", err)
+	}
+	objectPath := filepath.Join(root, "objects", ref+".png")
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	outsideBytes := []byte("outside secret bytes")
+	if err := os.WriteFile(outside, outsideBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideBefore, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(objectPath, objectPath+".regular"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, objectPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeAvatarBlob(anchor, root, data); err == nil {
+		t.Fatal("EEXIST reuse followed a final-leaf symlink")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, outsideBytes) {
+		t.Fatalf("outside bytes changed to %q, want %q", got, outsideBytes)
+	}
+	outsideAfter, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outsideAfter.Mode().Perm() != outsideBefore.Mode().Perm() {
+		t.Fatalf("outside mode changed from %o to %o", outsideBefore.Mode().Perm(), outsideAfter.Mode().Perm())
+	}
+	linkInfo, err := os.Lstat(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("rejected final leaf was not left as a symlink")
+	}
+}
+
+func TestWriteAvatarBlobRejectsWritableExistingHardlinkWithoutMutatingAlias(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	data := []byte("writable hardlink bytes")
+	digest := sha256.Sum256(data)
+	ref := hex.EncodeToString(digest[:])
+	objectDir := filepath.Join(root, "objects")
+	if err := ensureAvatarDirectory(anchor, objectDir); err != nil {
+		t.Fatalf("provision object directory: %v", err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	if err := os.WriteFile(outside, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	objectPath := filepath.Join(objectDir, ref+".png")
+	if err := os.Link(outside, objectPath); err != nil {
+		t.Fatalf("create multiply-linked object: %v", err)
+	}
+	outsideBefore, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writeAvatarBlob(anchor, root, data); err == nil {
+		t.Fatal("EEXIST reuse accepted a writable hard-linked object")
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("outside alias bytes changed to %q, want %q", got, data)
+	}
+	outsideAfter, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outsideAfter.Mode().Perm() != outsideBefore.Mode().Perm() {
+		t.Fatalf("outside alias mode changed from %o to %o", outsideBefore.Mode().Perm(), outsideAfter.Mode().Perm())
+	}
+	objectInfo, err := os.Stat(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(outsideAfter, objectInfo) {
+		t.Fatal("rejected writable object no longer aliases the outside inode")
+	}
+}
+
+func TestReadAvatarObjectRejectsFinalLeafSymlink(t *testing.T) {
 	service := newTestService(t, true)
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.UploadAvatar(request, "team-1", solidPNG(t, 96, 96, color.RGBA{R: 23, G: 31, B: 47, A: 255}))
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	path, ok := service.AvatarObjectPath("team-1", result.Ref)
+	if !ok {
+		t.Fatal("uploaded object has no authoritative path")
+	}
+	outside := filepath.Join(t.TempDir(), "outside.png")
+	outsideBytes := []byte("serving must not follow this")
+	if err := os.WriteFile(outside, outsideBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideBefore, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(path, path+".regular"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if data, _, ok := service.ReadAvatarObject("team-1", result.Ref); ok || data != nil {
+		t.Fatalf("symlinked avatar object returned ok=%v data=%q", ok, data)
+	}
+	got, err := os.ReadFile(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, outsideBytes) {
+		t.Fatalf("outside serving target changed to %q, want %q", got, outsideBytes)
+	}
+	outsideAfter, err := os.Stat(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outsideAfter.Mode().Perm() != outsideBefore.Mode().Perm() {
+		t.Fatalf("outside serving target mode changed from %o to %o", outsideBefore.Mode().Perm(), outsideAfter.Mode().Perm())
+	}
+}
+
+func TestWriteAvatarBlobConcurrentSameDigestLeavesOneDurableObject(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	data := bytes.Repeat([]byte("same normalized avatar bytes"), 4096)
+	const workers = 24
+	refs := make([]string, workers)
+	errs := make([]error, workers)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for worker := 0; worker < workers; worker++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			refs[index], errs[index] = writeAvatarBlob(anchor, root, data)
+		}(worker)
+	}
+	close(start)
+	wg.Wait()
+
+	for index, err := range errs {
+		if err != nil {
+			t.Fatalf("worker %d write: %v", index, err)
+		}
+		if !validAvatarRef(refs[index]) {
+			t.Fatalf("worker %d returned invalid ref %q", index, refs[index])
+		}
+		if refs[index] != refs[0] {
+			t.Fatalf("worker %d returned ref %q, want shared ref %q", index, refs[index], refs[0])
+		}
+	}
+
+	objectPath := filepath.Join(root, "objects", refs[0]+".png")
+	stored, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatalf("read shared object: %v", err)
+	}
+	if !bytes.Equal(stored, data) {
+		t.Fatal("concurrent same-digest object bytes differ from the normalized upload")
+	}
+	info, err := os.Stat(objectPath)
+	if err != nil {
+		t.Fatalf("stat shared object: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o444 {
+		t.Fatalf("shared object mode = %o, want read-only 0444", got)
+	}
+	entries, err := os.ReadDir(filepath.Join(root, "objects"))
+	if err != nil {
+		t.Fatalf("read object directory: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != refs[0]+".png" {
+		t.Fatalf("concurrent object directory = %#v, want one immutable object", entries)
+	}
+}
+
+func TestWriteAvatarBlobProvisionsDirectoriesWithFsyncBarriers(t *testing.T) {
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	var synced []string
+	avatarSyncDirectory = func(path string) error {
+		synced = append(synced, path)
+		return nil
+	}
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "nested", "avatars")
+	if _, err := writeAvatarBlob(anchor, root, []byte("directory durability")); err != nil {
+		t.Fatalf("first-use write: %v", err)
+	}
+	objects := filepath.Join(root, "objects")
+	wantCalls := []string{anchor, filepath.Join(anchor, "nested"), root, objects, objects}
+	if !reflect.DeepEqual(synced, wantCalls) {
+		t.Fatalf("first-use sync calls = %#v, want exact anchor-to-object barriers %#v", synced, wantCalls)
+	}
+	synced = nil
+	if _, err := writeAvatarBlob(anchor, root, []byte("directory durability")); err != nil {
+		t.Fatalf("matching EEXIST write: %v", err)
+	}
+	if !reflect.DeepEqual(synced, wantCalls) {
+		t.Fatalf("EEXIST sync calls = %#v, want exact anchor-to-object barriers %#v", synced, wantCalls)
+	}
+}
+
+func TestWriteAvatarBlobRetriesMissedAncestorBarrierAfterDirectoryCreate(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "nested", "avatars")
+	missedParent := anchor
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	syncErr := errors.New("injected ancestor directory fsync failure")
+	failed := false
+	var calls []string
+	avatarSyncDirectory = func(path string) error {
+		calls = append(calls, path)
+		if path == missedParent && !failed {
+			failed = true
+			return syncErr
+		}
+		return nil
+	}
+	data := []byte("ancestor retry bytes")
+	if _, err := writeAvatarBlob(anchor, root, data); err != syncErr {
+		t.Fatalf("first write error = %v, want %v", err, syncErr)
+	}
+	if _, err := os.Stat(filepath.Join(anchor, "nested")); err != nil {
+		t.Fatalf("directory component created before fsync failure disappeared: %v", err)
+	}
+	failedCalls := len(calls)
+	ref, err := writeAvatarBlob(anchor, root, data)
+	if err != nil {
+		t.Fatalf("retry after ancestor fsync failure: %v", err)
+	}
+	if !failed {
+		t.Fatal("the injected ancestor barrier was never exercised")
+	}
+	if len(calls) <= failedCalls {
+		t.Fatal("retry did not perform any directory durability work")
+	}
+	// The target already existed on retry, so this successful barrier is the
+	// repair that makes the first attempt's directory entry durable before the
+	// object can be installed and referenced.
+	repaired := false
+	for _, path := range calls[failedCalls:] {
+		if path == missedParent {
+			repaired = true
+			break
+		}
+	}
+	if !repaired {
+		t.Fatalf("retry never re-synced missed parent %q; calls = %#v", missedParent, calls)
+	}
+	if _, err := os.Stat(filepath.Join(root, "objects", ref+".png")); err != nil {
+		t.Fatalf("object was not installed after repaired ancestor barrier: %v", err)
+	}
+}
+
+func TestWriteAvatarBlobRetriesMissedObjectDirectoryBarrierBeforeInstall(t *testing.T) {
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	objectDir := filepath.Join(root, "objects")
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	syncErr := errors.New("injected object directory fsync failure")
+	failed := false
+	var calls []string
+	avatarSyncDirectory = func(path string) error {
+		calls = append(calls, path)
+		if path == root && !failed {
+			failed = true
+			return syncErr
+		}
+		return nil
+	}
+	data := []byte("object directory retry bytes")
+	if _, err := writeAvatarBlob(anchor, root, data); err != syncErr {
+		t.Fatalf("first object-directory write error = %v, want %v", err, syncErr)
+	}
+	if _, err := os.Stat(objectDir); err != nil {
+		t.Fatalf("object directory disappeared after fsync failure: %v", err)
+	}
+	failedCalls := len(calls)
+	ref, err := writeAvatarBlob(anchor, root, data)
+	if err != nil {
+		t.Fatalf("retry after object-directory fsync failure: %v", err)
+	}
+	if !failed {
+		t.Fatal("the injected object-directory barrier was never exercised")
+	}
+	repaired := false
+	for _, path := range calls[failedCalls:] {
+		if path == root {
+			repaired = true
+			break
+		}
+	}
+	if !repaired {
+		t.Fatalf("retry never re-synced existing object directory parent %q; calls = %#v", root, calls)
+	}
+	if _, err := os.Stat(filepath.Join(objectDir, ref+".png")); err != nil {
+		t.Fatalf("object was not installed after repaired object-directory barrier: %v", err)
+	}
+}
+
+type avatarSyncEvent struct {
+	path          string
+	objectPresent bool
+}
+
+func assertAvatarUploadStillUnpublished(t *testing.T, service *Service, objectPath string) {
+	t.Helper()
+	if _, ok := service.store.AvatarRef("team-1"); ok {
+		t.Fatal("failed upload published an avatar ref")
+	}
+	if _, ok := service.store.BadgeClaim("team-1"); ok {
+		t.Fatal("failed upload published a badge claim")
+	}
+	if _, err := os.Stat(objectPath); !os.IsNotExist(err) {
+		t.Fatalf("failed upload object stat = %v, want object absent", err)
+	}
+}
+
+func assertAvatarSyncEventsWithin(t *testing.T, events []avatarSyncEvent, allowed map[string]bool) {
+	t.Helper()
+	for _, event := range events {
+		if !allowed[event.path] {
+			t.Errorf("avatar durability synced outside explicit anchor chain: %q; allowed = %#v", event.path, allowed)
+		}
+	}
+}
+
+func TestUploadAvatarRepairsAncestorBarrierBeforeActivation(t *testing.T) {
+	service := newTestService(t, true)
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "nested", "avatars")
+	service.avatarDurableRoot = anchor
+	service.avatarRoot = root
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := solidPNG(t, 96, 96, color.RGBA{R: 7, G: 9, B: 11, A: 255})
+	normalized, err := processAvatarImage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := avatarRefForCrashBody(string(normalized))
+	objectDir := filepath.Join(root, "objects")
+	objectPath := filepath.Join(objectDir, ref+".png")
+	syncErr := errors.New("ancestor barrier still unavailable")
+	failures := 2
+	var events []avatarSyncEvent
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	avatarSyncDirectory = func(path string) error {
+		_, statErr := os.Stat(objectPath)
+		events = append(events, avatarSyncEvent{path: path, objectPresent: statErr == nil})
+		if path == anchor && failures > 0 {
+			failures--
+			return syncErr
+		}
+		return nil
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if _, err := service.UploadAvatar(request, "team-1", raw); err != syncErr {
+			t.Fatalf("ancestor attempt %d error = %v, want %v", attempt, err, syncErr)
+		}
+		assertAvatarUploadStillUnpublished(t, service, objectPath)
+	}
+	if _, err := os.Stat(filepath.Join(anchor, "nested")); err != nil {
+		t.Fatalf("first failed attempt did not leave its created ancestor component: %v", err)
+	}
+	result, err := service.UploadAvatar(request, "team-1", raw)
+	if err != nil {
+		t.Fatalf("third ancestor attempt: %v", err)
+	}
+	if result.Ref != ref {
+		t.Fatalf("third ancestor ref = %q, want %q", result.Ref, ref)
+	}
+	if got, ok := service.store.AvatarRef("team-1"); !ok || got != ref {
+		t.Fatalf("activated ancestor ref = %q, %v; want %q, true", got, ok, ref)
+	}
+	if _, ok := service.store.BadgeClaim("team-1"); ok {
+		t.Fatal("successful avatar activation left a badge claim")
+	}
+	stored, err := os.ReadFile(objectPath)
+	if err != nil || !bytes.Equal(stored, normalized) {
+		t.Fatalf("activated ancestor object read = %v, bytes match = %v", err, bytes.Equal(stored, normalized))
+	}
+	assertAvatarSyncEventsWithin(t, events, map[string]bool{
+		anchor: true, filepath.Join(anchor, "nested"): true, root: true, objectDir: true,
+	})
+	barrierIndex := -1
+	objectSyncIndex := -1
+	for index, event := range events {
+		if event.path == anchor && barrierIndex < 0 {
+			barrierIndex = index
+		}
+		if event.path == objectDir && event.objectPresent && objectSyncIndex < 0 {
+			objectSyncIndex = index
+		}
+	}
+	if barrierIndex < 0 || objectSyncIndex < 0 || barrierIndex >= objectSyncIndex {
+		t.Fatalf("effect order = %#v, want repaired anchor barrier before linked-object directory fsync", events)
+	}
+}
+
+func TestUploadAvatarRepairsObjectDirectoryBarrierBeforeActivation(t *testing.T) {
+	service := newTestService(t, true)
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "avatars")
+	if err := os.Mkdir(root, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	service.avatarDurableRoot = anchor
+	service.avatarRoot = root
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := solidPNG(t, 96, 96, color.RGBA{R: 13, G: 17, B: 19, A: 255})
+	normalized, err := processAvatarImage(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := avatarRefForCrashBody(string(normalized))
+	objectDir := filepath.Join(root, "objects")
+	objectPath := filepath.Join(objectDir, ref+".png")
+	syncErr := errors.New("object directory barrier still unavailable")
+	failures := 2
+	var events []avatarSyncEvent
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	avatarSyncDirectory = func(path string) error {
+		_, statErr := os.Stat(objectPath)
+		events = append(events, avatarSyncEvent{path: path, objectPresent: statErr == nil})
+		if path == root && failures > 0 {
+			failures--
+			return syncErr
+		}
+		return nil
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if _, err := service.UploadAvatar(request, "team-1", raw); err != syncErr {
+			t.Fatalf("object-directory attempt %d error = %v, want %v", attempt, err, syncErr)
+		}
+		assertAvatarUploadStillUnpublished(t, service, objectPath)
+	}
+	if _, err := os.Stat(objectDir); err != nil {
+		t.Fatalf("first failed attempt did not leave its created objects directory: %v", err)
+	}
+	result, err := service.UploadAvatar(request, "team-1", raw)
+	if err != nil {
+		t.Fatalf("third object-directory attempt: %v", err)
+	}
+	if result.Ref != ref {
+		t.Fatalf("third object-directory ref = %q, want %q", result.Ref, ref)
+	}
+	if got, ok := service.store.AvatarRef("team-1"); !ok || got != ref {
+		t.Fatalf("activated object-directory ref = %q, %v; want %q, true", got, ok, ref)
+	}
+	if _, ok := service.store.BadgeClaim("team-1"); ok {
+		t.Fatal("successful avatar activation left a badge claim")
+	}
+	stored, err := os.ReadFile(objectPath)
+	if err != nil || !bytes.Equal(stored, normalized) {
+		t.Fatalf("activated object-directory object read = %v, bytes match = %v", err, bytes.Equal(stored, normalized))
+	}
+	assertAvatarSyncEventsWithin(t, events, map[string]bool{anchor: true, root: true, objectDir: true})
+	barrierIndex := -1
+	objectSyncIndex := -1
+	for index, event := range events {
+		if event.path == root && barrierIndex < 0 {
+			barrierIndex = index
+		}
+		if event.path == objectDir && event.objectPresent && objectSyncIndex < 0 {
+			objectSyncIndex = index
+		}
+	}
+	if barrierIndex < 0 || objectSyncIndex < 0 || barrierIndex >= objectSyncIndex {
+		t.Fatalf("effect order = %#v, want repaired objects-parent barrier before linked-object directory fsync", events)
+	}
+}
+
+func TestAvatarStorageRejectsOutsideAnchorAndSymlinkTargets(t *testing.T) {
+	anchor := t.TempDir()
+	outside := t.TempDir()
+	data := []byte("rejected storage path")
+	rootSymlink := filepath.Join(anchor, "root-link")
+	if err := os.Symlink(outside, rootSymlink); err != nil {
+		t.Fatal(err)
+	}
+	objectRoot := filepath.Join(anchor, "object-link-root")
+	if err := os.Mkdir(objectRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(objectRoot, "objects")); err != nil {
+		t.Fatal(err)
+	}
+	anchorSymlink := filepath.Join(t.TempDir(), "anchor-link")
+	if err := os.Symlink(anchor, anchorSymlink); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		anchor string
+		root   string
+	}{
+		{name: "outside", anchor: anchor, root: filepath.Join(outside, "avatars")},
+		{name: "sibling", anchor: anchor, root: filepath.Join(filepath.Dir(anchor), "sibling-avatars")},
+		{name: "root symlink", anchor: anchor, root: rootSymlink},
+		{name: "objects symlink", anchor: anchor, root: objectRoot},
+		{name: "anchor symlink", anchor: anchorSymlink, root: filepath.Join(anchorSymlink, "avatars")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := writeAvatarBlob(test.anchor, test.root, data); err == nil {
+				t.Fatal("unsafe avatar storage path was accepted")
+			}
+			if entries, err := os.ReadDir(outside); err != nil {
+				t.Fatal(err)
+			} else if len(entries) != 0 {
+				t.Fatalf("unsafe write touched outside anchor: %#v", entries)
+			}
+		})
+	}
+}
+
+func TestWriteAvatarBlobDirectorySyncFailurePreventsActivation(t *testing.T) {
+	store, path := newAvatarIdentityStore(t)
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	syncErr := errors.New("injected avatar directory fsync failure")
+	avatarSyncDirectory = func(string) error { return syncErr }
+	anchor := t.TempDir()
+	root := filepath.Join(anchor, "first-use", "avatars")
+	if _, err := writeAvatarBlob(anchor, root, []byte("must not activate")); err != syncErr {
+		t.Fatalf("directory fsync error = %v, want %v", err, syncErr)
+	}
+	if _, ok := store.AvatarRef("team-1"); ok {
+		t.Fatal("failed object provisioning published an avatar ref")
+	}
+	stored := reloadStoredState(t, path)
+	if _, ok := stored.AvatarRefs["team-1"]; ok {
+		t.Fatal("failed object provisioning activated an avatar in the database")
+	}
+	objects := filepath.Join(root, "objects")
+	entries, err := os.ReadDir(objects)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			t.Fatalf("read provisioned objects directory: %v", err)
+		}
+		return
+	}
+	if len(entries) != 0 {
+		t.Fatalf("failed directory sync left object files: %d", len(entries))
+	}
+}
+
+func TestUploadAvatarDirectorySyncFailureDoesNotActivateIdentity(t *testing.T) {
+	service := newTestService(t, true)
+	service.avatarRoot = filepath.Join(service.avatarDurableDir(), "first-use", "avatars")
+	originalSync := avatarSyncDirectory
+	t.Cleanup(func() { avatarSyncDirectory = originalSync })
+	syncErr := errors.New("injected upload directory fsync failure")
+	avatarSyncDirectory = func(string) error { return syncErr }
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.UploadAvatar(request, "team-1", solidPNG(t, 64, 64, color.RGBA{R: 9, G: 8, B: 7, A: 255})); err != syncErr {
+		t.Fatalf("upload directory fsync error = %v, want %v", err, syncErr)
+	}
+	if _, ok := service.store.AvatarRef("team-1"); ok {
+		t.Fatal("a directory durability failure activated a custom avatar")
+	}
+	if got := service.store.Snapshot().BadgeClaims["team-1"]; got != "" {
+		t.Fatalf("directory durability failure changed badge identity to %q", got)
+	}
+}
+
+func TestAvatarObjectPathRejectsUnknownTeamTraversal(t *testing.T) {
+	service := newTestService(t, true)
+	ref := strings.Repeat("a", 64)
 	for _, hostile := range []string{
 		"../../etc/passwd", "..", "team-1/../../../etc/passwd", "team-9", "", "TEAM-1",
 	} {
-		if _, ok := service.AvatarFilePath(hostile); ok {
-			t.Errorf("AvatarFilePath(%q) reported ok=true for a non-team-list value", hostile)
+		if _, ok := service.AvatarObjectPath(hostile, ref); ok {
+			t.Errorf("AvatarObjectPath(%q, ref) reported ok=true for a non-team-list value", hostile)
 		}
 	}
-	// A known ID still resolves, and only ever joins under the configured
-	// avatar root — never a caller-supplied path fragment.
-	path, ok := service.AvatarFilePath("team-3")
-	if !ok {
-		t.Fatal("AvatarFilePath(\"team-3\") reported ok=false")
+	// A known ID without a DB reference has no serving path.
+	if _, ok := service.AvatarObjectPath("team-3", ref); ok {
+		t.Fatal("unreferenced team unexpectedly resolved an avatar path")
 	}
-	if filepath.Dir(path) != service.avatarDir() {
-		t.Fatalf("resolved path %q escaped the avatar root %q", path, service.avatarDir())
+	data := solidPNG(t, 100, 100, color.RGBA{R: 1, G: 2, B: 3, A: 255})
+	request, _ := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	result, err := service.UploadAvatar(request, "team-3", data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path, ok := service.AvatarObjectPath("team-3", result.Ref)
+	if !ok || filepath.Dir(path) != filepath.Join(service.avatarDir(), "objects") || !strings.HasSuffix(path, result.Ref+".png") {
+		t.Fatalf("resolved path %q does not use the current immutable object", path)
 	}
 }
 
@@ -310,14 +948,18 @@ func TestUploadAvatarAcceptsCommissionerForAnyTeam(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
 	data := solidPNG(t, 100, 100, color.RGBA{R: 9, G: 9, B: 200, A: 255})
 
-	version, err := service.UploadAvatar(request, "team-4", data)
+	result, err := service.UploadAvatar(request, "team-4", data)
 	if err != nil {
 		t.Fatalf("commissioner upload rejected: %v", err)
 	}
-	if version == 0 {
-		t.Fatal("version should be nonzero once an avatar is stored")
+	if !validAvatarRef(result.Ref) {
+		t.Fatal("upload should return a valid immutable content reference")
 	}
-	if _, err := os.Stat(filepath.Join(service.avatarDir(), "team-4.png")); err != nil {
+	path, ok := service.AvatarObjectPath("team-4", result.Ref)
+	if !ok {
+		t.Fatal("stored avatar has no authoritative path")
+	}
+	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("avatar file not written: %v", err)
 	}
 }
@@ -372,18 +1014,13 @@ func TestAvatarViewFallbackChain(t *testing.T) {
 	if !hasAvatar || !hasImage {
 		t.Fatalf("tier a resolution wrong: hasAvatar=%v hasImage=%v", hasAvatar, hasImage)
 	}
-	if url != "/avatars/team-2.png?v="+formatVersion(t, service, "team-2") {
-		t.Fatalf("tier a url = %q, want a versioned /avatars/team-2.png URL", url)
-	}
-}
-
-func formatVersion(t *testing.T, service *Service, teamID string) string {
-	t.Helper()
-	version, ok := service.AvatarVersion(teamID)
+	ref, ok := service.store.AvatarRef("team-2")
 	if !ok {
-		t.Fatalf("expected an avatar version for %s", teamID)
+		t.Fatal("uploaded avatar ref missing")
 	}
-	return strconv.FormatInt(version, 10)
+	if url != "/avatars/custom/team-2/"+ref+".png" {
+		t.Fatalf("tier a url = %q, want a versioned content-addressed URL", url)
+	}
 }
 
 // TestDefaultBadgeExistsCacheInvalidatesAfterTTL checks that a badge file
@@ -446,21 +1083,32 @@ func TestResetAvatarRequiresCommissioner(t *testing.T) {
 	}
 }
 
-func TestResetAvatarDeletesFileAndIsIdempotent(t *testing.T) {
+func TestResetAvatarClearsReferenceAndIsIdempotent(t *testing.T) {
 	service := newTestService(t, true) // demo mode grants commissioner
 	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
 	data := solidPNG(t, 100, 100, color.RGBA{R: 4, G: 5, B: 6, A: 255})
-	if _, err := service.UploadAvatar(request, "team-6", data); err != nil {
+	result, err := service.UploadAvatar(request, "team-6", data)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := service.AvatarVersion("team-6"); !ok {
+	if _, ok := service.AvatarObjectPath("team-6", result.Ref); !ok {
 		t.Fatal("avatar should exist before reset")
+	}
+	ref, ok := service.store.AvatarRef("team-6")
+	if !ok {
+		t.Fatal("avatar ref should exist before reset")
 	}
 	if err := service.ResetAvatar(request, "team-6"); err != nil {
 		t.Fatalf("reset: %v", err)
 	}
-	if _, ok := service.AvatarVersion("team-6"); ok {
-		t.Fatal("avatar should be gone after reset")
+	if _, ok := service.AvatarObjectPath("team-6", ref); ok {
+		t.Fatal("cleared avatar should not be served")
+	}
+	if _, ok := service.store.AvatarRef("team-6"); ok {
+		t.Fatal("reset should clear the authoritative avatar ref")
+	}
+	if _, err := os.Stat(filepath.Join(service.avatarDir(), "objects", ref+".png")); err != nil {
+		t.Fatalf("immutable object should remain recoverable after reset: %v", err)
 	}
 	// Resetting an already-clean seat is a no-op, not an error.
 	if err := service.ResetAvatar(request, "team-6"); err != nil {

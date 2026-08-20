@@ -13,6 +13,12 @@ import (
 	"time"
 )
 
+// ErrPersistenceIndeterminate means an identity transaction's commit result
+// could not be reconciled with the authoritative database. Identity reads
+// fail closed while this Store is unhealthy; the process should be restarted
+// or repaired rather than guessing which badge/avatar pair won.
+var ErrPersistenceIndeterminate = errors.New("avatar identity persistence outcome is indeterminate")
+
 var ErrLeagueFull = errors.New("all league seats are already assigned")
 
 // errStaleAutoPick means an optimistic re-validation inside AutoPick failed:
@@ -24,7 +30,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 2
+const currentSchemaVersion = 3
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -60,22 +66,54 @@ type Store struct {
 	// collections a mutator declared; see persistLocked.
 	shadow shadowIndex
 	dirty  uint32
-	// lastPersistRows counts the rows the last successful persist wrote
-	// or deleted. It backs the incremental-write test and is useful when
-	// diagnosing write amplification.
-	lastPersistRows int
-	// loadErr holds a boot failure the constructor could not recover
-	// from: a state whose schema version is newer than this binary
-	// supports (section 6.3), a database that cannot be opened, or a
-	// legacy state file that failed to import. persistLocked refuses to
-	// write while it is set, so a downgraded or broken binary can never
-	// clobber good stored state with blank in-memory state; see
-	// StartupError.
+	// lastPersistRows counts the rows the current/latest persistence attempt
+	// wrote or deleted. It backs the incremental-write test and is useful
+	// when diagnosing write amplification.
+	lastPersistRows   int
+	identityUnhealthy bool
+	// identityPreflightHook is a test-only seam that runs after the fast
+	// authority read and before the final Store lock, allowing seat churn to
+	// be exercised deterministically. It is nil in production.
+	identityPreflightHook func()
+	// identityReconcileReadHook is a test-only seam for the read that follows
+	// an unknown/committed persist outcome. Production always reads the
+	// authoritative database through loadStateFromDB; tests can make that
+	// read fail to prove the Store restores its pre-candidate state before
+	// poisoning all later persistence.
+	identityReconcileReadHook func(*sql.DB) (PersistedState, error)
+	// persistencePoison is a fatal runtime persistence stop. Once an
+	// identity outcome cannot be reconciled, every later DB write returns
+	// this error and restores poisonedState/poisonedDirty before the caller
+	// can publish another in-memory candidate.
+	persistencePoison error
+	// persistenceWriteError is the latest ordinary write failure. Unlike a
+	// poison it remains retryable, but readiness stays withdrawn until a later
+	// durable write or explicit reconciliation succeeds. It is deliberately
+	// separate from loadErr and the combined constructor/runtime health
+	// returned by StartupError, so health reflects a failure that happened
+	// after startup as well.
+	persistenceWriteError error
+	poisonedState         PersistedState
+	poisonedDirty         uint32
+	// loadErr holds a boot failure the constructor could not recover from: a
+	// state whose schema version is newer than this binary supports (section
+	// 6.3), a database that cannot be opened, or a legacy state file that
+	// failed to import. persistLocked refuses to write while it is set, so a
+	// downgraded or broken binary can never clobber good stored state with
+	// blank in-memory state; see StartupError.
 	loadErr error
 	// persistHook runs inside persistLocked's transaction, just before
 	// the commit. It is nil in production; tests set it to fail a write
 	// or to kill the process with the transaction still open.
 	persistHook func() error
+	// persistAfterCommitHook is a test-only seam for errors reported after
+	// SQLite has committed. Its disposition distinguishes a known committed
+	// write from an outcome the caller must reconcile by reading the DB.
+	persistAfterCommitHook func() (persistDisposition, error)
+	// commitTx is a test-only seam for SQLite's unknown-outcome boundary. A
+	// test can return an error without committing, or call tx.Commit and then
+	// return an error, so reconciliation proves both possible outcomes.
+	commitTx func(*sql.Tx) error
 }
 
 func NewStore(filePath string) *Store {
@@ -98,6 +136,7 @@ func NewStore(filePath string) *Store {
 			SentLog:        map[string]time.Time{},
 			NotifyPrefs:    map[string]map[string]bool{},
 			BadgeClaims:    map[string]string{},
+			AvatarRefs:     map[string]string{},
 			Announcements:  []Announcement{},
 			Lineups:        map[string]map[int]map[string]string{},
 			Transactions:   []Transaction{},
@@ -136,28 +175,64 @@ func (s *Store) Close() error {
 	return db.Close()
 }
 
-// StartupError reports a boot failure the constructor could not recover
-// from safely: stored state whose schema version exceeds this binary's
-// (section 6.3 — "refuse to start with a clear error"), a database that
-// could not be opened or migrated, or a legacy JSON state file that could
-// not be imported and verified. Every write method fails with the same
-// error while this is set, protecting the stored state from a downgraded
-// or broken binary silently overwriting it with blank in-memory state.
-func (s *Store) StartupError() error {
+// PersistenceError reports the current persistence health, including a boot
+// failure, fatal identity poison, or the latest retryable ordinary write
+// failure. A retryable failure is cleared only after a later write has
+// completed its durable database transaction (or an equivalent successful
+// reconciliation), never merely because a mutator returned nil without a
+// write.
+func (s *Store) PersistenceError() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.loadErr
+	if s.loadErr != nil {
+		return s.loadErr
+	}
+	if s.persistencePoison != nil {
+		return s.persistencePoison
+	}
+	return s.persistenceWriteError
+}
+
+// StartupError is retained for callers that need the constructor/runtime
+// gate. It now delegates to PersistenceError so existing callers and the
+// health surface cannot accidentally hide a write failure that happened
+// after process start.
+func (s *Store) StartupError() error {
+	return s.PersistenceError()
 }
 
 func (s *Store) Snapshot() PersistedState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return cloneState(s.state)
+	out := cloneState(s.state)
+	if !s.identityHealthyLocked() {
+		if s.persistencePoison != nil {
+			out = cloneState(s.poisonedState)
+		}
+		// Snapshot feeds several render/data paths. Hide both identity maps
+		// while poisoned so callers cannot derive an avatar or badge URL from
+		// an uncertain pair.
+		out.BadgeClaims = map[string]string{}
+		out.AvatarRefs = map[string]string{}
+	} else {
+		// Keep snapshots safe even when a test/import seam supplies a state
+		// that bypassed the normal database loader.
+		normalizeIdentityCollections(&out)
+	}
+	// The authority marker is boot metadata, not league state. Keep it in the
+	// Store's private working copy so future scalar writes preserve the row,
+	// but never expose it through the public snapshot or legacy JSON-shaped
+	// view model.
+	out.persistenceAuthority = ""
+	return out
 }
 
 func (s *Store) ToggleReady(teamID string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
 	if !knownTeam(teamID) {
 		return false, fmt.Errorf("unknown team %q", teamID)
 	}
@@ -174,6 +249,9 @@ func (s *Store) ToggleReady(teamID string) (bool, error) {
 func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDeadline time.Time) (DraftPick, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return DraftPick{}, err
+	}
 	if !knownTeam(teamID) {
 		return DraftPick{}, fmt.Errorf("unknown team %q", teamID)
 	}
@@ -229,6 +307,9 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if len(s.state.Picks) == 0 {
 		return errors.New("no picks to undo")
 	}
@@ -273,6 +354,9 @@ func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, nextDeadline time.Time) (DraftPick, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return DraftPick{}, err
+	}
 	if !knownTeam(teamID) {
 		return DraftPick{}, fmt.Errorf("unknown team %q", teamID)
 	}
@@ -330,6 +414,9 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 func (s *Store) ArmClock(deadline time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.ClockDeadline = deadline
 	return s.persistLocked(colScalars)
 }
@@ -340,6 +427,9 @@ func (s *Store) ArmClock(deadline time.Time) error {
 func (s *Store) PauseClock(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	remaining := 0
 	if !s.state.ClockDeadline.IsZero() {
 		remaining = int(s.state.ClockDeadline.Sub(now).Seconds())
@@ -360,6 +450,9 @@ func (s *Store) PauseClock(now time.Time) error {
 func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	remaining := time.Duration(s.state.ClockRemainingSec) * time.Second
 	if remaining <= 0 {
 		remaining = duration
@@ -376,6 +469,9 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 func (s *Store) ExtendClock(now time.Time, delta time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.ClockPaused || s.state.ClockDeadline.IsZero() {
 		return fmt.Errorf("the clock is not running")
 	}
@@ -398,6 +494,9 @@ func (s *Store) ExtendClock(now time.Time, delta time.Duration) error {
 func (s *Store) SetClockDuration(seconds int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	duration := clampPickClock(time.Duration(seconds) * time.Second)
 	s.state.ClockDurationSec = int(duration.Seconds())
 	return s.persistLocked(colScalars)
@@ -409,6 +508,9 @@ func (s *Store) SetClockDuration(seconds int) error {
 func (s *Store) ClearClock() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.ClockDeadline.IsZero() && !s.state.ClockPaused && s.state.ClockRemainingSec == 0 {
 		return nil
 	}
@@ -425,6 +527,9 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if on {
 		s.state.Autopick[teamID] = true
 	} else {
@@ -456,11 +561,18 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Member{}, false, err
+	}
 	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
 		if name != "" && existing.Name != name {
+			previous := existing
 			existing.Name = name
 			s.state.Members[email] = existing
-			_ = s.persistLocked(colMembers)
+			if err := s.persistLocked(colMembers); err != nil {
+				s.state.Members[email] = previous
+				return previous, false, err
+			}
 		}
 		return existing, false, nil
 	}
@@ -477,7 +589,11 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		}
 		newMember := Member{TeamID: team.ID, Name: name, Email: email}
 		s.state.Members[email] = newMember
-		return newMember, true, s.persistLocked(colMembers)
+		if err := s.persistLocked(colMembers); err != nil {
+			delete(s.state.Members, email)
+			return Member{}, false, err
+		}
+		return newMember, true, nil
 	}
 	return Member{}, false, ErrLeagueFull
 }
@@ -497,17 +613,28 @@ func (s *Store) EnsureMember(email, name string) (member Member, created bool, e
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Member{}, false, err
+	}
 	if existing, ok := s.state.Members[email]; ok {
 		if name != "" && existing.Name != name {
+			previous := existing
 			existing.Name = name
 			s.state.Members[email] = existing
-			_ = s.persistLocked(colMembers)
+			if err := s.persistLocked(colMembers); err != nil {
+				s.state.Members[email] = previous
+				return previous, false, err
+			}
 		}
 		return existing, false, nil
 	}
 	newMember := Member{TeamID: "", Name: name, Email: email}
 	s.state.Members[email] = newMember
-	return newMember, true, s.persistLocked(colMembers)
+	if err := s.persistLocked(colMembers); err != nil {
+		delete(s.state.Members, email)
+		return Member{}, false, err
+	}
+	return newMember, true, nil
 }
 
 func (s *Store) MemberByEmail(email string) (Member, bool) {
@@ -526,6 +653,9 @@ func (s *Store) AddInvite(email string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	for _, existing := range s.state.Invites {
 		if existing == email {
 			return nil
@@ -540,6 +670,9 @@ func (s *Store) RemoveInvite(email string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	kept := s.state.Invites[:0]
 	for _, existing := range s.state.Invites {
 		if existing != email {
@@ -575,6 +708,9 @@ func (s *Store) ReleaseSeat(teamID string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	for email, member := range s.state.Members {
 		if member.TeamID == teamID {
 			delete(s.state.Members, email)
@@ -618,6 +754,9 @@ func (s *Store) InviteCoManager(teamID, email string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
 		return fmt.Errorf("%s already holds a team seat", email)
 	}
@@ -668,6 +807,9 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Member{}, false, err
+	}
 	teamID, pending := s.state.CoInvites[email]
 	if !pending {
 		return Member{}, false, nil
@@ -692,6 +834,9 @@ func (s *Store) DetachCoManager(teamID string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	changed := false
 	for email, member := range s.state.Members {
 		if member.TeamID == teamID && member.Role == "co" {
@@ -742,6 +887,9 @@ var resetLeagueSentLogPrefixes = append(append([]string{}, resetDraftSentLogPref
 func (s *Store) ResetDraft() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Transactions = []Transaction{}
@@ -779,6 +927,9 @@ func (s *Store) ResetDraft() error {
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
@@ -853,6 +1004,9 @@ func (s *Store) SetTeamName(teamID, name string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if name == "" {
 		delete(s.state.TeamNames, teamID)
 	} else {
@@ -870,6 +1024,9 @@ func (s *Store) SetDraftOrder(order []string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if len(s.state.Picks) > 0 {
 		return fmt.Errorf("reset the draft before changing the order")
 	}
@@ -919,6 +1076,9 @@ func validateDraftOrder(order []string) error {
 func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return nil, nil, err
+	}
 	if len(s.state.Picks) > 0 {
 		return nil, nil, fmt.Errorf("seats lock once the draft starts")
 	}
@@ -952,6 +1112,9 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if points == rule.Points {
 		delete(s.state.Scoring, key)
 	} else {
@@ -964,6 +1127,9 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 func (s *Store) ResetScoring() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Scoring = map[string]float64{}
 	return s.persistLocked(colScoring)
 }
@@ -977,6 +1143,9 @@ func (s *Store) BoardAdd(owner, playerID string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	board := s.state.Boards[owner]
 	for _, existing := range board {
 		if existing == playerID {
@@ -994,6 +1163,9 @@ func (s *Store) BoardAdd(owner, playerID string) error {
 func (s *Store) BoardMove(owner, playerID string, delta int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	board := s.state.Boards[owner]
 	for index, existing := range board {
 		if existing != playerID {
@@ -1018,6 +1190,9 @@ func (s *Store) BoardMove(owner, playerID string, delta int) error {
 func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	board := s.state.Boards[owner]
 	pos := -1
 	for i, existing := range board {
@@ -1053,6 +1228,9 @@ func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
 func (s *Store) BoardRemove(owner, playerID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	board := s.state.Boards[owner]
 	kept := board[:0]
 	for _, existing := range board {
@@ -1068,6 +1246,9 @@ func (s *Store) BoardRemove(owner, playerID string) error {
 func (s *Store) BoardClear(owner string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	delete(s.state.Boards, owner)
 	return s.persistLocked(colBoards)
 }
@@ -1080,6 +1261,9 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.Pickems[owner] == nil {
 		s.state.Pickems[owner] = map[string]string{}
 	}
@@ -1098,6 +1282,9 @@ func (s *Store) BlitzSetEntry(owner, slate string, players []string, now time.Ti
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.BlitzEntries[owner] == nil {
 		s.state.BlitzEntries[owner] = map[string]BlitzEntry{}
 	}
@@ -1120,6 +1307,9 @@ func (s *Store) BlitzSetEntry(owner, slate string, players []string, now time.Ti
 func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
 	if _, exists := s.state.SentLog[key]; exists {
 		return false, nil
 	}
@@ -1141,6 +1331,9 @@ func (s *Store) FirstSend(key string, now time.Time) (bool, error) {
 func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return nil, err
+	}
 	result := make([]bool, len(keys))
 	sentAt := now.UTC()
 	added := make([]string, 0, len(keys))
@@ -1172,6 +1365,9 @@ func (s *Store) FirstSendBatch(keys []string, now time.Time) ([]bool, error) {
 func (s *Store) PruneSentLog(cutoff time.Time, prefixes ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	deleted := false
 	for key, sentAt := range s.state.SentLog {
 		if !cutoff.IsZero() && sentAt.Before(cutoff) {
@@ -1207,6 +1403,9 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.NotifyPrefs[email] == nil {
 		s.state.NotifyPrefs[email] = map[string]bool{}
 	}
@@ -1222,6 +1421,9 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 func (s *Store) SetSchedule(sch SeasonSchedule) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Schedule = cloneSchedule(&sch)
 	return s.persistLocked(colSchedule, colScalars)
 }
@@ -1232,6 +1434,9 @@ func (s *Store) SetSchedule(sch SeasonSchedule) error {
 func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.Schedule == nil {
 		return fmt.Errorf("no schedule has been generated")
 	}
@@ -1267,6 +1472,9 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.Schedule == nil {
 		return fmt.Errorf("no schedule has been generated")
 	}
@@ -1312,6 +1520,9 @@ func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]ma
 func (s *Store) SetPhase(phase string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Phase = phase
 	return s.persistLocked(colScalars)
 }
@@ -1320,59 +1531,327 @@ func (s *Store) SetPhase(phase string) error {
 func (s *Store) SetPlayoffs(state PlayoffState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	s.state.Playoffs = clonePlayoffState(&state)
 	return s.persistLocked(colPlayoffs)
 }
 
-// ClaimBadge sets teamID's badge claim to motif, first-come-first-served:
-// a motif already held by a different team is rejected with a
-// badgeClaimedError naming that team's ID (Service.ClaimBadge resolves
-// the display name and builds the exact-message error — Store has no
-// business rendering a display name, matching every other store method's
-// "push the view-layer concern up" split). Setting a motif this team
-// already holds, or a different one, always overwrites teamID's own
-// previous claim — an implicit swap that frees the old motif in the same
-// transaction, matching ToggleReady's lock-then-persist shape.
-func (s *Store) ClaimBadge(teamID, motif string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !knownTeam(teamID) {
-		return fmt.Errorf("unknown team %q", teamID)
-	}
-	if !knownMotif(motif) {
-		return ErrBadgeUnknownMotif
-	}
-	for holder, claimed := range s.state.BadgeClaims {
-		if claimed == motif && holder != teamID {
-			return &badgeClaimedError{teamID: holder}
-		}
-	}
-	if s.state.BadgeClaims == nil {
-		s.state.BadgeClaims = map[string]string{}
-	}
-	s.state.BadgeClaims[teamID] = motif
-	return s.persistLocked(colBadgeClaims)
+// Avatar identity transitions share one Store transaction and one authority check.
+// avatarIdentity is the durable pair whose transitions must be atomic.
+type avatarIdentity struct {
+	ref   string
+	motif string
 }
 
-// ReleaseBadge clears teamID's badge claim. Releasing a seat with no
-// claim is a harmless no-op, not an error — matching AdminResetAvatar's
-// idempotent-reset precedent.
-func (s *Store) ReleaseBadge(teamID string) error {
+func avatarIdentityOf(state PersistedState, teamID string) avatarIdentity {
+	return avatarIdentity{ref: state.AvatarRefs[teamID], motif: state.BadgeClaims[teamID]}
+}
+
+func avatarActorAllowed(state PersistedState, teamID string, actor seatActor, commissionerOnly bool) bool {
+	if actor.commissioner || actor.demo {
+		return true
+	}
+	if commissionerOnly {
+		return false
+	}
+	member, ok := state.Members[strings.ToLower(strings.TrimSpace(actor.email))]
+	return ok && member.TeamID == teamID
+}
+
+func (s *Store) identityHealthyLocked() bool {
+	return s.loadErr == nil && !s.identityUnhealthy && s.persistencePoison == nil
+}
+
+// writeErrorLocked is the single write-side health gate. Callers must invoke
+// it immediately after acquiring s.mu and before reading or mutating state,
+// taking a backup, running a hook, or doing any other write-side work. A
+// failed boot or an unreconciled identity commit closes every later writer;
+// persistLocked repeats this check as a final defense for legacy mutators that
+// update their working state before reaching the common persistence boundary.
+func (s *Store) writeErrorLocked() error {
+	if s.loadErr != nil {
+		return s.loadErr
+	}
+	if s.persistencePoison != nil {
+		return s.persistencePoison
+	}
+	return nil
+}
+
+// IdentityHealthy reports whether identity reads can be served. An
+// unreconciled commit outcome fails closed until the Store is restarted.
+func (s *Store) IdentityHealthy() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.identityHealthyLocked()
+}
+
+// mutateAvatarIdentity applies a candidate state only after rechecking the
+// current actor under the same Store lock that writes the pair. forbidden is
+// operation-specific so a badge seat-churn cannot be mislabeled as an avatar
+// failure. A failed pre-commit write discards the candidate; a committed or
+// unknown outcome is reconciled against a fresh database read before it can
+// be published.
+func (s *Store) mutateAvatarIdentity(teamID string, actor seatActor, commissionerOnly bool, forbidden error, mutate func(*PersistedState) (bool, error)) (bool, error) {
+	s.mu.RLock()
+	if err := s.writeErrorLocked(); err != nil {
+		s.mu.RUnlock()
+		return false, err
+	}
+	earlyAllowed := avatarActorAllowed(s.state, teamID, actor, commissionerOnly)
+	preflightHook := s.identityPreflightHook
+	s.mu.RUnlock()
+	if !earlyAllowed {
+		return false, forbidden
+	}
+	if preflightHook != nil {
+		preflightHook()
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
+	if !avatarActorAllowed(s.state, teamID, actor, commissionerOnly) {
+		return false, forbidden
+	}
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
+	candidate := cloneState(before)
+	changed, err := mutate(&candidate)
+	if err != nil || !changed {
+		return false, err
+	}
+	// Re-apply the v1 catalog boundary immediately before any identity
+	// collection is emitted. This keeps a hand-edited/old persisted row from
+	// surviving a later claim, release, or avatar transition.
+	normalizeIdentityCollections(&candidate)
+	desired := avatarIdentityOf(candidate, teamID)
+	previous := avatarIdentityOf(before, teamID)
+	s.state = candidate
+	if err := s.persistLocked(colBadgeClaims, colAvatarRefs); err == nil {
+		return true, nil
+	} else {
+		disposition := persistDispositionOf(err)
+		if disposition == persistNotCommitted {
+			s.state = before
+			s.dirty = beforeDirty
+			return false, err
+		}
+		readState := loadStateFromDB
+		if s.identityReconcileReadHook != nil {
+			readState = s.identityReconcileReadHook
+		}
+		stored, readErr := readState(s.db)
+		if readErr == nil {
+			got := avatarIdentityOf(stored, teamID)
+			if got == desired {
+				s.state = stored
+				if rebuildErr := s.rebuildShadowLocked(); rebuildErr != nil {
+					s.poisonIdentityLocked(before, beforeDirty)
+					return false, ErrPersistenceIndeterminate
+				}
+				s.dirty = 0
+				// The authoritative read proved that the candidate did land;
+				// this is a known-successful reconciliation, so it clears a
+				// prior retryable write-health failure.
+				s.persistenceWriteError = nil
+				return true, nil
+			}
+			if got == previous {
+				// The transaction did not land. Rebuild the shadow from the
+				// authoritative database, then restore the exact prior in-memory
+				// candidate and dirty mask so unrelated pending work is not lost.
+				s.state = stored
+				if rebuildErr := s.rebuildShadowLocked(); rebuildErr != nil {
+					s.poisonIdentityLocked(before, beforeDirty)
+					return false, ErrPersistenceIndeterminate
+				}
+				s.state = before
+				s.dirty = beforeDirty
+				return false, err
+			}
+			// The database read succeeded but returned neither the
+			// candidate nor the prior pair. Do not publish this ambiguous
+			// state; poisonIdentityLocked restores the pre-candidate copy.
+		}
+		// A read failure, or a readable but irreconcilable identity, is
+		// fatal for this Store. Restore before closing all later writes.
+		s.poisonIdentityLocked(before, beforeDirty)
+		return false, ErrPersistenceIndeterminate
+	}
+}
+
+// poisonIdentityLocked records the exact state and dirty mask that existed
+// before an identity candidate was published, restores them immediately, and
+// permanently closes persistence for this Store. The poison is intentionally
+// store-wide: allowing an unrelated write after an identity ambiguity would
+// publish more in-memory state while the database's authoritative pair is
+// unknown.
+func (s *Store) poisonIdentityLocked(before PersistedState, beforeDirty uint32) {
+	s.identityUnhealthy = true
+	s.persistencePoison = ErrPersistenceIndeterminate
+	s.poisonedState = cloneState(before)
+	s.poisonedDirty = beforeDirty
+	s.state = cloneState(before)
+	s.dirty = beforeDirty
+}
+
+func (s *Store) claimBadgeForActor(teamID, motif string, actor seatActor) error {
+	_, err := s.claimBadgeForActorTransition(teamID, motif, actor)
+	return err
+}
+
+func (s *Store) claimBadgeForActorTransition(teamID, motif string, actor seatActor) (bool, error) {
+	teamID = strings.TrimSpace(teamID)
+	motif = strings.TrimSpace(motif)
+	if !knownTeam(teamID) {
+		return false, fmt.Errorf("unknown team %q", teamID)
+	}
+	if !knownMotif(motif) {
+		return false, ErrBadgeUnknownMotif
+	}
+	avatarCleared := false
+	_, err := s.mutateAvatarIdentity(teamID, actor, false, ErrBadgeForbidden, func(candidate *PersistedState) (bool, error) {
+		normalizeIdentityCollections(candidate)
+		for holder, claimed := range candidate.BadgeClaims {
+			if claimed == motif && holder != teamID {
+				return false, &badgeClaimedError{teamID: holder}
+			}
+		}
+		old := avatarIdentityOf(*candidate, teamID)
+		if old.motif == motif && old.ref == "" {
+			return false, nil
+		}
+		if candidate.BadgeClaims == nil {
+			candidate.BadgeClaims = map[string]string{}
+		}
+		if candidate.AvatarRefs == nil {
+			candidate.AvatarRefs = map[string]string{}
+		}
+		candidate.BadgeClaims[teamID] = motif
+		if _, ok := candidate.AvatarRefs[teamID]; ok {
+			avatarCleared = true
+		}
+		delete(candidate.AvatarRefs, teamID)
+		return true, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return avatarCleared, nil
+}
+
+func (s *Store) ClaimBadge(teamID, motif string) error {
+	return s.claimBadgeForActor(teamID, motif, seatActor{commissioner: true})
+}
+
+func (s *Store) activateAvatar(teamID, ref string, actor seatActor) (bool, error) {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return false, fmt.Errorf("unknown team %q", teamID)
+	}
+	if !validAvatarRef(ref) {
+		return false, fmt.Errorf("invalid avatar reference")
+	}
+	released := false
+	_, err := s.mutateAvatarIdentity(teamID, actor, false, ErrAvatarForbidden, func(candidate *PersistedState) (bool, error) {
+		old := avatarIdentityOf(*candidate, teamID)
+		if old.ref == ref && old.motif == "" {
+			return false, nil
+		}
+		if candidate.AvatarRefs == nil {
+			candidate.AvatarRefs = map[string]string{}
+		}
+		candidate.AvatarRefs[teamID] = ref
+		if _, ok := candidate.BadgeClaims[teamID]; ok {
+			released = true
+			delete(candidate.BadgeClaims, teamID)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
+func (s *Store) clearAvatar(teamID string, actor seatActor) error {
+	teamID = strings.TrimSpace(teamID)
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
-	delete(s.state.BadgeClaims, teamID)
-	return s.persistLocked(colBadgeClaims)
+	_, err := s.mutateAvatarIdentity(teamID, actor, true, ErrAvatarForbidden, func(candidate *PersistedState) (bool, error) {
+		if _, ok := candidate.AvatarRefs[teamID]; !ok {
+			return false, nil
+		}
+		delete(candidate.AvatarRefs, teamID)
+		return true, nil
+	})
+	return err
+}
+
+func (s *Store) releaseBadgeForActor(teamID string, actor seatActor) (bool, error) {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return false, fmt.Errorf("unknown team %q", teamID)
+	}
+	released := false
+	_, err := s.mutateAvatarIdentity(teamID, actor, false, ErrBadgeForbidden, func(candidate *PersistedState) (bool, error) {
+		if _, ok := candidate.BadgeClaims[teamID]; !ok {
+			return false, nil
+		}
+		delete(candidate.BadgeClaims, teamID)
+		released = true
+		return true, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return released, nil
+}
+
+func (s *Store) ReleaseBadge(teamID string) (bool, error) {
+	return s.releaseBadgeForActor(teamID, seatActor{commissioner: true})
+}
+
+func (s *Store) AvatarRef(teamID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if !s.identityHealthyLocked() || !knownTeam(teamID) {
+		return "", false
+	}
+	ref, ok := s.state.AvatarRefs[teamID]
+	return ref, ok && validAvatarRef(ref)
+}
+
+func (s *Store) AvatarRefs() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]string, len(s.state.AvatarRefs))
+	if !s.identityHealthyLocked() {
+		return out
+	}
+	for teamID, ref := range s.state.AvatarRefs {
+		if knownTeam(teamID) && validAvatarRef(ref) {
+			out[teamID] = ref
+		}
+	}
+	return out
 }
 
 // BadgeClaim reports teamID's currently claimed motif slug, if any.
 func (s *Store) BadgeClaim(teamID string) (motif string, ok bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if !s.identityHealthyLocked() || !knownTeam(teamID) {
+		return "", false
+	}
 	motif, ok = s.state.BadgeClaims[teamID]
-	return motif, ok
+	return motif, ok && knownMotif(motif)
 }
 
 // BadgeClaims returns a snapshot of every team ID's current badge claim,
@@ -1380,9 +1859,14 @@ func (s *Store) BadgeClaim(teamID string) (motif string, ok bool) {
 func (s *Store) BadgeClaims() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if !s.identityHealthyLocked() {
+		return map[string]string{}
+	}
 	out := make(map[string]string, len(s.state.BadgeClaims))
 	for teamID, motif := range s.state.BadgeClaims {
-		out[teamID] = motif
+		if knownTeam(teamID) && knownMotif(motif) {
+			out[teamID] = motif
+		}
 	}
 	return out
 }
@@ -1399,6 +1883,9 @@ func (s *Store) SetRosterOverride(o RosterOverride) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if len(s.state.Picks) > 0 {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
@@ -1412,6 +1899,9 @@ func (s *Store) SetRosterOverride(o RosterOverride) error {
 func (s *Store) ClearRosterOverride() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if len(s.state.Picks) > 0 {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
@@ -1440,6 +1930,9 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.Lineups == nil {
 		s.state.Lineups = map[string]map[int]map[string]string{}
 	}
@@ -1482,6 +1975,9 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if s.state.Lineups == nil {
 		s.state.Lineups = map[string]map[int]map[string]string{}
 	}
@@ -1515,6 +2011,9 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if !knownTeam(txn.TeamID) {
 		return fmt.Errorf("unknown team %q", txn.TeamID)
 	}
@@ -1555,6 +2054,9 @@ func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 func (s *Store) BaselineWaiversProcessedThrough(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if !s.state.WaiversProcessedThrough.IsZero() {
 		return nil
 	}
@@ -1576,6 +2078,9 @@ func (s *Store) BaselineWaiversProcessedThrough(now time.Time) error {
 func (s *Store) FileClaim(claim WaiverClaim) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if !knownTeam(claim.TeamID) {
 		return fmt.Errorf("unknown team %q", claim.TeamID)
 	}
@@ -1602,6 +2107,9 @@ func (s *Store) FileClaim(claim WaiverClaim) error {
 func (s *Store) CancelClaim(teamID, claimID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	kept := make([]WaiverClaim, 0, len(s.state.WaiverClaims))
 	for _, c := range s.state.WaiverClaims {
 		if c.ID == claimID && c.TeamID == teamID {
@@ -1633,6 +2141,9 @@ func (s *Store) CancelClaim(teamID, claimID string) error {
 func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, poolByID map[string]Player, rosterCap int) ([]WaiverResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return nil, err
+	}
 
 	if len(s.state.WaiverClaims) == 0 {
 		s.state.WaiversProcessedThrough = now.UTC()
@@ -1773,6 +2284,9 @@ func (s *Store) findTradeOfferIndexLocked(offerID string) int {
 func (s *Store) ProposeTradeOffer(offer TradeOffer, cfg Config, games []GameInfo, poolByID map[string]Player, starterCount, rosterCap int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	if !knownTeam(offer.FromTeamID) || !knownTeam(offer.ToTeamID) {
 		return fmt.Errorf("unknown team")
 	}
@@ -1791,6 +2305,9 @@ func (s *Store) ProposeTradeOffer(offer TradeOffer, cfg Config, games []GameInfo
 func (s *Store) CounterTradeOffer(originalID string, newOffer TradeOffer, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	index := s.findTradeOfferIndexLocked(originalID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
 		return fmt.Errorf("this offer is no longer open")
@@ -1810,6 +2327,9 @@ func (s *Store) CounterTradeOffer(originalID string, newOffer TradeOffer, cfg Co
 func (s *Store) DeclineTradeOffer(offerID string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
 		return fmt.Errorf("this offer is no longer open")
@@ -1825,6 +2345,9 @@ func (s *Store) DeclineTradeOffer(offerID string, now time.Time) error {
 func (s *Store) WithdrawTradeOffer(offerID string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
 		return fmt.Errorf("this offer is no longer open")
@@ -1842,6 +2365,9 @@ func (s *Store) WithdrawTradeOffer(offerID string, now time.Time) error {
 func (s *Store) AcceptTradeOffer(offerID string, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
 		return fmt.Errorf("this offer is no longer open")
@@ -1878,6 +2404,9 @@ func (s *Store) AcceptTradeOffer(offerID string, cfg Config, games []GameInfo, p
 func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) (Transaction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Transaction{}, err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
 		return Transaction{}, fmt.Errorf("this trade is no longer under review")
@@ -1932,6 +2461,9 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 func (s *Store) CommissionerVetoTradeOffer(offerID string, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
 		return fmt.Errorf("this trade is no longer under review")
@@ -1952,6 +2484,9 @@ func (s *Store) CommissionerVetoTradeOffer(offerID string, now time.Time) error 
 func (s *Store) FileTradeVetoOffer(offerID, teamID string, now time.Time, threshold int) (crossed bool, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusAccepted {
 		return false, fmt.Errorf("this trade is no longer under review")
@@ -1985,6 +2520,9 @@ func (s *Store) FileTradeVetoOffer(offerID, teamID string, now time.Time, thresh
 func (s *Store) ExpireTradeOffer(offerID string, cfg Config, now time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
 	index := s.findTradeOfferIndexLocked(offerID)
 	if index < 0 || s.state.TradeOffers[index].Status != TradeStatusOpen {
 		return false, nil
@@ -2037,6 +2575,9 @@ func (s *Store) PostAnnouncement(body, postedBy string, now time.Time) (Announce
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return Announcement{}, err
+	}
 	announcement := Announcement{
 		ID:       announcementID(body, postedBy, now),
 		Body:     body,
@@ -2059,6 +2600,9 @@ func (s *Store) PostAnnouncement(body, postedBy string, now time.Time) (Announce
 func (s *Store) DeleteAnnouncement(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
 	kept := make([]Announcement, 0, len(s.state.Announcements))
 	for _, a := range s.state.Announcements {
 		if a.ID != id {
@@ -2084,8 +2628,18 @@ func (s *Store) DeleteAnnouncement(id string) error {
 // The marks survive a failed write and clear only after a commit reports
 // success, so a retry always covers everything still unwritten.
 func (s *Store) persistLocked(cols ...collectionID) error {
-	if s.loadErr != nil {
-		return s.loadErr
+	if err := s.writeErrorLocked(); err != nil {
+		if s.persistencePoison == nil {
+			return err
+		}
+		// Mutators use copy-on-write only for avatar identity; the older
+		// Store mutators update their working state before calling this
+		// common persistence boundary. Restore the poisoned baseline here so
+		// none of those attempted writes can publish an additional in-memory
+		// candidate after the fatal identity ambiguity.
+		s.state = cloneState(s.poisonedState)
+		s.dirty = s.poisonedDirty
+		return err
 	}
 	for _, id := range cols {
 		s.dirty |= 1 << uint(id)
@@ -2096,11 +2650,28 @@ func (s *Store) persistLocked(cols ...collectionID) error {
 	if s.dirty == 0 {
 		return nil
 	}
-	return s.writeDirtyLocked()
+	if err := s.writeDirtyLocked(); err != nil {
+		// Keep the latest ordinary failure visible to readiness. A later
+		// successful write is the only place that clears it; a no-op or
+		// validation-only call must not make health look recovered.
+		s.persistenceWriteError = err
+		return err
+	}
+	// A successful SQLite transaction with no changed rows proves only that
+	// an empty diff was accepted; it does not prove that the earlier failed
+	// write path is healthy again. Clear the health error only after this
+	// invocation actually changed persisted rows. Identity mutations have a
+	// separate authoritative reconciliation path above that clears the error
+	// when it proves the desired pair landed.
+	if s.lastPersistRows > 0 {
+		s.persistenceWriteError = nil
+	}
+	return nil
 }
 
 func cloneState(in PersistedState) PersistedState {
 	out := PersistedState{
+		persistenceAuthority:    in.persistenceAuthority,
 		SchemaVersion:           in.SchemaVersion,
 		Ready:                   make(map[string]bool, len(in.Ready)),
 		Picks:                   append([]DraftPick(nil), in.Picks...),
@@ -2124,6 +2695,7 @@ func cloneState(in PersistedState) PersistedState {
 		Playoffs:                clonePlayoffState(in.Playoffs),
 		Phase:                   in.Phase,
 		BadgeClaims:             make(map[string]string, len(in.BadgeClaims)),
+		AvatarRefs:              make(map[string]string, len(in.AvatarRefs)),
 		RosterOverride:          cloneRosterOverride(in.RosterOverride),
 		Announcements:           append([]Announcement(nil), in.Announcements...),
 		Lineups:                 make(map[string]map[int]map[string]string, len(in.Lineups)),
@@ -2182,6 +2754,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for teamID, motif := range in.BadgeClaims {
 		out.BadgeClaims[teamID] = motif
+	}
+	for teamID, ref := range in.AvatarRefs {
+		out.AvatarRefs[teamID] = ref
 	}
 	for teamID, byWeek := range in.Lineups {
 		innerByWeek := make(map[int]map[string]string, len(byWeek))

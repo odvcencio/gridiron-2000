@@ -23,6 +23,7 @@ import (
 // non-commissioners; every action re-checks authority server-side.
 func (s *Service) AdminData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
+	identityAvailable, identityError := s.identityView()
 	seats := make([]map[string]any, 0, len(s.Teams()))
 	for _, team := range s.Teams() {
 		member := memberForTeam(state.Members, team.ID)
@@ -34,6 +35,8 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// primary first, then the co-manager if one is bound.
 		item["co_email"] = ""
 		item["has_co"] = false
+		item["identity_available"] = identityAvailable
+		item["identity_error"] = identityError
 		for _, candidate := range teamMembers(state.Members, team.ID) {
 			if candidate.Role == "co" {
 				item["co_email"] = candidate.Email
@@ -73,6 +76,8 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
 	return map[string]any{
 		"viewer":              s.Viewer(r),
+		"identity_available":  identityAvailable,
+		"identity_error":      identityError,
 		"is_commissioner":     s.IsCommissioner(r),
 		"seats":               seats,
 		"invites":             invites,

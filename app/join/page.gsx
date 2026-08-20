@@ -31,6 +31,7 @@ func Page() Node {
 						{data.open_seats}
 						seat(s) still open. Name your team and pick a badge — one submit claims the seat.
 					</p>
+					<If cond={data.identity_available}>
 					<form method="post" action={actionPath("signup-claim")} data-gosx-managed="true" class="signup-form">
 						<label class="signup-form__field">
 							<span>Team name</span>
@@ -53,6 +54,10 @@ func Page() Node {
 							</button>
 						</div>
 					</form>
+					</If>
+					<If cond={data.identity_available == false}>
+						<p class="error-message" role="status">{data.identity_error}</p>
+					</If>
 				</If>
 				<If cond={data.league_full}>
 					<p class="hero-deck">

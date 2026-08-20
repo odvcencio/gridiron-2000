@@ -152,6 +152,12 @@ type Member struct {
 
 // PersistedState is intentionally small and can later be replaced by a DB adapter.
 type PersistedState struct {
+	// persistenceAuthority is a SQLite-only boot handoff marker. It is kept
+	// out of the legacy JSON representation deliberately: the marker is
+	// committed with an imported state in the database, and its presence is
+	// what lets a restart distinguish an authoritative import from a database
+	// that was only created before the import transaction committed.
+	persistenceAuthority string
 	// SchemaVersion is the state file's schema generation (section 6.3 of
 	// the competition-formats spec). A missing field decodes as 0 and means
 	// "version 1" (every file written before this field existed). This
@@ -235,6 +241,14 @@ type PersistedState struct {
 	// decodes safely on an old file, and the store normalizes it in
 	// load/NewStore/cloneState.
 	BadgeClaims map[string]string `json:"badgeClaims,omitempty"`
+
+	// AvatarRefs maps team IDs to immutable content-addressed PNG references.
+	// The map is the only authoritative custom-image identity: the serving
+	// route resolves a team to this reference and never trusts a team-named
+	// file on disk. A missing entry means the team uses its badge/default/text
+	// fallback. Additive under schema version 3; old state files decode with a
+	// nil map and normalize to an empty map on load.
+	AvatarRefs map[string]string `json:"avatarRefs,omitempty"`
 
 	// RosterOverride is the commissioner's runtime roster-shape override
 	// (roster-shape-editor spec), or nil when the league runs the

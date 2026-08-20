@@ -22,12 +22,11 @@ func init() {
 			data["has_notice"] = false
 			data["notice"] = ""
 			// avatar_error is flashed by the raw POST /avatar/upload handler
-			// (main package) rather than through this file's Actions map: an
-			// avatar upload's body can run up to 2MB, well past the
-			// m31labs.dev/gosx/action package's 1MB action-body cap, so the
-			// upload route is a plain http.Handler outside the action
-			// registry (see avatar_handlers.go's doc comment) and cannot use
-			// ctx.ActionState the way every other admin action below does.
+			// (main package) rather than through this file's Actions map. GoSX
+			// v0.49.0 has File/Files and MaxActionBodyBytes for managed
+			// actions; this native route remains so its complete multipart cap
+			// can run before session/CSRF parsing until the bounded-multipart
+			// contract is adopted (see avatar_handlers.go).
 			data["has_avatar_error"] = false
 			data["avatar_error"] = ""
 			if store := session.Current(ctx.Request); store != nil {

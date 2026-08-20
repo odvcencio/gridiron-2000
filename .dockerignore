@@ -20,6 +20,7 @@ docs/
 .gitignore
 .gosx/
 *.log
+*.orig
 Dockerfile
 .dockerignore
 deploy/

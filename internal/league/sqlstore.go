@@ -3,7 +3,9 @@ package league
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +62,7 @@ var currentDBVersion = len(dbMigrations)
 // never edit a shipped step, always add a new one.
 var dbMigrations = []func(*sql.Tx) error{
 	migrate001Initial,
+	migrate002AvatarRefs,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -203,6 +206,24 @@ func migrate001Initial(tx *sql.Tx) error {
 	return nil
 }
 
+// migrate002AvatarRefs adds the authoritative custom-avatar identity table.
+// The image bytes live in immutable content-addressed files; this table is
+// the only durable mapping from a team to one such blob. Existing databases
+// upgrade in place, while a pre-commit crash leaves at most an unreferenced
+// blob that the serving path cannot discover.
+func migrate002AvatarRefs(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE avatar_refs (team_id TEXT PRIMARY KEY, ref TEXT NOT NULL CHECK (length(ref) = 64 AND ref NOT GLOB '*[^0-9a-f]*'))`); err != nil {
+		return fmt.Errorf("CREATE TABLE avatar_refs: %w", err)
+	}
+	// This migration lifts the logical PersistedState schema in lockstep with
+	// SQLite's user_version. Keeping both markers current makes backups and
+	// direct database inspection tell the same upgrade story.
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '3')`); err != nil {
+		return fmt.Errorf("stamp schema_version 3: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -236,6 +257,7 @@ const (
 	colSentLog
 	colNotifyPrefs
 	colBadgeClaims
+	colAvatarRefs
 	colAnnouncements
 	colLineups
 	colTransactions
@@ -378,6 +400,7 @@ func boolToInt(b bool) int {
 // kv keys for the scalars collection.
 const (
 	kvSchemaVersion           = "schema_version"
+	kvPersistenceAuthority    = "persistence_authority"
 	kvClockDeadline           = "clock_deadline"
 	kvClockPaused             = "clock_paused"
 	kvClockRemainingSec       = "clock_remaining_sec"
@@ -407,6 +430,9 @@ var collectionSpecs = [collectionCount]collectionSpec{
 		emit: func(st *PersistedState, sink *rowSink) {
 			put := func(key, value string) { sink.add("kv", []any{key}, value) }
 			put(kvSchemaVersion, strconv.Itoa(st.SchemaVersion))
+			if st.persistenceAuthority != "" {
+				put(kvPersistenceAuthority, st.persistenceAuthority)
+			}
 			put(kvClockDeadline, encodeTime(st.ClockDeadline))
 			put(kvClockPaused, strconv.Itoa(boolToInt(st.ClockPaused)))
 			put(kvClockRemainingSec, strconv.Itoa(st.ClockRemainingSec))
@@ -590,6 +616,14 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			}
 		},
 	},
+	colAvatarRefs: {
+		tables: []tableDef{{name: "avatar_refs", keyCols: []string{"team_id"}, valCols: []string{"ref"}}},
+		emit: func(st *PersistedState, sink *rowSink) {
+			for teamID, ref := range st.AvatarRefs {
+				sink.add("avatar_refs", []any{teamID}, ref)
+			}
+		},
+	},
 	colAnnouncements: {
 		tables: []tableDef{{
 			name:    "announcements",
@@ -744,8 +778,47 @@ func rowValsString(vals []any) string {
 }
 
 // upsertSQL and deleteSQL build the two statements a table needs. Both
+// persistDisposition describes how much is known about a failed write.
+// NotCommitted is safe for a candidate mutation to discard. Committed means
+// SQLite committed and only the post-commit verification reported a problem.
+// Unknown is reserved for a Commit error whose outcome the driver cannot
+// prove; callers must read the authoritative database before publishing a
+// candidate identity.
+type persistDisposition uint8
+
+const (
+	persistNotCommitted persistDisposition = iota
+	persistCommitted
+	persistUnknown
+)
+
+type persistError struct {
+	err         error
+	disposition persistDisposition
+}
+
+func (e *persistError) Error() string { return e.err.Error() }
+
+func (e *persistError) Unwrap() error { return e.err }
+
+func persistDispositionOf(err error) persistDisposition {
+	var pe *persistError
+	if errors.As(err, &pe) {
+		return pe.disposition
+	}
+	return persistNotCommitted
+}
+
+func persistFailure(err error, disposition persistDisposition) error {
+	if err == nil {
+		return nil
+	}
+	return &persistError{err: err, disposition: disposition}
+}
+
 // quote every identifier, so a column named "by" or "type" is safe.
 func upsertSQL(def tableDef) string {
+
 	cols := append(append([]string{}, def.keyCols...), def.valCols...)
 	quoted := make([]string, len(cols))
 	holders := make([]string, len(cols))
@@ -772,6 +845,11 @@ func deleteSQL(def tableDef) string {
 // failed or crashed write leaves both the database and the index at the
 // last committed state, and the dirty marks stay set for the next attempt.
 func (s *Store) writeDirtyLocked() error {
+	// Reset this per-attempt metric before opening the transaction. A failed
+	// write or an empty diff must never inherit the row count from an earlier
+	// successful persist and falsely clear a retryable persistence health
+	// error on the caller's next check.
+	s.lastPersistRows = 0
 	type change struct {
 		table  string
 		key    string
@@ -782,7 +860,7 @@ func (s *Store) writeDirtyLocked() error {
 
 	tx, err := s.db.Begin()
 	if err != nil {
-		return err
+		return persistFailure(err, persistNotCommitted)
 	}
 	committed := false
 	defer func() {
@@ -799,7 +877,7 @@ func (s *Store) writeDirtyLocked() error {
 		sink := newRowSink()
 		spec.emit(&s.state, sink)
 		if sink.err != nil {
-			return sink.err
+			return persistFailure(sink.err, persistNotCommitted)
 		}
 		for _, def := range spec.tables {
 			upsert := upsertSQL(def)
@@ -814,7 +892,7 @@ func (s *Store) writeDirtyLocked() error {
 				}
 				args := append(append([]any{}, row.key...), row.vals...)
 				if _, err := tx.Exec(upsert, args...); err != nil {
-					return fmt.Errorf("write %s: %w", def.name, err)
+					return persistFailure(fmt.Errorf("write %s: %w", def.name, err), persistNotCommitted)
 				}
 				changes = append(changes, change{table: def.name, key: key,
 					row: shadowRow{key: row.key, vals: vals}})
@@ -824,7 +902,7 @@ func (s *Store) writeDirtyLocked() error {
 					continue
 				}
 				if _, err := tx.Exec(remove, prev.key...); err != nil {
-					return fmt.Errorf("delete from %s: %w", def.name, err)
+					return persistFailure(fmt.Errorf("delete from %s: %w", def.name, err), persistNotCommitted)
 				}
 				changes = append(changes, change{table: def.name, key: key, delete: true})
 			}
@@ -835,14 +913,24 @@ func (s *Store) writeDirtyLocked() error {
 	// kill the process with the transaction open. It is nil in production.
 	if s.persistHook != nil {
 		if err := s.persistHook(); err != nil {
-			return err
+			return persistFailure(err, persistNotCommitted)
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
+	commit := tx.Commit
+	if s.commitTx != nil {
+		commit = func() error { return s.commitTx(tx) }
+	}
+	if err := commit(); err != nil {
+		return persistFailure(err, persistUnknown)
 	}
 	committed = true
+	if s.persistAfterCommitHook != nil {
+		disposition, hookErr := s.persistAfterCommitHook()
+		if hookErr != nil {
+			return persistFailure(hookErr, disposition)
+		}
+	}
 
 	for _, c := range changes {
 		if c.delete {
@@ -858,7 +946,7 @@ func (s *Store) writeDirtyLocked() error {
 	s.lastPersistRows = len(changes)
 
 	if sqlitePersistVerify {
-		return s.verifyPersistedLocked()
+		return persistFailure(s.verifyPersistedLocked(), persistCommitted)
 	}
 	return nil
 }
@@ -923,9 +1011,37 @@ func (s *Store) verifyPersistedLocked() error {
 // loadStateFromDB reads the whole state back. It is called once per boot,
 // and once per persist under the verification switch.
 func loadStateFromDB(db *sql.DB) (PersistedState, error) {
+	return loadStateFromDBMode(db, true)
+}
+
+// loadStateFromDBUnrepaired is the read-only compatibility path used while
+// proving an old import that committed before its legacy-file rename. It
+// must not run the identity cleanup transaction before the JSON-vs-database
+// comparison has established which bytes are authoritative.
+func loadStateFromDBUnrepaired(db *sql.DB) (PersistedState, error) {
+	return loadStateFromDBMode(db, false)
+}
+
+func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error) {
 	var state PersistedState
 	normalizeState(&state)
 	state.SchemaVersion = currentSchemaVersion
+	// Refuse a logically newer database before the clean-break repair can
+	// mutate any identity rows. PRAGMA user_version protects migrations; this
+	// read-only kv check protects the logical state schema independently.
+	if err := checkLogicalSchemaVersion(db); err != nil {
+		return state, err
+	}
+	authority, err := readPersistenceAuthority(db)
+	if err != nil {
+		return state, err
+	}
+	state.persistenceAuthority = authority
+	if repairIdentity {
+		if err := repairIdentityRows(db); err != nil {
+			return state, err
+		}
+	}
 
 	scalars := map[string]string{}
 	if err := queryRows(db, `SELECT "key", "value" FROM kv`, func(rows *sql.Rows) error {
@@ -952,7 +1068,6 @@ func loadStateFromDB(db *sql.DB) (PersistedState, error) {
 		// version is simply stamped current.
 		state.SchemaVersion = currentSchemaVersion
 	}
-	var err error
 	if state.ClockDeadline, err = decodeTime(scalars[kvClockDeadline]); err != nil {
 		return state, err
 	}
@@ -1218,7 +1333,18 @@ func loadStateFromDB(db *sql.DB) (PersistedState, error) {
 		return state, err
 	}
 
+	if err := queryRows(db, `SELECT "team_id", "ref" FROM avatar_refs`, func(rows *sql.Rows) error {
+		var teamID, ref string
+		if err := rows.Scan(&teamID, &ref); err != nil {
+			return err
+		}
+		state.AvatarRefs[teamID] = ref
+		return nil
+	}); err != nil {
+		return state, err
+	}
 	if err := queryRows(db, `SELECT "id", "body", "posted_at", "posted_by" FROM announcements ORDER BY "ord"`,
+
 		func(rows *sql.Rows) error {
 			var a Announcement
 			var postedAt string
@@ -1428,7 +1554,164 @@ func loadStateFromDB(db *sql.DB) (PersistedState, error) {
 		return state, err
 	}
 
+	// v1 had no catalog-enforced identity boundary. Strip retired/unknown
+	// motifs and keep only one holder for each current canonical art before
+	// this state becomes the Store's read model. repairIdentityRows already
+	// removed those rows durably before this read; every reload therefore sees
+	// the same repaired identity collections and rebuilds its shadow from them.
+	normalizeIdentityCollections(&state)
 	return state, nil
+}
+
+// checkLogicalSchemaVersion is deliberately read-only. A database may carry
+// a supported SQLite migration number while its logical state schema was
+// written by a newer binary; that case must be rejected before repair or any
+// other startup action that could change durable rows.
+func checkLogicalSchemaVersion(db *sql.DB) error {
+	if db == nil {
+		return errors.New("logical schema version requires an open database")
+	}
+	var raw string
+	err := db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvSchemaVersion).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	// A database at PRAGMA user_version=0 has no tables yet. This is the
+	// normal pre-migration state for a newly-created file, and is not a
+	// logical schema claim that needs to be rejected.
+	if err != nil && strings.Contains(err.Error(), "no such table") {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	version, err := strconv.Atoi(raw)
+	if err != nil {
+		return fmt.Errorf("kv %s: %w", kvSchemaVersion, err)
+	}
+	if version > currentSchemaVersion {
+		return fmt.Errorf("%w: stored state is version %d, this binary supports up to %d",
+			errSchemaTooNew, version, currentSchemaVersion)
+	}
+	return nil
+}
+
+// repairIdentityRows is the durable v1->v2 clean-break boundary for the two
+// identity tables. It runs before every authoritative load, including the
+// initial startup load, so the Store's shadow is built from the repaired
+// database rather than from rows that only an in-memory normalizer hid.
+//
+// Valid custom-avatar refs win a historical same-team badge/avatar conflict,
+// matching the upload transition's "custom image releases badge" rule. For
+// duplicate valid badge motifs, the lexically first known team ID wins. Every
+// invalid team, retired/unknown motif, invalid ref, duplicate loser, and
+// badge row shadowed by a valid avatar is physically deleted in one durable
+// SQLite transaction.
+func repairIdentityRows(db *sql.DB) error {
+	if db == nil {
+		return errors.New("identity repair requires an open database")
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	rollback := true
+	defer func() {
+		if rollback {
+			_ = tx.Rollback()
+		}
+	}()
+
+	type avatarRow struct {
+		teamID string
+		ref    string
+	}
+	rows, err := tx.Query(`SELECT "team_id", "ref" FROM avatar_refs ORDER BY "team_id", "ref"`)
+	if err != nil {
+		return err
+	}
+	var avatars []avatarRow
+	var invalidAvatarTeams []string
+	for rows.Next() {
+		var row avatarRow
+		if err := rows.Scan(&row.teamID, &row.ref); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !knownTeam(row.teamID) || !validAvatarRef(row.ref) {
+			invalidAvatarTeams = append(invalidAvatarTeams, row.teamID)
+			continue
+		}
+		avatars = append(avatars, row)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	validAvatarTeams := make(map[string]struct{}, len(avatars))
+	for _, row := range avatars {
+		validAvatarTeams[row.teamID] = struct{}{}
+	}
+
+	rows, err = tx.Query(`SELECT "team_id", "motif" FROM badge_claims ORDER BY "team_id", "motif"`)
+	if err != nil {
+		return err
+	}
+	seenMotifs := map[string]struct{}{}
+	type badgeRow struct {
+		teamID string
+		motif  string
+	}
+	var removeBadges []badgeRow
+	for rows.Next() {
+		var row badgeRow
+		if err := rows.Scan(&row.teamID, &row.motif); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if !knownTeam(row.teamID) || !knownMotif(row.motif) {
+			removeBadges = append(removeBadges, row)
+			continue
+		}
+		if _, hasAvatar := validAvatarTeams[row.teamID]; hasAvatar {
+			removeBadges = append(removeBadges, row)
+			continue
+		}
+		if _, duplicate := seenMotifs[row.motif]; duplicate {
+			removeBadges = append(removeBadges, row)
+			continue
+		}
+		seenMotifs[row.motif] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	for _, teamID := range invalidAvatarTeams {
+		if _, err := tx.Exec(`DELETE FROM avatar_refs WHERE "team_id" = ?`, teamID); err != nil {
+			return err
+		}
+	}
+	for _, row := range removeBadges {
+		if _, err := tx.Exec(`DELETE FROM badge_claims WHERE "team_id" = ? AND "motif" = ?`, row.teamID, row.motif); err != nil {
+			return err
+		}
+	}
+	if len(invalidAvatarTeams) == 0 && len(removeBadges) == 0 {
+		return tx.Rollback()
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	rollback = false
+	return nil
 }
 
 // queryRows runs one query and hands each row to scan.
@@ -1493,6 +1776,9 @@ func normalizeState(state *PersistedState) {
 	if state.BadgeClaims == nil {
 		state.BadgeClaims = map[string]string{}
 	}
+	if state.AvatarRefs == nil {
+		state.AvatarRefs = map[string]string{}
+	}
 	if state.Announcements == nil {
 		state.Announcements = []Announcement{}
 	}
@@ -1516,5 +1802,55 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.TrimmedTeamIDs == nil {
 		state.TrimmedTeamIDs = []string{}
+	}
+	normalizeIdentityCollections(state)
+}
+
+// normalizeIdentityCollections applies the same canonical identity boundary
+// to in-memory imports/candidates that repairIdentityRows applies durably to
+// SQLite. Invalid avatar refs are stripped first; a remaining valid avatar
+// wins a historical same-team badge conflict, then duplicate canonical
+// motifs are resolved deterministically by normalizeBadgeClaims.
+func normalizeIdentityCollections(state *PersistedState) {
+	for teamID, ref := range state.AvatarRefs {
+		if !knownTeam(teamID) || !validAvatarRef(ref) {
+			delete(state.AvatarRefs, teamID)
+		}
+	}
+	for teamID := range state.BadgeClaims {
+		if _, hasAvatar := state.AvatarRefs[teamID]; hasAvatar {
+			delete(state.BadgeClaims, teamID)
+		}
+	}
+	normalizeBadgeClaims(state)
+}
+
+// normalizeBadgeClaims is the pre-v1 clean break for persisted badge
+// identity. Retired aliases are not translated, and arbitrary/unknown team
+// IDs are not allowed to occupy a canonical motif. Sorting team IDs makes a
+// hand-edited database with duplicate canonical claims deterministic: the
+// lexically first known team keeps the claim and later duplicates are
+// dropped from the read model.
+func normalizeBadgeClaims(state *PersistedState) {
+	if len(state.BadgeClaims) < 1 {
+		return
+	}
+	teamIDs := make([]string, 0, len(state.BadgeClaims))
+	for teamID := range state.BadgeClaims {
+		teamIDs = append(teamIDs, teamID)
+	}
+	sort.Strings(teamIDs)
+	seen := make(map[string]struct{}, len(teamIDs))
+	for _, teamID := range teamIDs {
+		motif := state.BadgeClaims[teamID]
+		if !knownTeam(teamID) || !knownMotif(motif) {
+			delete(state.BadgeClaims, teamID)
+			continue
+		}
+		if _, duplicate := seen[motif]; duplicate {
+			delete(state.BadgeClaims, teamID)
+			continue
+		}
+		seen[motif] = struct{}{}
 	}
 }

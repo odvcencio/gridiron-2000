@@ -11,16 +11,18 @@ import (
 
 func newTestService(t *testing.T, demo bool) *Service {
 	t.Helper()
+	avatarAnchor := t.TempDir()
 	return &Service{
-		store:            NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:             newLiveFeed(nil),
-		draftAt:          time.Now().Add(-time.Hour),
-		demoMode:         demo,
-		teams:            defaultTeams(),
-		players:          defaultPlayers(),
-		cfg:              DefaultConfig(),
-		avatarRoot:       filepath.Join(t.TempDir(), "avatars"),
-		defaultBadgeRoot: filepath.Join(t.TempDir(), "avatar-defaults"),
+		store:             NewStore(filepath.Join(t.TempDir(), "state.json")),
+		feed:              newLiveFeed(nil),
+		draftAt:           time.Now().Add(-time.Hour),
+		demoMode:          demo,
+		teams:             defaultTeams(),
+		players:           defaultPlayers(),
+		cfg:               DefaultConfig(),
+		avatarRoot:        filepath.Join(avatarAnchor, "avatars"),
+		avatarDurableRoot: avatarAnchor,
+		defaultBadgeRoot:  filepath.Join(t.TempDir(), "avatar-defaults"),
 	}
 }
 
@@ -788,5 +790,47 @@ func TestClockViewIncludesRemainingLabel(t *testing.T) {
 	paused := service.clockView(PersistedState{ClockDeadline: now.Add(90 * time.Second), ClockPaused: true}, now)
 	if paused["remaining_label"] != "0:00" {
 		t.Fatalf("paused remaining_label = %v, want 0:00", paused["remaining_label"])
+	}
+}
+
+func TestIdentityUnavailableViewsFailClosedForAllPickers(t *testing.T) {
+	service := newTestService(t, true)
+	service.store.mu.Lock()
+	service.store.poisonedState = cloneState(service.store.state)
+	service.store.persistencePoison = ErrPersistenceIndeterminate
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	teamData := service.TeamData(request)
+	if teamData["identity_available"] != false {
+		t.Fatalf("TeamData identity_available = %#v, want false", teamData["identity_available"])
+	}
+	if teamData["identity_error"] != identityUnavailableCopy {
+		t.Fatalf("TeamData identity_error = %#v, want truthful copy", teamData["identity_error"])
+	}
+	if grid, ok := teamData["badge_grid"].([]map[string]any); !ok || len(grid) != 0 {
+		t.Fatalf("poisoned TeamData badge_grid = %#v, want empty", teamData["badge_grid"])
+	}
+
+	signupData := service.SignupData(request)
+	if signupData["identity_available"] != false {
+		t.Fatalf("SignupData identity_available = %#v, want false", signupData["identity_available"])
+	}
+	if grid, ok := signupData["badge_grid"].([]UnclaimedBadgeOption); !ok || len(grid) != 0 {
+		t.Fatalf("poisoned SignupData badge_grid = %#v, want empty", signupData["badge_grid"])
+	}
+
+	adminData := service.AdminData(request)
+	if adminData["identity_available"] != false {
+		t.Fatalf("AdminData identity_available = %#v, want false", adminData["identity_available"])
+	}
+	seats, ok := adminData["seats"].([]map[string]any)
+	if !ok || len(seats) == 0 {
+		t.Fatalf("AdminData seats = %#v, want seats", adminData["seats"])
+	}
+	for _, seat := range seats {
+		if seat["identity_available"] != false || seat["identity_error"] != identityUnavailableCopy {
+			t.Fatalf("poisoned admin seat identity state = %#v", seat)
+		}
 	}
 }

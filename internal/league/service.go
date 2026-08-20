@@ -122,13 +122,16 @@ type Service struct {
 	// bootRecoverClock precedent of "act once, immediately, at startup."
 	notifyLastPruneAt time.Time
 
-	// avatarRoot and defaultBadgeRoot are the team-avatar feature's two
-	// filesystem roots (AVATAR_ROOT / AVATAR_DEFAULTS_ROOT env, see
-	// avatar.go's avatarDir/defaultBadgeDir). badgeCache caches
-	// defaultBadgeRoot's directory listing; see defaultBadgeExists.
-	avatarRoot       string
-	defaultBadgeRoot string
-	badgeCache       badgeToneCache
+	// avatarRoot is the upload target (AVATAR_ROOT). avatarDurableRoot is a
+	// pre-existing, real directory that bounds every avatar write
+	// (AVATAR_DURABLE_ROOT; data by default, /app/data in the image). Avatar
+	// writes never create or sync outside that anchor; a custom target must
+	// remain strictly below its configured anchor. defaultBadgeRoot is the
+	// separate commissioner-supplied fallback-art root.
+	avatarRoot        string
+	avatarDurableRoot string
+	defaultBadgeRoot  string
+	badgeCache        badgeToneCache
 
 	// motifRoot is the team-badge picker feature's filesystem root
 	// (AVATAR_MOTIFS_ROOT env, see badge.go's motifDir) — the same
@@ -196,19 +199,28 @@ func Default() *Service {
 		if err != nil || draftTZ == nil {
 			draftTZ = time.UTC
 		}
+		store := NewStore(statePath)
+		if err := store.StartupError(); err != nil {
+			// Do this before assigning defaultSvc or starting any background
+			// source/poller. A failed persistence boot must be an explicit
+			// process-start failure, never a published service that renders
+			// zero state and later overwrites a good database.
+			log.Fatalf("league persistence startup failed: %v", err)
+		}
 		defaultSvc = &Service{
-			store:            NewStore(statePath),
-			draftAt:          cfg.DraftAt,
-			draftTZ:          draftTZ,
-			demoMode:         demo,
-			teams:            defaultTeams(),
-			players:          defaultPlayers(),
-			cfg:              cfg,
-			presence:         newPresenceTracker(time.Now()),
-			pickClockDefault: parsePickClock(os.Getenv("PICK_CLOCK")),
-			avatarRoot:       avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
-			defaultBadgeRoot: avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
-			motifRoot:        avatarEnvString("AVATAR_MOTIFS_ROOT", filepath.Join("public", "avatars", "motifs")),
+			store:             store,
+			draftAt:           cfg.DraftAt,
+			draftTZ:           draftTZ,
+			demoMode:          demo,
+			teams:             defaultTeams(),
+			players:           defaultPlayers(),
+			cfg:               cfg,
+			presence:          newPresenceTracker(time.Now()),
+			pickClockDefault:  parsePickClock(os.Getenv("PICK_CLOCK")),
+			avatarRoot:        avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
+			avatarDurableRoot: avatarEnvString("AVATAR_DURABLE_ROOT", "data"),
+			defaultBadgeRoot:  avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
+			motifRoot:         avatarEnvString("AVATAR_MOTIFS_ROOT", filepath.Join("public", "avatars", "motifs")),
 		}
 		// scheduleProvider reads the persisted league schedule once one has
 		// been generated; until then it defers to the honest preseason
@@ -257,6 +269,35 @@ func Default() *Service {
 // default). main.go and every page.server.go's Metadata function read
 // identity strings through here.
 func (s *Service) Config() Config { return s.cfg }
+
+// PersistenceError reports the store's current boot/runtime persistence
+// state to the process health surface. It includes the latest ordinary write
+// failure until a later durable write or reconciliation succeeds. Optional
+// upstream feeds do not participate in this result: a transient
+// Tank01/OpenStats outage must not trigger a restart loop, while a poisoned
+// persistence authority must make readiness fail closed.
+func (s *Service) PersistenceError() error {
+	if s == nil || s.store == nil {
+		return errors.New("league persistence is unavailable")
+	}
+	return s.store.PersistenceError()
+}
+
+// StartupError is the constructor/runtime gate retained for callers that
+// need the historical name. Health callers should use PersistenceError so
+// the method's post-start write-failure semantics remain explicit.
+func (s *Service) StartupError() error {
+	return s.PersistenceError()
+}
+
+const identityUnavailableCopy = "Badge and avatar identity is temporarily unavailable. Badge choices are disabled until persistence recovers."
+
+func (s *Service) identityView() (available bool, message string) {
+	if s != nil && s.store != nil && s.store.IdentityHealthy() {
+		return true, ""
+	}
+	return false, identityUnavailableCopy
+}
 
 // PageTitle renders one page's browser-tab title from the live config
 // (spec section 5.1): "{section} · {league.name}", or "{league.name} ·
@@ -866,6 +907,7 @@ func (s *Service) unclaimedBadgeGrid(state PersistedState) []UnclaimedBadgeOptio
 // league_full is true.
 func (s *Service) SignupData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
+	identityAvailable, identityError := s.identityView()
 	viewer := s.Viewer(r)
 	hasSeat, _ := viewer["has_seat"].(bool)
 	open := len(s.Teams()) - claimedSeatCount(state.Members)
@@ -877,15 +919,21 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 	if ok {
 		toneHex, _ = BadgeToneHex(tone)
 	}
+	badgeGrid := []UnclaimedBadgeOption{}
+	if identityAvailable {
+		badgeGrid = s.unclaimedBadgeGrid(state)
+	}
 	return map[string]any{
-		"viewer":         viewer,
-		"has_seat":       hasSeat,
-		"league_full":    open == 0,
-		"open_seats":     open,
-		"badge_tone_hex": toneHex,
-		"badge_grid":     s.unclaimedBadgeGrid(state),
-		"league":         s.leagueMap(),
-		"league_mode":    s.cfg.ModeLabel,
+		"viewer":             viewer,
+		"has_seat":           hasSeat,
+		"league_full":        open == 0,
+		"open_seats":         open,
+		"badge_tone_hex":     toneHex,
+		"badge_grid":         badgeGrid,
+		"identity_available": identityAvailable,
+		"identity_error":     identityError,
+		"league":             s.leagueMap(),
+		"league_mode":        s.cfg.ModeLabel,
 	}
 }
 
@@ -931,6 +979,9 @@ func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Tea
 // "that badge is already claimed by <team>" message is what both paths
 // surface.
 func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, error) {
+	if !s.store.IdentityHealthy() {
+		return Team{}, errors.New(identityUnavailableCopy)
+	}
 	displayName, err := validateTeamName(teamName)
 	if err != nil {
 		return Team{}, err
@@ -1122,6 +1173,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
 	state := s.store.Snapshot()
+	identityAvailable, identityError := s.identityView()
 	// A seatless member (no team_id) gets the honest "no franchise" state
 	// with the signup CTA, never team-1's roster (registration wave, build
 	// item 6 — the flagged paper cut: teamView's empty-TeamID fallback to
@@ -1129,11 +1181,14 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	// visitor of /team).
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
 		return map[string]any{
-			"viewer":       viewer,
-			"has_seat":     false,
-			"league":       s.leagueMap(),
-			"league_mode":  s.cfg.ModeLabel,
-			"fantasy_card": s.fantasyCardData(state, viewer),
+			"viewer":             viewer,
+			"has_seat":           false,
+			"league":             s.leagueMap(),
+			"league_mode":        s.cfg.ModeLabel,
+			"fantasy_card":       s.fantasyCardData(state, viewer),
+			"identity_available": identityAvailable,
+			"identity_error":     identityError,
+			"badge_grid":         []map[string]any{},
 		}
 	}
 	team := s.teamView(state, teamID)
@@ -1144,7 +1199,12 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 	teamMap := s.teamMap(team)
 	badgeToneHex, _ := BadgeToneHex(team.Tone)
-	_, hasBadgeClaim := s.store.BadgeClaim(teamID)
+	hasBadgeClaim := false
+	badgeGrid := []map[string]any{}
+	if identityAvailable {
+		_, hasBadgeClaim = s.store.BadgeClaim(teamID)
+		badgeGrid = s.badgeGrid(state, teamID)
+	}
 
 	now := s.clock()
 	games := s.schedule()
@@ -1187,28 +1247,30 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 
 	return map[string]any{
-		"viewer":          viewer,
-		"has_seat":        true,
-		"team":            teamMap,
-		"drafted":         drafted,
-		"projected":       fmt.Sprintf("%.1f", projected),
-		"division":        teamMap["division"],
-		"scouting":        s.topAvailable(state, 3),
-		"is_commissioner": s.IsCommissioner(r),
-		"league_mode":     s.cfg.ModeLabel,
-		"league":          s.leagueMap(),
-		"badge_tone_hex":  badgeToneHex,
-		"has_badge_claim": hasBadgeClaim,
-		"badge_grid":      s.badgeGrid(state, teamID),
-		"roster_shape":    rosterShapeRows(),
-		"shape_summary":   rosterShapeSummary(len(general) + len(reserveOccupants)),
-		"week":            strconv.Itoa(week),
-		"week_options":    weekOptions,
-		"starters":        s.starterRowMaps(lineup, general, games, now, scoringValues),
-		"starters_filled": strconv.Itoa(filled),
-		"starters_total":  strconv.Itoa(len(lineup.Slots)),
-		"bench":           playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
-		"bench_empty":     len(lineup.Bench) == 0,
+		"viewer":             viewer,
+		"has_seat":           true,
+		"team":               teamMap,
+		"drafted":            drafted,
+		"projected":          fmt.Sprintf("%.1f", projected),
+		"division":           teamMap["division"],
+		"scouting":           s.topAvailable(state, 3),
+		"is_commissioner":    s.IsCommissioner(r),
+		"league_mode":        s.cfg.ModeLabel,
+		"league":             s.leagueMap(),
+		"badge_tone_hex":     badgeToneHex,
+		"has_badge_claim":    hasBadgeClaim,
+		"badge_grid":         badgeGrid,
+		"identity_available": identityAvailable,
+		"identity_error":     identityError,
+		"roster_shape":       rosterShapeRows(),
+		"shape_summary":      rosterShapeSummary(len(general) + len(reserveOccupants)),
+		"week":               strconv.Itoa(week),
+		"week_options":       weekOptions,
+		"starters":           s.starterRowMaps(lineup, general, games, now, scoringValues),
+		"starters_filled":    strconv.Itoa(filled),
+		"starters_total":     strconv.Itoa(len(lineup.Slots)),
+		"bench":              playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
+		"bench_empty":        len(lineup.Bench) == 0,
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
 		// whenever the active roster shape carries no such zone.

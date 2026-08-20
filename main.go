@@ -197,19 +197,40 @@ func main() {
 	app := server.New()
 	app.EnableNavigation()
 	app.EnableGzip()
+	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
 	app.Use(sessions.Protect)
 	app.Use(authManager.Middleware)
 	app.SetPublicDir(filepath.Join(root, "public"))
 
+	// Liveness is deliberately independent of league persistence and optional
+	// upstream feeds. A process that is still serving requests must not be
+	// restarted merely because readiness has withdrawn for an operator repair.
+	app.API("GET /api/live", func(ctx *server.Context) (any, error) {
+		ctx.NoStore()
+		return livenessPayload(), nil
+	})
 	app.API("GET /api/health", func(ctx *server.Context) (any, error) {
-		ctx.CachePublic(30 * time.Second)
+		// Health is a live readiness signal. A public 30-second cache could
+		// keep advertising "ok" after a runtime persistence poison, which is
+		// exactly when an orchestrator must stop routing writes here. Optional
+		// feed degradation remains diagnostic only and never changes readiness.
+		ctx.NoStore()
 		ctx.CacheTag("health")
 		wireStatus := signalFeed.Status()
 		openStatus := openStats.Status()
 		poolStatus := fantasyPool.Status()
+		persistenceErr := league.Default().PersistenceError()
+		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
+		if persistenceStatus != http.StatusOK {
+			ctx.SetStatus(persistenceStatus)
+		}
 		return map[string]any{
-			"ok":                   true,
+			"ok":                   persistenceReady,
+			"liveness":             true,
+			"readiness":            persistenceReady,
+			"persistenceReady":     persistenceReady,
+			"persistenceError":     persistenceMessage,
 			"app":                  appName,
 			"version":              gosx.Version,
 			"googleOAuthReady":     googleConfigured,
@@ -264,13 +285,14 @@ func main() {
 	})
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
-	// Team avatars (design decisions 1-3): the upload endpoint sits outside
-	// gosx's action registry (its 1MB action-body cap is well under the 2MB
-	// avatar limit — see avatar_handlers.go), and the serving route emits
-	// its own fixed Cache-Control lifetime rather than the public-dir
-	// default, since an uploaded avatar lives in the data dir, not
-	// public/. Both still pass through the session/CSRF/auth middleware
-	// registered above (app.Use wraps every mount, not just page routes).
+	// Team avatars (design decisions 1-3): GoSX v0.49.0 exposes File/Files
+	// and MaxActionBodyBytes for managed actions, but this native upload keeps
+	// its own complete-multipart envelope cap until a bounded-multipart
+	// contract can run before the session/CSRF parser. The serving route emits
+	// its own fixed Cache-Control lifetime rather than the public-dir default,
+	// since an uploaded avatar lives in the data dir, not public/. Both still
+	// pass through the session/CSRF/auth middleware registered above (app.Use
+	// wraps every mount, not just page routes).
 	app.Mount("POST /avatar/upload", avatarUploadHandler(league.Default()))
 	app.Mount("GET /avatars/", avatarServeHandler(league.Default()))
 
@@ -963,6 +985,30 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 
 func googleAuthConfigured() bool {
 	return strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")) != "" && strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")) != ""
+}
+
+func mapPersistenceHealthError(err error) string {
+	if err == nil {
+		return ""
+	}
+	// Health callers need a truthful failure class, not filesystem paths,
+	// SQL text, or other operator-only details that could disclose layout.
+	return "persistence unavailable"
+}
+
+// persistenceHealth keeps the public readiness contract testable without
+// booting the singleton service: persistence poison is a readiness failure,
+// while optional feed degradation is reported separately and never reaches
+// this decision.
+func persistenceHealth(err error) (ready bool, status int, publicError string) {
+	if err != nil {
+		return false, http.StatusServiceUnavailable, mapPersistenceHealthError(err)
+	}
+	return true, http.StatusOK, ""
+}
+
+func livenessPayload() map[string]any {
+	return map[string]any{"ok": true, "liveness": true}
 }
 
 func getenv(key string, fallback string) string {
