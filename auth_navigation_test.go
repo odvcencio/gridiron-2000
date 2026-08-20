@@ -373,6 +373,27 @@ func TestGoogleCallbackWrapperRejectsDeniedInvite(t *testing.T) {
 	if got := res.Header().Get("Location"); got != "/login?error=invite" {
 		t.Fatalf("denied invite location = %q, want /login?error=invite", got)
 	}
+	deniedCookie := oauthSessionCookie(t, res)
+	protected := fixture.sessions.Middleware(fixture.manager.Require(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("denied invite session reached the protected handler")
+	})))
+	probe := httptest.NewRecorder()
+	probeRequest := httptest.NewRequest(http.MethodGet, "/draft/", nil)
+	probeRequest.AddCookie(deniedCookie)
+	protected.ServeHTTP(probe, probeRequest)
+	if probe.Code != http.StatusSeeOther {
+		t.Fatalf("denied invite session probe status = %d, want %d", probe.Code, http.StatusSeeOther)
+	}
+	probeLocation, err := url.Parse(probe.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse denied invite session probe redirect: %v", err)
+	}
+	if probeLocation.Path != "/login" {
+		t.Fatalf("denied invite session probe path = %q, want /login", probeLocation.Path)
+	}
+	if got := probeLocation.Query().Get("next"); got != "/draft/" {
+		t.Fatalf("denied invite session probe next = %q, want /draft/", got)
+	}
 	if len(membership.emailAllowed) != 1 || membership.emailAllowed[0] != "outsider@example.com" {
 		t.Fatalf("membership EmailAllowed calls = %v, want outsider@example.com", membership.emailAllowed)
 	}
