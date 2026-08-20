@@ -800,26 +800,23 @@ func TestFirstSendBatchMixed(t *testing.T) {
 	}
 }
 
-// newUnwritablePersistStore builds a Store whose state file sits inside a
-// directory with no write permission, so persistLocked fails
-// deterministically on the very next write attempt. This is the
-// "unwritable path" test seam finding M1 asks for: it forces the real
-// persist failure path without adding a mock hook to production code.
-func newUnwritablePersistStore(t *testing.T) *Store {
+// newPersistFailingStore builds a Store whose test-only persist hook fails
+// deterministically on every write. The explicit hook is independent of
+// filesystem permissions and root/CAP_DAC_OVERRIDE behavior, so these tests
+// always exercise the real persist-failure rollback path.
+func newPersistFailingStore(t *testing.T) *Store {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "readonly")
-	if err := os.Mkdir(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) // let TempDir's own cleanup remove it
-	return NewStore(filepath.Join(dir, "state.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+	t.Cleanup(func() { _ = store.Close() })
+	failThisStorePersist(store)
+	return store
 }
 
 // TestFirstSendRollsBackMapEntryOnPersistFailure checks that a persist
 // failure rolls back FirstSend's in-memory SentLog entry and reports
 // (false, err), so "true" always means "on disk" (finding M1).
 func TestFirstSendRollsBackMapEntryOnPersistFailure(t *testing.T) {
-	store := newUnwritablePersistStore(t)
+	store := newPersistFailingStore(t)
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
 	first, err := store.FirstSend("seat:team-1:a@example.com", now)
@@ -838,7 +835,7 @@ func TestFirstSendRollsBackMapEntryOnPersistFailure(t *testing.T) {
 // of finding M1: every key newly added by a failed call is rolled back,
 // and the result is all-false plus the error.
 func TestFirstSendBatchRollsBackNewKeysOnPersistFailure(t *testing.T) {
-	store := newUnwritablePersistStore(t)
+	store := newPersistFailingStore(t)
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
 	keys := []string{"kickoff:2026:a@example.com", "kickoff:2026:b@example.com"}
@@ -904,12 +901,12 @@ func TestFirstSendBatchRollsBackOnlyNewKeysOnPersistFailure(t *testing.T) {
 
 // TestPruneSentLogSkipsPersistOnZeroDeletions checks finding nit 6: a
 // prune that deletes nothing does not rewrite the state file. It proves
-// this behaviorally through the unwritable-directory seam — persistLocked
+// this behaviorally through the explicit persist-hook seam — persistLocked
 // would fail (and PruneSentLog would return that error) if it ran, so a
 // nil return here means persistLocked was skipped, not that it silently
 // succeeded.
 func TestPruneSentLogSkipsPersistOnZeroDeletions(t *testing.T) {
-	store := newUnwritablePersistStore(t)
+	store := newPersistFailingStore(t)
 	if err := store.PruneSentLog(time.Time{}); err != nil {
 		t.Fatalf("PruneSentLog with nothing to delete must not persist (and so must not fail): %v", err)
 	}
