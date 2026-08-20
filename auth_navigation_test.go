@@ -11,7 +11,11 @@ import (
 	"testing"
 
 	"gridiron-2000/internal/league"
+	"m31labs.dev/gosx"
+	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/auth"
+	"m31labs.dev/gosx/route"
+	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
 
@@ -37,19 +41,124 @@ func TestRequireLeagueSessionPreservesGETTarget(t *testing.T) {
 	}
 }
 
-func TestRequireLeagueSessionPreservesGETUnknownTarget(t *testing.T) {
-	recording := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/unknown?tab=injury", nil)
-	requireLeagueSessionWithDemoMode(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("anonymous request reached the protected handler")
-	}), func() bool { return false }).ServeHTTP(recording, request)
-
-	location, err := url.Parse(recording.Header().Get("Location"))
-	if err != nil {
-		t.Fatalf("parse redirect: %v", err)
+func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{
+		"page.html",
+		"login/page.html",
+		"privacy/page.html",
+		"terms/page.html",
+		"draft/page.html",
+		"wire/page.html",
+		"join/page.html",
+	} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", name, err)
+		}
+		if err := os.WriteFile(path, []byte("<main>"+name+"</main>"), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
 	}
-	if got := location.Query().Get("next"); got != "/unknown?tab=injury" {
-		t.Errorf("next = %q, want /unknown?tab=injury", got)
+
+	modules := route.NewFileModuleRegistry()
+	if err := modules.Register(route.FileModuleFor("draft/page.html", route.FileModuleOptions{
+		Actions: route.FileActions{
+			"save": func(ctx *action.Context) error {
+				return ctx.Success("saved", nil)
+			},
+		},
+	})); err != nil {
+		t.Fatalf("register action module: %v", err)
+	}
+
+	requireMiddleware := func(next http.Handler) http.Handler {
+		return requireLeagueSessionWithDemoMode(next, func() bool { return false })
+	}
+	redirectMiddleware := func(next http.Handler) http.Handler {
+		return redirectSeatedFromJoinWithViewer(next, func(*http.Request) bool { return false })
+	}
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		return server.HTMLDocument(ctx.Title("Test"), ctx.Head(), body)
+	})
+	if err := router.AddDir(root, route.FileRoutesOptions{
+		Modules: modules,
+		Middleware: []route.Middleware{
+			requireMiddleware,
+			redirectMiddleware,
+		},
+	}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		wantStatus int
+		wantNext   string
+	}{
+		{name: "protected draft page", method: http.MethodGet, target: "/draft?week=1", wantStatus: http.StatusSeeOther, wantNext: "/draft?week=1"},
+		{name: "protected wire page", method: http.MethodGet, target: "/wire?category=injury", wantStatus: http.StatusSeeOther, wantNext: "/wire?category=injury"},
+		{name: "protected action", method: http.MethodPost, target: "/draft/__actions/save", wantStatus: http.StatusSeeOther},
+		{name: "unknown get", method: http.MethodGet, target: "/does-not-exist?x=1", wantStatus: http.StatusNotFound},
+		{name: "unknown head", method: http.MethodHead, target: "/does-not-exist?x=1", wantStatus: http.StatusNotFound},
+		{name: "public root", method: http.MethodGet, target: "/", wantStatus: http.StatusOK},
+		{name: "public login", method: http.MethodGet, target: "/login", wantStatus: http.StatusOK},
+		{name: "public privacy", method: http.MethodGet, target: "/privacy", wantStatus: http.StatusOK},
+		{name: "public terms", method: http.MethodGet, target: "/terms", wantStatus: http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recording := httptest.NewRecorder()
+			request := httptest.NewRequest(tt.method, tt.target, nil)
+			handler.ServeHTTP(recording, request)
+			if recording.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d; location=%q body=%q", recording.Code, tt.wantStatus, recording.Header().Get("Location"), recording.Body.String())
+			}
+			if tt.wantStatus == http.StatusSeeOther {
+				location, err := url.Parse(recording.Header().Get("Location"))
+				if err != nil {
+					t.Fatalf("parse redirect: %v", err)
+				}
+				if location.Path != "/login" {
+					t.Fatalf("redirect path = %q, want /login", location.Path)
+				}
+				if tt.wantNext != "" {
+					if got := location.Query().Get("next"); got != tt.wantNext {
+						t.Errorf("next = %q, want %q", got, tt.wantNext)
+					}
+				}
+			} else if location := recording.Header().Get("Location"); location != "" {
+				t.Errorf("unexpected redirect location %q", location)
+			}
+		})
+	}
+}
+
+func TestRedirectSeatedFromJoinOnlyRedirectsGET(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := redirectSeatedFromJoinWithViewer(next, func(*http.Request) bool { return true })
+
+	get := httptest.NewRecorder()
+	handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/join", nil))
+	if get.Code != http.StatusSeeOther || get.Header().Get("Location") != "/team" {
+		t.Fatalf("GET /join = %d location=%q, want 303 /team", get.Code, get.Header().Get("Location"))
+	}
+
+	post := httptest.NewRecorder()
+	handler.ServeHTTP(post, httptest.NewRequest(http.MethodPost, "/join", nil))
+	if post.Code != http.StatusNoContent {
+		t.Fatalf("POST /join = %d, want 204", post.Code)
 	}
 }
 

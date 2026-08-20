@@ -190,7 +190,16 @@ func main() {
 		)
 		return server.HTMLDocumentWithBodyAttrs(ctx.Title(appName), ctx.Head(), body, bodyAttrs)
 	})
-	if err := router.AddDir(filepath.Join(root, "app"), route.FileRoutesOptions{}); err != nil {
+	// Authentication and onboarding redirects belong to the file routes
+	// themselves. GoSX applies this middleware only after a page or action
+	// route matches, so an unknown URL keeps the normal truthful 404 instead
+	// of being turned into a misleading login redirect.
+	if err := router.AddDir(filepath.Join(root, "app"), route.FileRoutesOptions{
+		Middleware: []route.Middleware{
+			requireLeagueSession,
+			redirectSeatedFromJoin,
+		},
+	}); err != nil {
 		log.Fatal(err)
 	}
 
@@ -316,7 +325,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	app.Mount("/", requireLeagueSession(redirectSeatedFromJoin(rootHandler)))
+	app.Mount("/", rootHandler)
 
 	if !googleConfigured {
 		log.Printf("Google OAuth is in setup mode; add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env")
@@ -392,14 +401,21 @@ func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) h
 // redirectSeatedFromJoin sends an already-seated visitor straight to
 // their team terminal instead of the fantasy-signup form (registration
 // wave, build item 2: "already-seated visitors get redirected to
-// /team") — the gosx file router has no Load-time redirect hook, so this
-// small pre-check runs ahead of it, GET only (the signup action itself
-// posts to /join/__actions/signup-claim, a distinct path this leaves
-// untouched). Every other path passes through unchanged.
+// /team"). GoSX applies this middleware only to a matched file page or
+// action; the signup action itself posts to /join/__actions/signup-claim,
+// a distinct path this leaves untouched. Every other matched route passes
+// through unchanged.
 func redirectSeatedFromJoin(next http.Handler) http.Handler {
+	return redirectSeatedFromJoinWithViewer(next, func(r *http.Request) bool {
+		hasSeat, _ := league.Default().Viewer(r)["has_seat"].(bool)
+		return hasSeat
+	})
+}
+
+func redirectSeatedFromJoinWithViewer(next http.Handler, hasSeat func(*http.Request) bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.TrimSuffix(r.URL.Path, "/") == "/join" {
-			if hasSeat, _ := league.Default().Viewer(r)["has_seat"].(bool); hasSeat {
+			if hasSeat != nil && hasSeat(r) {
 				http.Redirect(w, r, "/team", http.StatusSeeOther)
 				return
 			}
