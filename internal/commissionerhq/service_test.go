@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"m31labs.dev/gosx/auth"
 )
 
 func testSummary(id, publicURL string) Summary {
@@ -49,16 +51,23 @@ func TestSummaryHandlerFailsClosedAndAuthenticates(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"schemaVersion":1`) {
 		t.Fatalf("authorized response = %d %s", response.Code, response.Body.String())
 	}
+	t.Run("duplicate authorization headers fail closed", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, "/api/commissioner/v1/summary", nil)
+		request.Header.Add("Authorization", "Bearer correct-token")
+		request.Header.Add("Authorization", "Bearer correct-token")
+		response := httptest.NewRecorder()
+		service.SummaryHandler().ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") == "" {
+			t.Fatalf("duplicate header status/challenge = %d %q", response.Code, response.Header().Get("WWW-Authenticate"))
+		}
+	})
 }
 
 func TestFleetKeepsConfiguredOrderAndIsolatesPeerFailure(t *testing.T) {
 	token := "fleet-token"
-	good := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !validBearer(r.Header.Get("Authorization"), token) {
-			t.Fatal("peer did not receive the dedicated bearer token")
-		}
+	good := httptest.NewServer(auth.RequireBearerToken(token, auth.BearerOptions{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(testSummary("good", "https://good.example"))
-	}))
+	})))
 	defer good.Close()
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no", http.StatusUnauthorized)

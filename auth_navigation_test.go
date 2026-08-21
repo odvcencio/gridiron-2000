@@ -82,7 +82,8 @@ func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		return server.HTMLDocument(ctx.Title("Test"), ctx.Head(), body)
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
 	})
 	if err := router.AddDir(root, route.FileRoutesOptions{
 		Modules: modules,
@@ -563,5 +564,85 @@ func TestProtectedDeepLinkRoundTripsThroughGoogleOAuth(t *testing.T) {
 	callbackRes := callbackGoogleOAuth(t, fixture.callback, state, cookie, "")
 	if got := callbackRes.Header().Get("Location"); got != target {
 		t.Fatalf("deep-link callback location = %q, want %q", got, target)
+	}
+}
+
+func TestNativeDocumentShellPreservesLanguageHeartbeatAndCSPNonce(t *testing.T) {
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		ctx.BodyAttrs(
+			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
+			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
+		)
+		return server.HTMLDocument(ctx.Document("Shell test", body))
+	})
+	router.Add(route.Route{
+		Pattern: "/",
+		Handler: func(*route.RouteContext) gosx.Node {
+			return gosx.El("main", gosx.Text("shell ok"))
+		},
+	})
+	rootHandler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	app := server.New()
+	app.EnableNavigation()
+	app.EnableSecurityPolicy(gridironSecurityPolicy())
+	app.Mount("/", rootHandler)
+	handler := app.Build()
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want 200; body=%s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `<html `) || !strings.Contains(body, `lang="en"`) {
+		t.Fatalf("native shell omitted explicit language: %s", body)
+	}
+	if got := strings.Count(body, `<meta name="viewport"`); got != 1 {
+		t.Fatalf("native shell emitted %d viewport tags, want exactly one", got)
+	}
+	if got := strings.Count(body, `data-gosx-navigation="true"`); got != 1 {
+		t.Fatalf("native shell emitted %d navigation runtimes, want exactly one", got)
+	}
+	for _, want := range []string{
+		`data-gosx-heartbeat="/api/league/version"`,
+		`data-gosx-heartbeat-interval="4s"`,
+		`<main>shell ok</main>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("native shell omitted %q: %s", want, body)
+		}
+	}
+
+	csp := response.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"script-src 'self' 'nonce-",
+		"'strict-dynamic'",
+		"'wasm-unsafe-eval'",
+		"form-action 'self' https://accounts.google.com",
+		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+		"img-src 'self' data: https://a.espncdn.com",
+		"frame-ancestors 'none'",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP omitted %q: %s", want, csp)
+		}
+	}
+	nonceStart := strings.Index(csp, "'nonce-")
+	if nonceStart < 0 {
+		t.Fatal("CSP did not issue a nonce")
+	}
+	nonceStart += len("'nonce-")
+	nonceEnd := strings.IndexByte(csp[nonceStart:], '\'')
+	if nonceEnd < 0 {
+		t.Fatalf("CSP nonce source was not closed: %s", csp)
+	}
+	nonce := csp[nonceStart : nonceStart+nonceEnd]
+	if nonce == "" || !strings.Contains(body, `nonce="`+nonce+`"`) {
+		t.Fatalf("document scripts did not carry the CSP nonce %q: %s", nonce, body)
 	}
 }

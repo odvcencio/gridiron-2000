@@ -179,6 +179,7 @@ func main() {
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
 		ctx.SetMetadata(server.Metadata{
 			Links: []server.LinkTag{
 				{Rel: "stylesheet", Href: "/styles.css"},
@@ -186,12 +187,6 @@ func main() {
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
 		})
-		ctx.AddHead(
-			gosx.El("meta", gosx.Attrs(gosx.Attr("name", "viewport"), gosx.Attr("content", "width=device-width, initial-scale=1"))),
-			// The page-navigation runtime soft-swaps links and managed forms,
-			// so the site works without full page reloads.
-			server.NavigationScript(),
-		)
 		// data-gosx-heartbeat/-interval (gosx#216) replaces gridiron.js's old
 		// sendPresenceHeartbeat loop on every page, not just the ones that
 		// also carry data-gosx-revalidate-interval: the heartbeat ping is
@@ -200,13 +195,14 @@ func main() {
 		// no focused-control interaction guard, so it keeps presence current
 		// while a manager is typing in a search box — the exact gap the old
 		// JS's focusedControlActive() special case existed only to close.
-		// HTMLDocumentWithBodyAttrs (v0.49.0) puts the two heartbeat
-		// attributes directly on <body>, so no wrapper element is needed.
-		bodyAttrs := gosx.Attrs(
+		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
+		// directly on <body>, so no wrapper element is needed. The native
+		// route Document contract carries them through the framework shell.
+		ctx.BodyAttrs(
 			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
 			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
 		)
-		return server.HTMLDocumentWithBodyAttrs(ctx.Title(appName), ctx.Head(), body, bodyAttrs)
+		return server.HTMLDocument(ctx.Document(appName, body))
 	})
 	// Authentication and onboarding redirects belong to the file routes
 	// themselves. GoSX applies this middleware only after a page or action
@@ -223,6 +219,7 @@ func main() {
 
 	app := server.New()
 	app.EnableNavigation()
+	app.EnableSecurityPolicy(gridironSecurityPolicy())
 	app.EnableGzip()
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
@@ -337,7 +334,7 @@ func main() {
 	app.Mount("GET /api/commissioner/v1/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
-	// Team avatars (design decisions 1-3): GoSX v0.49.0 exposes File/Files
+	// Team avatars (design decisions 1-3): GoSX v0.50.0 exposes File/Files
 	// and MaxActionBodyBytes for managed actions, but this native upload keeps
 	// its own complete-multipart envelope cap until a bounded-multipart
 	// contract can run before the session/CSRF parser. The serving route emits
@@ -403,6 +400,33 @@ func main() {
 		// given up on.
 		notifyQueue.Drain(10 * time.Second)
 		stopNotify()
+	}
+}
+
+// gridironSecurityPolicy keeps the browser-facing surface on GoSX's native
+// nonce contract. The app has a few deliberate inline style attributes (badge
+// colors and consensus bars), so style-src allows inline styles while script
+// execution remains nonce-gated. Google OAuth is a top-level redirect, not a
+// frame or XHR, and the policy explicitly permits its form destination.
+func gridironSecurityPolicy() server.SecurityPolicy {
+	return server.SecurityPolicy{
+		ContentSecurityPolicy: strings.Join([]string{
+			"default-src 'self'",
+			"base-uri 'self'",
+			"object-src 'none'",
+			"frame-ancestors 'none'",
+			"form-action 'self' https://accounts.google.com",
+			"script-src 'self' 'nonce-{nonce}' 'strict-dynamic' 'wasm-unsafe-eval'",
+			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+			"font-src 'self' https://fonts.gstatic.com",
+			"img-src 'self' data: https://a.espncdn.com",
+			"connect-src 'self'",
+			"manifest-src 'self'",
+			"worker-src 'self' blob:",
+		}, "; "),
+		FrameOptions:      "DENY",
+		ReferrerPolicy:    "strict-origin-when-cross-origin",
+		PermissionsPolicy: "camera=(), microphone=(), geolocation=()",
 	}
 }
 

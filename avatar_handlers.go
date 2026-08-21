@@ -76,7 +76,7 @@ type avatarReader interface {
 }
 
 // avatarUploadHandler serves POST /avatar/upload as a plain http.Handler
-// outside GoSX's managed action registry. GoSX v0.49.0 now has File/Files and
+// outside GoSX's managed action registry. GoSX v0.50.0 now has File/Files and
 // MaxActionBodyBytes for managed actions, but this route still needs the
 // outer complete-multipart cap until the bounded-multipart contract is
 // released and adopted by the production consumer. Session and CSRF

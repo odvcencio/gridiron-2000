@@ -26,7 +26,8 @@ func renderAdminPage(t *testing.T) string {
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		return server.HTMLDocument(ctx.Title("Test"), ctx.Head(), body)
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
 	})
 	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
 		t.Fatalf("AddDir: %v", err)
