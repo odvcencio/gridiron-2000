@@ -47,6 +47,7 @@ func Layout() Node {
 				</div>
 				<nav class="rail-nav" aria-label="Primary navigation">
 					<a href="/" data-gosx-link class="rail-link"><span class="rail-index mono">01</span>HQ</a>
+					<a href="/guide" data-gosx-link class="rail-link rail-link--guide"><span class="rail-index mono">01b</span>Guide</a>
 					<a href="/pickem" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02</span>Pick'em</a>
 					<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open}>
 						<a href="/join" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02b</span>Join a team</a>
@@ -103,10 +104,13 @@ func Layout() Node {
 						<small>{data.league.tagline}</small>
 					</span>
 				</a>
-				<a href="/login" data-gosx-link class="access-link" aria-label="League access">
-					<span class="access-light" aria-hidden="true"></span>
-					League access
-				</a>
+				<nav class="minimal-actions" aria-label="Public navigation">
+					<a href="/guide" data-gosx-link class="access-link access-link--guide">Manager guide</a>
+					<a href="/login" data-gosx-link class="access-link" aria-label="League access">
+						<span class="access-light" aria-hidden="true"></span>
+						League access
+					</a>
+				</nav>
 			</header>
 		</If>
 

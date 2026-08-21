@@ -122,6 +122,7 @@ func Page() Node {
 							Sign in with Google
 							<span aria-hidden="true">→</span>
 						</a>
+						<a href="/guide" data-gosx-link class="button button--ghost">Read the manager guide</a>
 					</div>
 					<If cond={data.viewer.demo}>
 						<p class="demo-message">
@@ -132,7 +133,7 @@ func Page() Node {
 					<div class="oss-invite">
 						<span class="section-index">RUN YOUR OWN</span>
 						<p>
-							This whole league room is open source: GoSX server, snake draft, {data.league.format_blurb}, personal big boards, a player pool with optional live data, and a commissioner console. One Go binary, your own data, MIT licensed.
+							This whole league room is open source: GoSX server, snake draft, {data.league.format_blurb}, team-seat big boards, a player pool with optional live data, and a commissioner console. One Go binary, your own data, MIT licensed.
 						</p>
 						<div class="hero-actions">
 							<a href="https://github.com/odvcencio/gridiron-2000" rel="noreferrer" class="button button--compact">Get the source ↗</a>

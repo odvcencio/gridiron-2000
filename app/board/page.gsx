@@ -74,7 +74,7 @@ func Page() Node {
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
 					<span class="live-dot" aria-hidden="true"></span>
-					PERSONAL BIG BOARD
+					TEAM BIG BOARD
 				</span>
 				<h1>
 					RANK IT
@@ -82,7 +82,7 @@ func Page() Node {
 					YOUR WAY.
 				</h1>
 				<p>
-					Your private draft order. The draft room surfaces your top available names when you are on the clock.
+					Private to this team seat and shared by its primary and co-manager. The draft room and autopick use this exact order when your team is on the clock.
 				</p>
 			</div>
 			<div class="draft-clock-panel">

@@ -203,6 +203,36 @@ func TestBoardFlowThroughService(t *testing.T) {
 	}
 }
 
+func TestBoardKeyForViewerSharesPrimaryBoardWithCoManager(t *testing.T) {
+	state := PersistedState{Members: map[string]Member{
+		"primary@example.com": {TeamID: "team-1", Email: "primary@example.com", Name: "Primary"},
+		"co@example.com":      {TeamID: "team-1", Email: "co@example.com", Name: "Co", Role: "co"},
+		"free@example.com":    {Email: "free@example.com", Name: "Free agent"},
+	}, Boards: map[string][]string{
+		"primary@example.com": {"pool-003", "pool-001"},
+		"co@example.com":      {"pool-002"},
+	}}
+
+	if got := boardKeyForViewer(state, "CO@EXAMPLE.COM"); got != "primary@example.com" {
+		t.Fatalf("co-manager board key = %q, want primary manager key", got)
+	}
+	if got := boardKeyForViewer(state, "primary@example.com"); got != "primary@example.com" {
+		t.Fatalf("primary board key = %q", got)
+	}
+	if got := boardKeyForViewer(state, "free@example.com"); got != "free@example.com" {
+		t.Fatalf("unseated board key = %q", got)
+	}
+	if got := boardKeyForViewer(state, "demo-guest"); got != "demo-guest" {
+		t.Fatalf("demo board key = %q", got)
+	}
+
+	service := newTestService(t, false)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(10), 1, "live" })
+	if got, ok := service.autopickChoice(state, "team-1"); !ok || got != "pool-003" {
+		t.Fatalf("seat autopick = %q, ok=%v; want primary/shared board head pool-003", got, ok)
+	}
+}
+
 func TestAdminGuardsAndControls(t *testing.T) {
 	service := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

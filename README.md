@@ -14,11 +14,12 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
 - An atomic local mirror of nflverse schedules, weekly injury reports, and corrected weekly player statistics under the CC-BY-4.0 license.
 - A draft pool service with a swappable provider seam: an embedded 182-player offline pool with approximate ranks, or a live Tank01 pool with ADP, projections, bye weeks, injuries, and news.
-- A personal Big Board at `/board`: every manager ranks the pool their way, and the draft room surfaces their top available targets on the clock.
+- A seat-level Big Board at `/board`: the primary and co-manager share one private order, and the draft room/autopick surface that team's top available targets on the clock.
 - A commissioner console at `/admin` (`COMMISSIONER_EMAILS`): runtime invites, seat release, and typed-confirmation draft or league resets.
 - Honest empty states: seats show `UNCLAIMED` until a manager signs in, records start `0–0`, and rosters stay empty until picks are made.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
+- A public /guide for managers arriving from another fantasy provider, with a five-minute start, commissioner checklist, draft controls, data states, and a manual migration checklist.
 
 There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
 
@@ -188,7 +189,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
 | `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |
-| `FANTASY_POOL_LIMIT` | `400` | Maximum pool size |
+| `FANTASY_POOL_LIMIT` | scaled default: `teams × roster spots × 2.5`, clamped to `200–800` | Optional maximum pool size override |
 | `AVATAR_ROOT` | `data/avatars` | Immutable avatar-object target; must remain strictly below `AVATAR_DURABLE_ROOT` |
 | `AVATAR_DURABLE_ROOT` | `data` (`/app/data` in the container) | Pre-existing PVC/storage anchor. Avatar writes never create or fsync outside this directory; custom roots require an existing matching anchor |
 | `DATA_FILE` | `data/league-state.json` | Names the data directory, and the JSON state file to import once. The league database is `league.db` beside it |
