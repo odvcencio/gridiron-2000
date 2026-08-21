@@ -82,6 +82,12 @@ func Page() Node {
 				</If>
 				<button class="filter-button" type="submit">Search</button>
 			</form>
+			<p class="scoring-note" aria-live="polite">
+				<If cond={data.pool_total > 0}>
+					Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} players · page {data.pool_page} of {data.pool_pages}
+				</If>
+				<If cond={data.pool_total == 0}>No players match this search.</If>
+			</p>
 			<If cond={data.players_empty}>
 				<div class="empty-tape">
 					<strong>NO PLAYERS MATCH</strong>
@@ -134,6 +140,7 @@ func Page() Node {
 									<input type="hidden" name="player_id" value={player.id}></input>
 									<input type="hidden" name="pos" value={data.pos}></input>
 									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="page" value={data.pool_page}></input>
 									<If cond={player.needs_drop}>
 										<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
 											<option value="">Choose a player to drop</option>
@@ -152,6 +159,7 @@ func Page() Node {
 									<input type="hidden" name="player_id" value={player.id}></input>
 									<input type="hidden" name="pos" value={data.pos}></input>
 									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="page" value={data.pool_page}></input>
 									<If cond={player.needs_drop}>
 										<select name="drop_id" aria-label={"Choose a player to drop for " + player.name}>
 											<option value="">Choose a player to drop</option>
@@ -177,6 +185,9 @@ func Page() Node {
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 									<input type="hidden" name="player_id" value={player.id}></input>
+									<input type="hidden" name="pos" value={data.pos}></input>
+									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="page" value={data.pool_page}></input>
 									<button class="board-button board-button--cut" type="submit" aria-label={"Drop " + player.name}>Drop</button>
 								</form>
 							</If>
@@ -184,6 +195,15 @@ func Page() Node {
 					</article>
 				</Each>
 			</div>
+			<nav class="pool-pagination" aria-label="Player pool pages">
+				<If cond={data.pool_has_previous}>
+					<a class="filter-button" href={data.pool_previous_href} data-gosx-link rel="prev">← Previous</a>
+				</If>
+				<span class="mono">Page {data.pool_page} / {data.pool_pages}</span>
+				<If cond={data.pool_has_next}>
+					<a class="filter-button" href={data.pool_next_href} data-gosx-link rel="next">Next →</a>
+				</If>
+			</nav>
 		</section>
 		<section class="player-pool" id="waivers">
 			<div class="pool-toolbar">
@@ -232,6 +252,9 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 								<input type="hidden" name="claim_id" value={claim.id}></input>
+								<input type="hidden" name="pos" value={data.pos}></input>
+								<input type="hidden" name="q" value={data.query}></input>
+								<input type="hidden" name="page" value={data.pool_page}></input>
 								<button class="board-button board-button--cut" type="submit" aria-label={"Cancel claim for " + claim.add_name}>Cancel</button>
 							</form>
 						</div>
