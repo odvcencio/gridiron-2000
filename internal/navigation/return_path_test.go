@@ -36,6 +36,14 @@ func TestSafeReturnPath(t *testing.T) {
 		{name: "double encoded protocol relative", raw: "/%252f%252fevil.example", want: "/"},
 		{name: "invalid utf8 escape", raw: "/draft/%ff", want: "/"},
 		{name: "nested query punctuation", raw: "/wire?tag=a+b%2Bc%26d%3De", want: "/wire?tag=a+b%2Bc%26d%3De"},
+		{name: "login endpoint", raw: "/login", want: "/"},
+		{name: "login trailing slash", raw: "/login/", want: "/"},
+		{name: "oauth start endpoint", raw: "/auth/google/start", want: "/"},
+		{name: "oauth callback endpoint", raw: "/auth/google/callback?code=stale", want: "/"},
+		{name: "logout endpoint", raw: "/auth/logout", want: "/"},
+		{name: "encoded callback endpoint", raw: "/auth%2fgoogle%2fcallback", want: "/"},
+		{name: "callback dot segments", raw: "/auth/google/./callback/", want: "/"},
+		{name: "login traversal", raw: "/draft/../login", want: "/"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -7,6 +7,7 @@ package navigation
 import (
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"unicode/utf8"
 )
@@ -58,6 +59,9 @@ func SafeReturnPath(raw string) string {
 	if strings.ContainsFunc(parsed.Path, unsafeReturnRune) {
 		return DefaultReturnPath
 	}
+	if isAuthenticationReturnPath(parsed.Path) {
+		return DefaultReturnPath
+	}
 
 	// RequestURI preserves the caller's encoded path/query while ensuring any
 	// ordinary spaces in a parsed path are escaped for the Location header.
@@ -97,4 +101,19 @@ func unsafeReturnRune(r rune) bool {
 func hasDoubleEncodedAmbiguity(raw string) bool {
 	lower := strings.ToLower(raw)
 	return strings.Contains(lower, "%255c") || strings.Contains(lower, "%252f%252f")
+}
+
+// isAuthenticationReturnPath keeps the post-authentication destination on an
+// application page. Sending a successful OAuth callback back through one of
+// the auth endpoints either restarts the flow or lands on a login page that
+// starts it again. Clean dot-segments and trailing slashes before comparing so
+// encoded or cosmetically different forms cannot reintroduce that loop.
+func isAuthenticationReturnPath(rawPath string) bool {
+	cleanPath := path.Clean(rawPath)
+	switch cleanPath {
+	case "/login", "/auth/google/start", "/auth/google/callback", "/auth/logout":
+		return true
+	default:
+		return false
+	}
 }

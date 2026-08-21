@@ -73,3 +73,25 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 		t.Fatalf("hostile next leaked into login HTML: %s", hostile)
 	}
 }
+func TestLoginPageFallsBackFromAuthenticationReturnTargets(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "login page", target: "%2Flogin"},
+		{name: "oauth start", target: "%2Fauth%2Fgoogle%2Fstart"},
+		{name: "oauth callback", target: "%2Fauth%2Fgoogle%2Fcallback%3Fcode%3Dstale"},
+		{name: "login traversal", target: "%2Fdraft%2F..%2Flogin"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rendered := renderLoginPage(t, tt.target)
+			if strings.Contains(rendered, "login-return-note") {
+				t.Fatalf("authentication endpoint target rendered a return note: %s", rendered)
+			}
+			if !strings.Contains(rendered, "auth/google/start?next=%2F") {
+				t.Fatalf("authentication endpoint target did not fall back to root CTA: %s", rendered)
+			}
+		})
+	}
+}
