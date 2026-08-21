@@ -5,12 +5,14 @@ import (
 	"net/http"
 )
 
-// BoardData assembles the personal draft board page: the viewer's ranked
-// list plus the remaining pool to add from, both in draft-relevant order.
+// BoardData assembles the seat's shared draft board page: the ranked list
+// plus the remaining pool to add from, both in draft-relevant order. Primary
+// and co-managers resolve to the same key so the board shown to either person
+// is the board the draft clock will actually use for that team.
 func (s *Service) BoardData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
-	key := s.viewerKey(r)
 	state := s.store.Snapshot()
+	key := boardKeyForViewer(state, s.viewerKey(r))
 	pool := s.pool()
 	// Resolve commissioner scoring overrides once so board tooltips show the
 	// same breakdown math as the draft room.
@@ -61,11 +63,32 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 }
 
 func (s *Service) boardOwner(r *http.Request) (string, error) {
-	key := s.viewerKey(r)
+	key := boardKeyForViewer(s.store.Snapshot(), s.viewerKey(r))
 	if key == "" {
 		return "", fmt.Errorf("sign in to build a draft board")
 	}
 	return key, nil
+}
+
+// boardKeyForViewer returns the durable owner key for a draft board. A seated
+// viewer, including a co-manager, uses the primary member's normalized email;
+// this preserves existing primary-manager boards while making the board a
+// truthful seat-level draft control. Unseated managers keep a personal board
+// until they claim a seat, and demo mode's shared guest key passes through.
+func boardKeyForViewer(state PersistedState, viewerKey string) string {
+	viewerKey = normalizeEmail(viewerKey)
+	if viewerKey == "" || viewerKey == "demo-guest" {
+		return viewerKey
+	}
+	member, ok := state.Members[viewerKey]
+	if !ok || member.TeamID == "" {
+		return viewerKey
+	}
+	primary := memberForTeam(state.Members, member.TeamID)
+	if key := normalizeEmail(primary.Email); key != "" {
+		return key
+	}
+	return viewerKey
 }
 
 // BoardAdd puts a pool player on the viewer's board.

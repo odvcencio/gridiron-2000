@@ -1532,7 +1532,7 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		canPick = true
 	}
 	boardPanel := make([]map[string]any, 0, 5)
-	for _, id := range state.Boards[s.viewerKey(r)] {
+	for _, id := range state.Boards[boardKeyForViewer(state, s.viewerKey(r))] {
 		if picked[id] {
 			continue
 		}

@@ -45,6 +45,7 @@ func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
 	root := t.TempDir()
 	for _, name := range []string{
 		"page.html",
+		"guide/page.html",
 		"login/page.html",
 		"privacy/page.html",
 		"terms/page.html",
@@ -111,6 +112,7 @@ func TestFileRouteAuthMiddlewareOnlyRunsAfterAFileRouteMatches(t *testing.T) {
 		{name: "unknown get", method: http.MethodGet, target: "/does-not-exist?x=1", wantStatus: http.StatusNotFound},
 		{name: "unknown head", method: http.MethodHead, target: "/does-not-exist?x=1", wantStatus: http.StatusNotFound},
 		{name: "public root", method: http.MethodGet, target: "/", wantStatus: http.StatusOK},
+		{name: "public guide", method: http.MethodGet, target: "/guide", wantStatus: http.StatusOK},
 		{name: "public login", method: http.MethodGet, target: "/login", wantStatus: http.StatusOK},
 		{name: "public privacy", method: http.MethodGet, target: "/privacy", wantStatus: http.StatusOK},
 		{name: "public terms", method: http.MethodGet, target: "/terms", wantStatus: http.StatusOK},

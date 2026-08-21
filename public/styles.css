@@ -1611,6 +1611,326 @@ button.badge-option:hover {
   font-size: var(--type-sm);
 }
 
+/* Season guide: dense information architecture with the same chrome, signal,
+   and terminal vocabulary as the league surfaces. The layout stays readable
+   without JavaScript and collapses to one column before card copy becomes
+   cramped. */
+.minimal-actions,
+.guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.minimal-actions {
+  justify-content: flex-end;
+}
+
+.access-link--guide,
+.rail-link--guide .rail-index {
+  color: var(--color-accent);
+}
+
+.guide-page {
+  padding-bottom: var(--space-3xl);
+}
+
+.guide-masthead {
+  padding: var(--space-xl) 0;
+}
+
+.guide-lede {
+  max-width: 46rem;
+  color: var(--color-text-secondary);
+  font-size: var(--type-lg);
+  line-height: 1.65;
+}
+
+.guide-console > div:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.guide-toc {
+  position: sticky;
+  top: var(--space-sm);
+  z-index: 10;
+  margin: 0 0 var(--space-2xl);
+  padding: var(--space-sm);
+  display: flex;
+  gap: var(--space-xs);
+  overflow-x: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-canvas-deep) 94%, transparent);
+  box-shadow: var(--shadow-panel);
+  scrollbar-width: thin;
+}
+
+.guide-toc a {
+  flex: 0 0 auto;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  text-decoration: none;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.guide-toc a:hover,
+.guide-toc a:focus-visible {
+  border-color: var(--color-border-strong);
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+.guide-section {
+  margin: 0 0 var(--space-2xl);
+  padding: var(--space-2xl);
+  scroll-margin-top: 5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-panel-deep);
+  box-shadow: var(--shadow-panel);
+}
+
+.guide-section--accent {
+  border-color: var(--color-border-strong);
+  background:
+    linear-gradient(135deg, var(--color-accent-haze), transparent 42%),
+    var(--color-panel-deep);
+}
+
+.guide-section__heading {
+  max-width: 56rem;
+  margin-bottom: var(--space-xl);
+}
+
+.guide-section__heading h2,
+.guide-next h2 {
+  margin: var(--space-xs) 0;
+}
+
+.guide-section__heading p,
+.guide-next p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.65;
+}
+
+.guide-steps,
+.guide-checklist,
+.guide-bullets {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-steps,
+.guide-checklist {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.guide-steps > li {
+  padding: var(--space-md);
+  display: grid;
+  grid-template-columns: 3rem minmax(0, 1fr);
+  gap: var(--space-md);
+  border-left: 2px solid var(--color-accent);
+  background: var(--color-white-faint);
+}
+
+.guide-step__mark {
+  color: var(--color-accent);
+  font-size: var(--type-sm);
+  font-weight: 800;
+}
+
+.guide-steps h3,
+.guide-card h3,
+.guide-compare h3,
+.guide-math h3,
+.guide-migration h3 {
+  margin: 0 0 var(--space-xs);
+}
+
+.guide-steps p,
+.guide-card p,
+.guide-compare p,
+.guide-math p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.guide-card p + p,
+.guide-compare p + p,
+.guide-math p + p {
+  margin-top: var(--space-md);
+}
+
+.guide-steps a,
+.guide-card a,
+.guide-compare a,
+.guide-math a,
+.guide-checklist a {
+  color: var(--color-accent);
+}
+
+.guide-checklist > li {
+  padding: var(--space-md);
+  display: grid;
+  grid-template-columns: minmax(11rem, 0.34fr) minmax(0, 1fr);
+  gap: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.guide-checklist > li:last-child {
+  border-bottom: 0;
+}
+
+.guide-checklist strong {
+  color: var(--color-text-primary);
+}
+
+.guide-checklist span {
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.guide-callout,
+.guide-math {
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border-strong);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-glass);
+}
+
+.guide-callout--alert {
+  border-left-color: var(--color-accent-hot);
+  background: var(--color-hot-haze);
+}
+
+.guide-card-grid,
+.guide-compare {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.guide-card-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.guide-card-grid--two,
+.guide-compare {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guide-card,
+.guide-compare__panel {
+  min-width: 0;
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-glass);
+}
+
+.guide-compare__panel--signal {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-haze);
+}
+
+.guide-card__link {
+  margin-top: var(--space-md);
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 800;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.guide-bullets {
+  margin-top: var(--space-md);
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.guide-bullets li {
+  padding-left: 1rem;
+  position: relative;
+  color: var(--color-text-secondary);
+  line-height: 1.55;
+}
+
+.guide-bullets li::before {
+  position: absolute;
+  left: 0;
+  color: var(--color-accent);
+  content: "▸";
+}
+
+.guide-formula {
+  margin: var(--space-md) 0 !important;
+  padding: var(--space-md);
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-canvas-deep);
+}
+
+.guide-formula code {
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.guide-details {
+  margin-top: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.guide-details summary {
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-weight: 800;
+}
+
+.guide-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0.25rem;
+}
+
+.guide-details p {
+  margin: var(--space-md) 0 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.guide-migration {
+  margin-top: var(--space-lg);
+}
+
+.guide-next {
+  padding: var(--space-2xl);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-xl);
+  border-top: 1px solid var(--color-border-strong);
+}
+
 .matchup-layout,
 .team-layout,
 .draft-workspace {
@@ -4024,6 +4344,17 @@ body.is-on-clock .draft-clock-panel {
     grid-template-columns: 1fr;
   }
 
+  .guide-card-grid--three,
+  .guide-card-grid--two,
+  .guide-compare,
+  .guide-next {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-next {
+    align-items: start;
+  }
+
   .hero-command {
     padding: var(--space-xl) 0;
   }
@@ -4158,6 +4489,25 @@ body.is-on-clock .draft-clock-panel {
 
   h1 {
     font-size: var(--type-3xl);
+  }
+
+  .guide-section,
+  .guide-next {
+    padding: var(--space-lg);
+  }
+
+  .guide-steps > li,
+  .guide-checklist > li {
+    grid-template-columns: 1fr;
+  }
+
+  .guide-step__mark {
+    padding-bottom: var(--space-xs);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .guide-toc {
+    margin-bottom: var(--space-xl);
   }
 
   .score-command,
@@ -4851,8 +5201,27 @@ body.is-on-clock .draft-clock-panel {
     width: auto;
   }
 
-  .minimal-bar > .access-link {
-    flex: 0 1 auto;
+  .minimal-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .minimal-actions .access-link {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .guide-section,
+  .guide-next,
+  .guide-card,
+  .guide-compare__panel,
+  .guide-math {
+    padding: var(--space-md);
+  }
+
+  .guide-actions .button {
+    width: 100%;
   }
 
   .brand-badge {
