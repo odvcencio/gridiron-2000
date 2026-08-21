@@ -40,10 +40,10 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # The release commit that follows the image build replaces this
-          # mutable bootstrap reference with the pushed image digest.
-          image: harbor.draco.quest/orchard/gridiron-2000:latest
-          imagePullPolicy: Always
+          # release-2026.08.21-9927faa; built from
+          # 9927faabd7af209ea1d202268071b3bf50102422.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:779f0556b66a1daa29796ac7b957e76b313b59e11b2e4e1c901c80aa3ee034ce
+          imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
