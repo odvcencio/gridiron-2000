@@ -441,6 +441,14 @@ func parseBool(value string, fallback bool) bool {
 
 func (s *Service) DraftAt() time.Time { return s.draftAt }
 
+func (s *Service) DraftLifecycle() (bool, time.Time) {
+	state := PersistedState{}
+	if s.store != nil {
+		state = s.store.Snapshot()
+	}
+	return state.DraftStarted, state.DraftStartedAt
+}
+
 func (s *Service) DemoMode() bool { return s.demoMode }
 
 // EmailAllowed reports whether the email may join the league (registration
@@ -1517,8 +1525,9 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 	onClockID := teamOnClock(state.DraftOrder, nextNumber)
 	onClock := s.teamView(state, onClockID)
 	viewerTeam, _ := viewer["team_id"].(string)
-	canPick := now.After(s.draftAt) && viewerTeam == onClockID
-	if s.demoMode {
+	draftOpen := state.DraftStarted || s.store.draftLifecycleBypass
+	canPick := draftOpen && viewerTeam == onClockID
+	if s.demoMode && draftOpen {
 		canPick = true
 	}
 	boardPanel := make([]map[string]any, 0, 5)
@@ -1787,15 +1796,10 @@ func (s *Service) actingTeam(r *http.Request, requested string) (string, error) 
 	return "", fmt.Errorf("Google sign-in is required for league actions")
 }
 
-// draftIsLive reports whether picks (manual or a commissioner's forced
-// auto-pick) may currently be recorded: always true in demo mode
-// (rehearsals bypass the gate; see service.go's can_pick logic in
-// DraftData), otherwise true once now reaches draftAt.
-func (s *Service) draftIsLive(now time.Time) bool {
-	if s.demoMode {
-		return true
-	}
-	return !now.Before(s.draftAt)
+// draftIsLive reports the persisted commissioner-controlled lifecycle.
+// The scheduled timestamp is deliberately not an authorization source.
+func (s *Service) draftIsLive(_ time.Time) bool {
+	return s.store.Snapshot().DraftStarted || s.store.draftLifecycleBypass
 }
 
 func (s *Service) draftSummary(now time.Time) map[string]any {
@@ -1811,8 +1815,20 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 	statusLabel := "SCHEDULED WINDOW"
 	statusNote := "The commissioner controls when the room opens. This is the scheduled draft window."
 	if !now.Before(s.draftAt) {
-		statusLabel = "WINDOW REACHED"
-		statusNote = "The scheduled window has arrived. Check the draft room for the commissioner's start signal."
+		statusLabel = "AWAITING COMMISSIONER"
+		statusNote = "The scheduled window has arrived. The room stays closed until the commissioner starts it."
+	}
+	state := PersistedState{}
+	if s.store != nil {
+		state = s.store.Snapshot()
+	}
+	if state.DraftStarted {
+		statusLabel = "LIVE"
+		statusNote = "The commissioner opened the room. Pick one is on the clock."
+	}
+	startedAt := ""
+	if !state.DraftStartedAt.IsZero() {
+		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
 	return map[string]any{
 		"at":              s.draftAt.Format(time.RFC3339),
@@ -1822,7 +1838,8 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"timezone":        timezone,
 		"long_date":       local.Format("Monday, January 2, 2006"),
 		"format":          s.draftFormatLabel(),
-		"started":         !now.Before(s.draftAt),
+		"started":         state.DraftStarted,
+		"started_at":      startedAt,
 		"window_reached":  !now.Before(s.draftAt),
 		"status_label":    statusLabel,
 		"status_note":     statusNote,

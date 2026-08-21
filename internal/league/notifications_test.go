@@ -29,6 +29,7 @@ func newNotifyTestService(t *testing.T, draftAt, start time.Time) (*Service, *ti
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	svc.store.draftLifecycleBypass = true
 	queue := notify.New(func(notify.Message) error { return nil }, func(string, ...any) {})
 	svc.SetNotifier(queue, true)
 	return svc, &clock
@@ -495,6 +496,7 @@ func TestDraftCompleteDerivation(t *testing.T) {
 		statePath := filepath.Join(t.TempDir(), "state.json")
 		svc, _ := newNotifyTestService(t, draftAt, draftAt)
 		svc.store = NewStore(statePath)
+		svc.store.draftLifecycleBypass = true
 		lastPickAt := draftAt.Add(3 * time.Hour)
 		setupComplete(t, svc, lastPickAt)
 

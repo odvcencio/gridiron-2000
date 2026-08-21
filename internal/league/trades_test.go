@@ -256,6 +256,7 @@ func newTradesTestService(t *testing.T, skipManagerTeamID string) (svc *Service,
 		presence: newPresenceTracker(now.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	svc.store.draftLifecycleBypass = true
 	queue := notify.New(func(notify.Message) error { return nil }, func(string, ...any) {})
 	svc.SetNotifier(queue, true)
 

@@ -12,8 +12,10 @@ import (
 func newTestService(t *testing.T, demo bool) *Service {
 	t.Helper()
 	avatarAnchor := t.TempDir()
+	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+	store.draftLifecycleBypass = true
 	return &Service{
-		store:             NewStore(filepath.Join(t.TempDir(), "state.json")),
+		store:             store,
 		feed:              newLiveFeed(nil),
 		draftAt:           time.Now().Add(-time.Hour),
 		demoMode:          demo,

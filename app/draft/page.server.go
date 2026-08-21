@@ -91,10 +91,12 @@ func init() {
 			}
 			data["has_pick_error"] = false
 			data["pick_error"] = ""
-			if view, ok := ctx.ActionState("make-pick"); ok {
-				if message := view.Error("player_id"); message != "" {
-					data["has_pick_error"] = true
-					data["pick_error"] = message
+			for _, name := range []string{"make-pick", "draft-start"} {
+				if view, ok := ctx.ActionState(name); ok {
+					if message := view.Error("player_id"); message != "" {
+						data["has_pick_error"] = true
+						data["pick_error"] = message
+					}
 				}
 			}
 			return data, nil
@@ -106,6 +108,21 @@ func init() {
 			}, nil
 		},
 		Actions: route.FileActions{
+			"draft-start": func(ctx *action.Context) error {
+				if strings.TrimSpace(ctx.FormData["confirm"]) != "START" {
+					message := "type START to confirm"
+					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
+				}
+				started, err := league.Default().AdminStartDraft(ctx.Request)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+				}
+				if started {
+					session.AddFlash(ctx.Request, "notice", "Draft started. Pick one is on the clock.")
+				}
+				ctx.Redirect("/draft")
+				return nil
+			},
 			// The commissioner clock controls render on THIS page (the
 			// clock panel in page.gsx) and actionPath resolves against the
 			// draft module, so the five clock actions must be registered

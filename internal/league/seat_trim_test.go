@@ -108,6 +108,7 @@ func TestTrimUnclaimedSeatsLocksOnceDraftStarts(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
+	startTestDraft(t, svc.store)
 	if _, err := svc.store.MakePick(all[0].ID, "p-01", "manager", time.Now(), time.Time{}); err != nil {
 		t.Fatalf("MakePick: %v", err)
 	}

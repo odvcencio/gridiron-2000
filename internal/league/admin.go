@@ -109,10 +109,11 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// rejects a late trim anyway ("seats lock once the draft starts"),
 		// but a live draft is the worst moment to offer a commissioner a
 		// button whose only outcome is an error.
-		"draft_started":  len(state.Picks) > 0,
-		"pool":           s.poolStatusMap(),
-		"mail_enabled":   mailer.FromEnv().Enabled(),
-		"invite_preview": map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
+		"draft_started":          state.DraftStarted,
+		"draft_required_players": len(s.Teams()) * CurrentDraftRounds(),
+		"pool":                   s.poolStatusMap(),
+		"mail_enabled":           mailer.FromEnv().Enabled(),
+		"invite_preview":         map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
 		// Draft clock card: armed/paused state, both deadlines, and where
 		// the duration comes from (env default or a commissioner override).
 		"clock":                 s.clockView(state, now),
@@ -177,7 +178,7 @@ func (s *Service) rosterShapeMap(state PersistedState) map[string]any {
 		"starters":      roster.Starters(),
 		"rounds":        roster.Total(),
 		"has_override":  state.RosterOverride != nil,
-		"draft_started": len(state.Picks) > 0,
+		"draft_started": state.DraftStarted,
 		// Zones/Limits (roster-ops SK spec): additive fields onto the same
 		// panel. reserve_total counts toward rounds; ir sits outside it.
 		"reserve_rows":  reserveRows,
@@ -724,6 +725,43 @@ func (s *Service) AdminResumeClock(r *http.Request) error {
 	}
 	state := s.store.Snapshot()
 	return s.store.ResumeClock(s.clock(), s.pickClock(state))
+}
+
+// AdminStartDraft deliberately opens the draft and starts pick one's clock.
+// Scheduled time is informational; commissioners may start early or late.
+func (s *Service) AdminStartDraft(r *http.Request) (bool, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return false, err
+	}
+	state := s.store.Snapshot()
+	if state.DraftStarted {
+		return false, nil
+	}
+	pool := s.pool()
+	required := len(s.Teams()) * CurrentDraftRounds()
+	if err := draftStartReadiness(pool, s.demoMode, required); err != nil {
+		return false, err
+	}
+	return s.store.StartDraft(s.clock(), s.pickClock(state))
+}
+
+func draftStartReadiness(pool playerPool, demo bool, required int) error {
+	if !demo && pool.label != "live" && pool.label != "cache" {
+		return fmt.Errorf("the live player pool is not ready (mode %s)", pool.label)
+	}
+	// byID deliberately also contains the embedded rehearsal players so old
+	// demo picks keep resolving after a live source is attached. Only the
+	// source slice proves that the current draft pool is large enough.
+	uniqueSourcePlayers := make(map[string]struct{}, len(pool.players))
+	for _, player := range pool.players {
+		if id := strings.TrimSpace(player.ID); id != "" {
+			uniqueSourcePlayers[id] = struct{}{}
+		}
+	}
+	if len(uniqueSourcePlayers) < required {
+		return fmt.Errorf("player source has %d unique players; %d are required", len(uniqueSourcePlayers), required)
+	}
+	return nil
 }
 
 // AdminUndoPick removes the most recent pick and re-arms the clock for

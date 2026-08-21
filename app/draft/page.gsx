@@ -181,21 +181,22 @@ func Page() Node {
 					<br></br>
 					THE FUTURE.
 				</h1>
-				<p>
-					{data.draft.format}
-					. The room switches from rehearsal to live mode at
-					{data.draft.time}
-					.
-				</p>
+				<p>{data.draft.format}. {data.draft.status_note}</p>
 			</div>
 			<div class="draft-clock-panel">
-				<span>Room opens in</span>
-				<strong
+				<If cond={data.draft.started == false}>
+					<span>Scheduled window</span>
+					<strong
 					class="mono"
 					data-gosx-countdown={data.draft.at}
 					data-gosx-countdown-format="dhms"
 					data-gosx-countdown-then="revalidate"
-				>{data.draft.countdown_label}</strong>
+					>{data.draft.countdown_label}</strong>
+				</If>
+				<If cond={data.draft.started}>
+					<span>Draft status</span>
+					<strong class="mono">LIVE</strong>
+				</If>
 				<div class="draft-clock-meta">
 					<span>
 						{data.ready_count}
@@ -265,7 +266,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
-					picks are enabled before the room goes live and control the current team on the clock.
+					the commissioner must still type START; after that, rehearsal picks control the current team on the clock.
 				</p>
 			</If>
 			<If cond={data.pool_live == false}>
@@ -357,6 +358,16 @@ func Page() Node {
 					<span class="section-index">COMMISSIONER // CLOCK</span>
 					<span class="mono">{data.clock.reason}</span>
 				</header>
+				<If cond={data.draft.started == false}>
+					<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<label class="mono" for="draft-start-confirm">TYPE START //</label>
+						<input id="draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
+						<button class="button button--primary" type="submit">Start draft + pick clock</button>
+					</form>
+					<p class="scoring-note">This is intentional and immediate. The scheduled window does not start the draft.</p>
+				</If>
+				<If cond={data.draft.started}>
 				<div class="clock-controls">
 					<form method="post" action={actionPath("clock-pause")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -381,6 +392,7 @@ func Page() Node {
 						<button class="button button--compact button--ghost" type="submit">Force autopick</button>
 					</form>
 				</div>
+				</If>
 			</section>
 		</If>
 		<div class="pool-count-bar">

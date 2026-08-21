@@ -84,6 +84,7 @@ func TestSetRosterOverrideLocksAfterFirstPick(t *testing.T) {
 	if err := store.SetRosterOverride(validGridironShape()); err != nil {
 		t.Fatalf("valid override before any pick must be accepted: %v", err)
 	}
+	startTestDraft(t, store)
 
 	if _, err := store.MakePick("team-1", "p-01", "manager", time.Now(), time.Time{}); err != nil {
 		t.Fatal(err)

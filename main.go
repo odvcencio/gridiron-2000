@@ -229,6 +229,11 @@ func main() {
 		wireStatus := signalFeed.Status()
 		openStatus := openStats.Status()
 		poolStatus := fantasyPool.Status()
+		draftStarted, draftStartedAt := league.Default().DraftLifecycle()
+		draftStartedAtText := ""
+		if !draftStartedAt.IsZero() {
+			draftStartedAtText = draftStartedAt.Format(time.RFC3339)
+		}
 		persistenceErr := league.Default().PersistenceError()
 		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
 		if persistenceStatus != http.StatusOK {
@@ -256,6 +261,8 @@ func main() {
 			"fantasyPoolScoring":   poolStatus.Scoring,
 			"fantasyPoolError":     poolStatus.LastError,
 			"draftAt":              league.Default().DraftAt().Format(time.RFC3339),
+			"draftStarted":         draftStarted,
+			"draftStartedAt":       draftStartedAtText,
 			// leagueConfig: "defaults" on an unconfigured checkout, or
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).

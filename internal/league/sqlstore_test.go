@@ -105,9 +105,11 @@ func realisticFixture() PersistedState {
 			"one@example.com": {"p-01", "p-02", "p-03"},
 			"two@example.com": {},
 		},
-		TeamNames:  map[string]string{"team-1": "Rolling Thunder", "team-4": "Fourth Wall"},
-		DraftOrder: []string{"team-3", "team-1", "team-2", "team-4", "team-5", "team-6", "team-7", "team-8"},
-		Scoring:    map[string]float64{"passing_td": 6, "reception": 0.5, "fumble_lost": -2.5},
+		TeamNames:      map[string]string{"team-1": "Rolling Thunder", "team-4": "Fourth Wall"},
+		DraftOrder:     []string{"team-3", "team-1", "team-2", "team-4", "team-5", "team-6", "team-7", "team-8"},
+		Scoring:        map[string]float64{"passing_td": 6, "reception": 0.5, "fumble_lost": -2.5},
+		DraftStarted:   true,
+		DraftStartedAt: at(1, 16),
 		Pickems: map[string]map[string]string{
 			"one@example.com": {"2026-w01-KC-BAL": "KC", "2026-w01-DAL-PHI": "PHI"},
 			"two@example.com": {},
@@ -319,6 +321,9 @@ func diffStates(t *testing.T, want, got PersistedState) string {
 	gotValue := reflect.ValueOf(got)
 	var b strings.Builder
 	for i := 0; i < wantValue.NumField(); i++ {
+		if !wantValue.Field(i).CanInterface() {
+			continue
+		}
 		if reflect.DeepEqual(wantValue.Field(i).Interface(), gotValue.Field(i).Interface()) {
 			continue
 		}
@@ -697,9 +702,9 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotVersion int
-	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&gotVersion); err != nil || gotVersion != 2 {
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&gotVersion); err != nil || gotVersion != 3 {
 		_ = store.Close()
-		t.Fatalf("migrated user_version = %d (err %v), want 2", gotVersion, err)
+		t.Fatalf("migrated user_version = %d (err %v), want 3", gotVersion, err)
 	}
 	var tableName string
 	if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'avatar_refs'`).Scan(&tableName); err != nil {
@@ -894,6 +899,7 @@ func TestPersistFailureLeavesStoredStateIntact(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "league-state.json")
 	store := NewStore(path)
+	store.draftLifecycleBypass = true
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	if _, err := store.MakePick(teamOnClock(nil, 1), "p-01", "manager", now, time.Time{}); err != nil {
@@ -1122,6 +1128,7 @@ func TestCrashHelperProcess(t *testing.T) {
 	}
 	path := os.Getenv("GRIDIRON_CRASH_PATH")
 	store := NewStore(path)
+	store.draftLifecycleBypass = true
 	if err := store.StartupError(); err != nil {
 		t.Fatal(err)
 	}
@@ -1212,6 +1219,7 @@ func TestPersistWritesOnlyChangedRows(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "league-state.json")
 	store := NewStore(path)
+	store.draftLifecycleBypass = true
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
@@ -1254,6 +1262,7 @@ func TestRarelyExercisedMutatorsDeclareTheirCollections(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "league-state.json")
 	store := NewStore(path)
+	store.draftLifecycleBypass = true
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 

@@ -560,6 +560,9 @@ func draftReminderWindow(draftAt time.Time, hours int) (start, end time.Time) {
 // next tick); inside the window, build and send; a window that already
 // closed is recorded without a send — a stale reminder is worse than none.
 func (s *Service) evalDraftReminders(state PersistedState, now time.Time) {
+	if state.DraftStarted {
+		return
+	}
 	for _, lead := range reminderLeads {
 		start, end := draftReminderWindow(s.draftAt, lead.hours)
 		if now.Before(start) {
@@ -604,7 +607,7 @@ func draftReminderSubject(hours int, shortDate, draftTime string) (subject, tCod
 	if hours == 24 {
 		return fmt.Sprintf("T-MINUS 24 HOURS — draft %s · %s", shortDate, draftTime), "T-24H", "24 hours"
 	}
-	return fmt.Sprintf("T-MINUS 1 HOUR — the clock arms at %s", draftTime), "T-1H", "1 hour"
+	return fmt.Sprintf("T-MINUS 1 HOUR — scheduled for %s; commissioner start required", draftTime), "T-1H", "1 hour"
 }
 
 func (s *Service) buildDraftReminder(state PersistedState, member Member, lead reminderLead) renderedNotification {
@@ -620,7 +623,7 @@ func (s *Service) buildDraftReminder(state PersistedState, member Member, lead r
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: "THE CLOCK IS COMING.",
-			Lede: fmt.Sprintf("%s. %d-second picks. The clock arms in %s — get your board ready.",
+			Lede: fmt.Sprintf("%s. %d-second picks. Scheduled in %s; the commissioner starts the room — get your board ready.",
 				format, int(duration.Seconds()), leadLabel),
 		},
 		emailkit.Panel{Rows: []emailkit.PanelRow{
@@ -649,7 +652,7 @@ func (s *Service) buildDraftReminderInvitee(state PersistedState, email string, 
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: "THE CLOCK IS COMING.",
-			Lede: fmt.Sprintf("%s. %d-second picks. The clock arms in %s. Claim your seat before the room fills.",
+			Lede: fmt.Sprintf("%s. %d-second picks. Scheduled in %s; the commissioner starts the room. Claim your seat before it fills.",
 				format, int(duration.Seconds()), leadLabel),
 		},
 		emailkit.Panel{Rows: []emailkit.PanelRow{

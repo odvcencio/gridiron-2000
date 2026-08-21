@@ -115,7 +115,7 @@ func TestStorePersistMutatorsHaveEarlyWriteGate(t *testing.T) {
 func expectedStorePersistMutators() map[persistCallerID]struct{} {
 	names := []string{
 		"ToggleReady", "MakePick", "UndoLastPick", "AutoPick",
-		"ArmClock", "PauseClock", "ResumeClock", "ExtendClock",
+		"ArmClock", "StartDraft", "PauseClock", "ResumeClock", "ExtendClock",
 		"SetClockDuration", "ClearClock", "SetAutopick",
 		"AssignMember", "EnsureMember", "AddInvite", "RemoveInvite",
 		"ReleaseSeat", "InviteCoManager", "BindCoManager", "DetachCoManager",

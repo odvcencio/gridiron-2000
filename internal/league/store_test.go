@@ -15,7 +15,19 @@ import (
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	return NewStore(filepath.Join(t.TempDir(), "state.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+	store.draftLifecycleBypass = true
+	return store
+}
+
+func startTestDraft(t *testing.T, store *Store) {
+	t.Helper()
+	if started, err := store.StartDraft(time.Now(), DefaultPickClock); err != nil || !started {
+		t.Fatalf("start test draft = %v, %v", started, err)
+	}
+	if err := store.ClearClock(); err != nil {
+		t.Fatalf("clear test clock: %v", err)
+	}
 }
 
 func TestInvites(t *testing.T) {
@@ -330,6 +342,7 @@ func TestSetDraftOrder(t *testing.T) {
 	if got := store.Snapshot().DraftOrder; !reflect.DeepEqual(got, custom) {
 		t.Fatalf("draft order = %v, want %v", got, custom)
 	}
+	startTestDraft(t, store)
 
 	if _, err := store.MakePick(custom[0], "p-01", "manager", time.Now(), time.Time{}); err != nil {
 		t.Fatal(err)
@@ -614,6 +627,7 @@ func TestAutoPickStaleGuards(t *testing.T) {
 func TestPauseResumeExtendRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store := NewStore(path)
+	startTestDraft(t, store)
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	if err := store.ArmClock(now.Add(40 * time.Second)); err != nil {
 		t.Fatal(err)

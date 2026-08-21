@@ -76,7 +76,7 @@ func (s *Service) StartDraftClock(ctx context.Context) {
 // outage. A future deadline or a paused/unarmed clock is untouched.
 func (s *Service) bootRecoverClock(now time.Time) {
 	state := s.store.Snapshot()
-	if state.ClockPaused || state.ClockDeadline.IsZero() {
+	if !state.DraftStarted || state.ClockPaused || state.ClockDeadline.IsZero() {
 		return
 	}
 	if state.ClockDeadline.After(now) {
@@ -97,6 +97,9 @@ func (s *Service) bootRecoverClock(now time.Time) {
 func (s *Service) clockTick(now time.Time) {
 	state := s.store.Snapshot()
 	totalPicks := len(defaultTeams()) * CurrentDraftRounds()
+	if !state.DraftStarted {
+		return
+	}
 
 	// 1-2. Draft complete: clear a leftover deadline once, then idle.
 	if len(state.Picks) >= totalPicks {
@@ -114,17 +117,8 @@ func (s *Service) clockTick(now time.Time) {
 		return
 	}
 
-	// 4. Live gate: live mode requires now past draftAt; demo mode never
-	// self-arms — only a commissioner resume arms it (section 8.5).
-	if s.demoMode {
-		if state.ClockDeadline.IsZero() {
-			return
-		}
-	} else if now.Before(s.draftAt) {
-		return
-	}
-
-	// 5. Unarmed: arm the first deadline and let the next tick evaluate it.
+	// 4-5. The explicit start normally arms the first deadline atomically.
+	// If a later pick/reset path leaves an open draft unarmed, re-arm it.
 	if state.ClockDeadline.IsZero() {
 		if err := s.store.ArmClock(now.Add(s.pickClock(state))); err != nil {
 			log.Printf("draft clock: arm failed: %v", err)

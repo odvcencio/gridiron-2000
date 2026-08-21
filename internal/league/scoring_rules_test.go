@@ -22,7 +22,7 @@ import (
 // comment in config.go for why tests never call it).
 func newRulesTestService(t *testing.T, cfg Config, draftAt time.Time) *Service {
 	t.Helper()
-	return &Service{
+	svc := &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
 		draftAt:  draftAt,
 		demoMode: true,
@@ -30,6 +30,8 @@ func newRulesTestService(t *testing.T, cfg Config, draftAt time.Time) *Service {
 		players:  defaultPlayers(),
 		cfg:      cfg,
 	}
+	svc.store.draftLifecycleBypass = true
+	return svc
 }
 
 // rulesFixtureConfig returns a legal, distinct Config for the isolation

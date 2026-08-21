@@ -78,8 +78,8 @@ func TestDraftSummaryNamesScheduledWindowAndTimezone(t *testing.T) {
 	}
 
 	after := service.draftSummary(service.draftAt.Add(time.Minute))
-	if got := after["status_label"]; got != "WINDOW REACHED" {
-		t.Errorf("after status_label = %v, want WINDOW REACHED", got)
+	if got := after["status_label"]; got != "AWAITING COMMISSIONER" {
+		t.Errorf("after status_label = %v, want AWAITING COMMISSIONER", got)
 	}
 	if got := after["window_reached"]; got != true {
 		t.Errorf("after window_reached = %v, want true", got)
