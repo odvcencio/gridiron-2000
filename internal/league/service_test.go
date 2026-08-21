@@ -54,8 +54,11 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
 	data := service.DraftData(request)
 	available, ok := data["available"].([]map[string]any)
-	if !ok || len(available) != 150 {
-		t.Fatalf("available = %d, want 150", len(available))
+	if !ok || len(available) != poolPageSize {
+		t.Fatalf("available = %d, want first page size %d", len(available), poolPageSize)
+	}
+	if data["pool_total"] != 150 || data["pool_page"] != 1 || data["pool_pages"] != 3 {
+		t.Fatalf("pagination = total %v page %v/%v, want 150 page 1/3", data["pool_total"], data["pool_page"], data["pool_pages"])
 	}
 	if available[0]["rank"] != "001" || available[0]["name"] != "Pool Player 001" {
 		t.Errorf("head of pool wrong: %+v", available[0])
@@ -76,10 +79,47 @@ func TestEmptySourceFallsBackToDemoPool(t *testing.T) {
 	data := service.DraftData(request)
 	available, _ := data["available"].([]map[string]any)
 	if len(available) != len(defaultPlayers()) {
-		t.Fatalf("fallback pool = %d players", len(available))
+		t.Fatalf("fallback pool first page = %d players, want %d", len(available), len(defaultPlayers()))
+	}
+	if data["pool_total"] != len(defaultPlayers()) {
+		t.Fatalf("fallback pool total = %v, want %d", data["pool_total"], len(defaultPlayers()))
 	}
 	if data["pool_label"] != "demo" {
 		t.Errorf("pool_label = %v", data["pool_label"])
+	}
+}
+
+func TestDraftDataServerFiltersAndClampsPoolPages(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(123)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 7, "live" })
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft?pos=WR&q=pool&page=99", nil)
+	data := service.DraftData(request)
+	available, ok := data["available"].([]map[string]any)
+	if !ok {
+		t.Fatal("available must be a typed player row slice")
+	}
+	if len(available) != 21 {
+		t.Fatalf("filtered final page = %d rows, want 21", len(available))
+	}
+	if data["pool_total"] != 21 || data["pool_page"] != 1 || data["pool_pages"] != 1 {
+		t.Fatalf("filtered pagination = total %v page %v/%v, want 21 page 1/1", data["pool_total"], data["pool_page"], data["pool_pages"])
+	}
+	for _, row := range available {
+		if row["position"] != "WR" {
+			t.Fatalf("filtered row leaked position %v", row["position"])
+		}
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/draft?page=2", nil)
+	data = service.DraftData(request)
+	available, _ = data["available"].([]map[string]any)
+	if len(available) != poolPageSize {
+		t.Fatalf("second page = %d rows, want %d", len(available), poolPageSize)
+	}
+	if data["pool_total"] != 123 || data["pool_page"] != 2 || data["pool_pages"] != 3 {
+		t.Fatalf("second-page pagination = total %v page %v/%v, want 123 page 2/3", data["pool_total"], data["pool_page"], data["pool_pages"])
 	}
 }
 

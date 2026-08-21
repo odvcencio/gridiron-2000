@@ -1,45 +1,42 @@
 package draft
 
-//gosx:island
+// DraftQueue is deliberately server-first. The previous island rendered the
+// entire live pool into the initial document and then filtered it in-browser.
+// GET filters and bounded pages keep search useful without JavaScript, keep the
+// draft update poll authoritative, and make the first paint usable on a phone.
 func DraftQueue(props any) Node {
-	filter := signal.New("ALL")
-	query := signal.New("")
-	showAll := func() { filter.Set("ALL") }
-	showRB := func() { filter.Set("RB") }
-	showWR := func() { filter.Set("WR") }
-	showQB := func() { filter.Set("QB") }
-	showTE := func() { filter.Set("TE") }
-	showK := func() { filter.Set("K") }
-	showDST := func() { filter.Set("DST") }
-	showP := func() { filter.Set("P") }
-	onQuery := func() { query.Set(value) }
-	return <section class="player-pool" data-filter={filter}>
+	return <section class="player-pool">
 		<div class="pool-toolbar">
 			<div>
 				<span class="section-index">PLAYER DATABASE</span>
 				<h2>Available now</h2>
 			</div>
 			<div class="position-filters" aria-label="Filter draft pool by position">
-				<button type="button" class="filter-button" aria-pressed={filter == "ALL"} onClick={showAll}>All</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "RB"} onClick={showRB}>RB</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "WR"} onClick={showWR}>WR</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "QB"} onClick={showQB}>QB</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "TE"} onClick={showTE}>TE</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "K"} onClick={showK}>K</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "DST"} onClick={showDST}>DST</button>
-				<button type="button" class="filter-button" aria-pressed={filter == "P"} onClick={showP}>P</button>
+				<a href={props.AllHref} data-gosx-link class="filter-button" aria-current={props.Position == ""}>All</a>
+				<a href={props.RBHref} data-gosx-link class="filter-button" aria-current={props.Position == "RB"}>RB</a>
+				<a href={props.WRHref} data-gosx-link class="filter-button" aria-current={props.Position == "WR"}>WR</a>
+				<a href={props.QBHref} data-gosx-link class="filter-button" aria-current={props.Position == "QB"}>QB</a>
+				<a href={props.TEHref} data-gosx-link class="filter-button" aria-current={props.Position == "TE"}>TE</a>
+				<a href={props.KHref} data-gosx-link class="filter-button" aria-current={props.Position == "K"}>K</a>
+				<a href={props.DSTHref} data-gosx-link class="filter-button" aria-current={props.Position == "DST"}>DST</a>
+				<a href={props.PHref} data-gosx-link class="filter-button" aria-current={props.Position == "P"}>P</a>
 			</div>
 		</div>
-		<div class="pool-search-bar">
+		<form method="get" action="/draft" class="pool-search-bar">
 			<label class="mono" for="pool-search">DATABASE QUERY //</label>
 			<input
 				id="pool-search"
 				type="search"
+				name="q"
+				value={props.Query}
 				placeholder="Search player, team, or position"
 				autocomplete="off"
-				onInput={onQuery}
 			 />
-		</div>
+			<If cond={props.Position != ""}>
+				<input type="hidden" name="pos" value={props.Position}></input>
+			</If>
+			<button class="filter-button" type="submit">Search</button>
+		</form>
 		<div class="pool-labels mono" aria-hidden="true">
 			<span>RK</span>
 			<span>PLAYER</span>
@@ -48,7 +45,7 @@ func DraftQueue(props any) Node {
 			<span>ACTION</span>
 		</div>
 		<div class="pool-list">
-			<Each of={props.Players.filter(func(p){ return p.search.contains(query.trim().toLower()) })} as="player">
+			<Each of={props.Players} as="player">
 				<article class="pool-row" data-player-position={player.position} data-search={player.search}>
 					<span class="pool-rank mono">{player.rank}</span>
 					<div class="pool-player pool-player--photo stat-tip" tabindex="0">
@@ -109,6 +106,9 @@ func DraftQueue(props any) Node {
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
 						<input type="hidden" name="player_id" value={player.id}></input>
+						<input type="hidden" name="pos" value={props.Position}></input>
+						<input type="hidden" name="q" value={props.Query}></input>
+						<input type="hidden" name="page" value={props.Page}></input>
 						<If cond={props.CanPick}>
 							<button class="draft-button" type="submit">Draft</button>
 						</If>
@@ -119,6 +119,24 @@ func DraftQueue(props any) Node {
 				</article>
 			</Each>
 		</div>
+		<If cond={props.Total == 0}>
+			<div class="empty-tape">
+				<strong>NO PLAYERS MATCH</strong>
+				<p>Try a different position filter or clear your search.</p>
+			</div>
+		</If>
+		<nav class="pool-pagination" aria-label="Draft pool pages">
+			<If cond={props.HasPrevious}>
+				<a class="filter-button" href={props.PreviousHref} data-gosx-link rel="prev">← Previous</a>
+			</If>
+			<span class="mono" aria-live="polite">
+				<If cond={props.Total > 0}>{props.Start}–{props.End} of {props.Total}</If>
+				<If cond={props.Total == 0}>0 players</If>
+			</span>
+			<If cond={props.HasNext}>
+				<a class="filter-button" href={props.NextHref} data-gosx-link rel="next">Next →</a>
+			</If>
+		</nav>
 	</section>
 }
 
@@ -408,6 +426,24 @@ func Page() Node {
 				CSRF={csrf.token}
 				TeamID={data.on_clock_id}
 				CanPick={data.can_pick}
+				Position={data.pool_position}
+				Query={data.pool_query}
+				Page={data.pool_page}
+				Total={data.pool_total}
+				Start={data.pool_page_start}
+				End={data.pool_page_end}
+				HasPrevious={data.pool_has_previous}
+				HasNext={data.pool_has_next}
+				PreviousHref={data.pool_previous_href}
+				NextHref={data.pool_next_href}
+				AllHref={data.pool_all_href}
+				RBHref={data.pool_rb_href}
+				WRHref={data.pool_wr_href}
+				QBHref={data.pool_qb_href}
+				TEHref={data.pool_te_href}
+				KHref={data.pool_k_href}
+				DSTHref={data.pool_dst_href}
+				PHref={data.pool_p_href}
 			 />
 			<aside class="pick-tape">
 				<If cond={data.board_count > 0}>

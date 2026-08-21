@@ -16,11 +16,11 @@ var playerPoolPositions = []string{"QB", "RB", "WR", "TE", "DST", "K", "P"}
 // server-side GET links (?pos=RB) — no client-side filtering (the hard
 // constraint: search/filter here is a managed GET form; the declarative
 // client filter primitive is a future gosx addition).
-func positionFilterTabs(active string) []map[string]any {
+func positionFilterTabs(active, query string) []map[string]any {
 	tabs := make([]map[string]any, 0, len(playerPoolPositions)+1)
-	tabs = append(tabs, map[string]any{"label": "ALL", "href": "/players", "active": active == ""})
+	tabs = append(tabs, map[string]any{"label": "ALL", "href": poolPageHref("/players", "", query, 1), "active": active == ""})
 	for _, pos := range playerPoolPositions {
-		tabs = append(tabs, map[string]any{"label": pos, "href": "/players?pos=" + pos, "active": active == pos})
+		tabs = append(tabs, map[string]any{"label": pos, "href": poolPageHref("/players", pos, query, 1), "active": active == pos})
 	}
 	return tabs
 }
@@ -112,6 +112,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["mine"] = canEdit && rostered && ownerID == teamID
 		rows = append(rows, row)
 	}
+	pagination := newPoolPagination(len(rows), r.URL.Query().Get("page"))
+	rows = rows[pagination.Start:pagination.End]
 
 	dropOptions := make([]map[string]any, 0, len(myRoster))
 	for _, id := range myRoster {
@@ -175,10 +177,20 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"can_edit":             canEdit,
 		"free_agency_open":     open,
 		"pos":                  pos,
-		"positions":            positionFilterTabs(pos),
+		"positions":            positionFilterTabs(pos, rawQuery),
 		"query":                rawQuery,
 		"players":              rows,
-		"players_empty":        len(rows) == 0,
+		"players_empty":        pagination.Total == 0,
+		"pool_total":           pagination.Total,
+		"pool_page":            pagination.Page,
+		"pool_pages":           pagination.Pages,
+		"pool_page_size":       pagination.PageSize,
+		"pool_page_start":      pagination.Start + 1,
+		"pool_page_end":        pagination.End,
+		"pool_has_previous":    pagination.HasPrevious,
+		"pool_has_next":        pagination.HasNext,
+		"pool_previous_href":   poolPageHref("/players", pos, rawQuery, pagination.Page-1),
+		"pool_next_href":       poolPageHref("/players", pos, rawQuery, pagination.Page+1),
 		"pool_live":            pool.label == "live" || pool.label == "cache",
 		"pool_label":           pool.label,
 		"at_cap":               atCap,

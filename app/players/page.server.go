@@ -16,13 +16,16 @@ import (
 // redirectTarget rebuilds "/players" with the acting row's pos/q filters
 // preserved, so a player-add/player-drop POST redirect lands back on the
 // same filtered view instead of resetting it.
-func redirectTarget(pos, query string) string {
+func redirectTarget(pos, query, page string) string {
 	values := url.Values{}
 	if pos != "" {
 		values.Set("pos", pos)
 	}
 	if query != "" {
 		values.Set("q", query)
+	}
+	if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
+		values.Set("page", strconv.Itoa(parsed))
 	}
 	if len(values) == 0 {
 		return "/players"
@@ -77,7 +80,7 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
 				return nil
 			},
 			// player-drop applies the section 5.3 player-drop action.
@@ -87,7 +90,7 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
 				return nil
 			},
 			// claim-file applies the section 5.3 claim-filing action. bid
@@ -101,7 +104,7 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
 				return nil
 			},
 			// claim-cancel withdraws one of the acting team's own open
@@ -112,7 +115,7 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"claim_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"]))
+				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
 				return nil
 			},
 		},
