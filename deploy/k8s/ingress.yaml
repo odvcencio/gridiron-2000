@@ -16,6 +16,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cloudflare-issuer
     traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: gridiron-security-headers@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

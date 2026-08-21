@@ -240,13 +240,20 @@ func main() {
 			ctx.SetStatus(persistenceStatus)
 		}
 		return map[string]any{
-			"ok":                   persistenceReady,
-			"liveness":             true,
-			"readiness":            persistenceReady,
-			"persistenceReady":     persistenceReady,
-			"persistenceError":     persistenceMessage,
-			"app":                  appName,
-			"version":              gosx.Version,
+			"ok":               persistenceReady,
+			"liveness":         true,
+			"readiness":        persistenceReady,
+			"persistenceReady": persistenceReady,
+			"persistenceError": persistenceMessage,
+			"app":              appName,
+			// "version" is the Gridiron release, not the GoSX framework
+			// version. Keeping the framework version adjacent makes runtime
+			// drift (and an accidentally old image) immediately visible.
+			"version":              appVersion,
+			"appVersion":           appVersion,
+			"frameworkVersion":     gosx.Version,
+			"gitSHA":               appGitSHA,
+			"buildDate":            appBuildDate,
 			"googleOAuthReady":     googleConfigured,
 			"signalWireReady":      wireStatus.Configured,
 			"signalWireMode":       wireStatus.Mode,

@@ -4,23 +4,25 @@ This runbook takes GRIDIRON 2000 from a built image to a live production
 deployment at `gridiron.draco.quest`. Follow the steps in order. Each step
 lists the exact command to run.
 
-## Deployment status (2026-08-16)
+## Deployment status (2026-08-21)
 
-Steps 1 through 6 are complete. The app is live at
-`https://gridiron.draco.quest` with a valid certificate. The wildcard
-`*.draco.quest` DNS record already covered the hostname. The applied
-secret holds a generated `SESSION_SECRET` and `DATA_API_TOKEN`; the
-Google OAuth values, the manager allowlist, and the Tank01 key are still
-empty, so the app runs in OAuth setup mode. To finish:
+Both league instances are live with valid certificates and working Google
+OAuth:
 
-1. Complete step 7 (Google OAuth redirect URI).
-2. Patch the secret with the real values, then restart:
-   ```
-   kubectl patch secret gridiron-2000-secrets -n gridiron --type merge -p \
-     '{"stringData":{"GOOGLE_CLIENT_ID":"...","GOOGLE_CLIENT_SECRET":"...","LEAGUE_ALLOWED_EMAILS":"a@x.com,b@x.com","TANK01_API_KEY":"..."}}'
-   kubectl rollout restart deployment/gridiron-2000 -n gridiron
-   ```
-3. Run the step 10 smoke test.
+- `https://gridiron.draco.quest` — GRIDIRON 2000
+- `https://sk.gridiron.draco.quest` — STABLE KERNEL LEAGUE
+
+Both load their league-specific ConfigMap and report a live player pool.
+Stable Kernel already uses the shared `statrelay`; this release adds the same
+relay URL to the flagship Deployment. The flagship's existing application
+Secret still has an obsolete `TANK01_API_KEY` key from the direct-client
+topology. It is ignored after the relay rollout and should be removed during
+the next explicit secret-maintenance window; no secret value is required or
+changed by this release.
+
+The tracked Stable Kernel HTTP redirect was absent from the live namespace at
+the last audit. Step 5 applies it so both plain-HTTP hostnames redirect to
+HTTPS. Run the complete step 10 smoke test after every release.
 
 ## Before you start
 
@@ -34,30 +36,34 @@ Confirm you have:
 
 ## 1. Build and push the image
 
-Build the image from the repository root.
+Every release gets a human-readable date plus the source commit's short SHA.
+The deployment is then pinned to the image digest; the tag is only a lookup
+handle and `latest` is never used by the manifests.
 
-```
-docker build -t harbor.draco.quest/orchard/gridiron-2000:launch-2026-08-16 .
-```
+```bash
+RELEASE="release-$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)"
+GIT_SHA="$(git rev-parse HEAD)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+IMAGE="harbor.draco.quest/orchard/gridiron-2000:${RELEASE}"
 
-Tag the image `latest` as well, so the default deployment manifest resolves.
-
-```
-docker tag harbor.draco.quest/orchard/gridiron-2000:launch-2026-08-16 \
-  harbor.draco.quest/orchard/gridiron-2000:latest
-```
-
-Log in to Harbor, then push both tags. Pushing is a manual operator step;
-this checklist does not automate it.
-
-```
+docker build \
+  --build-arg APP_VERSION="${RELEASE}" \
+  --build-arg GIT_SHA="${GIT_SHA}" \
+  --build-arg BUILD_DATE="${BUILD_DATE}" \
+  -t "${IMAGE}" .
 docker login harbor.draco.quest
-docker push harbor.draco.quest/orchard/gridiron-2000:launch-2026-08-16
-docker push harbor.draco.quest/orchard/gridiron-2000:latest
+docker push "${IMAGE}"
 ```
 
-Use a dated or commit-sha tag, not only `latest`, for every future release.
-A fixed tag lets you roll back with one `kubectl set image` command.
+Record the pushed digest before changing either Deployment:
+
+```bash
+docker image inspect --format='{{index .RepoDigests 0}}' "${IMAGE}"
+```
+
+The `/api/health` response exposes `appVersion`, `gitSHA`, `buildDate`, and
+`frameworkVersion` separately. This makes an old image or a source/image
+branch mismatch visible without reading registry internals.
 
 ## 2. Create the namespace
 
@@ -90,8 +96,9 @@ openssl rand -base64 48
 Copy `deploy/k8s/secret.example.yaml` to a local, untracked file and fill
 in every value: the session secret you just generated, the Google OAuth
 client ID and secret (see step 7), the league's allowed manager emails
-(see step 8), a random data-API export token, and the Tank01 API key (see
-step 9).
+(see step 8), and a random data-API export token. Do not put a Tank01 key
+in a league Secret: both instances use the shared `statrelay` Service, and
+only `statrelay-secrets` owns the upstream key.
 
 ```
 cp deploy/k8s/secret.example.yaml /tmp/gridiron-2000-secret.yaml
@@ -113,8 +120,15 @@ Never commit the filled-in secret file.
 kubectl apply -f deploy/k8s/pvc.yaml
 kubectl apply -f deploy/k8s/deployment.yaml
 kubectl apply -f deploy/k8s/service.yaml
+kubectl apply -f deploy/k8s/security-headers.yaml
 kubectl apply -f deploy/k8s/ingress.yaml
+kubectl apply -f deploy/k8s/http-redirect.yaml
 ```
+
+For Stable Kernel, apply the matching files under `deploy/k8s/sk/`, including
+`sk/http-redirect.yaml` and `sk/security-headers.yaml`. The HTTPS ingress
+references the namespaced middleware, so apply that middleware before or
+with the ingress rollout.
 
 Confirm the pod reaches the `Ready` state.
 
@@ -164,15 +178,18 @@ Two paths work; use either or both:
 The commissioner console also releases seats and resets the draft or the
 whole league (type RESET to confirm).
 
-## 9. Subscribe to the Tank01 NFL API
+## 9. Configure the shared Tank01 relay
 
 1. Create or sign in to a RapidAPI account.
 2. Subscribe to "Tank01 NFL Live In-Game Real Time Statistics" on the free
    tier (1,000 requests per month, no card required).
 3. Copy the API key RapidAPI issues you.
-4. Set `TANK01_API_KEY` in your applied secret to that key, then apply the
-   secret and restart the deployment as in step 8.
-5. Confirm `/api/health` reports `"fantasyPoolMode":"live"` within a
+4. Store the key only in `statrelay-secrets` (see
+   `deploy/k8s/statrelay-secret.example.yaml`), then restart the relay.
+   Do not add it to either league's Secret.
+5. Confirm both Deployments set
+   `TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local` and that
+   `/api/health` reports `"fantasyPoolMode":"live"` within a
    minute. The app spends five requests per sync and syncs every six
    hours, so the free tier covers normal operation.
 
@@ -191,10 +208,11 @@ skip the demo-mode pick rehearsal.
    redirects you to the home page signed in.
 3. **Draft room loads.** Open `https://gridiron.draco.quest/draft`. Confirm
    the page lists the draft order, the player pool, and the pick tape.
-4. **Rehearsal pick in demo mode.** Set `DEMO_MODE=true` in a staging copy
-   of the secret, or run the image locally with `DEMO_MODE=true`, before
-   the real draft date. Submit one draft pick. Confirm the pick appears in
-   the pick tape and the on-the-clock team advances.
+4. **Explicit draft start rehearsal.** Set `DEMO_MODE=true` in a staging
+   copy of the secret, or run the image locally with `DEMO_MODE=true`.
+   Confirm the room remains closed before and after the scheduled window
+   until a commissioner types `START`. Start it intentionally, submit one
+   pick, and confirm the pick tape and on-the-clock team advance.
 
 ## Notes on client assets
 

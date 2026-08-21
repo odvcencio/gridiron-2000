@@ -5,6 +5,24 @@ project's own league identity — name, teams, divisions, draft date, and
 invite copy — is not: it lives only in a gitignored file and a Kubernetes
 `ConfigMap`, never in a committed manifest.
 
+## Release image policy
+
+Builds carry a release identifier, source SHA, and UTC build timestamp in
+both OCI labels and `/api/health`. Publish a dated/SHA tag, then pin each
+Deployment to the pushed digest before rollout. Do not deploy `:latest` or
+rely on a mutable tag:
+
+```bash
+kubectl -n gridiron set image deployment/gridiron-2000 \
+  gridiron-2000=harbor.draco.quest/orchard/gridiron-2000@sha256:<digest>
+kubectl -n stablekernel set image deployment/gridiron-2000-sk \
+  gridiron-2000=harbor.draco.quest/orchard/gridiron-2000@sha256:<digest>
+```
+
+After rollout, compare the live `gitSHA` and `appVersion` in `/api/health`
+with the release record. The two instances intentionally share a binary and
+relay but keep separate `LEAGUE_FILE` ConfigMaps and state volumes.
+
 ## Why a ConfigMap, not a file in this repo
 
 `deploy/k8s/deployment.yaml` mounts a `ConfigMap` named
@@ -58,7 +76,7 @@ then run the `kubectl create configmap` command above.
 Every Tank01 request this app makes is league-agnostic: the player list,
 ADP, weekly and preseason games, and box scores are the same URLs whatever
 league is asking. Two league deployments — the flagship `gridiron-2000`
-instance and the upcoming Stable Kernel instance — would otherwise each
+instance and the live Stable Kernel instance — would otherwise each
 hold their own RapidAPI key and pay for the same calls twice. `statrelay`
 (`cmd/statrelay`, `deploy/k8s/statrelay.yaml`) is a small caching relay
 that sits between every league instance and RapidAPI, so both instances
@@ -68,8 +86,9 @@ share one metered upstream quota.
 
 - One `statrelay` Deployment runs in the `gridiron` namespace, holding the
   real `TANK01_API_KEY` in its own `statrelay-secrets` Secret (see
-  `deploy/k8s/statrelay-secret.example.yaml`). No league instance's own
-  secret carries a Tank01 key once it points at the relay.
+  `deploy/k8s/statrelay-secret.example.yaml`). League manifests and secret
+  examples do not provision that key. A legacy Secret may retain an unused
+  copy until an explicit secret-maintenance operation removes it.
 - Every league instance sets `TANK01_BASE_URL` to the relay's in-cluster
   Service address:
 
@@ -112,10 +131,10 @@ docker build -f deploy/statrelay.Dockerfile -t harbor.draco.quest/orchard/gridir
 docker push harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
 ```
 
-Then point each league instance's `Secret` env at the relay by adding
-`TANK01_BASE_URL` to its `Deployment` (or its `envFrom` secret) and
-rolling it — `TANK01_API_KEY` can then be removed from every league
-instance's own secret, since only `statrelay-secrets` needs it.
+Then point each league Deployment at the relay with `TANK01_BASE_URL` and
+roll it. After verification, remove any obsolete `TANK01_API_KEY` from a
+league Secret during an explicit secret-maintenance operation; only
+`statrelay-secrets` needs it.
 
 ### Local development (no relay)
 

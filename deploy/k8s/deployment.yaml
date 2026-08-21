@@ -5,6 +5,7 @@ metadata:
   namespace: gridiron
   labels:
     app: gridiron-2000
+    app.kubernetes.io/name: gridiron-2000
 spec:
   replicas: 1
   # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
@@ -29,6 +30,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
+          # The release commit that follows the image build replaces this
+          # mutable bootstrap reference with the pushed image digest.
           image: harbor.draco.quest/orchard/gridiron-2000:latest
           imagePullPolicy: Always
           ports:
@@ -53,6 +56,10 @@ spec:
             # source file is gitignored, never committed here.
             - name: LEAGUE_FILE
               value: "/etc/gridiron/league.json"
+            # Both league instances use the shared cache/quota boundary. The
+            # relay, not this namespace's Secret, owns TANK01_API_KEY.
+            - name: TANK01_BASE_URL
+              value: "http://statrelay.gridiron.svc.cluster.local"
             # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
             # deliberately NOT set here. Env wins over league.json (spec
             # section 3.3), so duplicating them made a ConfigMap-only date
