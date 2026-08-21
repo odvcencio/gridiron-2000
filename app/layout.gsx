@@ -71,6 +71,7 @@ func Layout() Node {
 						<div class="rail-foot-links">
 							<a href="/team" data-gosx-link class="access-link">Team</a>
 							<If cond={data.viewer.is_commissioner}>
+								<a href="/commissioner" data-gosx-link class="access-link">Leagues</a>
 								<a href="/admin" data-gosx-link class="access-link">Admin</a>
 							</If>
 							<form method="post" action="/auth/logout" data-gosx-managed="true">

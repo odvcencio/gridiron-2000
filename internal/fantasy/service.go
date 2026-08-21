@@ -350,6 +350,7 @@ func (s *Service) Status() Status {
 		Mode:      s.mode,
 		Scoring:   s.config.ScoringFormat,
 		Players:   len(s.players),
+		PoolLimit: s.config.PoolLimit,
 		Positions: positions,
 		WithADP:   withADP,
 		WithProj:  withProj,

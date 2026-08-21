@@ -60,6 +60,12 @@ spec:
             # relay, not this namespace's Secret, owns TANK01_API_KEY.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
+            # Read-only Commissioner HQ federation. Browser cookies, CSRF
+            # tokens, manager identities, and mutations never cross hosts.
+            - name: COMMISSIONER_INSTANCE_ID
+              value: "g2k"
+            - name: COMMISSIONER_HQ_PEERS
+              value: "skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local"
             # DRAFT_AT/DRAFT_TZ/SEASON_START_AT/SCORING_FORMAT are
             # deliberately NOT set here. Env wins over league.json (spec
             # section 3.3), so duplicating them made a ConfigMap-only date

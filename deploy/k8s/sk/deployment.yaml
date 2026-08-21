@@ -88,6 +88,10 @@ spec:
             # CoreDNS convention; no per-namespace DNS setup is needed.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
+            - name: COMMISSIONER_INSTANCE_ID
+              value: "skl"
+            - name: COMMISSIONER_HQ_PEERS
+              value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local"
           volumeMounts:
             - name: data
               mountPath: /app/data

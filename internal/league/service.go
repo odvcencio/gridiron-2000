@@ -657,6 +657,7 @@ func (s *Service) poolStatusMap() map[string]any {
 	if source == nil {
 		return map[string]any{
 			"mode": "unknown", "players": 0, "with_adp": 0, "with_proj": 0,
+			"target": 0, "roster_capacity": 0, "cushion": 0, "coverage": "0.0×",
 			"with_bye": 0, "requests": 0, "last_sync": "never", "error": "",
 			"positions_list": []map[string]any{},
 		}

@@ -144,3 +144,25 @@ builds `https://<TANK01_HOST>/...` directly and requires its own
 `TANK01_API_KEY`, or falls back to the offline pool with no key at all.
 Nothing about direct mode changed — see `tank01_test.go`'s
 `TestTank01ClientDirectModeIsByteIdentical`.
+
+## Federated Commissioner HQ
+
+`/commissioner` composes a read-only fleet view while each league keeps its
+own database, sessions, OAuth callback, CSRF boundary, and commissioner
+actions. Configure an instance ID and explicit service origins with
+`COMMISSIONER_INSTANCE_ID` and `COMMISSIONER_HQ_PEERS`. Each peer serves only
+the typed, PII-free `/api/commissioner/v1/summary` contract.
+
+Generate a separate strong `COMMISSIONER_HQ_TOKEN` and place the same value in
+the participating league Secrets. Do not reuse `DATA_API_TOKEN`: that token
+authorizes broader exports. The federation token cannot mutate league state,
+and the HQ never forwards browser cookies or Google identities. Cross-league
+buttons are ordinary links to the owning host's existing `/admin` and `/draft`
+surfaces, where that host repeats its own session, commissioner, and CSRF
+checks.
+
+Peer URLs are deployment wiring, not league rules, so they deliberately stay
+out of `league.json`. Startup rejects missing tokens, duplicate/self IDs,
+unsafe URL components, and more than eight peers. Peer reads are concurrent,
+redirect-disabled, size-bounded, and time-bounded; an unavailable league
+becomes one truthful degraded card rather than failing the whole HQ.
