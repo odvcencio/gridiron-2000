@@ -51,6 +51,17 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if !strings.Contains(valid, "Your league access will be waiting. You can claim an open fantasy seat after sign-in.") {
 		t.Fatalf("login page omitted seatless-member guidance: %s", valid)
 	}
+	for _, want := range []string{
+		"LEAGUE DRAFT",
+		"Wednesday, December 31, 2098",
+		"7:00 PM EST",
+		"America/New_York",
+		"SCHEDULED WINDOW",
+	} {
+		if !strings.Contains(valid, want) {
+			t.Errorf("login page omitted configured event fact %q: %s", want, valid)
+		}
+	}
 
 	root := renderLoginPage(t, "%2F")
 	if strings.Contains(root, "login-return-note") {

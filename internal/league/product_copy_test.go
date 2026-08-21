@@ -3,6 +3,7 @@ package league
 import (
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestLoginDataBuildsSafeOAuthTarget(t *testing.T) {
@@ -50,5 +51,37 @@ func TestLeagueMapFormatBlurbMatchesConfiguredFormat(t *testing.T) {
 		if got := service.leagueMap()["format_blurb"]; got != want {
 			t.Errorf("mode %q format_blurb = %q, want %q", mode, got, want)
 		}
+	}
+}
+
+func TestDraftSummaryNamesScheduledWindowAndTimezone(t *testing.T) {
+	service := newTestService(t, false)
+	service.draftAt = time.Date(2026, 8, 29, 20, 0, 0, 0, time.UTC)
+	service.draftTZ = time.FixedZone("EDT", -4*60*60)
+	service.cfg.Timezone = "America/New_York"
+
+	before := service.draftSummary(service.draftAt.Add(-time.Minute))
+	if got := before["status_label"]; got != "SCHEDULED WINDOW" {
+		t.Errorf("before status_label = %v, want SCHEDULED WINDOW", got)
+	}
+	if got := before["window_reached"]; got != false {
+		t.Errorf("before window_reached = %v, want false", got)
+	}
+	if got := before["timezone"]; got != "America/New_York" {
+		t.Errorf("timezone = %v, want configured IANA timezone", got)
+	}
+	if got := before["event_label"]; got != "LEAGUE DRAFT" {
+		t.Errorf("event_label = %v, want LEAGUE DRAFT", got)
+	}
+	if got := before["status_note"]; got == "" {
+		t.Error("scheduled window must explain commissioner-controlled opening")
+	}
+
+	after := service.draftSummary(service.draftAt.Add(time.Minute))
+	if got := after["status_label"]; got != "WINDOW REACHED" {
+		t.Errorf("after status_label = %v, want WINDOW REACHED", got)
+	}
+	if got := after["window_reached"]; got != true {
+		t.Errorf("after window_reached = %v, want true", got)
 	}
 }

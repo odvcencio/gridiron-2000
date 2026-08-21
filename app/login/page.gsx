@@ -17,6 +17,25 @@ func Page() Node {
 				<p>
 					This league is invite-only. Every seat belongs to one manager.
 				</p>
+				<p class="login-identity">
+					<strong>{data.league.format_blurb}</strong>
+					·
+					{data.league.seat_count_word} manager league
+				</p>
+				<div class="login-event" aria-labelledby="login-event-heading">
+					<span class="section-index">UP NEXT</span>
+					<h2 id="login-event-heading">{data.draft.event_label}</h2>
+					<time class="event-date">{data.draft.long_date}</time>
+					<div class="event-time">
+						<strong>{data.draft.time}</strong>
+						<span>{data.draft.timezone}</span>
+					</div>
+					<div class="event-state" role="status">
+						<span class="event-state__mark" aria-hidden="true"></span>
+						<strong>{data.draft.status_label}</strong>
+					</div>
+					<p class="event-note">{data.draft.status_note}</p>
+				</div>
 				<div class="seat-meter" aria-label={data.seats + " manager seats"}>
 					<Each of={data.seat_numbers} as="seat">
 						<span>{seat}</span>

@@ -20,6 +20,7 @@ require (
 	github.com/odvcencio/corkscrewdb v0.2.0 // indirect
 	github.com/odvcencio/gotreesitter v0.50.1 // indirect
 	github.com/odvcencio/turboquant v0.1.3 // indirect
+	github.com/orisano/pixelmatch v0.0.0-20220722002657-fb0b55479cde // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	golang.org/x/image v0.38.0 // indirect
