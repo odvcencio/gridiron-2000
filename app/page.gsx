@@ -115,7 +115,7 @@ func Page() Node {
 						<span>CLAIM YOUR SEAT.</span>
 					</h1>
 					<p class="hero-deck">
-						A private fantasy command center for lineups, live Sundays, waiver panic, and receipts that survive well past Monday night.
+						A private <strong>{data.league.format_blurb}</strong> for <strong>{data.league.seat_count_word}</strong> managers: lineups, waivers, and a commissioner-published league record.
 					</p>
 					<div class="hero-actions">
 						<a href="/login" data-gosx-link class="button button--primary">
@@ -140,7 +140,7 @@ func Page() Node {
 						</div>
 					</div>
 				</div>
-				<aside class="draft-transmission">
+				<aside class="draft-transmission" aria-labelledby="draft-event-heading-public">
 					<div class="transmission-top">
 						<span>Incoming transmission</span>
 						<span class="mono">DRAFT EVENT</span>
@@ -149,19 +149,35 @@ func Page() Node {
 						<span>{data.league.short_code}</span>
 					</div>
 					<div class="draft-transmission__body">
-						<p>{data.league.season} LEAGUE DRAFT</p>
-						<strong>{data.draft.date}</strong>
-						<span>{data.draft.time}</span>
+						<h2 id="draft-event-heading-public">{data.draft.event_label}</h2>
+						<time class="event-date">{data.draft.long_date}</time>
+						<div class="event-time">
+							<strong>{data.draft.time}</strong>
+							<span>{data.draft.timezone}</span>
+						</div>
+						<div class="event-state" role="status">
+							<span class="event-state__mark" aria-hidden="true"></span>
+							<strong>{data.draft.status_label}</strong>
+						</div>
+						<p class="event-note">{data.draft.status_note}</p>
 					</div>
-					<div class="countdown-strip">
-						<span>Doors in</span>
-						<b
-							class="mono"
-							data-gosx-countdown={data.draft.at}
-							data-gosx-countdown-format="dhms"
-							data-gosx-countdown-then="revalidate"
-						>{data.draft.countdown_label}</b>
-					</div>
+					<If cond={data.draft.window_reached == false}>
+						<div class="countdown-strip">
+							<span>Window in</span>
+							<b
+								class="mono"
+								data-gosx-countdown={data.draft.at}
+								data-gosx-countdown-format="dhms"
+								data-gosx-countdown-then="revalidate"
+							>{data.draft.countdown_label}</b>
+						</div>
+					</If>
+					<If cond={data.draft.window_reached}>
+						<div class="countdown-strip">
+							<span>Window status</span>
+							<b>{data.draft.status_label}</b>
+						</div>
+					</If>
 				</aside>
 			</section>
 		</If>
@@ -262,7 +278,7 @@ func Page() Node {
 					<span>NEVER SLEEPS.</span>
 				</h1>
 				<p class="hero-deck">
-					A private fantasy command center for lineups, live Sundays, waiver panic, and receipts that survive well past Monday night.
+					Your <strong>{data.league.format_blurb}</strong> league control room: lineups, waivers, and a commissioner-published league record.
 				</p>
 				<div class="hero-actions">
 					<a href="/matchups" data-gosx-link class="button button--primary">
@@ -272,7 +288,7 @@ func Page() Node {
 					<a href="/draft" data-gosx-link class="button button--ghost">Open draft room</a>
 				</div>
 			</div>
-			<aside class="draft-transmission">
+			<aside class="draft-transmission" aria-labelledby="draft-event-heading-member">
 				<div class="transmission-top">
 					<span>Incoming transmission</span>
 					<span class="mono">DRAFT EVENT</span>
@@ -281,19 +297,35 @@ func Page() Node {
 					<span>{data.league.short_code}</span>
 				</div>
 				<div class="draft-transmission__body">
-					<p>{data.league.season} LEAGUE DRAFT</p>
-					<strong>{data.draft.date}</strong>
-					<span>{data.draft.time}</span>
+					<h2 id="draft-event-heading-member">{data.draft.event_label}</h2>
+					<time class="event-date">{data.draft.long_date}</time>
+					<div class="event-time">
+						<strong>{data.draft.time}</strong>
+						<span>{data.draft.timezone}</span>
+					</div>
+					<div class="event-state" role="status">
+						<span class="event-state__mark" aria-hidden="true"></span>
+						<strong>{data.draft.status_label}</strong>
+					</div>
+					<p class="event-note">{data.draft.status_note}</p>
 				</div>
-				<div class="countdown-strip">
-					<span>Doors in</span>
-					<b
-						class="mono"
-						data-gosx-countdown={data.draft.at}
-						data-gosx-countdown-format="dhms"
-						data-gosx-countdown-then="revalidate"
-					>{data.draft.countdown_label}</b>
-				</div>
+				<If cond={data.draft.window_reached == false}>
+					<div class="countdown-strip">
+						<span>Window in</span>
+						<b
+							class="mono"
+							data-gosx-countdown={data.draft.at}
+							data-gosx-countdown-format="dhms"
+							data-gosx-countdown-then="revalidate"
+						>{data.draft.countdown_label}</b>
+					</div>
+				</If>
+				<If cond={data.draft.window_reached}>
+					<div class="countdown-strip">
+						<span>Window status</span>
+						<b>{data.draft.status_label}</b>
+					</div>
+				</If>
 			</aside>
 		</section>
 		<section class="score-command" data-live-root>

@@ -1632,6 +1632,7 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 		"seats":           len(s.Teams()),
 		"seat_numbers":    seatNumbers(len(s.Teams())),
 		"league":          s.leagueMap(),
+		"draft":           s.draftSummary(s.clock()),
 		"oauth_start":     navigation.OAuthStartPath(next),
 		"return_path":     next,
 		"has_return_path": next != navigation.DefaultReturnPath,
@@ -1803,13 +1804,28 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
 	local := s.draftAt.In(location)
+	timezone := strings.TrimSpace(s.cfg.Timezone)
+	if timezone == "" {
+		timezone = location.String()
+	}
+	statusLabel := "SCHEDULED WINDOW"
+	statusNote := "The commissioner controls when the room opens. This is the scheduled draft window."
+	if !now.Before(s.draftAt) {
+		statusLabel = "WINDOW REACHED"
+		statusNote = "The scheduled window has arrived. Check the draft room for the commissioner's start signal."
+	}
 	return map[string]any{
 		"at":              s.draftAt.Format(time.RFC3339),
+		"event_label":     "LEAGUE DRAFT",
 		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":            local.Format("3:04 PM MST"),
-		"long_date":       local.Format("Saturday, January 2, 2006"),
+		"timezone":        timezone,
+		"long_date":       local.Format("Monday, January 2, 2006"),
 		"format":          s.draftFormatLabel(),
 		"started":         !now.Before(s.draftAt),
+		"window_reached":  !now.Before(s.draftAt),
+		"status_label":    statusLabel,
+		"status_note":     statusNote,
 		"days_until":      max(0, int(s.draftAt.Sub(now).Hours()/24)),
 		"countdown_label": countdownDHMSLabel(s.draftAt.Sub(now)),
 	}
