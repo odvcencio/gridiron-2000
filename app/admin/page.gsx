@@ -281,7 +281,7 @@ func Page() Node {
 							<input id="admin-draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
 							<button class="button button--primary" type="submit">Start draft + pick clock</button>
 						</form>
-						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players; {data.draft_required_players} required.</p>
+						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players for {data.draft_required_players} draft slots ({data.pool.coverage} target coverage).</p>
 					</If>
 					<If cond={data.draft_started}>
 						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
@@ -495,8 +495,16 @@ func Page() Node {
 							<b class="mono">{data.pool.mode}</b>
 						</div>
 						<div class="pool-stat">
-							<span>Players</span>
-							<b class="mono">{data.pool.players}</b>
+							<span>Pool coverage</span>
+							<b class="mono">{data.pool.coverage}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Players / roster slots</span>
+							<b class="mono">{data.pool.players} / {data.pool.roster_capacity}</b>
+						</div>
+						<div class="pool-stat">
+							<span>Post-draft cushion</span>
+							<b class="mono">{data.pool.cushion}</b>
 						</div>
 						<div class="pool-stat">
 							<span>ADP</span>

@@ -105,6 +105,7 @@ type Status struct {
 	Mode      string         `json:"mode"` // live | cache | offline
 	Scoring   string         `json:"scoring"`
 	Players   int            `json:"players"`
+	PoolLimit int            `json:"poolLimit"`
 	Positions map[string]int `json:"positions,omitempty"`
 	WithADP   int            `json:"withAdp"`
 	WithProj  int            `json:"withProjection"`

@@ -7,6 +7,7 @@ import (
 	_ "gridiron-2000/app/admin"
 	_ "gridiron-2000/app/blitz"
 	_ "gridiron-2000/app/board"
+	_ "gridiron-2000/app/commissioner"
 	_ "gridiron-2000/app/draft"
 	_ "gridiron-2000/app/join"
 	_ "gridiron-2000/app/login"

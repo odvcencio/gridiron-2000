@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	wirepage "gridiron-2000/app/wire"
+	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
@@ -134,6 +135,23 @@ func main() {
 	// 3.3 precedence); read the wordmark through it instead of a second,
 	// independent getenv call so the two never disagree.
 	appName := league.Default().Config().Name
+	hqConfig, err := commissionerhq.ConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hqService, err := commissionerhq.New(hqConfig, func() commissionerhq.Summary {
+		poolStatus := fantasyPool.Status()
+		return league.Default().CommissionerSummary(hqConfig.InstanceID, commissionerhq.Runtime{
+			Ready: league.Default().PersistenceError() == nil, AppVersion: appVersion, GitSHA: appGitSHA,
+		}, commissionerhq.Pool{
+			Mode: poolStatus.Mode, Players: poolStatus.Players, Target: poolStatus.PoolLimit,
+			LastSync: poolStatus.LastSync, Error: poolStatus.LastError,
+		})
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	commissionerhq.SetDefault(hqService)
 	port := getenv("PORT", "8080")
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
@@ -236,6 +254,12 @@ func main() {
 		}
 		persistenceErr := league.Default().PersistenceError()
 		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
+		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
+		poolCushion := max(0, poolStatus.Players-rosterCapacity)
+		poolCoverage := 0.0
+		if rosterCapacity > 0 {
+			poolCoverage = float64(poolStatus.PoolLimit) / float64(rosterCapacity)
+		}
 		if persistenceStatus != http.StatusOK {
 			ctx.SetStatus(persistenceStatus)
 		}
@@ -249,27 +273,31 @@ func main() {
 			// "version" is the Gridiron release, not the GoSX framework
 			// version. Keeping the framework version adjacent makes runtime
 			// drift (and an accidentally old image) immediately visible.
-			"version":              appVersion,
-			"appVersion":           appVersion,
-			"frameworkVersion":     gosx.Version,
-			"gitSHA":               appGitSHA,
-			"buildDate":            appBuildDate,
-			"googleOAuthReady":     googleConfigured,
-			"signalWireReady":      wireStatus.Configured,
-			"signalWireMode":       wireStatus.Mode,
-			"ownedSignals":         wireStatus.RelevantSignals,
-			"openStatsRunning":     openStatus.Running,
-			"openScheduleState":    openStatus.Schedules.State,
-			"openPlayerStatsState": openStatus.PlayerStats.State,
-			"openInjuryState":      openStatus.Injuries.State,
-			"fantasyPoolEnabled":   poolStatus.Enabled,
-			"fantasyPoolMode":      poolStatus.Mode,
-			"fantasyPoolPlayers":   poolStatus.Players,
-			"fantasyPoolScoring":   poolStatus.Scoring,
-			"fantasyPoolError":     poolStatus.LastError,
-			"draftAt":              league.Default().DraftAt().Format(time.RFC3339),
-			"draftStarted":         draftStarted,
-			"draftStartedAt":       draftStartedAtText,
+			"version":               appVersion,
+			"appVersion":            appVersion,
+			"frameworkVersion":      gosx.Version,
+			"gitSHA":                appGitSHA,
+			"buildDate":             appBuildDate,
+			"googleOAuthReady":      googleConfigured,
+			"signalWireReady":       wireStatus.Configured,
+			"signalWireMode":        wireStatus.Mode,
+			"ownedSignals":          wireStatus.RelevantSignals,
+			"openStatsRunning":      openStatus.Running,
+			"openScheduleState":     openStatus.Schedules.State,
+			"openPlayerStatsState":  openStatus.PlayerStats.State,
+			"openInjuryState":       openStatus.Injuries.State,
+			"fantasyPoolEnabled":    poolStatus.Enabled,
+			"fantasyPoolMode":       poolStatus.Mode,
+			"fantasyPoolPlayers":    poolStatus.Players,
+			"fantasyPoolTarget":     poolStatus.PoolLimit,
+			"fantasyRosterCapacity": rosterCapacity,
+			"fantasyPoolCushion":    poolCushion,
+			"fantasyPoolCoverage":   poolCoverage,
+			"fantasyPoolScoring":    poolStatus.Scoring,
+			"fantasyPoolError":      poolStatus.LastError,
+			"draftAt":               league.Default().DraftAt().Format(time.RFC3339),
+			"draftStarted":          draftStarted,
+			"draftStartedAt":        draftStartedAtText,
 			// leagueConfig: "defaults" on an unconfigured checkout, or
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).
@@ -306,6 +334,7 @@ func main() {
 		ctx.NoStore()
 		return wirepage.PulseData(signalFeed), nil
 	})
+	app.Mount("GET /api/commissioner/v1/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
 	// Team avatars (design decisions 1-3): GoSX v0.49.0 exposes File/Files
@@ -913,16 +942,26 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 				positions = append(positions, map[string]any{"pos": position, "count": count})
 			}
 		}
+		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
+		cushion := max(0, status.Players-rosterCapacity)
+		coverage := 0.0
+		if rosterCapacity > 0 {
+			coverage = float64(status.PoolLimit) / float64(rosterCapacity)
+		}
 		return map[string]any{
-			"mode":           status.Mode,
-			"players":        status.Players,
-			"with_adp":       status.WithADP,
-			"with_proj":      status.WithProj,
-			"with_bye":       status.WithBye,
-			"requests":       status.Requests,
-			"last_sync":      lastSync,
-			"error":          status.LastError,
-			"positions_list": positions,
+			"mode":            status.Mode,
+			"players":         status.Players,
+			"target":          status.PoolLimit,
+			"roster_capacity": rosterCapacity,
+			"cushion":         cushion,
+			"coverage":        fmt.Sprintf("%.1f×", coverage),
+			"with_adp":        status.WithADP,
+			"with_proj":       status.WithProj,
+			"with_bye":        status.WithBye,
+			"requests":        status.Requests,
+			"last_sync":       lastSync,
+			"error":           status.LastError,
+			"positions_list":  positions,
 		}
 	}
 }
