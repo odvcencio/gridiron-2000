@@ -313,6 +313,41 @@ func TestPlayersDataPositionFilterAndSearch(t *testing.T) {
 	}
 }
 
+func TestPlayersDataPaginatesFilteredRowsAndKeepsNavigationState(t *testing.T) {
+	svc := newTestService(t, true)
+	pool := make([]Player, 0, 123)
+	for index, player := range testPool(123) {
+		player.Name = fmt.Sprintf("Roster Pool %03d", index+1)
+		pool = append(pool, player)
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	request, _ := http.NewRequest(http.MethodGet, "/players?pos=WR&page=2", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	if len(rows) != 21 {
+		t.Fatalf("clamped filtered page = %d rows, want 21", len(rows))
+	}
+	if data["pool_total"] != 21 || data["pool_page"] != 1 || data["pool_pages"] != 1 {
+		t.Fatalf("filtered pagination = total %v page %v/%v, want 21 page 1/1", data["pool_total"], data["pool_page"], data["pool_pages"])
+	}
+	if data["pool_previous_href"] != "/players?pos=WR" {
+		t.Fatalf("clamped filtered previous href = %v", data["pool_previous_href"])
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/players?page=2", nil)
+	data = svc.PlayersData(request)
+	rows, _ = data["players"].([]map[string]any)
+	if len(rows) != poolPageSize {
+		t.Fatalf("second page = %d rows, want %d", len(rows), poolPageSize)
+	}
+	if data["pool_total"] != 123 || data["pool_page"] != 2 || data["pool_pages"] != 3 {
+		t.Fatalf("second-page pagination = total %v page %v/%v, want 123 page 2/3", data["pool_total"], data["pool_page"], data["pool_pages"])
+	}
+	if data["pool_previous_href"] != "/players" || data["pool_next_href"] != "/players?page=3" {
+		t.Fatalf("second-page hrefs = previous %v next %v", data["pool_previous_href"], data["pool_next_href"])
+	}
+}
+
 // ---------------------------------------------------------------------
 // PlayersData — MY CLAIMS and WAIVER ORDER panels (roster-ops spec 8.2)
 // ---------------------------------------------------------------------

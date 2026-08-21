@@ -2686,6 +2686,26 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-accent-cyan);
 }
 
+/* Bounded server pages keep player browsing useful without turning a draft
+   room into a multi-thousand-node document. The controls stay deliberately
+   terminal-like, but the page indicator is a normal live region for keyboard
+   and screen-reader users. */
+.pool-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.pool-pagination > span {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-align: center;
+}
+
 .pool-labels,
 .pool-row {
   position: relative;
@@ -4476,6 +4496,15 @@ body.is-on-clock .draft-clock-panel {
 
   .pool-search-bar input {
     flex-basis: 100%;
+  }
+
+  .pool-pagination {
+    flex-wrap: wrap;
+  }
+
+  .pool-pagination > span {
+    order: -1;
+    width: 100%;
   }
 
   .site-frame,

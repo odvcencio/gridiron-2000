@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -45,6 +46,23 @@ func stringField(m map[string]any, key string) string {
 func boolField(m map[string]any, key string) bool {
 	value, _ := m[key].(bool)
 	return value
+}
+
+func draftRedirectTarget(pos, query, page string) string {
+	values := url.Values{}
+	if pos != "" {
+		values.Set("pos", pos)
+	}
+	if query != "" {
+		values.Set("q", query)
+	}
+	if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
+		values.Set("page", strconv.Itoa(parsed))
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/draft?" + encoded
+	}
+	return "/draft"
 }
 
 // draftTeamProps converts DraftData's map[string]any "teams" slice into
@@ -200,7 +218,7 @@ func init() {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
 				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
-				ctx.Redirect("/draft")
+				ctx.Redirect(draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
 				return nil
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
