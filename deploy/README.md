@@ -13,15 +13,63 @@ Deployment to the pushed digest before rollout. Do not deploy `:latest` or
 rely on a mutable tag:
 
 ```bash
-kubectl -n gridiron set image deployment/gridiron-2000 \
-  gridiron-2000=harbor.draco.quest/orchard/gridiron-2000@sha256:<digest>
-kubectl -n stablekernel set image deployment/gridiron-2000-sk \
-  gridiron-2000=harbor.draco.quest/orchard/gridiron-2000@sha256:<digest>
+# Future release-pin step: update only the image field in both manifests to
+# the newly pushed digest, preserving COMMISSIONER_INSTANCE_ID,
+# COMMISSIONER_HQ_PEERS, and all Secret/ConfigMap references.
+# Apply SK first, then flagship, only after both HQ Secret patches succeed:
+kubectl apply -f deploy/k8s/sk/deployment.yaml
+kubectl -n stablekernel rollout status deployment/gridiron-2000-sk --timeout=5m
+kubectl apply -f deploy/k8s/deployment.yaml
+kubectl -n gridiron rollout status deployment/gridiron-2000 --timeout=5m
 ```
 
-After rollout, compare the live `gitSHA` and `appVersion` in `/api/health`
-with the release record. The two instances intentionally share a binary and
-relay but keep separate `LEAGUE_FILE` ConfigMaps and state volumes.
+This is a future release-pin step; this document does not claim a new build or
+rollout and intentionally contains no current release digest. Before either
+Deployment changes, record each old revision and exact image reference, then
+follow [the launch checklist's SK-first canary gate](../docs/launch-checklist.md).
+After the second (flagship) roll, compare the live `gitSHA` and `appVersion`
+in both `/api/health` responses with the release record. The two instances
+intentionally share a binary and relay but keep separate `LEAGUE_FILE`
+ConfigMaps and state volumes.
+
+The release health gate accepts `fantasyPoolMode` `live` or `cache`, but
+only when `fantasyPoolError` is empty and
+`fantasyPoolPlayers >= fantasyRosterCapacity`. A `cache` result is not an
+error when those conditions hold.
+
+## Existing-instance release controls
+
+For a release that enables Commissioner HQ, generate one newly generated,
+independent `COMMISSIONER_HQ_TOKEN` with at least 256 bits and install its
+identical value in both existing application Secrets
+(`gridiron-2000-secrets` in `gridiron` and
+`gridiron-2000-sk-secrets` in `stablekernel`) before either Deployment
+rolls. Use the no-display, one-patch-file workflow in
+[the launch checklist](../docs/launch-checklist.md#102-install-the-new-commissioner-hq-token-before-either-roll).
+Never print or read (including fetch, echo, or log) the token value, and never
+reuse `DATA_API_TOKEN` or `SESSION_SECRET`.
+
+Record old revisions and image digests before any manifest apply. Roll
+Stable Kernel first and wait for its health, redirect, and read-only smoke
+gates. Only then roll the flagship and smoke both instances. During the
+first SK canary, the flagship peer card may be unavailable because it is
+still on the old image; that is expected until the second roll. After the
+flagship roll, both peer cards must be available.
+
+Rollback uses the exact revisions captured before the change:
+
+```bash
+kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
+  --to-revision=<recorded-sk-before-revision>
+kubectl -n gridiron rollout undo deployment/gridiron-2000 \
+  --to-revision=<recorded-flagship-before-revision>
+```
+
+Run `rollout status` after each undo. Roll back on a rollout timeout,
+unready pod, failed health predicate, insufficient player pool, broken
+redirect, failed read-only smoke, or (after both rolls) an unavailable
+Commissioner HQ peer card. Do not guess a digest in a rollback command or
+bypass the manifest source of truth with `kubectl set image`.
 
 ## Why a ConfigMap, not a file in this repo
 
@@ -113,6 +161,13 @@ share one metered upstream quota.
 
 ### Deploying statrelay
 
+The relay is an existing shared dependency, not part of this application
+release. The checked-in `deploy/k8s/statrelay.yaml` still uses
+`harbor.draco.quest/orchard/gridiron-2000-statrelay:latest`, and its image
+provenance/digest pinning is future cleanup. Do not rebuild, retag, repin, or
+roll `statrelay` while applying the app release; do not turn that future
+cleanup into a prerequisite for the SK-first canary.
+
 ```bash
 kubectl apply -f deploy/k8s/statrelay.yaml
 # Copy deploy/k8s/statrelay-secret.example.yaml, fill in the real key,
@@ -121,20 +176,26 @@ kubectl apply -f deploy/k8s/statrelay.yaml
 kubectl apply -f deploy/local/statrelay-secret.yaml
 ```
 
-Build and push its image from the repository root with
-`deploy/statrelay.Dockerfile` (a separate, smaller image from the main
-app's `Dockerfile` — statrelay is a dependency-free stdlib binary with no
-GoSX asset build step):
+The apply commands above are first-install/bootstrap only. A future,
+separate relay cleanup must build from a recorded source commit, publish an
+immutable tag and digest with provenance, update the relay Deployment, and
+roll it under its own acceptance and rollback plan. This app release records
+the relay dependency and leaves that cleanup untouched.
+
+After this app release is accepted, removal of the stale flagship
+`TANK01_API_KEY` is an explicit, separate secret-maintenance operation. Do
+not combine it with the rollout or remove the key from `statrelay-secrets`:
+only that relay Secret owns the real upstream key. When the separate window is
+approved, remove the old flagship key with the cluster's secret-management
+workflow (for a Kubernetes JSON Secret, the targeted operation is):
 
 ```bash
-docker build -f deploy/statrelay.Dockerfile -t harbor.draco.quest/orchard/gridiron-2000-statrelay:latest .
-docker push harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
+kubectl -n gridiron patch secret/gridiron-2000-secrets --type=json \
+  --patch='[{"op":"remove","path":"/data/TANK01_API_KEY"}]'
 ```
 
-Then point each league Deployment at the relay with `TANK01_BASE_URL` and
-roll it. After verification, remove any obsolete `TANK01_API_KEY` from a
-league Secret during an explicit secret-maintenance operation; only
-`statrelay-secrets` needs it.
+Never print or fetch any Secret value while checking or performing this
+maintenance.
 
 ### Local development (no relay)
 
@@ -153,16 +214,21 @@ actions. Configure an instance ID and explicit service origins with
 `COMMISSIONER_INSTANCE_ID` and `COMMISSIONER_HQ_PEERS`. Each peer serves only
 the typed, PII-free `/api/commissioner/v1/summary` contract.
 
-Generate a separate strong `COMMISSIONER_HQ_TOKEN` and place the same value in
-the participating league Secrets. Do not reuse `DATA_API_TOKEN`: that token
-authorizes broader exports. The federation token cannot mutate league state,
-and the HQ never forwards browser cookies or Google identities. Cross-league
-buttons are ordinary links to the owning host's existing `/admin` and `/draft`
-surfaces, where that host repeats its own session, commissioner, and CSRF
-checks.
+Generate one newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least
+256 bits and place the identical value in both participating existing
+application Secrets *before either Deployment rolls*. Do not reuse
+`DATA_API_TOKEN`, `SESSION_SECRET`, or a value copied from another Secret.
+Never print, echo, log, or fetch the token value; use the shared opaque patch
+file described in the launch checklist. The federation token cannot mutate
+league state, and the HQ never forwards browser cookies or Google identities.
+Cross-league buttons are ordinary links to the owning host's existing
+`/admin` and `/draft` surfaces, where that host repeats its own session,
+commissioner, and CSRF checks.
 
 Peer URLs are deployment wiring, not league rules, so they deliberately stay
 out of `league.json`. Startup rejects missing tokens, duplicate/self IDs,
 unsafe URL components, and more than eight peers. Peer reads are concurrent,
 redirect-disabled, size-bounded, and time-bounded; an unavailable league
-becomes one truthful degraded card rather than failing the whole HQ.
+becomes one truthful degraded card rather than failing the whole HQ. During
+the SK-first canary, the flagship card may be unavailable until the second
+roll; after the flagship rolls, both peer cards are required for acceptance.
