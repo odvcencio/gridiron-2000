@@ -4,37 +4,42 @@ This runbook takes GRIDIRON 2000 from a built image to a live production
 deployment at `gridiron.draco.quest`. Follow the steps in order. Each step
 lists the exact command to run.
 
-## Deployment status (2026-08-21)
+## Release status (2026-08-21)
 
-Both league instances are live with valid certificates and working Google
-OAuth:
+This is the release procedure for the two existing league Deployments. It
+does not claim that a new image was built, pinned, or rolled out, and it does
+not record a new image digest. The build-and-pin action in step 1 is a future
+release step; the operator records the actual pushed digest before changing
+either Deployment.
 
-- `https://gridiron.draco.quest` — GRIDIRON 2000
-- `https://sk.gridiron.draco.quest` — STABLE KERNEL LEAGUE
+The two live hostnames are `https://gridiron.draco.quest` (GRIDIRON 2000) and
+`https://sk.gridiron.draco.quest` (STABLE KERNEL LEAGUE). The tracked
+`deploy/k8s/sk/http-redirect.yaml` is applied and the Stable Kernel
+HTTP-to-HTTPS redirect is resolved in the live namespace. Verify that
+resolved state during the canary; it is not an outstanding fix for this
+release.
 
-Both load their league-specific ConfigMap and report a live player pool.
-Stable Kernel already uses the shared `statrelay`; this release adds the same
-relay URL to the flagship Deployment. The flagship's existing application
-Secret still has an obsolete `TANK01_API_KEY` key from the direct-client
-topology. It is ignored after the relay rollout and should be removed during
-the next explicit secret-maintenance window; no secret value is required or
-changed by this release.
-
-The tracked Stable Kernel HTTP redirect was absent from the live namespace at
-the last audit. Step 5 applies it so both plain-HTTP hostnames redirect to
-HTTPS. Run the complete step 10 smoke test after every release.
+This release enables the existing Commissioner HQ wiring. It requires one
+newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least 256 bits,
+installed with the identical value in both existing application Secrets
+*before either Deployment rolls*. Never print or read (including fetch,
+echo, or log) the token value. The no-display patch workflow in step 10.2 is
+the only supported way to install it. The old flagship `TANK01_API_KEY`, if
+still present, is a
+separate post-acceptance secret-maintenance task; it is not changed by this
+release.
 
 ## Before you start
 
 Confirm you have:
 
-- Docker, `kubectl`, and `openssl` on your machine.
+- Docker, `kubectl`, `curl`, `jq`, and `openssl` on your machine.
 - Push access to the `harbor.draco.quest/orchard` registry.
 - `kubectl` context pointed at the target cluster.
 - Access to the Google Cloud Console project for this app's OAuth client.
 - A RapidAPI account for the Tank01 NFL API.
 
-## 1. Build and push the image
+## 1. Future release-pin step: build and push the image
 
 Every release gets a human-readable date plus the source commit's short SHA.
 The deployment is then pinned to the image digest; the tag is only a lookup
@@ -63,15 +68,27 @@ docker image inspect --format='{{index .RepoDigests 0}}' "${IMAGE}"
 
 The `/api/health` response exposes `appVersion`, `gitSHA`, `buildDate`, and
 `frameworkVersion` separately. This makes an old image or a source/image
-branch mismatch visible without reading registry internals.
+branch mismatch visible without reading registry internals. Do not copy a
+digest from a manifest into this runbook as a new release digest.
 
-## 2. Create the namespace
+## First-install boundary for steps 2–9
+
+Steps 2–9 are first-install/bootstrap-only instructions, including step 5's
+manifest applies. They are not an existing-release rollout path. For the two
+already-provisioned Deployments, skip every step from 2 through 9; do not
+recreate namespaces, pull Secrets, application Secrets, ConfigMaps, DNS, OAuth
+settings, manager settings, relay settings, or apply step 5's manifests as a
+shortcut. After the same new HQ token is patched into both existing application
+Secrets in step 10.2, the only release path is the sequential,
+digest-pinned-manifest apply in steps 10.3 and 10.4.
+
+## 2. First-install/bootstrap only: create the namespace
 
 ```
 kubectl apply -f deploy/k8s/namespace.yaml
 ```
 
-## 3. Create the registry pull secret
+## 3. First-install/bootstrap only: create the registry pull secret
 
 Every namespace on this cluster that pulls from Harbor holds its own copy
 of a `regcred` secret. Create one in the `gridiron` namespace. Replace the
@@ -85,7 +102,12 @@ kubectl create secret docker-registry regcred \
   --docker-password=<harbor-robot-account-token>
 ```
 
-## 4. Create the application secret
+## 4. First-install/bootstrap only: create the application secret
+
+These namespace/bootstrap commands are for a first installation only. For
+the existing two Deployments, do not replace either application Secret with a
+template and do not restart from this section; use the release gate in step 10
+below.
 
 Generate a session secret.
 
@@ -114,7 +136,11 @@ rm /tmp/gridiron-2000-secret.yaml
 
 Never commit the filled-in secret file.
 
-## 5. Apply the remaining manifests
+## 5. First-install/bootstrap only: apply the remaining manifests
+
+This step is for a first install and must not be used as an existing-release
+rollout. Existing releases use only the future digest-pinned Deployment
+manifests in steps 10.3 and 10.4, after step 10.2's token gate.
 
 ```
 kubectl apply -f deploy/k8s/pvc.yaml
@@ -136,7 +162,7 @@ Confirm the pod reaches the `Ready` state.
 kubectl get pods -n gridiron -w
 ```
 
-## 6. Create the DNS record
+## 6. First-install/bootstrap only: create the DNS record
 
 Add a DNS `A` or `CNAME` record for `gridiron.draco.quest` that points to
 the cluster's public ingress address. Check the current address with:
@@ -151,7 +177,7 @@ Wait for the record to propagate, then confirm the TLS certificate issues.
 kubectl get certificate -n gridiron
 ```
 
-## 7. Register the Google OAuth redirect URI
+## 7. First-install/bootstrap only: register the Google OAuth redirect URI
 
 1. Open the Google Cloud Console for this app's OAuth client.
 2. Add this exact production redirect URI to the client's authorized
@@ -161,7 +187,7 @@ kubectl get certificate -n gridiron
    ```
 3. Save the client. Do not remove the existing local development URI.
 
-## 8. Set the league's allowed managers
+## 8. First-install/bootstrap only: set the league's allowed managers
 
 Two paths work; use either or both:
 
@@ -178,7 +204,7 @@ Two paths work; use either or both:
 The commissioner console also releases seats and resets the draft or the
 whole league (type RESET to confirm).
 
-## 9. Configure the shared Tank01 relay
+## 9. First-install/bootstrap only: configure the shared Tank01 relay
 
 1. Create or sign in to a RapidAPI account.
 2. Subscribe to "Tank01 NFL Live In-Game Real Time Statistics" on the free
@@ -188,31 +214,252 @@ whole league (type RESET to confirm).
    `deploy/k8s/statrelay-secret.example.yaml`), then restart the relay.
    Do not add it to either league's Secret.
 5. Confirm both Deployments set
-   `TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local` and that
-   `/api/health` reports `"fantasyPoolMode":"live"` within a
-   minute. The app spends five requests per sync and syncs every six
-   hours, so the free tier covers normal operation.
+   `TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local`. A healthy
+   cache is acceptable for release acceptance: `fantasyPoolMode` may be
+   `live` or `cache`, provided `fantasyPoolError` is empty and
+   `fantasyPoolPlayers >= fantasyRosterCapacity`. The app spends five
+   requests per sync and syncs every six hours, so the free tier covers normal
+   operation.
 
-## 10. Pre-draft smoke test
+## 10. Existing-instance release gate
 
-Run every check below before the league relies on the deployment. Do not
-skip the demo-mode pick rehearsal.
+Use this sequence for the already-provisioned `gridiron-2000` and
+`gridiron-2000-sk` Deployments. Never roll both at once. The order is
+strictly Stable Kernel (SK) canary first, then flagship:
 
-1. **Health endpoint.** Confirm the API reports a healthy, ready state.
+1. record both old revisions and image digests;
+2. install one newly generated independent 256-bit HQ token into both existing
+   application Secrets, before either Deployment rolls;
+3. apply the future digest-pinned SK Deployment manifest and wait for its
+   canary gates;
+4. apply the future digest-pinned flagship Deployment manifest only after SK
+   passes;
+5. smoke both instances and verify both Commissioner HQ peer cards.
+
+### 10.1 Record the rollback point before either Deployment rolls
+
+Create an operator-owned release record outside the repository. These
+commands print only Deployment metadata and image references, never Secret
+values:
+
+```bash
+RECORD_DIR="/tmp/gridiron-release-record-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -p "${RECORD_DIR}"
+
+kubectl -n stablekernel get deployment/gridiron-2000-sk \
+  -o jsonpath='name={.metadata.name} revision={.metadata.annotations.deployment\.kubernetes\.io/revision} image={.spec.template.spec.containers[?(@.name=="gridiron-2000")].image}{"\n"}' \
+  | tee "${RECORD_DIR}/sk-before.txt"
+kubectl -n stablekernel rollout history deployment/gridiron-2000-sk \
+  | tee -a "${RECORD_DIR}/sk-before.txt"
+
+kubectl -n gridiron get deployment/gridiron-2000 \
+  -o jsonpath='name={.metadata.name} revision={.metadata.annotations.deployment\.kubernetes\.io/revision} image={.spec.template.spec.containers[?(@.name=="gridiron-2000")].image}{"\n"}' \
+  | tee "${RECORD_DIR}/flagship-before.txt"
+kubectl -n gridiron rollout history deployment/gridiron-2000 \
+  | tee -a "${RECORD_DIR}/flagship-before.txt"
+```
+
+Keep the exact old revision numbers and image digests. Do not guess them and
+do not substitute the current manifest digest for the new release digest.
+
+### 10.2 Install the new Commissioner HQ token before either roll
+
+Generate exactly one new independent 32-byte (256-bit) token and use the same
+opaque patch file for both existing Secrets. This workflow never prints,
+echoes, logs, or fetches the token value; do not add a `kubectl get secret`
+or JSONPath command that reads it:
+
+```bash
+umask 077
+TOKEN_FILE="$(mktemp)"
+PATCH_FILE="$(mktemp)"
+trap 'rm -f "${TOKEN_FILE}" "${PATCH_FILE}"' EXIT
+
+openssl rand -hex 32 > "${TOKEN_FILE}"
+jq -n --rawfile token "${TOKEN_FILE}" \
+  '{stringData:{COMMISSIONER_HQ_TOKEN:($token|rtrimstr("\n"))}}' \
+  > "${PATCH_FILE}"
+
+kubectl -n gridiron patch secret/gridiron-2000-secrets \
+  --type=merge --patch-file="${PATCH_FILE}"
+kubectl -n stablekernel patch secret/gridiron-2000-sk-secrets \
+  --type=merge --patch-file="${PATCH_FILE}"
+```
+
+The identical patch file is the equality check. Do not reuse
+`DATA_API_TOKEN`, `SESSION_SECRET`, or any token copied from a Secret.
+Both patches must succeed before either Deployment manifest is applied or any
+rollout command runs.
+
+### 10.3 Apply the future digest-pinned SK Deployment as the canary
+
+The future release-pin step must prepare these two repository Deployment
+manifests with the new immutable image digest before this gate, without
+applying either one yet:
+
+- `deploy/k8s/sk/deployment.yaml` — SK canary, applied first.
+- `deploy/k8s/deployment.yaml` — flagship, applied second.
+
+Change only each manifest's application image to the future
+`harbor.draco.quest/orchard/gridiron-2000@sha256:<new-release-digest>`.
+Preserve the manifest as the source of truth, including
+`COMMISSIONER_INSTANCE_ID`, `COMMISSIONER_HQ_PEERS`, `TANK01_BASE_URL`,
+and the existing Secret/ConfigMap references. Do not use `kubectl set image`
+for this release path. This docs-only correction does not invent or install
+that future digest.
+
+After both step 10.2 Secret patches succeed, apply the SK Deployment manifest
+and wait for its canary rollout:
+
+```bash
+kubectl apply -f deploy/k8s/sk/deployment.yaml
+kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+  --timeout=5m
+```
+
+Run the SK health and redirect checks in step 11. During this first roll, SK's
+Commissioner HQ page may show the flagship peer card as unavailable because
+the flagship is still on the old image. That card can remain unavailable until
+the second roll; it is expected canary state, not an SK canary failure.
+
+### 10.4 Apply the flagship Deployment manifest only after SK passes
+
+```bash
+kubectl apply -f deploy/k8s/deployment.yaml
+kubectl -n gridiron rollout status deployment/gridiron-2000 \
+  --timeout=5m
+```
+
+After this second roll, rerun the health, redirect, login, draft-room, and
+Commissioner HQ checks for both hosts. Both peer cards must be available
+before acceptance; the temporary first-roll exception no longer applies.
+
+### 10.5 Rollback criteria and commands
+
+Stop the sequence and roll back if either rollout times out, its pod is not
+Ready, health is not `ok`, the pool mode is neither `live` nor `cache`,
+`fantasyPoolError` is non-empty, the player count is below
+`fantasyRosterCapacity`, the resolved SK redirect breaks, or either app
+cannot complete its read-only smoke checks. After the second roll, an
+unavailable HQ peer card is also a rollback failure.
+
+Use the exact old revision numbers and image references captured in step
+10.1; placeholders below are deliberately not current digests:
+
+```bash
+# SK canary failed before the flagship rolled:
+kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
+  --to-revision=<recorded-sk-before-revision>
+kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+  --timeout=5m
+
+# Flagship or final acceptance failed after both rolls:
+kubectl -n gridiron rollout undo deployment/gridiron-2000 \
+  --to-revision=<recorded-flagship-before-revision>
+kubectl -n gridiron rollout status deployment/gridiron-2000 \
+  --timeout=5m
+kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
+  --to-revision=<recorded-sk-before-revision>
+kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
+  --timeout=5m
+```
+
+If a recorded revision is unavailable, restore the exact old image digest in
+the corresponding Deployment manifest from the release record and apply that
+manifest. Keep the newly installed HQ token in both Secrets during an image
+rollback; never print or fetch it. Do not bypass the manifest source of truth
+with `kubectl set image`.
+
+## 11. Pre-draft smoke test
+
+Run every check below independently against both league hosts. This is a
+read-only release smoke: it must never POST draft start, click a Start
+control, submit a pick, or mutate seats, members, or league state.
+
+1. **Health endpoint on both instances.** A passing response has `ok: true`,
+   `fantasyPoolMode` equal to `live` or `cache`, an empty
+   `fantasyPoolError`, and `fantasyPoolPlayers >= fantasyRosterCapacity`:
+   ```bash
+   set -euo pipefail
+   check_health() {
+     local label="$1" url="$2" body
+     if ! body="$(curl --fail-with-body -sS "${url}/api/health")"; then
+       printf '%s: curl failed\n' "${label}" >&2
+       return 1
+     fi
+     if ! printf '%s' "${body}" | jq -e '
+         .ok == true and
+         (.fantasyPoolMode == "live" or .fantasyPoolMode == "cache") and
+         (.fantasyPoolError // "") == "" and
+         (.fantasyPoolPlayers >= .fantasyRosterCapacity)
+       ' >/dev/null; then
+       printf '%s: health predicate failed\n' "${label}" >&2
+       return 1
+     fi
+     printf '%s: health OK\n' "${label}"
+   }
+   check_health flagship https://gridiron.draco.quest
+   check_health stable-kernel https://sk.gridiron.draco.quest
    ```
-   curl -s https://gridiron.draco.quest/api/health
+   `set -euo pipefail` makes a failure on either host fail this block
+   immediately; the second host cannot mask a first-host failure.
+2. **HTTP redirects on both instances.** With redirects disabled, confirm
+   `http://gridiron.draco.quest/` and
+   `http://sk.gridiron.draco.quest/` each return a permanent redirect whose
+   `Location` is the matching HTTPS host. The SK result verifies the
+   tracked/live-resolved `sk/http-redirect.yaml` wiring:
+   ```bash
+   set -euo pipefail
+   check_redirect() {
+     local host="$1" headers
+     if ! headers="$(curl -sS -D - -o /dev/null "http://${host}/" | tr -d '\r')"; then
+       printf '%s: curl failed\n' "${host}" >&2
+       return 1
+     fi
+     if ! printf '%s\n' "${headers}" | grep -Eiq '^HTTP/[0-9.]+ 30(1|8) '; then
+       printf '%s: missing permanent redirect\n' "${host}" >&2
+       return 1
+     fi
+     if ! printf '%s\n' "${headers}" | grep -Eiq "^location: https://${host}/?$"; then
+       printf '%s: wrong redirect Location\n' "${host}" >&2
+       return 1
+     fi
+     printf '%s: redirect OK\n' "${host}"
+   }
+   check_redirect gridiron.draco.quest
+   check_redirect sk.gridiron.draco.quest
    ```
-   Check the response for `"ok":true`.
-2. **Login.** Open `https://gridiron.draco.quest/login` in a browser. Sign
-   in with a Google account from the allowed manager list. Confirm the app
-   redirects you to the home page signed in.
-3. **Draft room loads.** Open `https://gridiron.draco.quest/draft`. Confirm
-   the page lists the draft order, the player pool, and the pick tape.
-4. **Explicit draft start rehearsal.** Set `DEMO_MODE=true` in a staging
-   copy of the secret, or run the image locally with `DEMO_MODE=true`.
-   Confirm the room remains closed before and after the scheduled window
-   until a commissioner types `START`. Start it intentionally, submit one
-   pick, and confirm the pick tape and on-the-clock team advance.
+   The same `set -euo pipefail` fail-fast rule means either host's redirect
+   failure makes this block nonzero; a later success cannot mask it.
+3. **Login on both instances.** Open each `/login` URL in a browser, sign in
+   with an allowed manager account, and confirm that account returns to that
+   host's home page. Do not carry a session or callback URL between hosts.
+4. **Draft room on both instances.** Open each `/draft` URL and confirm the
+   draft order, player pool, pick tape, and closed/ready state render.
+5. **Commissioner HQ after the second roll.** Open `/commissioner` on both
+   hosts. Confirm the local card and the peer card are available, show the
+   expected release metadata, and contain no PII. A peer-unavailable card is
+   tolerated only during the SK-first canary window described in step 10.3.
+6. **No draft mutation.** Do not run a draft-start request, click
+   `START`, submit a pick, or use a demo-mode rehearsal against either
+   production host. Test those mutations only in a separate staging
+   environment and outside this release gate.
+
+## 12. Separate post-acceptance secret maintenance
+
+Only after both instances pass the release smoke, and in a separately
+approved secret-maintenance window, remove the stale flagship
+`TANK01_API_KEY` if it is still present. This is not part of the image
+rollout and does not apply to `statrelay-secrets`, which remains the sole
+owner of the real upstream key. The targeted Kubernetes JSON Secret operation
+is:
+
+```bash
+kubectl -n gridiron patch secret/gridiron-2000-secrets --type=json \
+  --patch='[{"op":"remove","path":"/data/TANK01_API_KEY"}]'
+```
+
+Never print or fetch any Secret value while performing this maintenance.
 
 ## Notes on client assets
 
