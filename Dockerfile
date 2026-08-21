@@ -11,7 +11,15 @@
 # (~41 KB gzipped runtime), which is fine for an eight-manager league.
 # Every user flow also works without JavaScript through plain HTML forms.
 
+ARG APP_VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
 FROM golang:1.26-bookworm AS builder
+
+ARG APP_VERSION
+ARG GIT_SHA
+ARG BUILD_DATE
 
 WORKDIR /src
 
@@ -27,7 +35,7 @@ RUN go mod download
 
 COPY . .
 
-RUN go build -trimpath -ldflags="-s -w" -o /out/gridiron-2000 .
+RUN go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main.appGitSHA=${GIT_SHA} -X main.appBuildDate=${BUILD_DATE}" -o /out/gridiron-2000 .
 
 # Client assets: dist/ is excluded from the build context, so this always
 # generates fresh island programs that match the GSX sources in the image.
@@ -46,6 +54,16 @@ RUN go install m31labs.dev/gosx/cmd/gosx@v0.49.0 && GOSX_SKIP_VERSION_CHECK=1 /g
 RUN mkdir -p /out/data && chown 65532:65532 /out/data && chmod 700 /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
+
+ARG APP_VERSION
+ARG GIT_SHA
+ARG BUILD_DATE
+
+LABEL org.opencontainers.image.title="Gridiron 2000" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/odvcencio/gridiron-2000"
 
 WORKDIR /app
 

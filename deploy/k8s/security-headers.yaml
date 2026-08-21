@@ -1,0 +1,23 @@
+# HTTPS response policy for the flagship ingress. HSTS is deliberately
+# host-only (no includeSubdomains/preload) until every Gridiron subdomain is
+# confirmed HTTPS-only. CSP is not asserted here yet because GoSX currently
+# emits its navigation runtime as an inline script; a CSP lane must add a
+# nonce/hash contract instead of silently breaking navigation.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: security-headers
+  namespace: gridiron
+  labels:
+    app: gridiron-2000
+spec:
+  headers:
+    stsSeconds: 31536000
+    stsIncludeSubdomains: false
+    stsPreload: false
+    forceSTSHeader: true
+    contentTypeNosniff: true
+    frameDeny: true
+    referrerPolicy: strict-origin-when-cross-origin
+    customResponseHeaders:
+      Permissions-Policy: "camera=(), microphone=(), geolocation=(), payment=()"

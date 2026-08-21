@@ -1,9 +1,8 @@
 # Mirrors ../deployment.yaml exactly, except: namespace (stablekernel, not
 # gridiron), resource names (the -sk suffix), the ConfigMap/Secret names
 # this Deployment references, and the env block below — see its own
-# comments for what differs and why. Same image
-# (harbor.draco.quest/orchard/gridiron-2000:latest): this is the platform's
-# isolation thesis proof — one binary, two independently configured,
+# comments for what differs and why. The same digest-pinned image is the
+# platform's isolation thesis proof — one binary, two independently configured,
 # independently stateful league instances.
 apiVersion: apps/v1
 kind: Deployment
@@ -12,6 +11,7 @@ metadata:
   namespace: stablekernel
   labels:
     app: gridiron-2000-sk
+    app.kubernetes.io/name: gridiron-2000
 spec:
   replicas: 1
   # Recreate, not RollingUpdate: the PVC is ReadWriteOnce (local-path) and
@@ -40,6 +40,8 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
+          # The release commit that follows the image build replaces this
+          # mutable bootstrap reference with the pushed image digest.
           image: harbor.draco.quest/orchard/gridiron-2000:latest
           imagePullPolicy: Always
           ports:
@@ -69,9 +71,7 @@ spec:
             # section 3.3's precedence table), so keeping them would mean a
             # ConfigMap-only edit to league.json's draft.at silently does
             # nothing until this Deployment's env is *also* edited — a real
-            # operational trap, and SK's draft date is explicitly TBD and
-            # will move at least once (owner, 2026-08-18: "tentatively...
-            # Friday or next weekend"). Leaving them unset makes
+            # operational trap. Leaving them unset makes
             # league.json the single place that date lives for this
             # instance: edit the ConfigMap, `kubectl rollout restart`, done.
             # ../deployment.yaml's own comment already calls these four

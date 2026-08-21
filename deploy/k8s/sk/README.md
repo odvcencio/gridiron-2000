@@ -1,7 +1,7 @@
 # Stable Kernel (SK) instance — deploy/k8s/sk
 
-A second deployment of the same `harbor.draco.quest/orchard/gridiron-2000:latest`
-image, its own namespace, its own config, its own SQLite state — the
+A second deployment of the same digest-pinned Gridiron image, its own
+namespace, its own config, its own SQLite state — the
 platform's isolation thesis: one codebase, two leagues, neither affects the
 other. See `deploy/README.md` for the shared conventions this set follows
 (ConfigMap-not-committed pattern, the statrelay topology).
@@ -16,15 +16,13 @@ other. See `deploy/README.md` for the shared conventions this set follows
 | `service.yaml` | `../service.yaml` | name, namespace |
 | `ingress.yaml` | `../ingress.yaml` | host, namespace, resource names |
 | `http-redirect.yaml` | `../http-redirect.yaml` | host, namespace, middleware ref |
+| `security-headers.yaml` | `../security-headers.yaml` | namespace, labels |
 | `secret.example.yaml` | `../secret.example.yaml` | namespace, no `TANK01_API_KEY` (points at the shared relay instead) |
 
-## DNS requirement — do not assume this exists
+## Live hostname
 
-`sk.gridiron.draco.quest` needs a public DNS **A or CNAME record** pointed
-at the cluster's ingress, the same way `gridiron.draco.quest` already does
-for the flagship (`docs/launch-checklist.md`). This has NOT been created as
-part of this work. The host itself is a placeholder pending the owner's
-final choice of subdomain — if it changes, update `ingress.yaml`,
+`sk.gridiron.draco.quest` is live with public DNS and its own certificate.
+If the hostname changes, update `ingress.yaml`,
 `http-redirect.yaml`, `secret.example.yaml`'s `GOOGLE_REDIRECT_URL`, and
 `league-sk.json`'s `league.url` together.
 
@@ -58,6 +56,7 @@ rm /tmp/gridiron-2000-sk-secret.yaml
 
 kubectl apply -f deploy/k8s/sk/deployment.yaml
 kubectl apply -f deploy/k8s/sk/service.yaml
+kubectl apply -f deploy/k8s/sk/security-headers.yaml
 kubectl apply -f deploy/k8s/sk/ingress.yaml
 kubectl apply -f deploy/k8s/sk/http-redirect.yaml
 ```
@@ -90,7 +89,6 @@ kubectl create configmap gridiron-2000-sk-league-config \
 kubectl rollout restart deployment/gridiron-2000-sk --namespace stablekernel
 ```
 
-See the top-level task report for the verified restart-safety evidence
-(claimed seats/members/team names/badges survive; the pick-clock's self-arm
-gate reads the new date cleanly either direction, forward or backward, as
-long as the draft has not already started).
+Claimed seats, members, team names, and badges survive the restart. The
+scheduled time remains informational: the draft stays closed until a
+commissioner explicitly starts it.

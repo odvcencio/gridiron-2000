@@ -3,13 +3,9 @@
 # through Cloudflare, so the certificate can be ready before the public DNS
 # record exists), and a short "<app>-tls" TLS secret name.
 #
-# DNS REQUIREMENT (do not assume this record exists): sk.gridiron.draco.quest
-# needs a public DNS A/CNAME record pointed at the cluster's ingress, the
-# same way gridiron.draco.quest already does for the flagship
-# (docs/launch-checklist.md step "Point DNS at the cluster"). This host is
-# also a placeholder pending the owner's actual choice of subdomain — league
-# config's league.url field (deploy/local/league-sk.json) must match
-# whatever host is finally chosen here.
+# sk.gridiron.draco.quest is the live Stable Kernel hostname. Its public DNS,
+# certificate, and league.url are already configured; keep them aligned if
+# the league ever moves.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -20,6 +16,7 @@ metadata:
   annotations:
     cert-manager.io/cluster-issuer: cloudflare-issuer
     traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.middlewares: stablekernel-security-headers@kubernetescrd
 spec:
   ingressClassName: traefik
   rules:

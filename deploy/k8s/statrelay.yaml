@@ -1,5 +1,5 @@
 # statrelay: the shared Tank01 caching relay. Every league instance that
-# talks to Tank01 (the flagship gridiron-2000 deployment, and the upcoming
+# talks to Tank01 (the flagship gridiron-2000 deployment and the live
 # Stable Kernel instance) points TANK01_BASE_URL at this Service instead of
 # calling RapidAPI directly, so both share one metered upstream quota. See
 # deploy/README.md's "Shared Tank01 relay" section for the full topology
