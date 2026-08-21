@@ -155,7 +155,7 @@ component RosterRow(props: RosterRowProps) {
 }
 
 // Page's avatar-upload form posts to /avatar/upload as a plain, unmanaged
-// (data-gosx-managed="false") full-page submission. GoSX v0.49.0 supports
+// (data-gosx-managed="false") full-page submission. GoSX v0.50.0 supports
 // File/Files and MaxActionBodyBytes for managed actions, but this native route
 // remains until the production consumer adopts a bounded-multipart contract;
 // its outer middleware applies the complete-envelope limit before sessions

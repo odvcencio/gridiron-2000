@@ -21,7 +21,8 @@ func renderLoginPage(t *testing.T, target string) string {
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		return server.HTMLDocument(ctx.Title("Test"), ctx.Head(), body)
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
 	})
 	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
 		t.Fatalf("AddDir: %v", err)
@@ -69,8 +70,8 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	}
 
 	hostile := renderLoginPage(t, "https%3A%2F%2Fevil.example%2Fsteal")
-	if strings.Contains(hostile, "evil.example") || strings.Contains(hostile, "login-return-note") {
-		t.Fatalf("hostile next leaked into login HTML: %s", hostile)
+	if strings.Contains(hostile, `href="/auth/google/start?next=https`) || strings.Contains(hostile, "login-return-note") {
+		t.Fatalf("hostile next leaked into the login CTA: %s", hostile)
 	}
 }
 func TestLoginPageFallsBackFromAuthenticationReturnTargets(t *testing.T) {

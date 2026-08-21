@@ -2,8 +2,6 @@ package commissionerhq
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+
+	"m31labs.dev/gosx/auth"
 )
 
 const maxSummaryBytes = 64 << 10
@@ -58,16 +58,10 @@ func Default() *Service {
 func (s *Service) Enabled() bool { return s != nil && len(s.config.Peers) > 0 }
 
 func (s *Service) SummaryHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s == nil || strings.TrimSpace(s.config.Token) == "" {
-			http.NotFound(w, r)
-			return
-		}
-		if !validBearer(r.Header.Get("Authorization"), s.config.Token) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="gridiron-commissioner"`)
-			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
+	if s == nil {
+		return http.NotFoundHandler()
+	}
+	content := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		summary := s.local()
 		status := http.StatusOK
 		if !summary.Runtime.Ready {
@@ -78,15 +72,10 @@ func (s *Service) SummaryHandler() http.Handler {
 		w.WriteHeader(status)
 		_ = json.NewEncoder(w).Encode(summary)
 	})
-}
-
-func validBearer(header, token string) bool {
-	parts := strings.Fields(header)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || token == "" {
-		return false
-	}
-	want, got := sha256.Sum256([]byte(token)), sha256.Sum256([]byte(parts[1]))
-	return subtle.ConstantTimeCompare(want[:], got[:]) == 1
+	return auth.RequireBearerToken(s.config.Token, auth.BearerOptions{
+		Realm:                "gridiron-commissioner",
+		HideWhenUnconfigured: true,
+	})(content)
 }
 
 func (s *Service) Fleet(ctx context.Context) []FleetEntry {

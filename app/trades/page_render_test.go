@@ -38,7 +38,8 @@ func TestTradesPageRendersWithRealData(t *testing.T) {
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		return server.HTMLDocument(ctx.Title("Test"), ctx.Head(), body)
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
 	})
 	// "." is this package's own directory (app/trades): AddDir treats it
 	// as the route tree's root, so page.gsx here answers "/" — enough to

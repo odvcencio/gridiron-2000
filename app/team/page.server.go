@@ -222,7 +222,7 @@ func init() {
 				}
 			}
 			// avatar_error is flashed by the raw POST /avatar/upload handler
-			// (main package). GoSX v0.49.0 has File/Files and
+			// (main package). GoSX v0.50.0 has File/Files and
 			// MaxActionBodyBytes for managed actions; this native route remains
 			// so its complete multipart cap can run before session/CSRF parsing
 			// until the bounded-multipart contract is adopted.

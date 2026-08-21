@@ -23,7 +23,7 @@ func init() {
 			data["notice"] = ""
 			// avatar_error is flashed by the raw POST /avatar/upload handler
 			// (main package) rather than through this file's Actions map. GoSX
-			// v0.49.0 has File/Files and MaxActionBodyBytes for managed
+			// v0.50.0 has File/Files and MaxActionBodyBytes for managed
 			// actions; this native route remains so its complete multipart cap
 			// can run before session/CSRF parsing until the bounded-multipart
 			// contract is adopted (see avatar_handlers.go).
