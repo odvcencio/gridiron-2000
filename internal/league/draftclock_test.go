@@ -27,17 +27,18 @@ func newClockTestService(t *testing.T, demo bool, draftAt time.Time, start time.
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	startTestDraft(t, svc.store)
 	return svc, &clock
 }
 
-// TestClockArmsAtDraftAt checks the live-mode arm gate (armed once now
-// reaches draftAt, not before) and the demo-mode rule that the clock never
-// self-arms — only a commissioner resume arms it.
+// TestClockArmsAtDraftAt proves wall-clock passage alone is inert and an
+// explicit persisted start is the only lifecycle transition.
 func TestClockArmsAtDraftAt(t *testing.T) {
 	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
 	t.Run("live mode", func(t *testing.T) {
 		service, clock := newClockTestService(t, false, draftAt, draftAt.Add(-time.Minute))
+		service.store.state.DraftStarted = false
 		service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
 
 		service.clockTick(*clock)
@@ -47,17 +48,22 @@ func TestClockArmsAtDraftAt(t *testing.T) {
 
 		*clock = draftAt
 		service.clockTick(*clock)
-		state := service.store.Snapshot()
-		if state.ClockDeadline.IsZero() {
-			t.Fatal("clock did not arm at draftAt")
+		if got := service.store.Snapshot().ClockDeadline; !got.IsZero() {
+			t.Fatalf("clock armed from scheduled time alone: %v", got)
 		}
-		if want := draftAt.Add(service.pickClock(state)); !state.ClockDeadline.Equal(want) {
-			t.Fatalf("armed deadline = %v, want %v", state.ClockDeadline, want)
+		state := service.store.Snapshot()
+		started, err := service.store.StartDraft(*clock, service.pickClock(state))
+		if err != nil || !started {
+			t.Fatalf("StartDraft = %v, %v", started, err)
+		}
+		if want := draftAt.Add(service.pickClock(state)); !service.store.Snapshot().ClockDeadline.Equal(want) {
+			t.Fatalf("explicit-start deadline = %v, want %v", service.store.Snapshot().ClockDeadline, want)
 		}
 	})
 
 	t.Run("demo mode never self-arms", func(t *testing.T) {
 		service, clock := newClockTestService(t, true, draftAt, draftAt.Add(time.Hour))
+		service.store.state.DraftStarted = false
 		service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
 
 		for i := 0; i < 5; i++ {
@@ -68,8 +74,7 @@ func TestClockArmsAtDraftAt(t *testing.T) {
 			t.Fatalf("demo mode self-armed: %v", got)
 		}
 
-		// A commissioner resume is the only thing that arms a demo clock.
-		if err := service.store.ResumeClock(*clock, service.pickClock(service.store.Snapshot())); err != nil {
+		if _, err := service.store.StartDraft(*clock, service.pickClock(service.store.Snapshot())); err != nil {
 			t.Fatal(err)
 		}
 		if got := service.store.Snapshot().ClockDeadline; got.IsZero() {
@@ -378,6 +383,7 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		presence: newPresenceTracker(draftAt),
 		now:      func() time.Time { return clock },
 	}
+	startTestDraft(t, service.store)
 	pool := testPool(150)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
 

@@ -63,6 +63,7 @@ var currentDBVersion = len(dbMigrations)
 var dbMigrations = []func(*sql.Tx) error{
 	migrate001Initial,
 	migrate002AvatarRefs,
+	migrate003DraftLifecycle,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -220,6 +221,26 @@ func migrate002AvatarRefs(tx *sql.Tx) error {
 	// direct database inspection tell the same upgrade story.
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '3')`); err != nil {
 		return fmt.Errorf("stamp schema_version 3: %w", err)
+	}
+	return nil
+}
+
+func migrate003DraftLifecycle(tx *sql.Tx) error {
+	var pickCount int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM picks`).Scan(&pickCount); err != nil {
+		return fmt.Errorf("count legacy picks: %w", err)
+	}
+	if pickCount > 0 {
+		startedAt := ""
+		_ = tx.QueryRow(`SELECT made_at FROM picks WHERE made_at <> '' ORDER BY number LIMIT 1`).Scan(&startedAt)
+		for key, value := range map[string]string{"draft_started": "1", "draft_started_at": startedAt} {
+			if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`, key, value); err != nil {
+				return fmt.Errorf("persist %s: %w", key, err)
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '4')`); err != nil {
+		return fmt.Errorf("stamp schema_version 4: %w", err)
 	}
 	return nil
 }
@@ -405,6 +426,8 @@ const (
 	kvClockPaused             = "clock_paused"
 	kvClockRemainingSec       = "clock_remaining_sec"
 	kvClockDurationSec        = "clock_duration_sec"
+	kvDraftStarted            = "draft_started"
+	kvDraftStartedAt          = "draft_started_at"
 	kvScoringChangedAt        = "scoring_changed_at"
 	kvPhase                   = "phase"
 	kvWaiversProcessedThrough = "waivers_processed_through"
@@ -437,6 +460,8 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			put(kvClockPaused, strconv.Itoa(boolToInt(st.ClockPaused)))
 			put(kvClockRemainingSec, strconv.Itoa(st.ClockRemainingSec))
 			put(kvClockDurationSec, strconv.Itoa(st.ClockDurationSec))
+			put(kvDraftStarted, strconv.Itoa(boolToInt(st.DraftStarted)))
+			put(kvDraftStartedAt, encodeTime(st.DraftStartedAt))
 			put(kvScoringChangedAt, encodeTime(st.ScoringChangedAt))
 			put(kvPhase, st.Phase)
 			put(kvWaiversProcessedThrough, encodeTime(st.WaiversProcessedThrough))
@@ -1074,6 +1099,10 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	state.ClockPaused = scalars[kvClockPaused] == "1"
 	state.ClockRemainingSec, _ = strconv.Atoi(scalars[kvClockRemainingSec])
 	state.ClockDurationSec, _ = strconv.Atoi(scalars[kvClockDurationSec])
+	state.DraftStarted = scalars[kvDraftStarted] == "1"
+	if state.DraftStartedAt, err = decodeTime(scalars[kvDraftStartedAt]); err != nil {
+		return state, err
+	}
 	if state.ScoringChangedAt, err = decodeTime(scalars[kvScoringChangedAt]); err != nil {
 		return state, err
 	}

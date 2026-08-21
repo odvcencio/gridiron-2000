@@ -72,6 +72,7 @@ func TestAdminDataLocksSeatTrimOnceDraftStarts(t *testing.T) {
 	}
 
 	teamID := service.Teams()[0].ID
+	startTestDraft(t, service.store)
 	if _, err := service.store.MakePick(teamID, "test-player-1", "manager", service.clock(), time.Time{}); err != nil {
 		t.Fatalf("store.MakePick: %v", err)
 	}

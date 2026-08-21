@@ -25,6 +25,7 @@ func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service,
 		presence: newPresenceTracker(start),
 		now:      func() time.Time { return clock },
 	}
+	svc.store.draftLifecycleBypass = true
 	return svc, &clock
 }
 

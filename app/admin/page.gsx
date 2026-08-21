@@ -240,9 +240,9 @@ func Page() Node {
 								<strong>
 									At
 									{data.draft.time}
-									, the clock arms the first pick on its own
+									, confirm everyone is present and start the draft
 								</strong>
-								<small>No action is needed — the clock starts automatically at draft time.</small>
+								<small>The scheduled time never opens the room. Type START below when you intentionally begin pick one.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -274,6 +274,18 @@ func Page() Node {
 							</div>
 						</div>
 					</div>
+					<If cond={data.draft_started == false}>
+						<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<label class="mono" for="admin-draft-start-confirm">TYPE START //</label>
+							<input id="admin-draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
+							<button class="button button--primary" type="submit">Start draft + pick clock</button>
+						</form>
+						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players; {data.draft_required_players} required.</p>
+					</If>
+					<If cond={data.draft_started}>
+						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
+					</If>
 				</section>
 				<section class="player-pool">
 					<div class="pool-toolbar">

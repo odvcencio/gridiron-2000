@@ -15,6 +15,22 @@ import (
 	"database/sql"
 )
 
+// migrateLegacyDraftLifecycle preserves an already-active pre-v4 draft.
+// Some historical picks have no MadeAt value, so the boolean—not a
+// fabricated epoch—is the authority and the actual start may remain unknown.
+func migrateLegacyDraftLifecycle(state *PersistedState) {
+	if state.DraftStarted || len(state.Picks) == 0 {
+		return
+	}
+	state.DraftStarted = true
+	for _, pick := range state.Picks {
+		if !pick.MadeAt.IsZero() {
+			state.DraftStartedAt = pick.MadeAt.UTC()
+			break
+		}
+	}
+}
+
 // ---------------------------------------------------------------------
 // Boot: open the database, and import a legacy JSON state file once.
 // ---------------------------------------------------------------------
@@ -273,6 +289,7 @@ func (s *Store) recoverUnmarkedImport(raw []byte) error {
 			s.filePath, decoded.SchemaVersion, currentSchemaVersion)
 	}
 	decoded.SchemaVersion = currentSchemaVersion
+	migrateLegacyDraftLifecycle(&decoded)
 	normalizeState(&decoded)
 	stored, err := loadStateFromDBUnrepaired(s.db)
 	if err != nil {
@@ -425,6 +442,7 @@ func (s *Store) importJSONLocked() (bool, error) {
 	// decodes as 0 ("version 1"), every field added since is additive with
 	// a nil-safe zero value, so the version is stamped current.
 	decoded.SchemaVersion = currentSchemaVersion
+	migrateLegacyDraftLifecycle(&decoded)
 	normalizeState(&decoded)
 	// This marker is emitted by colScalars in the same writeDirtyLocked
 	// transaction as every imported collection. A restart can therefore

@@ -164,6 +164,7 @@ func TestUndoLastPickWritesRollingBackup(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "state.json")
 	store := NewStore(path)
+	store.draftLifecycleBypass = true
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	nextDeadline := now.Add(90 * time.Second)
 

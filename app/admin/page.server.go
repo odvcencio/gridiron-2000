@@ -41,7 +41,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -58,6 +58,23 @@ func init() {
 			}, nil
 		},
 		Actions: route.FileActions{
+			"draft-start": func(ctx *action.Context) error {
+				if strings.TrimSpace(ctx.FormData["confirm"]) != "START" {
+					message := "type START to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				started, err := league.Default().AdminStartDraft(ctx.Request)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				if started {
+					session.AddFlash(ctx.Request, "notice", "Draft started. Pick one is on the clock.")
+				} else {
+					session.AddFlash(ctx.Request, "notice", "Draft was already live; the original clock is unchanged.")
+				}
+				ctx.Redirect("/admin")
+				return nil
+			},
 			"invite-add": func(ctx *action.Context) error {
 				email := ctx.FormData["email"]
 				if err := league.Default().AdminAddInvite(ctx.Request, email); err != nil {

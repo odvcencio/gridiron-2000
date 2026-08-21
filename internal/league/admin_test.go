@@ -358,24 +358,28 @@ func TestCommissionerForceAutopick(t *testing.T) {
 	})
 }
 
-// TestDraftIsLive checks the live-draft gate AdminForceAutopick and
-// MakePick share: always live in demo mode, gated on draftAt otherwise.
-// See TestCommissionerForceAutopick's doc comment for why this pure check
-// stands in for testing AdminForceAutopick's live gate directly.
+// TestDraftIsLive checks that scheduled time and demo mode never replace
+// the persisted commissioner start.
 func TestDraftIsLive(t *testing.T) {
 	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
-
-	live := &Service{draftAt: draftAt}
+	live := newTestService(t, false)
+	live.store.draftLifecycleBypass = false
+	live.store.state.DraftStarted = false
 	if live.draftIsLive(draftAt.Add(-time.Second)) {
-		t.Error("live mode must gate before draftAt")
+		t.Error("draft must be closed before explicit start")
 	}
-	if !live.draftIsLive(draftAt) {
-		t.Error("live mode must open exactly at draftAt")
+	if live.draftIsLive(draftAt.Add(time.Hour)) {
+		t.Error("scheduled time must not open the draft")
 	}
-
-	demo := &Service{draftAt: draftAt, demoMode: true}
-	if !demo.draftIsLive(draftAt.Add(-time.Hour)) {
-		t.Error("demo mode must never gate on draftAt")
+	live.store.state.DraftStarted = true
+	if !live.draftIsLive(draftAt.Add(-time.Hour)) {
+		t.Error("explicit start may open before the scheduled window")
+	}
+	demo := newTestService(t, true)
+	demo.store.draftLifecycleBypass = false
+	demo.store.state.DraftStarted = false
+	if demo.draftIsLive(draftAt.Add(time.Hour)) {
+		t.Error("demo mode still requires explicit start")
 	}
 }
 

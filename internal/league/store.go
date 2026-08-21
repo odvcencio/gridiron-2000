@@ -30,7 +30,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -52,6 +52,10 @@ var errSchemaTooNew = errors.New("state file schema version is newer than this b
 // transaction boundary for the one writer that exists.
 type Store struct {
 	mu sync.RWMutex
+	// draftLifecycleBypass is a package-test seam for legacy unit fixtures
+	// that exercise unrelated store behavior without constructing a full
+	// draft lifecycle. Production never sets it.
+	draftLifecycleBypass bool
 	// filePath names the legacy JSON state file. It still anchors the data
 	// directory (the database is its sibling, dbFileName) and it is the
 	// one-time import source; see openLocked. An empty path means "no
@@ -252,6 +256,9 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	if err := s.writeErrorLocked(); err != nil {
 		return DraftPick{}, err
 	}
+	if !s.state.DraftStarted && !s.draftLifecycleBypass {
+		return DraftPick{}, fmt.Errorf("the commissioner has not started the draft")
+	}
 	if !knownTeam(teamID) {
 		return DraftPick{}, fmt.Errorf("unknown team %q", teamID)
 	}
@@ -357,6 +364,9 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 	if err := s.writeErrorLocked(); err != nil {
 		return DraftPick{}, err
 	}
+	if !s.state.DraftStarted && !s.draftLifecycleBypass {
+		return DraftPick{}, errStaleAutoPick
+	}
 	if !knownTeam(teamID) {
 		return DraftPick{}, fmt.Errorf("unknown team %q", teamID)
 	}
@@ -417,8 +427,36 @@ func (s *Store) ArmClock(deadline time.Time) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	if !s.state.DraftStarted && !s.draftLifecycleBypass {
+		return fmt.Errorf("the commissioner has not started the draft")
+	}
 	s.state.ClockDeadline = deadline
 	return s.persistLocked(colScalars)
+}
+
+// StartDraft is the only transition that opens the room. It records the
+// actual start and arms pick one's clock in the same durable transaction.
+// Repeated or racing calls preserve the first timestamp and deadline.
+func (s *Store) StartDraft(now time.Time, duration time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
+	if s.state.DraftStarted {
+		return false, nil
+	}
+	previous := cloneState(s.state)
+	s.state.DraftStarted = true
+	s.state.DraftStartedAt = now.UTC()
+	s.state.ClockPaused = false
+	s.state.ClockRemainingSec = 0
+	s.state.ClockDeadline = now.Add(duration)
+	if err := s.persistLocked(colScalars); err != nil {
+		s.state = previous
+		return false, err
+	}
+	return true, nil
 }
 
 // PauseClock stops the running deadline, storing the remaining seconds
@@ -452,6 +490,9 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
+	}
+	if !s.state.DraftStarted && !s.draftLifecycleBypass {
+		return fmt.Errorf("start the draft before resuming its clock")
 	}
 	remaining := time.Duration(s.state.ClockRemainingSec) * time.Second
 	if remaining <= 0 {
@@ -890,6 +931,7 @@ func (s *Store) ResetDraft() error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	previous := cloneState(s.state)
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Transactions = []Transaction{}
@@ -910,10 +952,16 @@ func (s *Store) ResetDraft() error {
 	// rationale (SK IR spec) — a redrawn draft must not leave a stale
 	// reserve/IR tag behind to trip up the new one.
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
+	s.state.DraftStarted = false
+	s.state.DraftStartedAt = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetDraftSentLogPrefixes...)
-	return s.persistLocked(colPicks, colReady, colTransactions, colLineups, colWaiverClaims, colTradeOffers,
-		colRosterZones, colAutopick, colSentLog, colScalars)
+	if err := s.persistLocked(colPicks, colReady, colTransactions, colLineups, colWaiverClaims, colTradeOffers,
+		colRosterZones, colAutopick, colSentLog, colScalars); err != nil {
+		s.state = previous
+		return err
+	}
+	return nil
 }
 
 // ResetLeague clears picks, seats, ready flags, boards, pick'em picks,
@@ -930,6 +978,7 @@ func (s *Store) ResetLeague() error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	previous := cloneState(s.state)
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
@@ -948,10 +997,16 @@ func (s *Store) ResetLeague() error {
 	s.state.TradeOffers = []TradeOffer{}
 	// See ResetDraft's RosterZones comment; same rationale.
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
+	s.state.DraftStarted = false
+	s.state.DraftStartedAt = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
-	return s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colBlitzEntries, colTransactions,
-		colLineups, colWaiverClaims, colTradeOffers, colRosterZones, colAutopick, colSentLog, colScalars)
+	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colBlitzEntries, colTransactions,
+		colLineups, colWaiverClaims, colTradeOffers, colRosterZones, colAutopick, colSentLog, colScalars); err != nil {
+		s.state = previous
+		return err
+	}
+	return nil
 }
 
 // clearClockFieldsLocked zeroes every clock field and the Autopick map. The
@@ -1027,7 +1082,7 @@ func (s *Store) SetDraftOrder(order []string) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	if len(s.state.Picks) > 0 {
+	if s.state.DraftStarted {
 		return fmt.Errorf("reset the draft before changing the order")
 	}
 	s.state.DraftOrder = append([]string(nil), order...)
@@ -1079,7 +1134,7 @@ func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err erro
 	if err := s.writeErrorLocked(); err != nil {
 		return nil, nil, err
 	}
-	if len(s.state.Picks) > 0 {
+	if s.state.DraftStarted {
 		return nil, nil, fmt.Errorf("seats lock once the draft starts")
 	}
 	for _, team := range activeTeams {
@@ -1886,7 +1941,7 @@ func (s *Store) SetRosterOverride(o RosterOverride) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	if len(s.state.Picks) > 0 {
+	if s.state.DraftStarted {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
 	s.state.RosterOverride = cloneRosterOverride(&o)
@@ -1902,7 +1957,7 @@ func (s *Store) ClearRosterOverride() error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	if len(s.state.Picks) > 0 {
+	if s.state.DraftStarted {
 		return fmt.Errorf("the roster shape locks once the draft starts")
 	}
 	s.state.RosterOverride = nil
@@ -2681,6 +2736,8 @@ func cloneState(in PersistedState) PersistedState {
 		TeamNames:               make(map[string]string, len(in.TeamNames)),
 		DraftOrder:              append([]string(nil), in.DraftOrder...),
 		Scoring:                 make(map[string]float64, len(in.Scoring)),
+		DraftStarted:            in.DraftStarted,
+		DraftStartedAt:          in.DraftStartedAt,
 		Pickems:                 make(map[string]map[string]string, len(in.Pickems)),
 		BlitzEntries:            make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
 		ClockDeadline:           in.ClockDeadline,

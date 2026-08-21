@@ -176,6 +176,11 @@ type PersistedState struct {
 	TeamNames     map[string]string   `json:"teamNames"`
 	DraftOrder    []string            `json:"draftOrder"`
 	Scoring       map[string]float64  `json:"scoring"`
+	// DraftStarted is the authoritative lifecycle gate. DraftAt is only the
+	// announced window; no pick or clock transition is legal until the
+	// commissioner explicitly opens the room.
+	DraftStarted   bool      `json:"draftStarted,omitempty"`
+	DraftStartedAt time.Time `json:"draftStartedAt,omitempty"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
 	// BlitzEntries maps owner email to slate ID ("pre2" | "pre3") to that
