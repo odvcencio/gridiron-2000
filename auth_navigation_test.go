@@ -512,3 +512,56 @@ func TestGoogleCallbackWrapperRejectsDeniedInvite(t *testing.T) {
 		t.Fatalf("denied invite membership calls = bind %v ensure %v, want no membership writes", membership.bindCalls, membership.ensureCalls)
 	}
 }
+func TestGoogleOAuthWrappersRejectAuthenticationTargets(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "oauth-auth-target.db")
+	t.Setenv("DATA_FILE", dataFile)
+	fixture := newGoogleOAuthFixture(t, "auth-target-manager@example.com")
+
+	tests := []struct {
+		name string
+		next string
+	}{
+		{name: "login page", next: "/login"},
+		{name: "login trailing slash", next: "/login/"},
+		{name: "oauth start", next: "/auth/google/start"},
+		{name: "oauth callback", next: "/auth/google/callback?code=stale"},
+		{name: "login traversal", next: "/draft/../login"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, state, cookie := startGoogleOAuth(t, fixture.start, tt.next)
+			res := callbackGoogleOAuth(t, fixture.callback, state, cookie, "")
+			if got := res.Header().Get("Location"); got != "/" {
+				t.Fatalf("auth endpoint next %q callback location = %q, want /", tt.next, got)
+			}
+		})
+	}
+}
+func TestProtectedDeepLinkRoundTripsThroughGoogleOAuth(t *testing.T) {
+	dataFile := filepath.Join(t.TempDir(), "oauth-deep-link.db")
+	t.Setenv("DATA_FILE", dataFile)
+	target := "/draft?week=1"
+
+	gate := requireLeagueSessionWithDemoMode(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("anonymous request reached the protected handler")
+	}), func() bool { return false })
+	gateRes := httptest.NewRecorder()
+	gate.ServeHTTP(gateRes, httptest.NewRequest(http.MethodGet, target, nil))
+	if gateRes.Code != http.StatusSeeOther {
+		t.Fatalf("protected deep-link status = %d, want %d", gateRes.Code, http.StatusSeeOther)
+	}
+	loginLocation, err := url.Parse(gateRes.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse login redirect: %v", err)
+	}
+	if got := loginLocation.Query().Get("next"); got != target {
+		t.Fatalf("login redirect next = %q, want %q", got, target)
+	}
+
+	fixture := newGoogleOAuthFixture(t, "deep-link-manager@example.com")
+	_, state, cookie := startGoogleOAuth(t, fixture.start, loginLocation.Query().Get("next"))
+	callbackRes := callbackGoogleOAuth(t, fixture.callback, state, cookie, "")
+	if got := callbackRes.Header().Get("Location"); got != target {
+		t.Fatalf("deep-link callback location = %q, want %q", got, target)
+	}
+}
