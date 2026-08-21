@@ -1516,12 +1516,26 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
 	}
+	pos := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("pos")))
+	if pos == "ALL" {
+		pos = ""
+	}
+	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	query := strings.ToLower(rawQuery)
 	available := make([]Player, 0, len(pool.players))
 	for _, player := range pool.players {
 		if !picked[player.ID] {
+			if pos != "" && player.Position != pos {
+				continue
+			}
+			if !playerMatchesQuery(player, query) {
+				continue
+			}
 			available = append(available, player)
 		}
 	}
+	pagination := newPoolPagination(len(available), r.URL.Query().Get("page"))
+	pagedAvailable := available[pagination.Start:pagination.End]
 	nextNumber := len(state.Picks) + 1
 	onClockID := teamOnClock(state.DraftOrder, nextNumber)
 	onClock := s.teamView(state, onClockID)
@@ -1548,12 +1562,33 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"draft":                s.draftSummary(now),
 		"teams":                s.draftTeamMaps(state, onClockID),
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),
-		"available":            playerMapsWithScoring(available, scoringValues, matchup),
+		"available":            playerMapsWithScoring(pagedAvailable, scoringValues, matchup),
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
 		"pool_label":           pool.label,
 		"pool_live":            pool.label == "live" || pool.label == "cache",
 		"pool_count":           len(pool.players),
+		"available_count":      len(available),
+		"pool_query":           rawQuery,
+		"pool_position":        pos,
+		"pool_total":           pagination.Total,
+		"pool_page":            pagination.Page,
+		"pool_pages":           pagination.Pages,
+		"pool_page_size":       pagination.PageSize,
+		"pool_page_start":      pagination.Start + 1,
+		"pool_page_end":        pagination.End,
+		"pool_has_previous":    pagination.HasPrevious,
+		"pool_has_next":        pagination.HasNext,
+		"pool_previous_href":   poolPageHref("/draft", pos, rawQuery, pagination.Page-1),
+		"pool_next_href":       poolPageHref("/draft", pos, rawQuery, pagination.Page+1),
+		"pool_all_href":        poolPageHref("/draft", "", rawQuery, 1),
+		"pool_rb_href":         poolPageHref("/draft", "RB", rawQuery, 1),
+		"pool_wr_href":         poolPageHref("/draft", "WR", rawQuery, 1),
+		"pool_qb_href":         poolPageHref("/draft", "QB", rawQuery, 1),
+		"pool_te_href":         poolPageHref("/draft", "TE", rawQuery, 1),
+		"pool_k_href":          poolPageHref("/draft", "K", rawQuery, 1),
+		"pool_dst_href":        poolPageHref("/draft", "DST", rawQuery, 1),
+		"pool_p_href":          poolPageHref("/draft", "P", rawQuery, 1),
 		"on_clock":             s.teamMap(onClock),
 		"on_clock_id":          onClockID,
 		"pick_number":          nextNumber,
