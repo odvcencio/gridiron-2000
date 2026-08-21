@@ -204,6 +204,26 @@ Two paths work; use either or both:
 The commissioner console also releases seats and resets the draft or the
 whole league (type RESET to confirm).
 
+### Commissioner identities are an explicit operator allowlist
+
+`COMMISSIONER_EMAILS` is independent from `LEAGUE_ALLOWED_EMAILS`: it grants
+the named Google identities access to `/admin`, Commissioner HQ, and the
+commissioner-only controls. Values are comma-separated, case-insensitive, and
+trimmed. Add an operator to the list; do not replace an existing address just
+because the operator has a newer Google identity.
+
+For the paired Draco deployment, `commissioner@example.com` must be present in both
+application Secrets. The Stable Kernel example deliberately retains the
+existing `commissioner.alias@example.org` identity alongside it. The
+tracked examples are the source-of-truth shape for this pairing; the applied
+Secret values remain untracked and must never be committed or printed.
+
+After changing the applied list, roll each Deployment through the normal
+SK-first release gate. A Secret update alone does not alter an already-running
+pod's environment, and a live identity check should use `/commissioner` after
+the new pod is Ready. Do not use `kubectl set env` because it bypasses the
+tracked Secret workflow.
+
 ## 9. First-install/bootstrap only: configure the shared Tank01 relay
 
 1. Create or sign in to a RapidAPI account.
