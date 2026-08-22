@@ -21,6 +21,15 @@ import (
 // or repaired rather than guessing which badge/avatar pair won.
 var ErrPersistenceIndeterminate = errors.New("avatar identity persistence outcome is indeterminate")
 
+// ErrInternal marks an error whose text comes from the storage layer (a
+// SQLite driver message, a filesystem path, or similar) rather than from a
+// deliberate member-facing validation rule. writeErrorLocked, persistLocked,
+// and writeDirtyLocked's persistFailure wrap every error they hand back with
+// this sentinel so a caller can tell the two apart with errors.Is, without
+// this package having to classify each of its ~180 other returned errors.
+// See internal/actionui.Message, the boundary that reads it.
+var ErrInternal = errors.New("league: internal storage error")
+
 var ErrLeagueFull = errors.New("all league seats are already assigned")
 
 // errStaleAutoPick means an optimistic re-validation inside AutoPick failed:
@@ -1688,10 +1697,10 @@ func (s *Store) identityHealthyLocked() bool {
 // update their working state before reaching the common persistence boundary.
 func (s *Store) writeErrorLocked() error {
 	if s.loadErr != nil {
-		return s.loadErr
+		return fmt.Errorf("%w: %w", ErrInternal, s.loadErr)
 	}
 	if s.persistencePoison != nil {
-		return s.persistencePoison
+		return fmt.Errorf("%w: %w", ErrInternal, s.persistencePoison)
 	}
 	return nil
 }

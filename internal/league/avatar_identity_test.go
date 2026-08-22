@@ -432,7 +432,7 @@ func TestZonePersistMutatorsFailBeforeSideEffectsWhenStoreIsUnhealthy(t *testing
 				health.set(store, before, beforeDirty)
 				store.mu.Unlock()
 
-				if err := test.call(store); err != health.want {
+				if err := test.call(store); !errors.Is(err, health.want) {
 					t.Fatalf("error = %v, want %v before validation/randomness", err, health.want)
 				}
 				store.mu.RLock()
@@ -1069,7 +1069,7 @@ func TestAvatarIdentityReconcileReadFailurePoisonsStoreWideAndRestoresCandidate(
 	// Every later DB write is rejected at the common persistence boundary,
 	// and that attempted unrelated in-memory mutation is rolled back too.
 	readyBefore := snapshot.Ready["team-2"]
-	if _, err := store.ToggleReady("team-2"); err != ErrPersistenceIndeterminate {
+	if _, err := store.ToggleReady("team-2"); !errors.Is(err, ErrPersistenceIndeterminate) {
 		t.Fatalf("unrelated write after poison = %v, want ErrPersistenceIndeterminate", err)
 	}
 	if got := store.Snapshot().Ready["team-2"]; got != readyBefore {
@@ -1136,7 +1136,7 @@ func TestStoreWriteErrorGatePreservesNonEmptyStateForLoadAndPoison(t *testing.T)
 
 			call := func(name string, err error) {
 				t.Helper()
-				if err != tc.want {
+				if !errors.Is(err, tc.want) {
 					t.Errorf("%s error = %v, want %v", name, err, tc.want)
 				}
 			}

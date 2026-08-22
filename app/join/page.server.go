@@ -58,7 +58,7 @@ func init() {
 			"signup-claim": func(ctx *action.Context) error {
 				team, err := league.Default().ClaimFantasySeat(ctx.Request, ctx.FormData["team_name"], ctx.FormData["motif"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"motif": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "join", "motif", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", "Welcome to "+team.Name+".")
 				return nil

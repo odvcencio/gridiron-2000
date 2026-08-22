@@ -255,7 +255,7 @@ func init() {
 			"team-rename": func(ctx *action.Context) error {
 				team, err := league.Default().RenameTeam(ctx.Request, ctx.FormData["team_id"], ctx.FormData["name"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"name": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "name", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", fmt.Sprintf("Team renamed to %s.", team.Name))
 				return nil
@@ -273,7 +273,7 @@ func init() {
 				}
 				message, err := league.Default().SetLineup(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["slot"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
 				return nil
@@ -284,7 +284,7 @@ func init() {
 			// before touching the store.
 			"co-invite": func(ctx *action.Context) error {
 				if err := league.Default().InviteCoManager(ctx.Request, ctx.FormData["team_id"], ctx.FormData["email"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"email": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "email", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", "Co-manager invited: "+ctx.FormData["email"]+".")
 				return nil
@@ -293,7 +293,7 @@ func init() {
 			// remove a bound or still-pending co-manager.
 			"co-detach": func(ctx *action.Context) error {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"team_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "team_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", "Co-manager detached.")
 				return nil
@@ -307,7 +307,7 @@ func init() {
 				}
 				message, err := league.Default().LineupAuto(ctx.Request, ctx.FormData["team_id"], week)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"week": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "week", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
 				return nil
@@ -321,7 +321,7 @@ func init() {
 			"reserve-place": func(ctx *action.Context) error {
 				message, err := league.Default().PlaceInReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
@@ -329,7 +329,7 @@ func init() {
 			"reserve-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
@@ -337,7 +337,7 @@ func init() {
 			"ir-place": func(ctx *action.Context) error {
 				message, err := league.Default().PlaceInIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
@@ -345,7 +345,7 @@ func init() {
 			"ir-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "team", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil

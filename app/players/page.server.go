@@ -78,7 +78,7 @@ func init() {
 			"player-add": func(ctx *action.Context) error {
 				message, err := league.Default().AddPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "players", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
@@ -87,7 +87,7 @@ func init() {
 			"player-drop": func(ctx *action.Context) error {
 				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "players", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
@@ -100,7 +100,7 @@ func init() {
 				bid, _ := strconv.Atoi(ctx.FormData["bid"])
 				message, err := league.Default().FileClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"], bid)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "players", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
@@ -110,7 +110,7 @@ func init() {
 			"claim-cancel": func(ctx *action.Context) error {
 				message, err := league.Default().CancelClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["claim_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"claim_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil

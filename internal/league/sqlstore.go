@@ -834,11 +834,16 @@ func persistDispositionOf(err error) persistDisposition {
 	return persistNotCommitted
 }
 
+// persistFailure is writeDirtyLocked's single error return path: every
+// failure it reports (a SQLite driver error, a diff/emit error, a hook
+// error, or the post-commit verify) passes through here, so wrapping err
+// with ErrInternal here marks all of them without touching writeDirtyLocked's
+// own branches.
 func persistFailure(err error, disposition persistDisposition) error {
 	if err == nil {
 		return nil
 	}
-	return &persistError{err: err, disposition: disposition}
+	return &persistError{err: fmt.Errorf("%w: %w", ErrInternal, err), disposition: disposition}
 }
 
 // quote every identifier, so a column named "by" or "type" is safe.
