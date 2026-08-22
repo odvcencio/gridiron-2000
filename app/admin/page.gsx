@@ -199,7 +199,64 @@ func Page() Node {
 		</If>
 		<If cond={data.is_commissioner}>
 			<div class="admin-grid">
-				<section class="player-pool draft-runbook">
+				<section class="commissioner-task-map" aria-labelledby="commissioner-task-map-title">
+					<header class="commissioner-task-map__head">
+						<div>
+							<span class="section-index">QUICK PATHS</span>
+							<h2 id="commissioner-task-map-title">What do you need to do?</h2>
+						</div>
+						<a href="#admin-draft-runbook" class="mono">DRAFT-NIGHT RUNBOOK ↓</a>
+					</header>
+					<nav class="commissioner-task-links" aria-label="Commissioner tasks">
+						<a href="#admin-seats" class="commissioner-task-link">
+							<span class="mono">01</span>
+							<strong>Seat &amp; ready check</strong>
+							<small>
+								{data.member_count}/{data.seat_count} claimed · {data.ready_count}/{data.seat_count} ready
+							</small>
+						</a>
+						<a href="#admin-invites" class="commissioner-task-link">
+							<span class="mono">02</span>
+							<strong>Invite managers</strong>
+							<small>{data.invite_count} explicit invite entries</small>
+						</a>
+						<a href="#admin-draft-order" class="commissioner-task-link">
+							<span class="mono">03</span>
+							<strong>Prepare draft order</strong>
+							<If cond={data.order_randomized}>
+								<small>Order randomized</small>
+							</If>
+							<If cond={data.order_randomized == false}>
+								<small>Default order still active</small>
+							</If>
+						</a>
+						<If cond={data.draft_started == false}>
+							<a href="#admin-draft-start" class="commissioner-task-link commissioner-task-link--hot">
+								<span class="mono">04</span>
+								<strong>Start draft intentionally</strong>
+								<small>Scheduled time does not start it</small>
+							</a>
+						</If>
+						<If cond={data.draft_started}>
+							<a href="#admin-draft-clock" class="commissioner-task-link commissioner-task-link--hot">
+								<span class="mono">04</span>
+								<strong>Operate draft clock</strong>
+								<small>Draft is in progress</small>
+							</a>
+						</If>
+						<a href="#admin-data-feed" class="commissioner-task-link">
+							<span class="mono">05</span>
+							<strong>Check player feed</strong>
+							<small>{data.pool.mode} · {data.pool.players} players</small>
+						</a>
+						<a href="#admin-announcements" class="commissioner-task-link">
+							<span class="mono">06</span>
+							<strong>Message the league</strong>
+							<small>Post an announcement</small>
+						</a>
+					</nav>
+				</section>
+				<section id="admin-draft-runbook" class="player-pool draft-runbook">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
@@ -275,7 +332,7 @@ func Page() Node {
 						</div>
 					</div>
 					<If cond={data.draft_started == false}>
-						<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
+						<form id="admin-draft-start" method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<label class="mono" for="admin-draft-start-confirm">TYPE START //</label>
 							<input id="admin-draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
@@ -287,7 +344,7 @@ func Page() Node {
 						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
 					</If>
 				</section>
-				<section class="player-pool">
+				<section id="admin-seats" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">01 // SEATS</span>
@@ -312,7 +369,7 @@ func Page() Node {
 						</Each>
 					</div>
 				</section>
-				<section class="player-pool">
+				<section id="admin-invites" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">02 // INVITES</span>
@@ -405,7 +462,7 @@ func Page() Node {
 						Send managers this address: they sign in with Google and the next open seat is theirs.
 					</p>
 				</section>
-				<section class="player-pool admin-danger">
+				<section id="admin-danger" class="player-pool admin-danger">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">03 // RESET</span>
@@ -442,7 +499,7 @@ func Page() Node {
 						</form>
 					</div>
 				</section>
-				<section class="player-pool">
+				<section id="admin-draft-order" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">04 // DRAFT ORDER</span>
@@ -495,7 +552,7 @@ func Page() Node {
 						Run this one hour before the draft. Locked once the first pick is in.
 					</p>
 				</section>
-				<section class="player-pool">
+				<section id="admin-data-feed" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">05 // DATA FEED</span>
@@ -554,7 +611,7 @@ func Page() Node {
 						</div>
 					</If>
 				</section>
-				<section class="player-pool">
+				<section id="admin-draft-clock" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">06 // DRAFT CLOCK</span>
@@ -637,7 +694,7 @@ func Page() Node {
 						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
 					</p>
 				</section>
-				<section class="player-pool">
+				<section id="admin-roster-shape" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">07 // ROSTER SHAPE</span>
@@ -744,7 +801,7 @@ func Page() Node {
 						</If>
 					</If>
 				</section>
-				<section class="player-pool">
+				<section id="admin-announcements" class="player-pool">
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">08 // ANNOUNCEMENTS</span>

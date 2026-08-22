@@ -5023,6 +5023,89 @@ body.is-on-clock .draft-clock-panel {
   grid-column: 1 / -1;
 }
 
+/* Commissioner-console wayfinding. The task map stays visible while the
+   operator moves through the long runbook, then becomes ordinary document
+   flow on compact screens where sticky chrome would consume too much room. */
+.commissioner-task-map {
+  position: sticky;
+  top: var(--space-sm);
+  z-index: 15;
+  grid-column: 1 / -1;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
+}
+
+.commissioner-task-map__head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.commissioner-task-map__head h2 {
+  margin: 0.15rem 0 0;
+}
+
+.commissioner-task-map__head > a {
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.commissioner-task-links {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.commissioner-task-link {
+  min-width: 0;
+  min-height: 5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-white-faint);
+  text-decoration: none;
+}
+
+.commissioner-task-link:hover,
+.commissioner-task-link:focus-visible {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.commissioner-task-link > span,
+.commissioner-task-link > small {
+  color: var(--color-text-muted);
+}
+
+.commissioner-task-link--hot {
+  border-color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+#admin-draft-runbook,
+#admin-seats,
+#admin-invites,
+#admin-danger,
+#admin-draft-order,
+#admin-data-feed,
+#admin-draft-clock,
+#admin-roster-shape,
+#admin-announcements,
+#admin-draft-start {
+  /* Clear the full six-card sticky map when a desktop quick path jumps. */
+  scroll-margin-top: 20rem;
+}
+
 /* Ready-count summary in the admin masthead (item 4, WORK ITEMS): a single
    glance at N/seats ready, next to the existing draft date/time line. */
 .ready-count-tag {
@@ -5047,6 +5130,52 @@ body.is-on-clock .draft-clock-panel {
   .checklist-item .board-button {
     flex: 1 1 100%;
     text-align: center;
+  }
+}
+
+@media (max-width: 78rem) {
+  .admin-page .draft-masthead {
+    min-height: auto;
+    grid-template-columns: 1fr;
+    gap: var(--space-xl);
+  }
+
+  .commissioner-task-map {
+    position: static;
+  }
+
+  .commissioner-task-links {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #admin-draft-runbook,
+  #admin-seats,
+  #admin-invites,
+  #admin-danger,
+  #admin-draft-order,
+  #admin-data-feed,
+  #admin-draft-clock,
+  #admin-roster-shape,
+  #admin-announcements,
+  #admin-draft-start {
+    scroll-margin-top: var(--space-lg);
+  }
+}
+
+@media (max-width: 56.1875rem) {
+  .commissioner-task-links {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 38rem) {
+  .commissioner-task-map__head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .commissioner-task-links {
+    grid-template-columns: 1fr;
   }
 }
 
