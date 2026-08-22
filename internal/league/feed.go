@@ -42,10 +42,10 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	if err != nil {
 		snapshot, _ = f.fallback.Snapshot(ctx, now)
 		snapshot.Source = "fallback"
-		snapshot.SourceLabel = "Fallback fixture"
+		snapshot.SourceLabel = "Backup scoreboard"
 		snapshot.State = MatchupStateDegraded
 		snapshot.Status = "Matchup data is temporarily unavailable"
-		snapshot.Warning = "Preview generator unavailable; showing the local fixture."
+		snapshot.Warning = "Live scoring is down. The backup scoreboard is showing."
 	}
 	snapshot.OK = true
 	snapshot.RefreshAfterSeconds = int(DefaultRefreshPeriod.Seconds())

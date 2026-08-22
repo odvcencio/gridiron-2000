@@ -483,7 +483,7 @@ func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
 	}
 	notice := fmt.Sprintf("Week %d closed and scored.", week)
 	if len(misses) == 0 {
-		notice += " No player-stat join misses."
+		notice += " Every starter matched a stat line."
 	} else {
 		notice += fmt.Sprintf(" %d player-stat join miss", len(misses))
 		if len(misses) != 1 {

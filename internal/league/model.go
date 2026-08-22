@@ -517,10 +517,10 @@ func defaultTeamIDs() []string {
 
 func defaultPlayers() []Player {
 	return []Player{
-		{ID: "p-01", GSISID: "00-0036900", Name: "Ja'Marr Chase", Position: "WR", NFLTeam: "CIN", Opponent: "vs CLE", Projection: 20.8, Points: 0, Status: "Available", News: "Demo player pool — sync the open ledger for current status."},
+		{ID: "p-01", GSISID: "00-0036900", Name: "Ja'Marr Chase", Position: "WR", NFLTeam: "CIN", Opponent: "vs CLE", Projection: 20.8, Points: 0, Status: "Available", News: "Sample player. Real projections load when the pool arrives."},
 		{ID: "p-02", GSISID: "00-0038542", Name: "Bijan Robinson", Position: "RB", NFLTeam: "ATL", Opponent: "vs TB", Projection: 19.7, Points: 0, Status: "Available", News: "Three-down workload profile."},
 		{ID: "p-03", GSISID: "00-0036322", Name: "Justin Jefferson", Position: "WR", NFLTeam: "MIN", Opponent: "@ GB", Projection: 19.5, Points: 0, Status: "Available", News: "Elite target-share profile."},
-		{ID: "p-04", GSISID: "00-0039139", Name: "Jahmyr Gibbs", Position: "RB", NFLTeam: "DET", Opponent: "vs CHI", Projection: 18.9, Points: 0, Status: "Available", News: "High-value touches in the demo projection."},
+		{ID: "p-04", GSISID: "00-0039139", Name: "Jahmyr Gibbs", Position: "RB", NFLTeam: "DET", Opponent: "vs CHI", Projection: 18.9, Points: 0, Status: "Available", News: "High-value touches in the sample projection."},
 		{ID: "p-05", GSISID: "00-0036358", Name: "CeeDee Lamb", Position: "WR", NFLTeam: "DAL", Opponent: "@ PHI", Projection: 18.4, Points: 0, Status: "Available", News: "Volume-driven WR1 profile."},
 		{ID: "p-06", GSISID: "00-0034796", Name: "Lamar Jackson", Position: "QB", NFLTeam: "BAL", Opponent: "vs PIT", Projection: 22.6, Points: 0, Status: "Available", News: "Dual-threat ceiling in the sample pool."},
 		{ID: "p-07", GSISID: "00-0036963", Name: "Amon-Ra St. Brown", Position: "WR", NFLTeam: "DET", Opponent: "vs CHI", Projection: 17.8, Points: 0, Status: "Available", News: "Reliable interior target profile."},

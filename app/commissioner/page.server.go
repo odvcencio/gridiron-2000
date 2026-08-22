@@ -119,11 +119,11 @@ func fragmentHandler(
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
 			writer.Header().Set("Allow", http.MethodGet)
-			http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusMethodNotAllowed)
 			return
 		}
 		if status, allowed := access(request); !allowed {
-			http.Error(writer, http.StatusText(status), status)
+			http.Error(writer, "The league readout is unavailable. Reload the page.", status)
 			return
 		}
 
@@ -133,14 +133,14 @@ func fragmentHandler(
 		}
 		program, err := route.LoadFileProgramHere("page.gsx")
 		if err != nil {
-			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusInternalServerError)
 			return
 		}
 		html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
 			Values: map[string]any{"props": readout},
 		})
 		if err != nil {
-			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusInternalServerError)
 			return
 		}
 		writer.Header().Set("Cache-Control", "no-store")

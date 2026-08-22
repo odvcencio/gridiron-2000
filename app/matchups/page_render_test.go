@@ -105,7 +105,7 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 		"SEASON SCHEDULE // WEEK 2",
 		"WEEK 2 VIEW",
 		"Status pending",
-		"Static week view",
+		"Past week",
 		"href=\"/matchups\"",
 	} {
 		if !strings.Contains(body, want) {
