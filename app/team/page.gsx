@@ -253,6 +253,7 @@ func Page() Node {
 					</If>
 					<If cond={data.co_manager.can_invite}>
 						<form method="post" action={actionPath("co-invite")} data-gosx-managed="true" class="co-manager-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.team.id}></input>
 							<input type="email" name="email" placeholder="co-manager@gmail.com" autocomplete="off" required="required"></input>
 							<button class="button button--compact" type="submit">Invite co-manager</button>
@@ -260,11 +261,13 @@ func Page() Node {
 					</If>
 					<If cond={data.co_manager.can_detach}>
 						<form method="post" action={actionPath("co-detach")} data-gosx-managed="true" class="co-manager-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.team.id}></input>
 							<button class="button button--compact button--ghost" type="submit">Detach co-manager</button>
 						</form>
 					</If>
 					<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="team_id" value={data.team.id}></input>
 						<input type="text" name="name" value={data.team.name} maxlength="40" aria-label="Team name"></input>
 						<button class="button button--compact" type="submit">Rename</button>

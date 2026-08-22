@@ -71,7 +71,11 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(layout), "LIVE LEAGUE FEED") || !strings.Contains(string(layout), ">Matchups</a>") || !strings.Contains(string(layout), "data.league.matchup_footer_label") {
+	layoutSource := string(layout)
+	if strings.Contains(layoutSource, "LIVE LEAGUE FEED") ||
+		!strings.Contains(layoutSource, `<Link href="/matchups"`) ||
+		!strings.Contains(layoutSource, "Matchups") ||
+		!strings.Contains(layoutSource, "data.league.matchup_footer_label") {
 		t.Fatalf("shared layout still has hardcoded live matchup copy:\n%s", layout)
 	}
 }

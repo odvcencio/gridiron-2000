@@ -6,7 +6,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/net v0.52.0
 	m31labs.dev/arbiter v1.9.0
-	m31labs.dev/gosx v0.50.0
+	m31labs.dev/gosx v0.52.0
 	modernc.org/sqlite v1.56.0
 )
 

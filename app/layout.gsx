@@ -1,38 +1,156 @@
 package app
 
+// PrimaryNavigation is the single typed information architecture for every
+// authenticated/demo navigation surface. Desktop rail, enhanced mobile
+// dialog, and static no-JavaScript mobile disclosure all invoke this exact
+// component so their groups, order, labels, and role gates cannot drift.
+type PrimaryNavigationProps struct {
+	SignedIn      bool
+	HasSeat       bool
+	SeatsOpen     bool
+	Commissioner  bool
+	Initials      string
+	TeamName      string
+	CSRFToken     string
+}
+
+func PrimaryNavigation(props PrimaryNavigationProps) Node {
+	return <div class="primary-navigation">
+		<nav class="primary-navigation__groups" aria-label="Primary navigation">
+			<div class="navigation-group" data-navigation-group="today">
+				<p class="navigation-group__label mono">TODAY</p>
+				<Link href="/" class="navigation-link">
+					<span class="navigation-link__index mono">01</span>
+					HQ
+				</Link>
+				<Link href="/pickem" class="navigation-link navigation-link--hot">
+					<span class="navigation-link__index mono">02</span>
+					Pick'em
+				</Link>
+				<Link href="/matchups" class="navigation-link">
+					<span class="navigation-link__index mono">03</span>
+					Matchups
+				</Link>
+			</div>
+			<div class="navigation-group" data-navigation-group="my-team">
+				<p class="navigation-group__label mono">MY TEAM</p>
+				<If cond={props.HasSeat}>
+					<Link href="/team" class="navigation-link">
+						<span class="navigation-link__index mono">04</span>
+						My team
+					</Link>
+				</If>
+				<If cond={props.HasSeat == false && props.SeatsOpen}>
+					<Link href="/join" class="navigation-link navigation-link--hot">
+						<span class="navigation-link__index mono">04</span>
+						Join a team
+					</Link>
+				</If>
+				<If cond={props.HasSeat == false && props.SeatsOpen == false}>
+					<Link href="/team" class="navigation-link">
+						<span class="navigation-link__index mono">04</span>
+						Fantasy status
+					</Link>
+				</If>
+				<Link href="/board" class="navigation-link">
+					<span class="navigation-link__index mono">05</span>
+					Draft board
+				</Link>
+				<If cond={props.HasSeat}>
+					<Link href="/players" class="navigation-link">
+						<span class="navigation-link__index mono">06</span>
+						Player pool
+					</Link>
+				</If>
+				<If cond={props.HasSeat || props.Commissioner}>
+					<Link href="/trades" class="navigation-link">
+						<span class="navigation-link__index mono">07</span>
+						Trades
+					</Link>
+				</If>
+			</div>
+			<div class="navigation-group" data-navigation-group="game-day">
+				<p class="navigation-group__label mono">GAME DAY</p>
+				<Link href="/draft" class="navigation-link">
+					<span class="navigation-link__index mono">08</span>
+					Draft room
+				</Link>
+				<Link href="/blitz" class="navigation-link">
+					<span class="navigation-link__index mono">09</span>
+					Preseason Blitz
+				</Link>
+			</div>
+			<div class="navigation-group" data-navigation-group="league">
+				<p class="navigation-group__label mono">LEAGUE</p>
+				<Link href="/wire" class="navigation-link">
+					<span class="navigation-link__index mono">10</span>
+					Signal Wire
+				</Link>
+				<Link href="/activity" class="navigation-link">
+					<span class="navigation-link__index mono">11</span>
+					Activity
+				</Link>
+				<Link href="/scoring" class="navigation-link">
+					<span class="navigation-link__index mono">12</span>
+					Rules &amp; scoring
+				</Link>
+			</div>
+			<div class="navigation-group" data-navigation-group="help">
+				<p class="navigation-group__label mono">HELP</p>
+				<Link href="/guide" class="navigation-link navigation-link--guide">
+					<span class="navigation-link__index mono">13</span>
+					Manager guide
+				</Link>
+			</div>
+			<If cond={props.Commissioner}>
+				<div class="navigation-group" data-navigation-group="commissioner">
+					<p class="navigation-group__label mono">COMMISSIONER</p>
+					<Link href="/commissioner" class="navigation-link">
+						<span class="navigation-link__index mono">14</span>
+						All leagues
+					</Link>
+					<Link href="/admin" class="navigation-link">
+						<span class="navigation-link__index mono">15</span>
+						League settings
+					</Link>
+				</div>
+			</If>
+		</nav>
+		<div class="navigation-account">
+			<If cond={props.SignedIn}>
+				<div class="user-badge">
+					<span class="user-chip mono">{props.Initials}</span>
+					<span class="user-name">{props.TeamName}</span>
+				</div>
+				<form method="post" action="/auth/logout" data-gosx-managed="true">
+					<input type="hidden" name="csrf_token" value={props.CSRFToken}></input>
+					<button class="access-link" type="submit">Sign out</button>
+				</form>
+			</If>
+			<If cond={props.SignedIn == false}>
+				<div class="user-badge">
+					<span class="user-chip mono">{props.Initials}</span>
+					<span class="user-name">Rehearsal seat</span>
+				</div>
+				<a href="/login" data-gosx-link class="access-link" aria-label="League access">
+					<span class="access-light" aria-hidden="true"></span>
+					League access
+				</a>
+			</If>
+		</div>
+	</div>
+}
+
 // Layout renders the persistent chrome around every route's <Slot/>.
-//
-// Primary navigation is a left rail on desktop and a full-height drawer on
-// mobile (see .site-rail / .drawer-* in styles.css for the breakpoint).
-// The drawer's open/closed state is a checkbox (#nav-drawer). Rail links
-// keep data-gosx-link for soft (client-side) navigation, including inside
-// the drawer: verified empirically in the smoke server that the nav
-// runtime re-renders this whole layout region on every navigation, soft
-// or full, so #nav-drawer is a fresh, unchecked node afterward - the
-// drawer never stays open. The same re-render is what lets aria-current
-// (set by the nav runtime against data-gosx-link hrefs) highlight the
-// active rail-link after a soft navigation.
 func Layout() Node {
 	return <div class="app-shell">
 		<a class="skip-link" href="#main-content">Skip to league content</a>
 		<div class="ambient-grid" aria-hidden="true"></div>
-
 		<If cond={data.viewer.signed_in || data.viewer.demo}>
-			<input type="checkbox" id="nav-drawer" class="drawer-check" aria-label="Open menu"></input>
-
-			<header class="mobile-bar">
-				<a href="/" data-gosx-link class="mobile-brand" aria-label={data.league.name + " league home"}>
-					<span class="brand-badge">{data.league.short_code}</span>
-					<strong>{data.league.name}</strong>
-				</a>
-				<label for="nav-drawer" class="drawer-open" aria-label="Open menu">
-					<span aria-hidden="true"></span>
-				</label>
-			</header>
-
-			<label for="nav-drawer" class="drawer-backdrop" aria-hidden="true"></label>
-
-			<aside class="site-rail">
+			<aside
+				class="site-rail navigation-surface navigation-surface--desktop"
+				data-navigation-surface="desktop"
+			>
 				<div class="rail-head">
 					<a href="/" data-gosx-link class="site-brand" aria-label={data.league.name + " league home"}>
 						<span class="brand-badge">{data.league.short_code}</span>
@@ -41,60 +159,94 @@ func Layout() Node {
 							<small>{data.league.tagline}</small>
 						</span>
 					</a>
-					<label for="nav-drawer" class="drawer-close" aria-label="Close menu">
-						<span aria-hidden="true">&#10005;</span>
-					</label>
 				</div>
-				<nav class="rail-nav" aria-label="Primary navigation">
-					<a href="/" data-gosx-link class="rail-link"><span class="rail-index mono">01</span>HQ</a>
-					<a href="/guide" data-gosx-link class="rail-link rail-link--guide"><span class="rail-index mono">01b</span>Guide</a>
-					<a href="/pickem" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02</span>Pick'em</a>
-					<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open}>
-						<a href="/join" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02b</span>Join a team</a>
-					</If>
-					<a href="/matchups" data-gosx-link class="rail-link"><span class="rail-index mono">03</span>Matchups</a>
-					<a href="/wire" data-gosx-link class="rail-link"><span class="rail-index mono">04</span>Wire</a>
-					<a href="/team" data-gosx-link class="rail-link"><span class="rail-index mono">05</span>Team</a>
-					<a href="/players" data-gosx-link class="rail-link"><span class="rail-index mono">06</span>Players</a>
-					<a href="/board" data-gosx-link class="rail-link"><span class="rail-index mono">07</span>Board</a>
-					<a href="/trades" data-gosx-link class="rail-link"><span class="rail-index mono">08</span>Trades</a>
-					<a href="/activity" data-gosx-link class="rail-link"><span class="rail-index mono">09</span>Activity</a>
-					<a href="/scoring" data-gosx-link class="rail-link"><span class="rail-index mono">10</span>Rules</a>
-					<a href="/blitz" data-gosx-link class="rail-link"><span class="rail-index mono">11</span>Blitz</a>
-					<a href="/draft" data-gosx-link class="rail-link"><span class="rail-index mono">12</span>Draft</a>
-				</nav>
-				<div class="rail-foot">
-					<If cond={data.viewer.signed_in}>
-						<div class="user-badge">
-							<span class="user-chip mono">{data.viewer.initials}</span>
-							<span class="user-name">{data.viewer.team_name}</span>
-						</div>
-						<div class="rail-foot-links">
-							<a href="/team" data-gosx-link class="access-link">Team</a>
-							<If cond={data.viewer.is_commissioner}>
-								<a href="/commissioner" data-gosx-link class="access-link">Leagues</a>
-								<a href="/admin" data-gosx-link class="access-link">Admin</a>
-							</If>
-							<form method="post" action="/auth/logout" data-gosx-managed="true">
-								<input type="hidden" name="csrf_token" value={csrf.token}></input>
-								<button class="access-link" type="submit">Sign out</button>
-							</form>
-						</div>
-					</If>
-					<If cond={data.viewer.signed_in == false}>
-						<div class="user-badge">
-							<span class="user-chip mono">{data.viewer.initials}</span>
-							<span class="user-name">Rehearsal seat</span>
-						</div>
-						<a href="/login" data-gosx-link class="access-link" aria-label="League access">
-							<span class="access-light" aria-hidden="true"></span>
-							League access
-						</a>
-					</If>
-				</div>
+				<PrimaryNavigation
+					SignedIn={data.viewer.signed_in}
+					HasSeat={data.viewer.has_seat}
+					SeatsOpen={data.league.fantasy_seats_open}
+					Commissioner={data.viewer.is_commissioner}
+					Initials={data.viewer.initials}
+					TeamName={data.viewer.team_name}
+					CSRFToken={csrf.token}
+				></PrimaryNavigation>
 			</aside>
+			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
+				<a href="/" data-gosx-link class="mobile-brand" aria-label={data.league.name + " league home"}>
+					<span class="brand-badge">{data.league.short_code}</span>
+					<strong>{data.league.name}</strong>
+				</a>
+				<button
+					type="button"
+					class="mobile-navigation-open"
+					aria-label="Open league navigation"
+					aria-controls="primary-navigation-dialog"
+					aria-expanded="false"
+					data-gosx-disclosure-target="#primary-navigation-dialog"
+				>
+					<span aria-hidden="true"></span>
+				</button>
+			</header>
+			<div
+				class="mobile-navigation-backdrop"
+				data-gosx-disclosure-backdrop="#primary-navigation-dialog"
+				hidden
+				aria-hidden="true"
+			></div>
+			<aside
+				id="primary-navigation-dialog"
+				class="mobile-navigation-dialog"
+				data-navigation-surface="mobile-enhanced-dialog"
+				data-gosx-disclosure
+				data-gosx-disclosure-modal
+				hidden
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="primary-navigation-title"
+			>
+				<div class="mobile-navigation-dialog__head">
+					<div>
+						<span class="brand-badge">{data.league.short_code}</span>
+						<h2 id="primary-navigation-title">League navigation</h2>
+					</div>
+					<button
+						type="button"
+						class="mobile-navigation-close"
+						aria-label="Close league navigation"
+						data-gosx-disclosure-close="#primary-navigation-dialog"
+						data-gosx-disclosure-initial-focus
+					>
+						<span aria-hidden="true">&#10005;</span>
+					</button>
+				</div>
+				<PrimaryNavigation
+					SignedIn={data.viewer.signed_in}
+					HasSeat={data.viewer.has_seat}
+					SeatsOpen={data.league.fantasy_seats_open}
+					Commissioner={data.viewer.is_commissioner}
+					Initials={data.viewer.initials}
+					TeamName={data.viewer.team_name}
+					CSRFToken={csrf.token}
+				></PrimaryNavigation>
+			</aside>
+			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
+				<summary>
+					<span class="mobile-brand">
+						<span class="brand-badge">{data.league.short_code}</span>
+						<strong>{data.league.name}</strong>
+					</span>
+					<span class="mobile-navigation-static__label mono">MENU</span>
+				</summary>
+				<PrimaryNavigation
+					SignedIn={data.viewer.signed_in}
+					HasSeat={data.viewer.has_seat}
+					SeatsOpen={data.league.fantasy_seats_open}
+					Commissioner={data.viewer.is_commissioner}
+					Initials={data.viewer.initials}
+					TeamName={data.viewer.team_name}
+					CSRFToken={csrf.token}
+				></PrimaryNavigation>
+			</details>
 		</If>
-
 		<If cond={(data.viewer.signed_in || data.viewer.demo) == false}>
 			<header class="minimal-bar">
 				<a href="/" data-gosx-link class="site-brand" aria-label={data.league.name + " league home"}>
@@ -113,15 +265,15 @@ func Layout() Node {
 				</nav>
 			</header>
 		</If>
-
 		<If cond={(data.viewer.signed_in || data.viewer.demo) && data.league.latest_announcement.has}>
 			<div class="announcement-banner" role="status">
 				<span class="announcement-banner__label mono">COMMISSIONER NOTE</span>
 				<p>{data.league.latest_announcement.body}</p>
-				<span class="announcement-banner__time mono">{data.league.latest_announcement.posted_at}</span>
+				<span class="announcement-banner__time mono">
+					{data.league.latest_announcement.posted_at}
+				</span>
 			</div>
 		</If>
-
 		<div class="site-frame">
 			<Slot />
 		</div>
@@ -130,7 +282,8 @@ func Layout() Node {
 				<p>
 					<strong>{data.league.name}</strong>
 					<If cond={data.league.has_footer_line}>
-						// {data.league.footer_line}
+						//
+						{data.league.footer_line}
 					</If>
 				</p>
 				<nav aria-label="Legal">
