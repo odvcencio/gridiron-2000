@@ -254,16 +254,68 @@ func Page() Node {
 					data-gosx-watch-effect="class:is-on-clock@body,title,cue:chime"
 					data-gosx-watch-title="YOUR PICK IS ON THE CLOCK"
 				></span>
-				<form id="ready-toggle" method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
-					<input type="hidden" name="csrf_token" value={csrf.token}></input>
-					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-					<button class="button button--primary" type="submit">Toggle ready</button>
-				</form>
-				<form id="autopick-toggle" method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
-					<input type="hidden" name="csrf_token" value={csrf.token}></input>
-					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-					<button class="button autopick-toggle" type="submit">Toggle autopick</button>
-				</form>
+				<If cond={data.viewer.has_seat}>
+					<div class="manager-draft-controls" aria-label="Your draft controls">
+						<div class="manager-draft-control" id="ready-toggle">
+							<div class="manager-draft-control__copy">
+								<span class="mono">YOUR CHECK-IN</span>
+								<If cond={data.viewer_ready}>
+									<strong class="ready-state is-ready">READY</strong>
+									<small>The commissioner sees you as present.</small>
+								</If>
+								<If cond={data.viewer_ready == false}>
+									<strong class="ready-state">NOT READY</strong>
+									<small>Check in when you are set for draft night.</small>
+								</If>
+							</div>
+							<form method="post" action={actionPath("toggle-ready")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+								<If cond={data.viewer_ready}>
+									<button class="button button--ghost button--compact" type="submit">Mark not ready</button>
+								</If>
+								<If cond={data.viewer_ready == false}>
+									<button class="button button--primary button--compact" type="submit">Mark ready</button>
+								</If>
+							</form>
+						</div>
+						<div class="manager-draft-control" id="autopick-toggle">
+							<div class="manager-draft-control__copy">
+								<span class="mono">YOUR AUTOPICK</span>
+								<If cond={data.viewer_autopick}>
+									<strong class="autopick-badge mono">ON</strong>
+									<small>Autopick uses your Big Board, then best available. Enabling it does not reset this turn's grace; if grace has elapsed, the next clock tick may pick.</small>
+								</If>
+								<If cond={data.viewer_autopick == false}>
+									<strong class="ready-state">OFF</strong>
+									<small>Autopick will not pick while you are present. This turn's saved deadline still applies, and being marked away can shorten it.</small>
+								</If>
+							</div>
+							<form method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+								<If cond={data.viewer_autopick}>
+									<button class="button autopick-toggle is-on button--compact" type="submit">Turn autopick off</button>
+								</If>
+								<If cond={data.viewer_autopick == false}>
+									<button class="button autopick-toggle button--compact" type="submit">Turn autopick on</button>
+								</If>
+							</form>
+						</div>
+					</div>
+				</If>
+				<If cond={data.viewer.has_seat == false}>
+					<div class="manager-draft-controls">
+						<div class="manager-draft-control">
+							<div class="manager-draft-control__copy">
+								<span class="mono">DRAFT CONTROLS</span>
+								<strong class="ready-state">NO TEAM SEAT</strong>
+								<small>Claim a franchise before setting readiness or autopick.</small>
+							</div>
+							<a href="/join" data-gosx-link class="button button--primary button--compact">Claim a team →</a>
+						</div>
+					</div>
+				</If>
 			</div>
 		</section>
 		<div class="notice-stack" aria-live="polite">
