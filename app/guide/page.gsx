@@ -57,7 +57,7 @@ func Page() Node {
 			<ol class="guide-checklist">
 				<li><strong>Confirm identity and format.</strong><span>League name, season, timezone, teams, divisions, roster shape, and scoring on <a href="/scoring" data-gosx-link>/scoring</a>.</span></li>
 				<li><strong>Invite the right Google accounts.</strong><span>Use <a href="/admin" data-gosx-link>/admin</a>, then verify each person signs in with the exact invited address.</span></li>
-				<li><strong>Check the player list.</strong><span>Review player-pool mode, target coverage, actual players, cushion, and errors. Treat LIVE, CACHE, and OFFLINE as different confidence states.</span></li>
+				<li><strong>Check the player list.</strong><span>Confirm the pool holds enough players to draft from, and watch for errors. Player data is CURRENT, SAVED, or BUILT-IN. Saved and built-in ranks are close, not exact.</span></li>
 				<li><strong>Publish the draft window and order.</strong><span>Set date, timezone, rounds, pick clock, and order. Randomize before pick one; decide what to do with unclaimed seats.</span></li>
 				<li><strong>Ask managers to build boards and mark ready.</strong><span>Readiness is a signal for the commissioner, not a hidden auto-start trigger.</span></li>
 				<li><strong>Start the draft yourself.</strong><span>The scheduled window is a reminder. The draft stays closed until the commissioner types <code>START</code>.</span></li>
@@ -124,7 +124,7 @@ func Page() Node {
 				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>Player data is CURRENT, SAVED, or BUILT-IN. Saved and built-in ranks are close, not exact.</p></article>
 			</div>
 			<article class="guide-math" id="pool-math">
-				<span class="section-index">PLAYER POOL // TARGET VS CAPACITY VS CUSHION</span>
+				<span class="section-index">PLAYER POOL // ENOUGH TO DRAFT FROM</span>
 				<h3>Coverage is a planning signal, not a player count.</h3>
 				<p>The pool holds more players than the draft needs.</p>
 			</article>
@@ -137,7 +137,7 @@ func Page() Node {
 				<p>Commissioner HQ is one page for a commissioner who runs more than one league.</p>
 			</header>
 			<div class="guide-compare">
-				<article class="guide-compare__panel guide-compare__panel--signal"><span class="section-index">WHAT IT DOES</span><h3>Read across leagues</h3><ul class="guide-bullets"><li>Shows configured peers, seats, readiness, draft status, pool mode, coverage, cushion, and attention flags.</li><li>Links to the owning league's home, admin, or draft page when action is needed.</li><li>Surfaces an unavailable peer without pretending its state is current.</li></ul></article>
+				<article class="guide-compare__panel guide-compare__panel--signal"><span class="section-index">WHAT IT DOES</span><h3>Read across leagues</h3><ul class="guide-bullets"><li>Shows configured peers, seats, readiness, draft status, player pool health, and attention flags.</li><li>Links to the owning league's home, admin, or draft page when action is needed.</li><li>Surfaces an unavailable peer without pretending its state is current.</li></ul></article>
 				<article class="guide-compare__panel"><span class="section-index">WHAT IT DOES NOT DO</span><h3>Merge league state</h3><ul class="guide-bullets"><li>It never mixes two leagues. Each league keeps its own record.</li><li>It does not give a commissioner a cross-league write button.</li><li>Each league keeps its own identity boundary, rules, and source decisions.</li></ul></article>
 			</div>
 			<a href="/commissioner" data-gosx-link class="button button--compact">Open Commissioner HQ →</a>
@@ -157,7 +157,7 @@ func Page() Node {
 				<h3>Practical manual migration checklist</h3>
 				<ol class="guide-checklist">
 					<li><strong>Freeze the old league.</strong><span>Export or screenshot the rules and standings you want to reference, then agree on a cutover time.</span></li>
-					<li><strong>Configure deployment-owned rules.</strong><span>Ask the commissioner to set league format, teams, divisions, and timezone.</span></li>
+					<li><strong>Set league rules with the commissioner.</strong><span>Ask the commissioner to set league format, teams, divisions, and timezone.</span></li>
 					<li><strong>Use each control where it actually lives.</strong><span>Use <a href="/admin" data-gosx-link>/admin</a> for invites, seats, roster shape, draft order/clock, and announcements. Verify the resolved roster, scoring, schedule, waiver, and trade rules on <a href="/scoring" data-gosx-link>/scoring</a> before inviting the league.</span></li>
 					<li><strong>Invite managers.</strong><span>Send the new league URL and invite the Google email each manager will actually use.</span></li>
 					<li><strong>Verify every seat.</strong><span>Have each manager claim or confirm the correct team before the first draft action.</span></li>
