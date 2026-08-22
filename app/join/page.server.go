@@ -17,7 +17,21 @@ func init() {
 			data := league.Default().SignupData(ctx.Request)
 			data["has_signup_error"] = false
 			data["signup_error"] = ""
+			data["team_name_value"] = ""
+			data["selected_motif"] = ""
+			if badges, ok := data["badge_grid"].([]league.UnclaimedBadgeOption); ok && len(badges) > 0 {
+				// A concrete default means the normal path cannot fail merely
+				// because the manager missed a visually-hidden radio control.
+				// The action remains authoritative if this motif is claimed in
+				// the interval between render and submit.
+				data["selected_motif"] = badges[0].Slug
+			}
 			if view, ok := ctx.ActionState("signup-claim"); ok {
+				// Managed actions retain submitted values after validation. Do
+				// not make an invitee retype a team name or rediscover their
+				// badge choice after a race or another correctable error.
+				data["team_name_value"] = view.Value("team_name")
+				data["selected_motif"] = view.Value("motif")
 				message := view.Error("motif")
 				if message == "" {
 					message = view.Error("team_name")
