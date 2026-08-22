@@ -83,11 +83,8 @@ func TestClockArmsAtDraftAt(t *testing.T) {
 	})
 }
 
-// TestEffectiveDeadlinePrecedence checks effectiveDeadline's four cases: a
-// connected on-clock manager gets the full persisted deadline; an away
-// manager is capped at seen+80s; a toggled manager fires at armAt+3s and
-// the toggle beats the away cap; and a reconnect mid-cap drops the cap and
-// restores the full remaining time.
+// TestEffectiveDeadlinePrecedence locks the clock authority contract:
+// presence never shortens a pick, while explicit AUTO uses the short grace.
 func TestEffectiveDeadlinePrecedence(t *testing.T) {
 	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	service, _ := newClockTestService(t, false, draftAt, draftAt)
@@ -100,7 +97,7 @@ func TestEffectiveDeadlinePrecedence(t *testing.T) {
 	}
 	state := service.store.Snapshot()
 
-	t.Run("connected: full deadline", func(t *testing.T) {
+	t.Run("here: full deadline", func(t *testing.T) {
 		service.presence.record(member.Email, draftAt)
 		effective, reason := service.effectiveDeadline(state, draftAt)
 		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
@@ -108,18 +105,17 @@ func TestEffectiveDeadlinePrecedence(t *testing.T) {
 		}
 	})
 
-	t.Run("away: capped at seen+80s", func(t *testing.T) {
+	t.Run("away: full deadline remains", func(t *testing.T) {
 		awaySince := draftAt.Add(-time.Hour)
 		service.presence.record(member.Email, awaySince)
 		now := draftAt.Add(5 * time.Second)
 		effective, reason := service.effectiveDeadline(state, now)
-		want := awaySince.Add(PresenceIdleWithin).Add(AwayClockCap)
-		if reason != "away-cap" || !effective.Equal(want) {
-			t.Fatalf("effective = %v (%s), want %v (away-cap)", effective, reason, want)
+		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
+			t.Fatalf("effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
 		}
 	})
 
-	t.Run("toggle: armAt+3s, and toggle beats the away cap", func(t *testing.T) {
+	t.Run("explicit AUTO: armAt+3s", func(t *testing.T) {
 		awaySince := draftAt.Add(-time.Hour)
 		service.presence.record(member.Email, awaySince) // still away
 		if err := service.store.SetAutopick("team-1", true); err != nil {
@@ -131,25 +127,18 @@ func TestEffectiveDeadlinePrecedence(t *testing.T) {
 		armAt := toggledState.ClockDeadline.Add(-service.pickClock(toggledState))
 		want := armAt.Add(AutopickGrace)
 		if reason != "autopick" || !effective.Equal(want) {
-			t.Fatalf("effective = %v (%s), want %v (autopick, beating the away cap)", effective, reason, want)
+			t.Fatalf("effective = %v (%s), want %v (autopick)", effective, reason, want)
 		}
 		if err := service.store.SetAutopick("team-1", false); err != nil {
 			t.Fatal(err)
 		}
 	})
 
-	t.Run("reconnect mid-cap restores the full remaining time", func(t *testing.T) {
-		awaySince := draftAt.Add(-time.Hour)
-		service.presence.record(member.Email, awaySince)
+	t.Run("restart and disconnect never manufacture an early pick", func(t *testing.T) {
 		now := draftAt.Add(5 * time.Second)
-		_, cappedReason := service.effectiveDeadline(state, now)
-		if cappedReason != "away-cap" {
-			t.Fatalf("precondition: reason = %s, want away-cap", cappedReason)
-		}
-		service.presence.record(member.Email, now) // reconnect
 		effective, reason := service.effectiveDeadline(state, now)
 		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
-			t.Fatalf("after reconnect: effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
+			t.Fatalf("effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
 		}
 	})
 }
@@ -403,7 +392,6 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 	}
 	category := map[string]string{} // teamID -> category
 	var connectedKeys []string
-	var flapEmail string
 	for _, entry := range roster {
 		member, _, err := service.store.AssignMember(entry.email, entry.email)
 		if err != nil {
@@ -413,8 +401,6 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		switch entry.category {
 		case "connected":
 			connectedKeys = append(connectedKeys, member.Email)
-		case "flap":
-			flapEmail = member.Email
 		}
 	}
 	if err := service.store.SetAutopick("team-5", true); err != nil {
@@ -426,10 +412,6 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 
 	totalPicks := len(defaultTeams()) * DraftRounds
 	manualFireAt := map[int]time.Time{}
-	var flapPingAt time.Time
-	flapPinged := false
-	flapCappedObserved := false
-	flapRestoredObserved := false
 	const maxSimulatedTicks = 3 * 3600 // safety bound; a real run finishes far sooner
 
 	start := clock
@@ -472,23 +454,11 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 				t.Fatalf("manual pick %d for %s: %v", number, teamID, err)
 			}
 		case "flap":
-			if !flapPinged && !state.ClockDeadline.IsZero() {
-				effective, reason := service.effectiveDeadline(state, clock)
-				if reason == "away-cap" {
-					flapCappedObserved = true
-					if flapPingAt.IsZero() {
-						if remaining := effective.Sub(clock); remaining > 2*time.Second {
-							flapPingAt = clock.Add(remaining / 2) // mid-cap
-						}
-					}
-					if !flapPingAt.IsZero() && !clock.Before(flapPingAt) {
-						service.presence.record(flapEmail, clock)
-						flapPinged = true
-						restored, restoredReason := service.effectiveDeadline(state, clock)
-						if restoredReason != "away-cap" && restored.After(effective) {
-							flapRestoredObserved = true
-						}
-					}
+			// A transient disconnect is observational only. The same full
+			// persisted clock applies before and after the next heartbeat.
+			if !state.ClockDeadline.IsZero() {
+				if _, reason := service.effectiveDeadline(state, clock); reason == "away-cap" {
+					t.Fatal("presence must never create an away-cap deadline")
 				}
 			}
 			service.clockTick(clock)
@@ -529,17 +499,7 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		t.Errorf("commissioner picks = %d, want 0", madeByCount["commissioner"])
 	}
 
-	if !flapCappedObserved {
-		t.Error("the flapping seat's away-cap was never observed before its ping")
-	}
-	if !flapRestoredObserved {
-		t.Error("the flapping seat's restored deadline was never observed after its ping")
-	}
-
 	t.Logf("simulation finished in %v of simulated time (%d picks)", elapsed, totalPicks)
-	if elapsed > 25*time.Minute {
-		t.Errorf("elapsed = %v, want under 25 simulated minutes (every manual pick landed within 10s)", elapsed)
-	}
 	if elapsed > 150*time.Minute {
 		t.Errorf("elapsed = %v, want under 2.5 simulated hours (worst-case bound)", elapsed)
 	}
