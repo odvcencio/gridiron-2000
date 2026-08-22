@@ -118,7 +118,7 @@ func (s *Service) avatarDurableDir() string {
 
 // defaultBadgeDir resolves the directory the commissioner-supplied default
 // tone badges live in: AVATAR_DEFAULTS_ROOT when set, else
-// "public/avatars/defaults" (see public/avatars/defaults/README.md).
+// "public/avatars/defaults" (see docs/avatar-default-badges.md).
 func (s *Service) defaultBadgeDir() string {
 	if s.defaultBadgeRoot != "" {
 		return s.defaultBadgeRoot
