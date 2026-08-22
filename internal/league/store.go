@@ -879,6 +879,23 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 	if !pending {
 		return Member{}, false, nil
 	}
+	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
+		if existing.TeamID != teamID {
+			return Member{}, false, fmt.Errorf("%q already holds team %q; refusing co-manager bind to team %q", email, existing.TeamID, teamID)
+		}
+		if existing.Role != "co" {
+			return Member{}, false, fmt.Errorf("%q is already the primary manager for team %q; refusing co-manager bind", email, teamID)
+		}
+		// A stale duplicate invite for an already-bound co-manager is safe to
+		// consume. Returning the existing record keeps retries idempotent and
+		// never rewrites its seat or role.
+		delete(s.state.CoInvites, email)
+		if err := s.persistLocked(colMembers, colCoInvites); err != nil {
+			s.state.CoInvites[email] = teamID
+			return Member{}, false, err
+		}
+		return existing, true, nil
+	}
 	newMember := Member{TeamID: teamID, Name: name, Email: email, Role: "co"}
 	s.state.Members[email] = newMember
 	delete(s.state.CoInvites, email)

@@ -52,7 +52,6 @@ func TestIdentityAliasStoreCanonicalizesOwnershipAndPreservesAdmission(t *testin
 			identityAliasEmail:     {"player-a"},
 			identityCanonicalEmail: {"player-b", "player-a"},
 		},
-		CoInvites: map[string]string{identityAliasEmail: "team-2"},
 		Pickems: map[string]map[string]string{
 			identityAliasEmail: {"game-1": "BUF"},
 		},
@@ -104,9 +103,6 @@ func TestIdentityAliasStoreCanonicalizesOwnershipAndPreservesAdmission(t *testin
 		board[0] != "player-b" || board[1] != "player-a" {
 		t.Fatalf("merged board = %#v", board)
 	}
-	if got.CoInvites[identityCanonicalEmail] != "team-2" {
-		t.Fatalf("co-invites = %#v", got.CoInvites)
-	}
 	if got.Pickems[identityCanonicalEmail]["game-1"] != "BUF" {
 		t.Fatalf("pick'ems = %#v", got.Pickems)
 	}
@@ -140,6 +136,69 @@ func TestIdentityAliasStoreCanonicalizesOwnershipAndPreservesAdmission(t *testin
 	}
 	if _, ok := restarted.Snapshot().Members[identityAliasEmail]; ok {
 		t.Fatal("alias member key returned after restart")
+	}
+}
+
+func TestIdentityAliasMigrationRejectsCrossTeamMemberCoInviteConflict(t *testing.T) {
+	resolver := testIdentityResolver(t)
+	statePath := filepath.Join(t.TempDir(), "league-state.json")
+	raw, err := json.Marshal(PersistedState{
+		SchemaVersion: currentSchemaVersion,
+		Members: map[string]Member{
+			identityCanonicalEmail: {TeamID: "team-1", Email: identityCanonicalEmail},
+		},
+		CoInvites: map[string]string{identityAliasEmail: "team-2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, raw, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStoreWithIdentity(statePath, resolver)
+	t.Cleanup(func() { _ = store.Close() })
+	err = store.StartupError()
+	if err == nil || !strings.Contains(err.Error(), "already owns team") {
+		t.Fatalf("StartupError = %v, want fail-closed cross-team member/co-invite collision", err)
+	}
+}
+
+func TestBindCoManagerRefusesCrossTeamIdentityOverwrite(t *testing.T) {
+	resolver := testIdentityResolver(t)
+	store := NewStoreWithIdentity("", resolver)
+	t.Cleanup(func() { _ = store.Close() })
+	store.state.Members[identityCanonicalEmail] = Member{
+		TeamID: "team-1", Name: "Primary", Email: identityCanonicalEmail,
+	}
+	store.state.CoInvites[identityCanonicalEmail] = "team-2"
+
+	got, bound, err := store.BindCoManager(identityAliasEmail, "Alias")
+	if err == nil || bound {
+		t.Fatalf("BindCoManager = %+v, bound=%v, err=%v; want a rejected cross-team overwrite", got, bound, err)
+	}
+	member, ok := store.MemberByEmail(identityCanonicalEmail)
+	if !ok || member.TeamID != "team-1" || member.Role != "" {
+		t.Fatalf("existing primary = %+v, %v; bind must not strip its team or role", member, ok)
+	}
+	if got := store.Snapshot().CoInvites[identityCanonicalEmail]; got != "team-2" {
+		t.Fatalf("pending invite = %q, want team-2 preserved after rejected bind", got)
+	}
+}
+
+func TestBindCoManagerSameTeamExistingCoIsIdempotent(t *testing.T) {
+	resolver := testIdentityResolver(t)
+	store := NewStoreWithIdentity("", resolver)
+	t.Cleanup(func() { _ = store.Close() })
+	existing := Member{TeamID: "team-1", Name: "Co", Email: identityCanonicalEmail, Role: "co"}
+	store.state.Members[identityCanonicalEmail] = existing
+	store.state.CoInvites[identityCanonicalEmail] = "team-1"
+
+	got, bound, err := store.BindCoManager(identityAliasEmail, "New Name")
+	if err != nil || !bound || got != existing {
+		t.Fatalf("BindCoManager = %+v, bound=%v, err=%v; want existing co-manager idempotently", got, bound, err)
+	}
+	if _, pending := store.Snapshot().CoInvites[identityCanonicalEmail]; pending {
+		t.Fatal("idempotent co-manager bind must consume the stale pending invite")
 	}
 }
 

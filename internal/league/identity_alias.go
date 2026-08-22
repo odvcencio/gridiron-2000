@@ -26,6 +26,9 @@ func reconcileIdentityState(state *PersistedState, resolver identity.Resolver) (
 	if err := reconcileMembers(state, resolver); err != nil {
 		return false, err
 	}
+	if err := reconcileMemberCoInviteSeats(state, resolver); err != nil {
+		return false, err
+	}
 	if err := reconcileCoInvites(state, resolver); err != nil {
 		return false, err
 	}
@@ -46,6 +49,25 @@ func reconcileIdentityState(state *PersistedState, resolver identity.Resolver) (
 	}
 	reconcileSentLog(state, resolver)
 	return !reflect.DeepEqual(before, *state), nil
+}
+
+// reconcileMemberCoInviteSeats validates the relationship between the two
+// identity-keyed seat collections after Members have been canonicalized but
+// before CoInvites are rewritten. Keeping this check at migration time is
+// important: reconciling the collections independently can turn a stale
+// alias invite for one team into a canonical invite that later overwrites an
+// already-seated member for another team during first sign-in.
+
+func reconcileMemberCoInviteSeats(state *PersistedState, resolver identity.Resolver) error {
+	for rawEmail, pendingTeamID := range state.CoInvites {
+		email := resolver.Resolve(rawEmail)
+		member, ok := state.Members[email]
+		if !ok || member.TeamID == "" || member.TeamID == pendingTeamID {
+			continue
+		}
+		return fmt.Errorf("identity alias migration: %q already owns team %q but has a pending co-manager invite for team %q", email, member.TeamID, pendingTeamID)
+	}
+	return nil
 }
 
 type identityMemberRecord struct {
