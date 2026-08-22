@@ -72,6 +72,27 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	}
 }
 
+func TestDraftDataSurfacesViewerReadyAndAutopickState(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	initial := service.DraftData(request)
+	if initial["viewer_ready"] != false || initial["viewer_autopick"] != false {
+		t.Fatalf("initial controls = ready:%v autopick:%v", initial["viewer_ready"], initial["viewer_autopick"])
+	}
+
+	if _, err := service.store.ToggleReady("team-1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetAutopick("team-1", true); err != nil {
+		t.Fatal(err)
+	}
+	updated := service.DraftData(request)
+	if updated["viewer_ready"] != true || updated["viewer_autopick"] != true {
+		t.Fatalf("updated controls = ready:%v autopick:%v", updated["viewer_ready"], updated["viewer_autopick"])
+	}
+}
+
 func TestEmptySourceFallsBackToDemoPool(t *testing.T) {
 	service := newTestService(t, true)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return nil, 0, "live" })
