@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"m31labs.dev/gosx/auth"
 )
@@ -32,6 +32,9 @@ var (
 func New(config Config, local SummarySource) (*Service, error) {
 	if local == nil {
 		return nil, errors.New("commissioner HQ requires a local summary source")
+	}
+	if config.Timeout <= 0 || config.Timeout > 10*time.Second {
+		config.Timeout = 1500 * time.Millisecond
 	}
 	client := &http.Client{
 		Timeout: config.Timeout,
@@ -62,6 +65,10 @@ func (s *Service) SummaryHandler() http.Handler {
 		return http.NotFoundHandler()
 	}
 	content := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != SummaryPath {
+			http.NotFound(w, r)
+			return
+		}
 		summary := s.local()
 		status := http.StatusOK
 		if !summary.Runtime.Ready {
@@ -83,7 +90,8 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 		return nil
 	}
 	entries := make([]FleetEntry, len(s.config.Peers)+1)
-	entries[0] = FleetEntry{PeerID: s.config.InstanceID, Summary: s.local()}
+	local := s.local()
+	entries[0] = FleetEntry{PeerID: s.config.InstanceID, PublicURL: local.Instance.PublicURL, Summary: local}
 	var group sync.WaitGroup
 	for index, peer := range s.config.Peers {
 		index, peer := index+1, peer
@@ -91,7 +99,16 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 		go func() {
 			defer group.Done()
 			summary, err := s.fetch(ctx, peer)
-			entries[index] = FleetEntry{PeerID: peer.ID, Summary: summary, Error: displayError(err)}
+			publicURL := ""
+			if peer.PublicURL != nil {
+				publicURL = peer.PublicURL.String()
+			}
+			entries[index] = FleetEntry{
+				PeerID:    peer.ID,
+				PublicURL: publicURL,
+				Summary:   summary,
+				Error:     displayError(err),
+			}
 		}()
 	}
 	group.Wait()
@@ -99,8 +116,16 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 }
 
 func (s *Service) fetch(ctx context.Context, peer Peer) (Summary, error) {
-	target := *peer.BaseURL
-	target.Path = "/api/commissioner/v1/summary"
+	if peer.ServiceURL == nil || peer.PublicURL == nil {
+		return Summary{}, errors.New("invalid peer topology")
+	}
+	target := *peer.ServiceURL
+	target.Path = SummaryPath
+	target.RawPath = ""
+	target.RawQuery = ""
+	target.ForceQuery = false
+	target.Fragment = ""
+	target.RawFragment = ""
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
 	if err != nil {
 		return Summary{}, err
@@ -127,17 +152,16 @@ func (s *Service) fetch(ctx context.Context, peer Peer) (Summary, error) {
 	if err := json.Unmarshal(body, &summary); err != nil {
 		return Summary{}, err
 	}
-	if summary.SchemaVersion != SchemaVersion || summary.Instance.ID != peer.ID || !safePublicURL(summary.Instance.PublicURL) {
+	configuredPublic, err := normalizedPublicURL(peer.PublicURL.String())
+	if err != nil {
+		return Summary{}, errors.New("invalid peer topology")
+	}
+	responsePublic, err := normalizedPublicURL(summary.Instance.PublicURL)
+	if err != nil || responsePublic != configuredPublic ||
+		summary.SchemaVersion != SchemaVersion || summary.Instance.ID != peer.ID {
 		return Summary{}, errors.New("incompatible summary")
 	}
 	return summary, nil
-}
-
-func safePublicURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") &&
-		parsed.Host != "" && parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" &&
-		(parsed.Path == "" || parsed.Path == "/")
 }
 
 func displayError(err error) string {

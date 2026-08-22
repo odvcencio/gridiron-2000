@@ -18,14 +18,14 @@ func testSummary(id, publicURL string) Summary {
 		SchemaVersion: SchemaVersion,
 		GeneratedAt:   time.Date(2026, 8, 21, 18, 0, 0, 0, time.UTC),
 		Instance:      Instance{ID: id, Name: "League " + id, ShortCode: strings.ToUpper(id), PublicURL: publicURL},
-		Runtime:       Runtime{Ready: true, AppVersion: "release-test", GitSHA: "abc123"},
+		Runtime:       Runtime{Ready: true, AppVersion: "release-test", FrameworkVersion: "v0.53.0", GitSHA: "abc123", Build: "2026-08-21T18:00:00Z"},
 	}
 }
 
-func TestSummaryHandlerFailsClosedAndAuthenticates(t *testing.T) {
+func TestSummaryHandlerFailsClosedAndRetiresV1(t *testing.T) {
 	local := func() Summary { return testSummary("g2k", "https://gridiron.example") }
 	disabled, _ := New(Config{InstanceID: "g2k", Timeout: time.Second}, local)
-	request := httptest.NewRequest(http.MethodGet, "/api/commissioner/v1/summary", nil)
+	request := httptest.NewRequest(http.MethodGet, SummaryPath, nil)
 	response := httptest.NewRecorder()
 	disabled.SummaryHandler().ServeHTTP(response, request)
 	if response.Code != http.StatusNotFound {
@@ -35,7 +35,7 @@ func TestSummaryHandlerFailsClosedAndAuthenticates(t *testing.T) {
 	service, _ := New(Config{InstanceID: "g2k", Token: "correct-token", Timeout: time.Second}, local)
 	for name, header := range map[string]string{"missing": "", "wrong": "Bearer wrong", "extra": "Bearer correct-token extra"} {
 		t.Run(name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "/api/commissioner/v1/summary", nil)
+			request := httptest.NewRequest(http.MethodGet, SummaryPath, nil)
 			request.Header.Set("Authorization", header)
 			response := httptest.NewRecorder()
 			service.SummaryHandler().ServeHTTP(response, request)
@@ -44,15 +44,24 @@ func TestSummaryHandlerFailsClosedAndAuthenticates(t *testing.T) {
 			}
 		})
 	}
-	request = httptest.NewRequest(http.MethodGet, "/api/commissioner/v1/summary", nil)
+	request = httptest.NewRequest(http.MethodGet, SummaryPath, nil)
 	request.Header.Set("Authorization", "bearer correct-token")
 	response = httptest.NewRecorder()
 	service.SummaryHandler().ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"schemaVersion":1`) {
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "schemaVersion") {
 		t.Fatalf("authorized response = %d %s", response.Code, response.Body.String())
 	}
-	t.Run("duplicate authorization headers fail closed", func(t *testing.T) {
+	t.Run("v1 is gone even with valid trust", func(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, "/api/commissioner/v1/summary", nil)
+		request.Header.Set("Authorization", "Bearer correct-token")
+		response := httptest.NewRecorder()
+		service.SummaryHandler().ServeHTTP(response, request)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("v1 status = %d, want 404", response.Code)
+		}
+	})
+	t.Run("duplicate authorization headers fail closed", func(t *testing.T) {
+		request := httptest.NewRequest(http.MethodGet, SummaryPath, nil)
 		request.Header.Add("Authorization", "Bearer correct-token")
 		request.Header.Add("Authorization", "Bearer correct-token")
 		response := httptest.NewRecorder()
@@ -63,9 +72,26 @@ func TestSummaryHandlerFailsClosedAndAuthenticates(t *testing.T) {
 	})
 }
 
+func TestSummaryHandlerDoesNotExposePIIOrTrustMaterial(t *testing.T) {
+	service, _ := New(Config{InstanceID: "g2k", Token: "never-render-this", Timeout: time.Second},
+		func() Summary { return testSummary("g2k", "https://gridiron.example") })
+	request := httptest.NewRequest(http.MethodGet, SummaryPath, nil)
+	request.Header.Set("Authorization", "Bearer never-render-this")
+	response := httptest.NewRecorder()
+	service.SummaryHandler().ServeHTTP(response, request)
+	body := response.Body.String()
+	for _, forbidden := range []string{"never-render-this", "manager@example.com", "email", "invites", "boards", "session", "service.internal"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("summary leaked %q: %s", forbidden, body)
+		}
+	}
+}
+
 func TestFleetKeepsConfiguredOrderAndIsolatesPeerFailure(t *testing.T) {
 	token := "fleet-token"
+	var goodPath string
 	good := httptest.NewServer(auth.RequireBearerToken(token, auth.BearerOptions{})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		goodPath = r.URL.Path
 		_ = json.NewEncoder(w).Encode(testSummary("good", "https://good.example"))
 	})))
 	defer good.Close()
@@ -77,18 +103,41 @@ func TestFleetKeepsConfiguredOrderAndIsolatesPeerFailure(t *testing.T) {
 	badURL, _ := url.Parse(bad.URL)
 	service, _ := New(Config{
 		InstanceID: "local", Token: token, Timeout: time.Second,
-		Peers: []Peer{{ID: "bad", BaseURL: badURL}, {ID: "good", BaseURL: goodURL}},
+		Peers: []Peer{
+			{ID: "bad", ServiceURL: badURL, PublicURL: mustOrigin("https://bad.example")},
+			{ID: "good", ServiceURL: goodURL, PublicURL: mustOrigin("https://good.example")},
+		},
 	}, func() Summary { return testSummary("local", "https://local.example") })
 	entries := service.Fleet(context.Background())
 	if len(entries) != 3 || entries[0].PeerID != "local" || entries[1].PeerID != "bad" || entries[2].PeerID != "good" {
 		t.Fatalf("fleet order = %#v", entries)
 	}
+	if goodPath != SummaryPath {
+		t.Fatalf("peer path = %q, want %q", goodPath, SummaryPath)
+	}
+	if entries[0].PublicURL != "https://local.example" || entries[1].PublicURL != "https://bad.example" || entries[2].PublicURL != "https://good.example" {
+		t.Fatalf("public URLs = %#v", entries)
+	}
 	if entries[1].Error != "Trust mismatch" || entries[2].Error != "" || entries[2].Summary.Instance.ID != "good" {
 		t.Fatalf("isolated results = %#v", entries)
 	}
+	if strings.Contains(entries[1].Error, goodURL.String()) || strings.Contains(entries[1].Error, token) {
+		t.Fatalf("failure leaked trust material: %#v", entries[1])
+	}
 }
 
-func TestFetchRejectsRedirectOversizeAndUntrustedPublicURL(t *testing.T) {
+func TestFleetUnavailableCardRetainsConfiguredPublicOrigin(t *testing.T) {
+	service, _ := New(Config{
+		InstanceID: "local", Token: "token", Timeout: 20 * time.Millisecond,
+		Peers: []Peer{{ID: "skl", ServiceURL: mustOrigin("http://127.0.0.1:1"), PublicURL: mustOrigin("https://sk.example")}},
+	}, func() Summary { return testSummary("local", "https://local.example") })
+	entries := service.Fleet(context.Background())
+	if len(entries) != 2 || entries[1].Available() || entries[1].PublicURL != "https://sk.example" {
+		t.Fatalf("unavailable card = %#v", entries)
+	}
+}
+
+func TestFetchRejectsHostileOrMismatchedResponses(t *testing.T) {
 	tests := map[string]http.HandlerFunc{
 		"redirect": func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "https://elsewhere.example", http.StatusFound)
@@ -96,19 +145,34 @@ func TestFetchRejectsRedirectOversizeAndUntrustedPublicURL(t *testing.T) {
 		"oversize": func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte(strings.Repeat("x", maxSummaryBytes+1)))
 		},
-		"public-url": func(w http.ResponseWriter, r *http.Request) {
+		"wrong-public": func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(testSummary("peer", "https://elsewhere.example"))
+		},
+		"invalid-public": func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(testSummary("peer", "javascript:alert(1)"))
+		},
+		"wrong-id": func(w http.ResponseWriter, r *http.Request) {
+			_ = json.NewEncoder(w).Encode(testSummary("other", "https://peer.example"))
 		},
 	}
 	for name, handler := range tests {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(handler)
 			defer server.Close()
-			base, _ := url.Parse(server.URL)
 			service, _ := New(Config{Token: "token", Timeout: time.Second}, func() Summary { return Summary{} })
-			if _, err := service.fetch(context.Background(), Peer{ID: "peer", BaseURL: base}); err == nil {
-				t.Fatal("unsafe peer response was accepted")
+			if _, err := service.fetch(context.Background(), Peer{
+				ID: "peer", ServiceURL: mustOrigin(server.URL), PublicURL: mustOrigin("https://peer.example"),
+			}); err == nil {
+				t.Fatal("hostile peer response was accepted")
 			}
 		})
 	}
+}
+
+func mustOrigin(raw string) *url.URL {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		panic(err)
+	}
+	return parsed
 }
