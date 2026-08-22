@@ -2083,7 +2083,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		scores[matchup.Home.ID] = fmt.Sprintf("%.1f", matchup.Home.Score)
 		status := matchup.Status
 		if status == "" {
-			status = "SYNCED"
+			status = "SCORES POSTED"
 		}
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
@@ -2092,7 +2092,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	timestamp := s.formatMatchupUpdate(live.LastUpdated)
 	liveStatus := presentation["sync_label"] + " · " + timestamp
 	if live.Warning != "" {
-		liveStatus += " · FALLBACK"
+		liveStatus += " · BACKUP SCORES"
 	}
 	return map[string]any{
 		"ok":               live.OK,
@@ -2419,7 +2419,7 @@ func (s *Service) scoringNote() string {
 	case "standard":
 		label = "standard"
 	}
-	return fmt.Sprintf("Draft ADP and projections use the %s consensus feed.", label)
+	return fmt.Sprintf("Draft ADP and projections use %s consensus ranks.", label)
 }
 
 // formatBlurb is the short, human-readable league-format phrase shared by
@@ -2754,26 +2754,26 @@ func matchupStaticPresentation(state string) map[string]string {
 	case MatchupStateScheduled:
 		return map[string]string{
 			"headline_top": "WEEK", "headline_bottom": "SCHEDULED.",
-			"sync_label": "Published schedule", "refresh_label": "Static week view",
+			"sync_label": "Published schedule", "refresh_label": "Past week",
 			"note_title": "Scheduled scoring", "note_body": "This is a static schedule view; current-week scoring updates are shown on the current week.",
 		}
 	case MatchupStateInProgress:
 		return map[string]string{
 			"headline_top": "WEEK", "headline_bottom": "IN PROGRESS.",
-			"sync_label": "Published snapshot", "refresh_label": "Static week view",
-			"note_title": "Scoring snapshot", "note_body": "This week is a static snapshot; current-week scoring updates are shown on the current week.",
+			"sync_label": "Week results", "refresh_label": "Past week",
+			"note_title": "Scoring results", "note_body": "This week is closed. Live scores show on the current week.",
 		}
 	case MatchupStateDegraded:
 		return map[string]string{
 			"headline_top": "SCHEDULE", "headline_bottom": "STATUS.",
-			"sync_label": "Status snapshot", "refresh_label": "Static week view",
-			"note_title": "Limited matchup data", "note_body": "This week is a static snapshot; kickoff or scoring status is not currently authoritative.",
+			"sync_label": "Week results", "refresh_label": "Past week",
+			"note_title": "Limited matchup data", "note_body": "This week is closed. Live scores show on the current week.",
 		}
 	default:
 		return map[string]string{
 			"headline_top": "WEEK", "headline_bottom": "IN VIEW.",
-			"sync_label": "Published snapshot", "refresh_label": "Static week view",
-			"note_title": "Schedule snapshot", "note_body": "This week is a static snapshot; current-week scoring updates are shown on the current week.",
+			"sync_label": "Week results", "refresh_label": "Past week",
+			"note_title": "Schedule results", "note_body": "This week is closed. Live scores show on the current week.",
 		}
 	}
 }
@@ -2821,7 +2821,7 @@ func matchupPresentation(state string) map[string]string {
 	case MatchupStateInProgress:
 		return map[string]string{
 			"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
-			"sync_label": "Feed connected", "refresh_label": "60 sec",
+			"sync_label": "Live scores on", "refresh_label": "60 sec",
 			"note_title": "Live scoring", "note_body": "Scores update on their own. No need to refresh the page.",
 		}
 	case MatchupStateFinal:

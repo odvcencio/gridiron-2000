@@ -84,7 +84,7 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 		return info
 	}
 	if info.Final {
-		info.Reason = "already final; repeating close is a no-op"
+		info.Reason = "This week is already final. Closing it again changes nothing."
 		return info
 	}
 
@@ -109,11 +109,11 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
 	switch {
 	case !info.GamesKnown:
-		info.Reason = "waiting for the real NFL schedule feed"
+		info.Reason = "Waiting for the NFL schedule."
 	case info.GamesFinal < info.GamesTotal:
 		info.Reason = fmt.Sprintf("waiting for %d of %d games to go final", info.GamesTotal-info.GamesFinal, info.GamesTotal)
 	case info.StatsUpdatedAt.IsZero():
-		info.Reason = "waiting for the player-stats dataset to report an update"
+		info.Reason = "Waiting for this week's player stats."
 	case !info.StatsFresh:
 		info.Reason = "player stats are not yet 24 hours past the final kickoff"
 	case !info.Ready:

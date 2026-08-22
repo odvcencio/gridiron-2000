@@ -122,7 +122,7 @@ func (service *Service) SubmitSighting(submission CommunitySubmission) (Signal, 
 		}
 		parsed, err := url.Parse(submission.SourceURL)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil {
-			return Signal{}, fmt.Errorf("source link must be a public http or https URL")
+			return Signal{}, fmt.Errorf("Paste a public web link that starts with https.")
 		}
 		submission.SourceURL = parsed.String()
 	}

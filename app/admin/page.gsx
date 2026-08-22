@@ -646,7 +646,7 @@ func Page() Node {
 							<b class="mono">{data.pool.requests}</b>
 						</div>
 						<div class="pool-stat">
-							<span>Last update</span>
+							<span>Last updated</span>
 							<b class="mono">{data.pool.last_sync}</b>
 						</div>
 					</div>

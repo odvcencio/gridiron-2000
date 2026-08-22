@@ -359,11 +359,7 @@ func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 	if !wireConfigured {
 		body = append(body,
 			gosx.El("p", nil, gosx.Text(wireIssue)),
-			gosx.El("p", nil,
-				gosx.Text("Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in "),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "inline-code")), gosx.Text("BLUESKY_HANDLES")),
-				gosx.Text("."),
-			),
+			gosx.El("p", nil, gosx.Text("No sources are on the wire yet. Ask the commissioner to add reporters.")),
 		)
 	} else {
 		body = append(body, gosx.El("p", nil, gosx.Text("Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.")))

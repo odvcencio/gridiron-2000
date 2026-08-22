@@ -47,17 +47,17 @@ func avatarMultipartEnvelopeLimit(next http.Handler) http.Handler {
 		}
 		if r.ContentLength > avatarMultipartEnvelopeMaxBytes {
 			_ = r.Body.Close()
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			http.Error(w, "That image is too large. Choose an image of 2 MB or less.", http.StatusRequestEntityTooLarge)
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(r.Body, avatarMultipartEnvelopeMaxBytes+1))
 		_ = r.Body.Close()
 		if err != nil {
-			http.Error(w, "could not read request body", http.StatusBadRequest)
+			http.Error(w, "That image could not be read. Choose a different file.", http.StatusBadRequest)
 			return
 		}
 		if int64(len(body)) > avatarMultipartEnvelopeMaxBytes {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			http.Error(w, "That image is too large. Choose an image of 2 MB or less.", http.StatusRequestEntityTooLarge)
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))

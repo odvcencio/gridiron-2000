@@ -305,7 +305,7 @@ func Page() Node {
 							<input type="hidden" name="redirect_to" value="/team"></input>
 					<button class="button button--compact" type="submit">Release badge</button>
 					</form>
-					<p class="scoring-note">After release, this seat uses the league fallback badge, or its text mark if no fallback artwork is configured.</p>
+					<p class="scoring-note">After release, this seat uses the league's standard badge, or your team letters.</p>
 					</If>
 					</If>
 					<If cond={data.identity_available == false}>
