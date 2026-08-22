@@ -19,11 +19,11 @@ func Page() Node {
 			</p>
 			<h2>Where it lives</h2>
 			<p>
-				League data lives on this league's own server, not with an outside company. Your sign-in details stay in your browser.
+				The league keeps its own record. No outside company holds it. Your sign-in details stay in your browser.
 			</p>
 			<h2>Football data</h2>
 			<p>
-				This league also collects public NFL news the commissioner approves, plus schedules, injury reports, and weekly player stats from open sources. If a source deletes a post, it disappears from the league too.
+				This league also collects public NFL news the commissioner approves, plus schedules, injury reports, and weekly player stats from public NFL reports. If a source deletes a post, it disappears from the league too.
 			</p>
 			<p>
 				A signed-in manager may submit a short summary, source name, optional link, and sighting type. Their display name stays with the sighting inside this private league. Only the commissioner can export league data, and it isn't public. This league doesn't store NFL+ or PrizePicks logins, and doesn't connect to betting or paid sports-data services.

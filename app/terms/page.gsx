@@ -23,7 +23,7 @@ func Page() Node {
 			</p>
 			<h2>Data accuracy</h2>
 			<p>
-				Demo rosters, projections, and matchup scores are illustrative. Wire posts, social updates, community tips, and market buzz are provisional and never affect your score. A source's trust rating shows how confirmed a report is, not whether it's true. Official corrected stats can be delayed, changed, or unavailable, and the commissioner settles any dispute.
+				Sample rosters, projections, and scores are examples only. Wire posts, social updates, community tips, and market buzz are provisional and never affect your score. A source's trust rating shows how confirmed a report is, not whether it's true. Official corrected stats can be delayed, changed, or unavailable, and the commissioner settles any dispute.
 			</p>
 			<h2>Fair play</h2>
 			<p>
