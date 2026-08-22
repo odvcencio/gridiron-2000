@@ -77,11 +77,21 @@ func Page() Node {
 					<div class="account-avatar">{data.viewer.initials}</div>
 					<h2>{data.viewer.name}</h2>
 					<p>{data.viewer.email}</p>
-					<div class="account-team">
-						<span>Your franchise</span>
-						<strong>{data.viewer.team_name}</strong>
-					</div>
-					<a href="/team" data-gosx-link class="button button--primary">Open team terminal</a>
+					<If cond={data.viewer.has_seat}>
+						<div class="account-team">
+							<span>Your franchise</span>
+							<strong>{data.viewer.team_name}</strong>
+						</div>
+						<a href="/team" data-gosx-link class="button button--primary">Open team terminal</a>
+					</If>
+					<If cond={data.viewer.has_seat == false}>
+						<div class="account-team">
+							<span>League membership</span>
+							<strong>ACTIVE · NO FRANCHISE</strong>
+						</div>
+						<p>You are signed in with league access, but no fantasy team is attached yet. Claim an open franchise to unlock roster, draft, waiver, and trade controls.</p>
+						<a href="/join" data-gosx-link class="button button--primary">Claim a franchise →</a>
+					</If>
 					<form method="post" action="/auth/logout" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button type="submit" class="button button--ghost">Sign out</button>
