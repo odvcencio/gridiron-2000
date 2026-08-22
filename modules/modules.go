@@ -13,6 +13,7 @@ import (
 	_ "gridiron-2000/app/join"
 	_ "gridiron-2000/app/login"
 	_ "gridiron-2000/app/matchups"
+	_ "gridiron-2000/app/open-source"
 	_ "gridiron-2000/app/pickem"
 	_ "gridiron-2000/app/players"
 	_ "gridiron-2000/app/privacy"

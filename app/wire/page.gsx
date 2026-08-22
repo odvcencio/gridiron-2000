@@ -207,9 +207,7 @@ func Page() Node {
 							<small>{data.injury_state} · {data.injury_rows} reports · {data.injury_updated}</small>
 						</div>
 					</div>
-					<a href={data.attribution_url} target="_blank" rel="noreferrer" class="wire-license">
-						nflverse · {data.license} ↗
-					</a>
+					<p class="wire-license">Stat source: public NFL data</p>
 				</section>
 
 				<section class="wire-source-panel">
