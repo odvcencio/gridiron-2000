@@ -74,7 +74,7 @@ func init() {
 			"pickem-set": func(ctx *action.Context) error {
 				_, err := league.Default().PickemSet(ctx.Request, ctx.FormData["game_id"], ctx.FormData["team"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"pickem": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "pickem", "pickem", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/pickem", ctx.FormData["team"]+" picked.")
 				return nil

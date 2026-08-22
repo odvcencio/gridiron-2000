@@ -63,7 +63,7 @@ func init() {
 				message, err := league.Default().ProposeTrade(ctx.Request, ctx.FormData["team_id"], toTeamID,
 					ctx.Request.Form["give"], ctx.Request.Form["get"], nil, ctx.FormData["note"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -73,7 +73,7 @@ func init() {
 				message, err := league.Default().CounterTrade(ctx.Request, ctx.FormData["team_id"], offerID,
 					ctx.Request.Form["give"], ctx.Request.Form["get"], nil, ctx.FormData["note"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -81,7 +81,7 @@ func init() {
 			"trade-decline": func(ctx *action.Context) error {
 				message, err := league.Default().DeclineTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -89,7 +89,7 @@ func init() {
 			"trade-withdraw": func(ctx *action.Context) error {
 				message, err := league.Default().WithdrawTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -97,7 +97,7 @@ func init() {
 			"trade-accept": func(ctx *action.Context) error {
 				message, err := league.Default().AcceptTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -107,7 +107,7 @@ func init() {
 			"trade-approve": func(ctx *action.Context) error {
 				message, err := league.Default().ApproveTrade(ctx.Request, ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -117,7 +117,7 @@ func init() {
 			"trade-veto-commissioner": func(ctx *action.Context) error {
 				message, err := league.Default().CommissionerVetoTrade(ctx.Request, ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -127,7 +127,7 @@ func init() {
 			"trade-veto-vote": func(ctx *action.Context) error {
 				message, err := league.Default().VoteVetoTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil

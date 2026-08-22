@@ -116,11 +116,11 @@ func init() {
 			"schedule-generate": func(ctx *action.Context) error {
 				weeks, err := adminPositiveInt(ctx.FormData["weeks"], "weeks")
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				startWeek, err := adminPositiveInt(ctx.FormData["start_week"], "first NFL week")
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				seed := int64(0)
 				if raw := strings.TrimSpace(ctx.FormData["seed"]); raw != "" {
@@ -132,7 +132,7 @@ func init() {
 				}
 				schedule, err := league.Default().AdminGenerateSchedule(ctx.Request, weeks, startWeek, seed)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Regular-season schedule generated: %d weeks, seed %d.", len(schedule.Weeks), schedule.Seed))
 				return nil
@@ -144,7 +144,7 @@ func init() {
 				}
 				schedule, err := league.Default().AdminRegenerateSchedule(ctx.Request, 0, 0)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Schedule redrawn with seed %d. No draft or scoring state changed.", schedule.Seed))
 				return nil
@@ -152,7 +152,7 @@ func init() {
 			"close-week-ready": func(ctx *action.Context) error {
 				week, err := adminPositiveInt(ctx.FormData["week"], "week")
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				info := league.Default().AdminWeekCloseInfo(week, time.Now())
 				if !info.Exists {
@@ -167,7 +167,7 @@ func init() {
 			"close-week-force": func(ctx *action.Context) error {
 				week, err := adminPositiveInt(ctx.FormData["week"], "week")
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				expected := fmt.Sprintf("CLOSE WEEK %d", week)
 				if strings.TrimSpace(ctx.FormData["confirm"]) != expected {
@@ -187,7 +187,7 @@ func init() {
 				}
 				started, err := league.Default().AdminStartDraft(ctx.Request)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				message := "Draft started. Pick one is on the clock."
 				if !started {
@@ -199,7 +199,7 @@ func init() {
 			"invite-add": func(ctx *action.Context) error {
 				email := ctx.FormData["email"]
 				if err := league.Default().AdminAddInvite(ctx.Request, email); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", email+" can now claim a seat.")
 				return nil
@@ -208,7 +208,7 @@ func init() {
 				email := ctx.FormData["email"]
 				sent, err := league.Default().AdminSendInvite(ctx.Request, email)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				message := "Invite emailed to " + email
 				if !sent {
@@ -219,7 +219,7 @@ func init() {
 			},
 			"invite-remove": func(ctx *action.Context) error {
 				if err := league.Default().AdminRemoveInvite(ctx.Request, ctx.FormData["email"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Invite removed.")
 				return nil
@@ -227,7 +227,7 @@ func init() {
 			"seat-release": func(ctx *action.Context) error {
 				team, err := league.Default().AdminReleaseSeat(ctx.Request, ctx.FormData["team_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is unclaimed again.")
 				return nil
@@ -236,7 +236,7 @@ func init() {
 			// bound or still pending (registration wave, build item 4).
 			"co-detach": func(ctx *action.Context) error {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Co-manager detached.")
 				return nil
@@ -244,14 +244,14 @@ func init() {
 			"team-rename": func(ctx *action.Context) error {
 				team, err := league.Default().AdminRenameTeam(ctx.Request, ctx.FormData["team_id"], ctx.FormData["name"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is set.")
 				return nil
 			},
 			"avatar-reset": func(ctx *action.Context) error {
 				if err := league.Default().ResetAvatar(ctx.Request, ctx.FormData["team_id"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Avatar reset.")
 				return nil
@@ -273,7 +273,7 @@ func init() {
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminUndoPick(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Last pick undone; the slot is open again.")
 				return nil
@@ -302,7 +302,7 @@ func init() {
 				}
 				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				notice := fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept))
 				if scheduleBefore {
@@ -313,21 +313,21 @@ func init() {
 			},
 			"order-randomize": func(ctx *action.Context) error {
 				if err := league.Default().AdminRandomizeDraftOrder(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Draft order randomized.")
 				return nil
 			},
 			"clock-pause": func(ctx *action.Context) error {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock paused.")
 				return nil
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock resumed.")
 				return nil
@@ -335,7 +335,7 @@ func init() {
 			"clock-force-autopick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 				return nil
@@ -347,7 +347,7 @@ func init() {
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Clock extended by %d seconds.", secs))
 				return nil
@@ -359,7 +359,7 @@ func init() {
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick clock set to %d seconds.", secs))
 				return nil
@@ -367,7 +367,7 @@ func init() {
 			"clock-set-autopick": func(ctx *action.Context) error {
 				on := strings.EqualFold(strings.TrimSpace(ctx.FormData["on"]), "true")
 				if err := league.Default().AdminSetAutopick(ctx.Request, ctx.FormData["team_id"], on); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				status := "off"
 				if on {
@@ -429,7 +429,7 @@ func init() {
 				}
 				preset, err := league.Default().AdminSetRosterShape(ctx.Request, override)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf(
 					"Roster shape set: %d starters + %d bench + %d reserve = %d draft rounds (IR %d, outside the cap).",
@@ -438,7 +438,7 @@ func init() {
 			},
 			"roster-shape-reset": func(ctx *action.Context) error {
 				if err := league.Default().AdminResetRosterShape(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Roster shape reset to the default.")
 				return nil
@@ -446,14 +446,14 @@ func init() {
 			"announcement-post": func(ctx *action.Context) error {
 				alsoEmail := strings.EqualFold(strings.TrimSpace(ctx.FormData["also_email"]), "true")
 				if _, err := league.Default().AdminPostAnnouncement(ctx.Request, ctx.FormData["body"], alsoEmail); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Announcement posted.")
 				return nil
 			},
 			"announcement-delete": func(ctx *action.Context) error {
 				if err := league.Default().AdminDeleteAnnouncement(ctx.Request, ctx.FormData["id"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Announcement removed.")
 				return nil
@@ -475,7 +475,7 @@ func adminPositiveInt(raw, label string) (int, error) {
 func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
 	_, misses, err := league.Default().AdminCloseWeek(ctx.Request, week)
 	if err != nil {
-		return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+		return actionui.Validation(ctx, "admin", "admin", err)
 	}
 	if alreadyFinal {
 		actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Week %d was already final; no scoring or lineup changes were made.", week))
