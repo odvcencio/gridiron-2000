@@ -116,6 +116,7 @@ type Pool struct {
 	Target         int       `json:"target"`
 	RosterCapacity int       `json:"rosterCapacity"`
 	Cushion        int       `json:"cushion"`
+	Shortfall      int       `json:"shortfall"`
 	ActualCoverage float64   `json:"actualCoverage"`
 	TargetCoverage float64   `json:"targetCoverage"`
 	RosterCoverage float64   `json:"rosterCoverage"`
