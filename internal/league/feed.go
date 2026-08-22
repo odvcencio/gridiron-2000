@@ -68,10 +68,22 @@ func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnap
 	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
 		return demoProvider{}.Snapshot(ctx, now)
 	}
-	week := currentScheduleWeek(*state.Schedule)
+	return p.SnapshotWeek(ctx, now, currentScheduleWeek(*state.Schedule))
+}
+
+// SnapshotWeek reads one persisted fantasy week while preserving the same
+// schedule/scoring state taxonomy as Snapshot. The current-week live feed
+// still uses Snapshot through liveFeed; MatchupsData calls this explicit path
+// only for a selected historical or future week so a week browser never
+// silently falls back to the current week.
+func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week int) (LiveSnapshot, error) {
+	state := p.svc.store.Snapshot()
+	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
+		return demoProvider{}.Snapshot(ctx, now)
+	}
 	wk, ok := scheduleWeekByNumber(*state.Schedule, week)
 	if !ok {
-		return demoProvider{}.Snapshot(ctx, now)
+		return LiveSnapshot{}, fmt.Errorf("week %d is not in the persisted season schedule", week)
 	}
 	scorer := p.svc.matchupScorer(nil)
 	stateLabel, statusLabel, clockLabel := p.weekState(week, wk.Matchups, now)
