@@ -1,7 +1,23 @@
 package commissioner
 
-func Page() Node {
-	return <main class="page admin-page commissioner-hq" id="main-content">
+type FleetReadoutProps struct {
+	IsCommissioner    bool
+	FederationEnabled bool
+	Cards             []map[string]any
+	AttentionQueue    []map[string]any
+	LeagueCount       int
+	ClaimedSeats      int
+	TotalSeats        int
+	DraftsLive        int
+	AttentionCount    int
+	CriticalCount     int
+	WarningCount      int
+	GeneratedAt       string
+	GeneratedAtISO    string
+}
+
+func FleetReadout(props FleetReadoutProps) Node {
+	return <div class="commissioner-hq__readout">
 		<section class="draft-masthead commissioner-hq__masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label"><span class="live-dot" aria-hidden="true"></span>COMMISSIONER HQ · READ ONLY</span>
@@ -10,27 +26,30 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">
 				<span>Fleet status</span>
-				<strong class="mono">{data.league_count} LEAGUES</strong>
+				<strong class="mono">{props.LeagueCount} LEAGUES</strong>
 				<div class="draft-clock-meta">
-					<span>{data.claimed_seats} / {data.total_seats} SEATS CLAIMED</span>
-					<span>{data.drafts_live} DRAFTS LIVE</span>
+					<span>{props.ClaimedSeats} / {props.TotalSeats} SEATS CLAIMED</span>
+					<span>{props.DraftsLive} DRAFTS LIVE</span>
 				</div>
 				<div class="commissioner-hq__severity mono">
-					<span>{data.critical_count} CRITICAL</span>
-					<span>{data.warning_count} WARNING</span>
+					<span>{props.CriticalCount} CRITICAL</span>
+					<span>{props.WarningCount} WARNING</span>
 				</div>
-				<time class="commissioner-hq__generated mono" datetime={data.generated_at_iso}>GENERATED {data.generated_at}</time>
+				<time class="commissioner-hq__generated mono" datetime={props.GeneratedAtISO}>GENERATED {props.GeneratedAt}</time>
 			</div>
 		</section>
-		<If cond={data.is_commissioner == false}>
+		<If cond={props.IsCommissioner == false}>
 			<section class="player-pool"><div class="empty-tape">
 				<strong>RESTRICTED</strong>
 				<p>Fleet status is limited to the commissioner configured on this league.</p>
 				<a href="/" data-gosx-link>Back to league home →</a>
 			</div></section>
 		</If>
-		<If cond={data.is_commissioner}>
-			<If cond={data.federation_enabled == false}>
+		<If cond={props.IsCommissioner}>
+			<p class="commissioner-hq__refresh-status mono" role="status" aria-live="polite" aria-atomic="true">
+				FLEET SNAPSHOT · {props.LeagueCount} LEAGUES · GENERATED {props.GeneratedAt}
+			</p>
+			<If cond={props.FederationEnabled == false}>
 				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. No shared session or data plane is created.</p>
 			</If>
 			<section id="commissioner-attention-queue" class="commissioner-hq__queue" aria-labelledby="commissioner-attention-heading">
@@ -39,11 +58,11 @@ func Page() Node {
 					<h2 id="commissioner-attention-heading">Attention by league</h2>
 					<p>Sorted by severity and count.<br></br>Open the owning league section.</p>
 				</div>
-				<If cond={data.attention_count == 0}>
+				<If cond={props.AttentionCount == 0}>
 					<p class="commissioner-hq__empty">No open flags. Every configured league is clear.</p>
 				</If>
 				<div class="commissioner-hq__queue-list">
-					<Each of={data.attention_queue} as="item">
+					<Each of={props.AttentionQueue} as="item">
 						<article class="commissioner-hq__attention" data-severity={item.severity} data-attention-code={item.code}>
 							<div class="commissioner-hq__attention-copy">
 								<span class="section-index">{item.severity} · {item.league}</span>
@@ -56,7 +75,7 @@ func Page() Node {
 				</div>
 			</section>
 			<div class="admin-grid commissioner-hq__cards" aria-label="League readouts">
-				<Each of={data.cards} as="card">
+				<Each of={props.Cards} as="card">
 					<section class="player-pool commissioner-hq__card" data-peer-id={card.peer_id}>
 						<If cond={card.available == false}>
 							<div class="pool-toolbar commissioner-hq__card-header"><div>
@@ -138,6 +157,19 @@ func Page() Node {
 						</If>
 					</section>
 				</Each>
+			</div>
+		</If>
+	</div>
+}
+
+func Page() Node {
+	return <main class="page admin-page commissioner-hq" id="main-content">
+		<If cond={data.is_commissioner == false}>
+			<FleetReadout {...data.fleet}></FleetReadout>
+		</If>
+		<If cond={data.is_commissioner}>
+			<div class="commissioner-hq__fleet-region" data-gosx-region data-gosx-region-url="/commissioner/fragment" data-gosx-region-interval="30s">
+				<FleetReadout {...data.fleet}></FleetReadout>
 			</div>
 		</If>
 	</main>

@@ -23,7 +23,7 @@ func TestCommissionerSSRIsRichReadOnlyAndPIIFree(t *testing.T) {
 		"commissioner-hq__provenance",
 		"commissioner-hq__ledger",
 		"commissioner-hq__details",
-		"datetime={data.generated_at_iso}",
+		"datetime={props.GeneratedAtISO}",
 		"draft_start_copy",
 		"planning target",
 		"YEAR ONE PLAYOFFS",
@@ -101,7 +101,11 @@ func TestNonCommissionerSSRDoesNotFetchFleet(t *testing.T) {
 	if called {
 		t.Fatal("noncommissioner SSR fetched fleet state")
 	}
-	if data["is_commissioner"] != false || data["league_count"] != 0 {
+	if data["is_commissioner"] != false {
 		t.Fatalf("noncommissioner SSR data = %#v", data)
+	}
+	readout, ok := data["fleet"].(fleetReadoutProps)
+	if !ok || readout.IsCommissioner || readout.LeagueCount != 0 {
+		t.Fatalf("noncommissioner fleet readout = %#v", data["fleet"])
 	}
 }

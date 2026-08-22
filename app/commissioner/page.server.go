@@ -29,6 +29,44 @@ func init() {
 	}
 }
 
+type fleetReadoutProps struct {
+	IsCommissioner    bool
+	FederationEnabled bool
+	Cards             []map[string]any
+	AttentionQueue    []map[string]any
+	LeagueCount       int
+	ClaimedSeats      int
+	TotalSeats        int
+	DraftsLive        int
+	AttentionCount    int
+	CriticalCount     int
+	WarningCount      int
+	GeneratedAt       string
+	GeneratedAtISO    string
+}
+
+func emptyFleetReadout(isCommissioner, federationEnabled bool) fleetReadoutProps {
+	return fleetReadoutProps{
+		IsCommissioner: isCommissioner, FederationEnabled: federationEnabled,
+		Cards: []map[string]any{}, AttentionQueue: []map[string]any{},
+		GeneratedAt: "—",
+	}
+}
+
+func readoutFromView(view fleetPageView, isCommissioner, federationEnabled bool) fleetReadoutProps {
+	data := view.toData()
+	return fleetReadoutProps{
+		IsCommissioner: isCommissioner, FederationEnabled: federationEnabled,
+		Cards:          data["cards"].([]map[string]any),
+		AttentionQueue: data["attention_queue"].([]map[string]any),
+		LeagueCount:    view.LeagueCount, ClaimedSeats: view.ClaimedSeats,
+		TotalSeats: view.TotalSeats, DraftsLive: view.DraftsLive,
+		AttentionCount: view.AttentionCount, CriticalCount: view.CriticalCount,
+		WarningCount: view.WarningCount, GeneratedAt: displayTime(view.GeneratedAt),
+		GeneratedAtISO: isoTime(view.GeneratedAt),
+	}
+}
+
 func commissionerPageData(request *http.Request) map[string]any {
 	isCommissioner := league.Default().IsCommissioner(request)
 	if !isCommissioner {
@@ -39,21 +77,77 @@ func commissionerPageData(request *http.Request) map[string]any {
 }
 
 func commissionerPageDataWithReader(request *http.Request, isCommissioner bool, reader func(context.Context) []commissionerhq.FleetEntry, federationEnabled bool) map[string]any {
-	data := map[string]any{
+	readout := emptyFleetReadout(isCommissioner, federationEnabled)
+	if isCommissioner && reader != nil {
+		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
+	}
+	return map[string]any{
 		"viewer": league.Default().Viewer(request), "is_commissioner": isCommissioner,
-		"cards": []map[string]any{}, "attention_queue": []map[string]any{},
-		"league_count": 0, "attention_count": 0, "critical_count": 0, "warning_count": 0,
-		"claimed_seats": 0, "total_seats": 0, "drafts_live": 0,
-		"generated_at": "—", "generated_at_iso": "", "federation_enabled": federationEnabled,
+		"fleet": readout,
 	}
-	if !isCommissioner || reader == nil {
-		return data
+}
+
+// FragmentHandler serves the same fleet readout used by the full SSR page.
+// Authentication, commissioner authorization, and peer reads all happen on the
+// server; the browser receives no peer service address or trust material.
+func FragmentHandler(service *commissionerhq.Service) http.Handler {
+	var reader func(context.Context) []commissionerhq.FleetEntry
+	federationEnabled := false
+	if service != nil {
+		reader = service.Fleet
+		federationEnabled = service.Enabled()
 	}
-	view := buildFleetView(reader(request.Context()), timeNow())
-	for key, value := range view.toData() {
-		data[key] = value
+	return fragmentHandler(commissionerFragmentAccess, reader, federationEnabled)
+}
+
+func commissionerFragmentAccess(request *http.Request) (int, bool) {
+	service := league.Default()
+	if _, signedIn := service.CurrentUser(request); !signedIn && !service.DemoMode() {
+		return http.StatusUnauthorized, false
 	}
-	return data
+	if !service.IsCommissioner(request) {
+		return http.StatusForbidden, false
+	}
+	return 0, true
+}
+
+func fragmentHandler(
+	access func(*http.Request) (int, bool),
+	reader func(context.Context) []commissionerhq.FleetEntry,
+	federationEnabled bool,
+) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		if status, allowed := access(request); !allowed {
+			http.Error(writer, http.StatusText(status), status)
+			return
+		}
+
+		readout := emptyFleetReadout(true, federationEnabled)
+		if reader != nil {
+			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
+		}
+		program, err := route.LoadFileProgramHere("page.gsx")
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+			Values: map[string]any{"props": readout},
+		})
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(html))
+	})
 }
 
 // timeNow is a seam for render tests and keeps the view model request-local.
