@@ -17,9 +17,9 @@ func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
 		"uses your Big Board, then best available",
 		"does not reset this turn's grace",
 		"if grace has elapsed, the next clock tick may pick",
-		"will not pick while you are present",
-		"saved deadline still applies",
-		"being marked away can shorten it",
+		"Manual control keeps the full pick clock",
+		"If it expires, auto-select uses your Big Board first",
+		"Presence is observational. AUTO is authority.",
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("draft autopick copy omits truthful engine behavior %q", truth)
@@ -35,5 +35,28 @@ func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
 		if strings.Contains(source, falsePromise) {
 			t.Errorf("draft autopick copy still promises %q", falsePromise)
 		}
+	}
+}
+
+func TestParseSeatAutopickIsLiteral(t *testing.T) {
+	for _, raw := range []string{"", "1", "TRUE", " true ", "false\n"} {
+		if _, err := parseSeatAutopick(raw); err == nil {
+			t.Errorf("parseSeatAutopick(%q) unexpectedly succeeded", raw)
+		}
+	}
+	for _, raw := range []string{"true", "false"} {
+		if _, err := parseSeatAutopick(raw); err != nil {
+			t.Errorf("parseSeatAutopick(%q) = %v", raw, err)
+		}
+	}
+}
+
+func TestCommissionerAutopickControlsRequireClaimedSeats(t *testing.T) {
+	controls := draftSeatControlProps([]map[string]any{
+		{"id": "team-1", "name": "Claimed", "claimed": true},
+		{"id": "team-2", "name": "Open", "claimed": false},
+	})
+	if len(controls) != 1 || controls[0].TeamID != "team-1" {
+		t.Fatalf("controls = %+v, want only claimed team-1", controls)
 	}
 }

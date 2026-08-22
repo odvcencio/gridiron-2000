@@ -17,7 +17,7 @@ const (
 
 	// PresenceIdleWithin: a hidden tab stops polling (document.hidden
 	// guard). Sixty seconds covers a quick tab switch or phone lock. Past
-	// it, the manager is AWAY and the away cap may engage.
+	// it, the manager is AWAY for observation and notification copy only.
 	PresenceIdleWithin = 60 * time.Second
 )
 
@@ -68,9 +68,10 @@ func (p *presenceTracker) seen(key string) (time.Time, bool) {
 	return seenAt, ok
 }
 
-// presenceState classifies a last-seen instant against now: connected
-// (silence at or under 12s), idle (at or under 60s), or away (older, or
-// never seen — a zero lastSeen always reads as away).
+// presenceState classifies a seen last-seen instant against now: here
+// (silence at or under 12s), idle (at or under 60s), or away (older).
+// Call presenceStateSince when NOT SEEN must remain distinct from an
+// observed-but-old heartbeat.
 func presenceState(lastSeen time.Time, now time.Time) string {
 	if lastSeen.IsZero() {
 		return "away"
@@ -78,10 +79,22 @@ func presenceState(lastSeen time.Time, now time.Time) string {
 	age := now.Sub(lastSeen)
 	switch {
 	case age <= PresenceConnectedWithin:
-		return "connected"
+		return "here"
 	case age <= PresenceIdleWithin:
 		return "idle"
 	default:
 		return "away"
 	}
+}
+
+// presenceStateSince preserves the operationally important distinction
+// between an operator who has never heartbeated since this process started
+// and one who was seen and then went quiet. A restart intentionally resets
+// that observation window: it must never manufacture a stale "present"
+// claim from persisted data.
+func presenceStateSince(lastSeen time.Time, seen bool, now, startedAt time.Time) string {
+	if !seen || lastSeen.IsZero() || lastSeen.Before(startedAt) {
+		return "not_seen"
+	}
+	return presenceState(lastSeen, now)
 }

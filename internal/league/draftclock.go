@@ -15,12 +15,6 @@ const (
 	MinPickClock     = 10 * time.Second
 	MaxPickClock     = 10 * time.Minute
 
-	// AwayClockCap: an AWAY manager gets at most 20 more seconds once AWAY
-	// is detected. AWAY already implies 60 seconds of silence (see
-	// PresenceIdleWithin), so the worst-case wait from the last heartbeat
-	// is 80 seconds.
-	AwayClockCap = 20 * time.Second
-
 	// AutopickGrace: delay after arming before an Autopick-toggled seat
 	// fires. Covers fingerprint propagation (one poll period) and gives the
 	// manager a beat to cancel a mistaken toggle.
@@ -172,29 +166,21 @@ func (s *Service) clockTick(now time.Time) {
 }
 
 // effectiveDeadline returns the instant the auto-pick may fire and the
-// reason label ("clock", "away-cap", or "autopick"). It is pure over
-// (state, presence.lastSeen, now), so the ticker and DraftData always
-// agree, and it is only meaningful when state.ClockDeadline is armed.
+// reason label ("clock" or "autopick"). Presence is observational only:
+// a disconnect, hidden tab, or process restart never shortens a live pick.
 func (s *Service) effectiveDeadline(state PersistedState, now time.Time) (time.Time, string) {
 	deadline := state.ClockDeadline
 	duration := s.pickClock(state)
 	armAt := deadline.Add(-duration)
 	number := len(state.Picks) + 1
 	teamID := teamOnClock(state.DraftOrder, number)
-	key := s.presenceKeyForTeam(state, teamID)
 
 	effective := deadline
 	reason := "clock"
-	switch {
-	case state.Autopick[teamID]:
+	if state.Autopick[teamID] {
 		if candidate := armAt.Add(AutopickGrace); candidate.Before(effective) {
 			effective = candidate
 			reason = "autopick"
-		}
-	case key != "" && presenceState(s.presenceFloor(key), now) == "away":
-		if candidate := s.presenceFloor(key).Add(PresenceIdleWithin).Add(AwayClockCap); candidate.Before(effective) {
-			effective = candidate
-			reason = "away-cap"
 		}
 	}
 	return effective, reason
@@ -221,7 +207,7 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 		_, _, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil)
 		return !breach
 	}
-	key := s.presenceKeyForTeam(state, teamID)
+	key := s.boardKeyForTeam(state, teamID)
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -379,6 +380,18 @@ func TestTeamDataSurfacesTruthfulPredraftProgress(t *testing.T) {
 	initial := service.TeamData(request)
 	if initial["predraft_visible"] != true || initial["predraft_has_board"] != false || initial["predraft_board_count"] != 0 || initial["predraft_ready"] != false {
 		t.Fatalf("initial pre-draft state = visible:%v has_board:%v count:%v ready:%v", initial["predraft_visible"], initial["predraft_has_board"], initial["predraft_board_count"], initial["predraft_ready"])
+	}
+	starters, ok := initial["starters"].([]map[string]any)
+	if !ok || len(starters) != CurrentRoster().Starters() {
+		t.Fatalf("pre-draft starters = %#v, want %d explicit slots", initial["starters"], CurrentRoster().Starters())
+	}
+	for _, slot := range starters {
+		if slot["has_player"] != false {
+			t.Fatalf("pre-draft slot = %#v, want empty", slot)
+		}
+	}
+	if initial["bench_capacity"] != strconv.Itoa(CurrentRoster().Bench) {
+		t.Fatalf("pre-draft bench capacity = %#v, want %d", initial["bench_capacity"], CurrentRoster().Bench)
 	}
 
 	if err := service.store.BoardAdd("demo-guest", defaultPlayers()[0].ID); err != nil {

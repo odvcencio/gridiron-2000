@@ -26,6 +26,7 @@ import (
 // declaration when gosx build's strict-component check merges the two
 // files' types.
 type DraftTeamCard struct {
+	TeamID         string
 	OnClock        bool
 	Tone           string
 	HasAvatarImage bool
@@ -33,15 +34,42 @@ type DraftTeamCard struct {
 	Name           string
 	Abbreviation   string
 	Presence       string
+	PresenceLabel  string
+	PresenceDetail string
+	OperatorCount  int
 	Manager        string
 	Division       string
 	Ready          bool
 	Autopick       bool
 }
 
+type DraftSeatControlCard struct {
+	TeamID         string
+	Name           string
+	Manager        string
+	PresenceLabel  string
+	PresenceDetail string
+	OnClock        bool
+	Ready          bool
+	Autopick       bool
+	Action         string
+	CSRF           string
+}
+
 func stringField(m map[string]any, key string) string {
 	value, _ := m[key].(string)
 	return value
+}
+
+func parseSeatAutopick(raw string) (bool, error) {
+	switch raw {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("AUTO mode must be exactly true or false")
+	}
 }
 
 func boolField(m map[string]any, key string) bool {
@@ -183,6 +211,7 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 	out := make([]DraftTeamCard, 0, len(raw))
 	for _, team := range raw {
 		out = append(out, DraftTeamCard{
+			TeamID:         stringField(team, "id"),
 			OnClock:        boolField(team, "on_clock"),
 			Tone:           stringField(team, "tone"),
 			HasAvatarImage: boolField(team, "has_avatar_image"),
@@ -190,10 +219,37 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 			Name:           stringField(team, "name"),
 			Abbreviation:   stringField(team, "abbreviation"),
 			Presence:       stringField(team, "presence"),
+			PresenceLabel:  stringField(team, "presence_label"),
+			PresenceDetail: stringField(team, "presence_detail"),
+			OperatorCount:  intField(team, "operator_count"),
 			Manager:        stringField(team, "manager"),
 			Division:       stringField(team, "division"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
+		})
+	}
+	return out
+}
+
+func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
+	out := make([]DraftSeatControlCard, 0, len(raw))
+	for _, team := range raw {
+		// AUTO delegates a real manager's future turns. Open franchises have
+		// neither an operator nor a Big Board owner, so presenting a control
+		// for them would invent authority and a selection strategy.
+		if !boolField(team, "claimed") {
+			continue
+		}
+		out = append(out, DraftSeatControlCard{
+			TeamID:         stringField(team, "id"),
+			Name:           stringField(team, "name"),
+			Manager:        stringField(team, "manager"),
+			PresenceLabel:  stringField(team, "presence_label"),
+			PresenceDetail: stringField(team, "presence_detail"),
+			OnClock:        boolField(team, "on_clock"),
+			Ready:          boolField(team, "ready"),
+			Autopick:       boolField(team, "autopick"),
+			Action:         draftActionPath("seat-autopick"),
 		})
 	}
 	return out
@@ -205,6 +261,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
 	data["teams"] = typedTeams
+	data["seat_controls"] = draftSeatControlProps(teams)
 	data["available"] = typedPlayers
 
 	viewData := make(map[string]any, len(data)+1)
@@ -219,6 +276,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
 		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
 		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
+		"seat_autopick": draftActionPath("seat-autopick"),
 	}}
 	room.StatusSummary = draftRoomStatus(viewData)
 	data["room"] = room
@@ -261,6 +319,12 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	token := session.Token(request)
 	room.CSRF = token
 	workspace.CSRF = token
+	seats, _ := room.Data["seat_controls"].([]DraftSeatControlCard)
+	for i := range seats {
+		seats[i].CSRF = token
+	}
+	room.Data["seat_controls"] = seats
+	workspace.Data["seat_controls"] = seats
 	data["room"] = room
 	data["workspace"] = workspace
 	return data
@@ -400,6 +464,23 @@ func init() {
 					status = "on"
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
+				return nil
+			},
+			"seat-autopick": func(ctx *action.Context) error {
+				onRaw := ctx.FormData["on"]
+				on, err := parseSeatAutopick(onRaw)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"on": err.Error()}, ctx.FormData)
+				}
+				teamID := strings.TrimSpace(ctx.FormData["team_id"])
+				if err := league.Default().AdminSetAutopick(ctx.Request, teamID, on); err != nil {
+					return action.Error(http.StatusUnauthorized, err.Error())
+				}
+				status := "manual control restored"
+				if on {
+					status = "AUTO mode enabled"
+				}
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s for %s.", status, teamID))
 				return nil
 			},
 		},

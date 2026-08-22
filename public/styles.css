@@ -2826,7 +2826,8 @@ body.is-on-clock .draft-clock-panel {
   vertical-align: middle;
 }
 
-.presence-dot[data-presence="connected"] {
+.presence-dot[data-presence="here"],
+.presence-dot[data-presence="HERE"] {
   border-color: var(--color-accent);
   background: var(--color-accent);
   box-shadow: 0 0 0.5rem var(--color-accent);
@@ -2843,9 +2844,95 @@ body.is-on-clock .draft-clock-panel {
   background: rgba(255, 102, 92, 0.45);
 }
 
-.presence-dot[data-presence="none"] {
-  border-color: var(--color-border);
-  background: transparent;
+.presence-dot[data-presence="not_seen"],
+.presence-dot[data-presence="NOT SEEN"],
+.presence-dot[data-presence="unclaimed"],
+.presence-dot[data-presence="UNCLAIMED"] {
+	border-color: var(--color-border);
+	background: transparent;
+}
+
+.presence-label {
+	color: var(--color-text-secondary);
+	letter-spacing: 0.06em;
+}
+
+.roster-predraft-state {
+	border-color: var(--color-accent-cyan);
+	background: var(--color-cyan-haze);
+}
+
+.draft-seat-controls {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: var(--space-sm);
+	margin: var(--space-md) 0;
+}
+
+.draft-seat-controls__intro {
+	grid-column: 1 / -1;
+	padding: var(--space-sm) var(--space-md);
+	border-left: 3px solid var(--color-accent-cyan);
+	background: var(--color-cyan-haze);
+}
+
+.draft-seat-controls__intro p {
+	margin: var(--space-xs) 0 0;
+	color: var(--color-text-secondary);
+	font-size: var(--type-sm);
+}
+
+.draft-seat-control {
+	min-width: 0;
+	display: grid;
+	gap: var(--space-xs);
+	padding: var(--space-sm);
+	border: 1px solid var(--color-border);
+	background: var(--color-panel-deep);
+}
+
+.draft-seat-control[data-on-clock="true"] {
+	border-color: var(--color-accent);
+	box-shadow: var(--shadow-signal);
+}
+
+.draft-seat-control > header,
+.draft-seat-control__status {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-xs);
+}
+
+.draft-seat-control > header > div {
+	min-width: 0;
+	display: grid;
+	gap: 0.15rem;
+}
+
+.draft-seat-control > header strong,
+.draft-seat-control > header span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.draft-seat-control__presence {
+	margin: 0;
+	color: var(--color-text-secondary);
+	font-size: var(--type-xs);
+}
+
+.draft-seat-control__presence > span:last-child {
+	color: var(--color-text-muted);
+}
+
+.draft-seat-control form {
+	display: flex;
+}
+
+.draft-seat-control form .button {
+	width: 100%;
 }
 
 .autopick-badge {
@@ -6481,7 +6568,19 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 38rem) {
-  .notification-preference__body {
+	.draft-seat-controls {
+		grid-template-columns: 1fr;
+	}
+
+	.draft-seat-controls__intro {
+		grid-column: auto;
+	}
+
+	.draft-seat-control {
+		padding: var(--space-md);
+	}
+
+	.notification-preference__body {
     grid-template-columns: 1fr;
   }
 
