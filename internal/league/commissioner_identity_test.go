@@ -8,15 +8,16 @@ import (
 	"m31labs.dev/gosx/auth"
 )
 
-func TestCommissionerEmailListKeepsExistingAndNewOperator(t *testing.T) {
+func TestCommissionerCanonicalIdentityAcceptsExplicitProviderAlias(t *testing.T) {
 	service := newTestService(t, false)
-	t.Setenv("COMMISSIONER_EMAILS", "oscar.villavicencio@stablekernel.com, oscar@m31labs.dev")
+	service.identityResolver = testIdentityResolver(t)
+	t.Setenv("COMMISSIONER_EMAILS", identityCanonicalEmail)
 
 	if !commissionerForEmail(t, service, "oscar.villavicencio@stablekernel.com") {
-		t.Fatal("existing Stable Kernel commissioner must remain authorized")
+		t.Fatal("explicit Stable Kernel alias must resolve to the canonical commissioner")
 	}
 	if !commissionerForEmail(t, service, "OSCAR@M31LABS.DEV") {
-		t.Fatal("new paired-deployment commissioner must be authorized case-insensitively")
+		t.Fatal("canonical m31labs.dev commissioner must be authorized case-insensitively")
 	}
 	if commissionerForEmail(t, service, "not-the-commissioner@example.com") {
 		t.Fatal("an unlisted identity must not receive commissioner access")

@@ -156,11 +156,42 @@ share one metered upstream quota.
   member keys, co-manager bindings, boards, Pick'em, Blitz, notification
   preferences, OAuth sessions, and audit attribution then resolve to the
   canonical address.
+
+  The paired Gridiron deployments use this one-way identity direction:
+
+  ```dotenv
+  COMMISSIONER_EMAILS=oscar@m31labs.dev
+  IDENTITY_ALIASES=oscar.villavicencio@stablekernel.com=oscar@m31labs.dev
+  ```
+
+  `LEAGUE_ALLOWED_EMAILS`, stored invitations, and
+  `membership.allowed_domain` still evaluate the raw Google provider email.
+  List or invite each account that should pass admission; aliasing alone never
+  admits an account.
 - The identity startup migration is idempotent and fails closed on conflicting
   seats, roles, or user-owned values. It leaves raw invite entries unchanged
   because they are admission policy, not identity ownership. Apply the mapping
-  to both paired league Secrets before restarting either instance; review
-  startup health/logs for migration errors before proceeding.
+  to both paired league Secrets only after a preflight passes; review startup
+  health/logs for migration errors before proceeding.
+- Before changing an alias mapping, run the read-only doctor against an offline
+  copy of the app's rolling SQLite backup (never the live SQLite file):
+
+  ```bash
+  IDENTITY_ALIASES='oscar.villavicencio@stablekernel.com=oscar@m31labs.dev' \
+    go run ./cmd/identitydoctor -sqlite-snapshot /secure/offline/league.db.bak
+  ```
+
+  A legacy JSON snapshot is also accepted with `-snapshot`. Pass exactly one
+  snapshot flag. SQLite snapshots open with `mode=ro`, `immutable=1`, and
+  `query_only`; copy the rolling backup away from the app before inspection.
+  The command runs the exact startup reconciliation on a deep in-memory clone.
+  Exit `0` means the projection is safe; exit `2` means it failed closed. Its
+  JSON contains only aggregate before/after counts, `wouldChange`, and a bounded
+  conflict category (`seat`, `role`, `co_manager`, `board`, `pickem`, `blitz`,
+  `notification`, or `identity_state`). It prints no emails, team IDs, player
+  IDs, preference names, secret values, or raw migration errors, and it has no
+  persistence path. Keep the snapshot private and remove it using the same
+  operator procedure that created it.
 - `statrelay` caches each upstream response by request path and query, so
   two league instances requesting the identical Tank01 URL within its TTL
   window collapse to one upstream call. Concurrent identical requests

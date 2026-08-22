@@ -66,7 +66,7 @@ func New(mappings map[string]string) (Resolver, error) {
 // FromEnv loads IDENTITY_ALIASES. The wire format is a comma-separated list
 // of alias=canonical pairs, for example:
 //
-//	IDENTITY_ALIASES=oscar@m31labs.dev=oscar.villavicencio@stablekernel.com
+//	IDENTITY_ALIASES=oscar.villavicencio@stablekernel.com=oscar@m31labs.dev
 //
 // Blank input disables aliasing. A malformed value fails closed.
 func FromEnv() (Resolver, error) {

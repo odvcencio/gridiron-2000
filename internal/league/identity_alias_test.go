@@ -13,8 +13,8 @@ import (
 )
 
 const (
-	identityAliasEmail     = "oscar@m31labs.dev"
-	identityCanonicalEmail = "oscar.villavicencio@stablekernel.com"
+	identityAliasEmail     = "oscar.villavicencio@stablekernel.com"
+	identityCanonicalEmail = "oscar@m31labs.dev"
 )
 
 func testIdentityResolver(t *testing.T) identity.Resolver {
@@ -341,15 +341,31 @@ func TestIdentityAliasCommissionerAndAllowlistRemainDistinct(t *testing.T) {
 	if !commissionerForEmail(t, service, identityAliasEmail) {
 		t.Fatal("explicit alias should authorize the canonical commissioner")
 	}
+	if !commissionerForEmail(t, service, identityCanonicalEmail) {
+		t.Fatal("canonical provider identity should authorize the canonical commissioner")
+	}
 	if !service.EmailAllowed(identityCanonicalEmail) {
 		t.Fatal("canonical allowlist identity should be admitted")
 	}
 	if service.EmailAllowed(identityAliasEmail) {
 		t.Fatal("alias must not bypass the independent raw-email allowlist")
 	}
-	user := service.CanonicalUser(auth.User{ID: "google-subject", Email: identityAliasEmail})
-	if user.Email != identityCanonicalEmail || user.ID != "google-subject" {
-		t.Fatalf("canonical user = %+v, provider subject must remain stable", user)
+	for _, rawEmail := range []string{identityAliasEmail, identityCanonicalEmail} {
+		user := service.CanonicalUser(auth.User{ID: "google-subject", Email: rawEmail})
+		if user.Email != identityCanonicalEmail || user.ID != "google-subject" {
+			t.Fatalf("canonical user for %q = %+v, provider subject must remain stable", rawEmail, user)
+		}
+	}
+
+	// Admission is deliberately evaluated against the provider email before
+	// canonicalization. An explicit raw invitation admits the alternate
+	// account without changing the canonical account's independent policy.
+	service.store.state.Invites = []string{identityAliasEmail}
+	if !service.EmailAllowed(identityAliasEmail) {
+		t.Fatal("explicit raw invitation should admit the alternate provider identity")
+	}
+	if !service.EmailAllowed(identityCanonicalEmail) {
+		t.Fatal("canonical allowlist identity should remain admitted")
 	}
 }
 
