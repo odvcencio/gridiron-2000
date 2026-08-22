@@ -162,7 +162,7 @@ func Page() Node {
 			</div>
 			<div class="masthead-console">
 				<div>
-					<span>Source</span>
+					<span>Scores from</span>
 					<strong data-gosx-live-bind="sourceLabel">{data.live.source_label}</strong>
 				</div>
 				<div>
@@ -184,7 +184,7 @@ func Page() Node {
 				</strong>
 				<p>
 					<If cond={data.is_current_week}>Current-week updates stay on the current week. Browse another published week below.</If>
-					<If cond={data.is_current_week == false}>This is a published schedule view. Live polling stays on the current week.</If>
+					<If cond={data.is_current_week == false}>This is a published schedule view. Live scores stay on the current week.</If>
 				</p>
 			</div>
 			<If cond={data.has_weeks}>

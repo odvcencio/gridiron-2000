@@ -41,7 +41,7 @@ func Page() Node {
 						<option value={team} selected={team == data.team}>{team}</option>
 					</Each>
 				</select>
-				<label class="mono" for="activity-search">QUERY //</label>
+				<label class="mono" for="activity-search">SEARCH //</label>
 				<input id="activity-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
 				<button class="filter-button" type="submit">Filter</button>
 				<If cond={data.has_filters}>

@@ -134,12 +134,12 @@ func Page() Node {
 					LEAGUE.
 				</h1>
 				<p>
-					Seats, invites, and reset controls. Every action is checked against the commissioner list on the server.
+					Seats, invites, and reset controls. The league checks every action against the commissioner list.
 				</p>
 				<If cond={data.is_default_config}>
 					<p class="demo-message">
 						<strong>BUILT-IN REFERENCE LEAGUE:</strong>
-						no league.json was found, so this server is running the neutral built-in default. Drop a league.json into config/ (see config/league.json.example) to run your own league.
+						This league still uses the standard default setup. Ask the commissioner to enter your own league details.
 					</p>
 				</If>
 			</div>
@@ -286,7 +286,7 @@ func Page() Node {
 						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players for {data.draft_required_players} draft slots ({data.pool.coverage} target coverage).</p>
 					</If>
 					<If cond={data.draft_started}>
-						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
+						<p class="flash-message"><strong>DRAFT LIVE:</strong> The commissioner started the draft. That start rules.</p>
 					</If>
 				</section>
 				<section id="admin-schedule" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>
@@ -352,7 +352,7 @@ func Page() Node {
 						<div>
 							<span class="section-index">SEASON // WEEK CLOSE</span>
 							<h2>Close a scoring week</h2>
-							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and leaves a visible audit trail in the response.</p>
+							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in the league log.</p>
 						</div>
 					</div>
 					<If cond={data.schedule.has_schedule == false}>
@@ -367,7 +367,7 @@ func Page() Node {
 						</div>
 						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
 						<If cond={data.schedule.close.final}>
-							<p class="flash-message"><strong>ALREADY FINAL:</strong> repeating close is idempotent and makes no scoring or lineup changes.</p>
+							<p class="flash-message"><strong>ALREADY FINAL:</strong> Closing the week again changes nothing.</p>
 						</If>
 						<If cond={data.schedule.close.final == false}>
 							<form method="post" action={actionPath("close-week-ready")} data-gosx-managed="true" class="clock-controls">
@@ -495,16 +495,13 @@ func Page() Node {
 						</Each>
 					</div>
 					<details class="invite-preview">
-						<summary class="mono">INVITE TEMPLATE PREVIEW</summary>
+						<summary class="mono">INVITE PREVIEW</summary>
 						<p class="mono">{data.invite_preview.subject}</p>
 						<pre>{data.invite_preview.body}</pre>
-						<small class="mono">
-							HTML version sends automatically with the text fallback.
-						</small>
 					</details>
 					<If cond={data.mail_enabled == false}>
 						<p class="demo-message">
-							Email sending is not configured (RESEND_API_KEY + RESEND_FROM, or SMTP_HOST/USER/PASS). Email buttons hide until it is; the Mail app links always work.
+							The league cannot send email yet. Use the Mail app links.
 						</p>
 					</If>
 					<p class="scout-callout">
@@ -587,7 +584,7 @@ func Page() Node {
 								<button class="button" type="submit">Drop unclaimed seats</button>
 							</form>
 							<p class="demo-message">
-								<strong>PRE-DRAFT TOPOLOGY LOCK:</strong>
+								<strong>SCHEDULE WARNING:</strong>
 								if a schedule already exists, this action discards that unplayed schedule. Regenerate it afterward so every matchup names only the kept teams.
 							</p>
 							<p class="scoring-note">
@@ -608,8 +605,8 @@ func Page() Node {
 				<section id="admin-data" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">05 // DATA FEED</span>
-							<h2>Player pool sync</h2>
+							<span class="section-index">05 // PLAYER DATA</span>
+							<h2>Player list update</h2>
 						</div>
 					</div>
 					<If cond={data.pool.error != ""}>
@@ -645,11 +642,11 @@ func Page() Node {
 							<b class="mono">{data.pool.with_bye}</b>
 						</div>
 						<div class="pool-stat">
-							<span>Requests used</span>
+							<span>Data calls used</span>
 							<b class="mono">{data.pool.requests}</b>
 						</div>
 						<div class="pool-stat">
-							<span>Last sync</span>
+							<span>Last update</span>
 							<b class="mono">{data.pool.last_sync}</b>
 						</div>
 					</div>
