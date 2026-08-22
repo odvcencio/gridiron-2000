@@ -47,7 +47,7 @@ func init() {
 			"blitz-add": func(ctx *action.Context) error {
 				err := league.Default().BlitzAdd(ctx.Request, ctx.FormData["slate"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"blitz": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
 				return nil
@@ -55,7 +55,7 @@ func init() {
 			"blitz-remove": func(ctx *action.Context) error {
 				err := league.Default().BlitzRemove(ctx.Request, ctx.FormData["slate"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"blitz": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
 				return nil
