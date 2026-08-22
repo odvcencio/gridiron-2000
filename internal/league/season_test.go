@@ -190,7 +190,7 @@ func TestAdminWeekCloseInfoReportsFinalAsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := svc.AdminWeekCloseInfo(week, svc.clock())
-	if !info.Final || info.Ready || !strings.Contains(info.Reason, "no-op") {
+	if !info.Final || info.Ready || !strings.Contains(info.Reason, "already final") {
 		t.Fatalf("final info = %+v", info)
 	}
 }

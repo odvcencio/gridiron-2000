@@ -186,13 +186,13 @@ func NewService(config Config) (*Service, error) {
 	}
 	if !config.Enabled {
 		service.mode = "disabled"
-		service.configurationIssue = "The social signal wire is disabled by WIRE_ENABLED."
+		service.configurationIssue = "The commissioner turned the wire off."
 		return service, nil
 	}
 	service.blueskyConfigured = len(config.Handles) > 0 || len(config.DIDs) > 0
 	if !service.blueskyConfigured && len(feedSources) == 0 {
 		service.mode = "awaiting_sources"
-		service.configurationIssue = "Enable public feeds or add curated Bluesky handles; no account credentials or API key are required."
+		service.configurationIssue = "The wire has no sources yet. Ask the commissioner to add some."
 		return service, nil
 	}
 	if service.blueskyConfigured {
