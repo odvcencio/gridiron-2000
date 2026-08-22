@@ -93,7 +93,7 @@ func TestInviteEmailTemplateHonorsLeagueURLEnv(t *testing.T) {
 	t.Setenv("LEAGUE_URL", "https://league.example.com")
 
 	_, text, _ := service.InviteEmailTemplate("manager@example.com")
-	if !strings.Contains(text, "https://league.example.com") {
+	if !strings.Contains(text, "1. Open https://league.example.com/join") {
 		t.Errorf("text body did not honor LEAGUE_URL override:\n%s", text)
 	}
 	if strings.Contains(text, service.cfg.URL) {
@@ -107,8 +107,8 @@ func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
 
 	_, _, htmlBody := service.InviteEmailTemplate("manager@example.com")
 
-	if !strings.Contains(htmlBody, `href="`+service.cfg.URL+`"`) {
-		t.Errorf("html body missing CTA link to the league URL:\n%s", htmlBody)
+	if !strings.Contains(htmlBody, `href="`+service.cfg.URL+`/join"`) {
+		t.Errorf("html body missing CTA link to the seat-claim route:\n%s", htmlBody)
 	}
 	if !strings.Contains(htmlBody, "CLAIM YOUR SEAT") {
 		t.Errorf("html body missing the CTA label:\n%s", htmlBody)
@@ -120,6 +120,40 @@ func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
 	longDate, _ := draft["long_date"].(string)
 	if !strings.Contains(htmlBody, longDate) {
 		t.Errorf("html body missing the long draft date %q:\n%s", longDate, htmlBody)
+	}
+}
+
+func TestLeaguePathURLJoinsHostedRoutesCleanly(t *testing.T) {
+	service := newTestService(t, true)
+	for _, tc := range []struct {
+		name string
+		base string
+		want string
+	}{
+		{name: "origin", base: "https://league.example.com", want: "https://league.example.com/join"},
+		{name: "trailing slash", base: "https://league.example.com/", want: "https://league.example.com/join"},
+		{name: "hosted base path", base: "https://league.example.com/fantasy/", want: "https://league.example.com/fantasy/join"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LEAGUE_URL", tc.base)
+			if got := service.leaguePathURL("/join"); got != tc.want {
+				t.Fatalf("leaguePathURL(/join) = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestInviteEmailTemplateDirectsInviteesToSeatClaim(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "https://league.example.com/fantasy/")
+
+	_, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	want := "https://league.example.com/fantasy/join"
+	if !strings.Contains(text, "1. Open "+want) {
+		t.Errorf("text invite must lead directly to seat claim:\n%s", text)
+	}
+	if !strings.Contains(htmlBody, `href="`+want+`"`) {
+		t.Errorf("HTML invite must lead directly to seat claim:\n%s", htmlBody)
 	}
 }
 
@@ -182,6 +216,20 @@ func TestInviteEmailTemplateHTMLEscapesUnsafeEmail(t *testing.T) {
 	}
 	if !strings.Contains(htmlBody, "&lt;script&gt;") {
 		t.Errorf("html body should carry the escaped email address:\n%s", htmlBody)
+	}
+}
+
+func TestInviteEmailTemplateHTMLEscapesUnsafeJoinURL(t *testing.T) {
+	service := newTestService(t, true)
+	unsafeURL := `https://league.example.com/" onmouseover="alert(1)`
+
+	htmlBody := service.inviteEmailHTML("AUG 22", "Saturday, August 22", "4:00 PM", unsafeURL, "manager@example.com", "a league")
+
+	if strings.Contains(htmlBody, `href="`+unsafeURL+`"`) {
+		t.Errorf("html body must not insert the raw join URL into an attribute:\n%s", htmlBody)
+	}
+	if !strings.Contains(htmlBody, "&#34; onmouseover=&#34;") {
+		t.Errorf("html body should attribute-escape the join URL:\n%s", htmlBody)
 	}
 }
 

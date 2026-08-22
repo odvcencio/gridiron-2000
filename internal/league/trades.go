@@ -631,7 +631,7 @@ func (s *Service) buildTradeOffer(offer TradeOffer, member Member) renderedNotif
 	if offer.Note != "" {
 		blocks = append(blocks, emailkit.Note{Text: offer.Note})
 	}
-	blocks = append(blocks, emailkit.CTA{Label: "OPEN THE TRADE DESK →", URL: s.leagueURL() + "/trades"})
+	blocks = append(blocks, emailkit.CTA{Label: "OPEN THE TRADE DESK →", URL: s.leaguePathURL("trades")})
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
 		Key: keyTradeOffer(offer.ID, member.Email), Category: categoryTransactions,
@@ -714,7 +714,7 @@ func (s *Service) buildTradeExecuted(state PersistedState, offer TradeOffer, mem
 	blocks := []emailkit.Block{
 		emailkit.Headline{Title: "THE DEAL IS DONE.", Lede: lede},
 		emailkit.StatTable{Title: "FINAL TERMS", Header: []string{"", "PLAYER", "POS", "TEAM"}, Rows: rows, MarkRow: markRow},
-		emailkit.CTA{Label: "SET YOUR LINEUP →", URL: s.leagueURL() + "/team"},
+		emailkit.CTA{Label: "SET YOUR LINEUP →", URL: s.leaguePathURL("team")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -761,7 +761,7 @@ func (s *Service) buildTradeVetoed(offer TradeOffer, member Member, mechanism st
 			{Label: "MECHANISM", Value: mechanism},
 			{Label: "POLICY", Value: s.cfg.Trades.Veto},
 		}},
-		emailkit.CTA{Label: "BACK TO THE DESK →", URL: s.leagueURL() + "/trades"},
+		emailkit.CTA{Label: "BACK TO THE DESK →", URL: s.leaguePathURL("trades")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
