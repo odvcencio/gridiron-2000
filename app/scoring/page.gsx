@@ -501,7 +501,7 @@ func Page() Node {
 			<p class="scoring-note">
 				Both managers may counter or withdraw an open offer before it is accepted. An open offer nobody answers expires after
 				{data.trades_rules.expiry_days}
-				days. Trades exchange rostered players only in this version — draft picks are not yet tradable.
+				days. The league does not trade draft picks yet.
 			</p>
 			<a href="/trades" data-gosx-link class="button button--compact">Open the trade desk →</a>
 		</section>

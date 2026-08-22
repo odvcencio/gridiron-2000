@@ -22,7 +22,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 			<div class="draft-masthead__copy">
 				<span class="signal-label"><span class="live-dot" aria-hidden="true"></span>COMMISSIONER HQ · READ ONLY</span>
 				<h1>EVERY LEAGUE.<br></br>ONE READOUT.</h1>
-				<p>Fleet visibility without merged databases.<br></br>Every action stays on its owning league.</p>
+				<p>One page for every league. Each league keeps its own record.<br></br>Every action stays on its owning league.</p>
 			</div>
 			<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">
 				<span>Fleet status</span>
@@ -50,7 +50,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 				LEAGUE REPORT · {props.LeagueCount} LEAGUES · GENERATED {props.GeneratedAt}
 			</p>
 			<If cond={props.FederationEnabled == false}>
-				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. No shared session or data plane is created.</p>
+				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. This league stands alone until the commissioner adds another league.</p>
 			</If>
 			<section id="commissioner-attention-queue" class="commissioner-hq__queue" aria-labelledby="commissioner-attention-heading">
 				<div class="commissioner-hq__subhead">
@@ -79,7 +79,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 					<section class="player-pool commissioner-hq__card" data-peer-id={card.peer_id}>
 						<If cond={card.available == false}>
 							<div class="pool-toolbar commissioner-hq__card-header"><div>
-								<span class="section-index">{card.peer_id}</span>
+								<span class="section-index">{card.name}</span>
 								<h2>League unavailable</h2>
 								</div><span class="position-chip">UNAVAILABLE</span>
 							</div>
@@ -92,15 +92,9 @@ func FleetReadout(props FleetReadoutProps) Node {
 								<div>
 									<span class="section-index">{card.short_code} // {card.mode} · SEASON {card.season}</span>
 									<h2>{card.name}</h2>
-									<p class="scoring-note">{card.host_label} · {card.draft_start_copy}</p>
+									<p class="scoring-note">{card.name} · {card.draft_start_copy}</p>
 								</div>
 								<span class="position-chip">{card.draft_status}</span>
-							</div>
-							<div class="commissioner-hq__provenance">
-								<span><strong>RUNTIME</strong> {card.runtime_ready} · {card.app_version}</span>
-								<span><strong>FRAMEWORK</strong> {card.framework_version}</span>
-								<span><strong>RELEASE</strong> {card.git_sha} · {card.build}</span>
-								<time class="mono" datetime={card.generated_at_iso}>SNAPSHOT {card.generated_at}</time>
 							</div>
 							<div class="commissioner-hq__details">
 								<section id={"commissioner-"+card.peer_id+"-seats"} class="commissioner-hq__detail">
