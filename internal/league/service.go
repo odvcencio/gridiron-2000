@@ -1219,14 +1219,18 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	// visitor of /team).
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
 		return map[string]any{
-			"viewer":             viewer,
-			"has_seat":           false,
-			"league":             s.leagueMap(),
-			"league_mode":        s.cfg.ModeLabel,
-			"fantasy_card":       s.fantasyCardData(state, viewer),
-			"identity_available": identityAvailable,
-			"identity_error":     identityError,
-			"badge_grid":         []map[string]any{},
+			"viewer":               viewer,
+			"has_seat":             false,
+			"predraft_visible":     false,
+			"predraft_has_board":   false,
+			"predraft_board_count": 0,
+			"predraft_ready":       false,
+			"league":               s.leagueMap(),
+			"league_mode":          s.cfg.ModeLabel,
+			"fantasy_card":         s.fantasyCardData(state, viewer),
+			"identity_available":   identityAvailable,
+			"identity_error":       identityError,
+			"badge_grid":           []map[string]any{},
 		}
 	}
 	team := s.teamView(state, teamID)
@@ -1236,6 +1240,8 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		projected += player.Projection
 	}
 	teamMap := s.teamMap(team)
+	boardCount := len(state.Boards[boardKeyForViewer(state, s.viewerKey(r))])
+	managerReady := state.Ready[teamID]
 	badgeToneHex, _ := BadgeToneHex(team.Tone)
 	hasBadgeClaim := false
 	badgeGrid := []map[string]any{}
@@ -1285,30 +1291,34 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 
 	return map[string]any{
-		"viewer":             viewer,
-		"has_seat":           true,
-		"team":               teamMap,
-		"drafted":            drafted,
-		"projected":          fmt.Sprintf("%.1f", projected),
-		"division":           teamMap["division"],
-		"scouting":           s.topAvailable(state, 3),
-		"is_commissioner":    s.IsCommissioner(r),
-		"league_mode":        s.cfg.ModeLabel,
-		"league":             s.leagueMap(),
-		"badge_tone_hex":     badgeToneHex,
-		"has_badge_claim":    hasBadgeClaim,
-		"badge_grid":         badgeGrid,
-		"identity_available": identityAvailable,
-		"identity_error":     identityError,
-		"roster_shape":       rosterShapeRows(),
-		"shape_summary":      rosterShapeSummary(len(general) + len(reserveOccupants)),
-		"week":               strconv.Itoa(week),
-		"week_options":       weekOptions,
-		"starters":           s.starterRowMaps(lineup, general, games, now, scoringValues),
-		"starters_filled":    strconv.Itoa(filled),
-		"starters_total":     strconv.Itoa(len(lineup.Slots)),
-		"bench":              playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
-		"bench_empty":        len(lineup.Bench) == 0,
+		"viewer":               viewer,
+		"has_seat":             true,
+		"team":                 teamMap,
+		"drafted":              drafted,
+		"predraft_visible":     !state.DraftStarted && strings.TrimSpace(team.Manager) != "",
+		"predraft_has_board":   boardCount > 0,
+		"predraft_board_count": boardCount,
+		"predraft_ready":       managerReady,
+		"projected":            fmt.Sprintf("%.1f", projected),
+		"division":             teamMap["division"],
+		"scouting":             s.topAvailable(state, 3),
+		"is_commissioner":      s.IsCommissioner(r),
+		"league_mode":          s.cfg.ModeLabel,
+		"league":               s.leagueMap(),
+		"badge_tone_hex":       badgeToneHex,
+		"has_badge_claim":      hasBadgeClaim,
+		"badge_grid":           badgeGrid,
+		"identity_available":   identityAvailable,
+		"identity_error":       identityError,
+		"roster_shape":         rosterShapeRows(),
+		"shape_summary":        rosterShapeSummary(len(general) + len(reserveOccupants)),
+		"week":                 strconv.Itoa(week),
+		"week_options":         weekOptions,
+		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
+		"starters_filled":      strconv.Itoa(filled),
+		"starters_total":       strconv.Itoa(len(lineup.Slots)),
+		"bench":                playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
+		"bench_empty":          len(lineup.Bench) == 0,
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
 		// whenever the active roster shape carries no such zone.
