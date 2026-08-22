@@ -5,19 +5,20 @@ func Page() Node {
 		<header class="page-masthead guide-masthead">
 			<div>
 				<span class="signal-label"><span class="live-dot" aria-hidden="true"></span>MANAGER GUIDE // START HERE</span>
-				<p class="page-kicker">For Sleeper, ESPN, Yahoo, and first-time Gridiron managers</p>
+				<p class="page-kicker">{data.league_name} · {data.mode_label} · For managers arriving from any platform</p>
 				<h1>PLAY<br></br>THE<br></br>ROOM.</h1>
-				<p class="guide-lede">Gridiron is a private league room, not a second account at your old provider. Bring your football knowledge; the commissioner sets this league's rules, membership, and draft start. This guide gets you from invite to game day in one pass.</p>
+				<p class="guide-lede">{data.league_name} is a private league room, not a second account at your old provider. Bring your football knowledge; the commissioner sets this league's rules, membership, and draft start. This guide gets you from invite to game day in one pass.</p>
 				<nav class="guide-actions" aria-label="Guide actions">
 					<a href="#quickstart" class="button button--primary">Jump to the 5-minute start ↓</a>
 					<a href="/login" data-gosx-link class="button button--ghost">Get league access →</a>
 				</nav>
 			</div>
 			<aside class="masthead-console guide-console" aria-label="Guide at a glance">
-				<div><span>Best for</span><strong>Managers + commissioners</strong></div>
-				<div><span>Migration</span><strong>Manual checklist</strong></div>
+				<div><span>League format</span><strong>{data.league_format_summary}</strong></div>
+				<div><span>Roster capacity</span><strong>{data.roster_capacity} draft slots</strong></div>
+				<div><span>Draft meeting</span><strong>{data.draft_at}</strong><small>{data.draft_timezone}</small></div>
+				<div><span>Membership</span><strong>{data.membership_label}</strong></div>
 				<div><span>Draft start</span><strong>Commissioner-controlled</strong></div>
-				<div><span>Data stance</span><strong>Show source state</strong></div>
 			</aside>
 		</header>
 
@@ -42,7 +43,7 @@ func Page() Node {
 				<li><span class="guide-step__mark mono">01</span><div><h3>Sign in with the invited identity</h3><p>Use Google sign-in with the email the commissioner invited. Claim the open team seat, or ask the commissioner to add the address in <a href="/admin" data-gosx-link>/admin</a>. Your Gridiron seat is separate from any Sleeper, ESPN, or Yahoo account.</p></div></li>
 				<li><span class="guide-step__mark mono">02</span><div><h3>Read the live league rules</h3><p>Open <a href="/scoring" data-gosx-link>/scoring</a> and check roster slots, scoring values, draft rounds, lineup locks, free agency, waivers, trades, and the weekly schedule. This is the current league configuration.</p></div></li>
 				<li><span class="guide-step__mark mono">03</span><div><h3>Build your team's Big Board</h3><p>Rank players at <a href="/board" data-gosx-link>/board</a>. The order is private to your team seat, shared by its primary and co-manager, and read first when the team is on the clock. Add backup names.</p></div></li>
-				<li><span class="guide-step__mark mono">04</span><div><h3>Mark ready and choose autopick</h3><p>In <a href="/draft" data-gosx-link>/draft</a>, toggle ready. Turn on autopick if you may miss your turn; it uses your board first and best available ADP when your board is empty.</p></div></li>
+				<li><span class="guide-step__mark mono">04</span><div><h3>Mark ready and choose autopick</h3><p>In <a href="/draft" data-gosx-link>/draft</a>, use <strong>Mark ready</strong> when prepared and <strong>Mark not ready</strong> if that changes. Turn on autopick if you may miss your turn; it uses your board first and best available ADP when your board is empty.</p></div></li>
 				<li><span class="guide-step__mark mono">05</span><div><h3>Set a lineup every week</h3><p>Use <a href="/team" data-gosx-link>/team</a> to fill starting slots before each player's game locks. Bench, reserve, and injury states are visible there.</p></div></li>
 			</ol>
 		</section>
@@ -89,7 +90,7 @@ func Page() Node {
 			</header>
 			<div class="guide-callout guide-callout--alert" role="note"><strong>Commissioner-controlled start:</strong> the scheduled date opens a window, not the draft. Only the commissioner can type <code>START</code> to open pick one and arm the pick clock.</div>
 			<div class="guide-card-grid guide-card-grid--three">
-				<article class="guide-card"><span class="section-index">READINESS</span><h3>Toggle ready</h3><p>Mark ready after you have a board, backup plan, and draft tab you can monitor. This lets the commissioner see readiness; it does not force a start.</p></article>
+				<article class="guide-card"><span class="section-index">READINESS</span><h3>Mark ready — or mark not ready</h3><p>Use the action that matches your current state after you have a board, backup plan, and draft tab you can monitor. Readiness tells the commissioner who is prepared; it never forces a start.</p></article>
 				<article class="guide-card"><span class="section-index">BIG BOARD</span><h3>Your team's private queue</h3><p>Primary and co-manager drag players into one shared seat order at <a href="/board" data-gosx-link>/board</a>. Picked players leave the available list; the draft tape and autopick use the same top available targets.</p></article>
 				<article class="guide-card"><span class="section-index">AUTOPICK</span><h3>Fallback, not mystery</h3><p>Autopick chooses the first available player on your Big Board. If empty or exhausted, it falls back to best available ADP and is labeled AUTO.</p></article>
 			</div>
@@ -119,7 +120,7 @@ func Page() Node {
 				<p>Two kinds of state are visible because they have different consequences.</p>
 			</header>
 			<div class="guide-card-grid guide-card-grid--two">
-				<article class="guide-card" id="identity"><span class="section-index">IDENTITY // INVITES</span><h3>Sign-in is not migration</h3><p>Google sign-in proves which person is asking for access. It does not pull an old provider account, roster, record, or history. The commissioner invites the email, the manager claims an open seat, and an optional co-manager invite can be attached from the Team Terminal. Both managers then edit the same seat-level Big Board.</p><ul class="guide-bullets"><li>Use the invited email exactly.</li><li>Ask the commissioner to correct an invite before claiming the wrong seat.</li><li>Keep provider passwords and sessions outside this app.</li></ul></article>
+				<article class="guide-card" id="identity"><span class="section-index">IDENTITY // {data.membership_label}</span><h3>Sign-in is not migration</h3><p>{data.membership_detail} Google sign-in proves which person is asking for access; it does not pull an old provider account, roster, record, or history. After admission, the manager claims an open seat, and an optional co-manager invite can be attached from the Team Terminal.</p><ul class="guide-bullets"><li>Use an identity admitted by this league's membership policy.</li><li>Ask the commissioner to correct an invite before claiming the wrong seat.</li><li>Keep provider passwords and sessions outside this app.</li></ul></article>
 				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>Player-pool mode is LIVE for a current provider sync, CACHE for the last successful snapshot, and OFFLINE for the embedded fallback. Offline ranks are usable for rehearsal but approximate.</p><p>Open-stat datasets use WAITING before the first check, READY when fetched, AWAITING_RELEASE when the source has not published that season's file, ERROR for a fetch or parse problem, and DISABLED when the source is turned off. A missing file is not a zero.</p></article>
 			</div>
 			<article class="guide-math" id="pool-math">
@@ -127,7 +128,7 @@ func Page() Node {
 				<h3>Coverage is a planning signal, not a player count.</h3>
 				<p class="guide-formula"><code>target coverage = target pool size ÷ draft roster capacity</code><br></br><code>cushion = max(0, actual pool players − draft roster capacity)</code><br></br><code>shortfall = max(0, draft roster capacity − actual pool players)</code></p>
 				<p><strong>Target</strong> is the default pool goal derived from the league shape: <code>teams × roster spots × 2.5</code>, clamped between 200 and 800. <strong>Capacity</strong> is the number of draft slots across every team. <strong>Target cushion</strong> is the headroom between that target and capacity; <strong>actual cushion</strong> is nonnegative headroom from the players currently synchronized. When actual players fall below capacity, cushion stays zero and the separate shortfall is critical. A target is not a promise that the source has that many players.</p>
-				<p class="scoring-note"><strong>Current default-shape examples:</strong> G2K has 8 × 17 = 136 capacity, so its default target is 340 and target cushion is 204. SKL has 14 × 17 = 238 capacity, so its default target is 595 and target cushion is 357. If a sync currently returns 182 players, actual cushion for G2K is 46 — the synchronized count can be below or above target and is a separate state to inspect.</p>
+				<p class="scoring-note"><strong>{data.league_name}:</strong> {data.league_capacity_summary}. The config-derived target is {data.pool_target} players ({data.pool_target_coverage} target coverage), leaving a target cushion of {data.pool_target_cushion}. The synchronized player count can be below or above that target and is a separate live state to inspect.</p>
 				<p class="scoring-note">The admin view shows target, capacity, synchronized player count, and actual cushion together. Use the source label (LIVE, CACHE, or OFFLINE) before deciding whether to wait, draft from cache, or rehearse.</p>
 			</article>
 		</section>

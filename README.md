@@ -25,7 +25,7 @@ There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account int
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.50.0.
+Requirements: Go 1.26 and GoSX v0.53.0.
 
 ```bash
 cp .env.example .env
@@ -45,7 +45,7 @@ gosx build --dev .
 
 ## Configure your league
 
-Copy `config/league.json.example` to `league.json` (or `config/league.json`) and edit the `league`, `teams`, `draft`, and `copy` blocks with your own name, roster, draft date, and invite wording — see the field-by-field comments in the example file and `internal/league/config.go`'s validation rules.
+Copy `config/league.json.example` to `league.json` (or `config/league.json`) and edit the public league configuration. [`docs/configuration.md`](docs/configuration.md) documents every supported field, validation boundary, membership posture, file lookup rule, and environment override. The example remains strict, valid JSON; comments belong in the documentation, not in the config file.
 
 Then create a Google OAuth client with application type **Web application**, and register the exact callback URI:
 
@@ -157,7 +157,7 @@ curated social + members -> seconds/human provisional alerts -> private Signal W
 open nflverse files      -> slower corrected ledgers         -> scoring/reconciliation source
 ```
 
-The first layer provides the “something just happened” experience without paying a real-time vendor. The second provides reusable structured history. It does **not** promise official, play-by-play, sub-minute fantasy scoring. The current matchup cards are clearly labeled local fixtures; wiring draft rosters into a scoring engine is the next application layer once the league locks its scoring rules.
+The first layer provides the “something just happened” experience without paying a real-time vendor. The second provides reusable structured history and powers schedule-backed fantasy matchups. During an open week, matchup totals are provisional calculations from the current effective lineups and mirrored weekly player statistics; this is **not** official, play-by-play, sub-minute scoring. When the commissioner closes a week, Gridiron records the matchup results and pins every team's effective starters for that week. Later drops, trades, or roster-shape edits cannot rewrite that closed result; a repeated close is an idempotent no-op. The commissioner close remains explicit even when the NFL schedule and corrected-stat freshness checks say the week is ready.
 
 ## Private storage and exports
 
@@ -250,7 +250,7 @@ deploy/k8s/           single-replica Kubernetes manifests
 docs/                 source policy, data contract, and launch checklist
 ```
 
-The JSON stores are deliberate for one private league and one process. Move state to a transactional database before running multiple application replicas.
+The SQLite/WAL state store is deliberate for one private league and one application process. Keep one writer per league database; a multi-instance product should isolate each league's state or introduce a shared transactional authority before adding replicas.
 
 ## Upstream references
 
