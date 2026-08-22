@@ -710,6 +710,60 @@ func TestAvatarIdentityPairTransitionsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAvatarIdentityAliasUploadReleasesOnlyOwnBadgeAndIsIdempotent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "league-state.json")
+	store := NewStoreWithIdentity(path, testIdentityResolver(t))
+	t.Cleanup(func() { _ = store.Close() })
+	member, _, err := store.AssignMember(identityCanonicalEmail, "Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.TeamID != "team-1" {
+		t.Fatalf("canonical member team = %q, want team-1", member.TeamID)
+	}
+	if err := store.ClaimBadge("team-1", "wolf"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ClaimBadge("team-2", "helmet"); err != nil {
+		t.Fatal(err)
+	}
+	ref := avatarTestRef(t, t.TempDir(), "alias-owned avatar")
+
+	released, err := store.activateAvatar("team-1", ref, seatActor{email: identityAliasEmail})
+	if err != nil || !released {
+		t.Fatalf("alias activation = released %v, err %v; want true, nil", released, err)
+	}
+	if _, ok := store.BadgeClaim("team-1"); ok {
+		t.Fatal("alias upload left its canonical seat's badge locked")
+	}
+	if got, ok := store.AvatarRef("team-1"); !ok || got != ref {
+		t.Fatalf("canonical seat avatar = %q, %v; want %q, true", got, ok, ref)
+	}
+	if got, ok := store.BadgeClaim("team-2"); !ok || got != "helmet" {
+		t.Fatalf("other seat badge = %q, %v; want helmet, true", got, ok)
+	}
+
+	released, err = store.activateAvatar("team-1", ref, seatActor{email: identityAliasEmail})
+	if err != nil || released {
+		t.Fatalf("idempotent alias activation = released %v, err %v; want false, nil", released, err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStoreWithIdentity(path, testIdentityResolver(t))
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if got, ok := reloaded.AvatarRef("team-1"); !ok || got != ref {
+		t.Fatalf("reloaded canonical seat avatar = %q, %v; want %q, true", got, ok, ref)
+	}
+	if _, ok := reloaded.BadgeClaim("team-1"); ok {
+		t.Fatal("released badge returned after reload")
+	}
+	if got, ok := reloaded.BadgeClaim("team-2"); !ok || got != "helmet" {
+		t.Fatalf("reloaded other seat badge = %q, %v; want helmet, true", got, ok)
+	}
+}
+
 func TestIdentityRepairPhysicallyCleansConflictsAndSurvivesReload(t *testing.T) {
 	store, path := newAvatarIdentityStore(t)
 	validRef := strings.Repeat("a", sha256.Size*2)

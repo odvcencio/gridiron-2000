@@ -105,3 +105,51 @@ func TestPublicEntrySourceKeepsNarrowAndMotionContracts(t *testing.T) {
 		}
 	}
 }
+
+func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
+	for _, fixture := range []struct {
+		state string
+		show  bool
+	}{
+		{state: "preseason"},
+		{state: "scheduled"},
+		{state: "in_progress", show: true},
+		{state: "final"},
+		{state: "degraded"},
+	} {
+		t.Run(fixture.state, func(t *testing.T) {
+			raw := []map[string]any{{
+				"id": "matchup-1", "state": fixture.state,
+				"show_live_indicator": fixture.show, "status": "Status", "clock": "Clock",
+				"away": map[string]any{"id": "team-1", "name": "Away", "manager": "A", "score": "0.0", "tone": "cyan", "abbreviation": "AWY"},
+				"home": map[string]any{"id": "team-2", "name": "Home", "manager": "H", "score": "0.0", "tone": "red", "abbreviation": "HME"},
+			}}
+			cards := dashboardMatchupCards(raw)
+			if len(cards) != 1 || cards[0].State != fixture.state || cards[0].ShowLiveIndicator != fixture.show {
+				t.Fatalf("converted cards = %+v", cards)
+			}
+			program, err := route.LoadFileProgram("page.gsx")
+			if err != nil {
+				t.Fatal(err)
+			}
+			html, err := route.RenderProgramComponent(program, "MiniMatchup", route.ProgramRenderEnv{
+				Values: map[string]any{"props": cards[0]},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hasDot := strings.Contains(html, `class="live-dot"`)
+			if hasDot != fixture.show {
+				t.Fatalf("state %s live-dot presence = %v, want %v: %s", fixture.state, hasDot, fixture.show, html)
+			}
+		})
+	}
+
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), `<If cond={data.live.show_live_indicator}>`) {
+		t.Fatal("homepage matchup preview masthead live dot is not gated by live state")
+	}
+}

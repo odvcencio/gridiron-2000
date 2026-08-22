@@ -374,9 +374,18 @@ type ScoreMatchup struct {
 	ID     string    `json:"id"`
 	Away   ScoreTeam `json:"away"`
 	Home   ScoreTeam `json:"home"`
+	State  string    `json:"state"`
 	Status string    `json:"status"`
 	Clock  string    `json:"clock"`
 }
+
+const (
+	MatchupStatePreseason  = "preseason"
+	MatchupStateScheduled  = "scheduled"
+	MatchupStateInProgress = "in_progress"
+	MatchupStateFinal      = "final"
+	MatchupStateDegraded   = "degraded"
+)
 
 // LiveSnapshot is the stable JSON contract consumed by the score enhancer.
 type LiveSnapshot struct {
@@ -385,6 +394,7 @@ type LiveSnapshot struct {
 	SourceLabel         string         `json:"sourceLabel"`
 	Week                int            `json:"week"`
 	WeekLabel           string         `json:"weekLabel"`
+	State               string         `json:"state"`
 	Status              string         `json:"status"`
 	LastUpdated         time.Time      `json:"lastUpdated"`
 	RefreshAfterSeconds int            `json:"refreshAfterSeconds"`
