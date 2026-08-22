@@ -1703,6 +1703,11 @@ func (s *Store) mutateAvatarIdentity(teamID string, actor seatActor, commissione
 		s.mu.RUnlock()
 		return false, err
 	}
+	// The request boundary canonicalizes authenticated users, but this Store
+	// transaction is the final authority gate and must remain correct for
+	// direct/internal callers too. Resolve aliases before both the optimistic
+	// and locked authority checks so one logical manager has one seat identity.
+	actor.email = s.canonicalEmail(actor.email)
 	earlyAllowed := avatarActorAllowed(s.state, teamID, actor, commissionerOnly)
 	preflightHook := s.identityPreflightHook
 	s.mu.RUnlock()
