@@ -65,12 +65,12 @@ func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
 		{
 			name: "dynasty invite posture",
 			cfg:  guideConfig("Gridiron House", "dynasty", "America/New_York", "", 8, 17),
-			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "NO DOMAIN GATE"},
+			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "OPEN TO INVITES"},
 		},
 		{
 			name: "redraft domain posture",
 			cfg:  guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17),
-			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN ADMISSION ENABLED"},
+			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "@stablekernel.com MANAGERS"},
 		},
 	}
 	for _, tc := range tests {
@@ -93,10 +93,10 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"14 teams · REDRAFT",
 		"Sat, Aug 29, 2026 · 4:00 PM EDT",
 		"America/New_York",
-		"DOMAIN ADMISSION ENABLED",
+		"@stablekernel.com MANAGERS",
 		"@stablekernel.com",
-		"Non-domain admission depends on runtime invitations",
-		"open setup admits any authenticated Google identity",
+		"Managers with an @stablekernel.com address may join",
+		"The commissioner invites everybody else",
 		"FIVE-MINUTE START",
 		"COMMISSIONER OPENING CHECKLIST",
 		"What is intentionally different.",
@@ -107,14 +107,9 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"Lineups",
 		"Pick&#39;em",
 		"Signal Wire",
-		"AWAITING_RELEASE",
+		"CURRENT, SAVED, or BUILT-IN",
 		"target coverage",
-		"2.5",
-		"14 × 17 = 238 draft slots",
-		"595",
-		"357",
-		"target cushion",
-		"actual cushion",
+		"The pool holds more players than the draft needs.",
 		"Commissioner HQ",
 		"No automated migration exists.",
 		"Practical manual migration checklist",
@@ -152,12 +147,9 @@ func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
 	for _, want := range []string{
 		"Manager Guide · Gridiron House",
 		"8 teams · DYNASTY",
-		"NO DOMAIN GATE",
-		"Runtime invitations or the deployment allowlist may restrict admission",
-		"both are empty, any authenticated Google identity is admitted",
-		"8 × 17 = 136 draft slots",
-		"340",
-		"204",
+		"OPEN TO INVITES",
+		"This league has no email-domain rule",
+		"The commissioner controls who may claim a seat",
 		"Mark ready",
 		"Mark not ready",
 	} {
@@ -165,7 +157,7 @@ func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
 			t.Errorf("dynasty guide omitted %q", want)
 		}
 	}
-	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "DOMAIN ADMISSION ENABLED", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
+	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "MANAGERS", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
 		if strings.Contains(body, wrong) {
 			t.Errorf("dynasty guide leaked redraft/domain claim %q", wrong)
 		}

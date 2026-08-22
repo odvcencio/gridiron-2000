@@ -368,7 +368,7 @@ func main() {
 	app.Mount("GET /auth/google/callback", googleCallbackHandler(googleOAuth, authManager, googleConfigured))
 	app.Mount("POST /auth/logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authManager.SignOut(r)
-		session.AddFlash(r, "notice", "You are signed out. The demo league is still available.")
+		session.AddFlash(r, "notice", "You are signed out. Sign in again to return to your team.")
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}))
 
@@ -1016,7 +1016,7 @@ func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		session.AddFlash(r, "notice", "Google OAuth needs a client ID and secret. Follow the setup guide, or keep exploring in demo mode.")
+		session.AddFlash(r, "notice", "Sign-in is not ready yet. Ask the commissioner to finish league setup.")
 		http.Redirect(w, r, "/login?setup=google", http.StatusSeeOther)
 	})
 }
@@ -1040,7 +1040,7 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 		}
 		user, target, err := flow.Callback(r, "google")
 		if err != nil {
-			session.AddFlash(r, "notice", "Google sign-in could not be completed. Check the redirect URI and try again.")
+			session.AddFlash(r, "notice", "Google sign-in did not finish. Try again, or tell the commissioner.")
 			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}

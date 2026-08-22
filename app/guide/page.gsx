@@ -57,7 +57,7 @@ func Page() Node {
 			<ol class="guide-checklist">
 				<li><strong>Confirm identity and format.</strong><span>League name, season, timezone, teams, divisions, roster shape, and scoring on <a href="/scoring" data-gosx-link>/scoring</a>.</span></li>
 				<li><strong>Invite the right Google accounts.</strong><span>Use <a href="/admin" data-gosx-link>/admin</a>, then verify each person signs in with the exact invited address.</span></li>
-				<li><strong>Check the player source.</strong><span>Review player-pool mode, target coverage, actual players, cushion, and errors. Treat LIVE, CACHE, and OFFLINE as different confidence states.</span></li>
+				<li><strong>Check the player list.</strong><span>Review player-pool mode, target coverage, actual players, cushion, and errors. Treat LIVE, CACHE, and OFFLINE as different confidence states.</span></li>
 				<li><strong>Publish the draft window and order.</strong><span>Set date, timezone, rounds, pick clock, and order. Randomize before pick one; decide what to do with unclaimed seats.</span></li>
 				<li><strong>Ask managers to build boards and mark ready.</strong><span>Readiness is a signal for the commissioner, not a hidden auto-start trigger.</span></li>
 				<li><strong>Start the draft yourself.</strong><span>The scheduled window is a reminder. The draft stays closed until the commissioner types <code>START</code>.</span></li>
@@ -69,15 +69,15 @@ func Page() Node {
 			<header class="guide-section__heading">
 				<span class="section-index">03 // ORIENTATION</span>
 				<h2 id="different-heading">What is intentionally different.</h2>
-				<p>These are product decisions, not missing migration buttons.</p>
+				<p>The commissioner chose these rules.</p>
 			</header>
 			<div class="guide-compare">
 				<article class="guide-compare__panel"><span class="section-index">THE PROVIDER HABIT</span><h3>One account does everything</h3><p>On a hosted fantasy platform, the provider owns account, league setup, data feed, draft timer, and usually an import path. You may expect roster, history, and identity to follow automatically.</p></article>
-				<article class="guide-compare__panel guide-compare__panel--signal"><span class="section-index">THE GRIDIRON CONTRACT</span><h3>The league owns the room</h3><p>Gridiron keeps league state on the league's server, makes the commissioner the final operator, exposes source availability, and keeps manager boards private. There is no automatic Sleeper, ESPN, or Yahoo migration.</p></article>
+				<article class="guide-compare__panel guide-compare__panel--signal"><span class="section-index">THE GRIDIRON CONTRACT</span><h3>The league owns the room</h3><p>The league keeps its own record. The commissioner rules on every dispute. Gridiron shows player-source status and keeps manager boards private. There is no automatic Sleeper, ESPN, or Yahoo migration.</p></article>
 			</div>
 			<div class="guide-card-grid guide-card-grid--three">
 				<article class="guide-card"><span class="section-index">DIFFERENT // 01</span><h3>Explicit controls</h3><p>The commissioner starts the draft, can pause or extend the pick clock, and settles corrections. The UI says when a control is locked or unavailable.</p></article>
-				<article class="guide-card"><span class="section-index">DIFFERENT // 02</span><h3>Honest fallbacks</h3><p>A cache or offline player pool remains usable, but approximate ranks and missing enrichment are labeled. A source that has not published is not presented as a zero.</p></article>
+				<article class="guide-card"><span class="section-index">DIFFERENT // 02</span><h3>Honest fallbacks</h3><p>Saved or built-in player list remains usable, but approximate ranks and missing enrichment are labeled. A source that has not published is not presented as a zero.</p></article>
 				<article class="guide-card"><span class="section-index">DIFFERENT // 03</span><h3>Private by default</h3><p>Google identity, league membership, picks, boards, and transactions belong to this league. Public guides never require a seat.</p></article>
 			</div>
 		</section>
@@ -109,7 +109,7 @@ func Page() Node {
 				<article class="guide-card" id="trades"><span class="section-index">/TRADES</span><h3>Trades</h3><p>Send an offer, accept or decline incoming offers, and counter when needed. An accepted trade may enter a review window; the configured commissioner or league-veto policy decides what happens next.</p><a href="/trades" data-gosx-link class="guide-card__link">Open Trade Desk →</a></article>
 				<article class="guide-card" id="scoring-rules"><span class="section-index">/SCORING</span><h3>Scoring</h3><p>Scoring values, roster shape, schedule, locks, waivers, and trade policy are the source of truth. Official corrected stats win over provisional news, and a closed week keeps its locked lineup and result.</p><a href="/scoring" data-gosx-link class="guide-card__link">Read Rules + Scoring →</a></article>
 				<article class="guide-card" id="pickem"><span class="section-index">/PICKEM</span><h3>Pick'em</h3><p>Pick one team per game at <a href="/pickem" data-gosx-link>/pickem</a>. Each game locks at kickoff, then the final score resolves the result. Pick'em is its own game; no fantasy roster seat is required.</p><a href="/pickem" data-gosx-link class="guide-card__link">Open Pick'em HQ →</a></article>
-				<article class="guide-card" id="wire"><span class="section-index">/WIRE</span><h3>Signal Wire</h3><p>The Wire is a mixed-source alert surface for publisher feeds, community tips, and curated social posts. Signals stay provisional, never mutate fantasy scores, and show source/trust context. Market sightings are human-entered; this app does not log into or scrape another account.</p><a href="/wire" data-gosx-link class="guide-card__link">Open Signal Wire →</a></article>
+				<article class="guide-card" id="wire"><span class="section-index">/WIRE</span><h3>Signal Wire</h3><p>The Wire is a mixed-source alert surface for publisher feeds, community tips, and curated social posts. Signals stay provisional, never mutate fantasy scores, and show source/trust context. Market sightings are human-entered; this league does not log into or scrape another account.</p><a href="/wire" data-gosx-link class="guide-card__link">Open Signal Wire →</a></article>
 			</div>
 		</section>
 
@@ -120,16 +120,13 @@ func Page() Node {
 				<p>Two kinds of state are visible because they have different consequences.</p>
 			</header>
 			<div class="guide-card-grid guide-card-grid--two">
-				<article class="guide-card" id="identity"><span class="section-index">IDENTITY // {data.membership_label}</span><h3>Sign-in is not migration</h3><p>{data.membership_detail} Google sign-in proves which person is asking for access; it does not pull an old provider account, roster, record, or history. After admission, the manager claims an open seat, and an optional co-manager invite can be attached from the Team Terminal.</p><ul class="guide-bullets"><li>Use an identity admitted by this league's membership policy.</li><li>Ask the commissioner to correct an invite before claiming the wrong seat.</li><li>Keep provider passwords and sessions outside this app.</li></ul></article>
-				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>Player-pool mode is LIVE for a current provider sync, CACHE for the last successful snapshot, and OFFLINE for the embedded fallback. Offline ranks are usable for rehearsal but approximate.</p><p>Open-stat datasets use WAITING before the first check, READY when fetched, AWAITING_RELEASE when the source has not published that season's file, ERROR for a fetch or parse problem, and DISABLED when the source is turned off. A missing file is not a zero.</p></article>
+				<article class="guide-card" id="identity"><span class="section-index">IDENTITY // {data.membership_label}</span><h3>Sign-in is not migration</h3><p>{data.membership_detail} Google sign-in proves which person is asking for access; it does not pull an old provider account, roster, record, or history. After admission, the manager claims an open seat, and an optional co-manager invite can be attached from the Team Terminal.</p><ul class="guide-bullets"><li>Use an identity admitted by this league's membership policy.</li><li>Ask the commissioner to correct an invite before claiming the wrong seat.</li><li>Keep provider passwords and sessions outside this league.</li></ul></article>
+				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>Player data is CURRENT, SAVED, or BUILT-IN. Saved and built-in ranks are close, not exact.</p></article>
 			</div>
 			<article class="guide-math" id="pool-math">
 				<span class="section-index">PLAYER POOL // TARGET VS CAPACITY VS CUSHION</span>
 				<h3>Coverage is a planning signal, not a player count.</h3>
-				<p class="guide-formula"><code>target coverage = target pool size ÷ draft roster capacity</code><br></br><code>cushion = max(0, actual pool players − draft roster capacity)</code><br></br><code>shortfall = max(0, draft roster capacity − actual pool players)</code></p>
-				<p><strong>Target</strong> is the default pool goal derived from the league shape: <code>teams × roster spots × 2.5</code>, clamped between 200 and 800. <strong>Capacity</strong> is the number of draft slots across every team. <strong>Target cushion</strong> is the headroom between that target and capacity; <strong>actual cushion</strong> is nonnegative headroom from the players currently synchronized. When actual players fall below capacity, cushion stays zero and the separate shortfall is critical. A target is not a promise that the source has that many players.</p>
-				<p class="scoring-note"><strong>{data.league_name}:</strong> {data.league_capacity_summary}. The config-derived target is {data.pool_target} players ({data.pool_target_coverage} target coverage), leaving a target cushion of {data.pool_target_cushion}. The synchronized player count can be below or above that target and is a separate live state to inspect.</p>
-				<p class="scoring-note">The admin view shows target, capacity, synchronized player count, and actual cushion together. Use the source label (LIVE, CACHE, or OFFLINE) before deciding whether to wait, draft from cache, or rehearse.</p>
+				<p>The pool holds more players than the draft needs.</p>
 			</article>
 		</section>
 
@@ -137,11 +134,11 @@ func Page() Node {
 			<header class="guide-section__heading">
 				<span class="section-index">07 // CROSS-LEAGUE COMMISSIONER HQ</span>
 				<h2 id="commissioner-hq-heading">One readout. Separate rooms.</h2>
-				<p>Commissioner HQ is a fleet view for operators who run more than one isolated league.</p>
+				<p>Commissioner HQ is one page for a commissioner who runs more than one league.</p>
 			</header>
 			<div class="guide-compare">
 				<article class="guide-compare__panel guide-compare__panel--signal"><span class="section-index">WHAT IT DOES</span><h3>Read across leagues</h3><ul class="guide-bullets"><li>Shows configured peers, seats, readiness, draft status, pool mode, coverage, cushion, and attention flags.</li><li>Links to the owning league's home, admin, or draft page when action is needed.</li><li>Surfaces an unavailable peer without pretending its state is current.</li></ul></article>
-				<article class="guide-compare__panel"><span class="section-index">WHAT IT DOES NOT DO</span><h3>Merge league state</h3><ul class="guide-bullets"><li>It does not merge databases, sessions, members, rosters, drafts, or history.</li><li>It does not give a commissioner a cross-league write button.</li><li>Each league keeps its own identity boundary, rules, and source decisions.</li></ul></article>
+				<article class="guide-compare__panel"><span class="section-index">WHAT IT DOES NOT DO</span><h3>Merge league state</h3><ul class="guide-bullets"><li>It never mixes two leagues. Each league keeps its own record.</li><li>It does not give a commissioner a cross-league write button.</li><li>Each league keeps its own identity boundary, rules, and source decisions.</li></ul></article>
 			</div>
 			<a href="/commissioner" data-gosx-link class="button button--compact">Open Commissioner HQ →</a>
 		</section>
@@ -160,7 +157,7 @@ func Page() Node {
 				<h3>Practical manual migration checklist</h3>
 				<ol class="guide-checklist">
 					<li><strong>Freeze the old league.</strong><span>Export or screenshot the rules and standings you want to reference, then agree on a cutover time.</span></li>
-					<li><strong>Configure deployment-owned rules.</strong><span>Set league format, teams, divisions, timezone, schedule, waiver mode, and trade policy in <code>league.json</code> and the deployment configuration; restart or roll the app when those inputs change.</span></li>
+					<li><strong>Configure deployment-owned rules.</strong><span>Ask the commissioner to set league format, teams, divisions, and timezone.</span></li>
 					<li><strong>Use each control where it actually lives.</strong><span>Use <a href="/admin" data-gosx-link>/admin</a> for invites, seats, roster shape, draft order/clock, and announcements. Verify the resolved roster, scoring, schedule, waiver, and trade rules on <a href="/scoring" data-gosx-link>/scoring</a> before inviting the league.</span></li>
 					<li><strong>Invite managers.</strong><span>Send the new league URL and invite the Google email each manager will actually use.</span></li>
 					<li><strong>Verify every seat.</strong><span>Have each manager claim or confirm the correct team before the first draft action.</span></li>
