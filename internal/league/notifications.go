@@ -53,6 +53,26 @@ var notificationCategories = []string{
 	categoryTransactions, categoryLineups,
 }
 
+// notificationPreferenceCategories is the allowlist for manager-owned
+// settings writes. The catalog intentionally contains league_news and
+// weekly_recap rows for delivery metadata, but those two categories do not
+// have a live delivery implementation yet. Keeping them out of the write
+// allowlist prevents a settings page or a forged POST from creating a
+// preference that the product cannot currently honor.
+var notificationPreferenceCategories = []string{
+	categoryOnboarding, categoryDraftReminders, categoryDraftLive, categoryDraftRecap,
+	categoryPickem, categoryBroadcast, categoryTransactions, categoryLineups,
+}
+
+func notificationPreferenceCategoryAllowed(category string) bool {
+	for _, candidate := range notificationPreferenceCategories {
+		if category == candidate {
+			return true
+		}
+	}
+	return false
+}
+
 // Urgency levels (spec section 3). Only urgencyLow entries (N9, N12, N13)
 // observe quiet hours; that gate lands with those entries' evaluation
 // logic in WP-E4/E5.

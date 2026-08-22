@@ -1180,7 +1180,9 @@ func TestConcurrentMutatorsAndSnapshots(t *testing.T) {
 		_, err := store.FirstSend(fmt.Sprintf("kickoff:2026:%d@example.com", i), now)
 		return err
 	})
-	run(func(i int) error { return store.SetNotifyPref("one@example.com", fmt.Sprintf("cat-%d", i), i%2 == 0) })
+	run(func(i int) error {
+		return store.SetNotifyPref("one@example.com", notificationPreferenceCategories[i%len(notificationPreferenceCategories)], i%2 == 0)
+	})
 	run(func(i int) error {
 		_, err := store.PostAnnouncement(fmt.Sprintf("Announcement %d", i), "commissioner", now.Add(time.Duration(i)*time.Second))
 		return err

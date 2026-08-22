@@ -122,6 +122,9 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="user-chip mono">{props.Initials}</span>
 					<span class="user-name">{props.TeamName}</span>
 				</div>
+				<Link href="/settings" class="access-link">
+					Notification settings
+				</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRFToken}></input>
 					<button class="access-link" type="submit">Sign out</button>

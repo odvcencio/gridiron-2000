@@ -1514,6 +1514,9 @@ func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
 	if category == "" {
 		return fmt.Errorf("category is required")
 	}
+	if !notificationPreferenceCategoryAllowed(category) {
+		return fmt.Errorf("unsupported notification category %q", category)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
