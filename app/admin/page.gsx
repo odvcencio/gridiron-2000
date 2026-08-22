@@ -584,6 +584,10 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<button class="button" type="submit">Drop unclaimed seats</button>
 							</form>
+							<p class="demo-message">
+								<strong>PRE-DRAFT TOPOLOGY LOCK:</strong>
+								if a schedule already exists, this action discards that unplayed schedule. Regenerate it afterward so every matchup names only the kept teams.
+							</p>
 							<p class="scoring-note">
 								{data.unclaimed_seat_count}
 								seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn

@@ -71,6 +71,9 @@ func TestAdminPageOffersSeatTrimBeforeTheDraft(t *testing.T) {
 	if !strings.Contains(body, "Drop unclaimed seats") {
 		t.Errorf("seat-trim control rendered without its button label")
 	}
+	if !strings.Contains(body, "discards that unplayed schedule") || !strings.Contains(body, "Regenerate it afterward") {
+		t.Errorf("seat-trim control does not explain the schedule reset and regeneration requirement")
+	}
 	// The runbook must name the control, and name it before randomizing:
 	// randomizing first produces an order still listing the trimmed seats.
 	trimStep := strings.Index(body, "drop the seats nobody claimed")

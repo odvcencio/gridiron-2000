@@ -279,11 +279,21 @@ func init() {
 			// order-randomize — randomizing first produces an order that
 			// still lists the seats the trim is about to remove.
 			"seat-trim": func(ctx *action.Context) error {
+				scheduleBefore := false
+				if data := league.Default().AdminData(ctx.Request); data != nil {
+					if schedule, ok := data["schedule"].(map[string]any); ok {
+						scheduleBefore, _ = schedule["has_schedule"].(bool)
+					}
+				}
 				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request)
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept)))
+				notice := fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept))
+				if scheduleBefore {
+					notice += " Existing unplayed schedule cleared; regenerate it for the kept teams."
+				}
+				session.AddFlash(ctx.Request, "notice", notice)
 				ctx.Redirect("/admin")
 				return nil
 			},
