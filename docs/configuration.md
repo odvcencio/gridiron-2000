@@ -4,6 +4,15 @@
 
 Start with [`config/league.json.example`](../config/league.json.example). The loader accepts strict JSON only: comments and unknown fields are rejected. Restart the application after changing the file.
 
+Validate each instance before creating its ConfigMap or rolling its pod:
+
+```sh
+go run ./cmd/leaguecheck --file deploy/local/league.json
+go run ./cmd/leaguecheck --file deploy/local/league-sk.json --format json
+```
+
+`leaguecheck` uses the same strict loader and supported environment overrides as the application, but it does not start the server or open the league state database. A successful text report shows the resolved public identity, season, draft meeting and timezone, team count, roster capacity, membership posture, waivers, and trade policy. JSON output is intended for fleet automation. An invalid file exits nonzero before a deployment changes.
+
 ## File lookup and precedence
 
 The first existing config wins, in this order:
