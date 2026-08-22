@@ -146,7 +146,7 @@ component MatchupCard(props: MatchupCardProps) {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m">
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">
@@ -175,6 +175,44 @@ func Page() Node {
 				</div>
 			</div>
 		</header>
+		<section class="matchup-week-controls" aria-label="Season matchup week">
+			<div class="matchup-week-controls__copy">
+				<span class="section-index">SEASON SCHEDULE // WEEK {data.week}</span>
+				<strong>
+					<If cond={data.is_current_week}>CURRENT WEEK</If>
+					<If cond={data.is_current_week == false}>WEEK {data.week} VIEW</If>
+				</strong>
+				<p>
+					<If cond={data.is_current_week}>Current-week updates stay on the current week. Browse another published week below.</If>
+					<If cond={data.is_current_week == false}>This is a published schedule view. Live polling stays on the current week.</If>
+				</p>
+			</div>
+			<If cond={data.has_weeks}>
+				<nav class="pickem-weeknav" aria-label="Matchup week navigation">
+					<If cond={data.has_previous_week}>
+						<a href={data.previous_week_href} data-gosx-link class="board-button" rel="prev">← Previous</a>
+					</If>
+					<form method="get" action="/matchups" class="lineup-week-form">
+						<label class="sr-only" for="matchups-week-select">Select matchup week</label>
+						<select id="matchups-week-select" name="week" aria-label="Select matchup week">
+							<Each of={data.week_options} as="wk">
+								<option value={wk.value} selected={wk.selected}>{wk.label}</option>
+							</Each>
+						</select>
+						<button class="board-button" type="submit">Go</button>
+					</form>
+					<If cond={data.has_next_week}>
+						<a href={data.next_week_href} data-gosx-link class="board-button" rel="next">Next →</a>
+					</If>
+					<If cond={data.is_current_week == false}>
+						<a href={data.current_week_href} data-gosx-link class="access-link">Back to current week</a>
+					</If>
+				</nav>
+			</If>
+			<If cond={data.has_week_notice}>
+				<p class="matchup-week-notice" role="status">{data.week_notice}</p>
+			</If>
+		</section>
 		<div class="matchup-layout">
 			<section class="matchup-stage">
 				<header class="section-heading section-heading--split">
@@ -202,6 +240,32 @@ func Page() Node {
 				</div>
 			</section>
 			<aside class="leader-rail">
+				<section class="next-matchup-panel" aria-label="Your next matchup">
+					<header>
+						<span class="section-index">YOUR NEXT MATCHUP</span>
+						<b>{data.next_matchup.week_label}</b>
+					</header>
+					<If cond={data.next_matchup.has_seat}>
+						<If cond={data.next_matchup.has_matchup}>
+							<a href={data.next_matchup.href} data-gosx-link class="next-matchup-panel__link">
+								<strong>{data.next_matchup.team_name} <span>{data.next_matchup.location_label}</span> {data.next_matchup.opponent_name}</strong>
+								<small>Manager: {data.next_matchup.opponent_manager}</small>
+							</a>
+						</If>
+						<If cond={data.next_matchup.is_bye}>
+							<p class="next-matchup-panel__message">{data.next_matchup.message}</p>
+						</If>
+						<If cond={data.next_matchup.has_matchup == false}>
+							<If cond={data.next_matchup.is_bye == false}>
+								<p class="next-matchup-panel__message">{data.next_matchup.message}</p>
+							</If>
+						</If>
+					</If>
+					<If cond={data.next_matchup.has_seat == false}>
+						<p class="next-matchup-panel__message">{data.next_matchup.message}</p>
+						<a href="/join" class="access-link">Claim a franchise</a>
+					</If>
+				</section>
 				<header>
 					<span class="section-index">PLAYER TAPE</span>
 					<b>PROJECTION LEADERS</b>

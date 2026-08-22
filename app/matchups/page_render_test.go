@@ -80,6 +80,31 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 	}
 }
 
+func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=scheduled",
+		"MATCHUPS_RENDER_QUERY=?week=2",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		"SEASON SCHEDULE // WEEK 2",
+		"WEEK 2 VIEW",
+		"Status pending",
+		"href=\"/matchups\"",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("week-browser route missing %q: %s", want, body)
+		}
+	}
+}
+
 func TestMatchupsPageFixtureProcess(t *testing.T) {
 	fixture := os.Getenv("MATCHUPS_RENDER_FIXTURE")
 	if fixture == "" {
@@ -114,9 +139,13 @@ func renderMatchupsPage(t *testing.T) string {
 		t.Fatalf("BuildChecked: %v", err)
 	}
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	target := "/"
+	if query := os.Getenv("MATCHUPS_RENDER_QUERY"); query != "" {
+		target += query
+	}
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET / = %d: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("GET %s = %d: %s", target, recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
 }

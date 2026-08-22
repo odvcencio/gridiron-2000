@@ -1196,18 +1196,209 @@ func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) m
 	}
 }
 
+func seasonScheduleWeeks(schedule SeasonSchedule) []int {
+	weeks := make([]int, 0, len(schedule.Weeks))
+	seen := make(map[int]bool, len(schedule.Weeks))
+	for _, week := range schedule.Weeks {
+		if week.Week <= 0 || seen[week.Week] {
+			continue
+		}
+		seen[week.Week] = true
+		weeks = append(weeks, week.Week)
+	}
+	sort.Ints(weeks)
+	return weeks
+}
+
+func matchupWeekHref(week int) string {
+	return fmt.Sprintf("/matchups?week=%d", week)
+}
+
 func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]any {
-	live := s.feed.Snapshot(ctx, s.clock())
 	state := s.store.Snapshot()
+	live := s.feed.Snapshot(ctx, s.clock())
+	viewer := s.Viewer(r)
+	currentWeek := live.Week
+	selectedWeek := live.Week
+	weekNotice := ""
+	hasSchedule := state.Schedule != nil && len(state.Schedule.Weeks) > 0
+	weekOptions := []map[string]any{}
+	previousWeekHref := ""
+	nextWeekHref := ""
+	currentWeekHref := ""
+	hasPreviousWeek := false
+	hasNextWeek := false
+	if hasSchedule {
+		schedule := *state.Schedule
+		currentWeek = currentScheduleWeek(schedule)
+		selectedWeek = currentWeek
+		weeks := seasonScheduleWeeks(schedule)
+		rawWeek := strings.TrimSpace(r.URL.Query().Get("week"))
+		if rawWeek != "" {
+			parsed, err := strconv.Atoi(rawWeek)
+			switch {
+			case err != nil || parsed <= 0:
+				weekNotice = fmt.Sprintf("Week %q is not on the published schedule. Showing Week %d.", rawWeek, currentWeek)
+			case !containsInt(weeks, parsed):
+				weekNotice = fmt.Sprintf("Week %d is not on the published schedule. Showing Week %d.", parsed, currentWeek)
+			default:
+				selectedWeek = parsed
+			}
+		}
+		for _, week := range weeks {
+			weekOptions = append(weekOptions, map[string]any{
+				"value":    strconv.Itoa(week),
+				"label":    fmt.Sprintf("WEEK %d", week),
+				"selected": week == selectedWeek,
+			})
+		}
+		for i, week := range weeks {
+			if week != selectedWeek {
+				continue
+			}
+			if i > 0 {
+				hasPreviousWeek = true
+				previousWeekHref = matchupWeekHref(weeks[i-1])
+			}
+			if i+1 < len(weeks) {
+				hasNextWeek = true
+				nextWeekHref = matchupWeekHref(weeks[i+1])
+			}
+			if selectedWeek != currentWeek {
+				currentWeekHref = "/matchups"
+			}
+			break
+		}
+		// Keep the current request on the live feed. A selected historical or
+		// future week gets an explicit persisted-schedule snapshot instead,
+		// so the current-week poll can never replace the requested view.
+		if selectedWeek != currentWeek || live.Week != currentWeek {
+			if selected, err := (scheduleProvider{svc: s}).SnapshotWeek(ctx, s.clock(), selectedWeek); err == nil {
+				live = selected
+			}
+		}
+	} else if strings.TrimSpace(r.URL.Query().Get("week")) != "" {
+		weekNotice = "The season schedule is not published yet; showing the preseason view."
+	}
+	if currentWeek <= 0 {
+		currentWeek = live.Week
+	}
+	if selectedWeek <= 0 {
+		selectedWeek = live.Week
+	}
+	isCurrentWeek := selectedWeek == currentWeek
 	matchups := s.matchupMaps(state, live.Matchups)
 	return map[string]any{
-		"viewer":         s.Viewer(r),
-		"live":           s.liveMap(live),
-		"matchups":       matchups,
-		"matchups_empty": len(matchups) == 0,
-		"leaders":        s.leaderMaps(),
-		"league":         s.leagueMap(),
+		"viewer":             viewer,
+		"live":               s.liveMap(live),
+		"matchups":           matchups,
+		"matchups_empty":     len(matchups) == 0,
+		"leaders":            s.leaderMaps(),
+		"league":             s.leagueMap(),
+		"week":               selectedWeek,
+		"current_week":       currentWeek,
+		"has_weeks":          hasSchedule,
+		"week_options":       weekOptions,
+		"has_previous_week":  hasPreviousWeek,
+		"previous_week_href": previousWeekHref,
+		"has_next_week":      hasNextWeek,
+		"next_week_href":     nextWeekHref,
+		"is_current_week":    isCurrentWeek,
+		"current_week_href":  currentWeekHref,
+		"week_notice":        weekNotice,
+		"has_week_notice":    weekNotice != "",
+		"live_interval":      map[bool]string{true: "1m", false: ""}[isCurrentWeek],
+		"next_matchup":       s.nextManagerMatchup(state, viewer, state.Schedule, currentWeek),
 	}
+}
+
+func containsInt(values []int, want int) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any, schedule *SeasonSchedule, currentWeek int) map[string]any {
+	out := map[string]any{
+		"has_seat":         false,
+		"has_matchup":      false,
+		"is_bye":           false,
+		"week":             "",
+		"week_label":       "",
+		"team_name":        "",
+		"opponent_name":    "",
+		"opponent_manager": "",
+		"location":         "",
+		"location_label":   "",
+		"href":             "",
+		"message":          "Claim a franchise to see your next matchup.",
+	}
+	hasSeat, _ := viewer["has_seat"].(bool)
+	if !hasSeat {
+		return out
+	}
+	out["has_seat"] = true
+	out["message"] = "Your next matchup will appear when the schedule is published."
+	if schedule == nil || len(schedule.Weeks) == 0 {
+		return out
+	}
+	teamID, _ := viewer["team_id"].(string)
+	if strings.TrimSpace(teamID) == "" {
+		out["has_seat"] = false
+		out["message"] = "Claim a franchise to see your next matchup."
+		return out
+	}
+	weeks := seasonScheduleWeeks(*schedule)
+	for _, weekNumber := range weeks {
+		if weekNumber <= currentWeek {
+			continue
+		}
+		week, ok := scheduleWeekByNumber(*schedule, weekNumber)
+		if !ok {
+			continue
+		}
+		if week.ByeTeamID == teamID {
+			out["is_bye"] = true
+			out["week"] = strconv.Itoa(weekNumber)
+			out["week_label"] = fmt.Sprintf("WEEK %d", weekNumber)
+			out["href"] = matchupWeekHref(weekNumber)
+			out["message"] = "BYE WEEK"
+			return out
+		}
+		for _, matchup := range week.Matchups {
+			var opponentID, location string
+			switch {
+			case matchup.HomeTeamID == teamID:
+				opponentID, location = matchup.AwayTeamID, "HOME"
+			case matchup.AwayTeamID == teamID:
+				opponentID, location = matchup.HomeTeamID, "AWAY"
+			default:
+				continue
+			}
+			team := s.teamView(state, teamID)
+			opponent := s.teamView(state, opponentID)
+			manager := strings.TrimSpace(opponent.Manager)
+			if manager == "" {
+				manager = "UNCLAIMED"
+			}
+			out["has_matchup"] = true
+			out["week"] = strconv.Itoa(weekNumber)
+			out["week_label"] = fmt.Sprintf("WEEK %d", weekNumber)
+			out["team_name"] = team.Name
+			out["opponent_name"] = opponent.Name
+			out["opponent_manager"] = manager
+			out["location"] = location
+			out["location_label"] = map[string]string{"HOME": "HOME", "AWAY": "AWAY"}[location]
+			out["href"] = matchupWeekHref(weekNumber)
+			out["message"] = ""
+			return out
+		}
+	}
+	out["message"] = "No later week remains on the published schedule."
+	return out
 }
 
 // TeamData assembles the team terminal, now the lineup surface (WP-R1):
