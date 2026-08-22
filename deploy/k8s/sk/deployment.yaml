@@ -91,7 +91,7 @@ spec:
             - name: COMMISSIONER_INSTANCE_ID
               value: "skl"
             - name: COMMISSIONER_HQ_PEERS
-              value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local"
+              value: "g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://gridiron.draco.quest"
           volumeMounts:
             - name: data
               mountPath: /app/data

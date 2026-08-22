@@ -263,6 +263,13 @@ links. Each peer serves only the typed, PII-free
 `/api/commissioner/v2/summary` contract, and its response must identify the
 peer and return the configured normalized public origin.
 
+The tracked two-instance topology uses these canonical, cross-checked IDs and origins (the token remains in each Deployment Secret):
+
+- Flagship: `COMMISSIONER_INSTANCE_ID=g2k`; peer `skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest`.
+- Stable Kernel: `COMMISSIONER_INSTANCE_ID=skl`; peer `g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://gridiron.draco.quest`.
+
+The left origin is server-only service DNS; the right origin is the exact trusted browser-facing host. Keep the two values paired when changing either Deployment.
+
 Generate one newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least
 256 bits and place the identical value in both participating existing
 application Secrets *before either Deployment rolls*. Do not reuse
