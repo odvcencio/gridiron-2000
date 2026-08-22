@@ -1740,9 +1740,27 @@ func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
+	return s.draftData(r, false)
+}
+
+// DraftDataReadOnly returns the same authoritative draft view without
+// provisioning a signed-in member. Fragment polling is a read path: opening a
+// draft tab must never create membership or rewrite league persistence.
+func (s *Service) DraftDataReadOnly(r *http.Request) map[string]any {
+	return s.draftData(r, true)
+}
+
+func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	now := s.clock()
-	viewer := s.Viewer(r)
-	state := s.store.Snapshot()
+	var viewer map[string]any
+	var state PersistedState
+	if readOnly {
+		state = s.store.Snapshot()
+		viewer = s.viewerReadOnly(r, state)
+	} else {
+		viewer = s.Viewer(r)
+		state = s.store.Snapshot()
+	}
 	pool := s.pool()
 	// Resolved once for the whole render: up to hundreds of players render
 	// per page, and scoreBreakdown would otherwise snapshot store state once

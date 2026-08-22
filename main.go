@@ -20,6 +20,7 @@ import (
 	_ "time/tzdata"
 
 	commissionerpage "gridiron-2000/app/commissioner"
+	draftpage "gridiron-2000/app/draft"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/fantasy"
@@ -339,6 +340,8 @@ func main() {
 		return wirepage.PulseData(signalFeed), nil
 	})
 	app.Mount("GET /commissioner/fragment", commissionerpage.FragmentHandler(hqService))
+	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
