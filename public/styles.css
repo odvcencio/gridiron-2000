@@ -6235,3 +6235,18 @@ body.is-on-clock .draft-clock-panel {
     animation: none !important;
   }
 }
+
+
+.commissioner-hq__fleet-region,
+.commissioner-hq__readout {
+  min-width: 0;
+}
+
+.commissioner-hq__refresh-status {
+  margin: 0 0 var(--space-3);
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}

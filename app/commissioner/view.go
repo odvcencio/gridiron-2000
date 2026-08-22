@@ -455,14 +455,22 @@ func qualifiedAdminURL(publicURL, section string) string {
 }
 
 func safePeerError(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
 		return "No response from this league."
-	}
-	if strings.IndexByte(value, 10) >= 0 || strings.IndexByte(value, 13) >= 0 {
+	case "league unavailable", "league unavailable.":
+		return "League unavailable."
+	case "timed out", "timed out.", "request timed out", "request timed out.":
+		return "Request timed out."
+	case "trust mismatch", "trust mismatch.":
+		return "Trust mismatch."
+	case "federation not enabled", "federation not enabled.":
+		return "Federation not enabled."
+	case "incompatible summary", "incompatible summary.":
+		return "Incompatible summary."
+	default:
 		return "League unavailable."
 	}
-	return value
 }
 
 func hostLabel(raw string) string {
