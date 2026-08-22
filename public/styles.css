@@ -4714,6 +4714,45 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 38rem) {
+  /* Native controls that are deliberately compact on pointer layouts still
+     need a dependable finger-sized target on phones. File inputs need their
+     visible chooser button sized separately from the input box. */
+  .page button,
+  .page select,
+  .page textarea,
+  .page input:not([type]),
+  .page input[type="text"],
+  .page input[type="email"],
+  .page input[type="number"],
+  .page input[type="search"],
+  .page input[type="url"],
+  .page input[type="file"] {
+    min-height: 2.75rem;
+  }
+
+  .page button {
+    min-width: 2.75rem;
+  }
+
+  .page label:has(input[type="checkbox"]) {
+    min-height: 2.75rem;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-xs);
+    cursor: pointer;
+  }
+
+  .page input[type="checkbox"] {
+    width: 1.125rem;
+    height: 1.125rem;
+  }
+
+  .page input[type="file"]::file-selector-button {
+    min-height: 2.75rem;
+    margin-right: var(--space-xs);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
   .minimal-bar {
     width: calc(100% - var(--space-md));
     gap: var(--space-sm);
@@ -5134,7 +5173,10 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 78rem) {
-  .admin-page .draft-masthead {
+  .hero-command,
+  .page-masthead,
+  .draft-masthead,
+  .login-stage {
     min-height: auto;
     grid-template-columns: 1fr;
     gap: var(--space-xl);

@@ -81,7 +81,7 @@ func TestCommissionerTaskMapCSSIsResponsiveAndReachable(t *testing.T) {
 		"min-height: 5rem",
 		"scroll-margin-top: 20rem",
 		"@media (max-width: 78rem)",
-		".admin-page .draft-masthead",
+		".draft-masthead",
 		"position: static",
 		"@media (max-width: 38rem)",
 		"grid-template-columns: 1fr",

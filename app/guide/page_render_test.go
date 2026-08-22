@@ -114,3 +114,17 @@ func TestGuideStylesCoverInformationAndNarrowNavigation(t *testing.T) {
 		}
 	}
 }
+
+func TestGuideLoaderProvidesSharedLayoutIdentity(t *testing.T) {
+	source, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatalf("read guide loader: %v", err)
+	}
+	loader := string(source)
+	if !strings.Contains(loader, "league.Default().StaticPageData(ctx.Request)") {
+		t.Fatal("guide loader must provide the viewer and league identity required by the shared layout")
+	}
+	if strings.Contains(loader, "return map[string]any{}, nil") {
+		t.Fatal("guide loader still returns an empty map, which renders blank shared navigation identity")
+	}
+}
