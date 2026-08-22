@@ -292,6 +292,26 @@ func TestFaabRemainingDerivesFromClaimBids(t *testing.T) {
 	}
 }
 
+func TestFaabUnitsRendersNonCurrencyUnits(t *testing.T) {
+	cases := []struct {
+		amount int
+		want   string
+	}{
+		{amount: 50, want: "50 FAAB"},
+		{amount: 1, want: "1 FAAB"},
+		{amount: 0, want: "0 FAAB"},
+	}
+	for _, c := range cases {
+		got := faabUnits(c.amount)
+		if got != c.want {
+			t.Fatalf("faabUnits(%d) = %q, want %q", c.amount, got, c.want)
+		}
+		if bytes.ContainsRune([]byte(got), '$') {
+			t.Fatalf("faabUnits(%d) = %q, must never contain a currency symbol", c.amount, got)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------
 // Daily run-instant arithmetic
 // ---------------------------------------------------------------------
@@ -535,7 +555,7 @@ func TestFileClaimFaabOverBudget(t *testing.T) {
 	svc.cfg.Waivers.FAABBudget = 100
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
 	_, err := svc.FileClaim(request, "team-2", "wv-open", waiversTeam2DropID, 150)
-	want := "your bid exceeds your remaining budget ($100 left)"
+	want := "your bid exceeds your remaining budget (100 FAAB left)"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}
@@ -1044,7 +1064,7 @@ func TestProcessWaiversFAABBudgetExceededAtProcessingFails(t *testing.T) {
 			won++
 		case "failed":
 			failed++
-			want := "your bid exceeds your remaining budget ($20 left)"
+			want := "your bid exceeds your remaining budget (20 FAAB left)"
 			if r.Reason != want {
 				t.Fatalf("failure reason = %q, want %q", r.Reason, want)
 			}
