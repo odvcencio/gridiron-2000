@@ -51,10 +51,14 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 	pool.Actual = actual
 	pool.Players = actual
 	pool.RosterCapacity = rosterCapacity
-	pool.Cushion = actual - rosterCapacity
+	pool.Cushion = max(0, actual-rosterCapacity)
+	pool.Shortfall = max(0, rosterCapacity-actual)
 	pool.ActualCoverage = 0
 	pool.TargetCoverage = 0
 	pool.RosterCoverage = 0
+	// ActualCoverage is the synchronized share of the planning target.
+	// TargetCoverage is the planning target relative to operational roster
+	// capacity. RosterCoverage is the synchronized share of that capacity.
 	if pool.Target > 0 {
 		pool.ActualCoverage = float64(actual) / float64(pool.Target)
 	}
@@ -109,10 +113,6 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		attention.Add("persistence_unavailable", commissionerhq.AttentionSeverityCritical, 1,
 			"League persistence needs operator attention.", commissionerhq.AttentionAreaRuntime)
 	}
-	poolTarget := pool.Target
-	if poolTarget < rosterCapacity {
-		poolTarget = rosterCapacity
-	}
 	switch {
 	case pool.Mode != "live" && pool.Mode != "cache":
 		attention.Add("pool_unavailable", commissionerhq.AttentionSeverityCritical, 1,
@@ -120,9 +120,13 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 	case pool.Error != "":
 		attention.Add("pool_degraded", commissionerhq.AttentionSeverityWarning, 1,
 			"The player pool is usable, but its latest refresh is degraded.", commissionerhq.AttentionAreaPool)
-	case actual < poolTarget:
-		attention.Add("pool_shortfall", commissionerhq.AttentionSeverityCritical, poolTarget-actual,
-			fmt.Sprintf("The player pool is %d players short of its target.", poolTarget-actual), commissionerhq.AttentionAreaPool)
+	}
+	if actual < rosterCapacity {
+		attention.Add("pool_shortfall", commissionerhq.AttentionSeverityCritical, pool.Shortfall,
+			fmt.Sprintf("The player pool is %d players short of draft roster capacity.", pool.Shortfall), commissionerhq.AttentionAreaPool)
+	} else if pool.Target > actual {
+		attention.Add("pool_target_gap", commissionerhq.AttentionSeverityInfo, pool.Target-actual,
+			fmt.Sprintf("The player pool is %d players below its planning target; roster capacity is covered.", pool.Target-actual), commissionerhq.AttentionAreaPool)
 	}
 	if unclaimed := len(teams) - claimedSeats; unclaimed > 0 {
 		attention.Add("unclaimed_seats", commissionerhq.AttentionSeverityWarning, unclaimed,

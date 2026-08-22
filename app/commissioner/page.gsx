@@ -35,6 +35,9 @@ func Page() Node {
 							<div class="pool-toolbar"><div><span class="section-index">{card.peer_id}</span><h2>League unavailable</h2></div></div>
 							<p class="error-message">{card.error}</p>
 							<p class="scoring-note">The other leagues remain independent. Retry later or open that league directly.</p>
+							<div class="draft-clock-meta">
+								<a href={card.public_url}>Open {card.peer_id} directly →</a>
+							</div>
 						</If>
 						<If cond={card.available}>
 							<div class="pool-toolbar"><div>
