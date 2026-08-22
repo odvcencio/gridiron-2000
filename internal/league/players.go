@@ -48,7 +48,8 @@ func playerMatchesQuery(player Player, query string) bool {
 func (s *Service) PlayersData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
-	canEdit := s.viewerKey(r) != ""
+	hasSeat, _ := viewer["has_seat"].(bool)
+	canEdit := hasSeat
 	state := s.store.Snapshot()
 	pool := s.pool()
 	scoringValues := s.currentScoringValues()

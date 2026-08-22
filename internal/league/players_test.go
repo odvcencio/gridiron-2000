@@ -3,8 +3,11 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
+
+	"m31labs.dev/gosx/auth"
 )
 
 // playersFixturePool is the WP-R3 add/drop fixture pool: three players
@@ -268,6 +271,9 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
 	data := svc.PlayersData(request)
+	if canEdit, _ := data["can_edit"].(bool); !canEdit {
+		t.Fatal("the demo viewer owns a seat and must be allowed to manage players")
+	}
 	if open, _ := data["free_agency_open"].(bool); !open {
 		t.Fatal("free_agency_open must be true once the draft completes")
 	}
@@ -288,6 +294,58 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	}
 	if atCap, _ := data["at_cap"].(bool); !atCap {
 		t.Fatal("at_cap must be true for team-1 (3 of 3 spots filled)")
+	}
+}
+
+// TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage checks the
+// invitation-to-seat gap explicitly: authentication grants pool visibility,
+// while roster and waiver controls require an actual franchise seat.
+func TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	svc.demoMode = false
+
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: "invited-viewer", Email: "invited@example.com", Name: "Invited Viewer"}, true
+		}),
+	})
+	var data map[string]any
+	handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data = svc.PlayersData(r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/players", nil))
+
+	viewer, _ := data["viewer"].(map[string]any)
+	if signedIn, _ := viewer["signed_in"].(bool); !signedIn {
+		t.Fatal("fixture must exercise a signed-in viewer")
+	}
+	if hasSeat, _ := viewer["has_seat"].(bool); hasSeat {
+		t.Fatal("an invited viewer without a claimed franchise must remain seatless")
+	}
+	if canEdit, _ := data["can_edit"].(bool); canEdit {
+		t.Fatal("authentication alone must not grant roster or waiver controls")
+	}
+	if teamID, _ := viewer["team_id"].(string); teamID != "" {
+		t.Fatalf("seatless team_id = %q, want empty", teamID)
+	}
+
+	rows, _ := data["players"].([]map[string]any)
+	if len(rows) == 0 {
+		t.Fatal("seatless viewers must still be able to browse the player pool")
+	}
+	for _, row := range rows {
+		for _, capability := range []string{"can_add", "can_claim", "mine", "claimed_by_me"} {
+			if enabled, _ := row[capability].(bool); enabled {
+				t.Fatalf("seatless row %v unexpectedly enables %s", row["name"], capability)
+			}
+		}
+	}
+	order, _ := data["waiver_order"].([]map[string]any)
+	for _, row := range order {
+		if mine, _ := row["mine"].(bool); mine {
+			t.Fatal("seatless viewers must not be assigned a place in the waiver order")
+		}
 	}
 }
 
