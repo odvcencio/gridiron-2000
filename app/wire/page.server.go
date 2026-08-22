@@ -221,8 +221,6 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"injury_rows":      openStatus.Injuries.Rows,
 		"injury_updated":   displayTime(openStatus.Injuries.LastUpdated),
 		"season":           openStatus.Season,
-		"license":          openStatus.License,
-		"attribution_url":  openStatus.AttributionURL,
 		"refresh_seconds":  20,
 	}
 }

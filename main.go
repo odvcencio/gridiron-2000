@@ -453,6 +453,7 @@ func requireLeagueSession(next http.Handler) http.Handler {
 func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) http.Handler {
 	open := map[string]bool{
 		"/": true, "/guide": true, "/login": true, "/privacy": true, "/terms": true,
+		"/open-source": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if demoMode != nil && demoMode() {

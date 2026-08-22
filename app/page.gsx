@@ -135,16 +135,6 @@ func Page() Node {
 							explore every page without signing in.
 						</p>
 					</If>
-					<div class="oss-invite">
-						<span class="section-index">RUN YOUR OWN</span>
-						<p>
-							This whole league room is open source: GoSX server, snake draft, {data.league.format_blurb}, team-seat big boards, a player pool with optional live data, and a commissioner console. One Go binary, your own data, MIT licensed.
-						</p>
-						<div class="hero-actions">
-							<a href="https://github.com/odvcencio/gridiron-2000" rel="noreferrer" class="button button--compact">Get the source ↗</a>
-							<a href="https://github.com/odvcencio/gosx" rel="noreferrer" class="button button--compact">Built with GoSX ↗</a>
-						</div>
-					</div>
 				</div>
 				<aside class="draft-transmission" aria-labelledby="draft-event-heading-public">
 					<div class="transmission-top">
