@@ -15,7 +15,6 @@ import (
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/openstats"
 	"gridiron-2000/internal/wire"
-	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/server"
 )
 
@@ -151,7 +150,7 @@ func requireLeagueAccess(next http.Handler) http.Handler {
 			next.ServeHTTP(writer, request)
 			return
 		}
-		if _, ok := auth.Current(request); !ok {
+		if _, ok := league.Default().CurrentUser(request); !ok {
 			writer.Header().Set("Cache-Control", "no-store")
 			http.Error(writer, "Google sign-in is required", http.StatusUnauthorized)
 			return

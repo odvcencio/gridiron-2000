@@ -204,19 +204,34 @@ Two paths work; use either or both:
 The commissioner console also releases seats and resets the draft or the
 whole league (type RESET to confirm).
 
-### Commissioner identities are an explicit operator allowlist
+### Commissioner identities and explicit aliases
 
 `COMMISSIONER_EMAILS` is independent from `LEAGUE_ALLOWED_EMAILS`: it grants
-the named Google identities access to `/admin`, Commissioner HQ, and the
-commissioner-only controls. Values are comma-separated, case-insensitive, and
-trimmed. Add an operator to the list; do not replace an existing address just
-because the operator has a newer Google identity.
+the named canonical Google identities access to `/admin`, Commissioner HQ,
+and commissioner-only controls. Values are comma-separated, case-insensitive,
+and trimmed.
 
-For the paired Draco deployment, `commissioner@example.com` must be present in both
-application Secrets. The Stable Kernel example deliberately retains the
-existing `commissioner.alias@example.org` identity alongside it. The
-tracked examples are the source-of-truth shape for this pairing; the applied
-Secret values remain untracked and must never be committed or printed.
+When one person has multiple permitted Google identities, keep the canonical
+identity in `COMMISSIONER_EMAILS` and add a one-way mapping in
+`IDENTITY_ALIASES`:
+
+```dotenv
+COMMISSIONER_EMAILS=commissioner.alias@example.org
+IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org
+```
+
+The alias is checked against the raw league domain/allowlist/invite policy
+first. The mapping then unifies seat ownership, co-manager bindings, Big
+Board, Pick'em, Blitz, notification preferences, sessions, and audit
+attribution. Do not use chained mappings or map two canonical identities
+together; the process fails closed on those configurations.
+
+On first boot after enabling a mapping, the store idempotently migrates
+internal alias-keyed records. It merges only compatible duplicate records and
+refuses startup on conflicting seats, roles, picks, or preferences. Admission
+invite records remain raw emails by design. Review `StartupError` and the
+state database before retrying a conflict; no live data mutation is performed
+by the application until the migration passes.
 
 After changing the applied list, roll each Deployment through the normal
 SK-first release gate. A Secret update alone does not alter an already-running
