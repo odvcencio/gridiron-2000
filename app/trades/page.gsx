@@ -35,8 +35,8 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>SIGN IN REQUIRED:</strong>
-					use League access to propose or respond to trades for your seat.
+					<strong>TEAM SEAT REQUIRED:</strong>
+					claim a franchise before proposing or responding to trades.
 				</p>
 			</If>
 		</div>
@@ -47,21 +47,35 @@ func Page() Node {
 					<h2>Propose a trade</h2>
 				</div>
 			</div>
-			<div class="position-filters" aria-label="Choose a trade partner">
-				<Each of={data.counterparties} as="team">
-					<a href={"/trades?counterparty=" + team.ID} data-gosx-link class="filter-button" aria-current={team.ID == data.compose_counterparty_id}>{team.Name}</a>
-				</Each>
-			</div>
-			<If cond={data.compose_active == false}>
+			<If cond={data.can_edit == false}>
 				<div class="empty-tape">
-					<strong>CHOOSE A TRADE PARTNER</strong>
-					<p>
-						Pick a team above to build an offer against their roster.
-					</p>
+					<strong>CLAIM A TEAM TO OPEN THE TRADE DESK</strong>
+					<p>Your manager account is active, but trades require a franchise seat and roster.</p>
+					<a href="/join" data-gosx-link>Choose your franchise →</a>
 				</div>
 			</If>
-			<If cond={data.compose_active}>
-				<form method="post" action={actionPath("trade-propose")} data-gosx-managed="true" class="trade-composer">
+			<If cond={data.can_edit}>
+				<div class="position-filters" aria-label="Choose a trade partner">
+					<Each of={data.counterparties} as="team">
+						<a href={"/trades?counterparty=" + team.ID} data-gosx-link class="filter-button" aria-current={team.ID == data.compose_counterparty_id}>{team.Name}</a>
+					</Each>
+				</div>
+				<If cond={data.counterparties_empty}>
+					<div class="empty-tape">
+						<strong>NO MANAGED TRADE PARTNERS YET</strong>
+						<p>Other franchises appear here after their managers claim them.</p>
+					</div>
+				</If>
+				<If cond={data.counterparties_empty == false}>
+					<If cond={data.compose_active == false}>
+						<div class="empty-tape">
+							<strong>CHOOSE A TRADE PARTNER</strong>
+							<p>Pick a managed team above to build an offer against its current roster.</p>
+						</div>
+					</If>
+				</If>
+				<If cond={data.compose_active}>
+					<form method="post" action={actionPath("trade-propose")} data-gosx-managed="true" class="trade-composer">
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<input type="hidden" name="to_team_id" value={data.compose_counterparty_id}></input>
@@ -96,7 +110,8 @@ func Page() Node {
 						<textarea name="note" maxlength={data.note_max} rows="2" placeholder="Add a note for the other manager..."></textarea>
 					</label>
 					<button class="draft-button" type="submit">Send offer</button>
-				</form>
+					</form>
+				</If>
 			</If>
 		</section>
 		<section class="player-pool" id="inbox">
