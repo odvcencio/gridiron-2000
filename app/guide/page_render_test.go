@@ -108,7 +108,7 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"Pick&#39;em",
 		"Signal Wire",
 		"CURRENT, SAVED, or BUILT-IN",
-		"target coverage",
+		"enough players to draft from",
 		"The pool holds more players than the draft needs.",
 		"Commissioner HQ",
 		"No automated migration exists.",
