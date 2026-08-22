@@ -2646,6 +2646,48 @@ button.badge-option:hover {
   font-size: var(--type-xl);
 }
 
+.admin-league-switcher {
+  display: grid;
+  gap: var(--space-xs);
+  margin-block-end: var(--space-sm);
+  padding-block-end: var(--space-md);
+  border-block-end: 1px solid var(--color-border);
+}
+
+.admin-league-switcher__heading,
+.admin-league-switcher__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.admin-league-switcher__heading {
+  justify-content: space-between;
+  color: var(--color-text-muted);
+  font: 600 var(--type-xs)/1.2 var(--font-mono);
+  text-transform: uppercase;
+}
+
+.admin-league-switcher__heading a {
+  color: var(--color-accent-cyan);
+  text-decoration: none;
+}
+
+.admin-league-switcher__heading a:hover,
+.admin-league-switcher__heading a:focus-visible {
+  text-decoration: underline;
+}
+
+.admin-league-switcher__controls select {
+  min-width: 0;
+  flex: 1;
+}
+
+.admin-league-switcher__controls .board-button {
+  min-block-size: 2.75rem;
+  flex: 0 0 auto;
+}
+
 .draft-clock-meta {
   display: flex;
   justify-content: space-between;
@@ -6262,6 +6304,16 @@ body.is-on-clock .draft-clock-panel {
   }
 
   .commissioner-hq__links a {
+    width: 100%;
+  }
+
+  .admin-league-switcher__controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .admin-league-switcher__controls select,
+  .admin-league-switcher__controls .board-button {
     width: 100%;
   }
 }
