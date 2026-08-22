@@ -3246,7 +3246,46 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .invite-row {
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(12rem, 1fr) auto minmax(0, auto);
+}
+
+.invite-identity {
+  min-width: 0;
+}
+
+.invite-identity > b,
+.invite-identity > small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.invite-identity > small {
+  margin: 0.15rem 0 0.35rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.invite-actions,
+.invite-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.invite-actions {
+  justify-content: flex-end;
+}
+
+@media (max-width: 44rem) {
+  .invite-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .invite-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
 }
 
 .invite-form {
