@@ -5283,6 +5283,48 @@ body.is-on-clock .draft-clock-panel {
   max-width: 32rem;
 }
 
+.join-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-xs);
+  max-width: 54rem;
+  margin: 0 0 var(--space-lg);
+}
+
+.join-step {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.join-step > span {
+  color: var(--color-accent-cyan);
+  font-size: var(--type-xs);
+  letter-spacing: 0.05em;
+}
+
+.join-step > strong {
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+}
+
+.join-step > small,
+.signup-form__field small,
+.signup-form__help {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.45;
+}
+
+.signup-form__help {
+  max-width: 32rem;
+  margin: calc(var(--space-xs) * -0.5) 0 0;
+}
+
 .signup-form__field {
   display: flex;
   flex-direction: column;
@@ -5303,6 +5345,12 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-sm);
   text-transform: none;
   letter-spacing: normal;
+}
+
+@media (max-width: 50rem) {
+  .join-steps {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* .badge-option--pick reuses .badge-option's card look (styles.css's
