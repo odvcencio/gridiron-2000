@@ -65,6 +65,87 @@ func draftRedirectTarget(pos, query, page string) string {
 	return "/draft"
 }
 
+type draftBreakdownRowView struct {
+	Scored bool
+	Label  string
+	Calc   string
+	Points string
+}
+
+type draftPlayerCardView struct {
+	ID              string
+	Name            string
+	Position        string
+	NFLTeam         string
+	Projection      string
+	Rank            string
+	Detail          string
+	Headshot        string
+	HasHeadshot     bool
+	Jersey          string
+	HasBreakdown    bool
+	Breakdown       []draftBreakdownRowView
+	BreakdownTotal  string
+	HasHist         bool
+	Hist            string
+	Search          string
+	HasDraftCapital bool
+	DraftCapital    string
+	HasOpponent     bool
+	Opponent        string
+	HasMatchup      bool
+	MatchupTier     string
+	MatchupChip     string
+	MatchupDetail   string
+}
+
+func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
+	out := make([]draftBreakdownRowView, 0, len(raw))
+	for _, row := range raw {
+		out = append(out, draftBreakdownRowView{
+			Scored: boolField(row, "scored"),
+			Label:  stringField(row, "label"),
+			Calc:   stringField(row, "calc"),
+			Points: stringField(row, "points"),
+		})
+	}
+	return out
+}
+
+func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
+	out := make([]draftPlayerCardView, 0, len(raw))
+	for _, player := range raw {
+		breakdown, _ := player["breakdown"].([]map[string]any)
+		out = append(out, draftPlayerCardView{
+			ID:              stringField(player, "id"),
+			Name:            stringField(player, "name"),
+			Position:        stringField(player, "position"),
+			NFLTeam:         stringField(player, "nfl_team"),
+			Projection:      stringField(player, "projection"),
+			Rank:            stringField(player, "rank"),
+			Detail:          stringField(player, "detail"),
+			Headshot:        stringField(player, "headshot"),
+			HasHeadshot:     boolField(player, "has_headshot"),
+			Jersey:          stringField(player, "jersey"),
+			HasBreakdown:    boolField(player, "has_breakdown"),
+			Breakdown:       draftBreakdownProps(breakdown),
+			BreakdownTotal:  stringField(player, "breakdown_total"),
+			HasHist:         boolField(player, "has_hist"),
+			Hist:            stringField(player, "hist"),
+			Search:          stringField(player, "search"),
+			HasDraftCapital: boolField(player, "has_draft_capital"),
+			DraftCapital:    stringField(player, "draft_capital"),
+			HasOpponent:     boolField(player, "has_opponent"),
+			Opponent:        stringField(player, "opponent"),
+			HasMatchup:      boolField(player, "has_matchup"),
+			MatchupTier:     stringField(player, "matchup_tier"),
+			MatchupChip:     stringField(player, "matchup_chip"),
+			MatchupDetail:   stringField(player, "matchup_detail"),
+		})
+	}
+	return out
+}
+
 // draftTeamProps converts DraftData's map[string]any "teams" slice into
 // typed DraftTeamCard values so the draft-room grid's {...team} spread
 // into strict DraftTeam proves clean: the tier-2 spread boundary rejects a
@@ -98,6 +179,9 @@ func init() {
 			data := league.Default().DraftData(ctx.Request)
 			if teams, ok := data["teams"].([]map[string]any); ok {
 				data["teams"] = draftTeamProps(teams)
+			}
+			if players, ok := data["available"].([]map[string]any); ok {
+				data["available"] = draftPlayerProps(players)
 			}
 			data["has_notice"] = false
 			data["notice"] = ""

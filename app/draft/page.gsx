@@ -1,10 +1,71 @@
 package draft
 
+type DraftBreakdownRow struct {
+	Scored bool
+	Label  string
+	Calc   string
+	Points string
+}
+
+type DraftPlayerCard struct {
+	ID              string
+	Name            string
+	Position        string
+	NFLTeam         string
+	Projection      string
+	Rank            string
+	Detail          string
+	Headshot        string
+	HasHeadshot     bool
+	Jersey          string
+	HasBreakdown    bool
+	Breakdown       []DraftBreakdownRow
+	BreakdownTotal  string
+	HasHist         bool
+	Hist            string
+	Search          string
+	HasDraftCapital bool
+	DraftCapital    string
+	HasOpponent     bool
+	Opponent        string
+	HasMatchup      bool
+	MatchupTier     string
+	MatchupChip     string
+	MatchupDetail   string
+}
+
+type DraftQueueProps struct {
+	Players       []DraftPlayerCard
+	Action        string
+	CSRF          string
+	TeamID        string
+	CanPick       bool
+	HasSeat       bool
+	Position      string
+	Query         string
+	Page          int
+	Total         int
+	Start          int
+	End            int
+	HasPrevious   bool
+	HasNext       bool
+	PreviousHref  string
+	NextHref      string
+	AllHref       string
+	RBHref        string
+	WRHref        string
+	QBHref        string
+	TEHref        string
+	KHref         string
+	DSTHref       string
+	PHref         string
+}
+
 // DraftQueue is deliberately server-first. The previous island rendered the
 // entire live pool into the initial document and then filtered it in-browser.
 // GET filters and bounded pages keep search useful without JavaScript, keep the
 // draft update poll authoritative, and make the first paint usable on a phone.
-func DraftQueue(props any) Node {
+func DraftQueue(props DraftQueueProps) Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar">
 			<div>
@@ -102,6 +163,7 @@ func DraftQueue(props any) Node {
 					</div>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
+					<If cond={props.HasSeat}>
 					<form method="post" action={props.Action} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
@@ -116,6 +178,7 @@ func DraftQueue(props any) Node {
 							<button class="draft-button" type="button" disabled="disabled">Locked</button>
 						</If>
 					</form>
+					</If>
 				</article>
 			</Each>
 		</div>
@@ -369,6 +432,7 @@ func Page() Node {
 						</div>
 						<a href="/board" data-gosx-link class="board-button">Open board →</a>
 					</div>
+					<If cond={data.viewer.has_seat}>
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
@@ -377,6 +441,17 @@ func Page() Node {
 						</div>
 						<a href="#ready-toggle" class="board-button">Ready toggle ↑</a>
 					</div>
+					</If>
+					<If cond={data.viewer.has_seat == false}>
+					<div class="checklist-item">
+						<span class="checklist-mark mono">02</span>
+						<div class="checklist-item__text">
+							<strong>Claim a franchise</strong>
+							<small>A team seat unlocks draft check-in, autopick, and picks when the commissioner starts the room.</small>
+						</div>
+						<a href="/join" data-gosx-link class="board-button">Claim franchise →</a>
+					</div>
+					</If>
 					<div class="checklist-item">
 						<span class="checklist-mark mono">03</span>
 						<div class="checklist-item__text">
@@ -384,6 +459,7 @@ func Page() Node {
 							<small>One click anywhere on the page arms the on-clock chime for your turn.</small>
 						</div>
 					</div>
+					<If cond={data.viewer.has_seat}>
 					<div class="checklist-item">
 						<span class="checklist-mark mono">04</span>
 						<div class="checklist-item__text">
@@ -392,6 +468,7 @@ func Page() Node {
 						</div>
 						<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
 					</div>
+					</If>
 				</div>
 			</section>
 		</If>
@@ -478,6 +555,7 @@ func Page() Node {
 				CSRF={csrf.token}
 				TeamID={data.on_clock_id}
 				CanPick={data.can_pick}
+				HasSeat={data.viewer.has_seat}
 				Position={data.pool_position}
 				Query={data.pool_query}
 				Page={data.pool_page}
