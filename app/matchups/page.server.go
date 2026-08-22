@@ -28,6 +28,9 @@ import (
 // exact name here would collide with it.
 type MatchupCardData struct {
 	ID                 string
+	State              string
+	ShowLiveIndicator  bool
+	LiveIndicator      string
 	Status             string
 	Clock              string
 	AwayID             string
@@ -71,6 +74,9 @@ func matchupsPageCards(raw []map[string]any) []MatchupCardData {
 		home, _ := entry["home"].(map[string]any)
 		out = append(out, MatchupCardData{
 			ID:                 stringField(entry, "id"),
+			State:              stringField(entry, "state"),
+			ShowLiveIndicator:  boolField(entry, "show_live_indicator"),
+			LiveIndicator:      stringField(entry, "live_indicator"),
 			Status:             stringField(entry, "status"),
 			Clock:              stringField(entry, "clock"),
 			AwayID:             stringField(away, "id"),
@@ -106,8 +112,8 @@ func init() {
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
-				Title:       server.Title{Default: league.PageTitle("Live Matchups")},
-				Description: "Live fantasy scores, updated every minute.",
+				Title:       server.Title{Default: league.PageTitle("Matchups")},
+				Description: "Fantasy matchup schedules, scoring status, and final results.",
 			}, nil
 		},
 	}); err != nil {

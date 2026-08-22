@@ -28,11 +28,13 @@ type MatchupTeamCard struct {
 // MatchupCard is the typed data.featured entry MiniMatchup's legacy body
 // reads (ID, Status, Clock) and spreads (Away, Home) into TeamMark.
 type MatchupCard struct {
-	ID     string
-	Status string
-	Clock  string
-	Away   MatchupTeamCard
-	Home   MatchupTeamCard
+	ID                string
+	State             string
+	ShowLiveIndicator bool
+	Status            string
+	Clock             string
+	Away              MatchupTeamCard
+	Home              MatchupTeamCard
 }
 
 // StandingTeamCard is the typed data.divisions[].teams entry StandingRow
@@ -85,11 +87,13 @@ func dashboardMatchupCards(raw []map[string]any) []MatchupCard {
 		away, _ := entry["away"].(map[string]any)
 		home, _ := entry["home"].(map[string]any)
 		out = append(out, MatchupCard{
-			ID:     stringField(entry, "id"),
-			Status: stringField(entry, "status"),
-			Clock:  stringField(entry, "clock"),
-			Away:   matchupTeamCardFromMap(away),
-			Home:   matchupTeamCardFromMap(home),
+			ID:                stringField(entry, "id"),
+			State:             stringField(entry, "state"),
+			ShowLiveIndicator: boolField(entry, "show_live_indicator"),
+			Status:            stringField(entry, "status"),
+			Clock:             stringField(entry, "clock"),
+			Away:              matchupTeamCardFromMap(away),
+			Home:              matchupTeamCardFromMap(home),
 		})
 	}
 	return out
