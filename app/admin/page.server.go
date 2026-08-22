@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
 	"strconv"
@@ -67,12 +68,11 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				if started {
-					session.AddFlash(ctx.Request, "notice", "Draft started. Pick one is on the clock.")
-				} else {
-					session.AddFlash(ctx.Request, "notice", "Draft was already live; the original clock is unchanged.")
+				message := "Draft started. Pick one is on the clock."
+				if !started {
+					message = "Draft was already live; the original clock is unchanged."
 				}
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", message)
 				return nil
 			},
 			"invite-add": func(ctx *action.Context) error {
@@ -80,8 +80,7 @@ func init() {
 				if err := league.Default().AdminAddInvite(ctx.Request, email); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", email+" can now claim a seat.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", email+" can now claim a seat.")
 				return nil
 			},
 			"invite-send": func(ctx *action.Context) error {
@@ -90,20 +89,18 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				if sent {
-					session.AddFlash(ctx.Request, "notice", "Invite emailed to "+email)
-				} else {
-					session.AddFlash(ctx.Request, "notice", "Invite added — email is not configured, use the mail link.")
+				message := "Invite emailed to " + email
+				if !sent {
+					message = "Invite added — email is not configured, use the mail link."
 				}
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", message)
 				return nil
 			},
 			"invite-remove": func(ctx *action.Context) error {
 				if err := league.Default().AdminRemoveInvite(ctx.Request, ctx.FormData["email"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Invite removed.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Invite removed.")
 				return nil
 			},
 			"seat-release": func(ctx *action.Context) error {
@@ -111,8 +108,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", team.Name+" is unclaimed again.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is unclaimed again.")
 				return nil
 			},
 			// co-detach lets the commissioner remove a seat's co-manager,
@@ -121,8 +117,7 @@ func init() {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Co-manager detached.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Co-manager detached.")
 				return nil
 			},
 			"team-rename": func(ctx *action.Context) error {
@@ -130,16 +125,14 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", team.Name+" is set.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is set.")
 				return nil
 			},
 			"avatar-reset": func(ctx *action.Context) error {
 				if err := league.Default().ResetAvatar(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Avatar reset.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Avatar reset.")
 				return nil
 			},
 			"draft-reset": func(ctx *action.Context) error {
@@ -150,8 +143,7 @@ func init() {
 				if err := league.Default().AdminResetDraft(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				session.AddFlash(ctx.Request, "notice", "Draft picks and ready flags are cleared.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Draft picks and ready flags are cleared.")
 				return nil
 			},
 			"draft-undo": func(ctx *action.Context) error {
@@ -162,8 +154,7 @@ func init() {
 				if err := league.Default().AdminUndoPick(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Last pick undone; the slot is open again.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Last pick undone; the slot is open again.")
 				return nil
 			},
 			"league-reset": func(ctx *action.Context) error {
@@ -174,8 +165,7 @@ func init() {
 				if err := league.Default().AdminResetLeague(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				session.AddFlash(ctx.Request, "notice", "League state is fully reset: seats, picks, and boards.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "League state is fully reset: seats, picks, and boards.")
 				return nil
 			},
 			// seat-trim is the T-1hr action: drop every seat nobody claimed,
@@ -187,32 +177,28 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept)))
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept)))
 				return nil
 			},
 			"order-randomize": func(ctx *action.Context) error {
 				if err := league.Default().AdminRandomizeDraftOrder(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Draft order randomized.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Draft order randomized.")
 				return nil
 			},
 			"clock-pause": func(ctx *action.Context) error {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Pick clock paused.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock paused.")
 				return nil
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Pick clock resumed.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock resumed.")
 				return nil
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
@@ -220,8 +206,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},
 			"clock-extend": func(ctx *action.Context) error {
@@ -233,8 +218,7 @@ func init() {
 				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Clock extended by %d seconds.", secs))
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Clock extended by %d seconds.", secs))
 				return nil
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
@@ -246,8 +230,7 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick clock set to %d seconds.", secs))
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick clock set to %d seconds.", secs))
 				return nil
 			},
 			"clock-set-autopick": func(ctx *action.Context) error {
@@ -259,8 +242,7 @@ func init() {
 				if on {
 					status = "on"
 				}
-				session.AddFlash(ctx.Request, "notice", "Autopick is "+status+" for that seat.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Autopick is "+status+" for that seat.")
 				return nil
 			},
 			"roster-shape-apply": func(ctx *action.Context) error {
@@ -318,18 +300,16 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf(
+				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf(
 					"Roster shape set: %d starters + %d bench + %d reserve = %d draft rounds (IR %d, outside the cap).",
 					preset.Starters(), preset.Bench, preset.ReserveTotal(), preset.Total(), preset.IR))
-				ctx.Redirect("/admin")
 				return nil
 			},
 			"roster-shape-reset": func(ctx *action.Context) error {
 				if err := league.Default().AdminResetRosterShape(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Roster shape reset to the default.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Roster shape reset to the default.")
 				return nil
 			},
 			"announcement-post": func(ctx *action.Context) error {
@@ -337,16 +317,14 @@ func init() {
 				if _, err := league.Default().AdminPostAnnouncement(ctx.Request, ctx.FormData["body"], alsoEmail); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Announcement posted.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Announcement posted.")
 				return nil
 			},
 			"announcement-delete": func(ctx *action.Context) error {
 				if err := league.Default().AdminDeleteAnnouncement(ctx.Request, ctx.FormData["id"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Announcement removed.")
-				ctx.Redirect("/admin")
+				actionui.RedirectWithNotice(ctx, "/admin", "Announcement removed.")
 				return nil
 			},
 		},

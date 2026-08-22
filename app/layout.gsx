@@ -146,6 +146,13 @@ func Layout() Node {
 	return <div class="app-shell">
 		<a class="skip-link" href="#main-content">Skip to league content</a>
 		<div class="ambient-grid" aria-hidden="true"></div>
+		<div
+			class="toast-stack"
+			data-gosx-toast-host
+			aria-live="polite"
+			aria-relevant="additions"
+			aria-label="Action notifications"
+		></div>
 		<If cond={data.viewer.signed_in || data.viewer.demo}>
 			<aside
 				class="site-rail navigation-surface navigation-surface--desktop"

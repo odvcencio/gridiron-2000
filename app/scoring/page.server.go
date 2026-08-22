@@ -2,6 +2,7 @@ package scoring
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
 
@@ -100,8 +101,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"scoring": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", rule.Label+" updated.")
-				ctx.Redirect("/scoring")
+				actionui.RedirectWithNotice(ctx, "/scoring", rule.Label+" updated.")
 				return nil
 			},
 			"scoring-reset": func(ctx *action.Context) error {
@@ -112,8 +112,7 @@ func init() {
 				if err := league.Default().AdminResetScoring(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				session.AddFlash(ctx.Request, "notice", "Scoring restored to defaults.")
-				ctx.Redirect("/scoring")
+				actionui.RedirectWithNotice(ctx, "/scoring", "Scoring restored to defaults.")
 				return nil
 			},
 		},

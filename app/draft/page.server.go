@@ -2,6 +2,7 @@ package draft
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
 	"net/url"
@@ -135,10 +136,11 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
+				message := "Draft was already live; the original clock is unchanged."
 				if started {
-					session.AddFlash(ctx.Request, "notice", "Draft started. Pick one is on the clock.")
+					message = "Draft started. Pick one is on the clock."
 				}
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", message)
 				return nil
 			},
 			// The commissioner clock controls render on THIS page (the
@@ -152,16 +154,14 @@ func init() {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Pick clock paused.")
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock paused.")
 				return nil
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Pick clock resumed.")
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock resumed.")
 				return nil
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
@@ -169,8 +169,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},
 			"clock-extend": func(ctx *action.Context) error {
@@ -182,8 +181,7 @@ func init() {
 				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Clock extended by %d seconds.", secs))
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
 				return nil
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
@@ -195,8 +193,7 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick clock set to %d seconds.", secs))
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
 				return nil
 			},
 			"toggle-ready": func(ctx *action.Context) error {
@@ -208,8 +205,7 @@ func init() {
 				if ready {
 					status = "locked in"
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("%s is %s for draft night.", teamName, status))
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", teamName, status))
 				return nil
 			},
 			"make-pick": func(ctx *action.Context) error {
@@ -217,8 +213,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
-				ctx.Redirect(draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
+				actionui.RedirectWithNotice(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
@@ -230,8 +225,7 @@ func init() {
 				if on {
 					status = "on"
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
-				ctx.Redirect("/draft")
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
 				return nil
 			},
 		},
