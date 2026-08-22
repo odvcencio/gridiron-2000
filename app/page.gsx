@@ -232,9 +232,11 @@ func Page() Node {
 						<span>Season record</span>
 						<If cond={data.pickem_home.has_record}>
 							<strong class="mono">
-								{data.pickem_home.season_correct}
-								/
-								{data.pickem_home.season_total}
+								{data.pickem_home.season_wins}
+								-
+								{data.pickem_home.season_losses}
+								-
+								{data.pickem_home.season_pushes}
 							</strong>
 						</If>
 						<If cond={data.pickem_home.has_record == false}>

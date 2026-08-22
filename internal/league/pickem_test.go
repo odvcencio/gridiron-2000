@@ -13,11 +13,19 @@ import (
 //   - g-nextweek:  week 2, kicks off in 7 days.
 func pickemFixture(now time.Time) []GameInfo {
 	return []GameInfo{
-		{ID: "g-final", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "BUF", Home: "MIA", AwayScore: 24, HomeScore: 17, Final: true},
-		{ID: "g-locked", Week: 1, Kickoff: now.Add(-30 * time.Minute), Away: "DAL", Home: "PHI"},
-		{ID: "g-open", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN"},
-		{ID: "g-nextweek", Week: 2, Kickoff: now.Add(7 * 24 * time.Hour), Away: "SF", Home: "SEA"},
+		{ID: "g-final", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "BUF", Home: "MIA", AwayScore: 24, HomeScore: 17, Final: true, ScoresPresent: true, SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+		{ID: "g-locked", Week: 1, Kickoff: now.Add(-30 * time.Minute), Away: "DAL", Home: "PHI", SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+		{ID: "g-open", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+		{ID: "g-nextweek", Week: 2, Kickoff: now.Add(7 * 24 * time.Hour), Away: "SF", Home: "SEA", SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
 	}
+}
+
+func frozenPickemMarkets(games []GameInfo) map[string]PickemMarket {
+	markets := make(map[string]PickemMarket, len(games))
+	for _, game := range games {
+		markets[game.ID] = PickemMarket{LinePresent: true, Frozen: true, LockAt: game.Kickoff}
+	}
+	return markets
 }
 
 func TestPickemWeekSelection(t *testing.T) {
@@ -176,8 +184,8 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	data := service.PickemData(request)
 	board, ok := data["leaderboard"].([]PickemLeaderboardEntry)
-	if !ok || len(board) != 2 {
-		t.Fatalf("leaderboard = %+v, want 2 entries", data["leaderboard"])
+	if !ok || len(board) != 3 {
+		t.Fatalf("leaderboard = %+v, want all 3 weekly participants", data["leaderboard"])
 	}
 	if data["leaderboard_empty"] != false {
 		t.Error("leaderboard_empty should be false")
@@ -185,7 +193,7 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 
 	alice := board[0]
 	teamAbbr := service.teamAbbreviation("team-1")
-	if alice.Name != "Alice" || alice.Correct != 1 || alice.Total != 1 || alice.Rank != "01" {
+	if alice.Name != "Alice" || alice.Wins != 1 || alice.Losses != 1 || alice.Total != 2 || alice.Rank != "01" {
 		t.Fatalf("alice entry wrong: %+v", alice)
 	}
 	if alice.Team != teamAbbr {
@@ -193,14 +201,12 @@ func TestPickemLeaderboardRanking(t *testing.T) {
 	}
 
 	bob := board[1]
-	if bob.Name != "Bob" || bob.Correct != 0 || bob.Total != 1 || bob.Rank != "02" {
+	if bob.Name != "Bob" || bob.Wins != 0 || bob.Losses != 2 || bob.Total != 2 || bob.Rank != "02" {
 		t.Fatalf("bob entry wrong: %+v", bob)
 	}
 
-	for _, entry := range board {
-		if entry.Name == "Cara" {
-			t.Fatalf("a member with no final-game pick must not rank: %+v", entry)
-		}
+	if cara := board[2]; cara.Name != "Cara" || cara.Wins != 0 || cara.Losses != 2 {
+		t.Fatalf("Cara's open-game participation must expose the missed earlier game: %+v", cara)
 	}
 }
 
@@ -284,7 +290,7 @@ func TestSeatlessMemberPicksAppearsOnLeaderboardNoSeatAssigned(t *testing.T) {
 		t.Fatalf("leaderboard = %+v, want the seatless member's one entry", data["leaderboard"])
 	}
 	entry := board[0]
-	if entry.Name != "Sea Tless" || entry.Correct != 1 || entry.Total != 1 {
+	if entry.Name != "Sea Tless" || entry.Wins != 1 || entry.Losses != 1 || entry.Total != 2 {
 		t.Fatalf("seatless leaderboard entry wrong: %+v", entry)
 	}
 	if entry.Team != "" {
@@ -366,10 +372,10 @@ func TestPickemConsensusHiddenBeforeLockVisibleAfter(t *testing.T) {
 func TestPickemStreakMostRecentBackward(t *testing.T) {
 	now := time.Now()
 	games := []GameInfo{
-		{ID: "g1", Week: 1, Kickoff: now.Add(-96 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true}, // winner BBB
-		{ID: "g2", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true}, // winner CCC
-		{ID: "g3", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true}, // winner FFF
-		{ID: "g4", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "GGG", Home: "HHH", AwayScore: 20, HomeScore: 10, Final: true}, // winner GGG
+		{ID: "g1", Week: 1, Kickoff: now.Add(-96 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner BBB
+		{ID: "g2", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // winner CCC
+		{ID: "g3", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner FFF
+		{ID: "g4", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "GGG", Home: "HHH", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // winner GGG
 	}
 	picks := map[string]string{
 		"g1": "AAA", // wrong (winner BBB) — breaks the streak here
@@ -377,7 +383,7 @@ func TestPickemStreakMostRecentBackward(t *testing.T) {
 		"g3": "FFF", // correct
 		"g4": "GGG", // correct — most recent
 	}
-	if got := pickemStreak(games, picks); got != 3 {
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, now); got != 3 {
 		t.Fatalf("streak = %d, want 3 (g4, g3, g2 correct; g1 breaks it)", got)
 	}
 }
@@ -390,10 +396,10 @@ func TestPickemStreakNoFinalsYet(t *testing.T) {
 		{ID: "g1", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "AAA", Home: "BBB"},
 	}
 	picks := map[string]string{"g1": "AAA"}
-	if got := pickemStreak(games, picks); got != 0 {
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, now); got != 0 {
 		t.Fatalf("streak with no finals yet = %d, want 0", got)
 	}
-	if got := pickemStreak(nil, nil); got != 0 {
+	if got := pickemStreak(nil, nil, nil, now); got != 0 {
 		t.Fatalf("streak over an empty schedule = %d, want 0", got)
 	}
 }
@@ -408,9 +414,9 @@ func TestPickemStreakNoFinalsYet(t *testing.T) {
 func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 	kickoff := time.Now().Add(-48 * time.Hour)
 	games := []GameInfo{
-		{ID: "2025_18_AAA_BBB", Week: 18, Kickoff: kickoff, Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true}, // winner BBB
-		{ID: "2025_18_CCC_DDD", Week: 18, Kickoff: kickoff, Away: "CCC", Home: "DDD", AwayScore: 10, HomeScore: 20, Final: true}, // winner DDD
-		{ID: "2025_18_EEE_FFF", Week: 18, Kickoff: kickoff, Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true}, // winner FFF
+		{ID: "2025_18_AAA_BBB", Week: 18, Kickoff: kickoff, Away: "AAA", Home: "BBB", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner BBB
+		{ID: "2025_18_CCC_DDD", Week: 18, Kickoff: kickoff, Away: "CCC", Home: "DDD", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner DDD
+		{ID: "2025_18_EEE_FFF", Week: 18, Kickoff: kickoff, Away: "EEE", Home: "FFF", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true}, // winner FFF
 	}
 	picks := map[string]string{
 		"2025_18_AAA_BBB": "BBB", // correct
@@ -422,7 +428,7 @@ func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 	// "2025_18_EEE_FFF" > "2025_18_CCC_DDD" > "2025_18_AAA_BBB". The wrong
 	// pick (EEE_FFF) is walked first and breaks the streak immediately.
 	for i := 0; i < 20; i++ {
-		if got := pickemStreak(games, picks); got != 0 {
+		if got := pickemStreak(games, frozenPickemMarkets(games), picks, time.Now()); got != 0 {
 			t.Fatalf("streak on run %d = %d, want 0 (deterministic, not flaky)", i, got)
 		}
 	}
@@ -434,13 +440,13 @@ func TestPickemStreakDeterministicOnSimultaneousKickoffs(t *testing.T) {
 func TestPickemStreakSkipsUnpickedFinalGame(t *testing.T) {
 	now := time.Now()
 	games := []GameInfo{
-		{ID: "g1", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true}, // winner AAA
-		{ID: "g2", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true}, // winner CCC, unpicked
-		{ID: "g3", Week: 1, Kickoff: now.Add(-1 * time.Hour), Away: "EEE", Home: "FFF", AwayScore: 20, HomeScore: 10, Final: true},  // winner EEE
+		{ID: "g1", Week: 1, Kickoff: now.Add(-48 * time.Hour), Away: "AAA", Home: "BBB", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // winner AAA
+		{ID: "g2", Week: 1, Kickoff: now.Add(-24 * time.Hour), Away: "CCC", Home: "DDD", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true}, // winner CCC, unpicked
+		{ID: "g3", Week: 1, Kickoff: now.Add(-1 * time.Hour), Away: "EEE", Home: "FFF", AwayScore: 20, HomeScore: 10, Final: true, ScoresPresent: true},  // winner EEE
 	}
 	picks := map[string]string{"g1": "AAA", "g3": "EEE"} // g2 never picked
-	if got := pickemStreak(games, picks); got != 2 {
-		t.Fatalf("streak skipping an unpicked final game = %d, want 2", got)
+	if got := pickemStreak(games, frozenPickemMarkets(games), picks, now); got != 1 {
+		t.Fatalf("streak after a missed game = %d, want 1 from the latest win", got)
 	}
 }
 
@@ -576,5 +582,113 @@ func TestPickemDataEmptyScheduleRecordAndWeekLeaderboardHonestState(t *testing.T
 	}
 	if got := len(data["week_options"].([]map[string]any)); got != 0 {
 		t.Errorf("week_options with no schedule = %d entries, want 0", got)
+	}
+}
+
+func TestGradePickemAgainstFrozenSpread(t *testing.T) {
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	base := GameInfo{ID: "ats", Week: 1, Kickoff: now.Add(-time.Hour), Away: "BUF", Home: "MIA", AwayScore: 21, HomeScore: 24, Final: true, ScoresPresent: true}
+	tests := []struct {
+		name string
+		line int
+		pick string
+		want PickemOutcome
+	}{
+		{name: "home favorite covers", line: 25, pick: "MIA", want: pickemWin},
+		{name: "home favorite fails", line: 35, pick: "BUF", want: pickemWin},
+		{name: "away favorite home covers", line: -25, pick: "MIA", want: pickemWin},
+		{name: "pick em home wins", line: 0, pick: "MIA", want: pickemWin},
+		{name: "exact push", line: 30, pick: "BUF", want: pickemPush},
+		{name: "wrong side", line: 25, pick: "BUF", want: pickemLoss},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			market := PickemMarket{Frozen: true, LinePresent: true, LineTenths: tt.line}
+			if got := gradePickem(base, market, tt.pick, true, now).Outcome; got != tt.want {
+				t.Fatalf("outcome = %s, want %s", got, tt.want)
+			}
+		})
+	}
+	withoutScores := base
+	withoutScores.ScoresPresent = false
+	if got := gradePickem(withoutScores, PickemMarket{Frozen: true, LinePresent: true}, "MIA", true, now).Outcome; got != pickemPending {
+		t.Fatalf("result without scores = %s, want pending", got)
+	}
+}
+
+func TestPickemWeeklyParticipationCountsMissButLeavesLaterGameOpen(t *testing.T) {
+	now := time.Date(2026, 9, 20, 18, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "early", Week: 2, Kickoff: now.Add(-time.Hour), Away: "AAA", Home: "BBB"},
+		{ID: "late", Week: 2, Kickoff: now.Add(time.Hour), Away: "CCC", Home: "DDD"},
+	}
+	markets := map[string]PickemMarket{
+		"early": {Frozen: true, LinePresent: true},
+		"late":  {LinePresent: true},
+	}
+	participant := map[string]string{"late": "CCC"}
+	record := tallyPicks(games, markets, participant, now)
+	if !record.Participated || record.Losses != 1 || record.Wins != 0 || record.Pushes != 0 {
+		t.Fatalf("participant record = %+v, want one missed loss", record)
+	}
+	if got := gradePickem(games[1], markets["late"], participant["late"], true, now).Outcome; got != pickemPending {
+		t.Fatalf("later game = %s, want pending/pickable", got)
+	}
+	nonParticipant := tallyPicks(games, markets, nil, now)
+	if nonParticipant.Participated || nonParticipant.Losses != 0 {
+		t.Fatalf("never-participant record = %+v, want no artificial losses", nonParticipant)
+	}
+	voidMarkets := map[string]PickemMarket{"early": {Void: true}, "late": markets["late"]}
+	if got := tallyPicks(games, voidMarkets, participant, now); got.Losses != 0 {
+		t.Fatalf("void early game created a loss: %+v", got)
+	}
+}
+
+func TestPickemSetAndDataUseInjectedPerGameClock(t *testing.T) {
+	svc := newTestService(t, true)
+	kickoff := time.Date(2026, 9, 20, 20, 0, 0, 0, time.UTC)
+	now := kickoff.Add(-time.Second)
+	svc.now = func() time.Time { return now }
+	games := []GameInfo{{ID: "early", Week: 2, Kickoff: kickoff, Away: "AAA", Home: "BBB", SpreadLinePresent: true, SourceObservedAt: now.Add(-time.Hour)}, {ID: "late", Week: 2, Kickoff: kickoff.Add(time.Hour), Away: "CCC", Home: "DDD", SpreadLinePresent: true, SourceObservedAt: now.Add(-time.Hour)}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	req, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
+	if _, err := svc.PickemSet(req, "early", "AAA"); err != nil {
+		t.Fatalf("pick one second before kickoff: %v", err)
+	}
+	now = kickoff
+	if _, err := svc.PickemSet(req, "early", "BBB"); err == nil {
+		t.Fatal("pick at exact kickoff was accepted")
+	}
+	if _, err := svc.PickemSet(req, "late", "CCC"); err != nil {
+		t.Fatalf("later game should remain pickable: %v", err)
+	}
+	data := svc.PickemData(req)
+	rows := data["games"].([]PickemGameRow)
+	if !rows[0].Locked || rows[1].Locked {
+		t.Fatalf("per-game locks = early:%v late:%v", rows[0].Locked, rows[1].Locked)
+	}
+}
+
+func TestPickemStreakMissBreaksPushAndVoidNeutral(t *testing.T) {
+	now := time.Date(2026, 9, 21, 12, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "win-old", Week: 1, Kickoff: now.Add(-4 * time.Hour), Away: "A", Home: "B", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "miss", Week: 1, Kickoff: now.Add(-3 * time.Hour), Away: "C", Home: "D"},
+		{ID: "push", Week: 1, Kickoff: now.Add(-2 * time.Hour), Away: "E", Home: "F", AwayScore: 17, HomeScore: 20, Final: true, ScoresPresent: true},
+		{ID: "win-new", Week: 1, Kickoff: now.Add(-time.Hour), Away: "G", Home: "H", AwayScore: 10, HomeScore: 20, Final: true, ScoresPresent: true},
+	}
+	markets := frozenPickemMarkets(games)
+	push := markets["push"]
+	push.LineTenths = 30
+	markets["push"] = push
+	picks := map[string]string{"win-old": "B", "push": "E", "win-new": "H"}
+	if got := pickemStreak(games, markets, picks, now); got != 1 {
+		t.Fatalf("streak = %d, want latest win then neutral push then missed-loss break", got)
+	}
+	void := markets["miss"]
+	void.Void, void.Frozen, void.LinePresent = true, false, false
+	markets["miss"] = void
+	if got := pickemStreak(games, markets, picks, now); got != 2 {
+		t.Fatalf("streak with void miss = %d, want two wins across neutral push/void", got)
 	}
 }

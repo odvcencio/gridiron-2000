@@ -756,8 +756,8 @@ func TestPickemHomeSummaryComputation(t *testing.T) {
 	if summary["unpicked_count"] != 1 {
 		t.Fatalf("unpicked_count = %v, want 1 (only g-open is still open and unpicked)", summary["unpicked_count"])
 	}
-	if summary["season_correct"] != 1 || summary["season_total"] != 1 {
-		t.Fatalf("season record = %v/%v, want 1/1", summary["season_correct"], summary["season_total"])
+	if summary["season_correct"] != 1 || summary["season_total"] != 2 || summary["season_losses"] != 1 {
+		t.Fatalf("season record = %v-%v, want 1-1 after the missed kicked game", summary["season_correct"], summary["season_losses"])
 	}
 	if summary["has_record"] != true {
 		t.Error("has_record should be true")

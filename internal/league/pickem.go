@@ -67,16 +67,75 @@ func pickemWeekAt(games []GameInfo, now time.Time) int {
 	return largestWeek
 }
 
-// gameWinner returns the abbreviation of the team with the higher score once
-// the game is final. It returns "" on a tie or before the game is final.
-func gameWinner(game GameInfo) string {
-	if !game.Final || game.AwayScore == game.HomeScore {
-		return ""
+type PickemOutcome string
+
+const (
+	pickemPending    PickemOutcome = "pending"
+	pickemWin        PickemOutcome = "win"
+	pickemLoss       PickemOutcome = "loss"
+	pickemPush       PickemOutcome = "push"
+	pickemMissedLoss PickemOutcome = "missed_loss"
+	pickemVoid       PickemOutcome = "void"
+)
+
+type pickemGrade struct {
+	Outcome PickemOutcome
+	Cover   string
+}
+
+type PickemATSRecord struct {
+	Wins         int
+	Losses       int
+	Pushes       int
+	Participated bool
+}
+
+func validPick(game GameInfo, pick string) bool {
+	return pick == game.Away || pick == game.Home
+}
+
+func pickemParticipation(games []GameInfo, picks map[string]string) map[int]bool {
+	participated := make(map[int]bool)
+	for _, game := range games {
+		if validPick(game, picks[game.ID]) {
+			participated[game.Week] = true
+		}
 	}
-	if game.AwayScore > game.HomeScore {
-		return game.Away
+	return participated
+}
+
+// gradePickem is the one ATS authority used by cards, records, streaks, and
+// leaderboards. nflverse's positive line means the home team is favored, so
+// subtracting it from the home margin yields the covering side. A game never
+// grades from a moving candidate or placeholder scores.
+func gradePickem(game GameInfo, market PickemMarket, pick string, participated bool, now time.Time) pickemGrade {
+	if game.Kickoff.IsZero() || now.Before(game.Kickoff) {
+		return pickemGrade{Outcome: pickemPending}
 	}
-	return game.Home
+	if market.Void || !market.Frozen || !market.LinePresent {
+		return pickemGrade{Outcome: pickemVoid}
+	}
+	if !validPick(game, pick) {
+		if participated {
+			return pickemGrade{Outcome: pickemMissedLoss}
+		}
+		return pickemGrade{Outcome: pickemPending}
+	}
+	if !game.Final || !game.ScoresPresent {
+		return pickemGrade{Outcome: pickemPending}
+	}
+	adjustedHomeMarginTenths := (game.HomeScore-game.AwayScore)*10 - market.LineTenths
+	if adjustedHomeMarginTenths == 0 {
+		return pickemGrade{Outcome: pickemPush}
+	}
+	cover := game.Away
+	if adjustedHomeMarginTenths > 0 {
+		cover = game.Home
+	}
+	if pick == cover {
+		return pickemGrade{Outcome: pickemWin, Cover: cover}
+	}
+	return pickemGrade{Outcome: pickemLoss, Cover: cover}
 }
 
 // gamesInWeek filters games to one week, in schedule order (no sort
@@ -118,62 +177,44 @@ func pickemWeeks(games []GameInfo) []int {
 	return weeks
 }
 
-// tallyPicks counts how many of games the viewer both picked and got
-// right, considering only final games with a decided (non-tie) winner. A
-// final game the viewer never picked does not count toward total — the
-// same rule pickemLeaderboard already applies, so a record's total and the
-// leaderboard's total always agree for the same viewer.
-func tallyPicks(games []GameInfo, picks map[string]string) (correct, total int) {
+func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, now time.Time) PickemATSRecord {
+	participated := pickemParticipation(games, picks)
+	record := PickemATSRecord{Participated: len(participated) > 0}
 	for _, game := range games {
-		if !game.Final {
-			continue
-		}
-		pick := picks[game.ID]
-		if pick == "" {
-			continue
-		}
-		winner := gameWinner(game)
-		if winner == "" {
-			continue
-		}
-		total++
-		if pick == winner {
-			correct++
+		switch gradePickem(game, markets[game.ID], picks[game.ID], participated[game.Week], now).Outcome {
+		case pickemWin:
+			record.Wins++
+		case pickemLoss, pickemMissedLoss:
+			record.Losses++
+		case pickemPush:
+			record.Pushes++
 		}
 	}
-	return correct, total
+	return record
 }
 
-// pickemStreak computes the viewer's current streak of consecutive correct
-// picks on final games, walking from the most recent kickoff backward. A
-// final game the viewer never picked (or that tied) is invisible to the
-// streak rather than breaking it, matching tallyPicks's own total. The
-// streak resets to 0 at the first wrong pick found walking backward, or
-// when there are no graded picks yet (the "no finals yet" edge case). Ties
+// pickemStreak computes the viewer's current streak of consecutive ATS wins,
+// walking from the most recent kickoff backward. Losses and missed losses
+// break the streak; pushes, voids, and pending games are neutral. The streak
+// resets to 0 when there are no graded wins yet. Ties
 // on kickoff (an early or late slate's several simultaneous games) break
 // by ID, descending, the same stable tie-break sortGamesByKickoff uses —
 // without it, entries at an identical kickoff have no defined relative
 // order and the streak becomes nondeterministic between runs.
-func pickemStreak(games []GameInfo, picks map[string]string) int {
+func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, now time.Time) int {
 	type graded struct {
 		kickoff time.Time
 		id      string
-		correct bool
+		outcome PickemOutcome
 	}
+	participated := pickemParticipation(games, picks)
 	entries := make([]graded, 0, len(games))
 	for _, game := range games {
-		if !game.Final {
+		outcome := gradePickem(game, markets[game.ID], picks[game.ID], participated[game.Week], now).Outcome
+		if outcome == pickemPending {
 			continue
 		}
-		pick := picks[game.ID]
-		if pick == "" {
-			continue
-		}
-		winner := gameWinner(game)
-		if winner == "" {
-			continue
-		}
-		entries = append(entries, graded{kickoff: game.Kickoff, id: game.ID, correct: pick == winner})
+		entries = append(entries, graded{kickoff: game.Kickoff, id: game.ID, outcome: outcome})
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].kickoff.Equal(entries[j].kickoff) {
@@ -183,10 +224,17 @@ func pickemStreak(games []GameInfo, picks map[string]string) int {
 	})
 	streak := 0
 	for _, entry := range entries {
-		if !entry.correct {
+		switch entry.outcome {
+		case pickemPush, pickemVoid:
+			continue
+		case pickemLoss, pickemMissedLoss:
+			break
+		case pickemWin:
+			streak++
+		}
+		if entry.outcome == pickemLoss || entry.outcome == pickemMissedLoss {
 			break
 		}
-		streak++
 	}
 	return streak
 }
@@ -275,15 +323,102 @@ type PickemGameRow struct {
 	Winner         string
 	Correct        bool
 	Wrong          bool
+	Push           bool
+	MissedLoss     bool
+	Void           bool
+	Outcome        string
+	ResultLabel    string
+	AwayLine       string
+	HomeLine       string
+	SpreadState    string
+	SpreadAsOf     string
+	SpreadLock     string
+	SpreadSource   string
 	ScoreDisplay   string
 	Consensus      PickemConsensusView
 }
 
+func spreadTeamDisplay(team string, lineTenths int) string {
+	if lineTenths == 0 {
+		return team + " PK"
+	}
+	sign := "+"
+	if lineTenths < 0 {
+		sign = "-"
+		lineTenths = -lineTenths
+	}
+	return fmt.Sprintf("%s %s%d.%d", team, sign, lineTenths/10, lineTenths%10)
+}
+
+func pickemSpreadView(game GameInfo, market PickemMarket, location *time.Location) (away, home, state, asOf, lock, source string) {
+	if location == nil {
+		location = time.UTC
+	}
+	state = "WAITING FOR LINE"
+	if market.Void {
+		state = "NO LINE · VOID"
+	} else if market.Frozen {
+		state = "FROZEN LINE"
+	} else if market.LinePresent {
+		state = "CURRENT LINE"
+	}
+	awayTeam, homeTeam := market.Away, market.Home
+	if awayTeam == "" {
+		awayTeam = game.Away
+	}
+	if homeTeam == "" {
+		homeTeam = game.Home
+	}
+	if market.LinePresent && !market.Void {
+		away = spreadTeamDisplay(awayTeam, market.LineTenths)
+		home = spreadTeamDisplay(homeTeam, -market.LineTenths)
+	} else {
+		away, home = awayTeam+" —", homeTeam+" —"
+	}
+	if !market.ObservedAt.IsZero() {
+		asOf = "AS OF " + market.ObservedAt.In(location).Format("Mon Jan 2 · 3:04 PM MST")
+	}
+	if !market.LockAt.IsZero() {
+		prefix := "FREEZES "
+		if market.Frozen || market.Void {
+			prefix = "FROZEN "
+		}
+		lock = prefix + market.LockAt.In(location).Format("Mon Jan 2 · 3:04 PM MST")
+	}
+	if market.SourceURL != "" || market.SourceProvenance != "" {
+		source = "VEGAS MARKET VIA NFLVERSE"
+	}
+	return
+}
+
+func pickemResultLabel(grade pickemGrade, locked bool) string {
+	switch grade.Outcome {
+	case pickemWin:
+		return "WIN · " + grade.Cover + " COVERED"
+	case pickemLoss:
+		return "LOSS · " + grade.Cover + " COVERED"
+	case pickemPush:
+		return "PUSH"
+	case pickemMissedLoss:
+		return "MISSED LOSS"
+	case pickemVoid:
+		return "VOID · NO FROZEN LINE"
+	case pickemPending:
+		if locked {
+			return "LOCKED · IN PROGRESS"
+		}
+	}
+	return ""
+}
+
 func (s *Service) PickemData(r *http.Request) map[string]any {
-	now := time.Now()
-	state := s.store.Snapshot()
+	now := s.clock()
 	viewerKey := s.viewerKey(r)
 	allGames := s.schedule()
+	// A page load is also an immediate reconciliation opportunity. The
+	// lifecycle ticker remains authoritative when nobody has the page open.
+	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
+	state := s.store.Snapshot()
 	currentWeek := s.pickemWeek(allGames, now)
 
 	week := currentWeek
@@ -315,8 +450,13 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	if location == nil {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
+	marketLocation, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		marketLocation = location
+	}
 
 	viewerPicks := state.Pickems[viewerKey]
+	viewerParticipation := pickemParticipation(allGames, viewerPicks)
 	pickedCount, unpickedCount := 0, 0
 	games := make([]PickemGameRow, 0, len(weekGames))
 	for _, game := range weekGames {
@@ -327,9 +467,9 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		} else if !locked {
 			unpickedCount++
 		}
-		winner := gameWinner(game)
-		correct := game.Final && pick != "" && pick == winner
-		wrong := game.Final && pick != "" && winner != "" && pick != winner
+		market := state.PickemMarkets[game.ID]
+		grade := gradePickem(game, market, pick, viewerParticipation[game.Week], now)
+		awayLine, homeLine, spreadState, spreadAsOf, spreadLock, spreadSource := pickemSpreadView(game, market, marketLocation)
 		scoreDisplay := ""
 		if game.Final {
 			scoreDisplay = fmt.Sprintf("%d-%d", game.AwayScore, game.HomeScore)
@@ -350,20 +490,31 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 			Picked:         pick != "",
 			Locked:         locked,
 			Final:          game.Final,
-			Winner:         winner,
-			Correct:        correct,
-			Wrong:          wrong,
+			Winner:         grade.Cover,
+			Correct:        grade.Outcome == pickemWin,
+			Wrong:          grade.Outcome == pickemLoss || grade.Outcome == pickemMissedLoss,
+			Push:           grade.Outcome == pickemPush,
+			MissedLoss:     grade.Outcome == pickemMissedLoss,
+			Void:           grade.Outcome == pickemVoid,
+			Outcome:        string(grade.Outcome),
+			ResultLabel:    pickemResultLabel(grade, locked),
+			AwayLine:       awayLine,
+			HomeLine:       homeLine,
+			SpreadState:    spreadState,
+			SpreadAsOf:     spreadAsOf,
+			SpreadLock:     spreadLock,
+			SpreadSource:   spreadSource,
 			ScoreDisplay:   scoreDisplay,
 			Consensus:      consensus,
 		})
 	}
 
-	seasonLeaderboard := s.pickemLeaderboard(state, allGames)
-	weekLeaderboard := s.pickemLeaderboard(state, weekGames)
+	seasonLeaderboard := s.pickemLeaderboard(state, allGames, now)
+	weekLeaderboard := s.pickemLeaderboard(state, weekGames, now)
 
-	seasonCorrect, seasonTotal := tallyPicks(allGames, viewerPicks)
-	weekCorrect, weekTotal := tallyPicks(weekGames, viewerPicks)
-	streak := pickemStreak(allGames, viewerPicks)
+	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, now)
+	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, now)
+	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, now)
 
 	return map[string]any{
 		"viewer":            s.Viewer(r),
@@ -383,11 +534,17 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		"picked_count":      pickedCount,
 		"unpicked_count":    unpickedCount,
 		"record": map[string]any{
-			"week_correct":   weekCorrect,
-			"week_total":     weekTotal,
-			"season_correct": seasonCorrect,
-			"season_total":   seasonTotal,
-			"has_record":     seasonTotal > 0,
+			"week_correct":   weekRecord.Wins,
+			"week_total":     weekRecord.Wins + weekRecord.Losses + weekRecord.Pushes,
+			"week_wins":      weekRecord.Wins,
+			"week_losses":    weekRecord.Losses,
+			"week_pushes":    weekRecord.Pushes,
+			"season_correct": seasonRecord.Wins,
+			"season_total":   seasonRecord.Wins + seasonRecord.Losses + seasonRecord.Pushes,
+			"season_wins":    seasonRecord.Wins,
+			"season_losses":  seasonRecord.Losses,
+			"season_pushes":  seasonRecord.Pushes,
+			"has_record":     seasonRecord.Participated,
 			"streak":         streak,
 			"has_streak":     streak > 0,
 		},
@@ -409,6 +566,9 @@ type PickemLeaderboardEntry struct {
 	Team    string
 	Correct int
 	Total   int
+	Wins    int
+	Losses  int
+	Pushes  int
 }
 
 // assignSharedRanks sets each entry's Rank from its position in an
@@ -428,40 +588,17 @@ func assignSharedRanks(out []PickemLeaderboardEntry) {
 	}
 }
 
-// pickemLeaderboard ranks members by correct picks on final games within
-// games. A member appears only once they have at least one pick on a
-// final game in that set. Called with the full schedule for the season
-// leaderboard and with one week's games for the weekly leaderboard — both
-// share this one implementation and its shared-rank tie convention.
-func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []PickemLeaderboardEntry {
-	byID := make(map[string]GameInfo, len(games))
-	for _, game := range games {
-		byID[game.ID] = game
-	}
-	type tally struct {
-		correct int
-		total   int
-	}
-	tallies := make(map[string]*tally)
+// pickemLeaderboard ranks participating members by ATS wins within games.
+// A member appears as soon as they make one valid pick in that set, even
+// before any game is graded. Called with the full schedule for the season
+// leaderboard and with one week's games for the weekly leaderboard; both
+// share this implementation and its shared-rank tie convention.
+func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo, now time.Time) []PickemLeaderboardEntry {
+	tallies := make(map[string]PickemATSRecord)
 	for owner, picks := range state.Pickems {
-		for gameID, team := range picks {
-			game, ok := byID[gameID]
-			if !ok || !game.Final {
-				continue
-			}
-			entry := tallies[owner]
-			if entry == nil {
-				entry = &tally{}
-				tallies[owner] = entry
-			}
-			winner := gameWinner(game)
-			if winner == "" {
-				continue
-			}
-			entry.total++
-			if team == winner {
-				entry.correct++
-			}
+		record := tallyPicks(games, state.PickemMarkets, picks, now)
+		if record.Participated {
+			tallies[owner] = record
 		}
 	}
 
@@ -479,13 +616,16 @@ func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo) []Pi
 		out = append(out, PickemLeaderboardEntry{
 			Name:    name,
 			Team:    team,
-			Correct: entry.correct,
-			Total:   entry.total,
+			Correct: entry.Wins,
+			Total:   entry.Wins + entry.Losses + entry.Pushes,
+			Wins:    entry.Wins,
+			Losses:  entry.Losses,
+			Pushes:  entry.Pushes,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].Correct != out[j].Correct {
-			return out[i].Correct > out[j].Correct
+		if out[i].Wins != out[j].Wins {
+			return out[i].Wins > out[j].Wins
 		}
 		return out[i].Name < out[j].Name
 	})
@@ -534,7 +674,7 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 	if team != game.Away && team != game.Home {
 		return GameInfo{}, fmt.Errorf("pick one of the two teams")
 	}
-	if !time.Now().Before(game.Kickoff) {
+	if game.Kickoff.IsZero() || !s.clock().Before(game.Kickoff) {
 		return GameInfo{}, fmt.Errorf("this game is locked")
 	}
 	if err := s.store.SetPickem(owner, gameID, team); err != nil {
@@ -550,6 +690,8 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now time.Time) map[string]any {
 	viewerKey := s.viewerKey(r)
 	allGames := s.schedule()
+	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
+	state = s.store.Snapshot()
 	week := s.pickemWeek(allGames, now)
 	weekGames := gamesInWeek(allGames, week)
 
@@ -560,15 +702,18 @@ func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now t
 			unpicked++
 		}
 	}
-	correct, total := tallyPicks(allGames, picks)
-	streak := pickemStreak(allGames, picks)
+	record := tallyPicks(allGames, state.PickemMarkets, picks, now)
+	streak := pickemStreak(allGames, state.PickemMarkets, picks, now)
 
 	return map[string]any{
 		"week":                week,
 		"unpicked_count":      unpicked,
-		"season_correct":      correct,
-		"season_total":        total,
-		"has_record":          total > 0,
+		"season_correct":      record.Wins,
+		"season_total":        record.Wins + record.Losses + record.Pushes,
+		"season_wins":         record.Wins,
+		"season_losses":       record.Losses,
+		"season_pushes":       record.Pushes,
+		"has_record":          record.Participated,
 		"streak":              streak,
 		"has_streak":          streak > 0,
 		"has_games_this_week": len(weekGames) > 0,
