@@ -1,8 +1,10 @@
 package league
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -195,5 +197,95 @@ func TestTrimUnclaimedSeatsClearsStaleDraftOrder(t *testing.T) {
 	}
 	if got := activeTeamCount(svc.store.Snapshot().DraftOrder); got != 5 {
 		t.Fatalf("activeTeamCount after trim = %d, want 5 (falls back to the trimmed defaultTeamIDs())", got)
+	}
+}
+
+// TestTrimUnclaimedSeatsClearsAndRegeneratesSchedule proves the complete
+// topology transition: a schedule generated for all seats cannot survive the
+// trim, and the next schedule is generated only from the kept teams. The
+// reload in the middle catches a stale schedule row that would otherwise
+// return after a restart.
+func TestTrimUnclaimedSeatsClearsAndRegeneratesSchedule(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	if _, err := svc.AdminGenerateSchedule(request, 2, 1, 17); err != nil {
+		t.Fatalf("generate full schedule: %v", err)
+	}
+	if err := svc.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+		t.Fatalf("set full draft order: %v", err)
+	}
+	for i := 0; i < minTeams; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+
+	kept, removed, err := svc.TrimUnclaimedSeats(request)
+	if err != nil {
+		t.Fatalf("trim scheduled league: %v", err)
+	}
+	if len(kept) != minTeams || len(removed) != len(activeTeams)-minTeams {
+		t.Fatalf("trim counts = kept %d removed %d, want kept %d removed %d", len(kept), len(removed), minTeams, len(activeTeams)-minTeams)
+	}
+	if got := svc.store.Snapshot().Schedule; got != nil {
+		t.Fatalf("trim left an in-memory schedule: %+v", got)
+	}
+
+	reloaded := reloadStoredState(t, svc.store.filePath)
+	if reloaded.Schedule != nil {
+		t.Fatalf("trim left a schedule persisted across restart: %+v", reloaded.Schedule)
+	}
+	if len(reloaded.DraftOrder) != 0 {
+		t.Fatalf("trim left a draft order persisted across restart: %v", reloaded.DraftOrder)
+	}
+	if len(reloaded.TrimmedTeamIDs) != len(removed) {
+		t.Fatalf("reloaded TrimmedTeamIDs = %v, want %d entries", reloaded.TrimmedTeamIDs, len(removed))
+	}
+
+	regenerated, err := svc.AdminGenerateSchedule(request, 2, 1, 19)
+	if err != nil {
+		t.Fatalf("regenerate kept-team schedule: %v", err)
+	}
+	keptIDs := make(map[string]bool, len(kept))
+	for _, team := range kept {
+		keptIDs[team.ID] = true
+	}
+	for _, week := range regenerated.Weeks {
+		for _, matchup := range week.Matchups {
+			if !keptIDs[matchup.HomeTeamID] || !keptIDs[matchup.AwayTeamID] {
+				t.Fatalf("regenerated week %d matchup names trimmed team: %+v; kept=%v", week.Week, matchup, keptIDs)
+			}
+		}
+	}
+	if persisted := svc.store.Snapshot().Schedule; persisted == nil || persisted.Seed != 19 {
+		t.Fatalf("regenerated schedule was not persisted: %+v", persisted)
+	}
+}
+
+// TestTrimUnclaimedSeatsPersistFailureIsAtomic uses the store's existing
+// pre-commit failure seam. Neither the in-memory topology nor the durable
+// schedule may move when the combined trim transaction cannot commit.
+func TestTrimUnclaimedSeatsPersistFailureIsAtomic(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := svc.AdminGenerateSchedule(request, 2, 1, 23); err != nil {
+		t.Fatalf("generate full schedule: %v", err)
+	}
+	for i := 0; i < minTeams; i++ {
+		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
+	}
+	before := svc.store.Snapshot()
+	failThisStorePersist(svc.store)
+	if _, _, err := svc.TrimUnclaimedSeats(request); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("failed trim error = %v, want injected persist failure", err)
+	}
+	after := svc.store.Snapshot()
+	if !reflect.DeepEqual(after.Schedule, before.Schedule) || !reflect.DeepEqual(after.DraftOrder, before.DraftOrder) || !reflect.DeepEqual(after.TrimmedTeamIDs, before.TrimmedTeamIDs) {
+		t.Fatalf("failed trim changed in-memory topology:\n before=%+v\n after=%+v", before, after)
+	}
+	reloaded := reloadStoredState(t, svc.store.filePath)
+	if !reflect.DeepEqual(reloaded.Schedule, before.Schedule) || !reflect.DeepEqual(reloaded.TrimmedTeamIDs, before.TrimmedTeamIDs) {
+		t.Fatalf("failed trim changed durable topology:\n before=%+v\n reloaded=%+v", before, reloaded)
 	}
 }

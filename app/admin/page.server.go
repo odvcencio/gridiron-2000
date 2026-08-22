@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -41,7 +42,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -49,6 +50,32 @@ func init() {
 					}
 				}
 			}
+			generation := map[string]any{"weeks": "14", "start_week": "1", "seed": ""}
+			if view, ok := ctx.ActionState("schedule-generate"); ok {
+				generation["weeks"] = view.Value("weeks")
+				generation["start_week"] = view.Value("start_week")
+				generation["seed"] = view.Value("seed")
+			}
+			regeneration := map[string]any{"confirm": ""}
+			if view, ok := ctx.ActionState("schedule-regenerate"); ok {
+				regeneration["confirm"] = view.Value("confirm")
+			}
+			closeForm := map[string]any{"week": "1", "confirm": ""}
+			if schedule, ok := data["schedule"].(map[string]any); ok {
+				if close, ok := schedule["close"].(map[string]any); ok {
+					closeForm["week"] = fmt.Sprint(close["week"])
+				}
+			}
+			if view, ok := ctx.ActionState("close-week-ready"); ok {
+				closeForm["week"] = view.Value("week")
+			}
+			if view, ok := ctx.ActionState("close-week-force"); ok {
+				closeForm["week"] = view.Value("week")
+				closeForm["confirm"] = view.Value("confirm")
+			}
+			data["schedule_generation"] = generation
+			data["schedule_regeneration"] = regeneration
+			data["close_form"] = closeForm
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
@@ -58,6 +85,75 @@ func init() {
 			}, nil
 		},
 		Actions: route.FileActions{
+			"schedule-generate": func(ctx *action.Context) error {
+				weeks, err := adminPositiveInt(ctx.FormData["weeks"], "weeks")
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				startWeek, err := adminPositiveInt(ctx.FormData["start_week"], "first NFL week")
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				seed := int64(0)
+				if raw := strings.TrimSpace(ctx.FormData["seed"]); raw != "" {
+					seed, err = strconv.ParseInt(raw, 10, 64)
+					if err != nil || seed < 0 {
+						message := "seed must be a non-negative whole number"
+						return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+					}
+				}
+				schedule, err := league.Default().AdminGenerateSchedule(ctx.Request, weeks, startWeek, seed)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Regular-season schedule generated: %d weeks, seed %d.", len(schedule.Weeks), schedule.Seed))
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"schedule-regenerate": func(ctx *action.Context) error {
+				if strings.TrimSpace(ctx.FormData["confirm"]) != "REDRAW SCHEDULE" {
+					message := "type REDRAW SCHEDULE to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				schedule, err := league.Default().AdminRegenerateSchedule(ctx.Request, 0, 0)
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Schedule redrawn with seed %d. No draft or scoring state changed.", schedule.Seed))
+				ctx.Redirect("/admin")
+				return nil
+			},
+			"close-week-ready": func(ctx *action.Context) error {
+				week, err := adminPositiveInt(ctx.FormData["week"], "week")
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				info := league.Default().AdminWeekCloseInfo(week, time.Now())
+				if !info.Exists {
+					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
+				}
+				if !info.Ready && !info.Final {
+					message := fmt.Sprintf("week %d is not ready: %s; use the forced close and type CLOSE WEEK %d", week, info.Reason, week)
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				return adminCloseWeek(ctx, week, info.Final)
+			},
+			"close-week-force": func(ctx *action.Context) error {
+				week, err := adminPositiveInt(ctx.FormData["week"], "week")
+				if err != nil {
+					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+				}
+				expected := fmt.Sprintf("CLOSE WEEK %d", week)
+				if strings.TrimSpace(ctx.FormData["confirm"]) != expected {
+					message := "type " + expected + " to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				info := league.Default().AdminWeekCloseInfo(week, time.Now())
+				if !info.Exists {
+					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
+				}
+				return adminCloseWeek(ctx, week, info.Final)
+			},
 			"draft-start": func(ctx *action.Context) error {
 				if strings.TrimSpace(ctx.FormData["confirm"]) != "START" {
 					message := "type START to confirm"
@@ -183,11 +279,21 @@ func init() {
 			// order-randomize — randomizing first produces an order that
 			// still lists the seats the trim is about to remove.
 			"seat-trim": func(ctx *action.Context) error {
+				scheduleBefore := false
+				if data := league.Default().AdminData(ctx.Request); data != nil {
+					if schedule, ok := data["schedule"].(map[string]any); ok {
+						scheduleBefore, _ = schedule["has_schedule"].(bool)
+					}
+				}
 				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request)
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept)))
+				notice := fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept))
+				if scheduleBefore {
+					notice += " Existing unplayed schedule cleared; regenerate it for the kept teams."
+				}
+				session.AddFlash(ctx.Request, "notice", notice)
 				ctx.Redirect("/admin")
 				return nil
 			},
@@ -353,6 +459,49 @@ func init() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func adminPositiveInt(raw, label string) (int, error) {
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("%s must be a positive whole number", label)
+	}
+	return n, nil
+}
+
+func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
+	_, misses, err := league.Default().AdminCloseWeek(ctx.Request, week)
+	if err != nil {
+		return action.Validation(err.Error(), map[string]string{"admin": err.Error()}, ctx.FormData)
+	}
+	if alreadyFinal {
+		session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Week %d was already final; no scoring or lineup changes were made.", week))
+		ctx.Redirect("/admin")
+		return nil
+	}
+	notice := fmt.Sprintf("Week %d closed and scored.", week)
+	if len(misses) == 0 {
+		notice += " No player-stat join misses."
+	} else {
+		notice += fmt.Sprintf(" %d player-stat join miss", len(misses))
+		if len(misses) != 1 {
+			notice += "es"
+		}
+		notice += ": "
+		for i, miss := range misses {
+			if i >= 5 {
+				notice += fmt.Sprintf(" +%d more", len(misses)-i)
+				break
+			}
+			if i > 0 {
+				notice += ", "
+			}
+			notice += miss.PlayerName + " (" + miss.TeamID + ")"
+		}
+	}
+	session.AddFlash(ctx.Request, "notice", notice)
+	ctx.Redirect("/admin")
+	return nil
 }
 
 // rosterShapeSlotKeys names every roster-shape editor form field in engine

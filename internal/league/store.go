@@ -1168,7 +1168,9 @@ func validateDraftOrder(order []string) error {
 // permutation check would fail against the new, smaller defaultTeamIDs()
 // on the next redraw regardless), so the trim itself resets it rather than
 // leaving a stale order that activeTeamCount would keep reading as the old
-// count.
+// count. A pre-draft schedule is stale for the same reason, so it is cleared
+// in the same persistence transaction and must be regenerated for the kept
+// teams.
 func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1188,9 +1190,17 @@ func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err erro
 	if len(kept) < minTeams {
 		return nil, nil, fmt.Errorf("at least %d seats must be claimed before trimming", minTeams)
 	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	s.state.TrimmedTeamIDs = append([]string(nil), removedIDs...)
 	s.state.DraftOrder = nil
-	if err := s.persistLocked(colScalars, colDraftOrder); err != nil {
+	// A pre-draft schedule names the full seat topology. Trimming seats must
+	// discard it in this same transaction, otherwise a restart can resurrect
+	// matchups containing teams that no longer exist in the active league.
+	s.state.Schedule = nil
+	if err := s.persistLocked(colScalars, colDraftOrder, colSchedule); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
 		return nil, nil, err
 	}
 	return kept, removedIDs, nil
