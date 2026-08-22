@@ -2033,6 +2033,118 @@ button.badge-option:hover {
   padding: var(--space-xl);
 }
 
+.matchup-week-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xl);
+  min-width: 0;
+  margin-bottom: var(--space-xl);
+  padding: var(--space-md) var(--space-xl);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-deep);
+}
+
+.matchup-week-controls__copy {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.matchup-week-controls__copy > strong {
+  color: var(--color-text-primary);
+  font-size: var(--type-lg);
+  letter-spacing: 0.08em;
+}
+
+.matchup-week-controls__copy p,
+.matchup-week-notice {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.matchup-week-controls .pickem-weeknav {
+  min-width: 0;
+  margin: 0;
+  justify-content: flex-end;
+}
+
+.matchups-page .masthead-console > div {
+  min-width: 0;
+}
+
+.matchups-page .masthead-console strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.matchup-week-notice {
+  grid-column: 1 / -1;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-accent);
+}
+
+.next-matchup-panel {
+  min-width: 0;
+  margin-bottom: var(--space-xl);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+}
+
+.next-matchup-panel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.next-matchup-panel > header b {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.next-matchup-panel__link {
+  display: grid;
+  gap: var(--space-xs);
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.next-matchup-panel__link:hover strong,
+.next-matchup-panel__link:focus-visible strong {
+  color: var(--color-accent-cyan);
+}
+
+.next-matchup-panel__link strong {
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.next-matchup-panel__link strong span {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+}
+
+.next-matchup-panel__link small,
+.next-matchup-panel__message {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  line-height: 1.5;
+}
+
 .matchup-card {
   overflow: hidden;
   border: 1px solid var(--color-border);
@@ -4614,6 +4726,44 @@ body.is-on-clock .draft-clock-panel {
   .featured-score-grid,
   .matchup-grid {
     grid-template-columns: 1fr;
+  }
+
+  .matchup-week-controls {
+    grid-template-columns: 1fr;
+    gap: var(--space-md);
+    padding: var(--space-md);
+  }
+
+  .matchups-page .page-masthead > *,
+  .matchups-page .matchup-layout > *,
+  .matchups-page .matchup-stage,
+  .matchups-page .leader-rail {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .matchups-page .masthead-console {
+    width: 100%;
+  }
+
+  .matchups-page .masthead-console > div {
+    flex-wrap: wrap;
+  }
+
+  .matchups-page .section-heading--split,
+  .matchups-page .leader-rail > header,
+  .matchups-page .leader-row {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .matchups-page .leader-row > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .matchup-week-controls .pickem-weeknav {
+    justify-content: flex-start;
   }
 
   .team-hero {

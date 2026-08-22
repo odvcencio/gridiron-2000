@@ -61,6 +61,14 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 			if fixture.name == "scheduled" && !strings.Contains(body, `data-gosx-live-bind="matchupIndicator.`) {
 				t.Errorf("scheduled fixture omitted persistent card indicator bindings: %s", body)
 			}
+			if fixture.name == "scheduled" {
+				if !strings.Contains(body, "Checks every 60 sec") {
+					t.Errorf("current scheduled fixture lost live refresh copy: %s", body)
+				}
+				if strings.Contains(body, "Static week view") {
+					t.Errorf("current scheduled fixture rendered static-week copy: %s", body)
+				}
+			}
 			if strings.Contains(body, `data-gosx-revalidate-src="/api/league/version"`) {
 				t.Errorf("fixture %s still relies on league-version revalidation", fixture.name)
 			}
@@ -77,6 +85,42 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 		!strings.Contains(layoutSource, "Matchups") ||
 		!strings.Contains(layoutSource, "data.league.matchup_footer_label") {
 		t.Fatalf("shared layout still has hardcoded live matchup copy:\n%s", layout)
+	}
+}
+
+func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=scheduled",
+		"MATCHUPS_RENDER_QUERY=?week=2",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		"SEASON SCHEDULE // WEEK 2",
+		"WEEK 2 VIEW",
+		"Status pending",
+		"Static week view",
+		"href=\"/matchups\"",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("week-browser route missing %q: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{
+		"60 sec",
+		"Checks every",
+		"Retrying every",
+		"Scores update on their own",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("non-current week retained auto-refresh claim %q: %s", forbidden, body)
+		}
 	}
 }
 
@@ -114,9 +158,13 @@ func renderMatchupsPage(t *testing.T) string {
 		t.Fatalf("BuildChecked: %v", err)
 	}
 	recorder := httptest.NewRecorder()
-	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	target := "/"
+	if query := os.Getenv("MATCHUPS_RENDER_QUERY"); query != "" {
+		target += query
+	}
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET / = %d: %s", recorder.Code, recorder.Body.String())
+		t.Fatalf("GET %s = %d: %s", target, recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
 }
