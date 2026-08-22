@@ -2,6 +2,7 @@ package league
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -149,5 +150,47 @@ func TestSeasonPhaseDerivesPreseasonBeforeSchedule(t *testing.T) {
 	svc := newTestService(t, true)
 	if got := svc.SeasonPhase(time.Now()); got != "preseason" {
 		t.Errorf("SeasonPhase = %q, want preseason with no schedule generated", got)
+	}
+}
+
+func TestAdminWeekCloseInfoSeparatesReadinessFromOverride(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	now := kickoff.Add(25 * time.Hour)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	svc.SetStatsUpdatedSource(func() time.Time { return now })
+
+	info := svc.AdminWeekCloseInfo(week, now)
+	if info.Ready || info.GamesFinal != 0 || info.GamesTotal != 1 {
+		t.Fatalf("not-final readiness snapshot = %+v", info)
+	}
+	if !strings.Contains(info.Reason, "go final") {
+		t.Fatalf("not-final reason = %q", info.Reason)
+	}
+
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
+	})
+	info = svc.AdminWeekCloseInfo(week, now)
+	if !info.Ready || !info.StatsFresh || info.GamesFinal != 1 {
+		t.Fatalf("ready snapshot = %+v", info)
+	}
+}
+
+func TestAdminWeekCloseInfoReportsFinalAsIdempotent(t *testing.T) {
+	svc := schedulerTestService(t)
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+	state := svc.store.Snapshot()
+	week := state.Schedule.Weeks[0].Week
+	if _, _, err := svc.closeWeek(week, svc.clock()); err != nil {
+		t.Fatal(err)
+	}
+	info := svc.AdminWeekCloseInfo(week, svc.clock())
+	if !info.Final || info.Ready || !strings.Contains(info.Reason, "no-op") {
+		t.Fatalf("final info = %+v", info)
 	}
 }
