@@ -2337,7 +2337,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			result.Reason = "your roster is full; choose a player to drop"
 		case cfg.Waivers.Mode == "faab" && next.Bid > budget[next.TeamID]:
 			result.Outcome = "failed"
-			result.Reason = fmt.Sprintf("your bid exceeds your remaining budget ($%d left)", budget[next.TeamID])
+			result.Reason = fmt.Sprintf("your bid exceeds your remaining budget (%s left)", faabUnits(budget[next.TeamID]))
 		case limitBreach:
 			result.Outcome = "failed"
 			result.Reason = limitMessage(limitPosition, limitCap)

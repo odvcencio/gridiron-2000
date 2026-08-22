@@ -377,8 +377,8 @@ func Page() Node {
 					<div class="pool-stat">
 						<span>FAAB budget</span>
 						<b class="mono">
-							$
 							{data.waivers_rules.faab_budget}
+							{" "}FAAB
 						</b>
 					</div>
 				</If>

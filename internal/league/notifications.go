@@ -1304,14 +1304,14 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	case "won":
 		title = "THE WIRE DELIVERS."
 		if faab {
-			subject = fmt.Sprintf("CLAIM WON: %s is yours — $%d", addPlayer.Name, result.WinningBid)
+			subject = fmt.Sprintf("CLAIM WON: %s is yours — %s", addPlayer.Name, faabUnits(result.WinningBid))
 		} else {
 			subject = fmt.Sprintf("CLAIM WON: %s is yours — priority %d of %d", addPlayer.Name, result.Position, n)
 		}
 	case "beaten":
 		if faab {
 			title = "OUTBID."
-			subject = fmt.Sprintf("OUTBID: %s went to %s for $%d", addPlayer.Name, winningTeamName, result.WinningBid)
+			subject = fmt.Sprintf("OUTBID: %s went to %s for %s", addPlayer.Name, winningTeamName, faabUnits(result.WinningBid))
 		} else {
 			title = "BEATEN TO IT."
 			subject = fmt.Sprintf("MISSED: %s went to %s on priority", addPlayer.Name, winningTeamName)
@@ -1326,7 +1326,7 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 		lede += fmt.Sprintf(", dropping %s", dropPlayer.Name)
 	}
 	if faab {
-		lede += fmt.Sprintf(" — bid $%d.", result.Claim.Bid)
+		lede += fmt.Sprintf(" — bid %s.", faabUnits(result.Claim.Bid))
 	} else {
 		lede += "."
 	}
@@ -1343,16 +1343,16 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	case result.Outcome == "won" && faab:
 		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
 		rows = append(rows,
-			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: $%d", result.Claim.Bid)},
-			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("$%d remaining", remaining)},
+			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: %s", faabUnits(result.Claim.Bid))},
+			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("%s remaining", faabUnits(remaining))},
 		)
 	case result.Outcome == "beaten" && !faab:
 		rows = append(rows, emailkit.PanelRow{Label: "PRIORITY", Value: fmt.Sprintf("%s claimed it first", winningTeamName)})
 	case result.Outcome == "beaten" && faab:
 		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
 		rows = append(rows,
-			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: $%d · winning: $%d", result.Claim.Bid, result.WinningBid)},
-			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("$%d remaining", remaining)},
+			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: %s · winning: %s", faabUnits(result.Claim.Bid), faabUnits(result.WinningBid))},
+			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("%s remaining", faabUnits(remaining))},
 		)
 	default: // failed
 		rows = append(rows, emailkit.PanelRow{Label: "REASON", Value: result.Reason})
