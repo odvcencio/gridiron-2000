@@ -144,12 +144,15 @@ func main() {
 	}
 	hqService, err := commissionerhq.New(hqConfig, func() commissionerhq.Summary {
 		poolStatus := fantasyPool.Status()
+		openData := commissionerOpenData(openStats.Status())
 		return league.Default().CommissionerSummary(hqConfig.InstanceID, commissionerhq.Runtime{
-			Ready: league.Default().PersistenceError() == nil, AppVersion: appVersion, GitSHA: appGitSHA,
+			Ready:      league.Default().PersistenceError() == nil,
+			AppVersion: appVersion, FrameworkVersion: gosx.Version,
+			GitSHA: appGitSHA, Build: appBuildDate,
 		}, commissionerhq.Pool{
-			Mode: poolStatus.Mode, Players: poolStatus.Players, Target: poolStatus.PoolLimit,
+			Mode: poolStatus.Mode, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
 			LastSync: poolStatus.LastSync, Error: poolStatus.LastError,
-		})
+		}, openData)
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -334,7 +337,7 @@ func main() {
 		ctx.NoStore()
 		return wirepage.PulseData(signalFeed), nil
 	})
-	app.Mount("GET /api/commissioner/v1/summary", hqService.SummaryHandler())
+	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
 	// Team avatars (design decisions 1-3): GoSX v0.50.0 exposes File/Files

@@ -57,7 +57,7 @@ func init() {
 func fleetCard(entry commissionerhq.FleetEntry) map[string]any {
 	if !entry.Available() {
 		return map[string]any{
-			"available": false, "peer_id": entry.PeerID, "error": entry.Error,
+			"available": false, "peer_id": entry.PeerID, "public_url": entry.PublicURL, "error": entry.Error,
 		}
 	}
 	summary := entry.Summary
@@ -79,9 +79,9 @@ func fleetCard(entry commissionerhq.FleetEntry) map[string]any {
 		"draft_status": strings.ToUpper(summary.Draft.Status),
 		"draft_at":     summary.Draft.ScheduledAt.Format("Mon, Jan 2 · 3:04 PM MST"),
 		"picks":        summary.Draft.Picks, "draft_slots": summary.Pool.RosterCapacity,
-		"pool_mode": strings.ToUpper(summary.Pool.Mode), "pool_players": summary.Pool.Players,
+		"pool_mode": strings.ToUpper(summary.Pool.Mode), "pool_players": summary.Pool.Actual,
 		"pool_target": summary.Pool.Target, "pool_cushion": summary.Pool.Cushion,
-		"pool_coverage": fmt.Sprintf("%.1f×", summary.Pool.Coverage),
+		"pool_coverage": fmt.Sprintf("%.1f×", summary.Pool.ActualCoverage),
 		"attention":     attention, "has_attention": len(attention) > 0,
 		"attention_count": len(attention),
 		"home_url":        base + "/", "admin_url": base + "/admin", "draft_url": base + "/draft",

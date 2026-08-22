@@ -2,11 +2,14 @@ package commissionerhq
 
 import "time"
 
-const SchemaVersion = 1
+const (
+	SchemaVersion = 2
+	SummaryPath   = "/api/commissioner/v2/summary"
+)
 
 // Summary is the deliberately small, PII-free contract one league exposes to
-// another commissioner dashboard. It must never grow manager identities,
-// invites, session data, or mutation credentials.
+// another commissioner dashboard. It contains counts, state, and operator
+// guidance only: never identities, invites, boards, sessions, or raw errors.
 type Summary struct {
 	SchemaVersion int         `json:"schemaVersion"`
 	GeneratedAt   time.Time   `json:"generatedAt"`
@@ -14,7 +17,9 @@ type Summary struct {
 	Runtime       Runtime     `json:"runtime"`
 	Membership    Membership  `json:"membership"`
 	Draft         Draft       `json:"draft"`
+	Season        Season      `json:"season"`
 	Pool          Pool        `json:"pool"`
+	OpenData      OpenData    `json:"openData"`
 	Attention     []Attention `json:"attention"`
 }
 
@@ -28,40 +33,115 @@ type Instance struct {
 }
 
 type Runtime struct {
-	Ready      bool   `json:"ready"`
-	AppVersion string `json:"appVersion"`
-	GitSHA     string `json:"gitSHA"`
+	Ready            bool   `json:"ready"`
+	AppVersion       string `json:"appVersion"`
+	FrameworkVersion string `json:"frameworkVersion"`
+	GitSHA           string `json:"gitSHA"`
+	Build            string `json:"build"`
+}
+
+type SeatLedgerEntry struct {
+	Seat    int  `json:"seat"`
+	Claimed bool `json:"claimed"`
+	Ready   bool `json:"ready"`
 }
 
 type Membership struct {
-	Seats        int `json:"seats"`
-	ClaimedSeats int `json:"claimedSeats"`
-	ReadySeats   int `json:"readySeats"`
-	Members      int `json:"members"`
+	Seats        int               `json:"seats"`
+	ClaimedSeats int               `json:"claimedSeats"`
+	ReadySeats   int               `json:"readySeats"`
+	Members      int               `json:"members"`
+	SeatLedger   []SeatLedgerEntry `json:"seatLedger"`
 }
 
 type Draft struct {
-	ScheduledAt time.Time `json:"scheduledAt"`
-	Status      string    `json:"status"`
-	Started     bool      `json:"started"`
-	StartedAt   time.Time `json:"startedAt,omitzero"`
-	Rounds      int       `json:"rounds"`
-	Picks       int       `json:"picks"`
-	OrderSet    bool      `json:"orderSet"`
-	ClockArmed  bool      `json:"clockArmed"`
-	ClockPaused bool      `json:"clockPaused"`
-	Deadline    time.Time `json:"clockDeadline,omitzero"`
+	ScheduledAt       time.Time `json:"scheduledAt"`
+	Status            string    `json:"status"`
+	Started           bool      `json:"started"`
+	StartedAt         time.Time `json:"startedAt,omitzero"`
+	Rounds            int       `json:"rounds"`
+	Picks             int       `json:"picks"`
+	Order             []int     `json:"order,omitempty"`
+	OrderSet          bool      `json:"orderSet"`
+	ClockArmed        bool      `json:"clockArmed"`
+	ClockPaused       bool      `json:"clockPaused"`
+	ClockRemainingSec int       `json:"clockRemainingSec,omitempty"`
+	Deadline          time.Time `json:"clockDeadline,omitzero"`
+}
+
+type Schedule struct {
+	Published        bool   `json:"published"`
+	Season           int    `json:"season"`
+	WeekCount        int    `json:"weekCount"`
+	StartWeek        int    `json:"startWeek"`
+	EndWeek          int    `json:"endWeek"`
+	CurrentWeek      int    `json:"currentWeek"`
+	TotalMatchups    int    `json:"totalMatchups"`
+	FinalWeeks       int    `json:"finalWeeks"`
+	FinalMatchups    int    `json:"finalMatchups"`
+	RedrawLocked     bool   `json:"redrawLocked"`
+	RedrawLockReason string `json:"redrawLockReason,omitempty"`
+}
+
+type WeekClose struct {
+	Week           int       `json:"week"`
+	Final          bool      `json:"final"`
+	Ready          bool      `json:"ready"`
+	GamesKnown     bool      `json:"gamesKnown"`
+	GamesTotal     int       `json:"gamesTotal"`
+	GamesFinal     int       `json:"gamesFinal"`
+	StatsFresh     bool      `json:"statsFresh"`
+	StatsUpdatedAt time.Time `json:"statsUpdatedAt,omitzero"`
+	Reason         string    `json:"reason,omitempty"`
+}
+
+type Playoffs struct {
+	Seeded    bool   `json:"seeded"`
+	Available bool   `json:"available"`
+	Note      string `json:"note"`
+}
+
+type Season struct {
+	Season      int       `json:"season"`
+	Phase       string    `json:"phase"`
+	CurrentWeek int       `json:"currentWeek"`
+	Schedule    Schedule  `json:"schedule"`
+	WeekClose   WeekClose `json:"weekClose"`
+	Playoffs    Playoffs  `json:"playoffs"`
 }
 
 type Pool struct {
 	Mode           string    `json:"mode"`
-	Players        int       `json:"players"`
+	Actual         int       `json:"actual"`
 	Target         int       `json:"target"`
 	RosterCapacity int       `json:"rosterCapacity"`
 	Cushion        int       `json:"cushion"`
-	Coverage       float64   `json:"coverage"`
+	ActualCoverage float64   `json:"actualCoverage"`
+	TargetCoverage float64   `json:"targetCoverage"`
+	RosterCoverage float64   `json:"rosterCoverage"`
 	LastSync       time.Time `json:"lastSync,omitzero"`
-	Error          string    `json:"error,omitempty"`
+	// Players and Coverage are internal compatibility aliases used while
+	// assembling the summary; neither is exposed on the v2 wire contract.
+	Players  int     `json:"-"`
+	Coverage float64 `json:"-"`
+	Error    string  `json:"-"`
+}
+
+type DatasetStatus struct {
+	State       string    `json:"state"`
+	LastChecked time.Time `json:"lastChecked,omitzero"`
+	LastUpdated time.Time `json:"lastUpdated,omitzero"`
+}
+
+type OpenData struct {
+	Season          int           `json:"season"`
+	Running         bool          `json:"running"`
+	Schedules       DatasetStatus `json:"schedules"`
+	PlayerStats     DatasetStatus `json:"playerStats"`
+	PlayerStatsPrev DatasetStatus `json:"playerStatsPrev"`
+	Injuries        DatasetStatus `json:"injuries"`
+	TeamStats       DatasetStatus `json:"teamStats"`
+	PlayByPlay      DatasetStatus `json:"playByPlay"`
 }
 
 type Attention struct {
@@ -69,13 +149,14 @@ type Attention struct {
 	Severity string `json:"severity"`
 	Count    int    `json:"count,omitempty"`
 	Message  string `json:"message"`
-	Href     string `json:"href,omitempty"`
+	Area     string `json:"area"`
 }
 
 type FleetEntry struct {
-	PeerID  string
-	Summary Summary
-	Error   string
+	PeerID    string
+	PublicURL string
+	Summary   Summary
+	Error     string
 }
 
 func (e FleetEntry) Available() bool { return e.Error == "" }
