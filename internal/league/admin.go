@@ -432,15 +432,18 @@ func (s *Service) requireCommissioner(r *http.Request) error {
 }
 
 // commissionerProvenance renders the acting commissioner's identity for an
-// admin-authored record (announcements today): the signed-in email, or "the
-// commissioner" in demo mode or when no email is on hand — mirroring
-// Viewer's own signed-in/demo split (service.go), the closest existing
-// precedent for "who is this request" in the package.
+// admin-authored record (announcements today): the signed-in member's
+// display name, or "The Commissioner" in demo mode or when no name is on
+// hand — mirroring Viewer's own signed-in/demo split (service.go), the
+// closest existing precedent for "who is this request" in the package.
+// This never returns an email address: it is posted_by copy a member
+// reads on the home page (service.go's commissioner notes), not an
+// internal identifier.
 func (s *Service) commissionerProvenance(r *http.Request) string {
-	if user, ok := s.CurrentUser(r); ok && strings.TrimSpace(user.Email) != "" {
-		return user.Email
+	if user, ok := s.CurrentUser(r); ok && strings.TrimSpace(user.Name) != "" {
+		return strings.TrimSpace(user.Name)
 	}
-	return "the commissioner"
+	return "The Commissioner"
 }
 
 // AdminSetRosterShape applies a commissioner-chosen roster shape override

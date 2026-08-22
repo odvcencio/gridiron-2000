@@ -246,13 +246,13 @@ func draftWorkspaceFragmentURL(data map[string]any) string {
 func draftRoomStatus(data map[string]any) string {
 	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
 	clockView := mapField(data, "clock")
-	clock := "not armed"
+	clockPhrase := "the clock is not running"
 	if boolField(clockView, "paused") {
-		clock = "paused"
+		clockPhrase = "clock paused"
 	} else if boolField(clockView, "armed") {
-		clock = "running"
+		clockPhrase = "clock running"
 	}
-	return fmt.Sprintf("Pick %d; %s on the clock; %d of %d ready; clock %s.", intField(data, "pick_number"), onClock, intField(data, "ready_count"), intField(data, "manager_count"), clock)
+	return fmt.Sprintf("Pick %d; %s on the clock; %d of %d ready; %s.", intField(data, "pick_number"), onClock, intField(data, "ready_count"), intField(data, "manager_count"), clockPhrase)
 }
 
 func attachDraftRequestState(data map[string]any, request *http.Request) map[string]any {
