@@ -6279,3 +6279,228 @@ body.is-on-clock .draft-clock-panel {
   overflow-wrap: anywhere;
   white-space: normal;
 }
+
+/* Account notification settings. These controls deliberately stay native
+   forms: every On/Off choice works without JavaScript, has a CSRF token, and
+   remains a comfortable touch target on a narrow manager phone. */
+.notification-settings-page {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.notification-settings-masthead {
+  align-items: stretch;
+}
+
+.notification-settings-account {
+  margin: var(--space-md) 0 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.notification-settings-account strong {
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+}
+
+.notification-settings-summary {
+  align-self: stretch;
+}
+
+.notification-settings-summary strong {
+  color: var(--color-accent);
+  font-size: var(--type-lg);
+}
+
+.notification-settings-panel {
+  min-width: 0;
+}
+
+.notification-settings-panel--planned {
+  border-color: var(--color-border);
+}
+
+.notification-settings-count {
+  color: var(--color-accent-cyan);
+  font-size: var(--type-xs);
+}
+
+.notification-settings-note {
+  max-width: 58rem;
+  margin: 0 0 var(--space-md);
+  color: var(--color-text-secondary);
+}
+
+.notification-settings-delivery {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border-left: 3px solid var(--color-accent-cyan);
+  color: var(--color-text-secondary);
+  background: var(--color-cyan-haze);
+}
+
+.notification-preference-list {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.notification-preference-groups {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.notification-preference-group {
+  min-width: 0;
+}
+
+.notification-preference-group__heading {
+  margin-bottom: var(--space-sm);
+}
+
+.notification-preference-group__heading h3,
+.notification-preference-group__heading p {
+  margin: 0;
+}
+
+.notification-preference-group__heading h3 {
+  color: var(--color-accent-cyan);
+  font-family: var(--font-display);
+  font-size: var(--type-lg);
+  text-transform: uppercase;
+}
+
+.notification-preference-group__heading p {
+  margin-top: var(--space-xs);
+  color: var(--color-text-secondary);
+}
+
+.notification-preference {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-deep);
+}
+
+.notification-preference legend {
+  max-width: 100%;
+  padding: 0 var(--space-xs);
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  font-size: var(--type-md);
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.notification-preference__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.notification-preference__body p {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-secondary);
+}
+
+.notification-preference__body small {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-choice-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+.notification-choice-group form {
+  margin: 0;
+}
+
+.notification-choice {
+  min-width: 4.5rem;
+  min-height: 3rem;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.notification-choice:hover {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.notification-preference__state,
+.notification-preference__readonly {
+  display: inline-block;
+  margin-top: var(--space-sm);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.notification-preference__state {
+  color: var(--color-accent);
+}
+
+.notification-preference--planned {
+  border-style: dashed;
+  background: var(--color-white-faint);
+}
+
+.notification-preference--planned legend,
+.notification-preference--planned .notification-preference__readonly {
+  color: var(--color-text-muted);
+}
+
+.notification-settings-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  justify-content: space-between;
+  padding-bottom: var(--space-xl);
+}
+
+@media (max-width: 38rem) {
+  .notification-preference__body {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-choice-group {
+    justify-content: stretch;
+  }
+
+  .notification-choice-group form,
+  .notification-choice {
+    flex: 1 1 8rem;
+    width: 100%;
+  }
+
+  .notification-settings-footer {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .notification-settings-footer .button {
+    width: 100%;
+  }
+}

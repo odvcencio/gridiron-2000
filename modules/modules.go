@@ -17,6 +17,7 @@ import (
 	_ "gridiron-2000/app/players"
 	_ "gridiron-2000/app/privacy"
 	_ "gridiron-2000/app/scoring"
+	_ "gridiron-2000/app/settings"
 	_ "gridiron-2000/app/team"
 	_ "gridiron-2000/app/terms"
 	_ "gridiron-2000/app/trades"

@@ -1189,7 +1189,8 @@ func TestResetLeaguePrunesExactPrefixList(t *testing.T) {
 }
 
 // TestSetNotifyPref checks that SetNotifyPref stores overrides per member
-// and category, and rejects an empty email or category.
+// and category, and rejects an empty email, an empty category, or a
+// catalog-only category whose delivery path is not live yet.
 func TestSetNotifyPref(t *testing.T) {
 	store := newTestStore(t)
 
@@ -1198,6 +1199,9 @@ func TestSetNotifyPref(t *testing.T) {
 	}
 	if err := store.SetNotifyPref("a@example.com", "", false); err == nil {
 		t.Error("empty category accepted")
+	}
+	if err := store.SetNotifyPref("a@example.com", "weekly_recap", true); err == nil {
+		t.Error("planned weekly recap category accepted")
 	}
 
 	if err := store.SetNotifyPref(" A@Example.com ", "draft_live", false); err != nil {
@@ -1212,7 +1216,7 @@ func TestSetNotifyPref(t *testing.T) {
 		t.Fatalf("pref not stored: %+v", snapshot.NotifyPrefs)
 	}
 
-	if err := store.SetNotifyPref("a@example.com", "weekly_recap", true); err != nil {
+	if err := store.SetNotifyPref("a@example.com", "broadcast", true); err != nil {
 		t.Fatal(err)
 	}
 	snapshot = store.Snapshot()
