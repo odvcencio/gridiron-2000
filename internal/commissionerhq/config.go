@@ -10,7 +10,10 @@ import (
 	"time"
 )
 
-const maxPeers = 8
+const (
+	defaultFetchConcurrency = 8
+	maxFetchConcurrency     = 64
+)
 
 var instanceIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
@@ -25,6 +28,9 @@ type Config struct {
 	Token      string
 	Peers      []Peer
 	Timeout    time.Duration
+	// FetchConcurrency bounds simultaneous peer reads without limiting how
+	// many league instances may participate in the fleet.
+	FetchConcurrency int
 }
 
 func ConfigFromEnv() (Config, error) {
@@ -43,6 +49,14 @@ func ConfigFromEnv() (Config, error) {
 		}
 		timeout = parsed
 	}
+	concurrency := defaultFetchConcurrency
+	if raw := strings.TrimSpace(os.Getenv("COMMISSIONER_HQ_CONCURRENCY")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > maxFetchConcurrency {
+			return Config{}, fmt.Errorf("COMMISSIONER_HQ_CONCURRENCY must be between 1 and %d", maxFetchConcurrency)
+		}
+		concurrency = parsed
+	}
 	peers, err := parsePeers(instanceID, os.Getenv("COMMISSIONER_HQ_PEERS"))
 	if err != nil {
 		return Config{}, err
@@ -51,7 +65,10 @@ func ConfigFromEnv() (Config, error) {
 	if len(peers) > 0 && token == "" {
 		return Config{}, fmt.Errorf("COMMISSIONER_HQ_TOKEN is required when peers are configured")
 	}
-	return Config{InstanceID: instanceID, Token: token, Peers: peers, Timeout: timeout}, nil
+	return Config{
+		InstanceID: instanceID, Token: token, Peers: peers, Timeout: timeout,
+		FetchConcurrency: concurrency,
+	}, nil
 }
 
 func parsePeers(selfID, raw string) ([]Peer, error) {
@@ -60,9 +77,6 @@ func parsePeers(selfID, raw string) ([]Peer, error) {
 		return nil, nil
 	}
 	parts := strings.Split(raw, ",")
-	if len(parts) > maxPeers {
-		return nil, fmt.Errorf("COMMISSIONER_HQ_PEERS supports at most %d peers", maxPeers)
-	}
 	seen := map[string]bool{selfID: true}
 	peers := make([]Peer, 0, len(parts))
 	for _, part := range parts {

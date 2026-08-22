@@ -36,6 +36,9 @@ func New(config Config, local SummarySource) (*Service, error) {
 	if config.Timeout <= 0 || config.Timeout > 10*time.Second {
 		config.Timeout = 1500 * time.Millisecond
 	}
+	if config.FetchConcurrency <= 0 || config.FetchConcurrency > maxFetchConcurrency {
+		config.FetchConcurrency = defaultFetchConcurrency
+	}
 	client := &http.Client{
 		Timeout: config.Timeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
@@ -92,22 +95,34 @@ func (s *Service) Fleet(ctx context.Context) []FleetEntry {
 	entries := make([]FleetEntry, len(s.config.Peers)+1)
 	local := s.local()
 	entries[0] = FleetEntry{PeerID: s.config.InstanceID, PublicURL: local.Instance.PublicURL, Summary: local}
-	var group sync.WaitGroup
+	type fleetJob struct {
+		index int
+		peer  Peer
+	}
+	jobs := make(chan fleetJob, len(s.config.Peers))
 	for index, peer := range s.config.Peers {
-		index, peer := index+1, peer
-		group.Add(1)
+		jobs <- fleetJob{index: index + 1, peer: peer}
+	}
+	close(jobs)
+
+	workerCount := min(s.config.FetchConcurrency, len(s.config.Peers))
+	var group sync.WaitGroup
+	group.Add(workerCount)
+	for range workerCount {
 		go func() {
 			defer group.Done()
-			summary, err := s.fetch(ctx, peer)
-			publicURL := ""
-			if peer.PublicURL != nil {
-				publicURL = peer.PublicURL.String()
-			}
-			entries[index] = FleetEntry{
-				PeerID:    peer.ID,
-				PublicURL: publicURL,
-				Summary:   summary,
-				Error:     displayError(err),
+			for job := range jobs {
+				summary, err := s.fetch(ctx, job.peer)
+				publicURL := ""
+				if job.peer.PublicURL != nil {
+					publicURL = job.peer.PublicURL.String()
+				}
+				entries[job.index] = FleetEntry{
+					PeerID:    job.peer.ID,
+					PublicURL: publicURL,
+					Summary:   summary,
+					Error:     displayError(err),
+				}
 			}
 		}()
 	}
