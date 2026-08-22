@@ -1,6 +1,6 @@
 # GRIDIRON 2000
 
-A private, self-hostable fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 (RapidAPI) key adds live ADP, projections, and fantasy news to the draft room.
+A private, self-hostable fantasy-football league room built with GoSX. It uses Google OAuth for league identity, keeps draft and data state on the machine you operate, listens to a commissioner-curated public signal wire, and mirrors open NFL datasets. An optional Tank01 connection adds live ADP, projections, and fantasy news to the draft room; the Kubernetes deployments route both leagues through one shared relay so the upstream key and request budget have one owner.
 
 Every league-specific fact — name, team count, divisions, draft date, and invite copy — lives in `league.json` (see `config/league.json.example`), not in the code. A fresh checkout with no `league.json` runs a neutral, clearly-placeholder reference league; copy the example file, edit it, and restart to run your own. `DRAFT_AT` and `DRAFT_TZ` still override the file's draft date/timezone for a quick change without touching the file.
 
@@ -20,6 +20,7 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
 - A public /guide for managers arriving from another fantasy provider, with a five-minute start, commissioner checklist, draft controls, data states, and a manual migration checklist.
+- An explicit [season operations handbook](docs/season-operations.md) for draft night, weekly lineup locks, waivers, trades, week close, degraded data, and two-league commissioner operations.
 
 There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
 
@@ -125,15 +126,23 @@ WIRE_RULES_FILE=/absolute/path/to/league-rules.arb
 
 Provenance policy lives in [`internal/wire/trust_rules.arb`](internal/wire/trust_rules.arb) and can be overridden with `WIRE_TRUST_RULES_FILE`. Publisher, social, crowd, and market evidence receive different visible tiers and weights. Exact canonical source links cluster together and show how many independent source records corroborated them. Every result remains provisional: it can alert the league, but it cannot add points, change a roster, or settle a dispute.
 
-## Fantasy draft pool (optional Tank01 key)
+## Fantasy draft pool and shared relay
 
-The draft room always works. Without a key it uses an embedded offline pool of 182 players with approximate ranks. With a Tank01 key it syncs live data and labels the pool `live`.
+The draft room always works. Without an upstream connection it uses an embedded offline pool of 182 players with approximate ranks. With Tank01 available it syncs live data and labels the pool `live`; the last good atomic cache remains usable as `cache` when a later refresh fails.
 
-To connect Tank01:
+For a one-process local development server, connect directly:
 
 1. Create a RapidAPI account and subscribe to "Tank01 NFL Live In-Game Real Time Statistics". The free tier (1,000 requests per month, no card) is enough: one sync costs five requests, and the app syncs every six hours (about 600 per month at the default interval — set `FANTASY_SYNC_INTERVAL=8h` to stay under 1,000, or the $10/month Pro tier removes the concern).
-2. Set `TANK01_API_KEY` in `.env` and restart.
+2. Set `TANK01_API_KEY` in the local `.env` and restart. This direct-key path is for a standalone development installation, not the tracked two-league Kubernetes topology.
 3. Confirm `fantasyPoolMode` reports `live` at `/api/health`.
+
+For Kubernetes or any host running more than one league, deploy one `statrelay`, put `TANK01_API_KEY` only in `statrelay-secrets`, and set every league application to:
+
+```dotenv
+TANK01_BASE_URL=http://statrelay.gridiron.svc.cluster.local
+```
+
+Do not copy the upstream key into a league Secret. The relay owns authentication, caching, and quota sharing; the league processes consume its Tank01-compatible envelope. The tracked flagship and Stable Kernel Deployment manifests already follow this contract.
 
 One sync fetches the player list, ADP, weekly projections, fantasy news, and team bye weeks, then writes an atomic cache under `data/fantasy/`. Between syncs, and across restarts, the last good pool serves from that cache. `SCORING_FORMAT` (half_ppr, ppr, standard) selects the ADP type and projection scoring.
 
@@ -209,7 +218,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
 | `COMMISSIONER_EMAILS` | empty | Canonical accounts allowed into `/admin` |
 | `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings for one person; internal ownership and audit only |
-| `TANK01_API_KEY` | empty | Enables the live Tank01 draft pool |
+| `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
+| `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
@@ -247,7 +257,7 @@ internal/wire/        RSS/Atom + Jetstream ingestion, trust policy, clustering, 
 internal/openstats/   nflverse sync, parser, manifest, and normalized queries
 public/               Neo-Retro visual system and browser enhancers
 deploy/k8s/           single-replica Kubernetes manifests
-docs/                 source policy, data contract, and launch checklist
+docs/                 configuration, season operations, source policy, data contract, and release runbooks
 ```
 
 The SQLite/WAL state store is deliberate for one private league and one application process. Keep one writer per league database; a multi-instance product should isolate each league's state or introduce a shared transactional authority before adding replicas.

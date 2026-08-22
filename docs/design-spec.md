@@ -12,6 +12,8 @@ Gridiron is a private fantasy-football league room for 4–14 teams. It combines
 - The initial experience is useful in demo mode without credentials; production Google OAuth, the no-key signal wire, and the open-data cache are configured through environment variables.
 - Publisher, social, community, and market signals are provenance-weighted but always provisional; they can never mutate fantasy scores. Corrected structured records and commissioner rulings remain authoritative. Closing a scheduled week records final matchup totals and pins its effective lineups so later roster churn cannot rewrite history.
 - Server-rendered pages remain the baseline. Browser runtime is reserved for live refresh, filters, countdowns, and draft interactions.
+- Regular-season schedules and closed matchup results are durable league state. Week-close readiness is advisory, the normal close waits for finished games and settled statistics, and any forced close is an explicit commissioner decision.
+- Cross-league Commissioner HQ is a PII-free operational readout. It links to each isolated league for action rather than merging sessions, databases, memberships, or mutations.
 
 ## Visual System
 

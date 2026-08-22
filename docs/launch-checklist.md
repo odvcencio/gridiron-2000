@@ -6,6 +6,11 @@ reference deployments; operators of another installation must substitute
 their own values. It intentionally records no current image, revision,
 certificate, Secret, or rollout status—capture those facts at execution time.
 
+This file governs image release, canary, acceptance, and rollback. Use the
+[season operations handbook](season-operations.md) for league configuration,
+manager onboarding, draft night, weekly locks, waivers, trades, week close,
+degraded-data decisions, and Commissioner HQ operating boundaries.
+
 For an existing installation, skip steps 2–9. Build and pin the image in step
 1, record rollback state in 10.1, provision or intentionally rotate the shared
 Commissioner HQ token only when required by 10.2, then canary Stable Kernel
