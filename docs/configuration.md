@@ -76,9 +76,9 @@ All four fields are strings:
 
 ## `membership`
 
-`membership.allowed_domain` is either empty or a bare domain such as `stablekernel.com`—never an email address and never prefixed with `@`. When set, a Google identity at that domain may enter without an individual invite. Runtime invitations and `LEAGUE_ALLOWED_EMAILS` continue to work alongside it.
+`membership.allowed_domain` is either empty or a bare domain such as `stablekernel.com`—never an email address and never prefixed with `@`. When set, a Google identity at that domain may enter without an individual invite. Runtime invitations and `LEAGUE_ALLOWED_EMAILS` continue to work alongside it. Non-domain identities still depend on those runtime controls, except that an installation with both lists empty is deliberately open during setup and admits any authenticated Google identity.
 
-An empty or omitted value means there is no domain-wide admission. Access is then decided by individual runtime invitations and the deployment allowlist. Commissioner authority is separate and still comes from `COMMISSIONER_EMAILS`; identity merging is separate and comes from `IDENTITY_ALIASES`.
+An empty or omitted value means only that there is no domain gate; public config cannot reveal the effective runtime posture. Individual invitations or `LEAGUE_ALLOWED_EMAILS` may restrict admission. When both are empty, the initial-setup behavior is open to any authenticated Google identity. Commissioner authority is separate and still comes from `COMMISSIONER_EMAILS`; identity merging is separate and comes from `IDENTITY_ALIASES`.
 
 ## `roster`
 
@@ -126,6 +126,11 @@ Only these seven environment values override public JSON fields:
 | `DRAFT_AT` | `draft.at` |
 | `SEASON_START_AT` | `season_start_at` |
 | `NFL_SEASON` | `league.season` |
+
+Empty or unset values are no-ops. A non-empty malformed `DRAFT_AT` or
+`SEASON_START_AT`, or a nonnumeric/out-of-range `NFL_SEASON`, fails startup
+with an error naming the environment variable; Gridiron never silently keeps
+the prior JSON/default value after an invalid override.
 
 Other environment variables configure private identity policy, credentials, providers, storage, or runtime behavior; they are not part of the public `league.json` schema. See [`.env.example`](../.env.example) and the README configuration map.
 

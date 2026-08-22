@@ -199,8 +199,8 @@ identity in `COMMISSIONER_EMAILS` and add a one-way mapping in
 `IDENTITY_ALIASES`:
 
 ```dotenv
-COMMISSIONER_EMAILS=oscar.villavicencio@stablekernel.com
-IDENTITY_ALIASES=oscar@m31labs.dev=oscar.villavicencio@stablekernel.com
+COMMISSIONER_EMAILS=oscar@m31labs.dev
+IDENTITY_ALIASES=oscar.villavicencio@stablekernel.com=oscar@m31labs.dev
 ```
 
 The alias is checked against the raw league domain/allowlist/invite policy

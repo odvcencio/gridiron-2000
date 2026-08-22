@@ -74,8 +74,8 @@ Use `IDENTITY_ALIASES` when the same commissioner has more than one
 permitted Google email:
 
 ```dotenv
-COMMISSIONER_EMAILS=oscar.villavicencio@stablekernel.com
-IDENTITY_ALIASES=oscar@m31labs.dev=oscar.villavicencio@stablekernel.com
+COMMISSIONER_EMAILS=oscar@m31labs.dev
+IDENTITY_ALIASES=oscar.villavicencio@stablekernel.com=oscar@m31labs.dev
 ```
 
 Mappings are explicit, one-way, and fail closed on malformed, chained, or
@@ -205,7 +205,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DRAFT_AT` | `2026-08-22T16:00:00-04:00` | Draft start as RFC3339 |
+| `DRAFT_AT` | `2099-01-01T00:00:00Z` | Scheduled draft meeting/window as RFC3339; only the commissioner’s **Start draft** action begins pick one |
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
 | `COMMISSIONER_EMAILS` | empty | Canonical accounts allowed into `/admin` |
 | `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings for one person; internal ownership and audit only |
