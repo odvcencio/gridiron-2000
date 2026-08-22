@@ -49,13 +49,27 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
 	for _, email := range envEmails {
 		envSet[email] = true
-		invites = append(invites, map[string]any{"email": email, "source": "PRESET", "removable": false, "mailto": inviteMailto(s, email)})
+		invites = append(invites, s.adminInviteMap(state, email, "PRESET", false))
 	}
 	for _, email := range state.Invites {
 		if envSet[email] {
 			continue
 		}
-		invites = append(invites, map[string]any{"email": email, "source": "INVITE", "removable": true, "mailto": inviteMailto(s, email)})
+		invites = append(invites, s.adminInviteMap(state, email, "INVITE", true))
+	}
+	inviteSignedInCount := 0
+	inviteSeatedCount := 0
+	inviteReadyCount := 0
+	for _, invite := range invites {
+		if signedIn, _ := invite["signed_in"].(bool); signedIn {
+			inviteSignedInCount++
+		}
+		if seated, _ := invite["seated"].(bool); seated {
+			inviteSeatedCount++
+		}
+		if ready, _ := invite["ready"].(bool); ready {
+			inviteReadyCount++
+		}
 	}
 	orderIDs := state.DraftOrder
 	if len(orderIDs) == 0 {
@@ -74,19 +88,27 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	// a domain-gated league (SK launch-prep dry run finding) until this.
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
 	return map[string]any{
-		"viewer":              s.Viewer(r),
-		"identity_available":  identityAvailable,
-		"identity_error":      identityError,
-		"is_commissioner":     s.IsCommissioner(r),
-		"seats":               seats,
-		"invites":             invites,
-		"invite_count":        len(invites),
-		"league_open":         domainGate == "" && len(invites) == 0,
-		"league_domain_gated": domainGate != "",
-		"league_domain":       domainGate,
-		"member_count":        len(state.Members),
-		"pick_count":          len(state.Picks),
-		"seat_count":          len(s.Teams()),
+		"viewer":                 s.Viewer(r),
+		"identity_available":     identityAvailable,
+		"identity_error":         identityError,
+		"is_commissioner":        s.IsCommissioner(r),
+		"seats":                  seats,
+		"invites":                invites,
+		"invite_count":           len(invites),
+		"invite_signed_in_count": inviteSignedInCount,
+		"invite_seated_count":    inviteSeatedCount,
+		"invite_ready_count":     inviteReadyCount,
+		"invite_waiting_count":   len(invites) - inviteSignedInCount,
+		"invite_seatless_count":  inviteSignedInCount - inviteSeatedCount,
+		"league_open":            domainGate == "" && len(invites) == 0,
+		"league_domain_gated":    domainGate != "",
+		"league_domain":          domainGate,
+		// The masthead labels this value SEATS. Seatless signed-in members and
+		// co-managers are real members but do not occupy additional team seats,
+		// so counting raw Member records overstates launch readiness.
+		"member_count": claimedSeatCount(state.Members),
+		"pick_count":   len(state.Picks),
+		"seat_count":   len(s.Teams()),
 		// ready_count feeds the masthead's "N/seats ready" line: the same
 		// aggregate the draft room shows, so the commissioner reads seat
 		// readiness at a glance without scrolling to 01 // SEATS.
@@ -140,6 +162,78 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"announcements":       s.announcementAdminMaps(state),
 		"announcements_empty": len(state.Announcements) == 0,
 	}
+}
+
+// adminInviteMap turns the invite allowlist into a lightweight acceptance
+// ledger for the commissioner. Invites are authorization records, so they
+// deliberately survive seat claims; joining that durable list to the member
+// snapshot lets the console distinguish "email added" from "person signed
+// in", "seat claimed", and "manager ready" without adding another persisted
+// state machine that could drift from the actual league state.
+func (s *Service) adminInviteMap(state PersistedState, email, source string, removable bool) map[string]any {
+	email = strings.ToLower(strings.TrimSpace(email))
+	item := map[string]any{
+		"email":         email,
+		"source":        source,
+		"removable":     removable,
+		"mailto":        inviteMailto(s, email),
+		"signed_in":     false,
+		"seated":        false,
+		"ready":         false,
+		"has_team":      false,
+		"status":        "WAITING",
+		"status_class":  "",
+		"status_detail": "No sign-in yet",
+		"team_name":     "",
+		"role_label":    "",
+	}
+
+	member, ok := memberByEmail(state.Members, email)
+	if !ok {
+		return item
+	}
+	item["signed_in"] = true
+	if strings.TrimSpace(member.TeamID) == "" {
+		item["status"] = "SIGNED IN"
+		item["status_detail"] = "No team seat claimed yet"
+		return item
+	}
+
+	team := s.teamView(state, member.TeamID)
+	ready := state.Ready[member.TeamID]
+	role := "PRIMARY MANAGER"
+	if member.Role == "co" {
+		role = "CO-MANAGER"
+	}
+	item["seated"] = true
+	item["ready"] = ready
+	item["has_team"] = true
+	item["team_name"] = team.Name
+	item["role_label"] = role
+	item["status"] = "SEATED"
+	item["status_detail"] = team.Name + " · " + role + " · not ready"
+	if ready {
+		item["status"] = "READY"
+		item["status_class"] = "is-ready"
+		item["status_detail"] = team.Name + " · " + role
+	}
+	return item
+}
+
+// memberByEmail tolerates imported/older state whose map key and Member.Email
+// disagree while keeping email normalization in one place. Current stores use
+// the normalized email as the key, so the direct lookup is the common path.
+func memberByEmail(members map[string]Member, email string) (Member, bool) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if member, ok := members[email]; ok {
+		return member, true
+	}
+	for key, member := range members {
+		if strings.ToLower(strings.TrimSpace(key)) == email || strings.ToLower(strings.TrimSpace(member.Email)) == email {
+			return member, true
+		}
+	}
+	return Member{}, false
 }
 
 // rosterShapeMap renders the admin console's Roster shape panel data: every
@@ -366,7 +460,7 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	leagueURL := s.leagueURL()
+	joinURL := s.leaguePathURL("join")
 	blurb := s.inviteBlurb()
 
 	venueClause := ""
@@ -402,18 +496,18 @@ Here's what to do before then:
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, leagueURL, email, carryoverLine)
-	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb)
+— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, carryoverLine)
+	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
 
 // inviteEmailHTML renders the designed HTML invite body: a single 600px
 // table with every style inline and no external assets, so it survives
 // clipping and dark/light rendering across mail clients. Every field is
-// operator- or attacker-influenced (email via the invite form, leagueURL
+// operator- or attacker-influenced (email via the invite form, joinURL
 // via the environment, name/short_code/tagline/blurb/venue/footer via
 // league.json) and is HTML-escaped before insertion.
-func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb string) string {
+func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb string) string {
 	venueRow := ""
 	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
 		venueRow = fmt.Sprintf(inviteEmailVenueRowTemplate, html.EscapeString(venue))
@@ -434,7 +528,7 @@ func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, ema
 		html.EscapeString(draftTime),
 		venueRow,
 		html.EscapeString(email),
-		leagueURL,
+		html.EscapeString(joinURL),
 		html.EscapeString(footerJoke),
 	)
 }

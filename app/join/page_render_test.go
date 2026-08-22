@@ -119,3 +119,35 @@ func TestJoinPageClaimFormCarriesCSRFAndFeedbackTargets(t *testing.T) {
 		t.Fatalf("claim form omitted visible action status target: %s", body)
 	}
 }
+
+func TestJoinPageStartsWithOneAvailableBadgeSelected(t *testing.T) {
+	body := renderJoinPage(t)
+
+	radios := motifRadio.FindAllString(body, -1)
+	checked := 0
+	for _, radio := range radios {
+		if strings.Contains(radio, "checked") {
+			checked++
+		}
+	}
+	if checked != 1 {
+		t.Errorf("join page rendered %d checked badge radios, want exactly 1 safe default; radios: %v", checked, radios)
+	}
+}
+
+func TestJoinPageExplainsThePathAfterClaim(t *testing.T) {
+	body := renderJoinPage(t)
+
+	for _, want := range []string{
+		"Secure your seat",
+		"Build your board",
+		"Mark yourself ready",
+		"commissioner starts the draft intentionally",
+		"You can rename the team later",
+		"uploading a custom team image releases the badge",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("join page missing onboarding guidance %q; body: %s", want, body)
+		}
+	}
+}

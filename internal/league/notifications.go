@@ -426,7 +426,7 @@ func (s *Service) shellFor(category, signal string) emailkit.Shell {
 		Signoff:    "— The Commissioner",
 		FooterJoke: s.leagueWordmark() + " · " + s.leagueFooterLine(),
 		PrefLine:   fmt.Sprintf("You hold a seat in %s. %s alerts: on.", s.leagueWordmark(), label),
-		PrefURL:    s.leagueURL() + "/settings",
+		PrefURL:    s.leaguePathURL("settings"),
 	}
 }
 
@@ -515,7 +515,7 @@ func (s *Service) buildSeatClaimed(state PersistedState, member Member) rendered
 				"Bookmark the draft room — that's where it all happens.",
 			},
 		},
-		emailkit.CTA{Label: "BUILD YOUR BOARD →", URL: s.leagueURL() + "/board"},
+		emailkit.CTA{Label: "BUILD YOUR BOARD →", URL: s.leaguePathURL("board")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -631,7 +631,7 @@ func (s *Service) buildDraftReminder(state PersistedState, member Member, lead r
 			{Label: "ORDER", Value: s.draftOrderSummary(state)},
 			{Label: "YOUR SLOT", Value: s.yourSlotSummary(state, member.TeamID)},
 		}},
-		emailkit.CTA{Label: "ENTER THE DRAFT ROOM →", URL: s.leagueURL() + "/draft"},
+		emailkit.CTA{Label: "ENTER THE DRAFT ROOM →", URL: s.leaguePathURL("draft")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -659,7 +659,7 @@ func (s *Service) buildDraftReminderInvitee(state PersistedState, email string, 
 			{Label: "DRAFT", Value: shortDate + " · " + draftTime},
 			{Label: "ORDER", Value: s.draftOrderSummary(state)},
 		}},
-		emailkit.CTA{Label: "CLAIM YOUR SEAT →", URL: s.leagueURL()},
+		emailkit.CTA{Label: "CLAIM YOUR SEAT →", URL: s.leaguePathURL("join")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -749,7 +749,7 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 				slot, 2*n+1-slot),
 		},
 		emailkit.StatTable{Title: "THE ORDER", Header: []string{"SLOT", "TEAM", "MANAGER"}, Rows: rows, MarkRow: markRow},
-		emailkit.CTA{Label: "SEE THE BOARD →", URL: s.leagueURL() + "/draft"},
+		emailkit.CTA{Label: "SEE THE BOARD →", URL: s.leaguePathURL("draft")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -822,7 +822,7 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 			{Label: "CLOCK", Value: s.onClockClockRow(state, now)},
 			{Label: "YOUR BOARD", Value: s.onClockBoardRow(state, boardKey)},
 		}},
-		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: s.leagueURL() + "/draft"},
+		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: s.leaguePathURL("draft")},
 		emailkit.Note{Text: "If the cap hits zero, autopick drafts the top of your Big Board for you. " +
 			"No board? Best available by ADP. Either way the tape reads AUTO next to your name — forever. " +
 			"One tap fixes that."},
@@ -944,7 +944,7 @@ func (s *Service) buildAutopickMade(state PersistedState, pick DraftPick, member
 			{Label: "MODE", Value: mode},
 		}},
 		emailkit.Note{Text: "Further auto picks stay quiet until you return."},
-		emailkit.CTA{Label: "RETAKE THE WHEEL →", URL: s.leagueURL() + "/draft"},
+		emailkit.CTA{Label: "RETAKE THE WHEEL →", URL: s.leaguePathURL("draft")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -1075,7 +1075,7 @@ func (s *Service) buildDraftComplete(state PersistedState, member Member, hash s
 		},
 		emailkit.StatTable{Title: "YOUR HAUL", Header: []string{"ROUND", "PICK", "PLAYER", "POS", "TEAM"}, Rows: haulRows},
 		emailkit.StatTable{Title: "AROUND THE LEAGUE", Header: []string{"SLOT", "TEAM", "ROUND 1", "POSITIONS"}, Rows: leagueRows, MarkRow: markRow},
-		emailkit.CTA{Label: "SEE THE FULL BOARD →", URL: s.leagueURL() + "/draft"},
+		emailkit.CTA{Label: "SEE THE FULL BOARD →", URL: s.leaguePathURL("draft")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -1185,7 +1185,7 @@ func (s *Service) buildPickemReminder(member Member, week int, due []GameInfo) r
 				n, plural, week, verb),
 		},
 		emailkit.StatTable{Title: "UNPICKED", Header: []string{"MATCHUP", "KICKOFF"}, Rows: rows},
-		emailkit.CTA{Label: "MAKE YOUR PICKS →", URL: s.leagueURL() + "/pickem"},
+		emailkit.CTA{Label: "MAKE YOUR PICKS →", URL: s.leaguePathURL("pickem")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -1347,7 +1347,7 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	blocks := []emailkit.Block{
 		emailkit.Headline{Title: title, Lede: lede},
 		emailkit.Panel{Rows: rows},
-		emailkit.CTA{Label: "SCAN THE WIRE →", URL: s.leagueURL() + "/players"},
+		emailkit.CTA{Label: "SCAN THE WIRE →", URL: s.leaguePathURL("players")},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -1496,7 +1496,7 @@ func (s *Service) buildLineupWarning(member Member, lineup EffectiveLineup, prob
 			Header: []string{"SLOT", "PLAYER", "ISSUE", "BEST REPLACEMENT"},
 			Rows:   rows,
 		},
-		emailkit.CTA{Label: "FIX IT NOW →", URL: s.leagueURL() + "/team"},
+		emailkit.CTA{Label: "FIX IT NOW →", URL: s.leaguePathURL("team")},
 		emailkit.Note{Text: "One tap on SET BEST LINEUP fills every open slot with your best projected player."},
 	}
 	text, html := emailkit.Render(shell, blocks)
@@ -1549,7 +1549,7 @@ func (s *Service) buildHealedIRWarning(member Member, player Player, week int, k
 			Lede: fmt.Sprintf("Activate %s (with a corresponding drop) before %s's game at %s, or the league drops him automatically.",
 				player.Name, player.NFLTeam, kickoff.In(location).Format("Mon 3:04 PM MST")),
 		},
-		emailkit.CTA{Label: "MANAGE YOUR IR →", URL: s.leagueURL() + "/team"},
+		emailkit.CTA{Label: "MANAGE YOUR IR →", URL: s.leaguePathURL("team")},
 		emailkit.Note{Text: "An unresolved IR slot auto-cuts at kickoff and clears to waivers the following week — never an instant free agent."},
 	}
 	text, html := emailkit.Render(shell, blocks)
