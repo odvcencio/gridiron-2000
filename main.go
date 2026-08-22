@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -574,17 +575,16 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 	}
 }
 
-// leagueScheduleSource adapts the mirrored nflverse schedule to the pick'em
-// engine. nflverse kickoff times are Eastern. The parsed schedule drops the
-// result column, so a game counts as final five hours after kickoff; the
-// winner resolves once scores land in the mirror.
+// leagueScheduleSource adapts the mirrored nflverse schedule to the Pick'em
+// engine without discarding market or source truth. nflverse kickoff times
+// are Eastern. Final follows actual result/score presence, never elapsed time,
+// and a missing spread remains distinct from a real pick'em line of zero.
 func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 	eastern := openStatsEastern()
 	return func() []league.GameInfo {
-		games := stats.Games(0)
-		now := time.Now()
-		out := make([]league.GameInfo, 0, len(games))
-		for _, game := range games {
+		snapshot := stats.ScheduleSnapshot()
+		out := make([]league.GameInfo, 0, len(snapshot.Games))
+		for _, game := range snapshot.Games {
 			if game.GameType != "REG" {
 				continue
 			}
@@ -592,16 +592,25 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 			if !ok {
 				continue
 			}
-			out = append(out, league.GameInfo{
-				ID:        game.GameID,
-				Week:      game.Week,
-				Kickoff:   kickoff,
-				Away:      strings.ToUpper(game.AwayTeam),
-				Home:      strings.ToUpper(game.HomeTeam),
-				AwayScore: int(game.AwayScore),
-				HomeScore: int(game.HomeScore),
-				Final:     now.After(kickoff.Add(5 * time.Hour)),
-			})
+			info := league.GameInfo{
+				ID:               game.GameID,
+				Week:             game.Week,
+				Kickoff:          kickoff,
+				Away:             strings.ToUpper(game.AwayTeam),
+				Home:             strings.ToUpper(game.HomeTeam),
+				AwayScore:        int(game.AwayScore),
+				HomeScore:        int(game.HomeScore),
+				Final:            game.HasResult(),
+				SourceObservedAt: snapshot.ObservedAt,
+				SourceUpdatedAt:  snapshot.UpdatedAt,
+				SourceURL:        snapshot.SourceURL,
+				SourceProvenance: snapshot.Provenance,
+			}
+			if game.SpreadLine != nil {
+				info.SpreadLinePresent = true
+				info.SpreadLineTenths = int(math.Round(*game.SpreadLine * 10))
+			}
+			out = append(out, info)
 		}
 		return out
 	}
@@ -618,13 +627,14 @@ func openStatsEastern() *time.Location {
 	return eastern
 }
 
-// openStatsKickoff parses one schedule row's kickoff instant, defaulting a
-// blank gametime to the early-slate 1:00 PM ET the schedule adapter has
-// always used. false means the row's date failed to parse.
+// openStatsKickoff parses one schedule row's authoritative kickoff instant.
+// A blank/TBA time is deliberately not fabricated as 1:00 PM: it is neither
+// pickable nor eligible to create a missed-pick loss until the source supplies
+// a real time.
 func openStatsKickoff(game openstats.ScheduleGame, eastern *time.Location) (time.Time, bool) {
-	gameTime := game.GameTime
-	if strings.TrimSpace(gameTime) == "" {
-		gameTime = "13:00"
+	gameTime := strings.TrimSpace(game.GameTime)
+	if gameTime == "" {
+		return time.Time{}, false
 	}
 	kickoff, err := time.ParseInLocation("2006-01-02 15:04", game.GameDay+" "+gameTime, eastern)
 	if err != nil {
@@ -633,16 +643,12 @@ func openStatsKickoff(game openstats.ScheduleGame, eastern *time.Location) (time
 	return kickoff, true
 }
 
-// openStatsGameFinal reuses the schedule adapter's exact finality rule
-// (kickoff plus five hours) rather than inventing a second one — the
-// week-close/final-detection discipline WP-R2's DST points-allowed band
-// (dstShutout) must follow (see leagueScheduleSource).
-func openStatsGameFinal(game openstats.ScheduleGame, eastern *time.Location, now time.Time) bool {
-	kickoff, ok := openStatsKickoff(game, eastern)
-	if !ok {
-		return false
-	}
-	return now.After(kickoff.Add(5 * time.Hour))
+// openStatsGameFinal is the single source-truth finality rule shared by
+// Pick'em and DST points allowed. The location and clock remain in the
+// signature for existing callers, but elapsed wall time cannot make a game
+// final without an actual result or both source scores.
+func openStatsGameFinal(game openstats.ScheduleGame, _ *time.Location, _ time.Time) bool {
+	return game.HasResult()
 }
 
 // pointsAllowedByTeam maps a team abbreviation to the opponent's score in

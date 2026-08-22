@@ -47,16 +47,47 @@ type Status struct {
 }
 
 type ScheduleGame struct {
-	GameID    string  `json:"game_id"`
-	Season    int     `json:"season"`
-	GameType  string  `json:"game_type"`
-	Week      int     `json:"week"`
-	GameDay   string  `json:"gameday"`
-	GameTime  string  `json:"gametime,omitempty"`
-	AwayTeam  string  `json:"away_team"`
-	AwayScore float64 `json:"away_score,omitempty"`
-	HomeTeam  string  `json:"home_team"`
-	HomeScore float64 `json:"home_score,omitempty"`
+	GameID            string   `json:"game_id"`
+	Season            int      `json:"season"`
+	GameType          string   `json:"game_type"`
+	Week              int      `json:"week"`
+	GameDay           string   `json:"gameday"`
+	GameTime          string   `json:"gametime,omitempty"`
+	AwayTeam          string   `json:"away_team"`
+	AwayScore         float64  `json:"away_score,omitempty"`
+	AwayScorePresent  bool     `json:"away_score_present,omitempty"`
+	HomeTeam          string   `json:"home_team"`
+	HomeScore         float64  `json:"home_score,omitempty"`
+	HomeScorePresent  bool     `json:"home_score_present,omitempty"`
+	Result            string   `json:"result,omitempty"`
+	ResultPresent     bool     `json:"result_present,omitempty"`
+	SpreadLine        *float64 `json:"spread_line,omitempty"`
+}
+
+// HasFinalScore reports whether the source supplied both scores. The
+// presence bits are deliberately separate from the numeric values: a blank
+// nflverse score is not the same thing as an actual zero.
+func (game ScheduleGame) HasFinalScore() bool {
+	return game.AwayScorePresent && game.HomeScorePresent
+}
+
+// HasResult reports whether the schedule source supplied an actual result or
+// both final scores. Pick'em finality must follow source truth, never elapsed
+// time since kickoff.
+func (game ScheduleGame) HasResult() bool {
+	return game.ResultPresent || game.HasFinalScore()
+}
+
+// ScheduleSnapshot is the small source envelope consumed at the adapter
+// boundary. Games remain provider-normalized while the source observation,
+// update, and provenance stay available to callers without coupling the
+// league package to openstats.
+type ScheduleSnapshot struct {
+	Games       []ScheduleGame `json:"games"`
+	ObservedAt  time.Time      `json:"observed_at,omitzero"`
+	UpdatedAt   time.Time      `json:"updated_at,omitzero"`
+	SourceURL   string         `json:"source_url,omitempty"`
+	Provenance  string         `json:"provenance,omitempty"`
 }
 
 // PlayerWeekStat is the compact, provider-neutral fantasy ledger retained by

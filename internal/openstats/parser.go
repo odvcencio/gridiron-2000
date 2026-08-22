@@ -41,7 +41,11 @@ func parseSchedules(path string, season int) ([]ScheduleGame, error) {
 		if rowSeason != season {
 			continue
 		}
-		games = append(games, ScheduleGame{
+		awayScore, awayScorePresent := optionalFloatValue(cell(row, index, "away_score"))
+		homeScore, homeScorePresent := optionalFloatValue(cell(row, index, "home_score"))
+		spreadLine, spreadLinePresent := optionalFloatValue(cell(row, index, "spread_line"))
+		result := cell(row, index, "result")
+		game := ScheduleGame{
 			GameID:    cell(row, index, "game_id"),
 			Season:    rowSeason,
 			GameType:  cell(row, index, "game_type"),
@@ -49,10 +53,18 @@ func parseSchedules(path string, season int) ([]ScheduleGame, error) {
 			GameDay:   cell(row, index, "gameday"),
 			GameTime:  cell(row, index, "gametime"),
 			AwayTeam:  cell(row, index, "away_team"),
-			AwayScore: floatValue(cell(row, index, "away_score")),
+			AwayScore:        awayScore,
+			AwayScorePresent: awayScorePresent,
 			HomeTeam:  cell(row, index, "home_team"),
-			HomeScore: floatValue(cell(row, index, "home_score")),
-		})
+			HomeScore:        homeScore,
+			HomeScorePresent: homeScorePresent,
+			Result:           result,
+			ResultPresent:    result != "",
+		}
+		if spreadLinePresent {
+			game.SpreadLine = &spreadLine
+		}
+		games = append(games, game)
 	}
 	return games, nil
 }
@@ -360,4 +372,16 @@ func intValue(value string) int {
 func floatValue(value string) float64 {
 	parsed, _ := strconv.ParseFloat(strings.TrimSpace(value), 64)
 	return parsed
+}
+
+func optionalFloatValue(value string) (float64, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
 }

@@ -251,6 +251,29 @@ func (service *Service) Games(week int) []ScheduleGame {
 	return out
 }
 
+// ScheduleSnapshot returns the current schedule together with the source
+// observation/update times and provenance recorded by the schedule dataset.
+// The game slice is copied just like Games, so callers cannot mutate the
+// service's cached source truth.
+func (service *Service) ScheduleSnapshot() ScheduleSnapshot {
+	service.mu.RLock()
+	defer service.mu.RUnlock()
+	games := make([]ScheduleGame, len(service.schedules))
+	copy(games, service.schedules)
+	status := service.manifest.Schedules
+	provenance := Attribution
+	if status.SHA256 != "" {
+		provenance += ":sha256:" + status.SHA256
+	}
+	return ScheduleSnapshot{
+		Games:      games,
+		ObservedAt: status.LastChecked,
+		UpdatedAt:  status.LastUpdated,
+		SourceURL:  status.SourceURL,
+		Provenance: provenance,
+	}
+}
+
 func (service *Service) PlayerStats(query PlayerQuery) []PlayerWeekStat {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
