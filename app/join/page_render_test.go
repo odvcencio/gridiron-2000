@@ -95,3 +95,27 @@ func TestJoinPageOffersEveryBadge(t *testing.T) {
 		t.Errorf("join page rendered no claim submit button; body: %s", body)
 	}
 }
+
+// TestJoinPageClaimFormCarriesCSRFAndFeedbackTargets protects the live
+// managed action contract. GoSX's session middleware rejects a mutating
+// managed request without csrf_token, and its browser projection only has a
+// visible destination when the form exposes a status or field-error node.
+// Without either contract the button appears inert: the action never reaches
+// ClaimFantasySeat, or a validation response changes only hidden runtime
+// state.
+func TestJoinPageClaimFormCarriesCSRFAndFeedbackTargets(t *testing.T) {
+	body := renderJoinPage(t)
+
+	if !strings.Contains(body, `name="csrf_token"`) {
+		t.Fatalf("claim form omitted csrf_token; managed POST would be rejected: %s", body)
+	}
+	if !strings.Contains(body, `class="error-message form-error signup-form__error" data-gosx-field-error="team_name"`) {
+		t.Fatalf("claim form omitted team-name error target: %s", body)
+	}
+	if !strings.Contains(body, `class="error-message form-error signup-form__error" data-gosx-field-error="motif"`) {
+		t.Fatalf("claim form omitted motif error target: %s", body)
+	}
+	if !strings.Contains(body, `id="signup-form-status" class="form-status signup-form__status"`) {
+		t.Fatalf("claim form omitted visible action status target: %s", body)
+	}
+}

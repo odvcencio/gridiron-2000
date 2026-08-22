@@ -2457,6 +2457,27 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-hot-haze);
 }
 
+/* GoSX projects managed-action field errors into these nodes. Keep empty
+   targets out of the layout until a response supplies text, while retaining
+   the same high-contrast treatment as server-rendered notices. */
+.form-error:empty,
+.form-status:empty {
+  display: none;
+}
+
+.signup-form__error,
+.signup-form__status {
+  margin: 0;
+}
+
+.signup-form__status {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-accent);
+  color: var(--color-text-primary);
+  background: var(--color-accent-haze);
+  font-size: var(--type-sm);
+}
+
 .demo-message {
   border-color: var(--color-accent-cyan);
   background: var(--color-cyan-haze);
