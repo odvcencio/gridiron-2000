@@ -44,7 +44,7 @@ component SignalCard(props: SignalCardProps) {
 			</If>
 			<time class="mono">{props.Time}</time>
 			<If cond={props.HasURL}>
-				<a href={props.URL} target="_blank" rel="noreferrer">Inspect source ↗</a>
+				<a href={props.URL} target="_blank" rel="noreferrer">Read the report ↗</a>
 			</If>
 		</footer>
 	</article>
@@ -66,10 +66,7 @@ component WireEmptyState(props: WireEmptyStateProps) {
 		<h3>Your wire is quiet—not broken.</h3>
 		<If cond={props.WireConfigured == false}>
 			<p>{props.WireIssue}</p>
-			<p>
-				Enable the built-in public feeds, add a feed file, or put trusted reporter and team handles in
-				<span class="inline-code">BLUESKY_HANDLES</span>.
-			</p>
+			<p>Ask the commissioner to add news sources.</p>
 		</If>
 		<If cond={props.WireConfigured}>
 			<p>Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.</p>
@@ -83,7 +80,7 @@ func Page() Node {
 			<div>
 				<span class="signal-label">
 					<span class="live-dot" aria-hidden="true"></span>
-					PRIVATE INTELLIGENCE MESH
+					PRIVATE LEAGUE NEWS
 				</span>
 				<p class="page-kicker">News, community tips, and social · always free</p>
 				<h1>
@@ -136,12 +133,12 @@ func Page() Node {
 			<section class="wire-stage">
 				<header class="section-heading section-heading--split">
 					<div>
-						<span class="section-index">INTEL BUS // CHANNEL 03</span>
+						<span class="section-index">NEWS DESK</span>
 						<h2>Fantasy-relevant dispatches</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot" aria-hidden="true"></span>
-						<span data-wire-status data-gosx-live-bind="status">Monitoring the free-source mesh</span>
+						<span data-wire-status data-gosx-live-bind="status">Watching league news</span>
 					</div>
 				</header>
 				<div class="wire-filters" aria-label="Filter signals">
@@ -212,8 +209,8 @@ func Page() Node {
 
 				<section class="wire-source-panel">
 					<header>
-						<span class="section-index">SOURCE LOCKER // OPEN WEB</span>
-						<b>Signal mesh</b>
+						<span class="section-index">NEWS SOURCES</span>
+						<b>Sources</b>
 					</header>
 					<div class="wire-source-list">
 						<Each of={data.feeds} as="feed">
@@ -225,7 +222,7 @@ func Page() Node {
 						<Each of={data.sources} as="source">
 							<div>
 								<strong>Bluesky · @{source.name}</strong>
-								<small class="mono">CURATED SOCIAL · {source.did}</small>
+								<small class="mono">CURATED SOCIAL</small>
 							</div>
 						</Each>
 					</div>
@@ -271,7 +268,7 @@ func Page() Node {
 							</If>
 							<button class="button button--primary" type="submit">Transmit sighting</button>
 						</form>
-						<p class="wire-submit-note">Market sightings are human-entered. This app never logs into or scrapes PrizePicks—or any consumer account.</p>
+						<p class="wire-submit-note">Market sightings are human-entered. The league never reads your accounts elsewhere.</p>
 					</If>
 					<If cond={data.can_submit == false}>
 						<p>Only signed-in league managers can add a sighting.</p>

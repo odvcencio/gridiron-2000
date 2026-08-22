@@ -244,8 +244,8 @@ func Page() Node {
 			</If>
 			<If cond={data.feed_offline}>
 				<p class="demo-message">
-					<strong>FEED OFFLINE:</strong>
-					the live preseason feed isn't set up yet. Schedules and live scores stay empty until it is.
+					<strong>PRESEASON SCORES NOT OPEN:</strong>
+					live preseason scores are not available yet. Schedules and live scores stay empty until it is.
 				</p>
 			</If>
 			<If cond={data.slate_closed}>
@@ -302,7 +302,7 @@ func Page() Node {
 					</div>
 				</div>
 				<div class="pool-search-bar">
-					<label class="mono" for="blitz-search">QUERY //</label>
+					<label class="mono" for="blitz-search">SEARCH //</label>
 					<input
 						id="blitz-search"
 						type="search"
@@ -314,7 +314,7 @@ func Page() Node {
 				<If cond={data.eligible_empty}>
 					<div class="empty-tape">
 						<strong>NO ELIGIBLE PLAYERS YET</strong>
-						<p>The slate schedule has not synced. Check back once the feed is online.</p>
+						<p>The preseason slate is not published yet.</p>
 					</div>
 				</If>
 				<div class="pool-list pool-list--tall" id="blitz-pool-rows">
@@ -340,7 +340,7 @@ func Page() Node {
 				<If cond={data.games_empty}>
 					<div class="empty-tape">
 						<strong>NO GAMES YET</strong>
-						<p>The slate schedule syncs from the live preseason feed.</p>
+						<p>The preseason slate is not published yet.</p>
 					</div>
 				</If>
 				<div class="pool-list">

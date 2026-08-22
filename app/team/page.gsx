@@ -290,7 +290,7 @@ func Page() Node {
 					</form>
 					<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can claim it.</p>
 					<h2 class="badge-picker-title">Team badge</h2>
-					<p class="scoring-note">Choosing a badge replaces this seat’s active custom image. Release the badge to use the league fallback badge, or the text mark when no fallback artwork is configured.</p>
+					<p class="scoring-note">Choosing a badge replaces this seat’s active custom image. Release the badge to use the league's standard badge, or your team letters.</p>
 					<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
 						<Each of={data.badge_grid} as="badge">
 							<BadgeCell {...badge}></BadgeCell>

@@ -69,7 +69,7 @@ func DraftQueue(props DraftQueueProps) Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar">
 			<div>
-				<span class="section-index">PLAYER DATABASE</span>
+				<span class="section-index">PLAYER LIST</span>
 				<h2>Available now</h2>
 			</div>
 			<div class="position-filters" aria-label="Filter draft pool by position">
@@ -84,7 +84,7 @@ func DraftQueue(props DraftQueueProps) Node {
 			</div>
 		</div>
 		<form method="get" action="/draft" class="pool-search-bar">
-			<label class="mono" for="pool-search">DATABASE QUERY //</label>
+			<label class="mono" for="pool-search">SEARCH //</label>
 			<input
 				id="pool-search"
 				type="search"
@@ -309,7 +309,7 @@ type DraftRoomProps struct {
 
 func DraftRoom(props DraftRoomProps) Node {
 	return <div class="draft-live-room">
-		<p class="draft-region-stale mono" role="status">LIVE UPDATE FAILED · SHOWING LAST CONFIRMED ROOM STATE. <a href="/draft">Refresh room →</a></p>
+		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed board. <a href="/draft">Refresh room →</a></p>
 		<p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{props.StatusSummary}</p>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
@@ -603,7 +603,7 @@ func DraftRoom(props DraftRoomProps) Node {
 				</If>
 			</section>
 		</If>
-		<p class="draft-manual-refresh mono"><a href="/draft">Refresh room manually →</a></p>
+		<p class="draft-manual-refresh mono"><a href="/draft">Reload the room →</a></p>
 	</div>
 }
 
@@ -715,7 +715,7 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 				</div>
 			</aside>
 		</div>
-		<p class="draft-manual-refresh mono"><a href="/draft">Refresh player pool manually →</a></p>
+		<p class="draft-manual-refresh mono"><a href="/draft">Reload the player list →</a></p>
 	</div>
 }
 
