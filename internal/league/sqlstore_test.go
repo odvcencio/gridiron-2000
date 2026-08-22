@@ -702,9 +702,9 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gotVersion int
-	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&gotVersion); err != nil || gotVersion != 3 {
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&gotVersion); err != nil || gotVersion != currentDBVersion {
 		_ = store.Close()
-		t.Fatalf("migrated user_version = %d (err %v), want 3", gotVersion, err)
+		t.Fatalf("migrated user_version = %d (err %v), want %d", gotVersion, err, currentDBVersion)
 	}
 	var tableName string
 	if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'avatar_refs'`).Scan(&tableName); err != nil {

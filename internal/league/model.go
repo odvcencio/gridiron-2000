@@ -119,12 +119,35 @@ type GameInfo struct {
 	AwayScore         int
 	HomeScore         int
 	Final             bool
+	ScoresPresent     bool      // both authoritative scores exist; ATS never grades placeholder zeroes
 	SpreadLineTenths  int       // nflverse/PFR convention: positive means home favored
 	SpreadLinePresent bool      // distinguishes a true pick'em line of 0 from no line
 	SourceObservedAt  time.Time // when this source snapshot was checked
 	SourceUpdatedAt   time.Time // when the cached snapshot last changed
 	SourceURL         string
 	SourceProvenance  string // provider plus immutable content identity when available
+}
+
+// PickemMarket is the durable contest line for one NFL game. Before LockAt,
+// LineTenths tracks the newest eligible market observation. Once Frozen or
+// Void is set the record is immutable, so a restart or a late feed refresh
+// cannot reprice a contest that has already locked.
+type PickemMarket struct {
+	Week             int       `json:"week"`
+	Kickoff          time.Time `json:"kickoff"`
+	Away             string    `json:"away"`
+	Home             string    `json:"home"`
+	LockAt           time.Time `json:"lockAt"`
+	LineTenths       int       `json:"lineTenths"`
+	LinePresent      bool      `json:"linePresent"`
+	ObservedAt       time.Time `json:"observedAt"`
+	SourceUpdatedAt  time.Time `json:"sourceUpdatedAt"`
+	SourceURL        string    `json:"sourceUrl,omitempty"`
+	SourceProvenance string    `json:"sourceProvenance,omitempty"`
+	Frozen           bool      `json:"frozen,omitempty"`
+	FrozenAt         time.Time `json:"frozenAt,omitempty"`
+	Void             bool      `json:"void,omitempty"`
+	VoidReason       string    `json:"voidReason,omitempty"`
 }
 
 // DraftPick is persisted when a mock or live pick is made.
@@ -189,6 +212,9 @@ type PersistedState struct {
 	DraftStartedAt time.Time `json:"draftStartedAt,omitempty"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
+	// PickemMarkets maps game ID to its moving candidate or immutable frozen
+	// against-the-spread line. It is league schedule state, not member state.
+	PickemMarkets map[string]PickemMarket `json:"pickemMarkets,omitempty"`
 	// BlitzEntries maps owner email to slate ID ("pre2" | "pre3") to that
 	// owner's Preseason Blitz entry (WP-B1). Additive under schema version
 	// 2 — the Pickems precedent (F10): a nil map decodes safely on an old
