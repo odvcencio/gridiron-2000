@@ -32,6 +32,44 @@ func TestTradeVetoThreshold(t *testing.T) {
 	}
 }
 
+func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
+	seatless := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)
+	seatlessData := seatless.TradesData(request)
+	if seatlessData["can_edit"] != false || seatlessData["compose_active"] != false {
+		t.Fatalf("seatless trade controls = can_edit:%v compose_active:%v", seatlessData["can_edit"], seatlessData["compose_active"])
+	}
+
+	service := newTestService(t, true)
+	first, _, err := service.store.AssignMember("one@example.com", "One")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := service.store.AssignMember("two@example.com", "Two")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.TeamID != "team-1" || second.TeamID != "team-2" {
+		t.Fatalf("fixture seats = %q and %q, want team-1 and team-2", first.TeamID, second.TeamID)
+	}
+
+	managedRequest, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)
+	managedData := service.TradesData(managedRequest)
+	partners, ok := managedData["counterparties"].([]TradeCounterparty)
+	if !ok || len(partners) != 1 || partners[0].ID != "team-2" {
+		t.Fatalf("managed partners = %#v, want only team-2", managedData["counterparties"])
+	}
+	if managedData["counterparties_empty"] != false || managedData["compose_active"] != true {
+		t.Fatalf("managed compose state = empty:%v active:%v", managedData["counterparties_empty"], managedData["compose_active"])
+	}
+
+	staleRequest, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-3", nil)
+	staleData := service.TradesData(staleRequest)
+	if staleData["compose_active"] != false || staleData["compose_counterparty_id"] != "" {
+		t.Fatalf("unmanaged counterparty rendered as active: id=%v active=%v", staleData["compose_counterparty_id"], staleData["compose_active"])
+	}
+}
+
 // ---------------------------------------------------------------------
 // validateTradeAssets — T4-T8, T12, direct pure-function fixtures
 // ---------------------------------------------------------------------

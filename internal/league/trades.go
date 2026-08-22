@@ -893,7 +893,8 @@ type TradeCounterparty struct {
 func (s *Service) TradesData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
-	canEdit := s.viewerKey(r) != ""
+	hasSeat, _ := viewer["has_seat"].(bool)
+	canEdit := hasSeat
 	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
 	pool := s.pool()
@@ -913,7 +914,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	myOptions := rosterOptions(teamID)
 	counterparties := make([]TradeCounterparty, 0, len(s.Teams()))
 	for _, team := range s.Teams() {
-		if team.ID == teamID {
+		if team.ID == teamID || !teamHasManager(state, team.ID) {
 			continue
 		}
 		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: team.Name})
@@ -930,9 +931,11 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	}
 	composeOptions := []TradeRosterOption{}
 	composeCounterpartyName := ""
-	if composeCounterpartyID != "" && knownTeam(composeCounterpartyID) {
+	if canEdit && composeCounterpartyID != "" && knownTeam(composeCounterpartyID) && teamHasManager(state, composeCounterpartyID) {
 		composeOptions = rosterOptions(composeCounterpartyID)
 		composeCounterpartyName = s.teamByID(composeCounterpartyID).Name
+	} else {
+		composeCounterpartyID = ""
 	}
 
 	inbox := []TradeOfferRow{}
@@ -965,6 +968,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"veto_mode":                 s.cfg.Trades.Veto,
 		"note_max":                  tradeNoteMaxRunes,
 		"counterparties":            counterparties,
+		"counterparties_empty":      len(counterparties) == 0,
 		"my_options":                myOptions,
 		"my_options_empty":          len(myOptions) == 0,
 		"compose_counterparty_id":   composeCounterpartyID,
