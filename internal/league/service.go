@@ -1118,7 +1118,7 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 // viewer["has_seat"] is precomputed server-side so app/page.gsx only ever
 // branches on a plain bool, never re-derives seat state itself.
 func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string]any {
-	now := time.Now()
+	now := s.clock()
 	live := s.feed.Snapshot(ctx, now)
 	state := s.store.Snapshot()
 	viewer := s.Viewer(r)
@@ -1126,16 +1126,22 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	featured := s.matchupMaps(state, live.Matchups[:min(2, len(live.Matchups))])
 	announcements := s.announcementListMaps(5)
 	transactions := s.activityMaps(state, 5)
+	standings := s.dashboardStandingState(state)
+	standingsTitle, standingsNote, standingsEmptyTitle := s.dashboardStandingsCopy(state, standings)
 	return map[string]any{
-		"viewer":       viewer,
-		"has_seat":     hasSeat,
-		"draft":        s.draftSummary(now),
-		"live":         s.liveMap(live),
-		"featured":     featured,
-		"standings":    s.standingsMaps(),
-		"divisions":    s.divisionMaps(state),
-		"transactions": transactions,
-		"pickem_home":  s.pickemHomeSummary(r, state, now),
+		"viewer":                viewer,
+		"has_seat":              hasSeat,
+		"draft":                 s.draftSummary(now),
+		"live":                  s.liveMap(live),
+		"featured":              featured,
+		"standings":             s.standingsMaps(state),
+		"divisions":             s.divisionMaps(state),
+		"standings_available":   standings.HasResults,
+		"standings_title":       standingsTitle,
+		"standings_note":        standingsNote,
+		"standings_empty_title": standingsEmptyTitle,
+		"transactions":          transactions,
+		"pickem_home":           s.pickemHomeSummary(r, state, now),
 		// fantasy_card is the dashboard's FANTASY status card (registration
 		// wave, build item 3): both status cards are always present for a
 		// signed-in member, seated or not — see fantasyCardData.
@@ -2230,12 +2236,105 @@ func pluralUnit(n int, unit string) string {
 	return fmt.Sprintf("%d %ss ago", n, unit)
 }
 
-func (s *Service) standingsMaps() []map[string]any {
+// dashboardStandingsState is the one snapshot-derived standings view shared
+// by DashboardData, the flat standings list, and the division-grouped home
+// table. A nil schedule or a schedule with no finalized matchup deliberately
+// leaves ByTeam empty: configured rank is not presented as a season result.
+type dashboardStandingsState struct {
+	ByTeam         map[string]Standing
+	HasResults     bool
+	LastScoredWeek int
+	AllWeeksFinal  bool
+}
+
+func (s *Service) dashboardStandingState(state PersistedState) dashboardStandingsState {
+	result := dashboardStandingsState{ByTeam: map[string]Standing{}}
+	if state.Schedule == nil {
+		return result
+	}
+
+	result.AllWeeksFinal = len(state.Schedule.Weeks) > 0
+	teamIDs := make([]string, 0, len(s.Teams()))
+	for _, team := range s.Teams() {
+		teamIDs = append(teamIDs, team.ID)
+	}
+	for _, week := range state.Schedule.Weeks {
+		if !matchupsAllFinal(week.Matchups) {
+			result.AllWeeksFinal = false
+		}
+		for _, matchup := range week.Matchups {
+			if matchup.Final {
+				result.HasResults = true
+				if week.Week > result.LastScoredWeek {
+					result.LastScoredWeek = week.Week
+				}
+			}
+		}
+	}
+	if !result.HasResults {
+		return result
+	}
+
+	standings := ComputeStandings(*state.Schedule, teamIDs, TiebreakInputs{
+		SeasonSeed: state.Schedule.Seed,
+	})
+	for _, standing := range standings {
+		result.ByTeam[standing.TeamID] = standing
+	}
+	return result
+}
+
+func (s *Service) dashboardStandingsCopy(state PersistedState, standings dashboardStandingsState) (title, note, emptyTitle string) {
+	season := s.cfg.Season
+	if season == 0 && state.Schedule != nil {
+		season = state.Schedule.Season
+	}
+	seasonLabel := strconv.Itoa(season)
+	if state.Schedule == nil {
+		return "Standings pending", "The commissioner has not published a regular-season schedule yet.", "NO SEASON TABLE"
+	}
+	if !standings.HasResults {
+		return seasonLabel + " standings", "No matchup has been finalized yet. The table will populate after the first scored week.", "NO SCORED WEEKS"
+	}
+	title = seasonLabel + " standings"
+	if standings.AllWeeksFinal || state.Phase == PhaseSeasonComplete {
+		title = "Final " + seasonLabel + " standings"
+	}
+	note = fmt.Sprintf("Through Week %d · Records and points reflect finalized league matchups.", standings.LastScoredWeek)
+	return title, note, ""
+}
+
+func standingRecord(standing Standing) string {
+	if standing.Ties == 0 {
+		return fmt.Sprintf("%d–%d", standing.Wins, standing.Losses)
+	}
+	return fmt.Sprintf("%d–%d–%d", standing.Wins, standing.Losses, standing.Ties)
+}
+
+func (s *Service) dashboardTeam(state PersistedState, team Team, standings map[string]Standing) Team {
+	view := s.teamView(state, team.ID)
+	if standing, ok := standings[team.ID]; ok {
+		view.Record = standingRecord(standing)
+		view.PointsFor = standing.PointsFor
+		view.Rank = standing.Rank
+		view.Streak = standing.Streak
+	}
+	return view
+}
+
+func (s *Service) standingsMaps(state PersistedState) []map[string]any {
+	computed := s.dashboardStandingState(state)
 	teams := append([]Team(nil), s.Teams()...)
-	sort.Slice(teams, func(i, j int) bool { return teams[i].Rank < teams[j].Rank })
+	rank := func(team Team) int {
+		if standing, ok := computed.ByTeam[team.ID]; ok {
+			return standing.Rank
+		}
+		return team.Rank
+	}
+	sort.SliceStable(teams, func(i, j int) bool { return rank(teams[i]) < rank(teams[j]) })
 	out := make([]map[string]any, 0, len(teams))
 	for _, team := range teams {
-		out = append(out, s.teamMap(team))
+		out = append(out, s.teamMap(s.dashboardTeam(state, team, computed.ByTeam)))
 	}
 	return out
 }
@@ -2465,6 +2564,7 @@ func (s *Service) teamMap(team Team) map[string]any {
 // and manager claims are resolved through teamView so overrides and claims
 // reach the standings view.
 func (s *Service) divisionMaps(state PersistedState) []map[string]any {
+	computed := s.dashboardStandingState(state)
 	byDivision := map[string][]Team{}
 	seen := map[string]bool{}
 	order := make([]string, 0, 2)
@@ -2475,13 +2575,19 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 		}
 		byDivision[team.Division] = append(byDivision[team.Division], team)
 	}
+	rank := func(team Team) int {
+		if standing, ok := computed.ByTeam[team.ID]; ok {
+			return standing.Rank
+		}
+		return team.Rank
+	}
 	out := make([]map[string]any, 0, len(order))
 	for _, division := range order {
 		teams := append([]Team(nil), byDivision[division]...)
-		sort.Slice(teams, func(i, j int) bool { return teams[i].Rank < teams[j].Rank })
+		sort.SliceStable(teams, func(i, j int) bool { return rank(teams[i]) < rank(teams[j]) })
 		teamsOut := make([]map[string]any, 0, len(teams))
 		for _, team := range teams {
-			teamsOut = append(teamsOut, s.teamMap(s.teamView(state, team.ID)))
+			teamsOut = append(teamsOut, s.teamMap(s.dashboardTeam(state, team, computed.ByTeam)))
 		}
 		out = append(out, map[string]any{
 			"name":  strings.ToUpper(division),

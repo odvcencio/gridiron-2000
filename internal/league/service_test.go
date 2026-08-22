@@ -962,3 +962,118 @@ func TestIdentityUnavailableViewsFailClosedForAllPickers(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardStandingsUseFinalScheduleResults(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+
+	schedule := SeasonSchedule{
+		Season: service.cfg.Season,
+		Seed:   17,
+		Weeks: []ScheduleWeek{
+			{
+				Week: 1,
+				Matchups: []LeagueMatchup{{
+					ID:         "week-1-team-1-team-2",
+					HomeTeamID: "team-1",
+					AwayTeamID: "team-2",
+					HomeScore:  123.5,
+					AwayScore:  88,
+					Final:      true,
+				}},
+			},
+			{
+				Week: 2,
+				Matchups: []LeagueMatchup{{
+					ID:         "week-2-team-1-team-2",
+					HomeTeamID: "team-1",
+					AwayTeamID: "team-2",
+					Final:      false,
+				}},
+			},
+		},
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.DashboardData(context.Background(), request)
+	if data["standings_available"] != true {
+		t.Fatalf("standings_available = %v, want true", data["standings_available"])
+	}
+	if data["standings_title"] != "2026 standings" {
+		t.Fatalf("standings_title = %v, want current-season title", data["standings_title"])
+	}
+	if data["standings_note"] != "Through Week 1 · Records and points reflect finalized league matchups." {
+		t.Fatalf("standings_note = %v", data["standings_note"])
+	}
+
+	divisions, ok := data["divisions"].([]map[string]any)
+	if !ok {
+		t.Fatalf("divisions shape = %T", data["divisions"])
+	}
+	var teamOne map[string]any
+	for _, division := range divisions {
+		teams, _ := division["teams"].([]map[string]any)
+		for _, team := range teams {
+			if team["id"] == "team-1" {
+				teamOne = team
+			}
+		}
+	}
+	if teamOne == nil {
+		t.Fatal("team-1 missing from state-aware divisions")
+	}
+	for key, want := range map[string]any{
+		"rank":       "01",
+		"record":     "1–0",
+		"points_for": "123.5",
+		"streak":     "W1",
+	} {
+		if teamOne[key] != want {
+			t.Errorf("team-1 %s = %v, want %v", key, teamOne[key], want)
+		}
+	}
+
+	flat, ok := data["standings"].([]map[string]any)
+	if !ok || len(flat) != len(service.Teams()) {
+		t.Fatalf("flat standings shape = %T/%d", data["standings"], len(flat))
+	}
+	if flat[0]["id"] != "team-1" || flat[0]["points_for"] != "123.5" {
+		t.Fatalf("flat standings head = %#v, want team-1 with scored points", flat[0])
+	}
+}
+
+func TestDashboardStandingsWithoutScheduleIsExplicit(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+
+	data := service.DashboardData(context.Background(), request)
+	if data["standings_available"] != false {
+		t.Fatalf("standings_available = %v, want false without a schedule", data["standings_available"])
+	}
+	if data["standings_title"] != "Standings pending" || data["standings_empty_title"] != "NO SEASON TABLE" {
+		t.Fatalf("no-season copy = title:%v empty:%v", data["standings_title"], data["standings_empty_title"])
+	}
+	if data["standings_note"] != "The commissioner has not published a regular-season schedule yet." {
+		t.Fatalf("no-season note = %v", data["standings_note"])
+	}
+
+	if err := service.store.SetSchedule(SeasonSchedule{
+		Season: service.cfg.Season,
+		Weeks: []ScheduleWeek{{Week: 1, Matchups: []LeagueMatchup{{
+			ID:         "unscored-week-1",
+			HomeTeamID: "team-1",
+			AwayTeamID: "team-2",
+		}}}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	data = service.DashboardData(context.Background(), request)
+	if data["standings_available"] != false || data["standings_empty_title"] != "NO SCORED WEEKS" {
+		t.Fatalf("preseason standings state = available:%v empty:%v", data["standings_available"], data["standings_empty_title"])
+	}
+	if data["standings_title"] != "2026 standings" {
+		t.Fatalf("preseason standings title = %v", data["standings_title"])
+	}
+}
