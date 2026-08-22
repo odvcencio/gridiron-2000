@@ -144,7 +144,7 @@ func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time) 
 		if !card.Available {
 			attention := attentionView{
 				League: card.NameOrPeer(), PeerID: card.PeerID, Code: "peer_unavailable",
-				Severity: "warning", Count: 1, Message: "League unavailable: " + card.Error,
+				Severity: "warning", Count: 1, Message: "This league did not answer.",
 				Area: "runtime", Section: "data", OwnerURL: card.AdminDataURL,
 				OwnerText: "Open league directly",
 			}
@@ -222,7 +222,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		Build: summary.Runtime.Build, GeneratedAt: displayTime(summary.GeneratedAt),
 		GeneratedAtISO: isoTime(summary.GeneratedAt), Seats: summary.Membership.Seats,
 		ClaimedSeats: summary.Membership.ClaimedSeats, ReadySeats: summary.Membership.ReadySeats,
-		DraftStatus: upperWords(summary.Draft.Status), DraftStarted: summary.Draft.Started,
+		DraftStatus: draftStatusLabel(summary.Draft.Status), DraftStarted: summary.Draft.Started,
 		DraftStartedAt: displayTime(summary.Draft.StartedAt), DraftStartedAtISO: isoTime(summary.Draft.StartedAt),
 		DraftAt: displayTime(summary.Draft.ScheduledAt), DraftAtISO: isoTime(summary.Draft.ScheduledAt),
 		DraftRounds: summary.Draft.Rounds, DraftPicks: summary.Draft.Picks,
@@ -230,7 +230,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		DraftOrderSet: summary.Draft.OrderSet, ClockArmed: summary.Draft.ClockArmed,
 		ClockPaused: summary.Draft.ClockPaused, ClockText: clockText(summary.Draft),
 		DraftStartCopy: "The commissioner starts drafts intentionally; the scheduled time is only the meeting point.",
-		SeasonPhase:    upperWords(summary.Season.Phase), CurrentWeek: summary.Season.CurrentWeek,
+		SeasonPhase:    seasonPhaseLabel(summary.Season.Phase), CurrentWeek: summary.Season.CurrentWeek,
 		SchedulePublished: summary.Season.Schedule.Published,
 		ScheduleText:      scheduleText(summary.Season.Schedule), ScheduleFinalText: finalText(summary.Season.Schedule),
 		ScheduleRange: scheduleRange(summary.Season.Schedule), RedrawLocked: summary.Season.Schedule.RedrawLocked,
@@ -242,7 +242,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		WeekCloseBadge:   weekCloseBadge(summary.Season.WeekClose), WeekCloseWaiting: !summary.Season.WeekClose.Final && !summary.Season.WeekClose.Ready,
 		WeekCloseWaitingReason: weekCloseWaitingReason(summary.Season.WeekClose),
 		PlayoffAvailable:       summary.Season.Playoffs.Available, PlayoffNote: summary.Season.Playoffs.Note,
-		PoolMode: upperWords(summary.Pool.Mode), PoolActual: summary.Pool.Actual,
+		PoolMode: poolModeLabel(summary.Pool.Mode), PoolActual: summary.Pool.Actual,
 		PoolRosterCapacity: summary.Pool.RosterCapacity, PoolTarget: summary.Pool.Target,
 		PoolCushion: summary.Pool.Cushion, PoolShortfall: summary.Pool.Shortfall,
 		PoolActualCoverage: ratio(summary.Pool.ActualCoverage), PoolTargetCoverage: ratio(summary.Pool.TargetCoverage),
@@ -258,7 +258,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		section := attentionSection(item)
 		attention := attentionView{
 			League: card.NameOrPeer(), PeerID: card.PeerID, Code: item.Code,
-			Severity: upperWords(item.Severity), Count: item.Count, Message: item.Message,
+			Severity: severityLabel(item.Severity), Count: item.Count, Message: item.Message,
 			Area: item.Area, Section: section, OwnerURL: card.adminURLFor(section),
 			OwnerText: attentionOwnerText(section),
 		}
@@ -374,12 +374,12 @@ func (card fleetCardView) toMap() map[string]any {
 
 func openDataRows(data commissionerhq.OpenData) []map[string]any {
 	return []map[string]any{
-		{"label": "SCHEDULES", "state": upperWords(data.Schedules.State), "updated": displayTime(data.Schedules.LastUpdated)},
-		{"label": "PLAYER STATS", "state": upperWords(data.PlayerStats.State), "updated": displayTime(data.PlayerStats.LastUpdated)},
-		{"label": "PREVIOUS STATS", "state": upperWords(data.PlayerStatsPrev.State), "updated": displayTime(data.PlayerStatsPrev.LastUpdated)},
-		{"label": "INJURIES", "state": upperWords(data.Injuries.State), "updated": displayTime(data.Injuries.LastUpdated)},
-		{"label": "TEAM STATS", "state": upperWords(data.TeamStats.State), "updated": displayTime(data.TeamStats.LastUpdated)},
-		{"label": "PLAY-BY-PLAY", "state": upperWords(data.PlayByPlay.State), "updated": displayTime(data.PlayByPlay.LastUpdated)},
+		{"label": "SCHEDULES", "state": dataStateLabel(data.Schedules.State), "updated": displayTime(data.Schedules.LastUpdated)},
+		{"label": "PLAYER STATS", "state": dataStateLabel(data.PlayerStats.State), "updated": displayTime(data.PlayerStats.LastUpdated)},
+		{"label": "PREVIOUS STATS", "state": dataStateLabel(data.PlayerStatsPrev.State), "updated": displayTime(data.PlayerStatsPrev.LastUpdated)},
+		{"label": "INJURIES", "state": dataStateLabel(data.Injuries.State), "updated": displayTime(data.Injuries.LastUpdated)},
+		{"label": "TEAM STATS", "state": dataStateLabel(data.TeamStats.State), "updated": displayTime(data.TeamStats.LastUpdated)},
+		{"label": "PLAY-BY-PLAY", "state": dataStateLabel(data.PlayByPlay.State), "updated": displayTime(data.PlayByPlay.LastUpdated)},
 	}
 }
 
@@ -463,11 +463,11 @@ func safePeerError(value string) string {
 	case "timed out", "timed out.", "request timed out", "request timed out.":
 		return "Request timed out."
 	case "trust mismatch", "trust mismatch.":
-		return "Trust mismatch."
+		return "This league did not answer."
 	case "federation not enabled", "federation not enabled.":
-		return "Federation not enabled."
+		return "This league did not answer."
 	case "incompatible summary", "incompatible summary.":
-		return "Incompatible summary."
+		return "This league did not answer."
 	default:
 		return "League unavailable."
 	}
@@ -489,8 +489,88 @@ func shortSHAView(value string) string {
 	return value
 }
 
-func upperWords(value string) string {
-	return strings.ToUpper(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(value), "_", " "), "-", " "))
+// draftStatusLabels turns commissioner_summary.go's draft status constants
+// into plain football labels for the fleet card. The default case is a
+// safe neutral word, never the raw status token.
+var draftStatusLabels = map[string]string{
+	"scheduled": "SCHEDULED",
+	"live":      "LIVE",
+	"complete":  "COMPLETE",
+}
+
+func draftStatusLabel(value string) string {
+	if label, ok := draftStatusLabels[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
+}
+
+// seasonPhaseLabels turns league.Service.SeasonPhase's lifecycle constants
+// into plain football labels. The default case is a safe neutral word,
+// never the raw phase token.
+var seasonPhaseLabels = map[string]string{
+	"preseason":       "PRESEASON",
+	"regular-season":  "REGULAR SEASON",
+	"playoffs":        "PLAYOFFS",
+	"season-complete": "SEASON COMPLETE",
+}
+
+func seasonPhaseLabel(value string) string {
+	if label, ok := seasonPhaseLabels[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
+}
+
+// poolModeLabels turns the player pool's runtime mode constants into plain
+// football labels. The default case is a safe neutral word, never the raw
+// mode token.
+var poolModeLabels = map[string]string{
+	"live":    "LIVE",
+	"cache":   "SAVED COPY",
+	"offline": "UNAVAILABLE",
+}
+
+func poolModeLabel(value string) string {
+	if label, ok := poolModeLabels[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
+}
+
+// severityLabels turns commissionerhq.Attention's severity constants into
+// plain football labels. The default case is a safe neutral word, never
+// the raw severity token. Casing here must stay in sync with the
+// data-severity CSS selectors in public/styles.css.
+var severityLabels = map[string]string{
+	"info":     "INFO",
+	"warning":  "WARNING",
+	"critical": "CRITICAL",
+}
+
+func severityLabel(value string) string {
+	if label, ok := severityLabels[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return label
+	}
+	return "NOTICE"
+}
+
+// dataStateLabels turns an open-data dataset's state constants into plain
+// football labels. The default case is a safe neutral word, never the raw
+// state token.
+var dataStateLabels = map[string]string{
+	"ready":            "READY",
+	"waiting":          "WAITING",
+	"disabled":         "OFF",
+	"awaiting_release": "NOT OUT YET",
+	"error":            "UNAVAILABLE",
+}
+
+func dataStateLabel(value string) string {
+	if label, ok := dataStateLabels[strings.ToLower(strings.TrimSpace(value))]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
 }
 
 func displayTime(value time.Time) string {

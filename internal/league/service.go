@@ -1915,12 +1915,32 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"paused":             state.ClockPaused,
 		"deadline":           formatClockInstant(deadline),
 		"effective_deadline": formatClockInstant(effective),
-		"reason":             reason,
+		"reason":             clockReasonLabel(reason),
 		"remaining_seconds":  remaining,
 		"remaining_label":    countdownMMSSLabel(remaining),
 		"duration_seconds":   int(s.pickClock(state).Seconds()),
 		"server_now":         now.UTC().Format(time.RFC3339),
 	}
+}
+
+// clockReasonLabels turns clockView's internal reason token (also
+// effectiveDeadline's control-flow reason in draftclock.go, left
+// unchanged there) into the plain football label the pick-clock chip
+// shows every manager on draft night. The default case is a safe neutral
+// word, never the raw reason token.
+var clockReasonLabels = map[string]string{
+	"unarmed":  "NOT RUNNING",
+	"clock":    "ON THE CLOCK",
+	"away-cap": "AWAY — SHORT CLOCK",
+	"autopick": "AUTOPICK ARMED",
+	"paused":   "PAUSED",
+}
+
+func clockReasonLabel(reason string) string {
+	if label, ok := clockReasonLabels[reason]; ok {
+		return label
+	}
+	return "ON THE CLOCK"
 }
 
 // formatClockInstant renders t as RFC3339 UTC, or "" for the zero value
@@ -2797,6 +2817,21 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 
 func (s *Service) teamByID(id string) Team {
 	return s.teamView(s.store.Snapshot(), id)
+}
+
+// TeamLabel resolves a team ID to its display name for member-facing copy
+// (sign-in flashes, admin notices), reusing teamByID's lookup. It falls
+// back to the raw ID only when no team matches it, so a stale or unknown
+// ID never renders as an empty string.
+func (s *Service) TeamLabel(id string) string {
+	if id == "" {
+		return id
+	}
+	team := s.teamByID(id)
+	if team.ID != id {
+		return id
+	}
+	return team.Name
 }
 
 // teamView resolves a team against an already-taken snapshot so callers in a

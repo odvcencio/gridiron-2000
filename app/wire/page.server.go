@@ -138,6 +138,60 @@ func init() {
 	}
 }
 
+// wireModeLabels turns signalwire.Service's runtime mode constants into
+// plain football labels for the wire masthead. The default case is a safe
+// neutral word, never the raw mode token, so an unmapped future mode still
+// reads as English instead of leaking a machine state name.
+var wireModeLabels = map[string]string{
+	"syndicating":       "LIVE",
+	"resolving_sources": "STARTING",
+	"source_error":      "QUIET",
+	"reconnecting":      "CATCHING UP",
+	"awaiting_sources":  "OFF",
+}
+
+func wireModeLabel(mode string) string {
+	if label, ok := wireModeLabels[mode]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
+}
+
+// dataStateLabels turns the open-data dataset/feed state constants (shared
+// by openstats.DatasetStatus.State and signalwire's per-feed State) into
+// plain football labels. The default case is a safe neutral word, never
+// the raw state token.
+var dataStateLabels = map[string]string{
+	"ready":            "READY",
+	"waiting":          "WAITING",
+	"disabled":         "OFF",
+	"awaiting_release": "NOT OUT YET",
+	"error":            "UNAVAILABLE",
+}
+
+func dataStateLabel(state string) string {
+	if label, ok := dataStateLabels[state]; ok {
+		return label
+	}
+	return "UNAVAILABLE"
+}
+
+// evidenceTypeLabels turns a feed's or signal's evidence_type token into a
+// plain football label. The default case is a safe neutral word, never the
+// raw token.
+var evidenceTypeLabels = map[string]string{
+	"news":           "NEWS",
+	"community_feed": "COMMUNITY",
+	"social":         "SOCIAL MEDIA",
+}
+
+func evidenceTypeLabel(evidenceType string) string {
+	if label, ok := evidenceTypeLabels[evidenceType]; ok {
+		return label
+	}
+	return "SOURCE"
+}
+
 func wirePageData(request *http.Request, signals *signalwire.Service, stats *openstats.Service) map[string]any {
 	wireStatus := signals.Status()
 	openStatus := stats.Status()
@@ -170,8 +224,8 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		feeds = append(feeds, map[string]any{
 			"name":       feed.Name,
 			"url":        feed.URL,
-			"evidence":   strings.ToUpper(strings.ReplaceAll(feed.EvidenceType, "_", " ")),
-			"state":      strings.ToUpper(strings.ReplaceAll(feed.State, "_", " ")),
+			"evidence":   evidenceTypeLabel(feed.EvidenceType),
+			"state":      dataStateLabel(feed.State),
 			"accepted":   feed.Accepted,
 			"ignored":    feed.Ignored,
 			"checked":    displayTime(feed.LastChecked),
@@ -191,7 +245,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"category":        category,
 		"filters":         wireFilterMaps(category),
 		"fragment_url":    wireFragmentURL(category),
-		"wire_mode":       strings.ToUpper(strings.ReplaceAll(wireStatus.Mode, "_", " ")),
+		"wire_mode":       wireModeLabel(wireStatus.Mode),
 		"wire_configured": wireStatus.Configured,
 		"wire_issue":      wireStatus.ConfigurationIssue,
 		"wire_error":      wireStatus.LastError,
@@ -211,13 +265,13 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"signal_count":     wireStatus.RelevantSignals,
 		"ignored_count":    wireStatus.IgnoredPosts + feedIgnored,
 		"deleted_count":    wireStatus.DeletedSignals,
-		"schedule_state":   strings.ToUpper(strings.ReplaceAll(openStatus.Schedules.State, "_", " ")),
+		"schedule_state":   dataStateLabel(openStatus.Schedules.State),
 		"schedule_rows":    openStatus.Schedules.Rows,
 		"schedule_updated": displayTime(openStatus.Schedules.LastUpdated),
-		"player_state":     strings.ToUpper(strings.ReplaceAll(openStatus.PlayerStats.State, "_", " ")),
+		"player_state":     dataStateLabel(openStatus.PlayerStats.State),
 		"player_rows":      openStatus.PlayerStats.Rows,
 		"player_updated":   displayTime(openStatus.PlayerStats.LastUpdated),
-		"injury_state":     strings.ToUpper(strings.ReplaceAll(openStatus.Injuries.State, "_", " ")),
+		"injury_state":     dataStateLabel(openStatus.Injuries.State),
 		"injury_rows":      openStatus.Injuries.Rows,
 		"injury_updated":   displayTime(openStatus.Injuries.LastUpdated),
 		"season":           openStatus.Season,
@@ -327,7 +381,7 @@ func PulseData(signals *signalwire.Service) map[string]any {
 	count := wireStatus.RelevantSignals
 	status := fmt.Sprintf("%d relevant signal%s · %s", count, pluralSuffix(count), displayTime(time.Now()))
 	return map[string]any{
-		"mode":   strings.ToUpper(strings.ReplaceAll(wireStatus.Mode, "_", " ")),
+		"mode":   wireModeLabel(wireStatus.Mode),
 		"count":  count,
 		"status": status,
 	}
@@ -394,7 +448,7 @@ func signalMap(signal signalwire.Signal) WireSignalCard {
 		Source:             source,
 		ReportedBy:         signal.ReportedBy,
 		HasReporter:        signal.ReportedBy != "",
-		Evidence:           strings.ToUpper(strings.ReplaceAll(signal.EvidenceType, "_", " ")),
+		Evidence:           evidenceTypeLabel(signal.EvidenceType),
 		Trust:              signal.TrustTier,
 		Time:               displayTime(signal.OccurredAt),
 		URL:                signal.SourceURL,

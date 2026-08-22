@@ -1089,9 +1089,9 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 			}
 		}
 		if bound {
-			session.AddFlash(r, "notice", "You're co-managing "+member.TeamID+" alongside its primary manager, "+user.Name+".")
+			session.AddFlash(r, "notice", "You're co-managing "+league.Default().TeamLabel(member.TeamID)+" alongside its primary manager, "+user.Name+".")
 		} else if member.TeamID != "" {
-			session.AddFlash(r, "notice", "Welcome back to "+member.TeamID+", "+user.Name+".")
+			session.AddFlash(r, "notice", "Welcome back to "+league.Default().TeamLabel(member.TeamID)+", "+user.Name+".")
 		} else {
 			session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
 		}
