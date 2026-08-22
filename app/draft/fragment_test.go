@@ -134,7 +134,7 @@ func TestDraftRegionContractIsScopedAndMounted(t *testing.T) {
 		`<DraftRoom {...data.room}></DraftRoom>`,
 		`<DraftWorkspace {...data.workspace}></DraftWorkspace>`,
 		`aria-live="polite"`,
-		`Refresh room manually`,
+		`Reload the room`,
 	} {
 		if !strings.Contains(source, want) {
 			t.Errorf("draft region contract missing %q", want)

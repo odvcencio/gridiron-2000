@@ -112,7 +112,7 @@ func Page() Node {
 			<If cond={data.pool_live == false}>
 				<p class="demo-message">
 					<strong>OFFLINE POOL:</strong>
-					player ranks are approximate until the live pool syncs.
+					player ranks are approximate until live player data arrives.
 				</p>
 			</If>
 			<If cond={data.has_matchup_source}>
@@ -167,7 +167,7 @@ func Page() Node {
 					</div>
 				</div>
 				<div class="pool-search-bar">
-					<label class="mono" for="board-search">QUERY //</label>
+					<label class="mono" for="board-search">SEARCH //</label>
 					<input
 						id="board-search"
 						type="search"
