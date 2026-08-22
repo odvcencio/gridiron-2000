@@ -9,26 +9,21 @@ import (
 	"gridiron-2000/internal/openstats"
 )
 
-// TestOpenStatsGameFinalUsesKickoffPlusFiveHours pins the shared finality
-// rule (openStatsGameFinal) that both leagueScheduleSource and the new
-// DST points-allowed logic (pointsAllowedByTeam) must use identically —
-// one trigger, not two (WP-R2 build instructions, step 2).
-func TestOpenStatsGameFinalUsesKickoffPlusFiveHours(t *testing.T) {
+// TestOpenStatsGameFinalUsesSourceResultPresence pins the shared finality
+// rule used by both leagueScheduleSource and DST points-allowed logic.
+func TestOpenStatsGameFinalUsesSourceResultPresence(t *testing.T) {
 	eastern := openStatsEastern()
-	pastGame := openstats.ScheduleGame{GameID: "past", GameType: "REG", GameDay: "2020-01-01", GameTime: "13:00"}
-	if !openStatsGameFinal(pastGame, eastern, time.Now()) {
-		t.Fatal("a 2020 kickoff must read final")
+	unscoredPast := openstats.ScheduleGame{GameID: "past", GameType: "REG", GameDay: "2020-01-01", GameTime: "13:00"}
+	if openStatsGameFinal(unscoredPast, eastern, time.Now()) {
+		t.Fatal("elapsed time must not make a game final without a source result")
 	}
-	futureGame := openstats.ScheduleGame{GameID: "future", GameType: "REG", GameDay: "2099-01-01", GameTime: "13:00"}
-	if openStatsGameFinal(futureGame, eastern, time.Now()) {
-		t.Fatal("a 2099 kickoff must not read final")
+	zeroFinal := openstats.ScheduleGame{GameID: "zero", AwayScorePresent: true, HomeScorePresent: true}
+	if !openStatsGameFinal(zeroFinal, eastern, time.Now()) {
+		t.Fatal("present 0-0 scores must remain distinct from missing scores")
 	}
-	// A blank GameTime defaults to the early-slate 1:00 PM ET kickoff, the
-	// same default leagueScheduleSource has always used.
 	blankTime := openstats.ScheduleGame{GameID: "blank", GameType: "REG", GameDay: "2020-01-01"}
-	kickoff, ok := openStatsKickoff(blankTime, eastern)
-	if !ok || kickoff.Hour() != 13 {
-		t.Fatalf("blank GameTime kickoff = %v, ok=%v, want 13:00 ET", kickoff, ok)
+	if _, ok := openStatsKickoff(blankTime, eastern); ok {
+		t.Fatal("blank/TBA GameTime must not fabricate a 13:00 kickoff")
 	}
 	unparseable := openstats.ScheduleGame{GameID: "bad", GameType: "REG", GameDay: "not-a-date"}
 	if _, ok := openStatsKickoff(unparseable, eastern); ok {
@@ -44,7 +39,7 @@ func TestPointsAllowedByTeamOmitsUnplayedGames(t *testing.T) {
 	eastern := openStatsEastern()
 	now := time.Now()
 	games := []openstats.ScheduleGame{
-		{GameID: "final", GameType: "REG", GameDay: "2020-01-01", GameTime: "13:00", AwayTeam: "buf", AwayScore: 24, HomeTeam: "mia", HomeScore: 0},
+		{GameID: "final", GameType: "REG", GameDay: "2020-01-01", GameTime: "13:00", AwayTeam: "buf", AwayScore: 24, AwayScorePresent: true, HomeTeam: "mia", HomeScore: 0, HomeScorePresent: true},
 		{GameID: "future", GameType: "REG", GameDay: "2099-01-01", GameTime: "13:00", AwayTeam: "kc", AwayScore: 0, HomeTeam: "den", HomeScore: 0},
 		{GameID: "preseason", GameType: "PRE", GameDay: "2020-01-01", GameTime: "13:00", AwayTeam: "sf", AwayScore: 10, HomeTeam: "sea", HomeScore: 3},
 	}
@@ -63,6 +58,24 @@ func TestPointsAllowedByTeamOmitsUnplayedGames(t *testing.T) {
 	}
 	if _, ok := allowed["SF"]; ok {
 		t.Fatal("a PRE-season game must never feed points-allowed (REG only)")
+	}
+}
+
+func TestLeagueScheduleSourcePropagatesSpreadFinalityAndProvenance(t *testing.T) {
+	stats := wpr2Fixture(t, pbpFixtureCSVForWeek1)
+	games := leagueScheduleSource(stats)()
+	if len(games) == 0 {
+		t.Fatal("schedule adapter returned no regular-season games")
+	}
+	game := games[0]
+	if !game.Final {
+		t.Fatal("source score presence must mark the fixture final")
+	}
+	if !game.SpreadLinePresent || game.SpreadLineTenths != 35 {
+		t.Fatalf("spread = present:%v tenths:%d, want true/35", game.SpreadLinePresent, game.SpreadLineTenths)
+	}
+	if game.SourceURL == "" || game.SourceObservedAt.IsZero() || game.SourceProvenance == "" {
+		t.Fatalf("source envelope missing: %+v", game)
 	}
 }
 
@@ -88,9 +101,9 @@ func TestDSTNicknamesCoversAllThirtyTwoTeams(t *testing.T) {
 // (internal/openstats/service_test.go).
 func wpr2Fixture(t *testing.T, pbpCSV string) *openstats.Service {
 	t.Helper()
-	const scheduleCSV = "game_id,season,game_type,week,gameday,gametime,away_team,away_score,home_team,home_score\n" +
-		"2026_01_BUF_MIA,2026,REG,1,2020-01-01,13:00,BUF,24,MIA,0\n" +
-		"2026_01_KC_DEN,2026,REG,1,2099-01-01,13:00,KC,0,DEN,0\n"
+	const scheduleCSV = "game_id,season,game_type,week,gameday,gametime,away_team,away_score,home_team,home_score,result,spread_line\n" +
+		"2026_01_BUF_MIA,2026,REG,1,2020-01-01,13:00,BUF,24,MIA,0,-24,3.5\n" +
+		"2026_01_KC_DEN,2026,REG,1,2099-01-01,13:00,KC,,DEN,,,\n"
 	const teamStatsCSV = "season,week,team,season_type,game_id,opponent_team,def_sacks,def_interceptions,def_tds,def_safeties,fumble_recovery_opp,fumble_recovery_own\n" +
 		"2026,1,BUF,REG,2026_01_BUF_MIA,MIA,4,2,1,1,2,3\n" +
 		"2026,1,MIA,REG,2026_01_BUF_MIA,BUF,1,0,0,0,0,0\n"
