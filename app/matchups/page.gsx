@@ -89,6 +89,7 @@ type MatchupCardProps struct {
 	ID                 string
 	State              string
 	ShowLiveIndicator  bool
+	LiveIndicator      string
 	Status             string
 	Clock              string
 	AwayID             string
@@ -113,9 +114,7 @@ component MatchupCard(props: MatchupCardProps) {
 	return <article class="matchup-card" data-live-matchup={props.ID}>
 		<header>
 			<span>
-				<If cond={props.ShowLiveIndicator}>
-					<span class="live-dot" aria-hidden="true"></span>
-				</If>
+				<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span>
 				<b data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</b>
 			</span>
 			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
@@ -147,26 +146,24 @@ component MatchupCard(props: MatchupCardProps) {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version" data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m">
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval="1m">
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">
-					<If cond={data.live.show_live_indicator}>
-						<span class="live-dot" aria-hidden="true"></span>
-					</If>
-					{data.live.status}
+					<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span>
+					<span data-gosx-live-bind="status">{data.live.status}</span>
 				</span>
-				<p class="page-kicker">{data.live.week_label}</p>
+				<p class="page-kicker" data-gosx-live-bind="weekLabel">{data.live.week_label}</p>
 				<h1>
-					{data.live.headline_top}
+					<span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span>
 					<br></br>
-					{data.live.headline_bottom}
+					<span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span>
 				</h1>
 			</div>
 			<div class="masthead-console">
 				<div>
 					<span>Source</span>
-					<strong>{data.live.source_label}</strong>
+					<strong data-gosx-live-bind="sourceLabel">{data.live.source_label}</strong>
 				</div>
 				<div>
 					<span>Last update</span>
@@ -174,7 +171,7 @@ func Page() Node {
 				</div>
 				<div>
 					<span>Updates</span>
-					<strong class="mono">{data.live.refresh_label}</strong>
+					<strong class="mono" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</strong>
 				</div>
 			</div>
 		</header>
@@ -186,9 +183,7 @@ func Page() Node {
 						<h2>All league matchups</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
-						<If cond={data.live.show_live_indicator}>
-							<span class="live-dot" aria-hidden="true"></span>
-						</If>
+						<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span>
 						<span data-live-status data-gosx-live-bind="liveStatus">{data.live.sync_label}</span>
 					</div>
 				</header>
@@ -225,8 +220,8 @@ func Page() Node {
 					</Each>
 				</div>
 				<div class="data-note">
-					<span>{data.live.note_title}</span>
-					<p>
+					<span data-gosx-live-bind="noteTitle">{data.live.note_title}</span>
+					<p data-gosx-live-bind="noteBody">
 						{data.live.note_body}
 					</p>
 				</div>

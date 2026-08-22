@@ -291,6 +291,15 @@ textarea:focus-visible {
   color: var(--color-accent);
 }
 
+.live-dot--bound {
+  color: transparent;
+  font-size: 0;
+}
+
+.live-dot--bound:empty {
+  display: none;
+}
+
 .user-badge {
   display: inline-flex;
   align-items: center;

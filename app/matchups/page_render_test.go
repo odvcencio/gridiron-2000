@@ -45,6 +45,25 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 					t.Fatalf("fixture %s contains false live copy %q: %s", fixture.name, forbidden, body)
 				}
 			}
+			for _, binding := range []string{
+				`data-gosx-live-bind="status"`,
+				`data-gosx-live-bind="headlineTop"`,
+				`data-gosx-live-bind="headlineBottom"`,
+				`data-gosx-live-bind="refreshLabel"`,
+				`data-gosx-live-bind="noteTitle"`,
+				`data-gosx-live-bind="noteBody"`,
+				`data-gosx-live-bind="liveIndicator"`,
+			} {
+				if !strings.Contains(body, binding) {
+					t.Errorf("fixture %s missing transition binding %s", fixture.name, binding)
+				}
+			}
+			if fixture.name == "scheduled" && !strings.Contains(body, `data-gosx-live-bind="matchupIndicator.`) {
+				t.Errorf("scheduled fixture omitted persistent card indicator bindings: %s", body)
+			}
+			if strings.Contains(body, `data-gosx-revalidate-src="/api/league/version"`) {
+				t.Errorf("fixture %s still relies on league-version revalidation", fixture.name)
+			}
 		})
 	}
 
