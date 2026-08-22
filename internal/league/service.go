@@ -1727,9 +1727,11 @@ func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
 // timestamp the old score-sync JS composed client-side in applySnapshot.
 func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	live := s.LiveScores(ctx)
+	presentation := matchupPresentation(live.State)
 	scores := make(map[string]string, len(live.Matchups)*2)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
+	matchupIndicator := make(map[string]string, len(live.Matchups))
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = fmt.Sprintf("%.1f", matchup.Away.Score)
 		scores[matchup.Home.ID] = fmt.Sprintf("%.1f", matchup.Home.Score)
@@ -1739,26 +1741,34 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		}
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
+		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
 	}
 	timestamp := s.formatMatchupUpdate(live.LastUpdated)
-	liveStatus := matchupPresentation(live.State)["sync_label"] + " · " + timestamp
+	liveStatus := presentation["sync_label"] + " · " + timestamp
 	if live.Warning != "" {
 		liveStatus += " · FALLBACK"
 	}
 	return map[string]any{
-		"ok":            live.OK,
-		"source":        live.Source,
-		"sourceLabel":   live.SourceLabel,
-		"week":          live.Week,
-		"weekLabel":     live.WeekLabel,
-		"state":         live.State,
-		"status":        live.Status,
-		"warning":       live.Warning,
-		"scores":        scores,
-		"matchupStatus": matchupStatus,
-		"matchupClock":  matchupClock,
-		"liveStatus":    liveStatus,
-		"liveUpdated":   timestamp,
+		"ok":               live.OK,
+		"source":           live.Source,
+		"sourceLabel":      live.SourceLabel,
+		"week":             live.Week,
+		"weekLabel":        live.WeekLabel,
+		"state":            live.State,
+		"status":           live.Status,
+		"warning":          live.Warning,
+		"scores":           scores,
+		"matchupStatus":    matchupStatus,
+		"matchupClock":     matchupClock,
+		"matchupIndicator": matchupIndicator,
+		"liveStatus":       liveStatus,
+		"liveUpdated":      timestamp,
+		"liveIndicator":    liveIndicatorToken(live.State),
+		"headlineTop":      presentation["headline_top"],
+		"headlineBottom":   presentation["headline_bottom"],
+		"refreshLabel":     presentation["refresh_label"],
+		"noteTitle":        presentation["note_title"],
+		"noteBody":         presentation["note_body"],
 	}
 }
 
@@ -2280,7 +2290,18 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"note_title":          presentation["note_title"],
 		"note_body":           presentation["note_body"],
 		"show_live_indicator": live.State == MatchupStateInProgress,
+		"live_indicator":      liveIndicatorToken(live.State),
 	}
+}
+
+// liveIndicatorToken gives a text-only live binding a stable way to toggle
+// the CSS-drawn dot. Empty means hidden; any non-empty token means visible.
+// The token itself is visually suppressed by .live-dot--bound.
+func liveIndicatorToken(state string) string {
+	if state == MatchupStateInProgress {
+		return "live"
+	}
+	return ""
 }
 
 func matchupPresentation(state string) map[string]string {
@@ -2352,6 +2373,7 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 			"id":                  matchup.ID,
 			"state":               matchup.State,
 			"show_live_indicator": matchup.State == MatchupStateInProgress,
+			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
 				"id": matchup.Away.ID, "name": matchup.Away.Name, "abbreviation": matchup.Away.Abbreviation,
 				"score": fmt.Sprintf("%.1f", matchup.Away.Score), "tone": away.Tone, "manager": away.Manager,

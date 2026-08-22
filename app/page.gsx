@@ -22,7 +22,12 @@ component TeamMark(props: TeamMarkProps) {
 func MiniMatchup(props any) Node {
 	return <article class="mini-matchup" data-live-matchup={props.ID}>
 		<div class="mini-matchup__meta">
-			<span data-matchup-status>{props.Status}</span>
+			<span>
+				<If cond={props.ShowLiveIndicator}>
+					<span class="live-dot" aria-hidden="true"></span>
+				</If>
+				<span data-matchup-status>{props.Status}</span>
+			</span>
 			<span class="mono" data-matchup-clock>{props.Clock}</span>
 		</div>
 		<div class="mini-team">
@@ -336,7 +341,9 @@ func Page() Node {
 					<h2>League simulator</h2>
 				</div>
 				<div class="sync-state" role="status" aria-live="polite">
-					<span class="live-dot" aria-hidden="true"></span>
+					<If cond={data.live.show_live_indicator}>
+						<span class="live-dot" aria-hidden="true"></span>
+					</If>
 					<span data-live-status>
 						{data.live.source_label}
 						·

@@ -173,6 +173,59 @@ func TestScheduleProviderTruthfulStateTaxonomy(t *testing.T) {
 	}
 }
 
+func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *testing.T) {
+	svc := newTestService(t, true)
+	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	now := kickoff.Add(-time.Hour)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "week-1", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "MIA"}}
+	})
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 19})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed.cacheFor = 0
+
+	scheduled := svc.LiveScoresView(context.Background())
+	assertPresentation := func(view map[string]any, state, headlineTop, headlineBottom, refresh, noteTitle, noteBody, indicator string) {
+		t.Helper()
+		for key, want := range map[string]any{
+			"state": state, "headlineTop": headlineTop, "headlineBottom": headlineBottom,
+			"refreshLabel": refresh, "noteTitle": noteTitle, "noteBody": noteBody,
+			"liveIndicator": indicator,
+		} {
+			if got := view[key]; got != want {
+				t.Errorf("%s %s = %v, want %v", state, key, got, want)
+			}
+		}
+		matchupIndicators, ok := view["matchupIndicator"].(map[string]string)
+		if !ok || len(matchupIndicators) == 0 {
+			t.Fatalf("%s matchupIndicator = %#v, want non-empty typed map", state, view["matchupIndicator"])
+		}
+		for id, got := range matchupIndicators {
+			if got != indicator {
+				t.Errorf("%s matchupIndicator[%s] = %q, want %q", state, id, got, indicator)
+			}
+		}
+	}
+	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Checks every 60 sec", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
+	if strings.Contains(scheduled["liveStatus"].(string), "Feed connected") {
+		t.Fatalf("scheduled liveStatus = %q", scheduled["liveStatus"])
+	}
+
+	now = kickoff.Add(time.Minute)
+	active := svc.LiveScoresView(context.Background())
+	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "60 sec", "Live scoring", "Scores update on their own. No need to refresh the page.", "live")
+	if !strings.Contains(active["status"].(string), "in progress") || !strings.Contains(active["liveStatus"].(string), "Feed connected") {
+		t.Fatalf("active status/liveStatus = %q / %q", active["status"], active["liveStatus"])
+	}
+}
+
 type failingScoreProvider struct{}
 
 func (failingScoreProvider) Snapshot(context.Context, time.Time) (LiveSnapshot, error) {
