@@ -142,6 +142,7 @@ func Page() Node {
 						<If cond={player.free_agent}>
 							<span class="position-chip">FREE AGENT</span>
 						</If>
+						<If cond={data.can_edit}>
 						<div class="board-controls">
 							<If cond={player.can_add}>
 								<form method="post" action={actionPath("player-add")} data-gosx-managed="true" class="lineup-slot__form">
@@ -202,6 +203,7 @@ func Page() Node {
 								</form>
 							</If>
 						</div>
+						</If>
 					</article>
 				</Each>
 			</div>
