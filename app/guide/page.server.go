@@ -29,11 +29,11 @@ func publicGuideData(cfg league.Config) map[string]any {
 		mode = "LEAGUE"
 	}
 
-	membershipLabel := "NO DOMAIN GATE"
-	membershipDetail := "No domain-wide admission is configured. Runtime invitations or the deployment allowlist may restrict admission; when both are empty, any authenticated Google identity is admitted during open setup."
+	membershipLabel := "OPEN TO INVITES"
+	membershipDetail := "This league has no email-domain rule. The commissioner controls who may claim a seat."
 	if domain := strings.TrimSpace(cfg.Membership.AllowedDomain); domain != "" {
-		membershipLabel = "DOMAIN ADMISSION ENABLED"
-		membershipDetail = fmt.Sprintf("Google identities at @%s are admitted. Non-domain admission depends on runtime invitations and the deployment allowlist; when both are empty, open setup admits any authenticated Google identity.", domain)
+		membershipLabel = fmt.Sprintf("@%s MANAGERS", domain)
+		membershipDetail = fmt.Sprintf("Managers with an @%s address may join. The commissioner invites everybody else.", domain)
 	}
 	draftAt := cfg.DraftAt
 	if location, err := time.LoadLocation(cfg.Timezone); err == nil {
