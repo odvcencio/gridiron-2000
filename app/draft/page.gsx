@@ -284,11 +284,11 @@ func Page() Node {
 								<span class="mono">YOUR AUTOPICK</span>
 								<If cond={data.viewer_autopick}>
 									<strong class="autopick-badge mono">ON</strong>
-									<small>Your board picks after a short grace; best available is the fallback.</small>
+									<small>Autopick uses your Big Board, then best available. Enabling it does not reset this turn's grace; if grace has elapsed, the next clock tick may pick.</small>
 								</If>
 								<If cond={data.viewer_autopick == false}>
 									<strong class="ready-state">OFF</strong>
-									<small>You keep the full pick clock; expiry uses your board, then best available.</small>
+									<small>Autopick will not pick while you are present. This turn's saved deadline still applies, and being marked away can shorten it.</small>
 								</If>
 							</div>
 							<form method="post" action={actionPath("toggle-autopick")} data-gosx-managed="true">
