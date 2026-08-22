@@ -1,33 +1,15 @@
-# Launch checklist
+# Release and first-install runbook
 
-This runbook takes GRIDIRON 2000 from a built image to a live production
-deployment at `gridiron.draco.quest`. Follow the steps in order. Each step
-lists the exact command to run.
+This runbook separates first-install/bootstrap work from a routine immutable
+release. Hostnames and resource names below describe this repository's two
+reference deployments; operators of another installation must substitute
+their own values. It intentionally records no current image, revision,
+certificate, Secret, or rollout status—capture those facts at execution time.
 
-## Release status (2026-08-21)
-
-This is the release procedure for the two existing league Deployments. It
-does not claim that a new image was built, pinned, or rolled out, and it does
-not record a new image digest. The build-and-pin action in step 1 is a future
-release step; the operator records the actual pushed digest before changing
-either Deployment.
-
-The two live hostnames are `https://gridiron.draco.quest` (GRIDIRON 2000) and
-`https://sk.gridiron.draco.quest` (STABLE KERNEL LEAGUE). The tracked
-`deploy/k8s/sk/http-redirect.yaml` is applied and the Stable Kernel
-HTTP-to-HTTPS redirect is resolved in the live namespace. Verify that
-resolved state during the canary; it is not an outstanding fix for this
-release.
-
-This release enables the existing Commissioner HQ wiring. It requires one
-newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least 256 bits,
-installed with the identical value in both existing application Secrets
-*before either Deployment rolls*. Never print or read (including fetch,
-echo, or log) the token value. The no-display patch workflow in step 10.2 is
-the only supported way to install it. The old flagship `TANK01_API_KEY`, if
-still present, is a
-separate post-acceptance secret-maintenance task; it is not changed by this
-release.
+For an existing installation, skip steps 2–9. Build and pin the image in step
+1, record rollback state in 10.1, provision or intentionally rotate the shared
+Commissioner HQ token only when required by 10.2, then canary Stable Kernel
+before the flagship as described in 10.3–10.4.
 
 ## Before you start
 
@@ -39,7 +21,7 @@ Confirm you have:
 - Access to the Google Cloud Console project for this app's OAuth client.
 - A RapidAPI account for the Tank01 NFL API.
 
-## 1. Future release-pin step: build and push the image
+## 1. Build and push an immutable image
 
 Every release gets a human-readable date plus the source commit's short SHA.
 The deployment is then pinned to the image digest; the tag is only a lookup
@@ -78,9 +60,9 @@ manifest applies. They are not an existing-release rollout path. For the two
 already-provisioned Deployments, skip every step from 2 through 9; do not
 recreate namespaces, pull Secrets, application Secrets, ConfigMaps, DNS, OAuth
 settings, manager settings, relay settings, or apply step 5's manifests as a
-shortcut. After the same new HQ token is patched into both existing application
-Secrets in step 10.2, the only release path is the sequential,
-digest-pinned-manifest apply in steps 10.3 and 10.4.
+shortcut. After any explicitly required HQ provisioning or rotation in step
+10.2, the only release path is the sequential, digest-pinned-manifest apply in
+steps 10.3 and 10.4.
 
 ## 2. First-install/bootstrap only: create the namespace
 
@@ -139,8 +121,9 @@ Never commit the filled-in secret file.
 ## 5. First-install/bootstrap only: apply the remaining manifests
 
 This step is for a first install and must not be used as an existing-release
-rollout. Existing releases use only the future digest-pinned Deployment
-manifests in steps 10.3 and 10.4, after step 10.2's token gate.
+rollout. Existing releases use only the new digest-pinned Deployment
+manifests in steps 10.3 and 10.4, after any explicitly required step 10.2
+credential work.
 
 ```
 kubectl apply -f deploy/k8s/pvc.yaml
@@ -216,8 +199,8 @@ identity in `COMMISSIONER_EMAILS` and add a one-way mapping in
 `IDENTITY_ALIASES`:
 
 ```dotenv
-COMMISSIONER_EMAILS=commissioner.alias@example.org
-IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org
+COMMISSIONER_EMAILS=commissioner@example.com
+IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com
 ```
 
 The alias is checked against the raw league domain/allowlist/invite policy
@@ -263,11 +246,12 @@ Use this sequence for the already-provisioned `gridiron-2000` and
 strictly Stable Kernel (SK) canary first, then flagship:
 
 1. record both old revisions and image digests;
-2. install one newly generated independent 256-bit HQ token into both existing
-   application Secrets, before either Deployment rolls;
-3. apply the future digest-pinned SK Deployment manifest and wait for its
+2. when first enabling HQ or intentionally rotating its credential, install
+   one newly generated independent 256-bit token into both application
+   Secrets before either Deployment rolls; otherwise leave it untouched;
+3. apply the new digest-pinned SK Deployment manifest and wait for its
    canary gates;
-4. apply the future digest-pinned flagship Deployment manifest only after SK
+4. apply the new digest-pinned flagship Deployment manifest only after SK
    passes;
 5. smoke both instances and verify both Commissioner HQ peer cards.
 
@@ -297,7 +281,12 @@ kubectl -n gridiron rollout history deployment/gridiron-2000 \
 Keep the exact old revision numbers and image digests. Do not guess them and
 do not substitute the current manifest digest for the new release digest.
 
-### 10.2 Install the new Commissioner HQ token before either roll
+### 10.2 Provision or intentionally rotate the Commissioner HQ token
+
+Run this step only when enabling Commissioner HQ for the first time or when a
+credential rotation is an explicit release objective. A routine application
+release does not rotate or inspect the existing token; continue to 10.3 when
+both deployments are already configured for HQ.
 
 Generate exactly one new independent 32-byte (256-bit) token and use the same
 opaque patch file for both existing Secrets. This workflow never prints,
@@ -323,27 +312,26 @@ kubectl -n stablekernel patch secret/gridiron-2000-sk-secrets \
 
 The identical patch file is the equality check. Do not reuse
 `DATA_API_TOKEN`, `SESSION_SECRET`, or any token copied from a Secret.
-Both patches must succeed before either Deployment manifest is applied or any
-rollout command runs.
+When this step is required, both patches must succeed before either Deployment
+manifest is applied or any rollout command runs.
 
-### 10.3 Apply the future digest-pinned SK Deployment as the canary
+### 10.3 Apply the new digest-pinned SK Deployment as the canary
 
-The future release-pin step must prepare these two repository Deployment
-manifests with the new immutable image digest before this gate, without
-applying either one yet:
+Step 1 and the release manifest commit must prepare these two repository
+Deployment manifests with the new immutable image digest before this gate,
+without applying either one yet:
 
 - `deploy/k8s/sk/deployment.yaml` — SK canary, applied first.
 - `deploy/k8s/deployment.yaml` — flagship, applied second.
 
-Change only each manifest's application image to the future
+Change only each manifest's application image to the new
 `harbor.draco.quest/orchard/gridiron-2000@sha256:<new-release-digest>`.
 Preserve the manifest as the source of truth, including
 `COMMISSIONER_INSTANCE_ID`, `COMMISSIONER_HQ_PEERS`, `TANK01_BASE_URL`,
 and the existing Secret/ConfigMap references. Do not use `kubectl set image`
-for this release path. This docs-only correction does not invent or install
-that future digest.
+for this release path.
 
-After both step 10.2 Secret patches succeed, apply the SK Deployment manifest
+After any required step 10.2 patches succeed, apply the SK Deployment manifest
 and wait for its canary rollout:
 
 ```bash

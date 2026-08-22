@@ -32,8 +32,14 @@
     "venue_line": "",
     "invite_blurb": ""
   },
+  "membership": {
+    "allowed_domain": ""
+  },
   "roster": {
-    "preset": "standard"
+    "preset": "standard",
+    "reserve": {},
+    "ir": 0,
+    "limits": {}
   },
   "waivers": {
     "mode": "perf-priority",

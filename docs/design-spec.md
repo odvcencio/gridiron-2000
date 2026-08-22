@@ -1,14 +1,16 @@
-# GRIDIRON 2000 — Product and Design Spec
+# Gridiron product and design system
 
-GRIDIRON 2000 is a private fantasy-football league room for roughly eight friends. It combines a fast provisional signal surface, lightweight league administration, and a dedicated draft room with Google sign-in as the trust boundary.
+This document preserves the design rationale and binding visual-system rules behind Gridiron. Early launch-specific examples are historical context, not runtime league truth. Current league identity, format, team count, dates, membership posture, roster shape, and scoring come from `league.json` and are explained by `/guide` and `/scoring`.
+
+Gridiron is a private fantasy-football league room for 4–14 teams. It combines a fast provisional signal surface, explicit league administration, schedule-backed matchups, and a dedicated draft room with Google sign-in as the trust boundary.
 
 ## Product Commitments
 
-- The default league supports eight managers, while fixtures and standings remain data-driven.
-- The inaugural draft is scheduled for Saturday, August 15, 2026 at 5:00 PM America/Los_Angeles.
+- League identity and manager count are configuration-derived; fixtures, standings, roster capacity, and public guide copy must never depend on one deployment's nickname or shape.
+- The configured draft timestamp is a meeting window. Readiness uses explicit **Mark ready** and **Mark not ready** actions, and only the commissioner intentionally starts pick one.
 - Public RSS/Atom sources poll every two minutes, curated Bluesky events arrive continuously, and the browser checks the private wire every 20 seconds. Open schedules sync every five minutes, injury reports every 15 minutes, and corrected player ledgers every six hours.
 - The initial experience is useful in demo mode without credentials; production Google OAuth, the no-key signal wire, and the open-data cache are configured through environment variables.
-- Publisher, social, community, and market signals are provenance-weighted but always provisional; they can never mutate fantasy scores. Corrected structured records and commissioner rulings remain authoritative.
+- Publisher, social, community, and market signals are provenance-weighted but always provisional; they can never mutate fantasy scores. Corrected structured records and commissioner rulings remain authoritative. Closing a scheduled week records final matchup totals and pins its effective lineups so later roster churn cannot rewrite history.
 - Server-rendered pages remain the baseline. Browser runtime is reserved for live refresh, filters, countdowns, and draft interactions.
 
 ## Visual System
