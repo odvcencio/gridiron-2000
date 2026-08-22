@@ -117,29 +117,75 @@ func TestActivityMapsOrderingAndLimit(t *testing.T) {
 	}
 }
 
-// TestActivityDataUnlimited checks the /activity page loader returns the
-// full feed (no row cap), unlike the dashboard's 5-row panel.
-func TestActivityDataUnlimited(t *testing.T) {
+// TestActivityDataPaginatesFullFeed checks /activity keeps the complete
+// record addressable without sending an ever-growing season log in one page.
+func TestActivityDataPaginatesFullFeed(t *testing.T) {
 	svc := newTestService(t, true)
 	svc.SetPlayerSource(func() ([]Player, int64, string) { return testPool(5), 1, "test" })
 	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
-	for i := 0; i < 7; i++ {
+	for i := 0; i < 107; i++ {
 		txn := Transaction{
-			ID: "txn", Type: "add", TeamID: "team-1",
-			Adds: []TransactionPlayer{{PlayerID: fmt.Sprintf("p-%d", i), Name: "Player", Position: "RB"}},
+			ID: fmt.Sprintf("txn-%d", i), Type: "add", TeamID: "team-1",
+			Adds: []TransactionPlayer{{PlayerID: fmt.Sprintf("p-%d", i), Name: fmt.Sprintf("Player %03d", i), Position: "RB"}},
 			At:   base.Add(time.Duration(i) * time.Minute),
 		}
+		if err := svc.store.RecordTransaction(txn, 999); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/activity?page=2", nil)
+	data := svc.ActivityData(request)
+	rows, _ := data["transactions"].([]map[string]any)
+	if len(rows) != poolPageSize {
+		t.Fatalf("len(rows) = %d, want %d", len(rows), poolPageSize)
+	}
+	if data["transactions_count"] != 107 || data["filtered_count"] != 107 {
+		t.Fatalf("counts = total %v filtered %v, want 107/107", data["transactions_count"], data["filtered_count"])
+	}
+	if data["page"] != 2 || data["pages"] != 3 || data["page_start"] != 51 || data["page_end"] != 100 {
+		t.Fatalf("pagination = page %v/%v rows %v-%v", data["page"], data["pages"], data["page_start"], data["page_end"])
+	}
+	if data["previous_href"] != "/activity" || data["next_href"] != "/activity?page=3" {
+		t.Fatalf("pagination hrefs = previous %v next %v", data["previous_href"], data["next_href"])
+	}
+	if rows[0]["player"] != "Player 056 (RB)" || rows[len(rows)-1]["player"] != "Player 007 (RB)" {
+		t.Fatalf("page 2 ordering = first %v last %v", rows[0]["player"], rows[len(rows)-1]["player"])
+	}
+	if data["transactions_empty"].(bool) {
+		t.Fatal("transactions_empty must be false with matching rows")
+	}
+}
+
+func TestActivityDataFiltersByTeamAndQueryAndPreservesState(t *testing.T) {
+	svc := newTestService(t, true)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	transactions := []Transaction{
+		{ID: "txn-1", Type: "add", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Needle Runner", Position: "RB"}}, At: base},
+		{ID: "txn-2", Type: "add", TeamID: "team-2", Adds: []TransactionPlayer{{Name: "Needle Receiver", Position: "WR"}}, At: base.Add(time.Minute)},
+		{ID: "txn-3", Type: "add", TeamID: "team-1", Adds: []TransactionPlayer{{Name: "Different Player", Position: "TE"}}, At: base.Add(2 * time.Minute)},
+	}
+	for _, txn := range transactions {
 		if err := svc.store.RecordTransaction(txn, 99); err != nil {
 			t.Fatal(err)
 		}
 	}
-	request, _ := http.NewRequest(http.MethodGet, "/activity", nil)
+	team := svc.teamByID("team-1").Abbreviation
+	request, _ := http.NewRequest(http.MethodGet, "/activity?team="+team+"&q=needle", nil)
 	data := svc.ActivityData(request)
 	rows, _ := data["transactions"].([]map[string]any)
-	if len(rows) != 7 {
-		t.Fatalf("len(rows) = %d, want 7 (unlimited)", len(rows))
+	if len(rows) != 1 || rows[0]["player"] != "Needle Runner (RB)" {
+		t.Fatalf("filtered rows = %+v, want team-1's Needle Runner only", rows)
 	}
-	if data["transactions_empty"].(bool) {
-		t.Fatal("transactions_empty must be false with 7 rows")
+	if data["transactions_count"] != 3 || data["filtered_count"] != 1 || data["has_filters"] != true {
+		t.Fatalf("filter state = total %v filtered %v active %v", data["transactions_count"], data["filtered_count"], data["has_filters"])
+	}
+	if data["previous_href"] != "/activity?q=needle&team="+team {
+		t.Fatalf("preserved href = %v", data["previous_href"])
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/activity?q=not-found", nil)
+	data = svc.ActivityData(request)
+	if data["has_transactions"] != true || data["transactions_empty"] != true || data["page_start"] != 0 {
+		t.Fatalf("no-match state = has %v empty %v start %v", data["has_transactions"], data["transactions_empty"], data["page_start"])
 	}
 }
