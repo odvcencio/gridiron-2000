@@ -1,14 +1,18 @@
 package app
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
+	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
@@ -152,4 +156,113 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 	if !strings.Contains(string(source), `<If cond={data.live.show_live_indicator}>`) {
 		t.Fatal("homepage matchup preview masthead live dot is not gated by live state")
 	}
+}
+
+func TestHomepageStandingsPendingStateRendersExplicitly(t *testing.T) {
+	body := runHomepageStandingsFixture(t, "pending")
+	for _, want := range []string{"Standings pending", "NO SEASON TABLE", "The commissioner has not published a regular-season schedule yet."} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending homepage missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "standing-row") || strings.Contains(body, "Final ’25 table") {
+		t.Fatalf("pending homepage rendered a fabricated standings table: %s", body)
+	}
+}
+
+func TestHomepageStandingsRendersFinalizedScheduleData(t *testing.T) {
+	body := runHomepageStandingsFixture(t, "scored")
+	for _, want := range []string{"2026 standings", "Through Week 1", "standing-row", "0–0–1", "0.0", "Scheduled time is the meeting point", "randomizes draft order about one hour", "locks when pick 1 lands"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("scored homepage missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Final ’25 table") || strings.Contains(body, "Last season’s damage report") {
+		t.Fatalf("scored homepage retained prior-season standings copy: %s", body)
+	}
+}
+
+func runHomepageStandingsFixture(t *testing.T, fixture string) string {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHomepageStandingsFixtureProcess$")
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	if err != nil {
+		t.Fatalf("league fixture path: %v", err)
+	}
+	cmd.Env = append(os.Environ(),
+		"HOME_STANDINGS_RENDER_FIXTURE="+fixture,
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"LEAGUE_FILE="+leagueFile,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("homepage %s fixture: %v\n%s", fixture, err, output)
+	}
+	return string(output)
+}
+
+func TestHomepageStandingsFixtureProcess(t *testing.T) {
+	fixture := os.Getenv("HOME_STANDINGS_RENDER_FIXTURE")
+	if fixture == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	request, _ := http.NewRequest(http.MethodGet, "/", nil)
+	if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if fixture == "scored" {
+		players := make([]league.Player, 0, 150)
+		players = append(players, league.Player{ID: "p-01", Name: "Ja'Marr Chase", Position: "WR", NFLTeam: "CIN"})
+		for i := 2; i <= 150; i++ {
+			players = append(players, league.Player{ID: fmt.Sprintf("pool-%03d", i), Name: fmt.Sprintf("Pool Player %03d", i), Position: "WR", NFLTeam: "CIN"})
+		}
+		service.SetPlayerSource(func() ([]league.Player, int64, string) { return players, 1, "live" })
+		schedule, err := service.AdminGenerateSchedule(request, 14, 1, 42)
+		if err != nil {
+			t.Fatal(err)
+		}
+		service.SetWeekStatsSource(func(int) []league.WeekStatLine {
+			return []league.WeekStatLine{{
+				Key:   "jamarrchase|WR",
+				Stats: map[string]float64{"recTD": 2},
+			}}
+		})
+		if _, _, err := service.AdminCloseWeek(request, schedule.Weeks[0].Week); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fmt.Print(renderAuthenticatedHomepage(t))
+}
+
+func renderAuthenticatedHomepage(t *testing.T) string {
+	t.Helper()
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(r *http.Request) (auth.User, bool) {
+			email := r.Header.Get("X-Test-User")
+			return auth.User{ID: email, Email: email, Name: "Render Fixture"}, true
+		}),
+	})
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Test-User", "render@example.com")
+	authn.Middleware(handler).ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want 200; body: %s", recorder.Code, recorder.Body.String())
+	}
+	return recorder.Body.String()
 }

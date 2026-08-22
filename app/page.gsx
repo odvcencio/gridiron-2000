@@ -403,28 +403,34 @@ func Page() Node {
 			<section class="standings-panel">
 				<header class="section-heading">
 					<span class="section-index">02 // POWER GRID</span>
-					<h2>Final ’{data.league.prior_season_short} table</h2>
-					<p>
-						Last season’s damage report. Everyone resets to 0–0 after draft night.
-					</p>
+					<h2>{data.standings_title}</h2>
+					<p>{data.standings_note}</p>
 				</header>
-				<div class="standing-labels mono" aria-hidden="true">
-					<span>RK</span>
-					<span>CLUB</span>
-					<span>W–L</span>
-					<span>PF</span>
-					<span>FORM</span>
-				</div>
-				<div class="standings-list">
-					<Each of={data.divisions} as="division">
-						<div class="division-group">
-							<span class="division-heading mono">{division.Name}</span>
-							<Each of={division.Teams} as="team">
-								<StandingRow {...team}></StandingRow>
-							</Each>
-						</div>
-					</Each>
-				</div>
+				<If cond={data.standings_available}>
+					<div class="standing-labels mono" aria-hidden="true">
+						<span>RK</span>
+						<span>CLUB</span>
+						<span>W–L</span>
+						<span>PF</span>
+						<span>FORM</span>
+					</div>
+					<div class="standings-list">
+						<Each of={data.divisions} as="division">
+							<div class="division-group">
+								<span class="division-heading mono">{division.Name}</span>
+								<Each of={division.Teams} as="team">
+									<StandingRow {...team}></StandingRow>
+								</Each>
+							</div>
+						</Each>
+					</div>
+				</If>
+				<If cond={data.standings_available == false}>
+					<div class="empty-tape">
+						<strong>{data.standings_empty_title}</strong>
+						<p>{data.standings_note}</p>
+					</div>
+				</If>
 			</section>
 			<aside class="activity-panel">
 				<div class="activity-panel__header">
@@ -455,7 +461,7 @@ func Page() Node {
 				<div class="commissioner-note">
 					<span>Commissioner’s desk</span>
 					<p>
-						Draft order locks 24 hours before showtime. Bring a charger. Bring a strategy. Do not bring a five-minute monologue for pick 1.01.
+						Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens; it locks when pick 1 lands.
 					</p>
 					<a href="/draft" data-gosx-link>Review draft protocol</a>
 				</div>
