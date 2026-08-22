@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -2003,6 +2004,20 @@ func (s *Service) leagueURL() string {
 		return url
 	}
 	return s.cfg.URL
+}
+
+// leaguePathURL resolves an application route against the league's public
+// URL. Keeping route construction here prevents doubled slashes when an
+// operator supplies a trailing slash and preserves any base path used by a
+// hosted installation. If the configured URL is malformed, retain the old
+// best-effort behavior; the caller still escapes it for its output context.
+func (s *Service) leaguePathURL(route string) string {
+	base := strings.TrimSpace(s.leagueURL())
+	joined, err := url.JoinPath(base, route)
+	if err == nil {
+		return joined
+	}
+	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(route, "/")
 }
 
 // divisionList returns the distinct division names in first-seen team

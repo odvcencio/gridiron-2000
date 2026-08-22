@@ -438,10 +438,17 @@ func TestDraftReminderWindows(t *testing.T) {
 
 	t.Run("24h lead also reaches an unclaimed invitee", func(t *testing.T) {
 		svc, _ := newNotifyTestService(t, draftAt, draftAt)
+		t.Setenv("LEAGUE_URL", "https://league.example.com/fantasy/")
 		if err := svc.store.AddInvite("invitee@example.com"); err != nil {
 			t.Fatal(err)
 		}
-		svc.evalDraftReminders(svc.store.Snapshot(), draftAt.Add(-24*time.Hour))
+		state := svc.store.Snapshot()
+		reminder := svc.buildDraftReminderInvitee(state, "invitee@example.com", reminderLeads[0])
+		if want := "https://league.example.com/fantasy/join"; !strings.Contains(reminder.HTML, want) || !strings.Contains(reminder.Text, want) {
+			t.Fatalf("invitee reminder must link directly to seat claim %q:\ntext:\n%s\nhtml:\n%s", want, reminder.Text, reminder.HTML)
+		}
+
+		svc.evalDraftReminders(state, draftAt.Add(-24*time.Hour))
 		key := keyDraftReminder(24, draftAt, "invitee@example.com")
 		if _, ok := svc.store.Snapshot().SentLog[key]; !ok {
 			t.Fatal("the 24h reminder must also reach unclaimed invitees")
