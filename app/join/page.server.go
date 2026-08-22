@@ -1,13 +1,13 @@
 package join
 
 import (
+	"gridiron-2000/internal/actionui"
 	"log"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
-	"m31labs.dev/gosx/session"
 )
 
 func init() {
@@ -60,8 +60,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"motif": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Welcome to "+team.Name+".")
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", "Welcome to "+team.Name+".")
 				return nil
 			},
 		},

@@ -2,6 +2,7 @@ package blitz
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 
 	"gridiron-2000/internal/league"
@@ -48,8 +49,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"blitz": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Entry saved.")
-				ctx.Redirect("/blitz?slate=" + ctx.FormData["slate"])
+				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
 				return nil
 			},
 			"blitz-remove": func(ctx *action.Context) error {
@@ -57,8 +57,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"blitz": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Entry saved.")
-				ctx.Redirect("/blitz?slate=" + ctx.FormData["slate"])
+				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
 				return nil
 			},
 		},
