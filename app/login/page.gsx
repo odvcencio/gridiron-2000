@@ -63,11 +63,8 @@ func Page() Node {
 					</If>
 					<If cond={data.configured == false}>
 						<div class="setup-note">
-							<strong>Setup mode</strong>
 							<p>
-								Add Google credentials to
-								<span class="inline-code">.env</span>
-								to turn on sign-in. Until then, explore the app in demo mode.
+								Sign-in is not open yet. Ask the commissioner.
 							</p>
 						</div>
 					</If>
