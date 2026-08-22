@@ -61,6 +61,14 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 			if fixture.name == "scheduled" && !strings.Contains(body, `data-gosx-live-bind="matchupIndicator.`) {
 				t.Errorf("scheduled fixture omitted persistent card indicator bindings: %s", body)
 			}
+			if fixture.name == "scheduled" {
+				if !strings.Contains(body, "Checks every 60 sec") {
+					t.Errorf("current scheduled fixture lost live refresh copy: %s", body)
+				}
+				if strings.Contains(body, "Static week view") {
+					t.Errorf("current scheduled fixture rendered static-week copy: %s", body)
+				}
+			}
 			if strings.Contains(body, `data-gosx-revalidate-src="/api/league/version"`) {
 				t.Errorf("fixture %s still relies on league-version revalidation", fixture.name)
 			}
@@ -97,10 +105,21 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 		"SEASON SCHEDULE // WEEK 2",
 		"WEEK 2 VIEW",
 		"Status pending",
+		"Static week view",
 		"href=\"/matchups\"",
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("week-browser route missing %q: %s", want, body)
+		}
+	}
+	for _, forbidden := range []string{
+		"60 sec",
+		"Checks every",
+		"Retrying every",
+		"Scores update on their own",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("non-current week retained auto-refresh claim %q: %s", forbidden, body)
 		}
 	}
 }

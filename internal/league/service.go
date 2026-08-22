@@ -1290,7 +1290,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	matchups := s.matchupMaps(state, live.Matchups)
 	return map[string]any{
 		"viewer":             viewer,
-		"live":               s.liveMap(live),
+		"live":               s.liveMapForWeek(live, isCurrentWeek),
 		"matchups":           matchups,
 		"matchups_empty":     len(matchups) == 0,
 		"leaders":            s.leaderMaps(),
@@ -2592,6 +2592,54 @@ func (s *Service) pickMaps(state PersistedState, players map[string]Player, scor
 		})
 	}
 	return out
+}
+
+// liveMapForWeek keeps the current week on the existing live/degraded
+// presentation contract, while a historical or future selection is an
+// explicitly static view. A non-current snapshot must not claim it will
+// refresh itself or show a live indicator the page cannot update in place.
+// Final results remain unchanged because their existing presentation is
+// already static and authoritative.
+func (s *Service) liveMapForWeek(live LiveSnapshot, isCurrentWeek bool) map[string]any {
+	view := s.liveMap(live)
+	if isCurrentWeek || live.State == MatchupStateFinal || live.State == MatchupStatePreseason {
+		return view
+	}
+	for key, value := range matchupStaticPresentation(live.State) {
+		view[key] = value
+	}
+	view["show_live_indicator"] = false
+	view["live_indicator"] = ""
+	return view
+}
+
+func matchupStaticPresentation(state string) map[string]string {
+	switch state {
+	case MatchupStateScheduled:
+		return map[string]string{
+			"headline_top": "WEEK", "headline_bottom": "SCHEDULED.",
+			"sync_label": "Published schedule", "refresh_label": "Static week view",
+			"note_title": "Scheduled scoring", "note_body": "This is a static schedule view; current-week scoring updates are shown on the current week.",
+		}
+	case MatchupStateInProgress:
+		return map[string]string{
+			"headline_top": "WEEK", "headline_bottom": "IN PROGRESS.",
+			"sync_label": "Published snapshot", "refresh_label": "Static week view",
+			"note_title": "Scoring snapshot", "note_body": "This week is a static snapshot; current-week scoring updates are shown on the current week.",
+		}
+	case MatchupStateDegraded:
+		return map[string]string{
+			"headline_top": "SCHEDULE", "headline_bottom": "STATUS.",
+			"sync_label": "Status snapshot", "refresh_label": "Static week view",
+			"note_title": "Limited matchup data", "note_body": "This week is a static snapshot; kickoff or scoring status is not currently authoritative.",
+		}
+	default:
+		return map[string]string{
+			"headline_top": "WEEK", "headline_bottom": "IN VIEW.",
+			"sync_label": "Published snapshot", "refresh_label": "Static week view",
+			"note_title": "Schedule snapshot", "note_body": "This week is a static snapshot; current-week scoring updates are shown on the current week.",
+		}
+	}
 }
 
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
