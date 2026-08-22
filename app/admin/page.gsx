@@ -199,7 +199,7 @@ func Page() Node {
 		</If>
 		<If cond={data.is_commissioner}>
 			<div class="admin-grid">
-				<section class="player-pool draft-runbook">
+				<section id="admin-draft-control" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
@@ -289,7 +289,7 @@ func Page() Node {
 						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
 					</If>
 				</section>
-				<section class="player-pool admin-season-ops">
+				<section id="admin-schedule" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">SEASON // SCHEDULE</span>
@@ -347,7 +347,7 @@ func Page() Node {
 						</If>
 					</If>
 				</section>
-				<section class="player-pool admin-season-ops">
+				<section id="admin-week-close" data-admin-section="week-close" class={"player-pool admin-season-ops" + data.section_class_week_close}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">SEASON // WEEK CLOSE</span>
@@ -393,7 +393,7 @@ func Page() Node {
 					</If>
 					<p class="demo-message"><strong>YEAR ONE:</strong> playoff seeding is not available yet; closing the final regular-season week records the phase transition only.</p>
 				</section>
-				<section class="player-pool">
+				<section id="admin-seats" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">01 // SEATS</span>
@@ -418,7 +418,7 @@ func Page() Node {
 						</Each>
 					</div>
 				</section>
-				<section class="player-pool">
+				<section id="admin-invites" data-admin-section="invites" class={"player-pool" + data.section_class_invites}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">02 // INVITES</span>
@@ -511,7 +511,7 @@ func Page() Node {
 						Send managers this address: they sign in with Google and the next open seat is theirs.
 					</p>
 				</section>
-				<section class="player-pool admin-danger">
+				<section id="admin-danger" data-admin-section="danger" class={"player-pool admin-danger" + data.section_class_danger}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">03 // RESET</span>
@@ -548,7 +548,7 @@ func Page() Node {
 						</form>
 					</div>
 				</section>
-				<section class="player-pool">
+				<section id="admin-draft-order" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">04 // DRAFT ORDER</span>
@@ -605,7 +605,7 @@ func Page() Node {
 						Run this one hour before the draft. Locked once the commissioner starts the draft.
 					</p>
 				</section>
-				<section class="player-pool">
+				<section id="admin-data" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">05 // DATA FEED</span>
@@ -664,7 +664,7 @@ func Page() Node {
 						</div>
 					</If>
 				</section>
-				<section class="player-pool">
+				<section id="admin-clock" data-admin-section="clock" class={"player-pool" + data.section_class_clock}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">06 // DRAFT CLOCK</span>
@@ -747,7 +747,7 @@ func Page() Node {
 						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
 					</p>
 				</section>
-				<section class="player-pool">
+				<section id="admin-roster" data-admin-section="roster" class={"player-pool" + data.section_class_roster}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">07 // ROSTER SHAPE</span>
@@ -854,7 +854,7 @@ func Page() Node {
 						</If>
 					</If>
 				</section>
-				<section class="player-pool">
+				<section id="admin-announcements" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">08 // ANNOUNCEMENTS</span>
