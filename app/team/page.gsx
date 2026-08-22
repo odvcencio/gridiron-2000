@@ -206,7 +206,7 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
-		<section class={"team-hero tone-" + data.team.tone}>
+		<section class={"team-hero tone-" + data.team.tone} id="team-identity">
 			<div class="team-hero__identity">
 				<span class="team-monogram">
 					<If cond={data.team.has_avatar_image}>
@@ -343,6 +343,63 @@ func Page() Node {
 			</div>
 			<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
 		</div>
+		<If cond={data.predraft_visible}>
+			<section class="predraft-progress" aria-labelledby="predraft-progress-title">
+				<header class="predraft-progress__header">
+					<div>
+						<span class="section-index">PRE-DRAFT // YOUR SETUP</span>
+						<h2 id="predraft-progress-title">Get this franchise draft-ready</h2>
+					</div>
+					<p>The scheduled time is the room’s meeting point—not an automatic start. The commissioner intentionally starts the draft after managers check in.</p>
+				</header>
+				<div class="checklist predraft-progress__list">
+					<div class="checklist-item">
+						<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+						<div class="checklist-item__text">
+							<strong>Claim and personalize your franchise</strong>
+							<small>Your seat is secured. Team name, image, badge, and co-manager controls live above.</small>
+						</div>
+						<a href="#team-identity" class="board-button">Edit identity ↑</a>
+					</div>
+					<div class="checklist-item">
+						<If cond={data.predraft_has_board}>
+							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+						</If>
+						<If cond={data.predraft_has_board == false}>
+							<span class="checklist-mark mono" aria-hidden="true">02</span>
+						</If>
+						<div class="checklist-item__text">
+							<strong>Rank your draft targets</strong>
+							<If cond={data.predraft_has_board}>
+								<small>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</small>
+							</If>
+							<If cond={data.predraft_has_board == false}>
+								<small>No players ranked yet. Add targets in the order you would want them drafted.</small>
+							</If>
+						</div>
+						<a href="/board" data-gosx-link class="board-button">Open board →</a>
+					</div>
+					<div class="checklist-item">
+						<If cond={data.predraft_ready}>
+							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+						</If>
+						<If cond={data.predraft_ready == false}>
+							<span class="checklist-mark mono" aria-hidden="true">03</span>
+						</If>
+						<div class="checklist-item__text">
+							<strong>Confirm your room status</strong>
+							<If cond={data.predraft_ready}>
+								<small>You are marked ready. You can change that status any time before the commissioner starts.</small>
+							</If>
+							<If cond={data.predraft_ready == false}>
+								<small>You are not marked ready. Check the room details, then tell the commissioner you are present.</small>
+							</If>
+						</div>
+						<a href="/draft#ready-toggle" data-gosx-link class="board-button">Open draft room →</a>
+					</div>
+				</div>
+			</section>
+		</If>
 		<div class="team-layout">
 			<section class="roster-panel">
 				<header class="section-heading section-heading--split">

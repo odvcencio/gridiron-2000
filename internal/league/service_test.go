@@ -340,8 +340,43 @@ func TestUnclaimedTeamDisplay(t *testing.T) {
 	if data["drafted"] != false {
 		t.Error("fresh team must have an empty roster")
 	}
+	if data["predraft_visible"] != false {
+		t.Error("an unclaimed rehearsal seat must not show post-claim setup progress")
+	}
 	if roster, _ := data["roster"].([]map[string]any); len(roster) != 0 {
 		t.Fatalf("roster should be empty, got %d", len(roster))
+	}
+}
+
+func TestTeamDataSurfacesTruthfulPredraftProgress(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	if _, _, err := service.store.AssignMember("manager@example.com", "Manager"); err != nil {
+		t.Fatal(err)
+	}
+
+	initial := service.TeamData(request)
+	if initial["predraft_visible"] != true || initial["predraft_has_board"] != false || initial["predraft_board_count"] != 0 || initial["predraft_ready"] != false {
+		t.Fatalf("initial pre-draft state = visible:%v has_board:%v count:%v ready:%v", initial["predraft_visible"], initial["predraft_has_board"], initial["predraft_board_count"], initial["predraft_ready"])
+	}
+
+	if err := service.store.BoardAdd("demo-guest", defaultPlayers()[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.ToggleReady("team-1"); err != nil {
+		t.Fatal(err)
+	}
+	updated := service.TeamData(request)
+	if updated["predraft_has_board"] != true || updated["predraft_board_count"] != 1 || updated["predraft_ready"] != true {
+		t.Fatalf("updated pre-draft state = has_board:%v count:%v ready:%v", updated["predraft_has_board"], updated["predraft_board_count"], updated["predraft_ready"])
+	}
+
+	service.store.mu.Lock()
+	service.store.state.DraftStarted = true
+	service.store.mu.Unlock()
+	started := service.TeamData(request)
+	if started["predraft_visible"] != false {
+		t.Fatalf("predraft_visible after start = %v, want false", started["predraft_visible"])
 	}
 }
 
