@@ -102,6 +102,25 @@ func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	}
 }
 
+func TestAdminPageRendersInvitationProgressContract(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, field := range []string{
+		"data.invite_seated_count",
+		"data.invite_ready_count",
+		"data.invite_seatless_count",
+		"data.invite_waiting_count",
+		"invite.status_detail",
+	} {
+		if !strings.Contains(markup, field) {
+			t.Errorf("admin invite ledger does not render %s", field)
+		}
+	}
+}
+
 // The companion property — that the control disappears once the first pick
 // lands — is pinned in internal/league's TestAdminDataLocksSeatTrimOnceDraftStarts
 // rather than here. league.Default() is a sync.Once singleton, so a second

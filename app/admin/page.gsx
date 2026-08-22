@@ -317,6 +317,16 @@ func Page() Node {
 						<div>
 							<span class="section-index">02 // INVITES</span>
 							<h2>Who may claim a seat</h2>
+							<If cond={data.invite_count > 0}>
+								<p class="scoring-note invite-progress" aria-label="Invitation progress">
+									<strong>{data.invite_seated_count} seated</strong>
+									<span>{data.invite_ready_count} ready</span>
+									<If cond={data.invite_seatless_count > 0}>
+										<span>{data.invite_seatless_count} signed in without a seat</span>
+									</If>
+									<span>{data.invite_waiting_count} waiting to sign in</span>
+								</p>
+							</If>
 						</div>
 					</div>
 					<If cond={data.league_open}>
@@ -348,27 +358,33 @@ func Page() Node {
 					</form>
 					<div class="invite-list">
 						<Each of={data.invites} as="invite">
-							<article class="invite-row">
-								<b class="mono">{invite.email}</b>
-								<span class="position-chip">{invite.source}</span>
-								<If cond={data.mail_enabled}>
-									<form method="post" action={actionPath("invite-send")} data-gosx-managed="true">
-										<input type="hidden" name="csrf_token" value={csrf.token}></input>
-										<input type="hidden" name="email" value={invite.email}></input>
-										<button class="board-button" type="submit">Email</button>
-									</form>
-								</If>
-								<a href={invite.mailto} class="board-button">Mail app</a>
-								<If cond={invite.removable}>
-									<form method="post" action={actionPath("invite-remove")} data-gosx-managed="true">
-										<input type="hidden" name="csrf_token" value={csrf.token}></input>
-										<input type="hidden" name="email" value={invite.email}></input>
-										<button class="board-button board-button--cut" type="submit">✕</button>
-									</form>
-								</If>
-								<If cond={invite.removable == false}>
-									<small class="mono">pinned</small>
-								</If>
+							<article class="invite-row" data-status={invite.status}>
+								<div class="invite-identity">
+									<b class="mono">{invite.email}</b>
+									<small>{invite.status_detail}</small>
+									<span class="position-chip">{invite.source}</span>
+								</div>
+								<b class={"ready-state " + invite.status_class}>{invite.status}</b>
+								<div class="invite-actions">
+									<If cond={data.mail_enabled}>
+										<form method="post" action={actionPath("invite-send")} data-gosx-managed="true">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name="email" value={invite.email}></input>
+											<button class="board-button" type="submit">Email</button>
+										</form>
+									</If>
+									<a href={invite.mailto} class="board-button">Mail app</a>
+									<If cond={invite.removable}>
+										<form method="post" action={actionPath("invite-remove")} data-gosx-managed="true">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name="email" value={invite.email}></input>
+											<button class="board-button board-button--cut" type="submit">✕</button>
+										</form>
+									</If>
+									<If cond={invite.removable == false}>
+										<small class="mono">pinned</small>
+									</If>
+								</div>
 							</article>
 						</Each>
 					</div>

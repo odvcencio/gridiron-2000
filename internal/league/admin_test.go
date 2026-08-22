@@ -286,6 +286,67 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	}
 }
 
+func TestAdminDataReportsInviteAcceptanceAndReadiness(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	for _, email := range []string{"waiting@example.com", "signed-in@example.com", "ready@example.com"} {
+		if err := service.AdminAddInvite(request, email); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := service.store.EnsureMember("signed-in@example.com", "Seatless Person"); err != nil {
+		t.Fatal(err)
+	}
+	member, _, err := service.store.AssignMember("ready@example.com", "Ready Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.ToggleReady(member.TeamID); err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.AdminData(request)
+	if got := data["invite_count"]; got != 3 {
+		t.Fatalf("invite_count = %v, want 3", got)
+	}
+	if got := data["invite_signed_in_count"]; got != 2 {
+		t.Errorf("invite_signed_in_count = %v, want 2", got)
+	}
+	if got := data["invite_seated_count"]; got != 1 {
+		t.Errorf("invite_seated_count = %v, want 1", got)
+	}
+	if got := data["invite_ready_count"]; got != 1 {
+		t.Errorf("invite_ready_count = %v, want 1", got)
+	}
+	if got := data["invite_waiting_count"]; got != 1 {
+		t.Errorf("invite_waiting_count = %v, want 1", got)
+	}
+	if got := data["invite_seatless_count"]; got != 1 {
+		t.Errorf("invite_seatless_count = %v, want 1", got)
+	}
+	if got := data["member_count"]; got != 1 {
+		t.Errorf("member_count = %v, want 1 claimed seat; seatless sign-ins must not inflate the masthead", got)
+	}
+
+	byEmail := map[string]map[string]any{}
+	for _, invite := range data["invites"].([]map[string]any) {
+		byEmail[invite["email"].(string)] = invite
+	}
+	if got := byEmail["waiting@example.com"]["status"]; got != "WAITING" {
+		t.Errorf("waiting status = %v", got)
+	}
+	if got := byEmail["signed-in@example.com"]["status"]; got != "SIGNED IN" {
+		t.Errorf("signed-in status = %v", got)
+	}
+	ready := byEmail["ready@example.com"]
+	if ready["status"] != "READY" || ready["ready"] != true || ready["seated"] != true {
+		t.Errorf("ready invite = %+v", ready)
+	}
+	if ready["team_name"] == "" || ready["role_label"] != "PRIMARY MANAGER" {
+		t.Errorf("ready invite lacks team/role context: %+v", ready)
+	}
+}
+
 // TestCommissionerForceAutopick checks AdminForceAutopick's authority gate,
 // its live-draft gate, and that it fires while paused with provenance
 // MadeBy == "commissioner".
