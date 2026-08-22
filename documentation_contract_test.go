@@ -10,6 +10,9 @@ import (
 	"gridiron-2000/internal/league"
 )
 
+const currentGoSXVersion = "v0.53.1"
+const currentGoSXSum = "h1:UZ6luJP2ul1uxfW3Bw2XUZr28/e4/ijQMFCNHT9zctY="
+
 const prohibitedReversedIdentityAlias = "IDENTITY_ALIASES=oscar@m31labs.dev=" +
 	"oscar.villavicencio@stablekernel.com"
 
@@ -25,7 +28,7 @@ func readDocumentationFile(t *testing.T, path string) string {
 func TestDocumentationPinsCurrentFrameworkAndScoringTruth(t *testing.T) {
 	readme := readDocumentationFile(t, "README.md")
 	for _, want := range []string{
-		"GoSX v0.53.0",
+		"GoSX " + currentGoSXVersion,
 		"schedule-backed fantasy matchups",
 		"pins every team's effective starters",
 		"cannot rewrite that closed result",
@@ -54,6 +57,41 @@ func TestDocumentationPinsCurrentFrameworkAndScoringTruth(t *testing.T) {
 	} {
 		if !strings.Contains(readme, want) {
 			t.Errorf("README omitted corrected contract %q", want)
+		}
+	}
+}
+
+func TestFrameworkReleasePinsStayExact(t *testing.T) {
+	moduleVersion := "m31labs.dev/gosx " + currentGoSXVersion
+	moduleSum := moduleVersion + " " + currentGoSXSum
+	cliVersion := "m31labs.dev/gosx/cmd/gosx@" + currentGoSXVersion
+
+	goMod := readDocumentationFile(t, "go.mod")
+	if !strings.Contains(goMod, moduleVersion) {
+		t.Fatalf("go.mod omitted exact framework pin %q", moduleVersion)
+	}
+	goSum := readDocumentationFile(t, "go.sum")
+	if !strings.Contains(goSum, moduleSum) {
+		t.Fatalf("go.sum omitted exact public module checksum %q", moduleSum)
+	}
+	dockerfile := readDocumentationFile(t, "Dockerfile")
+	for _, want := range []string{
+		cliVersion,
+		"# " + currentGoSXVersion + " includes",
+		"last good declarative-region DOM across HTTP failures",
+		"GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Errorf("Dockerfile omitted release contract %q", want)
+		}
+	}
+	for _, obsolete := range []string{
+		"m31labs.dev/gosx v0.53.0",
+		"m31labs.dev/gosx/cmd/gosx@v0.53.0",
+		"GoSX v0.53.0",
+	} {
+		if strings.Contains(goMod+goSum+dockerfile+readDocumentationFile(t, "README.md"), obsolete) {
+			t.Errorf("release pins retained obsolete contract %q", obsolete)
 		}
 	}
 }
