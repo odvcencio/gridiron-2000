@@ -68,7 +68,7 @@ func run(args []string, stdout io.Writer) int {
 		return exitConflict
 	}
 
-	report := league.PreflightIdentityAliases(snapshot, resolver)
+	report := league.PreflightIdentityAliasesFromJSONSnapshot(snapshot, resolver)
 	writeReport(stdout, report)
 	if !report.Ready {
 		return exitConflict

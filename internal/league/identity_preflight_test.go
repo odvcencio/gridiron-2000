@@ -106,6 +106,30 @@ func TestIdentityPreflightProjectsCompatibleMigrationWithoutMutationOrPII(t *tes
 	}
 }
 
+func TestIdentityPreflightJSONSnapshotRejectsFutureSchemaWithoutMutation(t *testing.T) {
+	state := PersistedState{
+		SchemaVersion: currentSchemaVersion + 1,
+		Members: map[string]Member{
+			identityAliasEmail: {TeamID: "private-team", Email: identityAliasEmail},
+		},
+	}
+	original, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report := PreflightIdentityAliasesFromJSONSnapshot(state, testIdentityResolver(t))
+	if report.Ready || report.WouldChange || report.ConflictCategory != "snapshot_schema" {
+		t.Fatalf("report = %+v, want bounded future-schema refusal", report)
+	}
+	after, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, original) {
+		t.Fatal("future-schema JSON input changed during rejected preflight")
+	}
+}
+
 func TestIdentityPreflightReadsOfflineSQLiteSnapshotWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
 	legacyPath := filepath.Join(dir, "league-state.json")
@@ -144,6 +168,33 @@ func TestIdentityPreflightReadsOfflineSQLiteSnapshotWithoutWriting(t *testing.T)
 	}
 	if !bytes.Equal(after, before) {
 		t.Fatal("SQLite snapshot bytes changed during preflight")
+	}
+
+	db, err := openDB(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE kv SET value = ? WHERE key = ?`, currentSchemaVersion+1, kvSchemaVersion); err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	futureBefore, err := os.ReadFile(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report = PreflightIdentityAliasesFromSQLiteSnapshot(databasePath, testIdentityResolver(t))
+	if report.Ready || report.ConflictCategory != "snapshot_schema" {
+		t.Fatalf("future SQLite report = %+v, want schema parity with JSON", report)
+	}
+	futureAfter, err := os.ReadFile(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(futureAfter, futureBefore) {
+		t.Fatal("future-schema SQLite snapshot bytes changed during preflight")
 	}
 }
 

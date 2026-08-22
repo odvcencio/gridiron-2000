@@ -2,6 +2,7 @@ package league
 
 import (
 	"database/sql"
+	"errors"
 	"net/url"
 	"strings"
 
@@ -63,6 +64,16 @@ func PreflightIdentityAliases(snapshot PersistedState, resolver identity.Resolve
 	return report
 }
 
+// PreflightIdentityAliasesFromJSONSnapshot applies the exact Store JSON schema
+// gate and normalization to a clone before projecting alias reconciliation.
+func PreflightIdentityAliasesFromJSONSnapshot(snapshot PersistedState, resolver identity.Resolver) IdentityPreflightReport {
+	candidate := cloneState(snapshot)
+	if err := validateAndNormalizePersistedState(&candidate); err != nil {
+		return IdentityPreflightReport{ConflictCategory: "snapshot_schema"}
+	}
+	return PreflightIdentityAliases(candidate, resolver)
+}
+
 // PreflightIdentityAliasesFromSQLiteSnapshot opens an offline SQLite snapshot
 // in immutable, query-only mode, loads its state without repair writes, then
 // delegates to the cloned in-memory preflight. Read/decode failures are
@@ -86,6 +97,9 @@ func PreflightIdentityAliasesFromSQLiteSnapshot(path string, resolver identity.R
 	}
 	snapshot, err := loadStateFromDBUnrepaired(db)
 	if err != nil {
+		if errors.Is(err, errSchemaTooNew) {
+			return IdentityPreflightReport{ConflictCategory: "snapshot_schema"}
+		}
 		return IdentityPreflightReport{ConflictCategory: "snapshot_read"}
 	}
 	return PreflightIdentityAliases(snapshot, resolver)

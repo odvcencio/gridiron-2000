@@ -304,13 +304,9 @@ func (s *Store) recoverUnmarkedImport(raw []byte) error {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return fmt.Errorf("recover import %s: %w", s.filePath, err)
 	}
-	if decoded.SchemaVersion > currentSchemaVersion {
-		return fmt.Errorf("recover import %s: file is version %d, this binary supports up to %d",
-			s.filePath, decoded.SchemaVersion, currentSchemaVersion)
+	if err := validateAndNormalizePersistedState(&decoded); err != nil {
+		return fmt.Errorf("recover import %s: %w", s.filePath, err)
 	}
-	decoded.SchemaVersion = currentSchemaVersion
-	migrateLegacyDraftLifecycle(&decoded)
-	normalizeState(&decoded)
 	stored, err := loadStateFromDBUnrepaired(s.db)
 	if err != nil {
 		return fmt.Errorf("recover import %s: read back: %w", s.filePath, err)
@@ -454,16 +450,9 @@ func (s *Store) importJSONLocked() (bool, error) {
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return false, fmt.Errorf("import %s: %w", s.filePath, err)
 	}
-	if decoded.SchemaVersion > currentSchemaVersion {
-		return false, fmt.Errorf("%w: file is version %d, this binary supports up to %d",
-			errSchemaTooNew, decoded.SchemaVersion, currentSchemaVersion)
+	if err := validateAndNormalizePersistedState(&decoded); err != nil {
+		return false, err
 	}
-	// Migrate forward, exactly as the JSON loader did: a missing version
-	// decodes as 0 ("version 1"), every field added since is additive with
-	// a nil-safe zero value, so the version is stamped current.
-	decoded.SchemaVersion = currentSchemaVersion
-	migrateLegacyDraftLifecycle(&decoded)
-	normalizeState(&decoded)
 	if _, err := reconcileIdentityState(&decoded, s.identityResolver); err != nil {
 		return false, err
 	}
@@ -592,6 +581,23 @@ func openBackup(dbPath string) (PersistedState, error) {
 	return loadStateFromDB(db)
 }
 
+// validateAndNormalizePersistedState is the authoritative read boundary for
+// legacy JSON state. Store import and read-only operator projections share it
+// so a doctor can never certify a schema the running binary would refuse.
+func validateAndNormalizePersistedState(state *PersistedState) error {
+	if state == nil {
+		return errors.New("state snapshot is nil")
+	}
+	if state.SchemaVersion > currentSchemaVersion {
+		return fmt.Errorf("%w: file is version %d, this binary supports up to %d",
+			errSchemaTooNew, state.SchemaVersion, currentSchemaVersion)
+	}
+	state.SchemaVersion = currentSchemaVersion
+	migrateLegacyDraftLifecycle(state)
+	normalizeState(state)
+	return nil
+}
+
 // readStateFromFile decodes a legacy JSON state file. It backs the import
 // path's verification and the tests that assert what an imported file
 // held.
@@ -604,7 +610,9 @@ func readStateFromFile(path string) (PersistedState, error) {
 	if err := json.Unmarshal(raw, &state); err != nil {
 		return PersistedState{}, err
 	}
-	normalizeState(&state)
+	if err := validateAndNormalizePersistedState(&state); err != nil {
+		return PersistedState{}, err
+	}
 	return state, nil
 }
 
