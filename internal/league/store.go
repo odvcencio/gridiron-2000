@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gridiron-2000/internal/identity"
 )
 
 // ErrPersistenceIndeterminate means an identity transaction's commit result
@@ -61,10 +63,11 @@ type Store struct {
 	// one-time import source; see openLocked. An empty path means "no
 	// persistence": the store runs from memory and every persist is a
 	// no-op.
-	filePath string
-	dbPath   string
-	db       *sql.DB
-	state    PersistedState
+	filePath         string
+	dbPath           string
+	db               *sql.DB
+	identityResolver identity.Resolver
+	state            PersistedState
 	// shadow remembers every row as last committed, so a persist writes
 	// only the rows that actually changed. dirty is the bitmask of
 	// collections a mutator declared; see persistLocked.
@@ -121,6 +124,14 @@ type Store struct {
 }
 
 func NewStore(filePath string) *Store {
+	return NewStoreWithIdentity(filePath, identity.Resolver{})
+}
+
+// NewStoreWithIdentity constructs a Store with the operator's explicit
+// authentication-alias resolver. Existing callers use NewStore and retain
+// the zero-resolver behavior; production wires the configured resolver once
+// at service startup so every internal ownership key uses one identity.
+func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 	s := &Store{
 		filePath: strings.TrimSpace(filePath),
 		shadow:   shadowIndex{},
@@ -151,6 +162,7 @@ func NewStore(filePath string) *Store {
 			TrimmedTeamIDs: []string{},
 		},
 	}
+	s.identityResolver = resolver
 	if err := s.openLocked(); err != nil {
 		s.loadErr = err
 	}
@@ -162,6 +174,17 @@ func NewStore(filePath string) *Store {
 		runtime.AddCleanup(s, func(db *sql.DB) { _ = db.Close() }, s.db)
 	}
 	return s
+}
+
+func (s *Store) canonicalEmail(email string) string {
+	return s.identityResolver.Resolve(email)
+}
+
+// admissionEmail deliberately does not resolve aliases. Invite entries are
+// authorization policy and must remain the exact provider identities the
+// commissioner admitted; internal ownership keys use canonicalEmail.
+func admissionEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
 }
 
 // Close releases the database. A closed Store must not be used again.
@@ -595,7 +618,7 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 // still short-circuits — that decision is already made and does not
 // change here, only the display name may refresh.
 func (s *Store) AssignMember(email, name string) (member Member, created bool, err error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = s.canonicalEmail(email)
 	name = strings.TrimSpace(name)
 	if email == "" {
 		return Member{}, false, fmt.Errorf("email is required")
@@ -647,7 +670,7 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 // pickemLeaderboard, which already renders that shape). created reports
 // whether this call recorded a brand-new member.
 func (s *Store) EnsureMember(email, name string) (member Member, created bool, err error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = s.canonicalEmail(email)
 	name = strings.TrimSpace(name)
 	if email == "" {
 		return Member{}, false, fmt.Errorf("email is required")
@@ -679,7 +702,7 @@ func (s *Store) EnsureMember(email, name string) (member Member, created bool, e
 }
 
 func (s *Store) MemberByEmail(email string) (Member, bool) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = s.canonicalEmail(email)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	member, ok := s.state.Members[email]
@@ -688,7 +711,7 @@ func (s *Store) MemberByEmail(email string) (Member, bool) {
 
 // AddInvite records a manager email that may claim a seat.
 func (s *Store) AddInvite(email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = admissionEmail(email)
 	if email == "" || !strings.Contains(email, "@") {
 		return fmt.Errorf("enter a valid email address")
 	}
@@ -708,7 +731,7 @@ func (s *Store) AddInvite(email string) error {
 
 // RemoveInvite drops an email from the invite list. Existing seat claims stay.
 func (s *Store) RemoveInvite(email string) error {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = admissionEmail(email)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -726,7 +749,7 @@ func (s *Store) RemoveInvite(email string) error {
 
 // Invited reports whether the email is on the stored invite list.
 func (s *Store) Invited(email string) bool {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = admissionEmail(email)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for _, existing := range s.state.Invites {
@@ -789,28 +812,29 @@ func (s *Store) InviteCoManager(teamID, email string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = admissionEmail(email)
 	if email == "" || !strings.Contains(email, "@") {
 		return fmt.Errorf("enter a valid email address")
 	}
+	canonical := s.canonicalEmail(email)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	if existing, ok := s.state.Members[email]; ok && existing.TeamID != "" {
-		return fmt.Errorf("%s already holds a team seat", email)
+	if existing, ok := s.state.Members[canonical]; ok && existing.TeamID != "" {
+		return fmt.Errorf("%s already holds a team seat", canonical)
 	}
 	for _, member := range s.state.Members {
 		if member.TeamID == teamID && member.Role == "co" {
 			return errCoManagerLimit
 		}
 	}
-	if pendingTeamID, ok := s.state.CoInvites[email]; ok && pendingTeamID == teamID {
+	if pendingTeamID, ok := s.state.CoInvites[canonical]; ok && pendingTeamID == teamID {
 		return nil
 	}
 	for candidate, pendingTeamID := range s.state.CoInvites {
-		if pendingTeamID == teamID && candidate != email {
+		if pendingTeamID == teamID && candidate != canonical {
 			return errCoManagerLimit
 		}
 	}
@@ -827,7 +851,7 @@ func (s *Store) InviteCoManager(teamID, email string) error {
 	if s.state.CoInvites == nil {
 		s.state.CoInvites = map[string]string{}
 	}
-	s.state.CoInvites[email] = teamID
+	s.state.CoInvites[canonical] = teamID
 	return s.persistLocked(colInvites, colCoInvites)
 }
 
@@ -841,7 +865,7 @@ func (s *Store) InviteCoManager(teamID, email string) error {
 // co-manager, the same "overwrite is the whole operation" shape
 // AssignMember/EnsureMember use for a repeat call.
 func (s *Store) BindCoManager(email, name string) (member Member, bound bool, err error) {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = s.canonicalEmail(email)
 	name = strings.TrimSpace(name)
 	if email == "" {
 		return Member{}, false, fmt.Errorf("email is required")
@@ -1193,6 +1217,7 @@ const boardLimit = 100
 
 // BoardAdd appends a player to the owner's ranked board.
 func (s *Store) BoardAdd(owner, playerID string) error {
+	owner = s.canonicalEmail(owner)
 	if owner == "" || playerID == "" {
 		return fmt.Errorf("board owner and player are required")
 	}
@@ -1216,6 +1241,7 @@ func (s *Store) BoardAdd(owner, playerID string) error {
 
 // BoardMove shifts a player up (delta -1) or down (delta +1) on the board.
 func (s *Store) BoardMove(owner, playerID string, delta int) error {
+	owner = s.canonicalEmail(owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -1243,6 +1269,7 @@ func (s *Store) BoardMove(owner, playerID string, delta int) error {
 // clamps its own drop target client-side, so this is a defense-in-depth
 // clamp, not the primary bound.
 func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
+	owner = s.canonicalEmail(owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -1281,6 +1308,7 @@ func (s *Store) BoardMoveTo(owner, playerID string, index int) error {
 
 // BoardRemove drops a player from the owner's board.
 func (s *Store) BoardRemove(owner, playerID string) error {
+	owner = s.canonicalEmail(owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -1299,6 +1327,7 @@ func (s *Store) BoardRemove(owner, playerID string) error {
 
 // BoardClear removes every player from the owner's board.
 func (s *Store) BoardClear(owner string) error {
+	owner = s.canonicalEmail(owner)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -1311,6 +1340,7 @@ func (s *Store) BoardClear(owner string) error {
 // SetPickem records the owner's pick for one game. It does not validate the
 // game or the team against the schedule; the service layer owns that.
 func (s *Store) SetPickem(owner, gameID, team string) error {
+	owner = s.canonicalEmail(owner)
 	if owner == "" || gameID == "" {
 		return fmt.Errorf("pick owner and game are required")
 	}
@@ -1332,6 +1362,7 @@ func (s *Store) SetPickem(owner, gameID, team string) error {
 // players slice still records the entry, with UpdatedAt moved to now; the
 // service layer's BlitzRemove relies on that to persist a player removal.
 func (s *Store) BlitzSetEntry(owner, slate string, players []string, now time.Time) error {
+	owner = s.canonicalEmail(owner)
 	if owner == "" || slate == "" {
 		return fmt.Errorf("blitz entry owner and slate are required")
 	}
@@ -1448,7 +1479,7 @@ func (s *Store) PruneSentLog(cutoff time.Time, prefixes ...string) error {
 // are stored (spec section 7.1); the league.json default and the catalog
 // default apply when nothing is stored here.
 func (s *Store) SetNotifyPref(email, category string, enabled bool) error {
-	email = strings.ToLower(strings.TrimSpace(email))
+	email = s.canonicalEmail(email)
 	category = strings.TrimSpace(category)
 	if email == "" {
 		return fmt.Errorf("email is required")
