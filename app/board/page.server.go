@@ -49,7 +49,7 @@ func init() {
 			"board-add": func(ctx *action.Context) error {
 				player, err := league.Default().BoardAdd(ctx.Request, ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "board", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/board", player.Name+" added to your board.")
 				return nil
@@ -57,7 +57,7 @@ func init() {
 			"board-move": func(ctx *action.Context) error {
 				err := league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "board", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/board", "Board order updated.")
 				return nil
@@ -74,13 +74,13 @@ func init() {
 					return action.Validation("invalid position", map[string]string{"item_id": "invalid position"}, ctx.FormData)
 				}
 				if err := league.Default().BoardMoveTo(ctx.Request, ctx.FormData["item_id"], index); err != nil {
-					return action.Validation(err.Error(), map[string]string{"item_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "board", "item_id", err)
 				}
 				return ctx.Success("", nil)
 			},
 			"board-remove": func(ctx *action.Context) error {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "board", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/board", "Player removed from your board.")
 				return nil

@@ -372,7 +372,7 @@ func init() {
 				}
 				started, err := league.Default().AdminStartDraft(ctx.Request)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				message := "Draft was already live; the original clock is unchanged."
 				if started {
@@ -390,14 +390,14 @@ func init() {
 			// into a 404 (found during the gosx v0.46 adoption pass).
 			"clock-pause": func(ctx *action.Context) error {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock paused.")
 				return nil
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock resumed.")
 				return nil
@@ -405,7 +405,7 @@ func init() {
 			"clock-force-autopick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 				return nil
@@ -417,7 +417,7 @@ func init() {
 					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
 				return nil
@@ -429,7 +429,7 @@ func init() {
 					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
 				}
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
 				return nil
@@ -449,7 +449,7 @@ func init() {
 			"make-pick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().MakePick(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 				return nil
@@ -470,7 +470,7 @@ func init() {
 				onRaw := ctx.FormData["on"]
 				on, err := parseSeatAutopick(onRaw)
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"on": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "draft", "on", err)
 				}
 				teamID := strings.TrimSpace(ctx.FormData["team_id"])
 				if err := league.Default().AdminSetAutopick(ctx.Request, teamID, on); err != nil {

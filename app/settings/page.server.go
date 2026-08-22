@@ -95,10 +95,10 @@ func setNotificationPreference(ctx *action.Context) error {
 	category := ctx.FormData["category"]
 	enabled, err := parseNotificationEnabled(ctx.FormData["enabled"])
 	if err != nil {
-		return action.Validation(err.Error(), map[string]string{"settings": err.Error()}, ctx.FormData)
+		return actionui.Validation(ctx, "settings", "settings", err)
 	}
 	if err := league.Default().SetNotificationPreference(ctx.Request, category, enabled); err != nil {
-		return action.Validation(err.Error(), map[string]string{"settings": err.Error()}, ctx.FormData)
+		return actionui.Validation(ctx, "settings", "settings", err)
 	}
 	state := "off"
 	if enabled {

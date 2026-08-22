@@ -127,7 +127,7 @@ func init() {
 					Summary:      ctx.FormData["summary"],
 				})
 				if err != nil {
-					return action.Validation(err.Error(), sightingFieldErrors(err), ctx.FormData)
+					return actionui.ValidationFields(ctx, "wire", err, sightingFieldErrors)
 				}
 				actionui.RedirectWithNotice(ctx, "/wire#community-input", fmt.Sprintf("%s added to the provisional wire.", signal.Label))
 				return nil
@@ -518,23 +518,23 @@ func sightingReporter(request *http.Request) (string, string, bool) {
 	return "", "", false
 }
 
-func sightingFieldErrors(err error) map[string]string {
-	message := strings.ToLower(err.Error())
+func sightingFieldErrors(message string) map[string]string {
+	lower := strings.ToLower(message)
 	field := ""
 	switch {
-	case strings.Contains(message, "summary"):
+	case strings.Contains(lower, "summary"):
 		field = "summary"
-	case strings.Contains(message, "source name"), strings.Contains(message, "where you saw"):
+	case strings.Contains(lower, "source name"), strings.Contains(lower, "where you saw"):
 		field = "source_name"
-	case strings.Contains(message, "source link"):
+	case strings.Contains(lower, "source link"):
 		field = "source_url"
-	case strings.Contains(message, "sighting type"):
+	case strings.Contains(lower, "sighting type"):
 		field = "evidence_type"
 	}
 	if field == "" {
 		return nil
 	}
-	return map[string]string{field: err.Error()}
+	return map[string]string{field: message}
 }
 
 func displayTime(value time.Time) string {
