@@ -56,7 +56,7 @@ spec:
             # source file is gitignored, never committed here.
             - name: LEAGUE_FILE
               value: "/etc/gridiron/league.json"
-            # Both league instances use the shared cache/quota boundary. The
+            # Every league instance uses the shared cache/quota boundary. The
             # relay, not this namespace's Secret, owns TANK01_API_KEY.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
