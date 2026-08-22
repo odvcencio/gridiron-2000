@@ -437,24 +437,23 @@ func Page() Node {
 						</select>
 						<button class="board-button" type="submit">Go</button>
 					</form>
-					<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<input type="hidden" name="team_id" value={data.team.id}></input>
-						<input type="hidden" name="week" value={data.week}></input>
-						<button class="button button--compact" type="submit">Set best lineup</button>
-					</form>
+					<If cond={data.drafted}>
+						<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<input type="hidden" name="week" value={data.week}></input>
+							<button class="button button--compact" type="submit">Set best lineup</button>
+						</form>
+					</If>
 				</div>
 				<If cond={data.drafted == false}>
-					<div class="empty-tape">
-						<strong>NO ROSTER YET</strong>
-						<p>
-							This roster fills as draft picks are made. Rank your targets on the Big Board first.
-						</p>
+					<div class="empty-tape roster-predraft-state">
+						<strong>ROSTER SLOTS READY · AWAITING DRAFT</strong>
+						<p>{data.starters_total} starting slots and {data.bench_capacity} bench slots are empty until the commissioner starts the room and picks are made. Your Big Board will guide AUTO selections.</p>
 						<a href="/board" data-gosx-link>Open your board →</a>
 					</div>
 				</If>
-				<If cond={data.drafted}>
-					<div class="lineup-slot-list">
+				<div class="lineup-slot-list">
 						<Each of={data.starters} as="slot">
 							<div class="lineup-slot">
 								<div class="lineup-slot__id mono">{slot.slot_id}</div>
@@ -513,7 +512,12 @@ func Page() Node {
 									</div>
 								</If>
 								<If cond={slot.has_player == false}>
-									<div class="slot-empty mono">EMPTY</div>
+									<If cond={data.drafted}>
+										<div class="slot-empty mono">EMPTY</div>
+									</If>
+									<If cond={data.drafted == false}>
+										<div class="slot-empty mono">AWAITING DRAFT</div>
+									</If>
 								</If>
 								<div class="lineup-slot__chips">
 									<If cond={slot.auto_filled}>
@@ -526,7 +530,7 @@ func Page() Node {
 										<span class="position-chip position-chip--locked">{slot.lock_label}</span>
 									</If>
 								</div>
-								<If cond={slot.locked == false}>
+								<If cond={data.drafted && slot.locked == false}>
 									<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
 										<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -545,7 +549,12 @@ func Page() Node {
 					</div>
 					<h3 class="lineup-bench-title">Bench</h3>
 					<If cond={data.bench_empty}>
-						<p class="stat-tip__empty">No bench players.</p>
+						<If cond={data.drafted}>
+							<p class="stat-tip__empty">No bench players.</p>
+						</If>
+						<If cond={data.drafted == false}>
+							<p class="stat-tip__empty">Bench capacity: {data.bench_capacity} open until the draft fills it.</p>
+						</If>
 					</If>
 					<If cond={data.bench_empty == false}>
 						<div class="roster-labels mono" aria-hidden="true">
@@ -674,7 +683,6 @@ func Page() Node {
 							</If>
 						</If>
 					</If>
-				</If>
 			</section>
 			<aside class="scout-panel">
 				<header>

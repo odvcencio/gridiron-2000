@@ -3,14 +3,15 @@ package league
 import (
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 // newPresenceTestService builds a Service with a fake clock and a presence
 // tracker floored at start, following the direct-construction pattern
-// service_test.go already uses. demo controls whether every seat shares the
-// "demo-guest" presence key.
+// service_test.go already uses. Demo gives its single synthetic viewer the
+// first rehearsal seat only.
 func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service, *time.Time) {
 	t.Helper()
 	clock := start
@@ -29,10 +30,9 @@ func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service,
 	return svc, &clock
 }
 
-// TestPresenceStateTransitions checks the boundaries named in the pick-clock
-// spec: 0s/12s/12.1s/60s/60.1s of silence map to
-// connected/connected/idle/idle/away, an unseen key is away, and a fresh
-// ping restores connected.
+// TestPresenceStateTransitions checks the observable boundaries: 0s/12s/
+// 12.1s/60s/60.1s of silence map to HERE/HERE/IDLE/IDLE/AWAY. NOT SEEN is
+// tested separately because it needs the tracker's seen bit.
 func TestPresenceStateTransitions(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 
@@ -44,8 +44,8 @@ func TestPresenceStateTransitions(t *testing.T) {
 		age  time.Duration
 		want string
 	}{
-		{0, "connected"},
-		{12 * time.Second, "connected"},
+		{0, "here"},
+		{12 * time.Second, "here"},
 		{12*time.Second + 100*time.Millisecond, "idle"},
 		{60 * time.Second, "idle"},
 		{60*time.Second + 100*time.Millisecond, "away"},
@@ -60,15 +60,20 @@ func TestPresenceStateTransitions(t *testing.T) {
 
 	// A fresh ping restores connected from any prior state, including away.
 	longSilence := start.Add(10 * time.Minute)
-	if got := presenceState(longSilence, longSilence); got != "connected" {
-		t.Errorf("a ping at now = %q, want connected", got)
+	if got := presenceState(longSilence, longSilence); got != "here" {
+		t.Errorf("a ping at now = %q, want here", got)
+	}
+	if got := presenceStateSince(time.Time{}, false, start, start); got != "not_seen" {
+		t.Errorf("unseen key = %q, want not_seen", got)
+	}
+	if got := presenceStateSince(start.Add(-time.Minute), true, start, start); got != "not_seen" {
+		t.Errorf("pre-restart heartbeat = %q, want not_seen", got)
 	}
 }
 
 // TestRecordPresenceRespectsViewerKey checks the public wiring: a demo
-// request records under the shared "demo-guest" key (every seat's presence
-// moves together), and an anonymous, non-demo request — no viewer key —
-// is a no-op, not a panic.
+// request records under the "demo-guest" key, and an anonymous, non-demo
+// request — no viewer key — is a no-op, not a panic.
 func TestRecordPresenceRespectsViewerKey(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	request, _ := http.NewRequest(http.MethodGet, "/api/league/version", nil)
@@ -83,6 +88,27 @@ func TestRecordPresenceRespectsViewerKey(t *testing.T) {
 	live.RecordPresence(request, start) // anonymous, non-demo: no key, no-op
 	if _, ok := live.presence.seen(""); ok {
 		t.Fatal("an empty viewer key must never be recorded")
+	}
+}
+
+func TestDemoPresenceDoesNotAttendEveryUnclaimedSeat(t *testing.T) {
+	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	service, _ := newPresenceTestService(t, true, start)
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+	service.RecordPresence(request, start)
+
+	teams := service.draftTeamMaps(service.store.Snapshot(), "team-1")
+	if got := teams[0]["presence"]; got != "here" {
+		t.Fatalf("rehearsal seat presence = %v, want here", got)
+	}
+	if got := teams[0]["manager"]; got != "REHEARSAL SEAT" {
+		t.Fatalf("rehearsal seat manager = %v", got)
+	}
+	if got := teams[1]["presence"]; got != "unclaimed" {
+		t.Fatalf("second unclaimed seat presence = %v, want unclaimed", got)
+	}
+	if got := teams[1]["operator_count"]; got != 0 {
+		t.Fatalf("second unclaimed seat operator_count = %v, want 0", got)
 	}
 }
 
@@ -116,6 +142,31 @@ func TestPresenceDigestStableBetweenTransitions(t *testing.T) {
 	digest3 := service.presenceDigest(state, *clock)
 	if digest3 == digest2 {
 		t.Fatalf("digest did not change on an idle transition: %q", digest3)
+	}
+}
+
+func TestTeamPresenceAggregatesPrimaryAndCoManager(t *testing.T) {
+	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	service, _ := newPresenceTestService(t, false, start)
+	primary, _, err := service.store.AssignMember("primary@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.InviteCoManager(primary.TeamID, "co@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, bound, err := service.BindCoManagerOnSignIn("co@example.com", "Co"); err != nil || !bound {
+		t.Fatalf("bind co-manager: bound=%v err=%v", bound, err)
+	}
+	service.presence.record("primary@example.com", start.Add(-2*time.Minute))
+	service.presence.record("co@example.com", start)
+	state := service.store.Snapshot()
+	label, detail, _ := service.teamPresence(state, primary.TeamID, start)
+	if label != "here" {
+		t.Fatalf("aggregate label = %q, want here (%s)", label, detail)
+	}
+	if !strings.Contains(detail, "1 of 2") {
+		t.Fatalf("aggregate detail = %q, want operator count", detail)
 	}
 }
 

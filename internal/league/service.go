@@ -551,21 +551,44 @@ func (s *Service) RecordPresence(r *http.Request, now time.Time) {
 	s.presence.record(s.viewerKey(r), now)
 }
 
-// presenceKeyForTeam resolves the viewer key that stands for one team's
-// seat: the claiming member's email, or "demo-guest" for every seat in demo
-// mode (a single guest key drives every rehearsal seat). An unclaimed seat
-// outside demo mode resolves to "".
-func (s *Service) presenceKeyForTeam(state PersistedState, teamID string) string {
+// boardKeyForTeam resolves the deterministic shared Big Board owner for one
+// seat. Primary and co-managers intentionally share this board, so autopick
+// must continue to read the same order whichever operator last edited it.
+// Presence is separate: it aggregates every operator independently below.
+func (s *Service) boardKeyForTeam(state PersistedState, teamID string) string {
 	if s.demoMode {
 		return "demo-guest"
 	}
 	return strings.ToLower(strings.TrimSpace(memberForTeam(state.Members, teamID).Email))
 }
 
-// presenceFloor returns key's last-seen instant, floored at the presence
-// tracker's process-start instant. The floor keeps a just-booted server
-// from reading every key as instantly, spuriously AWAY: the away cap
-// cannot fire before startedAt + PresenceIdleWithin + AwayClockCap.
+// presenceKeysForTeam returns every operator identity assigned to a seat.
+// Co-managers are included so one connected operator keeps the seat visibly
+// HERE even when the primary is away. Demo mode gives its single synthetic
+// viewer the first rehearsal seat; it must not make every unclaimed seat look
+// attended.
+func (s *Service) presenceKeysForTeam(state PersistedState, teamID string) []string {
+	if s.demoMode {
+		if teams := s.Teams(); len(teams) > 0 && teamID == teams[0].ID {
+			return []string{"demo-guest"}
+		}
+		return nil
+	}
+	seen := map[string]bool{}
+	keys := make([]string, 0, 2)
+	for _, member := range teamMembers(state.Members, teamID) {
+		key := strings.ToLower(strings.TrimSpace(member.Email))
+		if key != "" && !seen[key] {
+			seen[key] = true
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// presenceFloor returns key's last-seen instant, floored at process start for
+// legacy notification epoch/idempotency callers. New room presence uses
+// presenceStateSince so NOT SEEN remains distinct from observed AWAY.
 func (s *Service) presenceFloor(key string) time.Time {
 	seenAt, ok := s.presence.seen(key)
 	if !ok || seenAt.Before(s.presence.startedAt) {
@@ -574,7 +597,63 @@ func (s *Service) presenceFloor(key string) time.Time {
 	return seenAt
 }
 
-// presenceDigest renders "team-1=connected,team-2=away,..." across every
+// teamPresence aggregates the operators assigned to one seat. The strongest
+// current state wins in the order HERE > IDLE > AWAY > NOT SEEN. The returned
+// copy is intentionally explicit about freshness; presence is observational
+// UI/notification context and never an authority to shorten a pick clock.
+func (s *Service) teamPresence(state PersistedState, teamID string, now time.Time) (string, string, time.Time) {
+	keys := s.presenceKeysForTeam(state, teamID)
+	if len(keys) == 0 {
+		return "unclaimed", "No manager assigned.", time.Time{}
+	}
+	best := "not_seen"
+	bestRank := 0
+	var bestSeen time.Time
+	here := 0
+	for _, key := range keys {
+		seenAt, seen := s.presence.seen(key)
+		stateLabel := presenceStateSince(seenAt, seen, now, s.presence.startedAt)
+		if stateLabel == "here" {
+			here++
+		}
+		rank := map[string]int{"not_seen": 0, "away": 1, "idle": 2, "here": 3}[stateLabel]
+		if rank > bestRank || (rank == bestRank && !seenAt.IsZero() && (bestSeen.IsZero() || seenAt.After(bestSeen))) {
+			best, bestRank, bestSeen = stateLabel, rank, seenAt
+		}
+	}
+	operatorWord := "operator"
+	if len(keys) != 1 {
+		operatorWord = "operators"
+	}
+	switch best {
+	case "here":
+		if len(keys) > 1 {
+			return best, fmt.Sprintf("At the room now · %d of %d %s here.", here, len(keys), operatorWord), bestSeen
+		}
+		return best, "At the room now.", bestSeen
+	case "idle":
+		return best, fmt.Sprintf("Last seen %s ago.", presenceAgeLabel(now.Sub(bestSeen))), bestSeen
+	case "away":
+		return best, fmt.Sprintf("Last seen %s ago · full clock remains.", presenceAgeLabel(now.Sub(bestSeen))), bestSeen
+	default:
+		return best, "No room heartbeat since this server started.", bestSeen
+	}
+}
+
+func presenceAgeLabel(age time.Duration) string {
+	if age < 0 {
+		age = 0
+	}
+	if age < time.Minute {
+		return fmt.Sprintf("%ds", int(age/time.Second))
+	}
+	if age < time.Hour {
+		return fmt.Sprintf("%dm", int(age/time.Minute))
+	}
+	return fmt.Sprintf("%dh", int(age/time.Hour))
+}
+
+// presenceDigest renders "team-1=here,team-2=not_seen,..." across every
 // default team ID, in order (already sorted, since team-1..team-8 compare
 // lexically). Buckets change only on a presenceState transition, so this
 // string — and the fingerprint suffix it feeds — stays stable between
@@ -583,10 +662,7 @@ func (s *Service) presenceDigest(state PersistedState, now time.Time) string {
 	order := defaultTeamIDs()
 	parts := make([]string, 0, len(order))
 	for _, teamID := range order {
-		label := "none"
-		if key := s.presenceKeyForTeam(state, teamID); key != "" {
-			label = presenceState(s.presenceFloor(key), now)
-		}
+		label, _, _ := s.teamPresence(state, teamID, now)
 		parts = append(parts, teamID+"="+label)
 	}
 	return strings.Join(parts, ",")
@@ -1535,6 +1611,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled":      strconv.Itoa(filled),
 		"starters_total":       strconv.Itoa(len(lineup.Slots)),
+		"bench_capacity":       strconv.Itoa(preset.Bench),
 		"bench":                playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
 		"bench_empty":          len(lineup.Bench) == 0,
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
@@ -2591,8 +2668,8 @@ func (s *Service) standingsMaps(state PersistedState) []map[string]any {
 
 // draftTeamMaps renders the draft-room team grid in draft order: the
 // commissioner-drawn order when set, otherwise the default team-ID order.
-// Each entry also carries the seat's presence bucket (connected | idle |
-// away | none) and its Autopick toggle, both read against s.clock().
+// Each entry also carries the seat's aggregate presence bucket (here | idle |
+// away | not_seen | unclaimed) and its persistent AUTO toggle.
 func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[string]any {
 	order := state.DraftOrder
 	if len(order) == 0 {
@@ -2603,13 +2680,18 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 	for _, teamID := range order {
 		team := s.teamView(state, teamID)
 		item := s.teamMap(team)
+		if s.demoMode && len(s.Teams()) > 0 && team.ID == s.Teams()[0].ID {
+			item["manager"] = "REHEARSAL SEAT"
+			item["claimed"] = true
+		}
 		item["ready"] = state.Ready[team.ID]
 		item["on_clock"] = team.ID == onClockID
-		presenceLabel := "none"
-		if key := s.presenceKeyForTeam(state, team.ID); key != "" {
-			presenceLabel = presenceState(s.presenceFloor(key), now)
-		}
+		presenceLabel, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, now)
 		item["presence"] = presenceLabel
+		item["presence_label"] = strings.ToUpper(strings.ReplaceAll(presenceLabel, "_", " "))
+		item["presence_detail"] = presenceDetail
+		item["presence_seen_at"] = formatClockInstant(presenceSeenAt)
+		item["operator_count"] = len(s.presenceKeysForTeam(state, team.ID))
 		item["autopick"] = state.Autopick[team.ID]
 		out = append(out, item)
 	}

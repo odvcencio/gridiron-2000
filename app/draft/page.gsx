@@ -204,6 +204,7 @@ func DraftQueue(props DraftQueueProps) Node {
 }
 
 type DraftTeamProps struct {
+	TeamID          string
 	OnClock        bool
 	Tone           string
 	HasAvatarImage bool
@@ -211,10 +212,26 @@ type DraftTeamProps struct {
 	Name           string
 	Abbreviation   string
 	Presence       string
+	PresenceLabel  string
+	PresenceDetail string
+	OperatorCount  int
 	Manager        string
 	Division       string
 	Ready          bool
 	Autopick       bool
+}
+
+type DraftSeatControlProps struct {
+	TeamID          string
+	Name            string
+	Manager        string
+	PresenceLabel   string
+	PresenceDetail  string
+	OnClock         bool
+	Ready           bool
+	Autopick        bool
+	Action          string
+	CSRF            string
 }
 
 component DraftTeam(props: DraftTeamProps) {
@@ -233,6 +250,7 @@ component DraftTeam(props: DraftTeamProps) {
 				<span class="presence-dot" data-presence={props.Presence}></span>
 				{props.Manager}
 			</small>
+			<small class="mono presence-label">{props.PresenceLabel}</small>
 			<small class="mono division-tag">{props.Division}</small>
 		</div>
 		<If cond={props.Ready}>
@@ -245,6 +263,41 @@ component DraftTeam(props: DraftTeamProps) {
 			<b class="autopick-badge mono">AUTO</b>
 		</If>
 	</div>
+}
+
+component DraftSeatControl(props: DraftSeatControlProps) {
+	return <article class="draft-seat-control" data-on-clock={props.OnClock}>
+		<header>
+			<div>
+				<span class="mono">{props.Name}</span>
+				<strong>{props.Manager}</strong>
+			</div>
+			<If cond={props.OnClock}><b class="autopick-badge mono">ON CLOCK</b></If>
+		</header>
+		<p class="mono draft-seat-control__presence">
+			<span class="presence-dot" data-presence={props.PresenceLabel}></span>
+			{props.PresenceLabel}
+			<span> · {props.PresenceDetail}</span>
+		</p>
+		<div class="draft-seat-control__status">
+			<If cond={props.Ready}><span class="mono">READY: YES</span></If>
+			<If cond={props.Ready == false}><span class="mono">READY: NO</span></If>
+			<If cond={props.Autopick}><span class="autopick-badge mono">AUTO ON</span></If>
+			<If cond={props.Autopick == false}><span class="ready-state">MANUAL</span></If>
+		</div>
+		<form method="post" action={props.Action} data-gosx-managed="true">
+			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+			<input type="hidden" name="team_id" value={props.TeamID}></input>
+			<If cond={props.Autopick}>
+				<input type="hidden" name="on" value="false"></input>
+				<button class="button button--compact button--ghost" type="submit">Return manual control</button>
+			</If>
+			<If cond={props.Autopick == false}>
+				<input type="hidden" name="on" value="true"></input>
+				<button class="button button--compact autopick-toggle" type="submit">Set AUTO for remaining turns</button>
+			</If>
+		</form>
+	</article>
 }
 
 type DraftRoomProps struct {
@@ -331,7 +384,7 @@ func DraftRoom(props DraftRoomProps) Node {
 								<span class="mono">YOUR CHECK-IN</span>
 							<If cond={props.Data.viewer_ready}>
 									<strong class="ready-state is-ready">READY</strong>
-									<small>The commissioner sees you as present.</small>
+									<small>The commissioner sees you checked in and ready.</small>
 								</If>
 							<If cond={props.Data.viewer_ready == false}>
 									<strong class="ready-state">NOT READY</strong>
@@ -352,13 +405,13 @@ func DraftRoom(props DraftRoomProps) Node {
 						<div class="manager-draft-control" id="autopick-toggle">
 							<div class="manager-draft-control__copy">
 								<span class="mono">YOUR AUTOPICK</span>
-							<If cond={props.Data.viewer_autopick}>
+								<If cond={props.Data.viewer_autopick}>
 									<strong class="autopick-badge mono">ON</strong>
 									<small>Autopick uses your Big Board, then best available. Enabling it does not reset this turn's grace; if grace has elapsed, the next clock tick may pick.</small>
 								</If>
-							<If cond={props.Data.viewer_autopick == false}>
+								<If cond={props.Data.viewer_autopick == false}>
 									<strong class="ready-state">OFF</strong>
-									<small>Autopick will not pick while you are present. This turn's saved deadline still applies, and being marked away can shorten it.</small>
+									<small>Manual control keeps the full pick clock. If it expires, auto-select uses your Big Board first, then the best available player.</small>
 								</If>
 							</div>
 						<form method="post" action={props.Actions.toggle_autopick} data-gosx-managed="true">
@@ -431,12 +484,12 @@ func DraftRoom(props DraftRoomProps) Node {
 						</div>
 						<a href="/board" data-gosx-link class="board-button">Open board →</a>
 					</div>
-					<If cond={props.Data.viewer.has_seat}>
+				<If cond={props.Data.viewer.has_seat}>
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
 							<strong>Toggle your ready state</strong>
-							<small>Set yourself ready so the commissioner can confirm the room at 4PM.</small>
+							<small>READY is your check-in signal. It is separate from presence: keep this tab open if you want to appear HERE.</small>
 						</div>
 						<a href="#ready-toggle" class="board-button">Ready toggle ↑</a>
 					</div>
@@ -504,6 +557,15 @@ func DraftRoom(props DraftRoomProps) Node {
 					<span class="section-index">COMMISSIONER // CLOCK</span>
 					<span class="mono">{props.Data.clock.reason}</span>
 				</header>
+				<div class="draft-seat-controls" aria-label="Commissioner seat coverage">
+					<div class="draft-seat-controls__intro">
+						<strong>Presence is observational. AUTO is authority.</strong>
+						<p>HERE, IDLE, AWAY, and NOT SEEN never shorten a pick. Set AUTO for a known absence; the seat gets the short grace and then follows its Big Board.</p>
+					</div>
+					<Each of={props.Data.seat_controls} as="seat">
+						<DraftSeatControl {...seat}></DraftSeatControl>
+					</Each>
+				</div>
 				<If cond={props.Data.draft.started == false}>
 					<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" class="clock-controls">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -535,7 +597,7 @@ func DraftRoom(props DraftRoomProps) Node {
 					</form>
 					<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact button--ghost" type="submit">Force autopick</button>
+						<button class="button button--compact button--ghost" type="submit">Pick now from on-clock seat's Big Board</button>
 					</form>
 				</div>
 				</If>
