@@ -114,6 +114,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// readiness at a glance without scrolling to 01 // SEATS.
 		"ready_count":      readyCount(state.Ready),
 		"draft":            s.draftSummary(now),
+		"schedule":         s.adminScheduleMap(state, now),
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
@@ -161,6 +162,115 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// own bool (see DashboardData's transactions_empty precedent).
 		"announcements":       s.announcementAdminMaps(state),
 		"announcements_empty": len(state.Announcements) == 0,
+	}
+}
+
+// adminScheduleMap renders the durable regular-season plan and the
+// commissioner-facing close-week readiness snapshot. It intentionally keeps
+// playoff seeding explicit as a year-one unavailable capability.
+func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[string]any {
+	base := map[string]any{
+		"has_schedule":           false,
+		"season":                 seasonStartAt().Year(),
+		"week_count":             0,
+		"start_week":             0,
+		"end_week":               0,
+		"generated_at":           "",
+		"seed":                   int64(0),
+		"phase":                  strings.ToUpper(s.SeasonPhase(now)),
+		"status":                 "NOT GENERATED",
+		"final_weeks":            0,
+		"total_matchups":         0,
+		"final_matchups":         0,
+		"regenerate_allowed":     false,
+		"regenerate_lock_reason": "generate a schedule first",
+		"playoffs_seeded":        state.Playoffs != nil,
+		"playoffs_available":     false,
+		"playoffs_note":          "Year one: playoff seeding is not available yet.",
+	}
+	if state.Schedule == nil {
+		base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(1, now), s.matchupLocation())
+		return base
+	}
+	schedule := state.Schedule
+	base["has_schedule"] = true
+	base["season"] = schedule.Season
+	base["week_count"] = len(schedule.Weeks)
+	base["seed"] = schedule.Seed
+	if !schedule.GeneratedAt.IsZero() {
+		base["generated_at"] = schedule.GeneratedAt.In(s.matchupLocation()).Format("Jan 2, 2006 · 3:04 PM MST")
+	}
+	finalWeeks := 0
+	finalMatchups := 0
+	totalMatchups := 0
+	// Select the earliest open week. A schedule can contain several future
+	// weeks; showing the last one would make it look like earlier weeks were
+	// skipped by the commissioner.
+	nextWeek := 0
+	endWeek := schedule.StartWeek
+	for _, week := range schedule.Weeks {
+		if week.Week > endWeek {
+			endWeek = week.Week
+		}
+		totalMatchups += len(week.Matchups)
+		weekFinal := scheduleWeekIsFinal(week)
+		if weekFinal {
+			finalWeeks++
+			finalMatchups += len(week.Matchups)
+		} else if nextWeek == 0 {
+			nextWeek = week.Week
+		}
+	}
+	base["start_week"] = schedule.StartWeek
+	base["end_week"] = endWeek
+	base["final_weeks"] = finalWeeks
+	base["final_matchups"] = finalMatchups
+	base["total_matchups"] = totalMatchups
+	status := "GENERATED"
+	if finalWeeks > 0 && finalWeeks < len(schedule.Weeks) {
+		status = "IN PROGRESS"
+	} else if len(schedule.Weeks) > 0 && finalWeeks == len(schedule.Weeks) {
+		status = "COMPLETE"
+	}
+	base["status"] = status
+	redrawAllowed := now.Before(seasonStartAt()) && !scheduleHasFinalMatchup(*schedule)
+	base["regenerate_allowed"] = redrawAllowed
+	if !redrawAllowed {
+		if !now.Before(seasonStartAt()) {
+			base["regenerate_lock_reason"] = "locked once the season starts"
+		} else {
+			base["regenerate_lock_reason"] = "locked once any matchup is final"
+		}
+	} else {
+		base["regenerate_lock_reason"] = ""
+	}
+	if nextWeek <= 0 {
+		if len(schedule.Weeks) > 0 {
+			nextWeek = schedule.Weeks[0].Week
+		} else {
+			nextWeek = schedule.StartWeek
+		}
+	}
+	base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(nextWeek, now), s.matchupLocation())
+	return base
+}
+
+func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]any {
+	statsUpdated := ""
+	if !info.StatsUpdatedAt.IsZero() {
+		statsUpdated = info.StatsUpdatedAt.In(location).Format("Jan 2, 2006 · 3:04 PM MST")
+	}
+	return map[string]any{
+		"week":          info.Week,
+		"exists":        info.Exists,
+		"final":         info.Final,
+		"ready":         info.Ready,
+		"games_known":   info.GamesKnown,
+		"games_total":   info.GamesTotal,
+		"games_final":   info.GamesFinal,
+		"stats_updated": statsUpdated,
+		"stats_fresh":   info.StatsFresh,
+		"reason":        info.Reason,
 	}
 }
 

@@ -61,6 +61,67 @@ func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now ti
 	return !statsUpdatedAt.Before(lastKickoff.Add(24 * time.Hour))
 }
 
+// AdminWeekCloseInfo assembles the truthful commissioner view for one week.
+// The game feed and player-ledger timestamp are both external dependencies;
+// missing either one is represented as not-ready with an explicit reason,
+// never as a false green light.
+func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
+	info := WeekCloseInfo{Week: week, Reason: "generate a schedule first"}
+	state := s.store.Snapshot()
+	if state.Schedule == nil {
+		return info
+	}
+	for _, scheduled := range state.Schedule.Weeks {
+		if scheduled.Week != week {
+			continue
+		}
+		info.Exists = true
+		info.Final = scheduleWeekIsFinal(scheduled)
+		break
+	}
+	if !info.Exists {
+		info.Reason = fmt.Sprintf("week %d is not part of the generated schedule", week)
+		return info
+	}
+	if info.Final {
+		info.Reason = "already final; repeating close is a no-op"
+		return info
+	}
+
+	games := gamesInWeek(s.schedule(), week)
+	info.GamesKnown = len(games) > 0
+	info.GamesTotal = len(games)
+	for _, game := range games {
+		if game.Final {
+			info.GamesFinal++
+		}
+	}
+	info.StatsUpdatedAt = s.statsUpdatedAt()
+	if info.GamesKnown {
+		var lastKickoff time.Time
+		for _, game := range games {
+			if game.Kickoff.After(lastKickoff) {
+				lastKickoff = game.Kickoff
+			}
+		}
+		info.StatsFresh = !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(lastKickoff.Add(24*time.Hour))
+	}
+	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
+	switch {
+	case !info.GamesKnown:
+		info.Reason = "waiting for the real NFL schedule feed"
+	case info.GamesFinal < info.GamesTotal:
+		info.Reason = fmt.Sprintf("waiting for %d of %d games to go final", info.GamesTotal-info.GamesFinal, info.GamesTotal)
+	case info.StatsUpdatedAt.IsZero():
+		info.Reason = "waiting for the player-stats dataset to report an update"
+	case !info.StatsFresh:
+		info.Reason = "player stats are not yet 24 hours past the final kickoff"
+	case !info.Ready:
+		info.Reason = "week is not ready to close yet"
+	}
+	return info
+}
+
 // AdminCloseWeek closes one league week: it scores every matchup in the
 // week via the wired MatchupScorer and marks it final. It is the manual
 // override for a data stall (section 2.5) and does not itself check
@@ -202,4 +263,41 @@ func matchupsAllFinal(matchups []LeagueMatchup) bool {
 // repeat close must not touch either.
 func scheduleWeekIsFinal(wk ScheduleWeek) bool {
 	return matchupsAllFinal(wk.Matchups)
+}
+
+// WeekCloseInfo is the commissioner-facing readiness snapshot for one
+// scheduled week. Readiness is deliberately advisory: AdminCloseWeek is
+// still the explicit write, while the fields here explain whether the
+// normal close path is safe and why a commissioner may need the override.
+type WeekCloseInfo struct {
+	Week           int
+	Exists         bool
+	Final          bool
+	Ready          bool
+	GamesKnown     bool
+	GamesTotal     int
+	GamesFinal     int
+	StatsUpdatedAt time.Time
+	StatsFresh     bool
+	Reason         string
+}
+
+// SetStatsUpdatedSource attaches the open-stats freshness seam used by the
+// commissioner close-week readiness panel. Call it during startup beside
+// SetScheduleSource. A nil source means freshness is unknown and readiness
+// stays false.
+func (s *Service) SetStatsUpdatedSource(source func() time.Time) {
+	s.poolMu.Lock()
+	s.statsUpdatedAtFn = source
+	s.poolMu.Unlock()
+}
+
+func (s *Service) statsUpdatedAt() time.Time {
+	s.poolMu.Lock()
+	source := s.statsUpdatedAtFn
+	s.poolMu.Unlock()
+	if source == nil {
+		return time.Time{}
+	}
+	return source()
 }

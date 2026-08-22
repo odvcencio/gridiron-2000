@@ -287,6 +287,110 @@ func Page() Node {
 						<p class="flash-message"><strong>DRAFT LIVE:</strong> the persisted commissioner start is authoritative.</p>
 					</If>
 				</section>
+				<section class="player-pool admin-season-ops">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">SEASON // SCHEDULE</span>
+							<h2>Regular-season control</h2>
+							<p class="scoring-note">
+								This plan is durable league state. Generating or redrawing it does not start the draft, score a game, or seed playoffs.
+							</p>
+						</div>
+						<span class="position-chip">{data.schedule.status}</span>
+					</div>
+					<If cond={data.schedule.has_schedule == false}>
+						<div class="empty-tape">
+							<strong>NO SCHEDULE GENERATED</strong>
+							<p>Choose the regular-season span and first NFL week. A blank seed draws a fresh seed and records it with the plan.</p>
+						</div>
+						<form method="post" action={actionPath("schedule-generate")} data-gosx-managed="true" class="season-control-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<div class="roster-shape-form-grid">
+								<label class="roster-shape-field">
+									<span class="mono">WEEKS</span>
+									<input class="scoring-input" type="number" name="weeks" value={data.schedule_generation.weeks} min="1" max="18" required="required"></input>
+								</label>
+								<label class="roster-shape-field">
+									<span class="mono">FIRST NFL WEEK</span>
+									<input class="scoring-input" type="number" name="start_week" value={data.schedule_generation.start_week} min="1" max="18" required="required"></input>
+								</label>
+								<label class="roster-shape-field">
+									<span class="mono">SEED (OPTIONAL)</span>
+									<input class="scoring-input" type="number" name="seed" value={data.schedule_generation.seed} placeholder="draw at generation"></input>
+								</label>
+							</div>
+							<button class="button button--primary" type="submit">Generate regular-season schedule</button>
+						</form>
+					</If>
+					<If cond={data.schedule.has_schedule}>
+						<div class="pool-stats">
+							<div class="pool-stat"><span>Season</span><b class="mono">{data.schedule.season}</b></div>
+							<div class="pool-stat"><span>Weeks</span><b class="mono">{data.schedule.start_week}–{data.schedule.end_week}</b></div>
+							<div class="pool-stat"><span>Generated</span><b class="mono">{data.schedule.generated_at}</b></div>
+							<div class="pool-stat"><span>Seed</span><b class="mono">{data.schedule.seed}</b></div>
+							<div class="pool-stat"><span>Phase</span><b class="mono">{data.schedule.phase}</b></div>
+							<div class="pool-stat"><span>Final</span><b class="mono">{data.schedule.final_weeks}/{data.schedule.week_count} WEEKS · {data.schedule.final_matchups}/{data.schedule.total_matchups} MATCHUPS</b></div>
+						</div>
+						<p class="scoring-note">The stored seed is the redraw trail. A redraw creates a new seed and is available only before season start and before any matchup is final.</p>
+						<If cond={data.schedule.regenerate_allowed}>
+							<form method="post" action={actionPath("schedule-regenerate")} data-gosx-managed="true" class="clock-controls">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<label class="mono" for="admin-schedule-regenerate-confirm">TYPE REDRAW SCHEDULE //</label>
+								<input id="admin-schedule-regenerate-confirm" class="scoring-input" name="confirm" value={data.schedule_regeneration.confirm} autocomplete="off" placeholder="REDRAW SCHEDULE"></input>
+								<button class="button button--ghost" type="submit">Redraw schedule</button>
+							</form>
+						</If>
+						<If cond={data.schedule.regenerate_allowed == false}>
+							<p class="demo-message"><strong>REDRAW LOCKED:</strong> {data.schedule.regenerate_lock_reason}.</p>
+						</If>
+					</If>
+				</section>
+				<section class="player-pool admin-season-ops">
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">SEASON // WEEK CLOSE</span>
+							<h2>Close a scoring week</h2>
+							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and leaves a visible audit trail in the response.</p>
+						</div>
+					</div>
+					<If cond={data.schedule.has_schedule == false}>
+						<div class="empty-tape"><strong>GENERATE THE SCHEDULE FIRST</strong><p>Week close controls appear after a regular-season plan exists.</p></div>
+					</If>
+					<If cond={data.schedule.has_schedule}>
+						<div class="pool-stats">
+							<div class="pool-stat"><span>Selected week</span><b class="mono">WEEK {data.schedule.close.week}</b></div>
+							<div class="pool-stat"><span>Games</span><b class="mono">{data.schedule.close.games_final}/{data.schedule.close.games_total} FINAL</b></div>
+							<div class="pool-stat"><span>Stats updated</span><b class="mono">{data.schedule.close.stats_updated}</b></div>
+							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready}</b></div>
+						</div>
+						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
+						<If cond={data.schedule.close.final}>
+							<p class="flash-message"><strong>ALREADY FINAL:</strong> repeating close is idempotent and makes no scoring or lineup changes.</p>
+						</If>
+						<If cond={data.schedule.close.final == false}>
+							<form method="post" action={actionPath("close-week-ready")} data-gosx-managed="true" class="clock-controls">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<label class="mono" for="admin-close-ready-week">WEEK //</label>
+								<input id="admin-close-ready-week" class="scoring-input" type="number" name="week" value={data.close_form.week} min="1" max="18" required="required"></input>
+								<If cond={data.schedule.close.ready}>
+									<button class="button button--primary" type="submit">Close ready week {data.close_form.week}</button>
+								</If>
+								<If cond={data.schedule.close.ready == false}>
+									<button class="button" type="submit" disabled="disabled">Normal close waits for readiness</button>
+								</If>
+							</form>
+							<form method="post" action={actionPath("close-week-force")} data-gosx-managed="true" class="clock-controls">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<label class="mono" for="admin-close-force-week">WEEK //</label>
+								<input id="admin-close-force-week" class="scoring-input" type="number" name="week" value={data.close_form.week} min="1" max="18" required="required"></input>
+								<label class="mono" for="admin-close-week-confirm">TYPE CLOSE WEEK {data.close_form.week} //</label>
+								<input id="admin-close-week-confirm" class="scoring-input" name="confirm" value={data.close_form.confirm} autocomplete="off" placeholder="CLOSE WEEK N"></input>
+								<button class="button button--ghost" type="submit">Force close week {data.close_form.week}</button>
+							</form>
+						</If>
+					</If>
+					<p class="demo-message"><strong>YEAR ONE:</strong> playoff seeding is not available yet; closing the final regular-season week records the phase transition only.</p>
+				</section>
 				<section class="player-pool">
 					<div class="pool-toolbar">
 						<div>
@@ -492,7 +596,7 @@ func Page() Node {
 						<button class="button button--primary" type="submit">Randomize order</button>
 					</form>
 					<p class="scoring-note">
-						Run this one hour before the draft. Locked once the first pick is in.
+						Run this one hour before the draft. Locked once the commissioner starts the draft.
 					</p>
 				</section>
 				<section class="player-pool">
