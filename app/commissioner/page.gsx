@@ -103,7 +103,8 @@ func Page() Node {
 									<h3>SCHEDULE / WEEK CLOSE</h3>
 									<p><strong>{card.season_phase}</strong> · week {card.current_week} · {card.schedule_range}</p>
 									<p>{card.schedule_text}</p>
-									<p class="mono">WEEK {card.week_close_week} · <If cond={card.week_close_ready}>READY</If><If cond={card.week_close_ready == false}>WAITING</If> · {card.week_close_games}/{card.week_close_total} GAMES FINAL</p>
+									<p class="mono">WEEK {card.week_close_week} · {card.week_close_badge} · {card.week_close_games}/{card.week_close_total} GAMES FINAL</p>
+									<If cond={card.week_close_waiting}><p class="scoring-note">{card.week_close_waiting_reason}</p></If>
 									<p>{card.schedule_final_text} · stats <If cond={card.week_close_stats}>FRESH</If><If cond={card.week_close_stats == false}>WAITING</If></p>
 								</section>
 								<section class="commissioner-hq__detail">

@@ -80,24 +80,26 @@ type fleetCardView struct {
 	ClockText         string
 	DraftStartCopy    string
 
-	SeasonPhase       string
-	CurrentWeek       int
-	SchedulePublished bool
-	ScheduleText      string
-	ScheduleFinalText string
-	ScheduleRange     string
-	RedrawLocked      bool
-	RedrawLockReason  string
-	WeekCloseWeek     int
-	WeekCloseReady    bool
-	WeekCloseGames    int
-	WeekCloseTotal    int
-	WeekCloseFinal    bool
-	WeekCloseStats    bool
-	WeekCloseStatsAt  string
-	WeekCloseReason   string
-	PlayoffAvailable  bool
-	PlayoffNote       string
+	SeasonPhase            string
+	CurrentWeek            int
+	SchedulePublished      bool
+	ScheduleText           string
+	ScheduleFinalText      string
+	ScheduleRange          string
+	RedrawLocked           bool
+	RedrawLockReason       string
+	WeekCloseWeek          int
+	WeekCloseReady         bool
+	WeekCloseGames         int
+	WeekCloseTotal         int
+	WeekCloseFinal         bool
+	WeekCloseStats         bool
+	WeekCloseStatsAt       string
+	WeekCloseBadge         string
+	WeekCloseWaiting       bool
+	WeekCloseWaitingReason string
+	PlayoffAvailable       bool
+	PlayoffNote            string
 
 	PoolMode           string
 	PoolActual         int
@@ -236,8 +238,10 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		WeekCloseWeek:    summary.Season.WeekClose.Week, WeekCloseReady: summary.Season.WeekClose.Ready,
 		WeekCloseGames: summary.Season.WeekClose.GamesFinal, WeekCloseTotal: summary.Season.WeekClose.GamesTotal,
 		WeekCloseFinal: summary.Season.WeekClose.Final, WeekCloseStats: summary.Season.WeekClose.StatsFresh,
-		WeekCloseStatsAt: displayTime(summary.Season.WeekClose.StatsUpdatedAt), WeekCloseReason: summary.Season.WeekClose.Reason,
-		PlayoffAvailable: summary.Season.Playoffs.Available, PlayoffNote: summary.Season.Playoffs.Note,
+		WeekCloseStatsAt: displayTime(summary.Season.WeekClose.StatsUpdatedAt),
+		WeekCloseBadge:   weekCloseBadge(summary.Season.WeekClose), WeekCloseWaiting: !summary.Season.WeekClose.Final && !summary.Season.WeekClose.Ready,
+		WeekCloseWaitingReason: weekCloseWaitingReason(summary.Season.WeekClose),
+		PlayoffAvailable:       summary.Season.Playoffs.Available, PlayoffNote: summary.Season.Playoffs.Note,
 		PoolMode: upperWords(summary.Pool.Mode), PoolActual: summary.Pool.Actual,
 		PoolRosterCapacity: summary.Pool.RosterCapacity, PoolTarget: summary.Pool.Target,
 		PoolCushion: summary.Pool.Cushion, PoolShortfall: summary.Pool.Shortfall,
@@ -350,7 +354,8 @@ func (card fleetCardView) toMap() map[string]any {
 		"week_close_week": card.WeekCloseWeek, "week_close_ready": card.WeekCloseReady,
 		"week_close_games": card.WeekCloseGames, "week_close_total": card.WeekCloseTotal,
 		"week_close_final": card.WeekCloseFinal, "week_close_stats": card.WeekCloseStats,
-		"week_close_stats_at": card.WeekCloseStatsAt, "week_close_reason": card.WeekCloseReason,
+		"week_close_stats_at": card.WeekCloseStatsAt, "week_close_badge": card.WeekCloseBadge,
+		"week_close_waiting": card.WeekCloseWaiting, "week_close_waiting_reason": card.WeekCloseWaitingReason,
 		"playoff_available": card.PlayoffAvailable, "playoff_note": card.PlayoffNote,
 		"pool_mode": card.PoolMode, "pool_actual": card.PoolActual, "pool_roster_capacity": card.PoolRosterCapacity,
 		"pool_target": card.PoolTarget, "pool_cushion": card.PoolCushion, "pool_shortfall": card.PoolShortfall,
@@ -484,14 +489,40 @@ func displayTime(value time.Time) string {
 	if value.IsZero() {
 		return "—"
 	}
-	return value.Local().Format("Jan 2, 2006 · 3:04 PM MST")
+	return value.Format("Jan 2, 2006 · 3:04 PM MST")
 }
 
 func isoTime(value time.Time) string {
 	if value.IsZero() {
 		return ""
 	}
-	return value.UTC().Format(time.RFC3339)
+	return value.Format(time.RFC3339)
+}
+
+func weekCloseBadge(close commissionerhq.WeekClose) string {
+	if close.Final {
+		return "FINAL"
+	}
+	if close.Ready {
+		return "READY"
+	}
+	return "WAITING"
+}
+
+func weekCloseWaitingReason(close commissionerhq.WeekClose) string {
+	if weekCloseBadge(close) != "WAITING" {
+		return ""
+	}
+	reason := strings.TrimSpace(close.Reason)
+	if reason == "" {
+		return "Waiting for the week-close readiness checks."
+	}
+	const maxReasonRunes = 160
+	runes := []rune(reason)
+	if len(runes) > maxReasonRunes {
+		return string(runes[:maxReasonRunes]) + "…"
+	}
+	return reason
 }
 
 func ratio(value float64) string {
@@ -537,5 +568,5 @@ func scheduleText(schedule commissionerhq.Schedule) string {
 }
 
 func finalText(schedule commissionerhq.Schedule) string {
-	return fmt.Sprintf("%d/%d weeks final · %d/%d games final", schedule.FinalWeeks, schedule.WeekCount, schedule.FinalMatchups, schedule.TotalMatchups)
+	return fmt.Sprintf("%d/%d weeks final · %d/%d matchups final", schedule.FinalWeeks, schedule.WeekCount, schedule.FinalMatchups, schedule.TotalMatchups)
 }
