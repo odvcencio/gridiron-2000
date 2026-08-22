@@ -33,10 +33,12 @@ func Page() Node {
 					</p>
 					<If cond={data.identity_available}>
 					<form method="post" action={actionPath("signup-claim")} data-gosx-managed="true" class="signup-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<label class="signup-form__field">
 							<span>Team name</span>
 							<input type="text" name="team_name" maxlength="40" placeholder="Your team name" required="required" autofocus="autofocus"></input>
 						</label>
+						<p class="error-message form-error signup-form__error" data-gosx-field-error="team_name" aria-live="polite"></p>
 						<h2 class="badge-picker-title">Choose your badge</h2>
 						<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
 							<Each of={data.badge_grid} as="badge">
@@ -47,6 +49,8 @@ func Page() Node {
 								</label>
 							</Each>
 						</div>
+						<p class="error-message form-error signup-form__error" data-gosx-field-error="motif" aria-live="polite"></p>
+						<p id="signup-form-status" class="form-status signup-form__status" role="status" aria-live="polite"></p>
 						<div class="hero-actions">
 							<button class="button button--primary" type="submit">
 								Claim your seat
