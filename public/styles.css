@@ -340,26 +340,13 @@ button.access-link {
   cursor: pointer;
 }
 
-/* ===== Primary navigation: persistent left rail (desktop) that becomes a
-   full-height drawer (mobile), see app/layout.gsx for the markup and the
-   checkbox-hack reasoning. ===== */
+/* ===== Primary navigation: one grouped information architecture rendered
+   into desktop, framework-enhanced mobile, and static no-JS surfaces. ===== */
 
-.drawer-check {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  border: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-}
-
-.mobile-bar,
-.drawer-open,
-.drawer-close,
-.drawer-backdrop {
+.mobile-navigation-enhanced,
+.mobile-navigation-dialog,
+.mobile-navigation-backdrop,
+.mobile-navigation-static {
   display: none;
 }
 
@@ -386,7 +373,7 @@ button.access-link {
   left: 0;
   z-index: 30;
   width: var(--rail-width);
-  height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--color-border);
@@ -402,18 +389,49 @@ button.access-link {
   border-bottom: 1px solid var(--color-border);
 }
 
-.rail-nav {
+.primary-navigation {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.primary-navigation__groups {
   padding: var(--space-sm);
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: var(--space-sm);
+  overscroll-behavior: contain;
 }
 
-.rail-link {
+.navigation-group {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.navigation-group + .navigation-group {
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.navigation-group__label {
+  margin: 0;
+  padding: 0 var(--space-md) var(--space-xs);
+  color: var(--color-accent-cyan);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.navigation-link {
   position: relative;
+  min-height: 2.75rem;
   padding: var(--space-xs) var(--space-sm) var(--space-xs) var(--space-md);
+  display: flex;
+  align-items: center;
   border-left: 2px solid transparent;
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   color: var(--color-text-secondary);
@@ -424,28 +442,28 @@ button.access-link {
   transition: color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), background var(--duration-fast) var(--ease-out);
 }
 
-.rail-index {
+.navigation-link__index {
   margin-right: var(--space-sm);
   color: var(--color-text-muted);
   font-size: var(--type-xs);
 }
 
-.rail-link:hover {
+.navigation-link:hover {
   color: var(--color-text-primary);
   background: var(--color-white-faint);
 }
 
-.rail-link[aria-current="page"] {
+.navigation-link[aria-current="page"] {
   border-left-color: var(--color-accent);
   color: var(--color-text-primary);
   background: var(--color-accent-haze);
 }
 
-.rail-link[aria-current="page"] .rail-index {
+.navigation-link[aria-current="page"] .navigation-link__index {
   color: var(--color-accent);
 }
 
-.rail-link--hot::after {
+.navigation-link--hot::after {
   position: absolute;
   top: 0.55rem;
   right: 0.6rem;
@@ -457,22 +475,23 @@ button.access-link {
   box-shadow: 0 0 0.8rem var(--color-accent-hot);
 }
 
-.rail-foot {
+.navigation-account {
   padding: var(--space-md);
-  display: grid;
+  min-height: 4.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-sm);
   border-top: 1px solid var(--color-border);
 }
 
-.rail-foot-links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-sm) var(--space-md);
+.navigation-account .user-badge {
+  min-width: 0;
 }
 
-.rail-foot .user-badge {
-  min-width: 0;
+.navigation-account form {
+  display: inline-flex;
 }
 
 @media (min-width: 56.25rem) {
@@ -485,18 +504,8 @@ button.access-link {
 }
 
 @media (max-width: 56.1875rem) {
-  .mobile-bar {
-    position: fixed;
-    inset: 0 0 auto 0;
-    z-index: 50;
-    height: var(--mobile-bar-height);
-    padding: 0 var(--space-md);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-    border-bottom: 1px solid var(--color-border);
-    background: var(--color-canvas-deep);
+  .site-rail {
+    display: none;
   }
 
   .mobile-brand {
@@ -513,26 +522,94 @@ button.access-link {
     letter-spacing: -0.03em;
   }
 
-  .drawer-open,
-  .drawer-close {
+  .mobile-navigation-static {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: block;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+  }
+
+  .mobile-navigation-static > summary {
+    min-height: var(--mobile-bar-height);
+    padding: 0 var(--space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .mobile-navigation-static > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .mobile-navigation-static > summary:focus-visible,
+  .mobile-navigation-open:focus-visible,
+  .mobile-navigation-close:focus-visible {
+    outline: 2px solid var(--color-accent-cyan);
+    outline-offset: -3px;
+  }
+
+  .mobile-navigation-static__label {
+    color: var(--color-accent-cyan);
+    font-size: var(--type-xs);
+    letter-spacing: 0.12em;
+  }
+
+  .mobile-navigation-static > .primary-navigation {
+    height: calc(100dvh - var(--mobile-bar-height));
+    overflow: hidden;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+    overscroll-behavior: contain;
+  }
+
+  @media (scripting: enabled) {
+    html:has(script[data-gosx-navigation="true"]) .mobile-navigation-static {
+      display: none;
+    }
+
+    html:has(script[data-gosx-navigation="true"]) .mobile-navigation-enhanced {
+      position: fixed;
+      inset: 0 0 auto 0;
+      z-index: 50;
+      min-height: var(--mobile-bar-height);
+      padding: 0 var(--space-md);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-sm);
+      border-bottom: 1px solid var(--color-border);
+      background: var(--color-canvas-deep);
+    }
+  }
+
+  .mobile-navigation-open,
+  .mobile-navigation-close {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    padding: 0;
     display: grid;
-    width: 2.75rem;
-    height: 2.75rem;
     place-items: center;
     border: 1px solid var(--color-border-strong);
     border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    background: var(--color-white-faint);
     cursor: pointer;
   }
 
-  .drawer-open span {
+  .mobile-navigation-open span {
     position: relative;
     width: 1.1rem;
     height: 1px;
     background: var(--color-text-primary);
   }
 
-  .drawer-open span::before,
-  .drawer-open span::after {
+  .mobile-navigation-open span::before,
+  .mobile-navigation-open span::after {
     position: absolute;
     left: 0;
     width: 100%;
@@ -541,81 +618,79 @@ button.access-link {
     background: var(--color-text-primary);
   }
 
-  .drawer-open span::before {
+  .mobile-navigation-open span::before {
     top: -0.35rem;
   }
 
-  .drawer-open span::after {
+  .mobile-navigation-open span::after {
     top: 0.35rem;
   }
 
-  .drawer-check:focus-visible ~ .mobile-bar .drawer-open {
-    outline: 2px solid var(--color-accent-cyan);
-    outline-offset: 2px;
-  }
-
-  .drawer-backdrop {
+  .mobile-navigation-backdrop:not([hidden]) {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 55;
     background: rgba(3, 5, 11, 0.72);
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity var(--duration-standard) var(--ease-out);
+    backdrop-filter: blur(2px);
   }
 
-  .drawer-check:checked ~ .drawer-backdrop {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  .site-rail {
+  .mobile-navigation-dialog:not([hidden]) {
     position: fixed;
-    top: 0;
-    left: 0;
+    inset: 0 auto 0 0;
     z-index: 60;
     width: min(20rem, 85vw);
-    height: 100vh;
-    transform: translateX(-100%);
-    /* Closed rail leaves the tab order (defect 6, wave-1 UI repair): a
-       transform-only slide keeps 17 offscreen links focusable, so a
-       keyboard user tabs through the whole closed drawer before reaching
-       page content. visibility: hidden removes them from the tab order;
-       transition-behavior: allow-discrete keeps the slide animated by
-       flipping visibility only at the end (open) / start (close) of the
-       transition instead of instantly. */
-    visibility: hidden;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     box-shadow: var(--shadow-panel);
-    transition: transform var(--duration-standard) var(--ease-out), visibility var(--duration-standard) var(--ease-out);
-    transition-behavior: allow-discrete;
+    background: var(--color-canvas-deep);
+    overscroll-behavior: contain;
   }
 
-  .drawer-check:checked ~ .site-rail {
-    transform: translateX(0);
-    visibility: visible;
+  .mobile-navigation-dialog__head {
+    min-height: var(--mobile-bar-height);
+    padding: var(--space-sm) var(--space-md);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    border-bottom: 1px solid var(--color-border);
   }
 
-  .drawer-check:focus-visible ~ .site-rail .drawer-close {
-    outline: 2px solid var(--color-accent-cyan);
-    outline-offset: 2px;
+  .mobile-navigation-dialog__head > div {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
   }
 
-  /* .site-footer never sits under the fixed top bar (it is always past
-     the page's own content), so it needs no clearance of its own —
-     defect 7, wave-1 UI repair: padding it here only added 84px of dead
-     space at the bottom of every mobile page. */
-  .site-frame {
-    padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
+  .mobile-navigation-dialog__head h2 {
+    margin: 0;
+    font-size: var(--type-md);
   }
 
-  /* When the announcement banner renders, it is .site-frame's immediate
-     sibling and already clears the fixed bar itself (see its own
-     max-width: 56.1875rem rule below), plus its own margin-bottom
-     (space-lg). Padding .site-frame by the full bar height again on top
-     of that double-offset the content — the other half of defect 7. */
-  .announcement-banner + .site-frame {
-    padding-top: var(--space-lg);
+  @media (scripting: enabled) {
+    html:has(script[data-gosx-navigation="true"]) body:has(#primary-navigation-dialog:not([hidden])) {
+      overflow: hidden;
+    }
+
+    html:has(script[data-gosx-navigation="true"]) .site-frame {
+      padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
+    }
+
+    html:has(script[data-gosx-navigation="true"]) .announcement-banner + .site-frame {
+      padding-top: var(--space-lg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-navigation-dialog,
+    .mobile-navigation-backdrop {
+      scroll-behavior: auto;
+      transition: none;
+    }
   }
 }
 
@@ -1637,7 +1712,7 @@ button.badge-option:hover {
 }
 
 .access-link--guide,
-.rail-link--guide .rail-index {
+.navigation-link--guide .navigation-link__index {
   color: var(--color-accent);
 }
 
@@ -4967,8 +5042,10 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 56.1875rem) {
-  .announcement-banner {
-    margin-top: calc(var(--mobile-bar-height) + var(--space-lg));
+  @media (scripting: enabled) {
+    html:has(script[data-gosx-navigation="true"]) .announcement-banner {
+      margin-top: calc(var(--mobile-bar-height) + var(--space-lg));
+    }
   }
 }
 
