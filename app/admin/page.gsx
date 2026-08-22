@@ -144,6 +144,23 @@ func Page() Node {
 				</If>
 			</div>
 			<div class="draft-clock-panel">
+				<If cond={data.has_league_switcher}>
+					<form class="admin-league-switcher" method="get" action="/commissioner/switch">
+						<div class="admin-league-switcher__heading">
+							<label for="admin-league-switcher">League console</label>
+							<a href="/commissioner" data-gosx-link>All leagues →</a>
+						</div>
+						<div class="admin-league-switcher__controls">
+							<select id="admin-league-switcher" name="league" aria-label="Switch commissioner league">
+								<Each of={data.league_options} as="league">
+									<option value={league.id} selected={league.current}>{league.label}</option>
+								</Each>
+							</select>
+							<input type="hidden" name="section" value={data.admin_section}></input>
+							<button class="board-button" type="submit">Open</button>
+						</div>
+					</form>
+				</If>
 				<span>League status</span>
 				<strong class="mono">
 					{data.member_count}

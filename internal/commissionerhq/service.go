@@ -18,6 +18,16 @@ const maxSummaryBytes = 64 << 10
 
 type SummarySource func() Summary
 
+// AdminDestination is the public, non-secret topology needed by a
+// commissioner to move between isolated league consoles. The browser submits
+// only ID; the server resolves the corresponding allowlisted public origin.
+type AdminDestination struct {
+	ID        string
+	Label     string
+	PublicURL string
+	Current   bool
+}
+
 type Service struct {
 	config Config
 	local  SummarySource
@@ -62,6 +72,59 @@ func Default() *Service {
 }
 
 func (s *Service) Enabled() bool { return s != nil && len(s.config.Peers) > 0 }
+
+// AdminDestinations returns the local league first, followed by configured
+// peers in declaration order. It deliberately does not fetch peer summaries:
+// opening an admin page must not wait on every other league in the fleet.
+func (s *Service) AdminDestinations() []AdminDestination {
+	if s == nil {
+		return nil
+	}
+	local := s.local()
+	localPublic := ""
+	if _, normalized, err := normalizeOrigin(local.Instance.PublicURL); err == nil {
+		localPublic = normalized
+	}
+	localLabel := strings.TrimSpace(local.Instance.Name)
+	if localLabel == "" {
+		localLabel = strings.ToUpper(s.config.InstanceID)
+	}
+	destinations := make([]AdminDestination, 0, len(s.config.Peers)+1)
+	destinations = append(destinations, AdminDestination{
+		ID: s.config.InstanceID, Label: localLabel, PublicURL: localPublic, Current: true,
+	})
+	for _, peer := range s.config.Peers {
+		publicURL := ""
+		host := ""
+		if peer.PublicURL != nil {
+			publicURL = peer.PublicURL.String()
+			host = peer.PublicURL.Host
+		}
+		label := strings.ToUpper(peer.ID)
+		if host != "" {
+			label += " · " + host
+		}
+		destinations = append(destinations, AdminDestination{
+			ID: peer.ID, Label: label, PublicURL: publicURL,
+		})
+	}
+	return destinations
+}
+
+// AdminURL resolves an instance ID to its configured public admin console.
+// Unknown IDs fail closed, so consumers cannot turn it into an open redirect.
+func (s *Service) AdminURL(instanceID string) (string, bool) {
+	for _, destination := range s.AdminDestinations() {
+		if destination.ID != instanceID {
+			continue
+		}
+		if destination.PublicURL == "" {
+			return "/admin", true
+		}
+		return destination.PublicURL + "/admin", true
+	}
+	return "", false
+}
 
 func (s *Service) SummaryHandler() http.Handler {
 	if s == nil {

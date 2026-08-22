@@ -19,6 +19,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
 	wirepage "gridiron-2000/app/wire"
@@ -340,6 +341,7 @@ func main() {
 		return wirepage.PulseData(signalFeed), nil
 	})
 	app.Mount("GET /commissioner/fragment", commissionerpage.FragmentHandler(hqService))
+	app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())

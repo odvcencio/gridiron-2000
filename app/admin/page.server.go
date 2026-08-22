@@ -3,8 +3,10 @@ package admin
 import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
+	"gridiron-2000/internal/commissionerhq"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -22,7 +24,11 @@ var adminSectionKeys = []string{
 }
 
 func adminSection(request *http.Request) string {
-	value := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("section")))
+	return validAdminSection(request.URL.Query().Get("section"))
+}
+
+func validAdminSection(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
 	for _, key := range adminSectionKeys {
 		if value == key {
 			return key
@@ -38,11 +44,62 @@ func adminSectionClass(selected, key string) string {
 	return ""
 }
 
+func adminLeagueSwitcherData(service *commissionerhq.Service, isCommissioner bool) ([]map[string]any, bool) {
+	if !isCommissioner || service == nil {
+		return []map[string]any{}, false
+	}
+	destinations := service.AdminDestinations()
+	options := make([]map[string]any, 0, len(destinations))
+	for _, destination := range destinations {
+		options = append(options, map[string]any{
+			"id": destination.ID, "label": destination.Label, "current": destination.Current,
+		})
+	}
+	return options, len(options) > 1
+}
+
+// SwitchHandler keeps cross-instance navigation behind the same commissioner
+// authorization as the controls themselves. The submitted value is an opaque
+// configured instance ID, never a browser-supplied redirect URL.
+func SwitchHandler(service *commissionerhq.Service) http.Handler {
+	return switchHandler(service, func(request *http.Request) bool {
+		return league.Default().IsCommissioner(request)
+	})
+}
+
+func switchHandler(service *commissionerhq.Service, isCommissioner func(*http.Request) bool) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		if service == nil || isCommissioner == nil || !isCommissioner(request) {
+			http.Error(writer, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
+		target, ok := service.AdminURL(strings.TrimSpace(request.URL.Query().Get("league")))
+		if !ok {
+			http.Error(writer, "Unknown league", http.StatusBadRequest)
+			return
+		}
+		if section := validAdminSection(request.URL.Query().Get("section")); section != "" {
+			target += "?" + url.Values{"section": {section}}.Encode() + "#admin-" + section
+		}
+		writer.Header().Set("Cache-Control", "no-store")
+		http.Redirect(writer, request, target, http.StatusSeeOther)
+	})
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().AdminData(ctx.Request)
+			isCommissioner, _ := data["is_commissioner"].(bool)
+			leagueOptions, hasLeagueSwitcher := adminLeagueSwitcherData(commissionerhq.Default(), isCommissioner)
+			data["league_options"] = leagueOptions
+			data["has_league_switcher"] = hasLeagueSwitcher
 			selectedSection := adminSection(ctx.Request)
 			data["admin_section"] = selectedSection
 			for _, key := range adminSectionKeys {
