@@ -183,9 +183,9 @@ func TestAdminPostAnnouncementProvenanceAndEmailToggle(t *testing.T) {
 		t.Fatalf("body = %q, want trimmed", a.Body)
 	}
 	// The test request carries no signed-in user; commissionerProvenance
-	// falls back to its demo/no-email branch.
-	if a.PostedBy != "the commissioner" {
-		t.Fatalf("PostedBy = %q, want %q", a.PostedBy, "the commissioner")
+	// falls back to its demo/no-name branch.
+	if a.PostedBy != "The Commissioner" {
+		t.Fatalf("PostedBy = %q, want %q", a.PostedBy, "The Commissioner")
 	}
 	if got := svc.notifyQueue.Depth(); got != 0 {
 		t.Fatalf("also_email=false must not enqueue; depth = %d", got)

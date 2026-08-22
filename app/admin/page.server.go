@@ -498,7 +498,7 @@ func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
 			if i > 0 {
 				notice += ", "
 			}
-			notice += miss.PlayerName + " (" + miss.TeamID + ")"
+			notice += miss.PlayerName + " (" + league.Default().TeamLabel(miss.TeamID) + ")"
 		}
 	}
 	actionui.RedirectWithNotice(ctx, "/admin", notice)

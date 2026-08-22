@@ -105,7 +105,7 @@ func TestCommissionerFragmentUsesSharedReadoutAndDegradesWholeFragment(t *testin
 	if !strings.Contains(fullPage, expected) {
 		t.Fatal("full SSR page does not contain the same FleetReadout markup as the fragment")
 	}
-	for _, want := range []string{"League unavailable", "DEGRADED", "FLEET SNAPSHOT"} {
+	for _, want := range []string{"League unavailable", "UNAVAILABLE", "LEAGUE REPORT"} {
 		if !strings.Contains(expected, want) {
 			t.Errorf("degraded fragment missing %q: %s", want, expected)
 		}

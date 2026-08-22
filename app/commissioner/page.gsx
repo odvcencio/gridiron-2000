@@ -47,14 +47,14 @@ func FleetReadout(props FleetReadoutProps) Node {
 		</If>
 		<If cond={props.IsCommissioner}>
 			<p class="commissioner-hq__refresh-status mono" role="status" aria-live="polite" aria-atomic="true">
-				FLEET SNAPSHOT · {props.LeagueCount} LEAGUES · GENERATED {props.GeneratedAt}
+				LEAGUE REPORT · {props.LeagueCount} LEAGUES · GENERATED {props.GeneratedAt}
 			</p>
 			<If cond={props.FederationEnabled == false}>
 				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. No shared session or data plane is created.</p>
 			</If>
 			<section id="commissioner-attention-queue" class="commissioner-hq__queue" aria-labelledby="commissioner-attention-heading">
 				<div class="commissioner-hq__subhead">
-					<span class="signal-label">OPERATIONS QUEUE</span>
+					<span class="signal-label">NEEDS ATTENTION</span>
 					<h2 id="commissioner-attention-heading">Attention by league</h2>
 					<p>Sorted by severity and count.<br></br>Open the owning league section.</p>
 				</div>
@@ -67,7 +67,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 							<div class="commissioner-hq__attention-copy">
 								<span class="section-index">{item.severity} · {item.league}</span>
 								<strong>{item.message}</strong>
-								<span class="mono">{item.area} · {item.count} occurrence(s)</span>
+								<span class="mono">{item.count} occurrence(s)</span>
 							</div>
 							<a href={item.owner_url}>{item.owner_text} →</a>
 						</article>
@@ -81,7 +81,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 							<div class="pool-toolbar commissioner-hq__card-header"><div>
 								<span class="section-index">{card.peer_id}</span>
 								<h2>League unavailable</h2>
-								</div><span class="position-chip">DEGRADED</span>
+								</div><span class="position-chip">UNAVAILABLE</span>
 							</div>
 							<p class="error-message">{card.error}</p>
 							<p class="scoring-note">This readout is independent; the owning league remains available directly.</p>
@@ -130,10 +130,10 @@ func FleetReadout(props FleetReadoutProps) Node {
 									<h3>PLAYER POOL</h3>
 									<p><strong>{card.pool_mode}</strong> · {card.pool_actual} actual · {card.pool_roster_capacity} roster minimum · {card.pool_target} planning target</p>
 									<p class="mono">ACTUAL {card.pool_actual_coverage} · TARGET {card.pool_target_coverage} · CUSHION {card.pool_cushion}</p>
-									<p>Last sync {card.pool_last_sync}</p>
+									<p>Player list updated {card.pool_last_sync}</p>
 								</section>
 								<section class="commissioner-hq__detail">
-									<h3>OPEN DATA STATES</h3>
+									<h3>NFL DATA</h3>
 									<ul class="commissioner-hq__data-list">
 										<Each of={card.open_data} as="row"><li><strong>{row.label}</strong><span class="mono">{row.state} · {row.updated}</span></li></Each>
 									</ul>
