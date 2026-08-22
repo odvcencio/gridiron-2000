@@ -361,9 +361,18 @@ func (s *Service) Status() Status {
 	}
 }
 
+// recordError mirrors internal/openstats/service.go's recordDatasetError:
+// every hard failure overwrites lastErr, and, when the pool is currently
+// reporting "live", demotes it to "stale" so the freshness signal never
+// keeps claiming a fetch that just failed. A pool that was never live this
+// session (still "cache" or "offline") stays as it was — that label is
+// already honest about not being fresh.
 func (s *Service) recordError(err error) error {
 	s.mu.Lock()
 	s.lastErr = err.Error()
+	if s.mode == "live" {
+		s.mode = "stale"
+	}
 	s.mu.Unlock()
 	return err
 }

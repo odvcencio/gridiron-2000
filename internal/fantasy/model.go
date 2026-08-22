@@ -102,7 +102,7 @@ func (p Player) DraftCapitalLabel() string {
 type Status struct {
 	Enabled   bool           `json:"enabled"`
 	Provider  string         `json:"provider"`
-	Mode      string         `json:"mode"` // live | cache | offline
+	Mode      string         `json:"mode"` // live | cache | stale | offline
 	Scoring   string         `json:"scoring"`
 	Players   int            `json:"players"`
 	PoolLimit int            `json:"poolLimit"`

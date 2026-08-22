@@ -114,7 +114,9 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 			"League persistence needs operator attention.", commissionerhq.AttentionAreaRuntime)
 	}
 	switch {
-	case pool.Mode != "live" && pool.Mode != "cache":
+	// live, cache, and stale all carry real synced data — only a pool with
+	// none of those (offline, or no source at all) is truly unavailable.
+	case pool.Mode != "live" && pool.Mode != "cache" && pool.Mode != "stale":
 		attention.Add("pool_unavailable", commissionerhq.AttentionSeverityCritical, 1,
 			"The player pool is unavailable.", commissionerhq.AttentionAreaPool)
 	case pool.Error != "":
