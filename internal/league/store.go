@@ -41,7 +41,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 4
+const currentSchemaVersion = 5
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -155,6 +155,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			DraftOrder:     []string{},
 			Scoring:        map[string]float64{},
 			Pickems:        map[string]map[string]string{},
+			PickemMarkets:  map[string]PickemMarket{},
 			BlitzEntries:   map[string]map[string]BlitzEntry{},
 			Autopick:       map[string]bool{},
 			SentLog:        map[string]time.Time{},
@@ -1034,6 +1035,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Members = map[string]Member{}
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
+	s.state.PickemMarkets = map[string]PickemMarket{}
 	s.state.BlitzEntries = map[string]map[string]BlitzEntry{}
 	s.state.Transactions = []Transaction{}
 	// Lineups derive from the roster the draft produced; a reset that
@@ -1051,7 +1053,7 @@ func (s *Store) ResetLeague() error {
 	s.state.DraftStartedAt = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
-	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colBlitzEntries, colTransactions,
+	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colPickemMarkets, colBlitzEntries, colTransactions,
 		colLineups, colWaiverClaims, colTradeOffers, colRosterZones, colAutopick, colSentLog, colScalars); err != nil {
 		s.state = previous
 		return err
@@ -2814,6 +2816,7 @@ func cloneState(in PersistedState) PersistedState {
 		DraftStarted:            in.DraftStarted,
 		DraftStartedAt:          in.DraftStartedAt,
 		Pickems:                 make(map[string]map[string]string, len(in.Pickems)),
+		PickemMarkets:           make(map[string]PickemMarket, len(in.PickemMarkets)),
 		BlitzEntries:            make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
 		ClockDeadline:           in.ClockDeadline,
 		ClockPaused:             in.ClockPaused,
@@ -2860,6 +2863,9 @@ func cloneState(in PersistedState) PersistedState {
 			inner[gameID] = team
 		}
 		out.Pickems[owner] = inner
+	}
+	for gameID, market := range in.PickemMarkets {
+		out.PickemMarkets[gameID] = market
 	}
 	for owner, bySlate := range in.BlitzEntries {
 		inner := make(map[string]BlitzEntry, len(bySlate))
