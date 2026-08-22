@@ -16,8 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"m31labs.dev/gosx/auth"
 )
 
 // Avatar dimension and size limits (design decision 1). AvatarOutputSize is
@@ -61,8 +59,8 @@ type seatActor struct {
 
 func (s *Service) seatActor(r *http.Request) seatActor {
 	actor := seatActor{commissioner: s.IsCommissioner(r), demo: s.demoMode}
-	if user, ok := auth.Current(r); ok {
-		actor.email = strings.ToLower(strings.TrimSpace(user.Email))
+	if user, ok := s.CurrentUser(r); ok {
+		actor.email = user.Email
 	}
 	return actor
 }

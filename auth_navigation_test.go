@@ -299,6 +299,10 @@ func (f *fakeGoogleMembership) EmailAllowed(email string) bool {
 	return f.allowed
 }
 
+func (f *fakeGoogleMembership) CanonicalUser(user auth.User) auth.User {
+	return user
+}
+
 func (f *fakeGoogleMembership) BindCoManagerOnSignIn(email, name string) (league.Member, bool, error) {
 	f.bindCalls = append(f.bindCalls, email+"/"+name)
 	return league.Member{}, false, nil

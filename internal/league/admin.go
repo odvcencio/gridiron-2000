@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"gridiron-2000/internal/mailer"
-	"m31labs.dev/gosx/auth"
 )
 
 // AdminData assembles the commissioner console: seat claims, invites, and
@@ -234,8 +233,8 @@ func (s *Service) requireCommissioner(r *http.Request) error {
 // Viewer's own signed-in/demo split (service.go), the closest existing
 // precedent for "who is this request" in the package.
 func (s *Service) commissionerProvenance(r *http.Request) string {
-	if user, ok := auth.Current(r); ok && strings.TrimSpace(user.Email) != "" {
-		return strings.ToLower(strings.TrimSpace(user.Email))
+	if user, ok := s.CurrentUser(r); ok && strings.TrimSpace(user.Email) != "" {
+		return user.Email
 	}
 	return "the commissioner"
 }

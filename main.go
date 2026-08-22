@@ -448,7 +448,7 @@ func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) h
 			next.ServeHTTP(w, r)
 			return
 		}
-		if _, ok := auth.Current(r); ok {
+		if _, ok := league.Default().CurrentUser(r); ok {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -1011,6 +1011,7 @@ func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 
 type googleMembership interface {
 	EmailAllowed(email string) bool
+	CanonicalUser(user auth.User) auth.User
 	BindCoManagerOnSignIn(email, name string) (league.Member, bool, error)
 	EnsureMember(email, name string) (league.Member, error)
 }
@@ -1035,6 +1036,17 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 			manager.SignOut(r)
 			session.AddFlash(r, "notice", "That Google account is not on this league's invite list.")
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
+			return
+		}
+		// flow.Callback signs the provider's raw identity before returning.
+		// Re-sign the session with the canonical application identity after
+		// raw-email admission succeeds, so every subsequent request shares
+		// the same principal without allowing aliases to bypass admission.
+		user = membership.CanonicalUser(user)
+		if !manager.SignIn(r, user) {
+			manager.SignOut(r)
+			session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
+			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}
 		// Sign-in creates membership only (registration wave, build item 1 —

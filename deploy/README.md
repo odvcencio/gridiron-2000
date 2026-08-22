@@ -149,6 +149,18 @@ share one metered upstream quota.
   and stops requiring `TANK01_API_KEY` locally — the relay injects the
   real key upstream (see `internal/fantasy/model.go`'s `ConfigFromEnv` and
   `Enabled`).
+- When one operator signs in with multiple permitted Google accounts, set the
+  canonical address in `COMMISSIONER_EMAILS` and map each alternate
+  explicitly with `IDENTITY_ALIASES=alias=canonical`. The raw alias still
+  must pass the league's independent domain/allowlist/invite gate. Internal
+  member keys, co-manager bindings, boards, Pick'em, Blitz, notification
+  preferences, OAuth sessions, and audit attribution then resolve to the
+  canonical address.
+- The identity startup migration is idempotent and fails closed on conflicting
+  seats, roles, or user-owned values. It leaves raw invite entries unchanged
+  because they are admission policy, not identity ownership. Apply the mapping
+  to both paired league Secrets before restarting either instance; review
+  startup health/logs for migration errors before proceeding.
 - `statrelay` caches each upstream response by request path and query, so
   two league instances requesting the identical Tank01 URL within its TTL
   window collapse to one upstream call. Concurrent identical requests

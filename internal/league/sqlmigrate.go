@@ -143,6 +143,26 @@ func (s *Store) openLocked() error {
 	if err := s.rebuildShadowLocked(); err != nil {
 		return s.abandonLocked(fresh, err)
 	}
+	identityChanged, err := reconcileIdentityState(&s.state, s.identityResolver)
+	if err != nil {
+		return s.abandonLocked(fresh, err)
+	}
+	if identityChanged {
+		for _, id := range identityStateCollections() {
+			s.dirty |= 1 << uint(id)
+		}
+		if err := s.writeDirtyLocked(); err != nil {
+			return s.abandonLocked(fresh, fmt.Errorf("identity alias migration: %w", err))
+		}
+		state, err = loadStateFromDB(db)
+		if err != nil {
+			return s.abandonLocked(fresh, fmt.Errorf("identity alias migration readback: %w", err))
+		}
+		s.state = state
+		if err := s.rebuildShadowLocked(); err != nil {
+			return s.abandonLocked(fresh, err)
+		}
+	}
 	return nil
 }
 
@@ -444,6 +464,9 @@ func (s *Store) importJSONLocked() (bool, error) {
 	decoded.SchemaVersion = currentSchemaVersion
 	migrateLegacyDraftLifecycle(&decoded)
 	normalizeState(&decoded)
+	if _, err := reconcileIdentityState(&decoded, s.identityResolver); err != nil {
+		return false, err
+	}
 	// This marker is emitted by colScalars in the same writeDirtyLocked
 	// transaction as every imported collection. A restart can therefore
 	// distinguish a committed import from a database created before the

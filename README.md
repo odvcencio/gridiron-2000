@@ -60,10 +60,34 @@ GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
 LEAGUE_ALLOWED_EMAILS=alex@example.com,maya@example.com
+COMMISSIONER_EMAILS=commissioner@example.com
+# Optional explicit identity merge; raw aliases still need league admission.
+IDENTITY_ALIASES=alias@example.com=commissioner@example.com
 DEMO_MODE=false
 ```
 
 An authenticated manager claims the first open seat. The allowlist should contain one account per configured team before exposing the app outside your home network. Production needs HTTPS, a strong random `SESSION_SECRET`, and the production callback URL registered with Google.
+
+### One person, multiple Google identities
+
+Use `IDENTITY_ALIASES` when the same commissioner has more than one
+permitted Google email:
+
+```dotenv
+COMMISSIONER_EMAILS=oscar.villavicencio@stablekernel.com
+IDENTITY_ALIASES=oscar@m31labs.dev=oscar.villavicencio@stablekernel.com
+```
+
+Mappings are explicit, one-way, and fail closed on malformed, chained, or
+ambiguous entries. The raw provider email is checked against
+`LEAGUE_ALLOWED_EMAILS`, configured membership domains, and runtime invites
+before it is canonicalized. After admission, the canonical identity is used
+for commissioner authorization, seat/team ownership, co-manager bindings,
+Big Board, Pick'em, Blitz, notification preferences, sessions, and audit
+attribution. On startup, existing internal state is migrated idempotently;
+conflicting seats, roles, picks, or preferences stop startup for review.
+Invite entries themselves remain raw policy records, so adding an alias never
+silently grants league access.
 
 ## Assemble the free Signal Wire
 
@@ -183,7 +207,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | --- | --- | --- |
 | `DRAFT_AT` | `2026-08-22T16:00:00-04:00` | Draft start as RFC3339 |
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
-| `COMMISSIONER_EMAILS` | empty | Accounts allowed into `/admin` |
+| `COMMISSIONER_EMAILS` | empty | Canonical accounts allowed into `/admin` |
+| `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings for one person; internal ownership and audit only |
 | `TANK01_API_KEY` | empty | Enables the live Tank01 draft pool |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
