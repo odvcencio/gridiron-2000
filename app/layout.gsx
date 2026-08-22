@@ -296,9 +296,10 @@ func Layout() Node {
 						{data.league.footer_line}
 					</If>
 				</p>
-				<nav aria-label="Legal">
+				<nav aria-label="Footer">
 					<a href="/privacy" data-gosx-link>Privacy</a>
 					<a href="/terms" data-gosx-link>Terms</a>
+					<a href="/open-source" data-gosx-link>Run your own league →</a>
 				</nav>
 			</div>
 			<div class="footer-status">
