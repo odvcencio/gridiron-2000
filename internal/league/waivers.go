@@ -414,6 +414,13 @@ func faabRemaining(state PersistedState, budget int) map[string]int {
 	return remaining
 }
 
+// faabUnits renders a FAAB amount as explicit non-currency units.
+// FAAB is a season allotment of bidding units, never money, so it must
+// never carry a currency symbol.
+func faabUnits(amount int) string {
+	return strconv.Itoa(amount) + " FAAB"
+}
+
 // waiverOrderPosition returns teamID's 1-based position in order, or 0
 // when absent (should not happen for a known team; defensive only).
 func waiverOrderPosition(order []string, teamID string) int {
