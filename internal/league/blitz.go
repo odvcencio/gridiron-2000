@@ -159,16 +159,61 @@ func blitzGameForTeam(games []BlitzGame, team string) (BlitzGame, bool) {
 	return BlitzGame{}, false
 }
 
-// blitzPlayerLocked reports whether a player's NFL team has already kicked
-// off in this slate (the pick'em lock idiom, F8: !now.Before(kickoff)). A
-// team with no slate game locks by default — a defensive fallback for a
-// stale entry left over after a pool change; see BlitzRemove.
+// blitzGameLocked reports whether game's players are locked: kickoff has
+// passed (the pick'em lock idiom, F8: !now.Before(kickoff)). Kickoff is
+// the whole rule — a game the feed has not yet placed in time carries the
+// zero instant (preseasonKickoff returns it when Tank01 ships neither
+// gameTime_epoch nor a parsable gameDate), which already reads as locked
+// and so fails safe.
+//
+// This is the one lock definition. Every Blitz surface calls it: the
+// add/remove gates (V9), the eligible board, the entry slots, the
+// leaderboard reveal rule, and the fingerprint's lock digest. They must
+// never disagree about whether one player is locked.
+func blitzGameLocked(game BlitzGame, now time.Time) bool {
+	return !now.Before(game.Kickoff)
+}
+
+// blitzGameState names a game's lock state for display and for the
+// fingerprint digest: open (upcoming), live (kicked off, still playing),
+// or final.
+func blitzGameState(game BlitzGame, now time.Time) string {
+	switch {
+	case game.Final:
+		return "final"
+	case blitzGameLocked(game, now):
+		return "live"
+	default:
+		return "open"
+	}
+}
+
+// blitzLockDigest renders "gameID=open|live|final" across every known
+// slate game, sorted for stability. StateFingerprint appends it so a
+// board open across a kickoff soft-refreshes on the same poll everything
+// else uses (the presenceDigest idiom, service.go): the snapshot version
+// alone cannot carry this, because a lock transition is driven by the
+// clock, not by a fetch — and the poller only fetches a game some member
+// actually entered.
+func blitzLockDigest(games []BlitzGame, now time.Time) string {
+	parts := make([]string, 0, len(games))
+	for _, game := range games {
+		parts = append(parts, game.ID+"="+blitzGameState(game, now))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, ",")
+}
+
+// blitzPlayerLocked reports whether a player's NFL team is locked in this
+// slate. A team with no slate game locks by default — a defensive
+// fallback for a stale entry left over after a pool change; see
+// BlitzRemove.
 func blitzPlayerLocked(games []BlitzGame, team string, now time.Time) bool {
 	game, ok := blitzGameForTeam(games, team)
 	if !ok {
 		return true
 	}
-	return !now.Before(game.Kickoff)
+	return blitzGameLocked(game, now)
 }
 
 // blitzSunsetAt resolves the sunset instant: 48 hours after the last pre3
@@ -277,7 +322,7 @@ func (s *Service) BlitzAdd(r *http.Request, slate, playerID string) error {
 	if !hasGame {
 		return fmt.Errorf("that player's team does not play in this slate")
 	}
-	if !now.Before(game.Kickoff) {
+	if blitzGameLocked(game, now) {
 		return fmt.Errorf("that player's game has already kicked off")
 	}
 	entry := s.store.Snapshot().BlitzEntries[owner][slate]
@@ -333,7 +378,7 @@ func (s *Service) BlitzRemove(r *http.Request, slate, playerID string) error {
 		return fmt.Errorf("that player is not in your entry")
 	}
 	if player, ok := s.pool().byID[playerID]; ok {
-		if game, hasGame := blitzGameForTeam(slateGames, player.NFLTeam); hasGame && !now.Before(game.Kickoff) {
+		if game, hasGame := blitzGameForTeam(slateGames, player.NFLTeam); hasGame && blitzGameLocked(game, now) {
 			return fmt.Errorf("that player's game has already kicked off")
 		}
 	}
@@ -476,6 +521,12 @@ type blitzEligibleRow struct {
 	hasData  bool
 	statLine string
 	resting  bool
+	// locked and state describe the player's slate game (blitzGameLocked,
+	// blitzGameState). A locked row is still listed — the player is real,
+	// on the slate, and the board should say what happened to them — but
+	// it can no longer be added, and it sorts below every open row.
+	locked bool
+	state  string
 }
 
 // blitzOrderEligible sorts rows into the board's three tiers (owner
@@ -490,6 +541,12 @@ type blitzEligibleRow struct {
 func blitzOrderEligible(rows []blitzEligibleRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
+		// Locked players sink below every addable one, ahead of every
+		// other key: a row you cannot pick must never outrank a row you
+		// can, however well the locked player produced in week 1.
+		if a.locked != b.locked {
+			return !a.locked
+		}
 		aScored, bScored := a.points > 0, b.points > 0
 		if aScored != bScored {
 			return aScored
@@ -521,11 +578,11 @@ func blitzOrderEligible(rows []blitzEligibleRow) {
 // compact stat line, or an honest "no pre1 snaps" when there is none),
 // a rookie flag, and the resting tag, so BlitzPoolRow (app/blitz/
 // page.gsx) never has to compute any of this itself.
-func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64, pre1Stats map[string]map[string]float64) []map[string]any {
-	teams := map[string]bool{}
+func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64, pre1Stats map[string]map[string]float64, now time.Time) []map[string]any {
+	gameByTeam := make(map[string]BlitzGame, 2*len(slateGames))
 	for _, game := range slateGames {
-		teams[game.Away] = true
-		teams[game.Home] = true
+		gameByTeam[game.Away] = game
+		gameByTeam[game.Home] = game
 	}
 	// Resolved once for the same reason scoringValues is: a matchupIndex
 	// scans every slate game, and this eligible list renders every pool
@@ -536,7 +593,8 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 		if player.Position == "" || player.Position == "DST" {
 			continue
 		}
-		if !teams[strings.ToUpper(player.NFLTeam)] {
+		game, plays := gameByTeam[strings.ToUpper(player.NFLTeam)]
+		if !plays {
 			continue
 		}
 		stats := pre1Stats[player.ID]
@@ -546,6 +604,8 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 			hasData:  len(stats) > 0,
 			statLine: preWeek1StatLine(stats),
 			resting:  blitzRests(player),
+			locked:   blitzGameLocked(game, now),
+			state:    blitzGameState(game, now),
 		})
 	}
 	blitzOrderEligible(rows)
@@ -564,9 +624,28 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 		card["pre1_summary"] = summary
 		card["is_rookie"] = row.player.Rookie
 		card["resting"] = row.resting
+		card["locked"] = row.locked
+		card["lock_label"] = blitzLockLabels[row.state]
 		out = append(out, card)
 	}
 	return out
+}
+
+// blitzLockLabels is the row chip a locked eligible player carries: why
+// this player can no longer be added. An open game has no chip.
+var blitzLockLabels = map[string]string{
+	"open":  "",
+	"live":  "KICKED OFF",
+	"final": "GAME FINAL",
+}
+
+// blitzPlayerCountPhrase renders a player count with its correct noun:
+// "1 player", "4 players".
+func blitzPlayerCountPhrase(count int) string {
+	if count == 1 {
+		return "1 player"
+	}
+	return strconv.Itoa(count) + " players"
 }
 
 // blitzMemberEntry is one leaderboard row before ranking.
@@ -689,9 +768,22 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 
 	entry := state.BlitzEntries[viewerKey][slate]
 	slots := s.blitzSlotMaps(entry, slateGames, liveStats, scoringValues, pool, now)
+	// entryOpen gates the slate as a whole (sign-in, sunset, every game
+	// final). Each eligible row then gates itself on its own game's
+	// kickoff, so a slate that is still open never offers an Add button
+	// for a player whose game has started.
+	entryOpen := viewerKey != "" && !archived && !closed
 	eligible := []map[string]any{}
+	lockedEligible := 0
 	if !archived && !closed {
-		eligible = s.blitzEligiblePlayers(pool, slateGames, scoringValues, s.blitzPre1Stats())
+		eligible = s.blitzEligiblePlayers(pool, slateGames, scoringValues, s.blitzPre1Stats(), now)
+		for _, row := range eligible {
+			locked, _ := row["locked"].(bool)
+			if locked {
+				lockedEligible++
+			}
+			row["can_add"] = entryOpen && !locked
+		}
 	}
 
 	entryCount := 0
@@ -707,7 +799,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	}
 	games := make([]map[string]any, 0, len(slateGames))
 	for _, game := range slateGames {
-		locked := !now.Before(game.Kickoff)
+		locked := blitzGameLocked(game, now)
 		status := "UPCOMING"
 		switch {
 		case game.Final:
@@ -738,25 +830,33 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"other_slate":       other,
 		"other_slate_label": blitzSlateLabel(other),
 		"can_enter":         viewerKey != "" && !archived,
-		// entry_open additionally requires the slate itself to still be
-		// open; the template uses this single flag to gate the Add/Remove
-		// controls instead of combining can_enter and slate_closed inline.
-		"entry_open":        viewerKey != "" && !archived && !closed,
-		"entry_count":       entryCount,
-		"slots":             slots,
-		"slots_count":       len(slots),
-		"slots_empty":       len(slots) == 0,
-		"slots_full":        len(slots) >= 5,
-		"eligible":          eligible,
-		"eligible_empty":    len(eligible) == 0,
-		"slate_closed":      closed,
-		"games":             games,
-		"games_empty":       len(games) == 0,
-		"leaderboard":       leaderboard,
-		"leaderboard_empty": len(leaderboard) == 0,
-		"has_archive":       false,
-		"archive":           map[string]any{},
-		"league":            s.leagueMap(),
+		// entry_open gates the slate; each eligible row's own can_add
+		// gates the player (see entryOpen above). The template reads
+		// can_add for the Add button, never entry_open, so a started
+		// game's players lock without waiting for the whole slate.
+		"entry_open":  entryOpen,
+		"entry_count": entryCount,
+		// locked_eligible_label reports how many listed players have
+		// already started, so the board can say it in one line instead of
+		// leaving the reader to count disabled buttons. The count is
+		// rendered as a phrase here because the template cannot choose
+		// between "player" and "players" itself.
+		"locked_eligible_label": blitzPlayerCountPhrase(lockedEligible),
+		"has_locked_eligible":   lockedEligible > 0,
+		"slots":                 slots,
+		"slots_count":           len(slots),
+		"slots_empty":           len(slots) == 0,
+		"slots_full":            len(slots) >= 5,
+		"eligible":              eligible,
+		"eligible_empty":        len(eligible) == 0,
+		"slate_closed":          closed,
+		"games":                 games,
+		"games_empty":           len(games) == 0,
+		"leaderboard":           leaderboard,
+		"leaderboard_empty":     len(leaderboard) == 0,
+		"has_archive":           false,
+		"archive":               map[string]any{},
+		"league":                s.leagueMap(),
 	}
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	data["matchup_source_label"] = matchupLabel
