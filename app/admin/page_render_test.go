@@ -71,13 +71,13 @@ func TestAdminPageOffersSeatTrimBeforeTheDraft(t *testing.T) {
 	if !strings.Contains(body, "Drop unclaimed seats") {
 		t.Errorf("seat-trim control rendered without its button label")
 	}
-	if !strings.Contains(body, "discards that unplayed schedule") || !strings.Contains(body, "Regenerate it afterward") {
+	if !strings.Contains(body, "discards that unplayed schedule") || !strings.Contains(body, "final order draw will publish a replacement") {
 		t.Errorf("seat-trim control does not explain the schedule reset and regeneration requirement")
 	}
 	// The runbook must name the control, and name it before randomizing:
 	// randomizing first produces an order still listing the trimmed seats.
 	trimStep := strings.Index(body, "drop the seats nobody claimed")
-	randomizeStep := strings.Index(body, "Randomize the draft order")
+	randomizeStep := strings.Index(body, "Draw the final order and publish the schedule")
 	if trimStep < 0 {
 		t.Errorf("draft-night runbook does not mention dropping unclaimed seats")
 	}
@@ -97,6 +97,34 @@ func TestAdminPageDraftOrderCopyUsesStartLifecycle(t *testing.T) {
 		if strings.Contains(body, stale) {
 			t.Errorf("draft-night runbook retained stale lock copy %q", stale)
 		}
+	}
+}
+
+func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(source)
+	for _, want := range []string{
+		"Draw order + schedule · email once",
+		"six shuffle passes in memory",
+		"atomically publishes the final order and 14-week schedule",
+		"FINAL ORDER ALREADY SENT",
+		"type REDRAW ORDER",
+		"Redraw and email replacement",
+		`name="order_token"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("draft-order safety copy missing %q", want)
+		}
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(serverSource), `!= "REDRAW ORDER"`) {
+		t.Fatal("replacement draw is not guarded by the explicit confirmation phrase")
 	}
 }
 
@@ -193,7 +221,7 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGeneration(t *testing.T) {
 		"Regular-season control",
 		"Generate regular-season schedule",
 		"Close a scoring week",
-		"playoff seeding is not available yet",
+		"commissioner seeding automation is not wired into this release yet",
 	} {
 		if !strings.Contains(body, snippet) {
 			t.Fatalf("admin page omitted %q: %s", snippet, body)

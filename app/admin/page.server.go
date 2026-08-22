@@ -312,10 +312,24 @@ func init() {
 				return nil
 			},
 			"order-randomize": func(ctx *action.Context) error {
-				if err := league.Default().AdminRandomizeDraftOrder(ctx.Request); err != nil {
+				expectedToken := strings.TrimSpace(ctx.FormData["order_token"])
+				redraw := expectedToken != ""
+				if redraw && strings.TrimSpace(ctx.FormData["confirm"]) != "REDRAW ORDER" {
+					message := "type REDRAW ORDER to replace the published order and email everyone again"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				scheduleCreated, err := league.Default().AdminRandomizeDraftOrder(ctx.Request, expectedToken)
+				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Draft order randomized.")
+				notice := "Final draft order drawn after six shuffle passes. The regular-season schedule is published, then managers receive one notification."
+				if !scheduleCreated {
+					notice = "Final draft order drawn after six shuffle passes. The existing regular-season schedule was preserved, then managers receive one notification."
+				}
+				if redraw {
+					notice = "Replacement draft order drawn after six shuffle passes. The existing regular-season schedule was preserved, then managers receive one replacement notification."
+				}
+				actionui.RedirectWithNotice(ctx, "/admin", notice)
 				return nil
 			},
 			"clock-pause": func(ctx *action.Context) error {

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -551,10 +553,17 @@ func TestAdminRandomizeDraftOrder(t *testing.T) {
 	service := newTestService(t, true) // demo mode grants commissioner
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 
-	if err := service.AdminRandomizeDraftOrder(request); err != nil {
+	scheduleCreated, err := service.AdminRandomizeDraftOrder(request, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	state := service.store.Snapshot()
+	if !scheduleCreated || state.Schedule == nil {
+		t.Fatalf("first draw did not publish the regular-season schedule: created=%v schedule=%+v", scheduleCreated, state.Schedule)
+	}
+	if len(state.Schedule.Weeks) != defaultScheduleWeeks || state.Schedule.StartWeek != defaultScheduleStartWeek {
+		t.Fatalf("published schedule = %d weeks from week %d, want %d from %d", len(state.Schedule.Weeks), state.Schedule.StartWeek, defaultScheduleWeeks, defaultScheduleStartWeek)
+	}
 	if !isPermutationOfDefaultTeams(state.DraftOrder) {
 		t.Fatalf("draft order is not a permutation of the eight teams: %v", state.DraftOrder)
 	}
@@ -563,9 +572,33 @@ func TestAdminRandomizeDraftOrder(t *testing.T) {
 	if data["order_randomized"] != true {
 		t.Error("order_randomized must be true after randomizing")
 	}
+	token, _ := data["draft_order_token"].(string)
+	if token == "" || token != orderHash8(state.DraftOrder) {
+		t.Fatalf("draft_order_token = %q, want current order hash", token)
+	}
 	draftOrder, ok := data["draft_order"].([]map[string]any)
 	if !ok || len(draftOrder) != 8 {
 		t.Fatalf("admin draft_order = %v", data["draft_order"])
+	}
+	if _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
+		t.Fatal("a repeated first-draw submission replaced the published order")
+	}
+	if got := service.store.Snapshot().DraftOrder; !slices.Equal(got, state.DraftOrder) {
+		t.Fatalf("stale first-draw submission changed order: %v -> %v", state.DraftOrder, got)
+	}
+	originalSchedule := cloneSchedule(state.Schedule)
+	scheduleCreated, err = service.AdminRandomizeDraftOrder(request, token)
+	if err != nil {
+		t.Fatalf("confirmed replacement draw: %v", err)
+	}
+	if scheduleCreated {
+		t.Fatal("replacement order draw replaced the existing schedule")
+	}
+	if got := service.store.Snapshot().DraftOrder; slices.Equal(got, state.DraftOrder) {
+		t.Fatalf("replacement draw reproduced the published order: %v", got)
+	}
+	if got := service.store.Snapshot().Schedule; !reflect.DeepEqual(got, originalSchedule) {
+		t.Fatalf("replacement draw changed schedule: got %+v want %+v", got, originalSchedule)
 	}
 }
 
