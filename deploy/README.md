@@ -263,16 +263,16 @@ links. Each peer serves only the typed, PII-free
 `/api/commissioner/v2/summary` contract, and its response must identify the
 peer and return the configured normalized public origin.
 
-The tracked two-instance topology uses these canonical, cross-checked IDs and origins (the token remains in each Deployment Secret):
+The tracked two-instance topology is one reference fleet and uses these canonical, cross-checked IDs and origins (the token remains in each Deployment Secret):
 
 - Flagship: `COMMISSIONER_INSTANCE_ID=g2k`; peer `skl=http://gridiron-2000-sk.stablekernel.svc.cluster.local|https://sk.gridiron.draco.quest`.
 - Stable Kernel: `COMMISSIONER_INSTANCE_ID=skl`; peer `g2k=http://gridiron-2000.gridiron.svc.cluster.local|https://gridiron.draco.quest`.
 
-The left origin is server-only service DNS; the right origin is the exact trusted browser-facing host. Keep the two values paired when changing either Deployment.
+The left origin is server-only service DNS; the right origin is the exact trusted browser-facing host. Keep the two values paired when changing any Deployment. Additional instances use the same grammar. Each instance lists every peer it should display; configure a full peer mesh when every `/commissioner` page should show the complete fleet.
 
 Generate one newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least
-256 bits and place the identical value in both participating existing
-application Secrets *before either Deployment rolls*. Do not reuse
+256 bits and place the identical value in every participating application
+Secret *before any participating Deployment rolls*. Do not reuse
 `DATA_API_TOKEN`, `SESSION_SECRET`, or a value copied from another Secret.
 Never print, echo, log, or fetch the token value; use the shared opaque patch
 file described in the launch checklist. The federation token cannot mutate
@@ -283,9 +283,12 @@ commissioner, and CSRF checks.
 
 Peer URLs are deployment wiring, not league rules, so they deliberately stay
 out of `league.json`. Startup rejects missing tokens, duplicate/self IDs,
-missing service/public pairs, credentials, paths, queries, fragments, unsafe
-origins, and more than eight peers. Peer reads are concurrent,
-redirect-disabled, size-bounded, and time-bounded; an unavailable league
+missing service/public pairs, credentials, paths, queries, fragments, and
+unsafe origins. Fleet size is not capped. Peer reads preserve configured
+order and use a bounded worker pool: `COMMISSIONER_HQ_CONCURRENCY` defaults
+to 8 simultaneous reads and accepts 1–64 without limiting the number of
+configured peers. Reads remain redirect-disabled, size-bounded, and
+time-bounded; an unavailable league
 becomes one truthful degraded card rather than failing the whole HQ. During
 the SK-first canary, the flagship card may be unavailable until the second
 roll; after the flagship rolls, both peer cards are required for acceptance.

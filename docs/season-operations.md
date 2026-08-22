@@ -40,7 +40,7 @@ The commissioner performs this once for each isolated league instance.
 6. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
 7. Ask every manager to claim the intended franchise before draft order is finalized.
 
-For the tracked two-league Kubernetes topology, both applications use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service.
+For a multi-instance Kubernetes topology, every league can use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service. The tracked flagship and Stable Kernel manifests are the current two-instance example, not a fleet-size limit.
 
 ## Manager five-minute setup
 
@@ -83,7 +83,7 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 - Managers set starters at `/team` and resolve empty or invalid lineup slots.
 - A player's slot locks when that player's game begins. Other players whose games have not started remain editable.
 - Managers review injuries and source freshness. An unpublished injury file is `AWAITING_RELEASE`, not evidence that nobody is injured.
-- Commissioners review `/commissioner` for attention items across both leagues, then follow the owning league's link to act.
+- Commissioners review `/commissioner` for attention items across every configured league, then follow the owning league's link to act.
 
 ### During games
 
@@ -116,11 +116,12 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 
 `Force close week N` is an exception path. It requires the exact typed confirmation and deliberately bypasses advisory readiness. Before forcing it, record why the upstream schedule or ledger cannot satisfy the normal gate and accept that the current mirrored inputs become the closed result.
 
-## Two-league commissioner operations
+## Fleet-scale commissioner operations
 
 `/commissioner` is a fleet readout, not a multi-tenant database.
 
 - It shows each configured instance's release, runtime, seats, readiness, draft, schedule, week-close, player pool, open-data state, and attention items.
+- A fleet may contain any number of isolated league instances. Each instance lists the peers it should display; use a full peer mesh when every HQ should show the complete fleet.
 - It intentionally excludes manager identities and other league PII.
 - It does not share browser sessions or grant cross-host mutation authority.
 - It does not merge memberships, rosters, drafts, transactions, or SQLite state.
@@ -169,9 +170,9 @@ Before calling a league season-ready, verify:
 - [ ] The regular-season schedule is generated and its seed is recorded.
 - [ ] Managers understand per-player lineup locks, waiver mode, and trade review.
 - [ ] The normal week-close gate explains unfinished or stale inputs.
-- [ ] `/commissioner` shows both expected instances without PII.
+- [ ] `/commissioner` shows every expected instance without PII.
 - [ ] `/api/health` exposes the expected release and provider state.
-- [ ] Stable Kernel and flagship use the shared relay rather than duplicate upstream credentials.
+- [ ] Every co-located league uses the shared relay rather than duplicating upstream credentials.
 - [ ] The release rollback point is recorded before either deployment changes.
 
 For deployment mechanics, immutable image provenance, SK-first canary order, and rollback commands, use [`launch-checklist.md`](launch-checklist.md). For the public manager-oriented introduction, use `/guide`.

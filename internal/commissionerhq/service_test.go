@@ -3,10 +3,12 @@ package commissionerhq
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,6 +136,61 @@ func TestFleetUnavailableCardRetainsConfiguredPublicOrigin(t *testing.T) {
 	entries := service.Fleet(context.Background())
 	if len(entries) != 2 || entries[1].Available() || entries[1].PublicURL != "https://sk.example" {
 		t.Fatalf("unavailable card = %#v", entries)
+	}
+}
+
+func TestFleetBoundsConcurrencyWithoutLimitingFleetSize(t *testing.T) {
+	const (
+		peerCount  = 12
+		concurrent = 3
+	)
+	var active atomic.Int32
+	var peak atomic.Int32
+	peers := make([]Peer, 0, peerCount)
+	servers := make([]*httptest.Server, 0, peerCount)
+	for index := range peerCount {
+		id := fmt.Sprintf("league-%02d", index)
+		publicURL := fmt.Sprintf("https://%s.example", id)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			current := active.Add(1)
+			for {
+				observed := peak.Load()
+				if current <= observed || peak.CompareAndSwap(observed, current) {
+					break
+				}
+			}
+			time.Sleep(20 * time.Millisecond)
+			active.Add(-1)
+			_ = json.NewEncoder(w).Encode(testSummary(id, publicURL))
+		}))
+		servers = append(servers, server)
+		peers = append(peers, Peer{ID: id, ServiceURL: mustOrigin(server.URL), PublicURL: mustOrigin(publicURL)})
+	}
+	defer func() {
+		for _, server := range servers {
+			server.Close()
+		}
+	}()
+
+	service, err := New(Config{
+		InstanceID: "local", Token: "token", Timeout: time.Second,
+		Peers: peers, FetchConcurrency: concurrent,
+	}, func() Summary { return testSummary("local", "https://local.example") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := service.Fleet(context.Background())
+	if len(entries) != peerCount+1 {
+		t.Fatalf("entry count = %d, want %d", len(entries), peerCount+1)
+	}
+	for index := range peerCount {
+		want := fmt.Sprintf("league-%02d", index)
+		if entry := entries[index+1]; entry.PeerID != want || entry.Error != "" || entry.Summary.Instance.ID != want {
+			t.Fatalf("entry %d = %#v, want available %s", index+1, entry, want)
+		}
+	}
+	if got := peak.Load(); got < 1 || got > concurrent {
+		t.Fatalf("peak concurrency = %d, want 1..%d", got, concurrent)
 	}
 }
 

@@ -1,6 +1,10 @@
 package commissionerhq
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestParsePeersAcceptsExplicitServiceAndPublicOrigins(t *testing.T) {
 	peers, err := parsePeers("g2k", "skl=http://service.internal:80/|https://SK.example:443/,fun=https://fun.example|http://public.example:8080")
@@ -18,6 +22,22 @@ func TestParsePeersAcceptsExplicitServiceAndPublicOrigins(t *testing.T) {
 	}
 	if got := peers[1].PublicURL.String(); got != "http://public.example:8080" {
 		t.Fatalf("non-default public origin = %q", got)
+	}
+}
+
+func TestParsePeersAcceptsArbitraryFleetSize(t *testing.T) {
+	const peerCount = 32
+	parts := make([]string, 0, peerCount)
+	for index := range peerCount {
+		id := fmt.Sprintf("league-%02d", index)
+		parts = append(parts, fmt.Sprintf("%s=https://%s.internal|https://%s.example", id, id, id))
+	}
+	peers, err := parsePeers("local", strings.Join(parts, ","))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(peers) != peerCount || peers[0].ID != "league-00" || peers[peerCount-1].ID != "league-31" {
+		t.Fatalf("peers = %#v", peers)
 	}
 }
 
@@ -57,6 +77,28 @@ func TestConfigFromEnvRequiresTokenForPeers(t *testing.T) {
 	t.Setenv("COMMISSIONER_HQ_TOKEN", "")
 	if _, err := ConfigFromEnv(); err == nil {
 		t.Fatal("peer topology without token must fail closed")
+	}
+}
+
+func TestConfigFromEnvControlsFetchConcurrencyWithoutLimitingPeers(t *testing.T) {
+	t.Setenv("COMMISSIONER_INSTANCE_ID", "g2k")
+	t.Setenv("COMMISSIONER_HQ_PEERS", "")
+	t.Setenv("COMMISSIONER_HQ_CONCURRENCY", "3")
+	config, err := ConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.FetchConcurrency != 3 {
+		t.Fatalf("fetch concurrency = %d, want 3", config.FetchConcurrency)
+	}
+
+	for _, invalid := range []string{"0", "65", "many"} {
+		t.Run(invalid, func(t *testing.T) {
+			t.Setenv("COMMISSIONER_HQ_CONCURRENCY", invalid)
+			if _, err := ConfigFromEnv(); err == nil {
+				t.Fatalf("concurrency %q was accepted", invalid)
+			}
+		})
 	}
 }
 
