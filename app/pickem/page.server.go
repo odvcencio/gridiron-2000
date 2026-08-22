@@ -67,7 +67,7 @@ func init() {
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			return server.Metadata{
 				Title:       server.Title{Default: league.PageTitle("Pick 'Em")},
-				Description: "Weekly winner picks against the whole league.",
+				Description: "Weekly against-the-spread picks with Thursday line freezes and per-game kickoff locks.",
 			}, nil
 		},
 		Actions: route.FileActions{

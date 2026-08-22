@@ -3579,12 +3579,59 @@ body.is-on-clock .draft-clock-panel {
 .pickem-row {
   position: relative;
   display: grid;
-  grid-template-columns: 6rem minmax(10rem, 1fr) auto 6rem;
+  grid-template-columns: 7rem minmax(8rem, 0.75fr) minmax(15rem, 1.25fr) auto minmax(9rem, 0.7fr);
   align-items: center;
   gap: var(--space-sm);
   padding: 0.45rem var(--space-sm);
   border: 1px solid var(--color-border);
   border-top: none;
+}
+
+.pickem-market {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.pickem-market__head,
+.pickem-market__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem 0.65rem;
+}
+
+.pickem-market__head {
+  color: var(--color-text-secondary);
+  font-size: var(--type-2xs);
+}
+
+.pickem-market__line {
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+}
+
+.pickem-market > small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.6rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+}
+
+.pickem-rule-note {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0 0 var(--space-md);
+  padding: var(--space-sm);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-white-faint);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
 }
 
 .pickem-row:first-child {
@@ -5181,6 +5228,10 @@ body.is-on-clock .draft-clock-panel {
   .pickem-buttons {
     flex: 1 1 100%;
     justify-content: flex-start;
+  }
+
+  .pickem-market {
+    flex: 1 1 100%;
   }
 
   .pickem-status {

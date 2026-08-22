@@ -40,8 +40,8 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	// and Correct, and the league's one graded pick reaches the season
 	// leaderboard for real.
 	games := []league.GameInfo{
-		{ID: "g-final", Week: 1, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA"},
-		{ID: "g-open", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN"},
+		{ID: "g-final", Week: 1, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true, SpreadLineTenths: 35, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		{ID: "g-open", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SpreadLineTenths: -25, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
 	}
 	league.Default().SetScheduleSource(func() []league.GameInfo { return games })
 
@@ -51,6 +51,7 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	}
 	games[0].Kickoff = now.Add(-72 * time.Hour)
 	games[0].Final = true
+	games[0].ScoresPresent = true
 	games[0].AwayScore = 24
 	games[0].HomeScore = 17
 
@@ -79,6 +80,7 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 		t.Fatalf("GET / (pickem page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
+	compactBody := strings.Join(strings.Fields(body), " ")
 	if strings.Contains(body, "WENT DARK") || strings.Contains(body, "render strict component") {
 		t.Fatalf("pickem page rendered the error page instead of game rows: %s", body)
 	}
@@ -96,5 +98,10 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	}
 	if !strings.Contains(body, "rank-row") {
 		t.Fatalf("expected the graded pick to reach the season leaderboard as a real rank-row, got: %s", body)
+	}
+	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0 - 0", "THE LINE FREEZES THURSDAY"} {
+		if !strings.Contains(compactBody, want) {
+			t.Fatalf("expected ATS Pick'em contract %q in rendered page, got: %s", want, body)
+		}
 	}
 }

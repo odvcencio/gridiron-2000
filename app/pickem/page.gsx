@@ -69,6 +69,17 @@ type PickemGameRow struct {
 	Winner         string
 	Correct        bool
 	Wrong          bool
+	Push           bool
+	MissedLoss     bool
+	Void           bool
+	Outcome        string
+	ResultLabel    string
+	AwayLine       string
+	HomeLine       string
+	SpreadState    string
+	SpreadAsOf     string
+	SpreadLock     string
+	SpreadSource   string
 	ScoreDisplay   string
 	Consensus      PickemConsensusView
 }
@@ -83,34 +94,49 @@ component PickemRow(props: PickemRowProps) {
 	return <article class="pickem-row" data-picked={props.Game.Picked}>
 		<small class="mono">{props.Game.KickoffDisplay}</small>
 		<strong>{props.Game.Label}</strong>
+		<div class="pickem-market" data-state={props.Game.SpreadState}>
+			<div class="pickem-market__head mono">
+				<b>{props.Game.SpreadState}</b>
+				<span>{props.Game.SpreadLock}</span>
+			</div>
+			<div class="pickem-market__line mono">
+				<strong>{props.Game.AwayLine}</strong>
+				<span>/</span>
+				<strong>{props.Game.HomeLine}</strong>
+			</div>
+			<small class="mono">
+				{props.Game.SpreadAsOf}
+				{props.Game.SpreadSource}
+			</small>
+		</div>
 		<div class="pickem-buttons">
 			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="team" value={props.Game.Away}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.Away}</button>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.Away}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
 			</If>
 			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="team" value={props.Game.Home}></input>
-					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.Home}</button>
+					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.Home}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
 			</If>
 		</div>
 		<div class="pickem-status">
 			<If cond={props.Game.Final}>
 				<b class="mono">{props.Game.ScoreDisplay}</b>
-				<span class="mono">{props.Game.Winner}</span>
+				<span class="mono">{props.Game.ResultLabel}</span>
 				<If cond={props.Game.Correct}>
 					<b class="pickem-hit">✓</b>
 				</If>
@@ -118,10 +144,8 @@ component PickemRow(props: PickemRowProps) {
 					<b class="pickem-miss">✗</b>
 				</If>
 			</If>
-			<If cond={props.Game.Locked}>
-				<If cond={props.Game.Final == false}>
-					<b class="mono">LOCKED</b>
-				</If>
+			<If cond={props.Game.Final == false}>
+				<b class="mono">{props.Game.ResultLabel}</b>
 			</If>
 		</div>
 		<If cond={props.Game.Locked}>
@@ -150,6 +174,9 @@ type PickemLeaderboardEntry struct {
 	Team    string
 	Correct int
 	Total   int
+	Wins    int
+	Losses  int
+	Pushes  int
 }
 
 component LeaderboardRow(props: PickemLeaderboardEntry) {
@@ -160,9 +187,11 @@ component LeaderboardRow(props: PickemLeaderboardEntry) {
 			<span class="position-chip">{props.Team}</span>
 		</div>
 		<b class="mono">
-			{props.Correct}
-			/
-			{props.Total}
+			{props.Wins}
+			-
+			{props.Losses}
+			-
+			{props.Pushes}
 		</b>
 	</div>
 }
@@ -182,8 +211,8 @@ func Page() Node {
 					SHOTS.
 				</h1>
 				<p>
-					One pick per game. Locks at kickoff. Bragging rights compound weekly.
-					No fantasy team required — pick'em is its own game here.
+					Pick against the frozen market spread. Each game stays open until its own kickoff.
+					After you enter a week, a missed kickoff is a loss — later games still stay open.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -199,17 +228,21 @@ func Page() Node {
 			<div class="pickem-record__stat">
 				<span class="section-index">THIS WEEK</span>
 				<strong class="mono">
-					{data.record.week_correct}
-					/
-					{data.record.week_total}
+					{data.record.week_wins}
+					-
+					{data.record.week_losses}
+					-
+					{data.record.week_pushes}
 				</strong>
 			</div>
 			<div class="pickem-record__stat">
 				<span class="section-index">SEASON</span>
 				<strong class="mono">
-					{data.record.season_correct}
-					/
-					{data.record.season_total}
+					{data.record.season_wins}
+					-
+					{data.record.season_losses}
+					-
+					{data.record.season_pushes}
 				</strong>
 			</div>
 			<div class="pickem-record__stat">
@@ -252,6 +285,10 @@ func Page() Node {
 					<h2>Weekly slate</h2>
 				</div>
 			</div>
+			<p class="pickem-rule-note">
+				<strong>THE LINE FREEZES THURSDAY.</strong>
+				The sheet does not. Every matchup accepts picks until that game's kickoff. Once you make any pick this week, a game you miss becomes a loss; games that have not started remain available.
+			</p>
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">
 					<If cond={data.has_prev_week}>
