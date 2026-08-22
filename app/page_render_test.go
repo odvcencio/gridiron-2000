@@ -172,13 +172,15 @@ func TestHomepageStandingsPendingStateRendersExplicitly(t *testing.T) {
 
 func TestHomepageStandingsRendersFinalizedScheduleData(t *testing.T) {
 	body := runHomepageStandingsFixture(t, "scored")
-	for _, want := range []string{"2026 standings", "Through Week 1", "standing-row", "0–0–1", "0.0", "Scheduled time is the meeting point", "randomizes draft order about one hour", "locks when pick 1 lands"} {
+	for _, want := range []string{"2026 standings", "Through Week 1", "standing-row", "0–0–1", "0.0", "Scheduled time is the meeting point", "randomizes draft order about one hour", "Draft order locks when the commissioner starts the draft"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("scored homepage missing %q: %s", want, body)
 		}
 	}
-	if strings.Contains(body, "Final ’25 table") || strings.Contains(body, "Last season’s damage report") {
-		t.Fatalf("scored homepage retained prior-season standings copy: %s", body)
+	for _, stale := range []string{"Final ’25 table", "Last season’s damage report", "locks when pick 1 lands", "locks once the first pick lands"} {
+		if strings.Contains(body, stale) {
+			t.Fatalf("scored homepage retained stale copy %q: %s", stale, body)
+		}
 	}
 }
 

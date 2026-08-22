@@ -224,7 +224,9 @@ func Page() Node {
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
 								<strong>Randomize the draft order</strong>
-								<small>Use Randomize order in 04 // DRAFT ORDER. It locks once the first pick lands.</small>
+								<small>
+									Use Randomize order in 04 // DRAFT ORDER. Draft order locks when the commissioner starts the draft.
+								</small>
 							</div>
 						</div>
 						<div class="checklist-item">

@@ -461,7 +461,7 @@ func Page() Node {
 				<div class="commissioner-note">
 					<span>Commissioner’s desk</span>
 					<p>
-						Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens; it locks when pick 1 lands.
+						Scheduled time is the meeting point, not an auto-start. The commissioner randomizes draft order about one hour before the room opens. Draft order locks when the commissioner starts the draft.
 					</p>
 					<a href="/draft" data-gosx-link>Review draft protocol</a>
 				</div>

@@ -78,6 +78,20 @@ func TestAdminPageOffersSeatTrimBeforeTheDraft(t *testing.T) {
 	}
 }
 
+func TestAdminPageDraftOrderCopyUsesStartLifecycle(t *testing.T) {
+	body := renderAdminPage(t)
+
+	const authoritative = "Draft order locks when the commissioner starts the draft"
+	if !strings.Contains(body, authoritative) {
+		t.Fatalf("draft-night runbook missing authoritative lock point %q", authoritative)
+	}
+	for _, stale := range []string{"locks once the first pick lands", "locks when pick 1 lands"} {
+		if strings.Contains(body, stale) {
+			t.Errorf("draft-night runbook retained stale lock copy %q", stale)
+		}
+	}
+}
+
 func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
