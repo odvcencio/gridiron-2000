@@ -71,6 +71,9 @@ func TestLeagueScheduleSourcePropagatesSpreadFinalityAndProvenance(t *testing.T)
 	if !game.Final {
 		t.Fatal("source score presence must mark the fixture final")
 	}
+	if !game.ScoresPresent {
+		t.Fatal("source score presence must propagate independently for ATS grading")
+	}
 	if !game.SpreadLinePresent || game.SpreadLineTenths != 35 {
 		t.Fatalf("spread = present:%v tenths:%d, want true/35", game.SpreadLinePresent, game.SpreadLineTenths)
 	}

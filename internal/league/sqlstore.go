@@ -64,6 +64,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate001Initial,
 	migrate002AvatarRefs,
 	migrate003DraftLifecycle,
+	migrate004PickemMarkets,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -245,6 +246,16 @@ func migrate003DraftLifecycle(tx *sql.Tx) error {
 	return nil
 }
 
+func migrate004PickemMarkets(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE pickem_markets (game_id TEXT PRIMARY KEY, data TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("CREATE TABLE pickem_markets: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '5')`); err != nil {
+		return fmt.Errorf("stamp schema_version 5: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -273,6 +284,7 @@ const (
 	colDraftOrder
 	colScoring
 	colPickems
+	colPickemMarkets
 	colBlitzEntries
 	colAutopick
 	colSentLog
@@ -582,6 +594,14 @@ var collectionSpecs = [collectionCount]collectionSpec{
 				for gameID, team := range picks {
 					sink.add("pickems", []any{owner, gameID}, team)
 				}
+			}
+		},
+	},
+	colPickemMarkets: {
+		tables: []tableDef{{name: "pickem_markets", keyCols: []string{"game_id"}, valCols: []string{"data"}}},
+		emit: func(st *PersistedState, sink *rowSink) {
+			for gameID, market := range st.PickemMarkets {
+				sink.add("pickem_markets", []any{gameID}, sink.jsonValue(market))
 			}
 		},
 	},
@@ -1271,6 +1291,20 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	}); err != nil {
 		return state, err
 	}
+	if err := queryRows(db, `SELECT "game_id", "data" FROM pickem_markets`, func(rows *sql.Rows) error {
+		var gameID, raw string
+		if err := rows.Scan(&gameID, &raw); err != nil {
+			return err
+		}
+		var market PickemMarket
+		if err := json.Unmarshal([]byte(raw), &market); err != nil {
+			return fmt.Errorf("pickem_markets data: %w", err)
+		}
+		state.PickemMarkets[gameID] = market
+		return nil
+	}); err != nil {
+		return state, err
+	}
 
 	if err := queryRows(db, `SELECT "owner" FROM blitz_owners`, func(rows *sql.Rows) error {
 		var owner string
@@ -1794,6 +1828,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
+	}
+	if state.PickemMarkets == nil {
+		state.PickemMarkets = map[string]PickemMarket{}
 	}
 	if state.BlitzEntries == nil {
 		state.BlitzEntries = map[string]map[string]BlitzEntry{}
