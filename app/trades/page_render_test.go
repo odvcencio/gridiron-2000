@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -20,11 +21,11 @@ import (
 // drives a real HTTP GET through the actual file router — the same
 // route.AddDir mechanism main.go uses to mount every page — against this
 // package's page.gsx and page.server.go exactly as they sit on disk,
-// following app/matchups and app/join's harness. A fresh demo league has
-// no drafted rosters yet (seeding one requires completing a full draft,
-// which this task's scope forbids touching), so the compose panel's own
-// roster-option list renders empty; counterparties itself needs no
-// roster and renders every other real team, and the inbox/outbox/review/
+// following app/matchups and app/join's harness. The fixture claims two
+// seats so the counterparty list reflects the product rule that only
+// managed franchises are valid trade partners. It has no drafted rosters
+// yet, so the compose panel's own roster-option list renders empty; the
+// inbox/outbox/review/
 // vote sections exercise their real (here, honestly empty) states — the
 // conversion's main regression risk is any of these typed lists failing
 // to flow through their Each loop, which this proves for every one of
@@ -32,9 +33,17 @@ import (
 // a real trade offer this task's scope also cannot seed without touching
 // draft/roster state.
 func TestTradesPageRendersWithRealData(t *testing.T) {
-	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	dataFile := filepath.Join(t.TempDir(), "league-state.json")
+	t.Setenv("DATA_FILE", dataFile)
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
+	store := league.NewStore(dataFile)
+	if _, _, err := store.AssignMember("one@example.com", "One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.AssignMember("two@example.com", "Two"); err != nil {
+		t.Fatal(err)
+	}
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
