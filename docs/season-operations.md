@@ -36,9 +36,9 @@ The commissioner performs this once for each isolated league instance.
 2. Open `/scoring` and read the rendered rules as a manager would. This catches a valid configuration that still expresses the wrong league.
 3. Confirm Google OAuth, `COMMISSIONER_EMAILS`, admission policy, and any `IDENTITY_ALIASES`. An identity alias unifies one person's internal ownership; it does not admit an otherwise unauthorized raw email.
 4. Confirm `/api/health` reports the expected league configuration source, release identity, player-pool mode, player count, roster capacity, and no pool error.
-5. Generate the regular-season schedule in `/admin`. Record its weeks, first NFL week, and seed. A redraw is available only before season start and before any matchup is final.
-6. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
-7. Ask every manager to claim the intended franchise before draft order is finalized.
+5. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
+6. Ask every manager to claim the intended franchise before draft order is finalized.
+7. At the draft-order milestone, one draw publishes both the final order and the default 14-week regular-season schedule, then sends one notification batch. Use the separate schedule control beforehand only when the league needs a custom span or first NFL week.
 
 For a multi-instance Kubernetes topology, every league can use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service. The tracked flagship and Stable Kernel manifests are the current two-instance example, not a fleet-size limit.
 
@@ -61,7 +61,7 @@ The scheduled time never starts the draft.
 
 1. About an hour before the meeting, resolve unclaimed seats. If the league will contract, drop those seats before randomizing the order.
 2. Confirm the player pool covers `teams × draft rounds`. Treat target coverage as planning headroom; roster capacity is the hard draft requirement.
-3. Randomize or confirm the draft order. Starting the draft locks that order.
+3. Draw or confirm the draft order. The initial draw runs six shuffle passes, publishes only the final result plus the regular-season schedule, and sends one manager notification batch. Starting the draft locks the order.
 4. Review claimed and ready counts. A manager may be present but intentionally leave autopick off; ready and autopick are separate controls.
 5. At the meeting time, confirm the room verbally. Type `START` in `/admin` or `/draft` only when pick one should begin immediately.
 6. Use pause, resume, extend, or forced autopick when the room needs intervention. These controls change persisted draft-clock state.
@@ -157,7 +157,7 @@ Use the least destructive response that preserves an honest league record.
 
 ## Current year-one boundary
 
-Gridiron records the regular-season phase and final matchup results. Automated playoff seeding is not available yet. Closing the final configured regular-season week advances the recorded phase but does not invent a playoff bracket. The commissioner must communicate the year-one postseason plan outside the unavailable control and avoid copy that implies seeding already occurred.
+Gridiron records the regular-season phase and final matchup results. The correct playoff boundary is after the last regular-season week closes and standings are final. The bracket engine exists, but automated commissioner seeding is not wired into the product yet; closing the final week advances the recorded phase without inventing a bracket. The commissioner must communicate the year-one postseason plan outside the unavailable control and avoid copy that implies seeding already occurred.
 
 ## Commissioner acceptance checklist
 

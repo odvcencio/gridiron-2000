@@ -223,9 +223,9 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
-								<strong>Randomize the draft order</strong>
+								<strong>Draw the final order and publish the schedule</strong>
 								<small>
-									Use Randomize order in 04 // DRAFT ORDER. Draft order locks when the commissioner starts the draft.
+									Use Draw order + schedule in 04 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then emails once. Draft order locks when the commissioner starts the draft.
 								</small>
 							</div>
 						</div>
@@ -295,7 +295,7 @@ func Page() Node {
 							<span class="section-index">SEASON // SCHEDULE</span>
 							<h2>Regular-season control</h2>
 							<p class="scoring-note">
-								This plan is durable league state. Generating or redrawing it does not start the draft, score a game, or seed playoffs.
+								This plan is durable league state. The final draft-order draw publishes the first 14-week plan automatically; an emergency order redraw preserves it.
 							</p>
 						</div>
 						<span class="position-chip">{data.schedule.status}</span>
@@ -303,7 +303,7 @@ func Page() Node {
 					<If cond={data.schedule.has_schedule == false}>
 						<div class="empty-tape">
 							<strong>NO SCHEDULE GENERATED</strong>
-							<p>Choose the regular-season span and first NFL week. A blank seed draws a fresh seed and records it with the plan.</p>
+							<p>Drawing the final draft order publishes a 14-week plan beginning with NFL week 1. Use this manual control only when a custom span is required before the draw.</p>
 						</div>
 						<form method="post" action={actionPath("schedule-generate")} data-gosx-managed="true" class="season-control-form">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -391,7 +391,7 @@ func Page() Node {
 							</form>
 						</If>
 					</If>
-					<p class="demo-message"><strong>YEAR ONE:</strong> playoff seeding is not available yet; closing the final regular-season week records the phase transition only.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> seed the bracket only after the final regular-season week closes and standings are final. The bracket engine exists, but commissioner seeding automation is not wired into this release yet.</p>
 				</section>
 				<section id="admin-seats" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">
@@ -585,7 +585,7 @@ func Page() Node {
 							</form>
 							<p class="demo-message">
 								<strong>SCHEDULE WARNING:</strong>
-								if a schedule already exists, this action discards that unplayed schedule. Regenerate it afterward so every matchup names only the kept teams.
+								if a schedule already exists, this action discards that unplayed schedule. The final order draw will publish a replacement for the kept teams.
 							</p>
 							<p class="scoring-note">
 								{data.unclaimed_seat_count}
@@ -594,13 +594,33 @@ func Page() Node {
 							</p>
 						</If>
 					</If>
-					<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<button class="button button--primary" type="submit">Randomize order</button>
-					</form>
-					<p class="scoring-note">
-						Run this one hour before the draft. Locked once the commissioner starts the draft.
-					</p>
+					<If cond={data.order_randomized == false}>
+						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="order_token" value=""></input>
+							<button class="button button--primary" type="submit">Draw order + schedule · email once</button>
+						</form>
+						<p class="scoring-note">
+							One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then sends one email to managers with draft reminders enabled.
+						</p>
+					</If>
+					<If cond={data.order_randomized}>
+						<p class="demo-message">
+							<strong>FINAL ORDER ALREADY SENT:</strong>
+							an ordinary second click cannot redraw it or email the league again.
+						</p>
+						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="order_token" value={data.draft_order_token}></input>
+							<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
+							<input id="draft-order-redraw-confirm" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
+							<button class="button" type="submit">Redraw and email replacement</button>
+						</form>
+						<p class="scoring-note">
+							Replacement draws run six passes, preserve the published schedule, and send exactly one new notice. Use only when the published draw must be replaced.
+						</p>
+					</If>
+					<p class="scoring-note">Run this one hour before the draft. Locked once the commissioner starts the draft.</p>
 				</section>
 				<section id="admin-data" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
