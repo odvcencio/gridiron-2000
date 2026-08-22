@@ -188,10 +188,11 @@ share one metered upstream quota.
   Exit `0` means the projection is safe; exit `2` means it failed closed. Its
   JSON contains only aggregate before/after counts, `wouldChange`, and a bounded
   conflict category (`seat`, `role`, `co_manager`, `board`, `pickem`, `blitz`,
-  `notification`, or `identity_state`). It prints no emails, team IDs, player
-  IDs, preference names, secret values, or raw migration errors, and it has no
-  persistence path. Keep the snapshot private and remove it using the same
-  operator procedure that created it.
+  `notification`, `identity_state`, or `snapshot_schema`). A snapshot schema
+  newer than this binary supports fails closed. The doctor prints no emails,
+  team IDs, player IDs, preference names, secret values, or raw migration
+  errors, and it has no persistence path. Keep the snapshot private and remove
+  it using the same operator procedure that created it.
 - `statrelay` caches each upstream response by request path and query, so
   two league instances requesting the identical Tank01 URL within its TTL
   window collapse to one upstream call. Concurrent identical requests

@@ -82,6 +82,28 @@ func TestIdentityDoctorHidesMalformedConfigurationDetails(t *testing.T) {
 	}
 }
 
+func TestIdentityDoctorJSONSnapshotFailsClosedOnFutureSchema(t *testing.T) {
+	t.Setenv("IDENTITY_ALIASES", doctorAlias+"="+doctorCanonical)
+	path := writeSnapshot(t, league.PersistedState{
+		SchemaVersion: 999,
+		Members: map[string]league.Member{
+			doctorAlias: {TeamID: "private-team", Email: doctorAlias},
+		},
+	})
+	var stdout bytes.Buffer
+	if code := run([]string{"-snapshot", path}, &stdout); code != exitConflict {
+		t.Fatalf("exit = %d, output = %s", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"conflictCategory": "snapshot_schema"`) {
+		t.Fatalf("output = %s", stdout.String())
+	}
+	for _, private := range []string{doctorAlias, doctorCanonical, "private-team", path} {
+		if strings.Contains(stdout.String(), private) {
+			t.Fatalf("future-schema refusal leaked %q: %s", private, stdout.String())
+		}
+	}
+}
+
 func TestIdentityDoctorHidesSQLiteSnapshotReadDetails(t *testing.T) {
 	t.Setenv("IDENTITY_ALIASES", doctorAlias+"="+doctorCanonical)
 	missing := filepath.Join(t.TempDir(), doctorAlias+".db")

@@ -10,6 +10,9 @@ import (
 	"gridiron-2000/internal/league"
 )
 
+const prohibitedReversedIdentityAlias = "IDENTITY_ALIASES=commissioner@example.com=" +
+	"commissioner.alias@example.org"
+
 func readDocumentationFile(t *testing.T, path string) string {
 	t.Helper()
 	body, err := os.ReadFile(path)
@@ -37,7 +40,7 @@ func TestDocumentationPinsCurrentFrameworkAndScoringTruth(t *testing.T) {
 		"current matchup cards are clearly labeled local fixtures",
 		"wiring draft rosters into a scoring engine is the next application layer",
 		"`2026-08-22T16:00:00-04:00` | Draft start",
-		"IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org",
+		prohibitedReversedIdentityAlias,
 	} {
 		if strings.Contains(readme, obsolete) {
 			t.Errorf("README retained obsolete claim %q", obsolete)
@@ -111,7 +114,7 @@ func TestHistoricalDocsDoNotClaimCurrentLaunchFacts(t *testing.T) {
 		"Future release-pin step",
 		"The inaugural draft is scheduled",
 		"This release enables",
-		"IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org",
+		prohibitedReversedIdentityAlias,
 	} {
 		if strings.Contains(combined, obsolete) {
 			t.Errorf("historical/runbook docs retained time-bound claim %q", obsolete)
@@ -124,5 +127,29 @@ func TestHistoricalDocsDoNotClaimCurrentLaunchFacts(t *testing.T) {
 		if !strings.Contains(combined, want) {
 			t.Errorf("release runbook omitted canonical identity contract %q", want)
 		}
+	}
+}
+
+func TestTrackedIdentityExamplesKeepCanonicalDirection(t *testing.T) {
+	const canonical = "IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com"
+	paths := []string{
+		".env.example",
+		"README.md",
+		filepath.Join("deploy", "README.md"),
+		filepath.Join("deploy", "k8s", "secret.example.yaml"),
+		filepath.Join("deploy", "k8s", "sk", "secret.example.yaml"),
+		filepath.Join("docs", "launch-checklist.md"),
+		filepath.Join("internal", "identity", "identity.go"),
+	}
+	for _, path := range paths {
+		body := readDocumentationFile(t, path)
+		if strings.Contains(body, prohibitedReversedIdentityAlias) {
+			t.Errorf("%s retained reversed identity mapping %q", path, prohibitedReversedIdentityAlias)
+		}
+	}
+
+	environment := readDocumentationFile(t, ".env.example")
+	if !strings.Contains(environment, "# Example: "+canonical) {
+		t.Fatalf(".env.example omitted canonical alias=identity example %q", canonical)
 	}
 }
