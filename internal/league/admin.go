@@ -949,7 +949,9 @@ func (s *Service) AdminStartDraft(r *http.Request) (bool, error) {
 }
 
 func draftStartReadiness(pool playerPool, demo bool, required int) error {
-	if !demo && pool.label != "live" && pool.label != "cache" {
+	// live, cache, and stale all carry real synced data — only offline
+	// (the embedded fallback) and demo rehearsal pools are not draft-ready.
+	if !demo && pool.label != "live" && pool.label != "cache" && pool.label != "stale" {
 		return fmt.Errorf("the live player pool is not ready (mode %s)", pool.label)
 	}
 	// byID deliberately also contains the embedded rehearsal players so old
