@@ -461,7 +461,7 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	leagueURL := s.leagueURL()
+	joinURL := s.leaguePathURL("join")
 	blurb := s.inviteBlurb()
 
 	venueClause := ""
@@ -497,18 +497,18 @@ Here's what to do before then:
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, leagueURL, email, carryoverLine)
-	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb)
+— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, carryoverLine)
+	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
 
 // inviteEmailHTML renders the designed HTML invite body: a single 600px
 // table with every style inline and no external assets, so it survives
 // clipping and dark/light rendering across mail clients. Every field is
-// operator- or attacker-influenced (email via the invite form, leagueURL
+// operator- or attacker-influenced (email via the invite form, joinURL
 // via the environment, name/short_code/tagline/blurb/venue/footer via
 // league.json) and is HTML-escaped before insertion.
-func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, email, blurb string) string {
+func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb string) string {
 	venueRow := ""
 	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
 		venueRow = fmt.Sprintf(inviteEmailVenueRowTemplate, html.EscapeString(venue))
@@ -529,7 +529,7 @@ func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, leagueURL, ema
 		html.EscapeString(draftTime),
 		venueRow,
 		html.EscapeString(email),
-		leagueURL,
+		html.EscapeString(joinURL),
 		html.EscapeString(footerJoke),
 	)
 }
