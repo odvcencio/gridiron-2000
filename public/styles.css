@@ -5822,3 +5822,95 @@ body.is-on-clock .draft-clock-panel {
 .matchup-chip[data-matchup-tier="difficult"] {
   color: var(--color-accent-hot);
 }
+
+/* ---- managed action feedback ---------------------------------------- */
+/* GoSX owns lifecycle and accessibility; Gridiron owns the presentation.
+   The inset, centered stack floats above the shell instead of becoming a
+   full-width status bar or pushing the current task down the page. */
+.toast-stack {
+  position: fixed;
+  z-index: 1200;
+  inset: max(0.75rem, env(safe-area-inset-top)) auto auto 50%;
+  width: min(34rem, calc(100vw - 2rem));
+  display: grid;
+  gap: 0.625rem;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.gosx-toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.75rem;
+  align-items: center;
+  min-height: 3.25rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-accent-cyan) 55%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-panel-deep) 94%, transparent);
+  color: var(--color-text-primary);
+  box-shadow: 0 1rem 2.75rem rgb(0 0 0 / 45%), inset 0 1px rgb(255 255 255 / 5%);
+  pointer-events: auto;
+  backdrop-filter: blur(14px);
+  animation: managed-toast-enter 180ms ease-out both;
+}
+
+.gosx-toast--success {
+  border-color: color-mix(in srgb, var(--color-accent) 65%, var(--color-border));
+}
+
+.gosx-toast--error {
+  border-color: color-mix(in srgb, var(--color-accent-hot) 75%, var(--color-border));
+}
+
+.gosx-toast__message {
+  padding: 0.8rem 0.25rem 0.8rem 1rem;
+  font-size: var(--type-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.gosx-toast__dismiss {
+  align-self: stretch;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 0;
+  border-left: 1px solid rgb(255 255 255 / 10%);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: 700 1.2rem/1 var(--font-mono);
+  cursor: pointer;
+}
+
+.gosx-toast__dismiss:hover,
+.gosx-toast__dismiss:focus-visible {
+  background: rgb(255 255 255 / 7%);
+  color: var(--color-text-primary);
+}
+
+@keyframes managed-toast-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.75rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 38rem) {
+  .toast-stack {
+    inset-block-start: max(4.75rem, calc(env(safe-area-inset-top) + 4rem));
+    width: calc(100vw - 1rem);
+  }
+
+  .gosx-toast__message {
+    font-size: 0.875rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gosx-toast {
+    animation: none;
+  }
+}
