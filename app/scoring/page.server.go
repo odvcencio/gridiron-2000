@@ -99,7 +99,7 @@ func init() {
 			"scoring-set": func(ctx *action.Context) error {
 				rule, err := league.Default().AdminSetScoring(ctx.Request, ctx.FormData["key"], ctx.FormData["points"])
 				if err != nil {
-					return action.Validation(err.Error(), map[string]string{"scoring": err.Error()}, ctx.FormData)
+					return actionui.Validation(ctx, "scoring", "scoring", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/scoring", rule.Label+" updated.")
 				return nil
