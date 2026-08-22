@@ -2,6 +2,7 @@ package wire
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
 	neturl "net/url"
@@ -128,8 +129,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), sightingFieldErrors(err), ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("%s added to the provisional wire.", signal.Label))
-				ctx.Redirect("/wire#community-input")
+				actionui.RedirectWithNotice(ctx, "/wire#community-input", fmt.Sprintf("%s added to the provisional wire.", signal.Label))
 				return nil
 			},
 		},

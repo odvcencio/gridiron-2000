@@ -2,6 +2,7 @@ package players
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/url"
 	"strconv"
@@ -79,8 +80,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
+				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 			// player-drop applies the section 5.3 player-drop action.
@@ -89,8 +89,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
+				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 			// claim-file applies the section 5.3 claim-filing action. bid
@@ -103,8 +102,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
+				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 			// claim-cancel withdraws one of the acting team's own open
@@ -114,8 +112,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"claim_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect(redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]))
+				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 		},

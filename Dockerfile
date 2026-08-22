@@ -43,12 +43,12 @@ RUN go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main
 # GOSX_SKIP_VERSION_CHECK stays set: the project standard is to skip the
 # CLI's own self-reported-version check rather than depend on it matching
 # exactly; the pinned CLI version below is what actually governs the build.
-# v0.52.0 includes the native document contract, nonce-aware navigation,
+# v0.53.0 includes the native document contract, nonce-aware navigation,
 # accessible disclosure primitives, static bearer middleware, File/Files, and
-# MaxActionBodyBytes for managed actions. The
+# MaxActionBodyBytes plus shared request negotiation for managed actions. The
 # avatar route still keeps its outer multipart envelope cap until the
 # production consumer adopts a bounded-multipart contract.
-RUN go install m31labs.dev/gosx/cmd/gosx@v0.52.0 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
+RUN go install m31labs.dev/gosx/cmd/gosx@v0.53.0 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
 
 # Runtime data directory. The PVC mount in Kubernetes covers /app/data in
 # production; this pre-created, owner-only directory lets the same image

@@ -2,6 +2,7 @@ package team
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"strconv"
 
@@ -256,8 +257,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"name": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", fmt.Sprintf("Team renamed to %s.", team.Name))
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", fmt.Sprintf("Team renamed to %s.", team.Name))
 				return nil
 			},
 			// lineup-set applies one roster-ops spec section 4.4
@@ -275,8 +275,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
 				return nil
 			},
 			// co-invite lets a seat's primary manager invite a co-manager by
@@ -287,8 +286,7 @@ func init() {
 				if err := league.Default().InviteCoManager(ctx.Request, ctx.FormData["team_id"], ctx.FormData["email"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"email": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Co-manager invited: "+ctx.FormData["email"]+".")
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", "Co-manager invited: "+ctx.FormData["email"]+".")
 				return nil
 			},
 			// co-detach lets the seat's primary manager or the commissioner
@@ -297,8 +295,7 @@ func init() {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"team_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", "Co-manager detached.")
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", "Co-manager detached.")
 				return nil
 			},
 			// lineup-auto applies the section 4.7 SET BEST LINEUP action.
@@ -312,8 +309,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"week": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team?week=" + ctx.FormData["week"])
+				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
 				return nil
 			},
 			// reserve-place/reserve-activate and ir-place/ir-activate
@@ -327,8 +323,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
 			},
 			"reserve-activate": func(ctx *action.Context) error {
@@ -336,8 +331,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
 			},
 			"ir-place": func(ctx *action.Context) error {
@@ -345,8 +339,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
 			},
 			"ir-activate": func(ctx *action.Context) error {
@@ -354,8 +347,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/team")
+				actionui.RedirectWithNotice(ctx, "/team", message)
 				return nil
 			},
 		},

@@ -2,6 +2,7 @@ package board
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
 	"strconv"
@@ -50,8 +51,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", player.Name+" added to your board.")
-				ctx.Redirect("/board")
+				actionui.RedirectWithNotice(ctx, "/board", player.Name+" added to your board.")
 				return nil
 			},
 			"board-move": func(ctx *action.Context) error {
@@ -59,7 +59,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				ctx.Redirect("/board")
+				actionui.RedirectWithNotice(ctx, "/board", "Board order updated.")
 				return nil
 			},
 			// board-move-to is the absolute-index action the declarative
@@ -82,15 +82,14 @@ func init() {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return action.Validation(err.Error(), map[string]string{"player_id": err.Error()}, ctx.FormData)
 				}
-				ctx.Redirect("/board")
+				actionui.RedirectWithNotice(ctx, "/board", "Player removed from your board.")
 				return nil
 			},
 			"board-clear": func(ctx *action.Context) error {
 				if err := league.Default().BoardClear(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				session.AddFlash(ctx.Request, "notice", "Your board is cleared.")
-				ctx.Redirect("/board")
+				actionui.RedirectWithNotice(ctx, "/board", "Your board is cleared.")
 				return nil
 			},
 		},

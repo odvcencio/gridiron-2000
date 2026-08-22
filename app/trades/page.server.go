@@ -2,6 +2,7 @@ package trades
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 
 	"gridiron-2000/internal/league"
@@ -64,8 +65,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			"trade-counter": func(ctx *action.Context) error {
@@ -75,8 +75,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			"trade-decline": func(ctx *action.Context) error {
@@ -84,8 +83,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			"trade-withdraw": func(ctx *action.Context) error {
@@ -93,8 +91,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			"trade-accept": func(ctx *action.Context) error {
@@ -102,8 +99,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			// trade-approve is the commissioner's early-execution action
@@ -113,8 +109,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			// trade-veto-commissioner is the commissioner's veto action
@@ -124,8 +119,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 			// trade-veto-vote is a non-party manager's veto vote (vote or
@@ -135,8 +129,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"offer_id": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", message)
-				ctx.Redirect("/trades")
+				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
 			},
 		},

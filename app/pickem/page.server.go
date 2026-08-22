@@ -2,6 +2,7 @@ package pickem
 
 import (
 	"fmt"
+	"gridiron-2000/internal/actionui"
 	"log"
 
 	"gridiron-2000/internal/league"
@@ -75,8 +76,7 @@ func init() {
 				if err != nil {
 					return action.Validation(err.Error(), map[string]string{"pickem": err.Error()}, ctx.FormData)
 				}
-				session.AddFlash(ctx.Request, "notice", ctx.FormData["team"]+" picked.")
-				ctx.Redirect("/pickem")
+				actionui.RedirectWithNotice(ctx, "/pickem", ctx.FormData["team"]+" picked.")
 				return nil
 			},
 		},
