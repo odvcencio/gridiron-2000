@@ -16,11 +16,38 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+var adminSectionKeys = []string{
+	"draft-control", "schedule", "week-close", "seats", "invites",
+	"draft-order", "data", "clock", "roster", "announcements", "danger",
+}
+
+func adminSection(request *http.Request) string {
+	value := strings.ToLower(strings.TrimSpace(request.URL.Query().Get("section")))
+	for _, key := range adminSectionKeys {
+		if value == key {
+			return key
+		}
+	}
+	return ""
+}
+
+func adminSectionClass(selected, key string) string {
+	if selected == key {
+		return " admin-section--focused"
+	}
+	return ""
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().AdminData(ctx.Request)
+			selectedSection := adminSection(ctx.Request)
+			data["admin_section"] = selectedSection
+			for _, key := range adminSectionKeys {
+				data["section_class_"+strings.ReplaceAll(key, "-", "_")] = adminSectionClass(selectedSection, key)
+			}
 			data["has_notice"] = false
 			data["notice"] = ""
 			// avatar_error is flashed by the raw POST /avatar/upload handler
