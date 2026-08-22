@@ -12,8 +12,8 @@ import (
 )
 
 // The commissioner readout deliberately uses a PII-free view model. It is
-// shared by the full SSR page and the small live fragment so a refresh cannot
-// silently change the meaning of a card.
+// shared by the full SSR page and its route/data contracts so every card
+// uses one meaning for the whole commissioner readout.
 type fleetPageView struct {
 	GeneratedAt    time.Time
 	Cards          []fleetCardView
