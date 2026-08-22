@@ -41,6 +41,10 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	snapshot, err := f.provider.Snapshot(ctx, now)
 	if err != nil {
 		snapshot, _ = f.fallback.Snapshot(ctx, now)
+		snapshot.Source = "fallback"
+		snapshot.SourceLabel = "Fallback fixture"
+		snapshot.State = MatchupStateDegraded
+		snapshot.Status = "Matchup data is temporarily unavailable"
 		snapshot.Warning = "Preview generator unavailable; showing the local fixture."
 	}
 	snapshot.OK = true
@@ -70,17 +74,24 @@ func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnap
 		return demoProvider{}.Snapshot(ctx, now)
 	}
 	scorer := p.svc.matchupScorer(nil)
+	stateLabel, statusLabel, clockLabel := p.weekState(week, wk.Matchups, now)
 	matchups := make([]ScoreMatchup, 0, len(wk.Matchups))
 	for _, m := range wk.Matchups {
 		homeScore, awayScore := m.HomeScore, m.AwayScore
+		matchupState := MatchupStateFinal
 		status := "Final"
+		clock := "FINAL"
 		if !m.Final {
-			status = "In progress"
-			if s, _, err := scorer.TeamWeekScore(m.HomeTeamID, week); err == nil {
-				homeScore = s
-			}
-			if s, _, err := scorer.TeamWeekScore(m.AwayTeamID, week); err == nil {
-				awayScore = s
+			matchupState = stateLabel
+			status = matchupStateCardLabel(stateLabel)
+			clock = clockLabel
+			if stateLabel == MatchupStateInProgress || stateLabel == MatchupStateDegraded {
+				if s, _, err := scorer.TeamWeekScore(m.HomeTeamID, week); err == nil {
+					homeScore = s
+				}
+				if s, _, err := scorer.TeamWeekScore(m.AwayTeamID, week); err == nil {
+					awayScore = s
+				}
 			}
 		}
 		home := p.svc.teamByID(m.HomeTeamID)
@@ -89,7 +100,9 @@ func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnap
 			ID:     m.ID,
 			Home:   ScoreTeam{ID: home.ID, Name: home.Name, Abbreviation: home.Abbreviation, Score: homeScore},
 			Away:   ScoreTeam{ID: away.ID, Name: away.Name, Abbreviation: away.Abbreviation, Score: awayScore},
+			State:  matchupState,
 			Status: status,
+			Clock:  clock,
 		})
 	}
 	return LiveSnapshot{
@@ -97,10 +110,71 @@ func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnap
 		SourceLabel: "League matchups",
 		Week:        week,
 		WeekLabel:   fmt.Sprintf("Week %d", week),
-		Status:      "Live from the league schedule",
+		State:       stateLabel,
+		Status:      statusLabel,
 		LastUpdated: now.UTC(),
 		Matchups:    matchups,
 	}, nil
+}
+
+func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock string) {
+	allFinal := len(matchups) > 0
+	for _, matchup := range matchups {
+		if !matchup.Final {
+			allFinal = false
+			break
+		}
+	}
+	if allFinal {
+		return MatchupStateFinal, fmt.Sprintf("Week %d results are final", week), "FINAL"
+	}
+	var weekGames []GameInfo
+	for _, game := range p.svc.schedule() {
+		if game.Week == week && !game.Kickoff.IsZero() {
+			weekGames = append(weekGames, game)
+		}
+	}
+	if len(weekGames) == 0 {
+		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE"
+	}
+	earliest := weekGames[0].Kickoff
+	weekStarted := false
+	allNFLFinal := true
+	for _, game := range weekGames {
+		if game.Kickoff.Before(earliest) {
+			earliest = game.Kickoff
+		}
+		if !now.Before(game.Kickoff) {
+			weekStarted = true
+		}
+		if !game.Final {
+			allNFLFinal = false
+		}
+	}
+	location := p.svc.matchupLocation()
+	if !weekStarted {
+		kickoff := earliest.In(location).Format("Mon Jan 2 · 3:04 PM MST")
+		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff
+	}
+	if allNFLFinal {
+		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE"
+	}
+	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel
+}
+
+func matchupStateCardLabel(state string) string {
+	switch state {
+	case MatchupStateScheduled:
+		return "Scheduled"
+	case MatchupStateInProgress:
+		return "In progress"
+	case MatchupStateFinal:
+		return "Final"
+	case MatchupStateDegraded:
+		return "Status pending"
+	default:
+		return "Preseason"
+	}
 }
 
 // currentScheduleWeek picks the schedule's current NFL week: the earliest
@@ -146,6 +220,7 @@ func (demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, er
 		SourceLabel: "Preseason",
 		Week:        1,
 		WeekLabel:   "Week 1 · Sundays from " + seasonOpenDateLabel(),
+		State:       MatchupStatePreseason,
 		Status:      "League matchups begin when the season starts",
 		LastUpdated: now.UTC(),
 		Matchups:    []ScoreMatchup{},

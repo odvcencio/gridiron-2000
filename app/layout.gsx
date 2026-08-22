@@ -52,7 +52,7 @@ func Layout() Node {
 					<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open}>
 						<a href="/join" data-gosx-link class="rail-link rail-link--hot"><span class="rail-index mono">02b</span>Join a team</a>
 					</If>
-					<a href="/matchups" data-gosx-link class="rail-link"><span class="rail-index mono">03</span>Live</a>
+					<a href="/matchups" data-gosx-link class="rail-link"><span class="rail-index mono">03</span>Matchups</a>
 					<a href="/wire" data-gosx-link class="rail-link"><span class="rail-index mono">04</span>Wire</a>
 					<a href="/team" data-gosx-link class="rail-link"><span class="rail-index mono">05</span>Team</a>
 					<a href="/players" data-gosx-link class="rail-link"><span class="rail-index mono">06</span>Players</a>
@@ -139,8 +139,10 @@ func Layout() Node {
 				</nav>
 			</div>
 			<div class="footer-status">
-				<span class="live-dot" aria-hidden="true"></span>
-					LIVE LEAGUE FEED
+				<If cond={data.league.matchup_footer_live}>
+					<span class="live-dot" aria-hidden="true"></span>
+				</If>
+				{data.league.matchup_footer_label}
 			</div>
 		</footer>
 	</div>

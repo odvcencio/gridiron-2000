@@ -1185,7 +1185,7 @@ func (s *Service) fantasyCardData(state PersistedState, viewer map[string]any) m
 }
 
 func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]any {
-	live := s.feed.Snapshot(ctx, time.Now())
+	live := s.feed.Snapshot(ctx, s.clock())
 	state := s.store.Snapshot()
 	matchups := s.matchupMaps(state, live.Matchups)
 	return map[string]any{
@@ -1713,7 +1713,7 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 }
 
 func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
-	return s.feed.Snapshot(ctx, time.Now())
+	return s.feed.Snapshot(ctx, s.clock())
 }
 
 // LiveScoresView flattens LiveScores into the shape /api/live/week actually
@@ -1740,15 +1740,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 	}
-	timestamp := live.LastUpdated.Local().Format("3:04:05 PM")
-	label := live.SourceLabel
-	if label == "" {
-		label = live.Source
-	}
-	if label == "" {
-		label = "Live feed"
-	}
-	liveStatus := label + " · " + timestamp
+	timestamp := s.formatMatchupUpdate(live.LastUpdated)
+	liveStatus := matchupPresentation(live.State)["sync_label"] + " · " + timestamp
 	if live.Warning != "" {
 		liveStatus += " · FALLBACK"
 	}
@@ -1758,6 +1751,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"sourceLabel":   live.SourceLabel,
 		"week":          live.Week,
 		"weekLabel":     live.WeekLabel,
+		"state":         live.State,
 		"status":        live.Status,
 		"warning":       live.Warning,
 		"scores":        scores,
@@ -2077,21 +2071,39 @@ func (s *Service) formatBlurb() string {
 // landing page's wordmark and kicker, and every derived copy fragment
 // read from config instead of a hardcoded literal.
 func (s *Service) leagueMap() map[string]any {
+	footerLabel := "PRESEASON MATCHUPS"
+	footerLive := false
+	if s.feed != nil {
+		state := s.feed.Snapshot(context.Background(), s.clock()).State
+		footerLive = state == MatchupStateInProgress
+		switch state {
+		case MatchupStateScheduled:
+			footerLabel = "MATCHUPS SCHEDULED"
+		case MatchupStateInProgress:
+			footerLabel = "MATCHUPS IN PROGRESS"
+		case MatchupStateFinal:
+			footerLabel = "MATCHUP RESULTS FINAL"
+		case MatchupStateDegraded:
+			footerLabel = "MATCHUP STATUS LIMITED"
+		}
+	}
 	return map[string]any{
-		"name":               s.cfg.Name,
-		"short_code":         s.cfg.ShortCode,
-		"tagline":            s.cfg.Tagline,
-		"mode_label":         s.cfg.ModeLabel,
-		"format_blurb":       s.formatBlurb(),
-		"season":             strconv.Itoa(s.cfg.Season),
-		"prior_season_short": fmt.Sprintf("%02d", (s.cfg.Season-1)%100),
-		"hero_kicker":        s.heroKicker(),
-		"footer_line":        s.cfg.Copy.FooterLine,
-		"has_footer_line":    s.cfg.Copy.FooterLine != "",
-		"seat_count":         len(s.Teams()),
-		"seat_count_word":    countWord(len(s.Teams())),
-		"seat_numbers":       seatNumbers(len(s.Teams())),
-		"season_open_line":   s.seasonOpenLine(),
+		"name":                 s.cfg.Name,
+		"short_code":           s.cfg.ShortCode,
+		"tagline":              s.cfg.Tagline,
+		"mode_label":           s.cfg.ModeLabel,
+		"format_blurb":         s.formatBlurb(),
+		"season":               strconv.Itoa(s.cfg.Season),
+		"prior_season_short":   fmt.Sprintf("%02d", (s.cfg.Season-1)%100),
+		"hero_kicker":          s.heroKicker(),
+		"footer_line":          s.cfg.Copy.FooterLine,
+		"has_footer_line":      s.cfg.Copy.FooterLine != "",
+		"seat_count":           len(s.Teams()),
+		"seat_count_word":      countWord(len(s.Teams())),
+		"seat_numbers":         seatNumbers(len(s.Teams())),
+		"season_open_line":     s.seasonOpenLine(),
+		"matchup_footer_label": footerLabel,
+		"matchup_footer_live":  footerLive,
 		// fantasy_seats_open (registration wave, build item 3): whether any
 		// fantasy seat remains unclaimed — the shared layout's nav uses
 		// this, alongside the viewer's own has_seat, to show the /join link
@@ -2251,15 +2263,77 @@ func (s *Service) pickMaps(state PersistedState, players map[string]Player, scor
 }
 
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
+	presentation := matchupPresentation(live.State)
 	return map[string]any{
-		"source":       live.Source,
-		"source_label": live.SourceLabel,
-		"week":         live.Week,
-		"week_label":   live.WeekLabel,
-		"status":       live.Status,
-		"last_updated": live.LastUpdated.Local().Format("3:04:05 PM"),
-		"warning":      live.Warning,
+		"source":              live.Source,
+		"source_label":        live.SourceLabel,
+		"week":                live.Week,
+		"week_label":          live.WeekLabel,
+		"state":               live.State,
+		"status":              live.Status,
+		"last_updated":        s.formatMatchupUpdate(live.LastUpdated),
+		"warning":             live.Warning,
+		"headline_top":        presentation["headline_top"],
+		"headline_bottom":     presentation["headline_bottom"],
+		"sync_label":          presentation["sync_label"],
+		"refresh_label":       presentation["refresh_label"],
+		"note_title":          presentation["note_title"],
+		"note_body":           presentation["note_body"],
+		"show_live_indicator": live.State == MatchupStateInProgress,
 	}
+}
+
+func matchupPresentation(state string) map[string]string {
+	switch state {
+	case MatchupStateScheduled:
+		return map[string]string{
+			"headline_top": "WEEK", "headline_bottom": "SCHEDULED.",
+			"sync_label": "Waiting for kickoff", "refresh_label": "Checks every 60 sec",
+			"note_title": "Scheduled scoring", "note_body": "Scores begin updating after the first NFL kickoff for this fantasy week.",
+		}
+	case MatchupStateInProgress:
+		return map[string]string{
+			"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
+			"sync_label": "Feed connected", "refresh_label": "60 sec",
+			"note_title": "Live scoring", "note_body": "Scores update on their own. No need to refresh the page.",
+		}
+	case MatchupStateFinal:
+		return map[string]string{
+			"headline_top": "FINAL", "headline_bottom": "SCORES.",
+			"sync_label": "Results posted", "refresh_label": "Final",
+			"note_title": "Final results", "note_body": "This fantasy week is closed and its posted scores are final.",
+		}
+	case MatchupStateDegraded:
+		return map[string]string{
+			"headline_top": "SCHEDULE", "headline_bottom": "STATUS.",
+			"sync_label": "Timing unavailable", "refresh_label": "Retrying every 60 sec",
+			"note_title": "Limited matchup data", "note_body": "Pairings remain visible, but kickoff or scoring status is not currently authoritative.",
+		}
+	default:
+		return map[string]string{
+			"headline_top": "MATCHUPS", "headline_bottom": "COMING SOON.",
+			"sync_label": "Preseason schedule", "refresh_label": "Before Week 1",
+			"note_title": "Preseason", "note_body": "Fantasy matchup scoring begins when the regular season opens.",
+		}
+	}
+}
+
+func (s *Service) matchupLocation() *time.Location {
+	if s.draftTZ != nil {
+		return s.draftTZ
+	}
+	if location, err := time.LoadLocation(strings.TrimSpace(s.cfg.Timezone)); err == nil && location != nil {
+		return location
+	}
+	location, err := time.LoadLocation(DefaultDraftTZ)
+	if err != nil || location == nil {
+		return time.UTC
+	}
+	return location
+}
+
+func (s *Service) formatMatchupUpdate(value time.Time) string {
+	return value.In(s.matchupLocation()).Format("Mon Jan 2 · 3:04:05 PM MST")
 }
 
 func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []map[string]any {
@@ -2275,7 +2349,9 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 		awayHasAvatar, awayHasImage, awayAvatarURL := s.avatarView(away.ID, away.Tone)
 		homeHasAvatar, homeHasImage, homeAvatarURL := s.avatarView(home.ID, home.Tone)
 		out = append(out, map[string]any{
-			"id": matchup.ID,
+			"id":                  matchup.ID,
+			"state":               matchup.State,
+			"show_live_indicator": matchup.State == MatchupStateInProgress,
 			"away": map[string]any{
 				"id": matchup.Away.ID, "name": matchup.Away.Name, "abbreviation": matchup.Away.Abbreviation,
 				"score": fmt.Sprintf("%.1f", matchup.Away.Score), "tone": away.Tone, "manager": away.Manager,
