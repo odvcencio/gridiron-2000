@@ -779,14 +779,15 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 }
 
 // ---------------------------------------------------------------------
-// N5 — on-the-clock (AWAY managers only)
+// N5 — on-the-clock (observed-away or not-seen managers)
 // ---------------------------------------------------------------------
 
 // evalOnTheClock evaluates N5 for the current on-clock seat, called from
 // clockTick every tick (spec section 3, N5). It fires once per absence
-// episode: an AWAY, seated manager whose seat is not Autopick-toggled and
-// whose epoch key has not already sent. CONNECTED and IDLE managers, an
-// unclaimed seat, and an Autopick-toggled seat never receive it.
+// episode: a seated manager whose aggregate presence is AWAY or NOT SEEN,
+// whose seat is not Autopick-toggled, and whose epoch key has not already
+// sent. HERE and IDLE managers, an unclaimed seat, and an Autopick-toggled
+// seat never receive it. Presence never changes the clock.
 func (s *Service) evalOnTheClock(state PersistedState, now time.Time) {
 	if !s.notifyReady() {
 		return
@@ -807,13 +808,12 @@ func (s *Service) evalOnTheClock(state PersistedState, now time.Time) {
 	if member.Email == "" {
 		return
 	}
-	key := s.presenceKeyForTeam(state, teamID)
-	if key == "" {
+	presence, _, seenAt := s.teamPresence(state, teamID, now)
+	if presence != "away" && presence != "not_seen" {
 		return
 	}
-	seenAt := s.presenceFloor(key)
-	if presenceState(seenAt, now) != "away" {
-		return
+	if seenAt.IsZero() {
+		seenAt = s.presence.startedAt
 	}
 	epoch := seenAt.Unix()
 	ledgerKey := keyOnTheClock(teamID, epoch, member.Email)
@@ -829,7 +829,7 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 	subject := fmt.Sprintf("ON THE CLOCK — pick %s is yours. The room is watching.", label)
 	signal := fmt.Sprintf("DRAFT LIVE // PICK %s // OVERALL %d", label, number)
 
-	boardKey := s.presenceKeyForTeam(state, teamID)
+	boardKey := s.boardKeyForTeam(state, teamID)
 	shell := s.shellFor(categoryDraftLive, signal)
 	blocks := []emailkit.Block{
 		emailkit.Headline{
@@ -843,9 +843,8 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 			{Label: "YOUR BOARD", Value: s.onClockBoardRow(state, boardKey)},
 		}},
 		emailkit.CTA{Label: "TAKE YOUR PICK →", URL: s.leaguePathURL("draft")},
-		emailkit.Note{Text: "If the cap hits zero, autopick drafts the top of your Big Board for you. " +
-			"No board? Best available by ADP. Either way the tape reads AUTO next to your name — forever. " +
-			"One tap fixes that."},
+		emailkit.Note{Text: "The full pick clock remains yours. If it expires, auto-select takes the top available player on your Big Board; " +
+			"with no eligible board entry, it takes the best available player by league rank. Turn on AUTO when you want the short-grace cover."},
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
@@ -855,19 +854,16 @@ func (s *Service) buildOnTheClock(state PersistedState, now time.Time, teamID st
 }
 
 // onClockClockRow renders the CLOCK panel row from effectiveDeadline's
-// reason (spec section 5): "away-cap" gets the cap copy, "paused" gets the
-// paused copy, and the plain "clock" reason (only reachable in a
-// presence-flip race) gets the remaining time.
+// reason. Presence is never a deadline authority: only an explicit AUTO
+// toggle can use the short grace; otherwise the full persisted clock remains.
 func (s *Service) onClockClockRow(state PersistedState, now time.Time) string {
 	effective, reason := s.effectiveDeadline(state, now)
-	duration := s.pickClock(state)
 	remaining := effective.Sub(now)
 	switch reason {
-	case "away-cap":
-		return fmt.Sprintf("%s away cap armed — you're marked AWAY. Reconnect and your full %s comes back.",
-			formatMMSS(remaining), formatMMSS(duration))
 	case "paused":
 		return "PAUSED — the commissioner stopped the clock. Your pick waits for you."
+	case "autopick":
+		return fmt.Sprintf("%s remaining · AUTO grace is active.", formatMMSS(remaining))
 	default:
 		return fmt.Sprintf("%s remaining on the clock.", formatMMSS(remaining))
 	}
@@ -897,11 +893,11 @@ func (s *Service) onClockBoardRow(state PersistedState, key string) string {
 // ---------------------------------------------------------------------
 
 // notifyAutopickMade fires N6 for one auto-fired pick, skipping when the
-// seat's manager was CONNECTED at pick time (spec section 3, N6). state
+// seat's operators were HERE at pick time (spec section 3, N6). state
 // must be the pre-fire snapshot (the same world the auto-pick decision
 // saw), so board-source and epoch reads agree with what actually happened;
 // pick is the just-recorded DraftPick, and reason is effectiveDeadline's
-// pre-fire reason ("clock", "away-cap", or "autopick"), used for the MODE
+// pre-fire reason ("clock", "autopick", or "commissioner"), used for the MODE
 // row.
 func (s *Service) notifyAutopickMade(preState PersistedState, pick DraftPick, reason string, now time.Time) {
 	if !s.notifyReady() {
@@ -911,11 +907,14 @@ func (s *Service) notifyAutopickMade(preState PersistedState, pick DraftPick, re
 	if member.Email == "" {
 		return
 	}
-	key := s.presenceKeyForTeam(preState, pick.TeamID)
-	if key != "" && presenceState(s.presenceFloor(key), now) == "connected" {
+	presence, _, seenAt := s.teamPresence(preState, pick.TeamID, now)
+	if presence == "here" {
 		return
 	}
-	epoch := s.presenceFloor(key).Unix()
+	if seenAt.IsZero() {
+		seenAt = s.presence.startedAt
+	}
+	epoch := seenAt.Unix()
 	ledgerKey := keyAutopickMade(pick.TeamID, epoch, member.Email)
 	s.recordAndSend(preState, member.Email, categoryDraftLive, ledgerKey, now, func() renderedNotification {
 		return s.buildAutopickMade(preState, pick, member, reason, epoch)
@@ -932,7 +931,7 @@ func (s *Service) buildAutopickMade(state PersistedState, pick DraftPick, member
 	if reason == "commissioner" {
 		sourceLabel = "forced by the commissioner"
 	} else {
-		boardKey := s.presenceKeyForTeam(state, pick.TeamID)
+		boardKey := s.boardKeyForTeam(state, pick.TeamID)
 		for _, id := range state.Boards[boardKey] {
 			if id == pick.PlayerID {
 				sourceLabel = "top of your Big Board"
@@ -941,10 +940,10 @@ func (s *Service) buildAutopickMade(state PersistedState, pick DraftPick, member
 		}
 	}
 
-	mode := "AWAY cap"
+	mode := "CLOCK EXPIRED"
 	switch reason {
 	case "autopick":
-		mode = "AUTOPICK toggle"
+		mode = "AUTO MODE"
 	case "commissioner":
 		mode = "COMMISSIONER"
 	}
