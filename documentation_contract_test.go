@@ -36,9 +36,21 @@ func TestDocumentationPinsCurrentFrameworkAndScoringTruth(t *testing.T) {
 		"GoSX v0.50.0",
 		"current matchup cards are clearly labeled local fixtures",
 		"wiring draft rosters into a scoring engine is the next application layer",
+		"`2026-08-22T16:00:00-04:00` | Draft start",
+		"IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org",
 	} {
 		if strings.Contains(readme, obsolete) {
 			t.Errorf("README retained obsolete claim %q", obsolete)
+		}
+	}
+	for _, want := range []string{
+		"`2099-01-01T00:00:00Z`",
+		"only the commissioner’s **Start draft** action begins pick one",
+		"COMMISSIONER_EMAILS=commissioner@example.com",
+		"IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com",
+	} {
+		if !strings.Contains(readme, want) {
+			t.Errorf("README omitted corrected contract %q", want)
 		}
 	}
 }
@@ -99,9 +111,18 @@ func TestHistoricalDocsDoNotClaimCurrentLaunchFacts(t *testing.T) {
 		"Future release-pin step",
 		"The inaugural draft is scheduled",
 		"This release enables",
+		"IDENTITY_ALIASES=commissioner@example.com=commissioner.alias@example.org",
 	} {
 		if strings.Contains(combined, obsolete) {
 			t.Errorf("historical/runbook docs retained time-bound claim %q", obsolete)
+		}
+	}
+	for _, want := range []string{
+		"COMMISSIONER_EMAILS=commissioner@example.com",
+		"IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("release runbook omitted canonical identity contract %q", want)
 		}
 	}
 }

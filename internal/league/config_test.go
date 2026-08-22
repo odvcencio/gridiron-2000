@@ -403,6 +403,55 @@ func TestEnvOverridesApplyOverFileAndDefaults(t *testing.T) {
 	}
 }
 
+func TestMalformedEnvOverridesFailClosed(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		want  string
+	}{
+		{name: "draft timestamp", key: "DRAFT_AT", value: "Saturday at noon", want: "league config: DRAFT_AT must be an RFC3339 timestamp"},
+		{name: "season start timestamp", key: "SEASON_START_AT", value: "opening day", want: "league config: SEASON_START_AT must be an RFC3339 timestamp"},
+		{name: "season nonnumeric", key: "NFL_SEASON", value: "next", want: "league config: NFL_SEASON must be an integer from 2020 to 2100"},
+		{name: "season below range", key: "NFL_SEASON", value: "2019", want: "league config: NFL_SEASON must be an integer from 2020 to 2100"},
+		{name: "season above range", key: "NFL_SEASON", value: "2101", want: "league config: NFL_SEASON must be an integer from 2020 to 2100"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("LEAGUE_FILE", "")
+			t.Setenv("GOSX_APP_ROOT", t.TempDir())
+			t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "state.json"))
+			t.Setenv("DRAFT_AT", "")
+			t.Setenv("SEASON_START_AT", "")
+			t.Setenv("NFL_SEASON", "")
+			t.Setenv(tc.key, tc.value)
+
+			_, err := LoadConfig()
+			if err == nil || err.Error() != tc.want {
+				t.Fatalf("LoadConfig() error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestEmptyEnvOverridesRemainNoOps(t *testing.T) {
+	t.Setenv("LEAGUE_FILE", "")
+	t.Setenv("GOSX_APP_ROOT", t.TempDir())
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "state.json"))
+	t.Setenv("DRAFT_AT", "")
+	t.Setenv("SEASON_START_AT", " \t ")
+	t.Setenv("NFL_SEASON", "")
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("empty overrides must not fail: %v", err)
+	}
+	want := DefaultConfig()
+	if !cfg.DraftAt.Equal(want.DraftAt) || !cfg.SeasonStartAt.Equal(want.SeasonStartAt) || cfg.Season != want.Season {
+		t.Fatalf("empty overrides changed defaults: got draft=%v start=%v season=%d", cfg.DraftAt, cfg.SeasonStartAt, cfg.Season)
+	}
+}
+
 // itoa avoids importing strconv twice across the table's inline literals.
 func itoa(n int) string {
 	if n == 0 {
