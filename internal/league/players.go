@@ -192,7 +192,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"pool_has_next":        pagination.HasNext,
 		"pool_previous_href":   poolPageHref("/players", pos, rawQuery, pagination.Page-1),
 		"pool_next_href":       poolPageHref("/players", pos, rawQuery, pagination.Page+1),
-		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"pool_live":            pool.label == "live",
 		"pool_label":           pool.label,
 		"at_cap":               atCap,
 		"roster_size":          len(myRoster),

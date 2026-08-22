@@ -184,6 +184,49 @@ func TestEnabledWithBaseURLAndNoKey(t *testing.T) {
 	}
 }
 
+// TestSyncNowDemotesModeAfterFailureFollowingSuccess proves the freshness
+// signal bug: once a sync has gone live, a later hard failure (bad key,
+// quota exhausted, outage) must stop that pool from reporting "live" — the
+// mirror of internal/openstats/service.go's recordDatasetError, which always
+// overwrites State on failure instead of leaving the last success in place.
+func TestSyncNowDemotesModeAfterFailureFollowingSuccess(t *testing.T) {
+	root := t.TempDir()
+	hits := map[string]int{}
+	server := tank01Stub(t, hits)
+	defer server.Close()
+
+	service := newTestService(t, root, server, "test-key")
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("first SyncNow: %v", err)
+	}
+	if status := service.Status(); status.Mode != "live" {
+		t.Fatalf("mode after successful sync = %q, want live", status.Mode)
+	}
+
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer failing.Close()
+	target, err := url.Parse(failing.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Redirect the same service's client at a server that always fails,
+	// simulating Tank01 going down after a prior successful sync.
+	service.client.client = &http.Client{Transport: stubTransport{target: target}}
+
+	if err := service.SyncNow(context.Background()); err == nil {
+		t.Fatal("expected SyncNow to fail once the upstream errors")
+	}
+	status := service.Status()
+	if status.Mode == "live" {
+		t.Fatalf("mode after failed sync = %q, want it demoted off live", status.Mode)
+	}
+	if status.LastError == "" {
+		t.Error("LastError must be recorded on the failing sync")
+	}
+}
+
 func TestSyncPartialFailureKeepsPool(t *testing.T) {
 	root := t.TempDir()
 	hits := map[string]int{}
