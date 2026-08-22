@@ -163,6 +163,69 @@ func TestIdentityAliasMigrationRejectsCrossTeamMemberCoInviteConflict(t *testing
 	}
 }
 
+func TestIdentityAliasMigrationConsumesSameTeamPrimaryInviteBeforeRepeatedSignIn(t *testing.T) {
+	resolver := testIdentityResolver(t)
+	statePath := filepath.Join(t.TempDir(), "league-state.json")
+	raw, err := json.Marshal(PersistedState{
+		SchemaVersion: currentSchemaVersion,
+		Members: map[string]Member{
+			identityCanonicalEmail: {
+				TeamID: "team-1", Name: "Primary", Email: identityCanonicalEmail,
+			},
+		},
+		CoInvites: map[string]string{identityAliasEmail: "team-1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(statePath, raw, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	for restart := 0; restart < 2; restart++ {
+		store := NewStoreWithIdentity(statePath, resolver)
+		if err := store.StartupError(); err != nil {
+			t.Fatalf("restart %d StartupError = %v, want safe stale-invite migration", restart, err)
+		}
+		if got := store.Snapshot().CoInvites; len(got) != 0 {
+			_ = store.Close()
+			t.Fatalf("restart %d CoInvites = %#v, want stale same-team primary invite consumed", restart, got)
+		}
+		service := &Service{store: store, identityResolver: resolver}
+		for attempt := 0; attempt < 2; attempt++ {
+			member, bound, err := service.BindCoManagerOnSignIn(identityAliasEmail, "Primary")
+			if err != nil || bound {
+				_ = store.Close()
+				t.Fatalf("restart %d attempt %d bind = %+v, bound=%v, err=%v; want no pending bind", restart, attempt, member, bound, err)
+			}
+			member, err = service.EnsureMember(identityAliasEmail, "Primary")
+			if err != nil || member.TeamID != "team-1" || member.Role != "" {
+				_ = store.Close()
+				t.Fatalf("restart %d attempt %d OAuth fallback = %+v, err=%v; want unchanged primary", restart, attempt, member, err)
+			}
+		}
+		if err := store.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestIdentityAliasMigrationRejectsUnsafeSameTeamMemberRole(t *testing.T) {
+	state := PersistedState{
+		Members: map[string]Member{
+			identityCanonicalEmail: {
+				TeamID: "team-1", Email: identityCanonicalEmail, Role: "owner",
+			},
+		},
+		CoInvites: map[string]string{identityAliasEmail: "team-1"},
+	}
+	normalizeState(&state)
+	_, err := reconcileIdentityState(&state, testIdentityResolver(t))
+	if err == nil || !strings.Contains(err.Error(), "cannot safely consume") {
+		t.Fatalf("reconcileIdentityState error = %v, want fail-closed unknown-role collision", err)
+	}
+}
+
 func TestBindCoManagerRefusesCrossTeamIdentityOverwrite(t *testing.T) {
 	resolver := testIdentityResolver(t)
 	store := NewStoreWithIdentity("", resolver)

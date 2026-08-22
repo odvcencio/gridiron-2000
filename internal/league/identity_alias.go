@@ -57,15 +57,28 @@ func reconcileIdentityState(state *PersistedState, resolver identity.Resolver) (
 // important: reconciling the collections independently can turn a stale
 // alias invite for one team into a canonical invite that later overwrites an
 // already-seated member for another team during first sign-in.
-
 func reconcileMemberCoInviteSeats(state *PersistedState, resolver identity.Resolver) error {
 	for rawEmail, pendingTeamID := range state.CoInvites {
 		email := resolver.Resolve(rawEmail)
 		member, ok := state.Members[email]
-		if !ok || member.TeamID == "" || member.TeamID == pendingTeamID {
+		if !ok || member.TeamID == "" {
 			continue
 		}
-		return fmt.Errorf("identity alias migration: %q already owns team %q but has a pending co-manager invite for team %q", email, member.TeamID, pendingTeamID)
+		if member.TeamID != pendingTeamID {
+			return fmt.Errorf("identity alias migration: %q already owns team %q but has a pending co-manager invite for team %q", email, member.TeamID, pendingTeamID)
+		}
+		switch member.Role {
+		case "":
+			// A primary cannot also become its own co-manager. The same-team
+			// invite is stale, and removing the exact raw entry before
+			// canonicalization prevents every later sign-in from retrying it.
+			delete(state.CoInvites, rawEmail)
+		case "co":
+			// Keep the duplicate for BindCoManager's idempotent consume path.
+			// That path is also the defense when stale state bypasses startup.
+		default:
+			return fmt.Errorf("identity alias migration: cannot safely consume pending co-manager invite for %q on team %q with member role %q", email, member.TeamID, member.Role)
+		}
 	}
 	return nil
 }
