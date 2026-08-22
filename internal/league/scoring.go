@@ -222,7 +222,7 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 // managers.
 func scoringGroupNote(group string) string {
 	if group == "PUNTING" {
-		return "Punting yards score only on punts of 40 or more yards. Coffin-corner, inside-the-5, and blocked-punt rules score from play-by-play data at week close; a week whose play-by-play has not synced yet scores those three at zero until it does."
+		return "Punting yards score only on punts of 40 or more yards. Coffin-corner, inside-the-5, and blocked-punt rules score from play-by-play data at week close; a week without full play data scores those three at zero until the data arrives."
 	}
 	return ""
 }

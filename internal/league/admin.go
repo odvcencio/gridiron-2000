@@ -955,7 +955,7 @@ func draftStartReadiness(pool playerPool, demo bool, required int) error {
 	// live, cache, and stale all carry real synced data — only offline
 	// (the embedded fallback) and demo rehearsal pools are not draft-ready.
 	if !demo && pool.label != "live" && pool.label != "cache" && pool.label != "stale" {
-		return fmt.Errorf("the live player pool is not ready (mode %s)", pool.label)
+		return fmt.Errorf("The player pool is not ready to draft from yet.")
 	}
 	// byID deliberately also contains the embedded rehearsal players so old
 	// demo picks keep resolving after a live source is attached. Only the
@@ -967,7 +967,7 @@ func draftStartReadiness(pool playerPool, demo bool, required int) error {
 		}
 	}
 	if len(uniqueSourcePlayers) < required {
-		return fmt.Errorf("player source has %d unique players; %d are required", len(uniqueSourcePlayers), required)
+		return fmt.Errorf("The pool holds %d players. The draft needs %d.", len(uniqueSourcePlayers), required)
 	}
 	return nil
 }

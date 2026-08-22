@@ -971,10 +971,27 @@ func thousands(value int) string {
 
 // fantasyPoolStatus renders the fantasy pool diagnostics as the legible map
 // the commissioner console displays.
+// poolModeLabel turns the pool's internal mode token into the plain-language
+// word a manager reads on the admin card.
+func poolModeLabel(mode string) string {
+	switch mode {
+	case "cache":
+		return "SAVED COPY"
+	case "offline":
+		return "UNAVAILABLE"
+	case "stale":
+		return "OUT OF DATE"
+	case "live":
+		return "CURRENT"
+	default:
+		return mode
+	}
+}
+
 func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 	return func() map[string]any {
 		status := pool.Status()
-		lastSync := "never"
+		lastSync := "not yet"
 		if !status.LastSync.IsZero() {
 			lastSync = status.LastSync.Local().Format("Jan 2 · 3:04 PM MST")
 		}
@@ -990,8 +1007,13 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 		if rosterCapacity > 0 {
 			coverage = float64(status.PoolLimit) / float64(rosterCapacity)
 		}
+		errorMessage := ""
+		if status.LastError != "" {
+			log.Printf("fantasy pool sync error: %s", status.LastError)
+			errorMessage = "The player pool did not update. Try again later, or check the league setup."
+		}
 		return map[string]any{
-			"mode":            status.Mode,
+			"mode":            poolModeLabel(status.Mode),
 			"players":         status.Players,
 			"target":          status.PoolLimit,
 			"roster_capacity": rosterCapacity,
@@ -1002,7 +1024,7 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 			"with_bye":        status.WithBye,
 			"requests":        status.Requests,
 			"last_sync":       lastSync,
-			"error":           status.LastError,
+			"error":           errorMessage,
 			"positions_list":  positions,
 		}
 	}
