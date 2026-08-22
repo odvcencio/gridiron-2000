@@ -111,14 +111,20 @@ type BlitzEntry struct {
 
 // GameInfo is one real NFL game supplied by the schedule source.
 type GameInfo struct {
-	ID        string
-	Week      int
-	Kickoff   time.Time
-	Away      string // team abbreviation
-	Home      string
-	AwayScore int
-	HomeScore int
-	Final     bool
+	ID                string
+	Week              int
+	Kickoff           time.Time
+	Away              string // team abbreviation
+	Home              string
+	AwayScore         int
+	HomeScore         int
+	Final             bool
+	SpreadLineTenths  int       // nflverse/PFR convention: positive means home favored
+	SpreadLinePresent bool      // distinguishes a true pick'em line of 0 from no line
+	SourceObservedAt  time.Time // when this source snapshot was checked
+	SourceUpdatedAt   time.Time // when the cached snapshot last changed
+	SourceURL         string
+	SourceProvenance  string // provider plus immutable content identity when available
 }
 
 // DraftPick is persisted when a mock or live pick is made.
