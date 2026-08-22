@@ -89,6 +89,9 @@ func main() {
 	league.Default().SetPlayerSource(fantasyPlayerSource(fantasyPool))
 	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
 	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
+	league.Default().SetStatsUpdatedSource(func() time.Time {
+		return openStats.Status().PlayerStats.LastUpdated
+	})
 	league.Default().SetHistoricalSource(historicalSource(openStats))
 	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))

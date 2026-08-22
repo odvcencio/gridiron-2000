@@ -83,8 +83,13 @@ type Service struct {
 	poolCache    playerPool
 	poolStatusFn PoolStatusSource
 	scheduleFn   ScheduleSource
-	historicalFn HistoricalSource
-	weekStatsFn  WeekStatsSource
+	// statsUpdatedAtFn supplies the open-stats player-ledger freshness instant
+	// used by the commissioner week-close readiness view. It is optional so
+	// fixtures and deployments without the mirror fail closed rather than
+	// inventing a ready state.
+	statsUpdatedAtFn func() time.Time
+	historicalFn     HistoricalSource
+	weekStatsFn      WeekStatsSource
 	// injuryFn supplies the openstats mirror's weekly injury-report
 	// designation (roster-ops SK spec): IR placement and the healed-IR
 	// ticker both read it via injuryDesignationSource() (zones.go). nil
