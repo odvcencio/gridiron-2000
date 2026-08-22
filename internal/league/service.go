@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/internal/identity"
 	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
 
@@ -38,11 +39,12 @@ type playerPool struct {
 
 // Service owns the starter's application state and view-model assembly.
 type Service struct {
-	store    *Store
-	feed     *liveFeed
-	draftAt  time.Time
-	draftTZ  *time.Location
-	demoMode bool
+	store            *Store
+	identityResolver identity.Resolver
+	feed             *liveFeed
+	draftAt          time.Time
+	draftTZ          *time.Location
+	demoMode         bool
 	// teamsMu guards teams: a plain field set once at construction for
 	// every test Service literal (including a test that reassigns it
 	// directly afterward — see admin_test.go's
@@ -177,6 +179,10 @@ func Default() *Service {
 		if err != nil {
 			log.Fatal(err)
 		}
+		resolver, err := identity.FromEnv()
+		if err != nil {
+			log.Fatalf("identity alias configuration: %v", err)
+		}
 		applyActiveConfig(cfg)
 		if cfg.Source == "defaults" {
 			log.Printf("league config: no league.json found; running the built-in neutral reference league (%s). Run the init flow or drop a league.json into config/ to run your own.", cfg.Name)
@@ -199,7 +205,7 @@ func Default() *Service {
 		if err != nil || draftTZ == nil {
 			draftTZ = time.UTC
 		}
-		store := NewStore(statePath)
+		store := NewStoreWithIdentity(statePath, resolver)
 		if err := store.StartupError(); err != nil {
 			// Do this before assigning defaultSvc or starting any background
 			// source/poller. A failed persistence boot must be an explicit
@@ -209,6 +215,7 @@ func Default() *Service {
 		}
 		defaultSvc = &Service{
 			store:             store,
+			identityResolver:  resolver,
 			draftAt:           cfg.DraftAt,
 			draftTZ:           draftTZ,
 			demoMode:          demo,
@@ -451,6 +458,24 @@ func (s *Service) DraftLifecycle() (bool, time.Time) {
 
 func (s *Service) DemoMode() bool { return s.demoMode }
 
+// CanonicalUser applies only the operator's explicit identity mapping. The
+// provider's stable subject ID remains untouched; application ownership,
+// audit, and commissioner checks use the canonical email.
+func (s *Service) CanonicalUser(user auth.User) auth.User {
+	user.Email = s.identityResolver.Resolve(user.Email)
+	return user
+}
+
+// CurrentUser resolves the provider session once at the request boundary so
+// every service path observes the same canonical person.
+func (s *Service) CurrentUser(r *http.Request) (auth.User, bool) {
+	user, ok := auth.Current(r)
+	if !ok {
+		return auth.User{}, false
+	}
+	return s.CanonicalUser(user), true
+}
+
 // EmailAllowed reports whether the email may join the league (registration
 // wave, build item 5 — the domain-gate membership rule): it is admitted
 // unconditionally when its domain matches the config's
@@ -487,11 +512,11 @@ func (s *Service) IsCommissioner(r *http.Request) bool {
 	if s.demoMode {
 		return true
 	}
-	user, ok := auth.Current(r)
+	user, ok := s.CurrentUser(r)
 	if !ok {
 		return false
 	}
-	email := strings.ToLower(strings.TrimSpace(user.Email))
+	email := user.Email
 	for _, candidate := range splitEmails(os.Getenv("COMMISSIONER_EMAILS")) {
 		if candidate == email {
 			return true
@@ -503,8 +528,8 @@ func (s *Service) IsCommissioner(r *http.Request) bool {
 // viewerKey identifies the acting person for board storage: the signed-in
 // email, or a shared guest key in demo mode.
 func (s *Service) viewerKey(r *http.Request) string {
-	if user, ok := auth.Current(r); ok {
-		return strings.ToLower(strings.TrimSpace(user.Email))
+	if user, ok := s.CurrentUser(r); ok {
+		return user.Email
 	}
 	if s.demoMode {
 		return "demo-guest"
@@ -759,6 +784,7 @@ func (s *Service) AssignManager(email, name string) (Member, error) {
 // seat as a side effect (seatless-membership audit, gridiron-2000 pick'em
 // HQ task).
 func (s *Service) assignMember(email, name string) (Member, error) {
+	email = s.identityResolver.Resolve(email)
 	member, created, err := s.store.AssignMember(email, name)
 	if err != nil {
 		return Member{}, err
@@ -785,6 +811,7 @@ func (s *Service) EnsureMember(email, name string) (Member, error) {
 // actingTeam's both call this, not assignMember, so loading a page or
 // attempting a non-team action never claims a seat as a side effect.
 func (s *Service) ensureMember(email, name string) (Member, error) {
+	email = s.identityResolver.Resolve(email)
 	member, _, err := s.store.EnsureMember(email, name)
 	if err != nil {
 		return Member{}, err
@@ -801,6 +828,7 @@ func (s *Service) ensureMember(email, name string) (Member, error) {
 // does for a primary's seat claim — this is that person's own welcome,
 // not a fan-out.
 func (s *Service) BindCoManagerOnSignIn(email, name string) (member Member, bound bool, err error) {
+	email = s.identityResolver.Resolve(email)
 	member, bound, err = s.store.BindCoManager(email, name)
 	if err != nil || !bound {
 		return member, bound, err
@@ -817,7 +845,7 @@ func (s *Service) isPrimaryOfTeam(r *http.Request, teamID string) bool {
 	if s.demoMode {
 		return knownTeam(teamID)
 	}
-	user, ok := auth.Current(r)
+	user, ok := s.CurrentUser(r)
 	if !ok {
 		return false
 	}
@@ -953,7 +981,7 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 // claimFantasySeat for the seat/name/badge write sequence and its
 // rollback contract.
 func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Team, error) {
-	user, ok := auth.Current(r)
+	user, ok := s.CurrentUser(r)
 	if !ok {
 		return Team{}, fmt.Errorf("Google sign-in is required for league actions")
 	}
@@ -1039,7 +1067,7 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 }
 
 func (s *Service) Viewer(r *http.Request) map[string]any {
-	user, signedIn := auth.Current(r)
+	user, signedIn := s.CurrentUser(r)
 	if !signedIn {
 		team := s.Teams()[0]
 		return map[string]any{
@@ -1812,7 +1840,7 @@ func (s *Service) ToggleAutopick(r *http.Request, requestedTeam string) (bool, s
 }
 
 func (s *Service) actingTeam(r *http.Request, requested string) (string, error) {
-	if user, ok := auth.Current(r); ok {
+	if user, ok := s.CurrentUser(r); ok {
 		member, exists := s.store.MemberByEmail(user.Email)
 		if !exists {
 			var err error

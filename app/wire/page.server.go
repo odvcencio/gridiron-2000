@@ -449,9 +449,10 @@ func applySubmissionState(ctx *route.RouteContext, data map[string]any) {
 
 func sightingReporter(request *http.Request) (string, string, bool) {
 	if user, ok := auth.Current(request); ok {
-		id := strings.TrimSpace(user.ID)
+		user = league.Default().CanonicalUser(user)
+		id := strings.TrimSpace(user.Email)
 		if id == "" {
-			id = strings.TrimSpace(user.Email)
+			id = strings.TrimSpace(user.ID)
 		}
 		name := strings.TrimSpace(user.Name)
 		if name == "" && user.Email != "" {
