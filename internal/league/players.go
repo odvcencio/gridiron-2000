@@ -418,7 +418,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 		}
 		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[teamID]
 		if bid > remaining { // W9
-			return "", fmt.Errorf("your bid exceeds your remaining budget ($%d left)", remaining)
+			return "", fmt.Errorf("your bid exceeds your remaining budget (%s left)", faabUnits(remaining))
 		}
 		claim.Bid = bid
 	} else if bid != 0 { // W11

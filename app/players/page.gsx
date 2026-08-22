@@ -180,7 +180,7 @@ func Page() Node {
 										</select>
 									</If>
 									<If cond={data.waivers_faab}>
-										<input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid $" aria-label={"Bid for " + player.name}></input>
+										<input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input>
 									</If>
 									<button class="draft-button" type="submit">Claim</button>
 								</form>
@@ -233,7 +233,7 @@ func Page() Node {
 						<span class="mono">Priority {data.my_waiver_position} of {data.waiver_team_count}</span>
 					</If>
 					<If cond={data.waivers_faab}>
-						<span class="mono">Budget ${data.my_faab_remaining}</span>
+						<span class="mono">Budget {data.my_faab_remaining} FAAB</span>
 					</If>
 				</If>
 			</div>
@@ -271,7 +271,7 @@ func Page() Node {
 							</div>
 							<span class="position-chip">{claim.add_position}</span>
 							<If cond={claim.faab}>
-								<b class="mono">${claim.bid}</b>
+								<b class="mono">{claim.bid} FAAB</b>
 							</If>
 							<If cond={claim.faab == false}>
 								<b class="mono">Pos {claim.priority}</b>
