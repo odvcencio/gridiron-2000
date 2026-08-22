@@ -19,14 +19,24 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel">
 				<span>Your roster spots</span>
-				<strong class="mono">
-					{data.roster_size}
-					/
-					{data.roster_cap}
-				</strong>
+				<If cond={data.can_edit}>
+					<strong class="mono">
+						{data.roster_size}
+						/
+						{data.roster_cap}
+					</strong>
+				</If>
+				<If cond={data.can_edit == false}>
+					<strong class="mono">NO TEAM</strong>
+				</If>
 				<div class="draft-clock-meta">
 					<a href="/activity" data-gosx-link>Transaction feed →</a>
-					<a href="/team" data-gosx-link>Team terminal →</a>
+					<If cond={data.can_edit}>
+						<a href="/team" data-gosx-link>Team terminal →</a>
+					</If>
+					<If cond={data.can_edit == false}>
+						<a href="/join" data-gosx-link>Claim a team →</a>
+					</If>
 				</div>
 			</div>
 		</section>
@@ -39,8 +49,8 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>SIGN IN REQUIRED:</strong>
-					use League access to sign or drop players for your seat.
+					<strong>TEAM SEAT REQUIRED:</strong>
+					browsing is open, but signing, dropping, and claiming players requires a franchise. <a href="/join" data-gosx-link>Claim a team →</a>
 				</p>
 			</If>
 			<If cond={data.free_agency_open == false}>
@@ -209,58 +219,76 @@ func Page() Node {
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">02 // WAIVER DESK</span>
-					<h2>My claims</h2>
+					<If cond={data.can_edit}>
+						<h2>My claims</h2>
+					</If>
+					<If cond={data.can_edit == false}>
+						<h2>Waiver access</h2>
+					</If>
 				</div>
-				<If cond={data.waivers_faab == false}>
-					<span class="mono">Priority {data.my_waiver_position} of {data.waiver_team_count}</span>
-				</If>
-				<If cond={data.waivers_faab}>
-					<span class="mono">Budget ${data.my_faab_remaining}</span>
+				<If cond={data.can_edit}>
+					<If cond={data.waivers_faab == false}>
+						<span class="mono">Priority {data.my_waiver_position} of {data.waiver_team_count}</span>
+					</If>
+					<If cond={data.waivers_faab}>
+						<span class="mono">Budget ${data.my_faab_remaining}</span>
+					</If>
 				</If>
 			</div>
-			<If cond={data.my_claims_empty}>
+			<If cond={data.can_edit == false}>
 				<div class="empty-tape">
-					<strong>NO OPEN CLAIMS</strong>
+					<strong>CLAIM A TEAM TO USE WAIVERS</strong>
 					<p>
-						File a claim from an ON WAIVERS row above; it resolves once waivers clear.
+						You can inspect every player and the league order now. Claim an available franchise to file and manage your own claims.
 					</p>
+					<a class="draft-button" href="/join" data-gosx-link>Choose a team</a>
 				</div>
 			</If>
-			<div class="pool-list">
-				<Each of={data.my_claims} as="claim">
-					<article class="pool-row pool-row--claim">
-						<div class="pool-player">
-							<div class="pool-player__text">
-								<strong>{claim.add_name}</strong>
-								<small>
-									<If cond={claim.has_drop}>
-										drops {claim.drop_label} ·
-									</If>
-									filed {claim.filed_at}
-								</small>
+			<If cond={data.can_edit}>
+				<If cond={data.my_claims_empty}>
+					<div class="empty-tape">
+						<strong>NO OPEN CLAIMS</strong>
+						<p>
+							File a claim from an ON WAIVERS row above; it resolves once waivers clear.
+						</p>
+					</div>
+				</If>
+				<div class="pool-list">
+					<Each of={data.my_claims} as="claim">
+						<article class="pool-row pool-row--claim">
+							<div class="pool-player">
+								<div class="pool-player__text">
+									<strong>{claim.add_name}</strong>
+									<small>
+										<If cond={claim.has_drop}>
+											drops {claim.drop_label} ·
+										</If>
+										filed {claim.filed_at}
+									</small>
+								</div>
 							</div>
-						</div>
-						<span class="position-chip">{claim.add_position}</span>
-						<If cond={claim.faab}>
-							<b class="mono">${claim.bid}</b>
-						</If>
-						<If cond={claim.faab == false}>
-							<b class="mono">Pos {claim.priority}</b>
-						</If>
-						<div class="board-controls">
-							<form method="post" action={actionPath("claim-cancel")} data-gosx-managed="true">
-								<input type="hidden" name="csrf_token" value={csrf.token}></input>
-								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
-								<input type="hidden" name="claim_id" value={claim.id}></input>
-								<input type="hidden" name="pos" value={data.pos}></input>
-								<input type="hidden" name="q" value={data.query}></input>
-								<input type="hidden" name="page" value={data.pool_page}></input>
-								<button class="board-button board-button--cut" type="submit" aria-label={"Cancel claim for " + claim.add_name}>Cancel</button>
-							</form>
-						</div>
-					</article>
-				</Each>
-			</div>
+							<span class="position-chip">{claim.add_position}</span>
+							<If cond={claim.faab}>
+								<b class="mono">${claim.bid}</b>
+							</If>
+							<If cond={claim.faab == false}>
+								<b class="mono">Pos {claim.priority}</b>
+							</If>
+							<div class="board-controls">
+								<form method="post" action={actionPath("claim-cancel")} data-gosx-managed="true">
+									<input type="hidden" name="csrf_token" value={csrf.token}></input>
+									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+									<input type="hidden" name="claim_id" value={claim.id}></input>
+									<input type="hidden" name="pos" value={data.pos}></input>
+									<input type="hidden" name="q" value={data.query}></input>
+									<input type="hidden" name="page" value={data.pool_page}></input>
+									<button class="board-button board-button--cut" type="submit" aria-label={"Cancel claim for " + claim.add_name}>Cancel</button>
+								</form>
+							</div>
+						</article>
+					</Each>
+				</div>
+			</If>
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">03 // WAIVER ORDER</span>
