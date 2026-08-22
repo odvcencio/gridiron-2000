@@ -14,7 +14,7 @@ func Page() Node {
 					ON THE RECORD.
 				</h1>
 				<p>
-					Draft picks and every free-agent signing or drop, merged into one feed, newest first.
+					Draft picks, waiver and free-agent moves, and trades — one permanent league record, newest first.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -33,12 +33,41 @@ func Page() Node {
 					<h2>Every transaction</h2>
 				</div>
 			</div>
-			<If cond={data.transactions_empty}>
+			<form method="get" action="/activity" class="pool-search-bar">
+				<label class="mono" for="activity-team">TEAM //</label>
+				<select id="activity-team" name="team">
+					<option value="">All teams</option>
+					<Each of={data.teams} as="team">
+						<option value={team} selected={team == data.team}>{team}</option>
+					</Each>
+				</select>
+				<label class="mono" for="activity-search">QUERY //</label>
+				<input id="activity-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
+				<button class="filter-button" type="submit">Filter</button>
+				<If cond={data.has_filters}>
+					<a class="filter-button" href="/activity" data-gosx-link>Clear</a>
+				</If>
+			</form>
+			<If cond={data.filtered_count > 0}>
+				<p class="scoring-note" aria-live="polite">
+					Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall
+				</p>
+			</If>
+			<If cond={data.has_transactions == false}>
 				<div class="empty-tape">
 					<strong>NO TRANSACTIONS YET</strong>
 					<p>
 						Draft picks and roster moves appear here as they happen.
 					</p>
+				</div>
+			</If>
+			<If cond={data.has_transactions && data.transactions_empty}>
+				<div class="empty-tape">
+					<strong>NO MOVES MATCH</strong>
+					<p>
+						Try another team or query, or clear the filters to return to the full league record.
+					</p>
+					<a class="filter-button" href="/activity" data-gosx-link>Clear filters</a>
 				</div>
 			</If>
 			<div class="activity-feed">
@@ -53,6 +82,15 @@ func Page() Node {
 					</div>
 				</Each>
 			</div>
+			<nav class="pool-pagination" aria-label="Transaction feed pages">
+				<If cond={data.has_previous}>
+					<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
+				</If>
+				<span class="mono">Page {data.page} / {data.pages}</span>
+				<If cond={data.has_next}>
+					<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
+				</If>
+			</nav>
 		</section>
 	</main>
 }
