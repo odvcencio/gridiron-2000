@@ -1637,6 +1637,8 @@ func (s *Service) DraftData(r *http.Request) map[string]any {
 		"demo_mode":            s.demoMode,
 		"ready_count":          readyCount(state.Ready),
 		"manager_count":        len(s.Teams()),
+		"viewer_ready":         viewerTeam != "" && state.Ready[viewerTeam],
+		"viewer_autopick":      viewerTeam != "" && state.Autopick[viewerTeam],
 		"order_randomized":     len(state.DraftOrder) > 0,
 		"league_mode":          s.cfg.ModeLabel,
 		"clock":                s.clockView(state, now),

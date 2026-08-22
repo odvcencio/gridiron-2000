@@ -2737,6 +2737,50 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-hot-haze);
 }
 
+.manager-draft-controls {
+  display: grid;
+  gap: var(--space-xs);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+}
+
+.manager-draft-control {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-panel-deep);
+}
+
+.manager-draft-control__copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.15rem var(--space-xs);
+}
+
+.manager-draft-control__copy > span {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.manager-draft-control__copy > small {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.manager-draft-control form {
+  width: 100%;
+}
+
+.manager-draft-control .button {
+  width: 100%;
+}
+
 .draft-workspace {
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.30fr);
 }
