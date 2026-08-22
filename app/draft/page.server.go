@@ -49,6 +49,21 @@ func boolField(m map[string]any, key string) bool {
 	return value
 }
 
+func intField(m map[string]any, key string) int {
+	value, _ := m[key].(int)
+	return value
+}
+
+func mapField(m map[string]any, key string) map[string]any {
+	value, _ := m[key].(map[string]any)
+	if value == nil {
+		return map[string]any{}
+	}
+	return value
+}
+
+func draftActionPath(name string) string { return "/draft/__actions/" + name }
+
 func draftRedirectTarget(pos, query, page string) string {
 	values := url.Values{}
 	if pos != "" {
@@ -98,6 +113,19 @@ type draftPlayerCardView struct {
 	MatchupTier     string
 	MatchupChip     string
 	MatchupDetail   string
+}
+
+type draftRoomView struct {
+	Data          map[string]any
+	CSRF          string
+	Actions       map[string]string
+	StatusSummary string
+}
+
+type draftWorkspaceView struct {
+	Data           map[string]any
+	CSRF           string
+	MakePickAction string
 }
 
 func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
@@ -171,19 +199,81 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 	return out
 }
 
+func prepareDraftData(data map[string]any) map[string]any {
+	teams, _ := data["teams"].([]map[string]any)
+	players, _ := data["available"].([]map[string]any)
+	typedTeams := draftTeamProps(teams)
+	typedPlayers := draftPlayerProps(players)
+	data["teams"] = typedTeams
+	data["available"] = typedPlayers
+
+	viewData := make(map[string]any, len(data)+1)
+	for key, value := range data {
+		viewData[key] = value
+	}
+	workspaceURL := draftWorkspaceFragmentURL(data)
+	viewData["workspace_fragment_url"] = workspaceURL
+	data["workspace_fragment_url"] = workspaceURL
+	room := draftRoomView{Data: viewData, Actions: map[string]string{
+		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
+		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
+		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
+		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
+	}}
+	room.StatusSummary = draftRoomStatus(viewData)
+	data["room"] = room
+	data["workspace"] = draftWorkspaceView{Data: viewData, MakePickAction: draftActionPath("make-pick")}
+	return data
+}
+
+func draftWorkspaceFragmentURL(data map[string]any) string {
+	values := url.Values{}
+	if pos := stringField(data, "pool_position"); pos != "" {
+		values.Set("pos", pos)
+	}
+	if query := stringField(data, "pool_query"); query != "" {
+		values.Set("q", query)
+	}
+	if page := intField(data, "pool_page"); page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/draft/fragment/workspace?" + encoded
+	}
+	return "/draft/fragment/workspace"
+}
+
+func draftRoomStatus(data map[string]any) string {
+	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
+	clockView := mapField(data, "clock")
+	clock := "not armed"
+	if boolField(clockView, "paused") {
+		clock = "paused"
+	} else if boolField(clockView, "armed") {
+		clock = "running"
+	}
+	return fmt.Sprintf("Pick %d; %s on the clock; %d of %d ready; clock %s.", intField(data, "pick_number"), onClock, intField(data, "ready_count"), intField(data, "manager_count"), clock)
+}
+
+func attachDraftRequestState(data map[string]any, request *http.Request) map[string]any {
+	room, _ := data["room"].(draftRoomView)
+	workspace, _ := data["workspace"].(draftWorkspaceView)
+	token := session.Token(request)
+	room.CSRF = token
+	workspace.CSRF = token
+	data["room"] = room
+	data["workspace"] = workspace
+	return data
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
+			ctx.Runtime().EnableBootstrap()
 			// A page load is a heartbeat too; the 4s poll takes over after boot.
 			league.Default().RecordPresence(ctx.Request, time.Now())
-			data := league.Default().DraftData(ctx.Request)
-			if teams, ok := data["teams"].([]map[string]any); ok {
-				data["teams"] = draftTeamProps(teams)
-			}
-			if players, ok := data["available"].([]map[string]any); ok {
-				data["available"] = draftPlayerProps(players)
-			}
+			data := attachDraftRequestState(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
