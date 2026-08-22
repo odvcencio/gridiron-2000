@@ -5235,7 +5235,8 @@ body.is-on-clock .draft-clock-panel {
    app/blitz/page.gsx's BlitzPoolRow and internal/league/blitz.go's
    blitzEligiblePlayers. ---- */
 .badge-rookie,
-.tag-resting {
+.tag-resting,
+.tag-locked {
   display: inline-block;
   margin-left: var(--space-xs);
   padding: 0.05rem 0.35rem;
@@ -5255,6 +5256,16 @@ body.is-on-clock .draft-clock-panel {
   border: 1px solid var(--color-text-muted);
   color: var(--color-text-muted);
   background: var(--color-white-faint);
+}
+
+/* A locked row's reason chip: this player's game has started, so the Add
+   button beside it is disabled (blitzLockLabels, internal/league/blitz.go).
+   Hot accent, not muted — a lock is a state change the reader must see,
+   unlike the advisory "likely to rest" tag. */
+.tag-locked {
+  border: 1px solid var(--color-accent-hot);
+  color: var(--color-accent-hot);
+  background: rgba(255, 79, 216, 0.12);
 }
 
 .pre1-line {

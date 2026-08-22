@@ -638,18 +638,24 @@ func (s *Service) notifyReady() bool {
 	return ready
 }
 
-// StateFingerprint hashes the persisted league state plus the pool version
-// and a bucketed presence digest. Clients poll it and soft-refresh the page
-// when it changes, which keeps every open draft room current — including
-// its presence dots and pick-clock deadline, both of which live in or feed
-// this hash — without full reloads.
+// StateFingerprint hashes the persisted league state plus the pool version,
+// a bucketed presence digest, and a clock-boundary digest. Clients poll it
+// and soft-refresh the page when it changes, which keeps every open draft
+// room current — including its presence dots and pick-clock deadline, both
+// of which live in or feed this hash — without full reloads.
+//
+// The three non-state terms exist because each covers something
+// json.Marshal(state) cannot see: presence lives in memory, avatars live on
+// disk, and a deadline is crossed by the clock rather than by a write. See
+// boundaryDigest for that last one.
 func (s *Service) StateFingerprint(poolVersion int64) string {
+	now := s.clock()
 	state := s.store.Snapshot()
 	encoded, err := json.Marshal(state)
 	if err != nil {
 		encoded = []byte(err.Error())
 	}
-	suffix := fmt.Sprintf("|pool:%d|presence:%s", poolVersion, s.presenceDigest(state, s.clock()))
+	suffix := fmt.Sprintf("|pool:%d|presence:%s", poolVersion, s.presenceDigest(state, now))
 	// Preseason Blitz live scores are never persisted in league state
 	// (design spec section 4.4): a poll must not rewrite the state file and
 	// churn every other fingerprint reader. Appending the source's own
@@ -658,9 +664,19 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	s.poolMu.Lock()
 	blitzSource := s.blitzFn
 	s.poolMu.Unlock()
+	var blitzGames []BlitzGame
 	if blitzSource != nil {
-		suffix += fmt.Sprintf("|blitz:%d", blitzSource().Version)
+		// Pulled once and handed to boundaryDigest below, so a single
+		// fingerprint never copies the Blitz snapshot twice.
+		snapshot := blitzSource()
+		blitzGames = snapshot.Games
+		suffix += fmt.Sprintf("|blitz:%d", snapshot.Version)
 	}
+	// Every clock-driven boundary the UI renders: kickoffs, the draft
+	// start, the trade deadline, and the Blitz slate locks. A version
+	// counter cannot carry these — nothing fetches or writes at the
+	// instant a deadline passes.
+	suffix += fmt.Sprintf("|bounds:%s", s.boundaryDigest(now, blitzGames))
 	// Avatar files live on disk, outside PersistedState, so a plain
 	// json.Marshal(state) above never changes when one is uploaded or
 	// reset; the digest is what lets an open page's poll notice (design

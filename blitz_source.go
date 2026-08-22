@@ -57,7 +57,7 @@ type blitzPoller struct {
 	pollInterval time.Duration
 
 	mu           sync.Mutex
-	weekParam    map[string]string                        // slate -> the Tank01 week param that resolved it
+	weekParam    map[string]string // slate -> the Tank01 week param that resolved it
 	games        []league.BlitzGame
 	stats        map[string]map[string]map[string]float64 // slate -> playerID -> statKey -> value
 	version      int64
@@ -65,7 +65,7 @@ type blitzPoller struct {
 	finalCached  map[string]bool      // gameID -> a final box score is cached (memory or disk)
 	catchUpDone  map[string]string    // gameID -> the UTC date its one-per-boot-per-day catch-up fired
 	lastSchedule map[string]time.Time // slate -> last schedule refresh instant
-	budgetDate   string                // UTC date the counter below is for
+	budgetDate   string               // UTC date the counter below is for
 	budgetUsed   int
 }
 
@@ -162,6 +162,13 @@ func (p *blitzPoller) probeSlates(ctx context.Context) {
 			if len(games) == 0 {
 				continue
 			}
+			games, dropped := blitzGamesWithKickoff(games)
+			if dropped > 0 {
+				log.Printf("blitz: %s dropped %d game(s) with no kickoff time in the feed; they stay out of the slate until a refresh places them", slate, dropped)
+			}
+			if len(games) == 0 {
+				continue
+			}
 			p.weekParam[slate] = weekParam
 			p.applyGamesLocked(slate, games)
 			matched = true
@@ -173,6 +180,32 @@ func (p *blitzPoller) probeSlates(ctx context.Context) {
 		p.lastSchedule[slate] = now
 	}
 	p.mu.Unlock()
+}
+
+// blitzGamesWithKickoff drops slate games Tank01 never placed in time,
+// returning the keepers and the number dropped. parsePreseasonWeek admits
+// a game on gameID and gameWeek alone, so a response missing both
+// gameTime_epoch and a parsable gameDate yields the zero kickoff instant
+// — which is in the past, so every lock rule downstream would read that
+// game as already kicked off and quietly strike its whole roster from the
+// eligible board while the schedule panel printed LIVE.
+//
+// A game nobody can place in time is not a started game; it is a game we
+// do not know about yet. Dropping it matches what the regular-season
+// adapter already does with an unresolvable kickoff (leagueScheduleSource:
+// "if !ok { continue }"), and the caller logs the count so the feed gap
+// stays visible instead of looking like a quiet slate.
+func blitzGamesWithKickoff(games []fantasy.PreseasonGame) ([]fantasy.PreseasonGame, int) {
+	kept := make([]fantasy.PreseasonGame, 0, len(games))
+	dropped := 0
+	for _, game := range games {
+		if game.Kickoff.IsZero() {
+			dropped++
+			continue
+		}
+		kept = append(kept, game)
+	}
+	return kept, dropped
 }
 
 // applyGamesLocked replaces slate's games in p.games and bumps the
@@ -270,6 +303,10 @@ func (p *blitzPoller) refreshSchedulesIfDue(ctx context.Context, now time.Time) 
 			continue
 		}
 		matched := fantasy.SelectPreseasonGames(games, blitzSlateLabels[slate])
+		matched, dropped := blitzGamesWithKickoff(matched)
+		if dropped > 0 {
+			log.Printf("blitz: %s dropped %d game(s) with no kickoff time in the feed; they stay out of the slate until a refresh places them", slate, dropped)
+		}
 		if len(matched) == 0 {
 			continue
 		}

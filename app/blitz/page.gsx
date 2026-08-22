@@ -69,6 +69,9 @@ func BlitzPoolRow(props any) Node {
 				<If cond={props.Player.resting}>
 					<span class="tag-resting">LIKELY TO REST</span>
 				</If>
+				<If cond={props.Player.locked}>
+					<span class="tag-locked">{props.Player.lock_label}</span>
+				</If>
 				<small>{props.Player.detail}</small>
 				<small class="pre1-line" data-has-pre1={props.Player.has_pre1}>{props.Player.pre1_summary}</small>
 				<If cond={props.Player.has_opponent}>
@@ -251,6 +254,12 @@ func Page() Node {
 					every game in this slate is final. The leaderboard is frozen.
 				</p>
 			</If>
+			<If cond={data.has_locked_eligible}>
+				<p class="demo-message">
+					<strong>KICKOFF LOCK:</strong>
+					{data.locked_eligible_label} below are locked. Their games have started, so you can no longer add them. They stay listed with their week 1 lines.
+				</p>
+			</If>
 			<If cond={data.has_matchup_source}>
 				<p class="demo-message">
 					<strong>MATCHUP RANKS:</strong>
@@ -315,7 +324,7 @@ func Page() Node {
 							AddAction={actionPath("blitz-add")}
 							CSRF={csrf.token}
 							Slate={data.slate}
-							Open={data.entry_open}
+							Open={player.can_add}
 						 />
 					</Each>
 				</div>

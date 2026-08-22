@@ -694,11 +694,16 @@ func blitzOrderingFixturePool() []Player {
 	}
 }
 
-func blitzOrderingFixtureGames() []BlitzGame {
+// blitzOrderingFixtureGames returns three pre2 games that have not yet
+// kicked off, so every ordering fixture below tests the board's tiering
+// alone. A game needs a real future kickoff here: a zero kickoff instant
+// reads as already started (blitzGameLocked), which would lock the whole
+// fixture and hide the tiering under the lock rule.
+func blitzOrderingFixtureGames(now time.Time) []BlitzGame {
 	return []BlitzGame{
-		{ID: "g1", Slate: "pre2", Away: "DEN", Home: "KC"},
-		{ID: "g2", Slate: "pre2", Away: "BUF", Home: "MIA"},
-		{ID: "g3", Slate: "pre2", Away: "DAL", Home: "PHI"},
+		{ID: "g1", Slate: "pre2", Away: "DEN", Home: "KC", Kickoff: now.Add(3 * time.Hour)},
+		{ID: "g2", Slate: "pre2", Away: "BUF", Home: "MIA", Kickoff: now.Add(4 * time.Hour)},
+		{ID: "g3", Slate: "pre2", Away: "DAL", Home: "PHI", Kickoff: now.Add(5 * time.Hour)},
 	}
 }
 
@@ -709,6 +714,7 @@ func blitzOrderingFixtureGames() []BlitzGame {
 // "likely to rest," alphabetical). Every position/team-plays-in-slate
 // filter stays untouched — this only changes order and labels.
 func TestBlitzEligiblePlayersOrdersThreeTiers(t *testing.T) {
+	now := time.Now()
 	service := newTestService(t, true)
 	pool := playerPool{players: blitzOrderingFixturePool()}
 	pre1Stats := map[string]map[string]float64{
@@ -717,7 +723,7 @@ func TestBlitzEligiblePlayersOrdersThreeTiers(t *testing.T) {
 		// 20*0.1 (recYards) + 2*0.5 (reception) = 4.0
 		"p-producer-b": {"recYds": 20, "receptions": 4},
 	}
-	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, pre1Stats)
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(now), nil, pre1Stats, now)
 
 	wantOrder := []string{
 		"p-producer-a", "p-producer-b", // pre1 producers, 11.0 then 4.0
@@ -761,12 +767,13 @@ func TestBlitzEligiblePlayersOrdersThreeTiers(t *testing.T) {
 // {points} — {stat line}"; a zero-pre1 row with no box-score data at all
 // carries the honest "no pre1 snaps" copy instead of a blank field.
 func TestBlitzEligiblePlayersRowEvidence(t *testing.T) {
+	now := time.Now()
 	service := newTestService(t, true)
 	pool := playerPool{players: blitzOrderingFixturePool()}
 	pre1Stats := map[string]map[string]float64{
 		"p-producer-a": {"rushYds": 50, "carries": 10, "rushTD": 1},
 	}
-	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, pre1Stats)
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(now), nil, pre1Stats, now)
 
 	producer := rowByID(rows, "p-producer-a")
 	if producer["has_pre1"] != true {
@@ -792,9 +799,10 @@ func TestBlitzEligiblePlayersRowEvidence(t *testing.T) {
 // never called — must not crash, and every player falls into the
 // zero-pre1 group, still correctly tiered by the rookie/ADP rules.
 func TestBlitzEligiblePlayersNilPre1FallsBackHonestly(t *testing.T) {
+	now := time.Now()
 	service := newTestService(t, true)
 	pool := playerPool{players: blitzOrderingFixturePool()}
-	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(), nil, nil)
+	rows := service.blitzEligiblePlayers(pool, blitzOrderingFixtureGames(now), nil, nil, now)
 	if len(rows) != len(blitzOrderingFixturePool()) {
 		t.Fatalf("got %d rows, want %d — nil pre1Stats must not drop or crash on any player", len(rows), len(blitzOrderingFixturePool()))
 	}
@@ -817,7 +825,7 @@ func TestBlitzEligiblePlayersNilPre1FallsBackHonestly(t *testing.T) {
 // "no TANK01 key" / "pre1 fetch failed" state).
 func TestBlitzDataFallsBackWithoutPre1Source(t *testing.T) {
 	now := time.Now()
-	games := blitzOrderingFixtureGames()
+	games := blitzOrderingFixtureGames(now)
 	service := newTestService(t, true)
 	service.now = func() time.Time { return now }
 	service.SetPlayerSource(func() ([]Player, int64, string) { return blitzOrderingFixturePool(), 1, "live" })
@@ -836,6 +844,109 @@ func TestBlitzDataFallsBackWithoutPre1Source(t *testing.T) {
 		if row["has_pre1"] != false {
 			t.Errorf("row %v has_pre1 = %v, want false with no pre1 source attached", row["id"], row["has_pre1"])
 		}
+	}
+}
+
+// TestBlitzEligiblePlayersLocksAtKickoff is the board half of V9 (owner
+// directive, 2026-08-22: "when a player has already played, they are no
+// longer capable of adding, they should lock as soon as their game
+// starts"). BlitzAdd already refuses the add (TestBlitzLockMatrix); this
+// asserts the board says so before the click instead of after it: the row
+// carries locked, and it sinks below every player still addable — even
+// when its pre1 production would otherwise sort it first.
+func TestBlitzEligiblePlayersLocksAtKickoff(t *testing.T) {
+	now := time.Now()
+	service := newTestService(t, true)
+	pool := playerPool{players: blitzOrderingFixturePool()}
+	games := []BlitzGame{
+		// DEN@KC has kicked off: Producer Alpha (DEN) and NoADP Depth (KC)
+		// are both locked, and Producer Alpha is the board's top scorer.
+		{ID: "g1", Slate: "pre2", Away: "DEN", Home: "KC", Kickoff: now.Add(-30 * time.Minute)},
+		{ID: "g2", Slate: "pre2", Away: "BUF", Home: "MIA", Kickoff: now.Add(3 * time.Hour)},
+		{ID: "g3", Slate: "pre2", Away: "DAL", Home: "PHI", Kickoff: now.Add(4 * time.Hour)},
+	}
+	pre1Stats := map[string]map[string]float64{
+		"p-producer-a": {"rushYds": 50, "carries": 10, "rushTD": 1},
+		"p-producer-b": {"recYds": 20, "receptions": 4},
+	}
+	rows := service.blitzEligiblePlayers(pool, games, nil, pre1Stats, now)
+
+	wantLocked := map[string]bool{"p-producer-a": true, "p-noadp-depth": true}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		if got := row["locked"]; got != wantLocked[id] {
+			t.Errorf("row %s locked = %v, want %v", id, got, wantLocked[id])
+		}
+	}
+
+	seenLocked := false
+	for _, row := range rows {
+		if row["locked"] == true {
+			seenLocked = true
+			continue
+		}
+		if seenLocked {
+			t.Errorf("row %v is still addable but sorts after a locked row: %v", row["id"], idsOf(rows))
+		}
+	}
+}
+
+// TestBlitzDataEligibleCannotAddAfterKickoff is the page-level twin: the
+// eligible list BlitzData ships must mark a kicked-off player and a
+// final-game player as unaddable, while every player whose game is still
+// upcoming stays addable. The fixture's SF@SEA kicked off 30 minutes ago
+// and NYJ@NYG is already final, so both cases appear on one open slate.
+func TestBlitzDataEligibleCannotAddAfterKickoff(t *testing.T) {
+	now := time.Now()
+	service := blitzTestService(t, now, blitzFixtureGames(now))
+	request, _ := http.NewRequest(http.MethodGet, "/blitz?slate=pre2", nil)
+
+	eligible, ok := service.BlitzData(request)["eligible"].([]map[string]any)
+	if !ok {
+		t.Fatalf("BlitzData eligible is not a row list")
+	}
+	want := map[string]bool{
+		"p-kc-1":  true,
+		"p-den-1": true,
+		"p-buf-1": true,
+		"p-sf-1":  false, // SF@SEA kicked off 30 minutes ago
+		"p-nyj-1": false, // NYJ@NYG is final
+	}
+	for id, canAdd := range want {
+		row := rowByID(eligible, id)
+		if row == nil {
+			t.Fatalf("eligible list is missing %s: %v", id, idsOf(eligible))
+		}
+		if got := row["can_add"]; got != canAdd {
+			t.Errorf("row %s can_add = %v, want %v", id, got, canAdd)
+		}
+	}
+}
+
+// TestStateFingerprintMovesAtBlitzKickoff covers the freshness half of
+// the lock: a board open before kickoff soft-refreshes on the same 4s
+// /api/league/version poll everything else uses, so the Add button turns
+// itself off at kickoff. Nothing else moves here — no persisted state
+// changes and the snapshot version is fixed — so only a lock-boundary
+// term in the fingerprint can make it change.
+func TestStateFingerprintMovesAtBlitzKickoff(t *testing.T) {
+	kickoff := time.Now().Add(time.Hour)
+	games := []BlitzGame{{ID: "g1", Slate: "pre2", Away: "KC", Home: "DEN", Kickoff: kickoff}}
+	service := newTestService(t, true)
+	service.SetBlitzSource(func() BlitzSnapshot {
+		return BlitzSnapshot{Version: 1, Games: games, Stats: map[string]map[string]map[string]float64{}}
+	})
+
+	service.now = func() time.Time { return kickoff.Add(-time.Minute) }
+	before := service.StateFingerprint(1)
+	stable := service.StateFingerprint(1)
+	if stable != before {
+		t.Fatalf("fingerprint moved without a lock transition: %s then %s", before, stable)
+	}
+
+	service.now = func() time.Time { return kickoff }
+	if after := service.StateFingerprint(1); after == before {
+		t.Fatalf("fingerprint did not move across kickoff (%s); an open board keeps offering a locked player", after)
 	}
 }
 
