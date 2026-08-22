@@ -87,6 +87,8 @@ component ScoreTeam(props: ScoreTeamProps) {
 // strict body" reason TeamMark is above.
 type MatchupCardProps struct {
 	ID                 string
+	State              string
+	ShowLiveIndicator  bool
 	Status             string
 	Clock              string
 	AwayID             string
@@ -111,7 +113,9 @@ component MatchupCard(props: MatchupCardProps) {
 	return <article class="matchup-card" data-live-matchup={props.ID}>
 		<header>
 			<span>
-				<span class="live-dot" aria-hidden="true"></span>
+				<If cond={props.ShowLiveIndicator}>
+					<span class="live-dot" aria-hidden="true"></span>
+				</If>
 				<b data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</b>
 			</span>
 			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
@@ -147,14 +151,16 @@ func Page() Node {
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<If cond={data.live.show_live_indicator}>
+						<span class="live-dot" aria-hidden="true"></span>
+					</If>
 					{data.live.status}
 				</span>
 				<p class="page-kicker">{data.live.week_label}</p>
 				<h1>
-					LIVE
+					{data.live.headline_top}
 					<br></br>
-					SIGNAL.
+					{data.live.headline_bottom}
 				</h1>
 			</div>
 			<div class="masthead-console">
@@ -168,7 +174,7 @@ func Page() Node {
 				</div>
 				<div>
 					<span>Updates</span>
-					<strong class="mono">60 SEC</strong>
+					<strong class="mono">{data.live.refresh_label}</strong>
 				</div>
 			</div>
 		</header>
@@ -180,8 +186,10 @@ func Page() Node {
 						<h2>All league matchups</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
-						<span class="live-dot" aria-hidden="true"></span>
-						<span data-live-status data-gosx-live-bind="liveStatus">Feed connected</span>
+						<If cond={data.live.show_live_indicator}>
+							<span class="live-dot" aria-hidden="true"></span>
+						</If>
+						<span data-live-status data-gosx-live-bind="liveStatus">{data.live.sync_label}</span>
 					</div>
 				</header>
 				<If cond={data.matchups_empty}>
@@ -217,9 +225,9 @@ func Page() Node {
 					</Each>
 				</div>
 				<div class="data-note">
-					<span>Live scoring</span>
+					<span>{data.live.note_title}</span>
 					<p>
-						Scores update on their own. No need to refresh the page.
+						{data.live.note_body}
 					</p>
 				</div>
 			</aside>

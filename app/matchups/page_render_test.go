@@ -1,17 +1,102 @@
 package matchups
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		want string
+	}{
+		{name: "preseason", want: "COMING SOON."},
+		{name: "scheduled", want: "SCHEDULED."},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+			cmd.Env = append(os.Environ(),
+				"MATCHUPS_RENDER_FIXTURE="+fixture.name,
+				"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+				"DEMO_MODE=true", "GOOGLE_CLIENT_ID=",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("fixture process: %v\n%s", err, output)
+			}
+			body := string(output)
+			if !strings.Contains(body, fixture.want) {
+				t.Fatalf("fixture %s missing %q: %s", fixture.name, fixture.want, body)
+			}
+			for _, forbidden := range []string{"Feed connected", "Live scoring", "In progress", "LIVE LEAGUE FEED"} {
+				if strings.Contains(body, forbidden) {
+					t.Fatalf("fixture %s contains false live copy %q: %s", fixture.name, forbidden, body)
+				}
+			}
+		})
+	}
+
+	layout, err := os.ReadFile(filepath.Join("..", "layout.gsx"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(layout), "LIVE LEAGUE FEED") || !strings.Contains(string(layout), ">Matchups</a>") || !strings.Contains(string(layout), "data.league.matchup_footer_label") {
+		t.Fatalf("shared layout still has hardcoded live matchup copy:\n%s", layout)
+	}
+}
+
+func TestMatchupsPageFixtureProcess(t *testing.T) {
+	fixture := os.Getenv("MATCHUPS_RENDER_FIXTURE")
+	if fixture == "" {
+		t.Skip("fixture helper")
+	}
+	svc := league.Default()
+	if fixture == "scheduled" {
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+			t.Fatal(err)
+		}
+		kickoff := time.Now().Add(24 * time.Hour)
+		svc.SetScheduleSource(func() []league.GameInfo {
+			return []league.GameInfo{{ID: "future", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "MIA"}}
+		})
+	}
+	fmt.Print(renderMatchupsPage(t))
+}
+
+func renderMatchupsPage(t *testing.T) string {
+	t.Helper()
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET / = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	return recorder.Body.String()
+}
 
 // TestMatchupsPageRendersWithRealScheduleData is the regression guard for
 // the production render crash this package's page.gsx used to hit:
