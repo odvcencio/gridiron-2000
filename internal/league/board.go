@@ -54,7 +54,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"board":                entries,
 		"board_count":          len(entries),
 		"available":            available,
-		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"pool_live":            pool.label == "live",
 		"is_commissioner":      s.IsCommissioner(r),
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,

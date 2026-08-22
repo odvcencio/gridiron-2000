@@ -27,7 +27,7 @@ import (
 
 // PlayerSource supplies the live draft pool: players in draft order, a
 // version that changes when the pool changes, and a mode label
-// (live | cache | offline | demo).
+// (live | cache | stale | offline | demo).
 type PlayerSource func() ([]Player, int64, string)
 
 // playerPool is the indexed, version-cached view of the draft pool.
@@ -1841,7 +1841,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
 		"pool_label":           pool.label,
-		"pool_live":            pool.label == "live" || pool.label == "cache",
+		"pool_live":            pool.label == "live",
 		"pool_count":           len(pool.players),
 		"available_count":      len(available),
 		"pool_query":           rawQuery,

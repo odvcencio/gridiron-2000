@@ -72,6 +72,33 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	}
 }
 
+// TestCacheModePoolIsNotReportedLive proves the second freshness-signal
+// defect: a pool loaded from the on-disk snapshot at boot ("cache") is
+// explicitly not live, so every page that surfaces pool_live must report
+// false for it — otherwise the OFFLINE POOL warning never fires and the
+// masthead live dot renders as if a fresh sync just landed.
+func TestCacheModePoolIsNotReportedLive(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(150)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 7, "cache" })
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	draft := service.DraftData(request)
+	if draft["pool_label"] != "cache" || draft["pool_live"] != false {
+		t.Errorf("DraftData pool labels wrong: label=%v live=%v", draft["pool_label"], draft["pool_live"])
+	}
+
+	players := service.PlayersData(request)
+	if players["pool_label"] != "cache" || players["pool_live"] != false {
+		t.Errorf("PlayersData pool labels wrong: label=%v live=%v", players["pool_label"], players["pool_live"])
+	}
+
+	board := service.BoardData(request)
+	if board["pool_live"] != false {
+		t.Errorf("BoardData pool_live wrong: %v", board["pool_live"])
+	}
+}
+
 func TestDraftDataSurfacesViewerReadyAndAutopickState(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
