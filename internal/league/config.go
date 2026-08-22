@@ -287,7 +287,9 @@ func LoadConfig() (Config, error) {
 		cfg = fileCfg
 		cfg.Source = "file:" + path
 	}
-	applyEnvOverrides(&cfg)
+	if err := applyEnvOverrides(&cfg); err != nil {
+		return Config{}, err
+	}
 	warnings, err := validateConfig(&cfg)
 	for _, w := range warnings {
 		log.Printf("league config: %s", w)
@@ -483,31 +485,37 @@ func envOverride(target *string, key string) {
 }
 
 // applyEnvOverrides implements the spec section 3.3 precedence table: the
-// seven env keys that may override a file (or default) value. Invalid
-// overrides (a bad RFC3339 instant, a non-numeric season) are ignored,
-// leaving the file/default value in place — validateConfig still runs
-// against the result, so a bad env value cannot silently corrupt a good
-// file; it just does not apply.
-func applyEnvOverrides(cfg *Config) {
+// seven env keys that may override a file (or default) value. A non-empty
+// malformed override fails closed: an operator who set an invalid value must
+// never get a successful boot that silently retained a value they intended to
+// replace. Empty/unset values remain no-ops.
+func applyEnvOverrides(cfg *Config) error {
 	envOverride(&cfg.Name, "APP_NAME")
 	envOverride(&cfg.Timezone, "DRAFT_TZ")
 	envOverride(&cfg.URL, "LEAGUE_URL")
 	envOverride(&cfg.ScoringFormat, "SCORING_FORMAT")
 	if value := strings.TrimSpace(os.Getenv("DRAFT_AT")); value != "" {
-		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-			cfg.DraftAt = parsed
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || parsed.IsZero() {
+			return fmt.Errorf("league config: DRAFT_AT must be an RFC3339 timestamp")
 		}
+		cfg.DraftAt = parsed
 	}
 	if value := strings.TrimSpace(os.Getenv("SEASON_START_AT")); value != "" {
-		if parsed, err := time.Parse(time.RFC3339, value); err == nil {
-			cfg.SeasonStartAt = parsed
+		parsed, err := time.Parse(time.RFC3339, value)
+		if err != nil || parsed.IsZero() {
+			return fmt.Errorf("league config: SEASON_START_AT must be an RFC3339 timestamp")
 		}
+		cfg.SeasonStartAt = parsed
 	}
 	if value := strings.TrimSpace(os.Getenv("NFL_SEASON")); value != "" {
-		if parsed, err := strconv.Atoi(value); err == nil {
-			cfg.Season = parsed
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 2020 || parsed > 2100 {
+			return fmt.Errorf("league config: NFL_SEASON must be an integer from 2020 to 2100")
 		}
+		cfg.Season = parsed
 	}
+	return nil
 }
 
 var teamIDPattern = regexp.MustCompile(`^[a-z0-9-]+$`)

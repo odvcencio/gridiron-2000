@@ -7,16 +7,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
 
-func renderGuidePage(t *testing.T) string {
+func renderGuidePage(t *testing.T, data map[string]any) string {
 	t.Helper()
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "false")
+	previous := loadPublicGuideData
+	loadPublicGuideData = func() map[string]any { return data }
+	t.Cleanup(func() { loadPublicGuideData = previous })
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -39,10 +44,59 @@ func renderGuidePage(t *testing.T) string {
 	return rec.Body.String()
 }
 
+func guideConfig(name, mode, timezone, domain string, teams, rosterSpots int) league.Config {
+	cfg := league.DefaultConfig()
+	cfg.Name = name
+	cfg.ModeLabel = mode
+	cfg.Timezone = timezone
+	cfg.DraftAt = time.Date(2026, time.August, 29, 20, 0, 0, 0, time.UTC)
+	cfg.Membership.AllowedDomain = domain
+	cfg.Teams = make([]league.TeamSeed, teams)
+	cfg.Roster = league.RosterPreset{Slots: map[string]int{"QB": rosterSpots}}
+	return cfg
+}
+
+func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  league.Config
+		want map[string]any
+	}{
+		{
+			name: "dynasty invite posture",
+			cfg:  guideConfig("Gridiron House", "dynasty", "America/New_York", "", 8, 17),
+			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "NO DOMAIN GATE"},
+		},
+		{
+			name: "redraft domain posture",
+			cfg:  guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17),
+			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN ADMISSION ENABLED"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := publicGuideData(tc.cfg)
+			for key, want := range tc.want {
+				if got[key] != want {
+					t.Errorf("publicGuideData[%q] = %#v, want %#v", key, got[key], want)
+				}
+			}
+		})
+	}
+}
+
 func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
-	body := renderGuidePage(t)
+	body := renderGuidePage(t, publicGuideData(guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17)))
 	for _, want := range []string{
 		"MANAGER GUIDE",
+		"Manager Guide · Stable Kernel League",
+		"14 teams · REDRAFT",
+		"Sat, Aug 29, 2026 · 4:00 PM EDT",
+		"America/New_York",
+		"DOMAIN ADMISSION ENABLED",
+		"@stablekernel.com",
+		"Non-domain admission depends on runtime invitations",
+		"open setup admits any authenticated Google identity",
 		"FIVE-MINUTE START",
 		"COMMISSIONER OPENING CHECKLIST",
 		"What is intentionally different.",
@@ -56,10 +110,9 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"AWAITING_RELEASE",
 		"target coverage",
 		"2.5",
-		"G2K",
-		"340",
-		"SKL",
+		"14 × 17 = 238 draft slots",
 		"595",
+		"357",
 		"target cushion",
 		"actual cushion",
 		"Commissioner HQ",
@@ -86,6 +139,36 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 	}
 	if strings.Contains(body, "class=\"error-page\"") {
 		t.Fatalf("guide page rendered the GoSX error page: %s", body)
+	}
+	for _, obsolete := range []string{"G2K", "SKL", "Toggle ready", "toggle ready", "DOMAIN + INVITES", "Access comes from an individual invite"} {
+		if strings.Contains(body, obsolete) {
+			t.Errorf("guide page retained obsolete or league-specific claim %q", obsolete)
+		}
+	}
+}
+
+func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
+	body := renderGuidePage(t, publicGuideData(guideConfig("Gridiron House", "dynasty", "America/Los_Angeles", "", 8, 17)))
+	for _, want := range []string{
+		"Manager Guide · Gridiron House",
+		"8 teams · DYNASTY",
+		"NO DOMAIN GATE",
+		"Runtime invitations or the deployment allowlist may restrict admission",
+		"both are empty, any authenticated Google identity is admitted",
+		"8 × 17 = 136 draft slots",
+		"340",
+		"204",
+		"Mark ready",
+		"Mark not ready",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("dynasty guide omitted %q", want)
+		}
+	}
+	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "DOMAIN ADMISSION ENABLED", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
+		if strings.Contains(body, wrong) {
+			t.Errorf("dynasty guide leaked redraft/domain claim %q", wrong)
+		}
 	}
 }
 
