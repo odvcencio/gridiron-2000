@@ -254,9 +254,14 @@ Nothing about direct mode changed — see `tank01_test.go`'s
 
 `/commissioner` composes a read-only fleet view while each league keeps its
 own database, sessions, OAuth callback, CSRF boundary, and commissioner
-actions. Configure an instance ID and explicit service origins with
-`COMMISSIONER_INSTANCE_ID` and `COMMISSIONER_HQ_PEERS`. Each peer serves only
-the typed, PII-free `/api/commissioner/v1/summary` contract.
+actions. Configure an instance ID and explicit peer pairs with
+`COMMISSIONER_INSTANCE_ID` and `COMMISSIONER_HQ_PEERS`. Each peer entry uses
+`id=service-origin|public-origin`; the service origin is reachable only by
+the server-side federation reader, while the public origin is the exact
+browser-facing URL shown on an unavailable card and used for cross-league
+links. Each peer serves only the typed, PII-free
+`/api/commissioner/v2/summary` contract, and its response must identify the
+peer and return the configured normalized public origin.
 
 Generate one newly generated, independent `COMMISSIONER_HQ_TOKEN` of at least
 256 bits and place the identical value in both participating existing
@@ -271,7 +276,8 @@ commissioner, and CSRF checks.
 
 Peer URLs are deployment wiring, not league rules, so they deliberately stay
 out of `league.json`. Startup rejects missing tokens, duplicate/self IDs,
-unsafe URL components, and more than eight peers. Peer reads are concurrent,
+missing service/public pairs, credentials, paths, queries, fragments, unsafe
+origins, and more than eight peers. Peer reads are concurrent,
 redirect-disabled, size-bounded, and time-bounded; an unavailable league
 becomes one truthful degraded card rather than failing the whole HQ. During
 the SK-first canary, the flagship card may be unavailable until the second
