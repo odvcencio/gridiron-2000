@@ -137,3 +137,5 @@ The base unit is 8px, with responsive expansion only at larger composition steps
 - Live updates use a polite status region and preserve focus.
 - Motion and texture effects are disabled or simplified for `prefers-reduced-motion`.
 - Narrow layouts preserve the matchup reading order rather than shrinking the desktop grid.
+- At viewports up to `38rem`, every visible content action control and text, select, textarea, or file field has a minimum `2.75rem` (44px) block target. The baseline is scoped to the page content frame so navigation can keep its own contract; hidden inputs, radio/checkbox controls, and non-interactive status/chip elements are explicitly excluded.
+- Phone controls may wrap and expand to the available width, but must never create horizontal overflow or rely on a smaller hit area to preserve the retro terminal density. A compact visual treatment is allowed only when its interactive target still meets the 44px baseline.
