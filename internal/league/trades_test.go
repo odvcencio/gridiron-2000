@@ -70,7 +70,99 @@ func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	}
 }
 
+// Trade Desk terminal history visibility, bounds, ordering, and failure copy.
+func TestTradeHistoryIsPrivateBoundedNewestFirstAndIncludesFailureReason(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	terminal := []string{TradeStatusExecuted, TradeStatusDeclined, TradeStatusWithdrawn, TradeStatusCountered, TradeStatusVetoed, TradeStatusExpired, TradeStatusFailed}
+	offers := make([]TradeOffer, 0, 27)
+	for i := 0; i < 25; i++ {
+		status := terminal[i%len(terminal)]
+		created := now.Add(time.Duration(i) * time.Minute)
+		offer := TradeOffer{
+			ID: "trd-history-" + fmt.Sprintf("%02d", i), FromTeamID: "team-1", ToTeamID: "team-2",
+			Give: []string{"t1-a"}, Get: []string{"t2-a"}, Status: status,
+			CreatedAt: created, ResolvedAt: created.Add(time.Second),
+		}
+		if status == TradeStatusFailed {
+			offer.FailReason = "Team1 A is no longer on East 1's roster"
+		}
+		offers = append(offers, offer)
+	}
+	// A commissioner may review the global terminal ledger; a manager only
+	// receives offers where their seat was one of the two parties.
+	offers = append(offers, TradeOffer{
+		ID: "trd-history-outsider", FromTeamID: "team-3", ToTeamID: "team-4",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"}, Status: TradeStatusFailed,
+		FailReason: "a private validation reason", CreatedAt: now.Add(2 * time.Hour), ResolvedAt: now.Add(2*time.Hour + time.Second),
+	})
+	offers = append(offers, TradeOffer{
+		ID: "trd-history-open", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"}, Status: TradeStatusOpen, CreatedAt: now.Add(3 * time.Hour),
+	})
+	state := PersistedState{TradeOffers: offers}
+	pool := svc.pool()
+	rows := svc.tradeHistoryRows(state, pool, "team-1", false, tradeVetoThreshold(len(defaultTeamIDs())))
+	if len(rows) != tradeHistoryCap {
+		t.Fatalf("party history length = %d, want cap %d", len(rows), tradeHistoryCap)
+	}
+	if rows[0].ID != "trd-history-24" {
+		t.Fatalf("party history newest = %q, want trd-history-24", rows[0].ID)
+	}
+	for _, row := range rows {
+		if row.ID == "trd-history-outsider" || row.Status == TradeStatusOpen {
+			t.Fatalf("private/open offer leaked into party history: %+v", row)
+		}
+	}
+	failedSeen := false
+	for _, row := range rows {
+		if row.Status == TradeStatusFailed {
+			failedSeen = true
+			if row.StatusLabel != "Failed" || row.FailReason == "" {
+				t.Fatalf("failed row lacks plain status/reason: %+v", row)
+			}
+		}
+	}
+	if !failedSeen {
+		t.Fatal("party history omitted failed terminal offer")
+	}
+	commissionerRows := svc.tradeHistoryRows(state, pool, "", true, tradeVetoThreshold(len(defaultTeamIDs())))
+	if len(commissionerRows) != tradeHistoryCap || commissionerRows[0].ID != "trd-history-outsider" {
+		t.Fatalf("commissioner history = len:%d first:%q, want bounded global newest-first ledger", len(commissionerRows), commissionerRows[0].ID)
+	}
+}
+
 // ---------------------------------------------------------------------
+// Counter composer exposes the current counterparty roster, not the original give list.
+func TestTradeCounterOffersFullCurrentCounterpartyRoster(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.ProposeTrade(request, "team-2", "team-1", []string{"t2-a"}, []string{"t1-a"}, nil, ""); err != nil {
+		t.Fatalf("incoming proposal: %v", err)
+	}
+	data := svc.TradesData(request)
+	inbox, ok := data["inbox"].([]TradeOfferRow)
+	if !ok || len(inbox) != 1 {
+		t.Fatalf("inbox = %#v, want one incoming offer", data["inbox"])
+	}
+	row := inbox[0]
+	if row.CounterGiveOptionsEmpty || row.CounterGetOptionsEmpty {
+		t.Fatalf("counter roster empty flags = give:%v get:%v, want both false", row.CounterGiveOptionsEmpty, row.CounterGetOptionsEmpty)
+	}
+	want := map[string]bool{"t2-a": true, "t2-b": true, "t2-c": true}
+	if len(row.CounterGetOptions) != len(want) {
+		t.Fatalf("counter get options = %#v, want full current team-2 roster", row.CounterGetOptions)
+	}
+	for _, option := range row.CounterGetOptions {
+		if !want[option.ID] {
+			t.Fatalf("counter get option %q is not on the current counterparty roster", option.ID)
+		}
+		delete(want, option.ID)
+	}
+	if len(want) != 0 {
+		t.Fatalf("counter get options omitted current roster players: %#v", want)
+	}
+}
+
 // validateTradeAssets — T4-T8, T12, direct pure-function fixtures
 // ---------------------------------------------------------------------
 
@@ -710,6 +802,17 @@ func TestTradeExecutionFailsClosedAfterMidWindowRosterChange(t *testing.T) {
 	rosters := currentRosters(state)
 	if containsID(rosters["team-2"], "t1-a") {
 		t.Fatal("team-2 must not gain t1-a when execution fails closed")
+	}
+	for _, email := range []string{"team-1@example.com", "team-2@example.com"} {
+		key := keyTradeFailed(offerID, email)
+		if _, sent := state.SentLog[key]; !sent {
+			t.Fatalf("failed execution notification was not recorded for %s under key %q", email, key)
+		}
+	}
+	sentBefore := len(state.SentLog)
+	svc.notifyTradeFailed(offer)
+	if got := len(svc.store.Snapshot().SentLog); got != sentBefore {
+		t.Fatalf("failed execution notification duplicated: sent log grew from %d to %d", sentBefore, got)
 	}
 }
 

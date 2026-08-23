@@ -169,10 +169,7 @@ func (s *Service) evalTradeTick(now time.Time) {
 			}
 			txn, err := s.store.ExecuteTradeOffer(offer.ID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
 			if err != nil {
-				// The offer already recorded "failed" with FailReason
-				// inside ExecuteTradeOffer; section 9's catalog reserves
-				// no N-entry for a failed execution (only N16 for a
-				// successful one), so no notification fires here.
+				s.notifyTradeFailed(offer)
 				continue
 			}
 			s.notifyTradeExecuted(offer, txn)
