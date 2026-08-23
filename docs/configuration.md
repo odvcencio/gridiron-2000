@@ -85,9 +85,15 @@ All four fields are strings:
 
 ## `membership`
 
-`membership.allowed_domain` is either empty or a bare domain such as `stablekernel.com`—never an email address and never prefixed with `@`. When set, a Google identity at that domain may enter without an individual invite. Runtime invitations and `LEAGUE_ALLOWED_EMAILS` continue to work alongside it. Non-domain identities still depend on those runtime controls, except that an installation with both lists empty is deliberately open during setup and admits any authenticated Google identity.
+`membership.allowed_domain` is either empty or a bare domain such as `stablekernel.com`—never an email address and never prefixed with `@`. The runtime exposes one effective posture to admission and public copy.
 
-An empty or omitted value means only that there is no domain gate; public config cannot reveal the effective runtime posture. Individual invitations or `LEAGUE_ALLOWED_EMAILS` may restrict admission. When both are empty, the initial-setup behavior is open to any authenticated Google identity. Commissioner authority is separate and still comes from `COMMISSIONER_EMAILS`; identity merging is separate and comes from `IDENTITY_ALIASES`.
+Public labels and details expose only this posture mode; they never include the configured domain or invitation identities.
+
+- **OPEN AFTER SIGN-IN** — the domain is empty and both `LEAGUE_ALLOWED_EMAILS` and stored invitations are empty. Any authenticated Google account may enter while setup is open.
+- **DOMAIN OR INVITE** — a domain is configured. A raw Google email at that domain is admitted; an explicit environment or stored invitation is an additive path. A configured domain with no invitations still rejects outsiders.
+- **INVITE-ONLY** — no domain is configured and at least one explicit environment or stored invitation exists. Only invited identities enter.
+
+Existing persisted members remain admitted if a domain or invitation list later changes. Commissioner admission is a narrow authority exception: the canonical identities listed in `COMMISSIONER_EMAILS` and their explicit `IDENTITY_ALIASES` are admitted so a commissioner is not locked out by a colleague-domain gate. The alias does not grant unrelated commissioner or league authorization to other identities.
 
 ## `roster`
 

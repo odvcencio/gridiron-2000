@@ -149,8 +149,8 @@ func TestPublicEntryPersistedCanonicalMemberSurvivesAliasPolicyChange(t *testing
 	if err := service.store.AddInvite("other@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if service.EmailAllowed(identityCanonicalEmail) {
-		t.Fatal("canonical email intentionally outside configured initial-admission domain")
+	if !service.EmailAllowed(identityCanonicalEmail) {
+		t.Fatal("persisted canonical member must remain admitted outside the configured initial-admission domain")
 	}
 	if !service.EmailAllowed(identityAliasEmail) {
 		t.Fatal("raw provider alias should satisfy configured initial-admission domain")
@@ -177,8 +177,8 @@ func TestPublicEntryPersistedMemberSurvivesRemovedInvite(t *testing.T) {
 	if err := service.store.AddInvite("other@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if service.EmailAllowed(email) {
-		t.Fatal("removed invite must not satisfy initial-admission policy")
+	if !service.EmailAllowed(email) {
+		t.Fatal("persisted member must remain admitted after the invite is removed")
 	}
 	view := publicEntryForEmail(t, service, email)
 	if view.State != PublicEntryAdmittedSeatlessOpen || !view.Admitted || !view.CanClaim {
@@ -204,11 +204,11 @@ func TestMembershipAdmissionPolicyModesMatchLabels(t *testing.T) {
 			allowed: []string{"invited@example.com"}, rejected: []string{"outsider@example.com"},
 		},
 		{
-			name: "configured domain with open fallback", domain: "stablekernel.com", wantLabel: "OPEN AFTER SIGN-IN",
-			allowed: []string{"colleague@example.com", "outsider@example.com"},
+			name: "configured domain is gated even with no invitations", domain: "stablekernel.com", wantLabel: "DOMAIN OR INVITE",
+			allowed: []string{"colleague@example.com"}, rejected: []string{"outsider@example.com"},
 		},
 		{
-			name: "domain plus invite", domain: "stablekernel.com", envInvites: "guest@example.com", wantLabel: "DOMAIN OR INVITE · @stablekernel.com",
+			name: "domain plus invite", domain: "stablekernel.com", envInvites: "guest@example.com", wantLabel: "DOMAIN OR INVITE",
 			allowed: []string{"colleague@example.com", "guest@example.com"}, rejected: []string{"outsider@example.com"},
 		},
 	}

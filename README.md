@@ -62,7 +62,7 @@ GOOGLE_CLIENT_SECRET=your-client-secret
 GOOGLE_REDIRECT_URL=http://localhost:8080/auth/google/callback
 LEAGUE_ALLOWED_EMAILS=alex@example.com,maya@example.com
 COMMISSIONER_EMAILS=commissioner@example.com
-# Optional explicit identity merge; raw aliases still need league admission.
+# Optional explicit identity merge; a configured commissioner alias is admitted across the membership gate.
 IDENTITY_ALIASES=alias@example.com=commissioner@example.com
 DEMO_MODE=false
 ```
@@ -80,15 +80,20 @@ IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com
 ```
 
 Mappings are explicit, one-way, and fail closed on malformed, chained, or
-ambiguous entries. The raw provider email is checked against
-`LEAGUE_ALLOWED_EMAILS`, configured membership domains, and runtime invites
-before it is canonicalized. After admission, the canonical identity is used
-for commissioner authorization, seat/team ownership, co-manager bindings,
-Big Board, Pick'em, Blitz, notification preferences, sessions, and audit
-attribution. On startup, existing internal state is migrated idempotently;
-conflicting seats, roles, picks, or preferences stop startup for review.
-Invite entries themselves remain raw policy records, so adding an alias never
-silently grants league access.
+ambiguous entries. Admission evaluates a provider email in this order:
+existing persisted membership; the canonical identities in
+`COMMISSIONER_EMAILS` and their explicit aliases; a raw configured domain;
+a raw environment or stored invitation; and finally the open-after-sign-in
+fallback only when both the domain and invitation sources are empty. This
+keeps a colleague-domain gate truthful while ensuring a configured
+commissioner—such as the commissioner's `m31labs.dev` identity and its explicit
+Stable Kernel alias—can still sign in. Alias canonicalization is not a
+general bypass for unrelated authorization. After admission, the canonical
+identity is used for commissioner authorization, seat/team ownership,
+co-manager bindings, Big Board, Pick'em, Blitz, notification preferences,
+sessions, and audit attribution. On startup, existing internal state is
+migrated idempotently; conflicting seats, roles, picks, or preferences stop
+startup for review. Invite entries themselves remain raw policy records.
 
 ## Assemble the free Signal Wire
 
@@ -217,7 +222,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `DRAFT_AT` | `2099-01-01T00:00:00Z` | Scheduled draft meeting/window as RFC3339; only the commissioner’s **Start draft** action begins pick one |
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
 | `COMMISSIONER_EMAILS` | empty | Canonical accounts allowed into `/admin` |
-| `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings for one person; internal ownership and audit only |
+| `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings; a configured commissioner's aliases are admitted by the narrow commissioner exception, while unrelated identities still need raw policy |
 | `COMMISSIONER_INSTANCE_ID` | `local` | Stable ID for this isolated league in Commissioner HQ |
 | `COMMISSIONER_HQ_PEERS` | empty | Comma-separated `id=service-origin\|public-origin` entries for every other league this instance should display; fleet size is not capped |
 | `COMMISSIONER_HQ_CONCURRENCY` | `8` | Simultaneous peer-summary reads, from 1–64; bounds resource use without limiting fleet size |

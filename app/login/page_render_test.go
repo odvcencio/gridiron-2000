@@ -52,7 +52,7 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if !strings.Contains(valid, "SIGN IN TO ENTER.") {
 		t.Fatalf("login page omitted authentication-first headline: %s", valid)
 	}
-	if !strings.Contains(valid, "This league checks its admission policy after authentication") {
+	if !strings.Contains(valid, "The league checks its admission policy after authentication") {
 		t.Fatalf("login page omitted truthful admission guidance: %s", valid)
 	}
 	if strings.Contains(valid, "Every seat belongs to one manager.") || strings.Contains(valid, "Your league access will be waiting.") {

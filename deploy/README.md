@@ -150,12 +150,12 @@ share one metered upstream quota.
   real key upstream (see `internal/fantasy/model.go`'s `ConfigFromEnv` and
   `Enabled`).
 - When one operator signs in with multiple permitted Google accounts, set the
-  canonical address in `COMMISSIONER_EMAILS` and map each alternate
-  explicitly with `IDENTITY_ALIASES=alias=canonical`. The raw alias still
-  must pass the league's independent domain/allowlist/invite gate. Internal
-  member keys, co-manager bindings, boards, Pick'em, Blitz, notification
-  preferences, OAuth sessions, and audit attribution then resolve to the
-  canonical address.
+  canonical address in `COMMISSIONER_EMAILS` and map each alternate explicitly
+  with `IDENTITY_ALIASES=alias=canonical`. A configured commissioner's alias is
+  admitted by the narrow commissioner exception; unrelated aliases still need
+  the league's independent domain/allowlist/invite gate. Internal member keys,
+  co-manager bindings, boards, Pick'em, Blitz, notification preferences, OAuth
+  sessions, and audit attribution then resolve to the canonical address.
 
   The paired Gridiron deployments use this one-way identity direction:
 
@@ -164,10 +164,10 @@ share one metered upstream quota.
   IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com
   ```
 
-  `LEAGUE_ALLOWED_EMAILS`, stored invitations, and
-  `membership.allowed_domain` still evaluate the raw Google provider email.
-  List or invite each account that should pass admission; aliasing alone never
-  admits an account.
+  `LEAGUE_ALLOWED_EMAILS`, stored invitations, and `membership.allowed_domain`
+  still evaluate unrelated raw Google identities. List or invite each unrelated
+  account that should pass admission; the configured commissioner's explicit
+  alias is the narrow exception.
 - The identity startup migration is idempotent and fails closed on conflicting
   seats, roles, or user-owned values. It leaves raw invite entries unchanged
   because they are admission policy, not identity ownership. Apply the mapping

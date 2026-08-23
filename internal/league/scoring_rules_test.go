@@ -360,8 +360,8 @@ func TestScoringDataSKSharesFlagshipRosterButDiffersOnIdentityAndMembership(t *t
 	// Different membership rules: the isolation proof.
 	membershipSK := dataSK["membership_rules"].(map[string]any)
 	membershipFlagship := dataFlagship["membership_rules"].(map[string]any)
-	if membershipSK["domain_gated"] != true || membershipSK["domain"] != "stablekernel.com" {
-		t.Errorf("SK membership_rules = %+v, want domain_gated=true domain=stablekernel.com", membershipSK)
+	if membershipSK["domain_gated"] != true || membershipSK["has_invitation_source"] != false {
+		t.Errorf("SK membership_rules = %+v, want domain_gated=true and no invitation source", membershipSK)
 	}
 	if membershipFlagship["domain_gated"] != false {
 		t.Errorf("flagship membership_rules = %+v, want domain_gated=false", membershipFlagship)

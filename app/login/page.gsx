@@ -20,7 +20,7 @@ func Page() Node {
 					·
 					{data.league.seat_count_word} manager league
 				</p>
-				<p class="login-entry-policy"><strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label}</p>
+				<p class="login-entry-policy"><strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label} — {data.public_entry.membership_detail}</p>
 				<div class="login-event" aria-labelledby="login-event-heading">
 					<span class="section-index">UP NEXT</span>
 					<h2 id="login-event-heading">{data.draft.event_label}</h2>
@@ -50,7 +50,7 @@ func Page() Node {
 						the league will explain whether this identity is admitted and whether
 						a fantasy seat is available.
 					</p>
-					<p class="login-admission-note">Admission policy: {data.public_entry.membership_label}</p>
+					<p class="login-admission-note">Admission policy: {data.public_entry.membership_label} — {data.public_entry.membership_detail}</p>
 					<If cond={data.has_return_path}>
 						<p class="login-return-note">
 							After sign-in, we'll return you to the page you requested.

@@ -34,7 +34,7 @@ The commissioner performs this once for each isolated league instance.
 
 1. Configure `league.json`. Confirm league name, mode, timezone, season, team IDs, roster shape, draft rounds, waiver mode, and trade policy. Team IDs are durable; do not rename IDs after state refers to them.
 2. Open `/scoring` and read the rendered rules as a manager would. This catches a valid configuration that still expresses the wrong league.
-3. Confirm Google OAuth, `COMMISSIONER_EMAILS`, admission policy, and any `IDENTITY_ALIASES`. An identity alias unifies one person's internal ownership; it does not admit an otherwise unauthorized raw email.
+3. Confirm Google OAuth, COMMISSIONER_EMAILS, admission policy, and any IDENTITY_ALIASES. An identity alias unifies one person's internal ownership; a configured commissioner's explicit alias is admitted by the narrow commissioner exception, while unrelated aliases still need raw league policy.
 4. Confirm `/api/health` reports the expected league configuration source, release identity, player-pool mode, player count, roster capacity, and no pool error.
 5. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
 6. Ask every manager to claim the intended franchise before draft order is finalized.

@@ -130,29 +130,10 @@ func Page() Node {
 					<h2>Who can join</h2>
 				</div>
 			</div>
-			<If cond={data.membership_rules.open}>
-				<p class="scoring-note">
-					This league is
-					<b class="mono">OPEN</b>
-					— any Google account can claim an unclaimed seat.
-				</p>
-			</If>
-			<If cond={data.membership_rules.domain_gated}>
-				<p class="scoring-note">
-					This league is
-					<b class="mono">DOMAIN-GATED</b>
-					— any Google account ending in
-					<b class="mono">@{data.membership_rules.domain}</b>
-					can claim an unclaimed seat automatically, first come first served. An invited email outside that domain can still claim one too.
-				</p>
-			</If>
-			<If cond={data.membership_rules.invite_only}>
-				<p class="scoring-note">
-					This league is
-					<b class="mono">INVITE-ONLY</b>
-					— only an allowed or invited email can claim a seat. Ask the commissioner for an invite.
-				</p>
-			</If>
+			<p class="scoring-note">
+				<b class="mono">{data.membership_rules.label}</b>
+				— {data.membership_rules.detail}
+			</p>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Seats claimed</span>

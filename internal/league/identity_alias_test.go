@@ -348,7 +348,7 @@ func TestIdentityAliasStoreActionsUseCanonicalKeys(t *testing.T) {
 	}
 }
 
-func TestIdentityAliasCommissionerAndAllowlistRemainDistinct(t *testing.T) {
+func TestIdentityAliasCommissionerPrecedesRawPolicy(t *testing.T) {
 	service := newTestService(t, false)
 	resolver := testIdentityResolver(t)
 	service.identityResolver = resolver
@@ -364,8 +364,8 @@ func TestIdentityAliasCommissionerAndAllowlistRemainDistinct(t *testing.T) {
 	if !service.EmailAllowed(identityCanonicalEmail) {
 		t.Fatal("canonical allowlist identity should be admitted")
 	}
-	if service.EmailAllowed(identityAliasEmail) {
-		t.Fatal("alias must not bypass the independent raw-email allowlist")
+	if !service.EmailAllowed(identityAliasEmail) {
+		t.Fatal("commissioner alias should bypass the independent raw-email allowlist")
 	}
 	for _, rawEmail := range []string{identityAliasEmail, identityCanonicalEmail} {
 		user := service.CanonicalUser(auth.User{ID: "google-subject", Email: rawEmail})
@@ -374,9 +374,10 @@ func TestIdentityAliasCommissionerAndAllowlistRemainDistinct(t *testing.T) {
 		}
 	}
 
-	// Admission is deliberately evaluated against the provider email before
-	// canonicalization. An explicit raw invitation admits the alternate
-	// account without changing the canonical account's independent policy.
+	// Commissioner admission checks canonical authority first. Once an identity
+	// is not a configured commissioner, domain and invitation policy remain raw
+	// provider checks; a raw invitation admits the alternate without changing
+	// the canonical account's independent policy.
 	service.store.state.Invites = []string{identityAliasEmail}
 	if !service.EmailAllowed(identityAliasEmail) {
 		t.Fatal("explicit raw invitation should admit the alternate provider identity")

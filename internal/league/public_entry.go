@@ -37,6 +37,7 @@ type PublicEntryView struct {
 	CommissionerLabel  string
 	CommissionerHref   string
 	MembershipLabel    string
+	MembershipDetail   string
 	RoleLabel          string
 	TeamName           string
 	PrimaryName        string
@@ -66,16 +67,18 @@ func (s *Service) publicEntryViewForViewer(r *http.Request, viewer map[string]an
 }
 
 func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[string]any, state PersistedState) PublicEntryView {
+	posture := s.MembershipPosture()
 	view := PublicEntryView{
 		State:             PublicEntryAnonymous,
 		StateLabel:        "AUTHENTICATION FIRST",
 		Headline:          "SIGN IN TO ENTER.",
-		Detail:            "Use your Google account to begin. This league checks its admission policy after authentication; team controls appear only after admission and an open franchise is confirmed.",
+		Detail:            "Use your Google account to begin. The league checks its admission policy after authentication; team controls appear only after admission and an open franchise is confirmed.",
 		ActionLabel:       "Sign in with Google",
 		ActionHref:        "/login",
 		CommissionerLabel: "Open Commissioner HQ →",
 		CommissionerHref:  "/commissioner",
-		MembershipLabel:   s.membershipPolicyLabel(),
+		MembershipLabel:   posture.Label(),
+		MembershipDetail:  posture.Detail(),
 		FormatBlurb:       s.formatBlurb(),
 		ModeLabel:         s.cfg.ModeLabel,
 		IsCommissioner:    s.IsCommissioner(r),
@@ -210,6 +213,7 @@ func (s *Service) publicEntryDataForViewerState(r *http.Request, viewer map[stri
 		"commissioner_label":    v.CommissionerLabel,
 		"commissioner_href":     v.CommissionerHref,
 		"membership_label":      v.MembershipLabel,
+		"membership_detail":     v.MembershipDetail,
 		"role_label":            v.RoleLabel,
 		"team_name":             v.TeamName,
 		"primary_name":          v.PrimaryName,
@@ -229,15 +233,7 @@ func (s *Service) publicEntryDataForViewerState(r *http.Request, viewer map[stri
 }
 
 func (s *Service) membershipPolicyLabel() string {
-	domain, invites := s.membershipAdmissionPolicy()
-	switch {
-	case len(invites) == 0:
-		return "OPEN AFTER SIGN-IN"
-	case domain != "":
-		return "DOMAIN OR INVITE · @" + domain
-	default:
-		return "INVITE-ONLY"
-	}
+	return s.MembershipPosture().Label()
 }
 
 func seatCountCopy(open int) string {

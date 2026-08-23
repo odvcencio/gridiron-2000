@@ -1053,7 +1053,7 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 		}
 		if !membership.EmailAllowed(user.Email) {
 			manager.SignOut(r)
-			session.AddFlash(r, "notice", "That Google account is not on this league's invite list.")
+			session.AddFlash(r, "notice", "That Google account is not admitted by this league's membership policy.")
 			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
 			return
 		}
