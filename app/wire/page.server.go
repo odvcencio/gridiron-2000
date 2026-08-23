@@ -143,11 +143,17 @@ func init() {
 // neutral word, never the raw mode token, so an unmapped future mode still
 // reads as English instead of leaking a machine state name.
 var wireModeLabels = map[string]string{
-	"syndicating":       "LIVE",
-	"resolving_sources": "STARTING",
-	"source_error":      "QUIET",
-	"reconnecting":      "CATCHING UP",
-	"awaiting_sources":  "OFF",
+	signalwire.ModeDisabled:         "OFF",
+	signalwire.ModeAwaitingSources:  "OFF",
+	signalwire.ModeReady:            "READY",
+	signalwire.ModeSyndicationReady: "READY",
+	signalwire.ModeSyndicating:      "LIVE",
+	signalwire.ModeResolvingSources: "STARTING",
+	signalwire.ModeConnecting:       "STARTING",
+	signalwire.ModeStreaming:        "LIVE",
+	signalwire.ModeReconnecting:     "CATCHING UP",
+	signalwire.ModeSourceError:      "QUIET",
+	signalwire.ModeStopped:          "OFF",
 }
 
 func wireModeLabel(mode string) string {
@@ -155,6 +161,93 @@ func wireModeLabel(mode string) string {
 		return label
 	}
 	return "UNAVAILABLE"
+}
+
+const wireFeedStaleAfter = 15 * time.Minute
+
+// wireFeedHealthLabel is deliberately derived from the timestamps and error
+// retained by the internal service. A feed that has never completed a check
+// must not look ready merely because its configured state says "waiting".
+func wireFeedHealthLabel(feed signalwire.FeedStatus, now time.Time) string {
+	if feed.LastError != "" || feed.State == "error" {
+		return "ERROR"
+	}
+	if feed.LastChecked.IsZero() {
+		return "NEVER CHECKED"
+	}
+	if feed.LastChecked.Before(now.Add(-wireFeedStaleAfter)) {
+		return "STALE"
+	}
+	if feed.State != "ready" {
+		return "UNAVAILABLE"
+	}
+	return "READY"
+}
+
+func wireFeedCheckedLabel(feed signalwire.FeedStatus) string {
+	if feed.LastChecked.IsZero() {
+		return "NEVER CHECKED"
+	}
+	return displayTime(feed.LastChecked)
+}
+
+func wireFeedPublishedLabel(feed signalwire.FeedStatus) string {
+	if feed.LastPublished.IsZero() {
+		return "NEVER PUBLISHED"
+	}
+	return displayTime(feed.LastPublished)
+}
+
+func wireHasDegradedFeed(status signalwire.Status, now time.Time) bool {
+	if len(status.Feeds) == 0 || status.Mode == signalwire.ModeDisabled || status.Mode == signalwire.ModeAwaitingSources {
+		return false
+	}
+	for _, feed := range status.Feeds {
+		if wireFeedHealthLabel(feed, now) != "READY" {
+			return true
+		}
+	}
+	return false
+}
+
+func wireHasPartialOutage(status signalwire.Status, now time.Time) bool {
+	if wireHasDegradedFeed(status, now) {
+		return true
+	}
+	// A failed Bluesky source can coexist with healthy syndication feeds. The
+	// service keeps source_error instead of overwriting it with syndicating, so
+	// this branch makes that partial outage visible in the aggregate label.
+	return status.BlueskyConfigured && len(status.Feeds) > 0 && status.Mode == signalwire.ModeSourceError
+}
+
+// wirePresentationLabel is the aggregate product label. The runtime mode is
+// still the source of truth for a healthy wire, but a single failed, stale, or
+// never-checked feed is visible even when a Bluesky stream remains healthy.
+func wirePresentationLabel(status signalwire.Status, now time.Time) string {
+	base := wireModeLabel(status.Mode)
+	if base == "UNAVAILABLE" {
+		return base
+	}
+	if wireHasPartialOutage(status, now) {
+		return "DEGRADED"
+	}
+	return base
+}
+
+func wireHealthLabel(status signalwire.Status, now time.Time) string {
+	base := wireModeLabel(status.Mode)
+	if base == "UNAVAILABLE" {
+		return base
+	}
+	if wireHasPartialOutage(status, now) {
+		return "PARTIAL"
+	}
+	switch base {
+	case "LIVE", "READY":
+		return "HEALTHY"
+	default:
+		return base
+	}
 }
 
 // dataStateLabels turns the open-data dataset/feed state constants (shared
@@ -195,12 +288,13 @@ func evidenceTypeLabel(evidenceType string) string {
 func wirePageData(request *http.Request, signals *signalwire.Service, stats *openstats.Service) map[string]any {
 	wireStatus := signals.Status()
 	openStatus := stats.Status()
+	now := time.Now().UTC()
 	viewer := league.Default().Viewer(request)
 	category := strings.TrimSpace(request.URL.Query().Get("category"))
 	recent := signals.Recent(50, category)
 	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {
-		items = append(items, signalMap(signal))
+		items = append(items, wireSignalCard(signal, wireStatus, now))
 	}
 	sources := make([]map[string]any, 0, len(wireStatus.Sources))
 	for _, source := range wireStatus.Sources {
@@ -217,20 +311,28 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	readyFeeds := 0
 	feedIgnored := int64(0)
 	for _, feed := range wireStatus.Feeds {
-		if feed.State == "ready" {
+		feedState := wireFeedHealthLabel(feed, now)
+		if feedState == "READY" {
 			readyFeeds++
 		}
 		feedIgnored += feed.Ignored
+		checked := wireFeedCheckedLabel(feed)
+		published := wireFeedPublishedLabel(feed)
 		feeds = append(feeds, map[string]any{
-			"name":       feed.Name,
-			"url":        feed.URL,
-			"evidence":   evidenceTypeLabel(feed.EvidenceType),
-			"state":      dataStateLabel(feed.State),
-			"accepted":   feed.Accepted,
-			"ignored":    feed.Ignored,
-			"checked":    displayTime(feed.LastChecked),
-			"has_error":  feed.LastError != "",
-			"last_error": feed.LastError,
+			"name":           feed.Name,
+			"url":            feed.URL,
+			"evidence":       evidenceTypeLabel(feed.EvidenceType),
+			"state":          feedState,
+			"accepted":       feed.Accepted,
+			"ignored":        feed.Ignored,
+			"checked":        checked,
+			"last_checked":   checked,
+			"published":      published,
+			"last_published": published,
+			"has_checked":    !feed.LastChecked.IsZero(),
+			"has_published":  !feed.LastPublished.IsZero(),
+			"has_error":      feed.LastError != "",
+			"last_error":     feed.LastError,
 		})
 	}
 	lastID := ""
@@ -245,7 +347,8 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"category":        category,
 		"filters":         wireFilterMaps(category),
 		"fragment_url":    wireFragmentURL(category),
-		"wire_mode":       wireModeLabel(wireStatus.Mode),
+		"wire_mode":       wirePresentationLabel(wireStatus, now),
+		"wire_health":     wireHealthLabel(wireStatus, now),
 		"wire_configured": wireStatus.Configured,
 		"wire_issue":      wireStatus.ConfigurationIssue,
 		"wire_error":      wireStatus.LastError,
@@ -297,13 +400,14 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 func FeedFragment(request *http.Request, signals *signalwire.Service) gosx.Node {
 	category := strings.TrimSpace(request.URL.Query().Get("category"))
 	wireStatus := signals.Status()
+	now := time.Now().UTC()
 	recent := signals.Recent(50, category)
 	if len(recent) == 0 {
 		return wireEmptyStateNode(wireStatus.Configured, wireStatus.ConfigurationIssue)
 	}
 	cards := make([]gosx.Node, 0, len(recent))
 	for _, signal := range recent {
-		cards = append(cards, signalCardNode(signalMap(signal)))
+		cards = append(cards, signalCardNode(wireSignalCard(signal, wireStatus, now)))
 	}
 	return gosx.Fragment(cards...)
 }
@@ -322,6 +426,9 @@ func signalCardNode(card WireSignalCard) gosx.Node {
 	}
 	if card.HasCorroboration {
 		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__corroboration mono")), gosx.Text(card.CorroborationLabel)))
+	}
+	if card.Retained {
+		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__retained mono")), gosx.Text("RETAINED · AS OF")))
 	}
 	footer = append(footer, gosx.El("time", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(card.Time)))
 	if card.HasURL {
@@ -374,12 +481,15 @@ func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 // syncWire()'s setText calls for the same three elements.
 func PulseData(signals *signalwire.Service) map[string]any {
 	wireStatus := signals.Status()
+	now := time.Now().UTC()
 	count := wireStatus.RelevantSignals
-	status := fmt.Sprintf("%d relevant signal%s · %s", count, pluralSuffix(count), displayTime(time.Now()))
+	health := wireHealthLabel(wireStatus, now)
+	status := fmt.Sprintf("%d relevant signal%s · %s · %s", count, pluralSuffix(count), health, displayTime(now))
 	return map[string]any{
-		"mode":   wireModeLabel(wireStatus.Mode),
+		"mode":   wirePresentationLabel(wireStatus, now),
 		"count":  count,
 		"status": status,
+		"health": health,
 	}
 }
 
@@ -412,6 +522,7 @@ type WireSignalCard struct {
 	Corroborations     int
 	HasCorroboration   bool
 	CorroborationLabel string
+	Retained           bool
 }
 
 // WireEmptyView is WireEmptyState's (page.gsx, a strict component) spread
@@ -455,6 +566,29 @@ func signalMap(signal signalwire.Signal) WireSignalCard {
 		HasCorroboration:   signal.Corroborations > 1,
 		CorroborationLabel: corroborationLabel,
 	}
+}
+
+func wireSignalCard(signal signalwire.Signal, status signalwire.Status, now time.Time) WireSignalCard {
+	card := signalMap(signal)
+	card.Retained = signalRetained(signal, status, now)
+	return card
+}
+
+func signalRetained(signal signalwire.Signal, status signalwire.Status, now time.Time) bool {
+	switch signal.Source {
+	case signalwire.SourceFeed:
+		for _, feed := range status.Feeds {
+			if feed.Name == signal.SourceName {
+				return wireFeedHealthLabel(feed, now) != "READY"
+			}
+		}
+	case signalwire.SourceBluesky:
+		if !status.BlueskyConfigured {
+			return false
+		}
+		return status.Mode != signalwire.ModeStreaming && status.Mode != signalwire.ModeSyndicating
+	}
+	return false
 }
 
 func applySubmissionState(ctx *route.RouteContext, data map[string]any) {

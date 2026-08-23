@@ -25,6 +25,37 @@ const (
 	defaultResolveURL   = "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle"
 )
 
+// Runtime modes are deliberately a closed vocabulary. They are consumed by
+// the product-facing wire readout, so adding a new mode requires an explicit
+// label there instead of silently leaking an implementation token.
+const (
+	ModeDisabled         = "disabled"
+	ModeAwaitingSources  = "awaiting_sources"
+	ModeReady            = "ready"
+	ModeSyndicationReady = "syndication_ready"
+	ModeSyndicating      = "syndicating"
+	ModeResolvingSources = "resolving_sources"
+	ModeConnecting       = "connecting"
+	ModeStreaming        = "streaming"
+	ModeReconnecting     = "reconnecting"
+	ModeSourceError      = "source_error"
+	ModeStopped          = "stopped"
+)
+
+var runtimeModes = [...]string{
+	ModeDisabled,
+	ModeAwaitingSources,
+	ModeReady,
+	ModeSyndicationReady,
+	ModeSyndicating,
+	ModeResolvingSources,
+	ModeConnecting,
+	ModeStreaming,
+	ModeReconnecting,
+	ModeSourceError,
+	ModeStopped,
+}
+
 type Config struct {
 	Root            string
 	RulesFile       string
@@ -172,7 +203,7 @@ func NewService(config Config) (*Service, error) {
 		client:         config.HTTPClient,
 		dialer:         config.WebSocketDialer,
 		now:            config.Now,
-		mode:           "ready",
+		mode:           ModeReady,
 		handleByDID:    map[string]string{},
 		feedSources:    feedSources,
 		feedStatuses:   map[string]FeedStatus{},
@@ -185,13 +216,13 @@ func NewService(config Config) (*Service, error) {
 		}
 	}
 	if !config.Enabled {
-		service.mode = "disabled"
+		service.mode = ModeDisabled
 		service.configurationIssue = "The commissioner turned the wire off."
 		return service, nil
 	}
 	service.blueskyConfigured = len(config.Handles) > 0 || len(config.DIDs) > 0
 	if !service.blueskyConfigured && len(feedSources) == 0 {
-		service.mode = "awaiting_sources"
+		service.mode = ModeAwaitingSources
 		service.configurationIssue = "The wire has no sources yet. Ask the commissioner to add some."
 		return service, nil
 	}
@@ -200,7 +231,7 @@ func NewService(config Config) (*Service, error) {
 			return nil, fmt.Errorf("invalid Bluesky Jetstream URL: %w", err)
 		}
 	} else {
-		service.mode = "syndication_ready"
+		service.mode = ModeSyndicationReady
 	}
 	service.configured = true
 	return service, nil
@@ -212,11 +243,11 @@ func (service *Service) Start(ctx context.Context) {
 			return
 		}
 		if len(service.feedSources) > 0 {
-			service.setRuntimeState("syndicating", true, "", time.Time{})
+			service.setRuntimeState(ModeSyndicating, true, "", time.Time{})
 			go service.runFeeds(ctx)
 		}
 		if service.blueskyConfigured {
-			service.setRuntimeState("resolving_sources", true, "", time.Time{})
+			service.setRuntimeState(ModeResolvingSources, true, "", time.Time{})
 			go service.run(ctx)
 		}
 	})
@@ -224,15 +255,23 @@ func (service *Service) Start(ctx context.Context) {
 
 func (service *Service) run(ctx context.Context) {
 	defer func() {
-		if len(service.feedSources) > 0 && ctx.Err() == nil {
-			service.setRuntimeState("syndicating", true, "", time.Time{})
-			return
+		if ctx.Err() == nil {
+			service.mu.RLock()
+			mode := service.mode
+			service.mu.RUnlock()
+			if mode == ModeSourceError {
+				return
+			}
+			if len(service.feedSources) > 0 {
+				service.setRuntimeState(ModeSyndicating, true, "", time.Time{})
+				return
+			}
 		}
-		service.setRuntimeState("stopped", false, "", time.Time{})
+		service.setRuntimeState(ModeStopped, false, "", time.Time{})
 	}()
 	sources, err := service.resolveSources(ctx)
 	if err != nil {
-		service.setRuntimeState("source_error", len(service.feedSources) > 0, safeError(err), time.Time{})
+		service.setRuntimeState(ModeSourceError, len(service.feedSources) > 0, safeError(err), time.Time{})
 		return
 	}
 	service.mu.Lock()
@@ -245,7 +284,7 @@ func (service *Service) run(ctx context.Context) {
 
 	backoff := service.config.ReconnectMin
 	for ctx.Err() == nil {
-		service.setRuntimeState("connecting", true, "", time.Time{})
+		service.setRuntimeState(ModeConnecting, true, "", time.Time{})
 		err := service.consume(ctx)
 		if ctx.Err() != nil {
 			return
@@ -254,7 +293,7 @@ func (service *Service) run(ctx context.Context) {
 			err = io.EOF
 		}
 		reconnectAt := service.now().Add(backoff)
-		service.setRuntimeState("reconnecting", true, safeError(err), reconnectAt)
+		service.setRuntimeState(ModeReconnecting, true, safeError(err), reconnectAt)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -285,7 +324,7 @@ func (service *Service) consume(ctx context.Context) error {
 	}
 	defer connection.Close()
 	connection.SetReadLimit(1 << 20)
-	service.setRuntimeState("streaming", true, "", time.Time{})
+	service.setRuntimeState(ModeStreaming, true, "", time.Time{})
 
 	closeOnCancel := make(chan struct{})
 	go func() {
