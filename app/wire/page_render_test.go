@@ -1,12 +1,15 @@
 package wire
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"gridiron-2000/internal/openstats"
 	signalwire "gridiron-2000/internal/wire"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
@@ -83,5 +86,226 @@ func TestWirePageRendersSignalCardsWithRealData(t *testing.T) {
 	}
 	if strings.Contains(body, "NO SIGNALS YET") {
 		t.Fatalf("expected the seeded sighting to render, not the empty state: %s", body)
+	}
+	if !strings.Contains(body, "DEGRADED") {
+		t.Fatalf("expected never-checked default feeds to render as DEGRADED: %s", body)
+	}
+	for _, token := range []string{
+		signalwire.ModeAwaitingSources,
+		signalwire.ModeSyndicationReady,
+		signalwire.ModeResolvingSources,
+		signalwire.ModeConnecting,
+		signalwire.ModeReconnecting,
+		signalwire.ModeSourceError,
+	} {
+		if strings.Contains(body, token) {
+			t.Fatalf("render leaked machine mode token %q: %s", token, body)
+		}
+	}
+}
+
+func TestWireModeLabelsCoverServiceVocabulary(t *testing.T) {
+	cases := map[string]string{
+		signalwire.ModeDisabled:         "OFF",
+		signalwire.ModeAwaitingSources:  "OFF",
+		signalwire.ModeReady:            "READY",
+		signalwire.ModeSyndicationReady: "READY",
+		signalwire.ModeSyndicating:      "LIVE",
+		signalwire.ModeResolvingSources: "STARTING",
+		signalwire.ModeConnecting:       "STARTING",
+		signalwire.ModeStreaming:        "LIVE",
+		signalwire.ModeReconnecting:     "CATCHING UP",
+		signalwire.ModeSourceError:      "QUIET",
+		signalwire.ModeStopped:          "OFF",
+	}
+	for mode, want := range cases {
+		if got := wireModeLabel(mode); got != want {
+			t.Errorf("wireModeLabel(%q) = %q, want %q", mode, got, want)
+		}
+	}
+	if got := wireModeLabel("future_runtime_mode"); got != "UNAVAILABLE" {
+		t.Fatalf("unknown wire mode = %q, want UNAVAILABLE", got)
+	}
+	unknown := signalwire.Status{
+		Mode:  "future_runtime_mode",
+		Feeds: []signalwire.FeedStatus{{Name: "Broken", State: "error", LastChecked: time.Now(), LastError: "timeout"}},
+	}
+	if got := wirePresentationLabel(unknown, time.Now()); got != "UNAVAILABLE" {
+		t.Fatalf("unknown wire mode with feed failure = %q, want UNAVAILABLE", got)
+	}
+}
+
+func TestWirePageAndPulseShareAggregateModeVocabulary(t *testing.T) {
+	signals, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: false,
+		DIDs: []string{"did:plc:reporter"}, JetstreamURL: "wss://stream.example.test/subscribe",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := openstats.NewService(openstats.Config{Root: t.TempDir(), Season: 2026, Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := wirePageData(httptest.NewRequest(http.MethodGet, "/wire", nil), signals, stats)
+	pulse := PulseData(signals)
+	if got, want := data["wire_mode"], pulse["mode"]; got != want {
+		t.Fatalf("initial page mode = %#v, pulse mode = %#v", got, want)
+	}
+}
+
+func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
+	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	status := signalwire.Status{
+		Configured:        true,
+		BlueskyConfigured: true,
+		Mode:              signalwire.ModeStreaming,
+		Feeds: []signalwire.FeedStatus{
+			{Name: "Healthy Publisher", State: "ready", LastChecked: now, LastPublished: now.Add(-time.Minute)},
+			{Name: "Broken Publisher", State: "error", LastChecked: now, LastPublished: now.Add(-time.Hour), LastError: "feed returned HTTP 503"},
+		},
+	}
+	if got := wirePresentationLabel(status, now); got != "DEGRADED" {
+		t.Fatalf("partial presentation = %q, want DEGRADED", got)
+	}
+	if got := wireHealthLabel(status, now); got != "PARTIAL" {
+		t.Fatalf("partial health = %q, want PARTIAL", got)
+	}
+	sourceFailure := status
+	sourceFailure.Mode = signalwire.ModeSourceError
+	sourceFailure.Feeds = []signalwire.FeedStatus{status.Feeds[0]}
+	if got := wirePresentationLabel(sourceFailure, now); got != "DEGRADED" {
+		t.Fatalf("healthy-feed/source-error presentation = %q, want DEGRADED", got)
+	}
+	partialSources := signalwire.Status{
+		Configured: true, BlueskyConfigured: true, Mode: signalwire.ModeStreaming,
+		Sources:        []signalwire.SourceStatus{{Handle: "healthy.example", DID: "did:plc:healthy"}},
+		SourcesPartial: true, SourceIssue: "Some Bluesky sources could not be resolved: broken.example",
+	}
+	if got := wirePresentationLabel(partialSources, now); got != "DEGRADED" {
+		t.Fatalf("partial Bluesky resolution presentation = %q, want DEGRADED", got)
+	}
+	if got := wireHealthLabel(partialSources, now); got != "PARTIAL" {
+		t.Fatalf("partial Bluesky resolution health = %q, want PARTIAL", got)
+	}
+	retained := wireSignalCard(signalwire.Signal{
+		ID: "retained", Source: signalwire.SourceFeed, SourceName: "Broken Publisher", OccurredAt: now.Add(-time.Hour),
+	}, status, now)
+	if !retained.Retained {
+		t.Fatalf("failed-feed signal was not marked retained: %+v", retained)
+	}
+	streaming := wireSignalCard(signalwire.Signal{
+		ID: "streaming", Source: signalwire.SourceBluesky, OccurredAt: now.Add(-time.Minute),
+	}, status, now)
+	if streaming.Retained {
+		t.Fatalf("healthy Bluesky signal was incorrectly marked retained: %+v", streaming)
+	}
+
+	html := gosx.RenderHTML(signalCardNode(retained))
+	if !strings.Contains(html, "RETAINED · AS OF") {
+		t.Fatalf("retained signal did not render its as-of label: %s", html)
+	}
+}
+
+func TestWireFeedHealthFollowsConfiguredCadence(t *testing.T) {
+	service, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: true,
+		FeedInterval: time.Hour,
+		FeedSources:  []signalwire.FeedSource{{Name: "Hourly Publisher", URL: "https://publisher.example/feed", EvidenceType: "news", Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := service.Status()
+	t0 := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	feed := signalwire.FeedStatus{Name: "Hourly Publisher", State: "ready", LastChecked: t0}
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "READY" {
+		t.Fatalf("hourly feed at 15m+1s = %q, want READY", got)
+	}
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(status.FeedStaleAfter+time.Second)); got != "STALE" {
+		t.Fatalf("hourly feed after derived threshold = %q, want STALE (threshold %v)", got, status.FeedStaleAfter)
+	}
+}
+
+func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
+	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		feed  signalwire.FeedStatus
+		state string
+	}{
+		{name: "never checked", feed: signalwire.FeedStatus{Name: "New", State: "waiting"}, state: "NEVER CHECKED"},
+		{name: "stale", feed: signalwire.FeedStatus{Name: "Old", State: "ready", LastChecked: now.Add(-signalwire.DeriveFeedStaleAfter(0) - time.Second)}, state: "STALE"},
+		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "ERROR"},
+		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "READY"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := wireFeedHealthLabel(test.feed, now); got != test.state {
+				t.Fatalf("feed health = %q, want %q", got, test.state)
+			}
+		})
+	}
+	if got := wireFeedCheckedLabel(cases[0].feed); got != "NEVER CHECKED" {
+		t.Fatalf("never-checked timestamp = %q", got)
+	}
+	if got := wireFeedPublishedLabel(cases[0].feed); got != "NEVER PUBLISHED" {
+		t.Fatalf("never-published timestamp = %q", got)
+	}
+	if got := wireFeedPublishedLabel(signalwire.FeedStatus{LastPublished: now}); got == "NEVER PUBLISHED" {
+		t.Fatalf("published timestamp was rendered as never published")
+	}
+}
+
+func TestWirePageAndPulseExposePartialSourceIssue(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("handle") == "broken.example" {
+			writer.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"did":"did:plc:healthy"}`))
+	}))
+	defer resolver.Close()
+
+	service, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: false,
+		Handles: []string{"healthy.example", "broken.example"}, ResolveURL: resolver.URL,
+		JetstreamURL: "wss://stream.invalid/subscribe", ReconnectMin: time.Millisecond, ReconnectMax: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	service.Start(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for service.Status().SourceIssue == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	status := service.Status()
+	if status.SourceIssue == "" || !status.SourcesPartial {
+		t.Fatalf("source status = %+v, want persistent partial issue", status)
+	}
+	stats, err := openstats.NewService(openstats.Config{Root: t.TempDir(), Season: 2026, Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := wirePageData(httptest.NewRequest(http.MethodGet, "/wire", nil), service, stats)
+	pulse := PulseData(service)
+	if got := data["wire_source_issue"]; got != status.SourceIssue {
+		t.Fatalf("page source issue = %#v, want %q", got, status.SourceIssue)
+	}
+	if got := pulse["source_issue"]; got != status.SourceIssue {
+		t.Fatalf("pulse source issue = %#v, want %q", got, status.SourceIssue)
+	}
+	if got := data["wire_mode"]; got != "DEGRADED" {
+		t.Fatalf("page mode = %#v, want DEGRADED", got)
+	}
+	if got := pulse["mode"]; got != "DEGRADED" {
+		t.Fatalf("pulse mode = %#v, want DEGRADED", got)
+	}
+	if got := pulse["status"].(string); !strings.Contains(got, status.SourceIssue) {
+		t.Fatalf("pulse status %q does not expose source issue %q", got, status.SourceIssue)
 	}
 }

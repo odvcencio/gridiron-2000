@@ -25,6 +25,62 @@ const (
 	defaultResolveURL   = "https://public.api.bsky.app/xrpc/com.atproto.identity.resolveHandle"
 )
 
+// Runtime modes are deliberately a closed vocabulary. They are consumed by
+// the product-facing wire readout, so adding a new mode requires an explicit
+// label there instead of silently leaking an implementation token.
+const (
+	ModeDisabled         = "disabled"
+	ModeAwaitingSources  = "awaiting_sources"
+	ModeReady            = "ready"
+	ModeSyndicationReady = "syndication_ready"
+	ModeSyndicating      = "syndicating"
+	ModeResolvingSources = "resolving_sources"
+	ModeConnecting       = "connecting"
+	ModeStreaming        = "streaming"
+	ModeReconnecting     = "reconnecting"
+	ModeSourceError      = "source_error"
+	ModeStopped          = "stopped"
+)
+
+var runtimeModes = [...]string{
+	ModeDisabled,
+	ModeAwaitingSources,
+	ModeReady,
+	ModeSyndicationReady,
+	ModeSyndicating,
+	ModeResolvingSources,
+	ModeConnecting,
+	ModeStreaming,
+	ModeReconnecting,
+	ModeSourceError,
+	ModeStopped,
+}
+
+const (
+	defaultFeedInterval = 2 * time.Minute
+	minFeedStaleAfter   = 15 * time.Minute
+	feedStaleGrace      = 5 * time.Minute
+)
+
+// DeriveFeedStaleAfter returns the amount of time a feed may go without a
+// successful check before the product should call it stale. The threshold
+// follows the configured polling cadence, while retaining a small grace
+// window for slow or overlapping requests and a useful floor for fast feeds.
+func DeriveFeedStaleAfter(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		interval = defaultFeedInterval
+	}
+	grace := feedStaleGrace
+	if interval/4 > grace {
+		grace = interval / 4
+	}
+	threshold := interval + grace
+	if threshold < minFeedStaleAfter {
+		return minFeedStaleAfter
+	}
+	return threshold
+}
+
 type Config struct {
 	Root            string
 	RulesFile       string
@@ -61,7 +117,7 @@ func ConfigFromEnv() Config {
 		Enabled:        envBool("WIRE_ENABLED", true),
 		FeedsEnabled:   envBool("WIRE_FEEDS_ENABLED", true),
 		SourcesFile:    strings.TrimSpace(os.Getenv("WIRE_SOURCES_FILE")),
-		FeedInterval:   envDuration("WIRE_FEED_INTERVAL", 2*time.Minute),
+		FeedInterval:   envDuration("WIRE_FEED_INTERVAL", defaultFeedInterval),
 		FeedMaxAge:     envDuration("WIRE_FEED_MAX_AGE", 72*time.Hour),
 		FeedMaxBytes:   int64(envInt("WIRE_FEED_MAX_MB", 4)) << 20,
 		RecentLimit:    envInt("WIRE_RECENT_LIMIT", 1000),
@@ -91,6 +147,8 @@ type Service struct {
 	running            bool
 	mode               string
 	configurationIssue string
+	sourceIssue        string
+	sourcesPartial     bool
 	sources            []SourceStatus
 	handleByDID        map[string]string
 	lastError          string
@@ -133,7 +191,7 @@ func NewService(config Config) (*Service, error) {
 		config.ReplayWindow = 0
 	}
 	if config.FeedInterval <= 0 {
-		config.FeedInterval = 2 * time.Minute
+		config.FeedInterval = defaultFeedInterval
 	}
 	if config.FeedMaxAge <= 0 {
 		config.FeedMaxAge = 72 * time.Hour
@@ -172,7 +230,7 @@ func NewService(config Config) (*Service, error) {
 		client:         config.HTTPClient,
 		dialer:         config.WebSocketDialer,
 		now:            config.Now,
-		mode:           "ready",
+		mode:           ModeReady,
 		handleByDID:    map[string]string{},
 		feedSources:    feedSources,
 		feedStatuses:   map[string]FeedStatus{},
@@ -185,13 +243,13 @@ func NewService(config Config) (*Service, error) {
 		}
 	}
 	if !config.Enabled {
-		service.mode = "disabled"
+		service.mode = ModeDisabled
 		service.configurationIssue = "The commissioner turned the wire off."
 		return service, nil
 	}
 	service.blueskyConfigured = len(config.Handles) > 0 || len(config.DIDs) > 0
 	if !service.blueskyConfigured && len(feedSources) == 0 {
-		service.mode = "awaiting_sources"
+		service.mode = ModeAwaitingSources
 		service.configurationIssue = "The wire has no sources yet. Ask the commissioner to add some."
 		return service, nil
 	}
@@ -200,7 +258,7 @@ func NewService(config Config) (*Service, error) {
 			return nil, fmt.Errorf("invalid Bluesky Jetstream URL: %w", err)
 		}
 	} else {
-		service.mode = "syndication_ready"
+		service.mode = ModeSyndicationReady
 	}
 	service.configured = true
 	return service, nil
@@ -212,11 +270,11 @@ func (service *Service) Start(ctx context.Context) {
 			return
 		}
 		if len(service.feedSources) > 0 {
-			service.setRuntimeState("syndicating", true, "", time.Time{})
+			service.setRuntimeState(ModeSyndicating, true, "", time.Time{})
 			go service.runFeeds(ctx)
 		}
 		if service.blueskyConfigured {
-			service.setRuntimeState("resolving_sources", true, "", time.Time{})
+			service.setRuntimeState(ModeResolvingSources, true, "", time.Time{})
 			go service.run(ctx)
 		}
 	})
@@ -224,15 +282,23 @@ func (service *Service) Start(ctx context.Context) {
 
 func (service *Service) run(ctx context.Context) {
 	defer func() {
-		if len(service.feedSources) > 0 && ctx.Err() == nil {
-			service.setRuntimeState("syndicating", true, "", time.Time{})
-			return
+		if ctx.Err() == nil {
+			service.mu.RLock()
+			mode := service.mode
+			service.mu.RUnlock()
+			if mode == ModeSourceError {
+				return
+			}
+			if len(service.feedSources) > 0 {
+				service.setRuntimeState(ModeSyndicating, true, "", time.Time{})
+				return
+			}
 		}
-		service.setRuntimeState("stopped", false, "", time.Time{})
+		service.setRuntimeState(ModeStopped, false, "", time.Time{})
 	}()
 	sources, err := service.resolveSources(ctx)
 	if err != nil {
-		service.setRuntimeState("source_error", len(service.feedSources) > 0, safeError(err), time.Time{})
+		service.setRuntimeState(ModeSourceError, len(service.feedSources) > 0, safeError(err), time.Time{})
 		return
 	}
 	service.mu.Lock()
@@ -245,7 +311,7 @@ func (service *Service) run(ctx context.Context) {
 
 	backoff := service.config.ReconnectMin
 	for ctx.Err() == nil {
-		service.setRuntimeState("connecting", true, "", time.Time{})
+		service.setRuntimeState(ModeConnecting, true, "", time.Time{})
 		err := service.consume(ctx)
 		if ctx.Err() != nil {
 			return
@@ -254,7 +320,7 @@ func (service *Service) run(ctx context.Context) {
 			err = io.EOF
 		}
 		reconnectAt := service.now().Add(backoff)
-		service.setRuntimeState("reconnecting", true, safeError(err), reconnectAt)
+		service.setRuntimeState(ModeReconnecting, true, safeError(err), reconnectAt)
 		timer := time.NewTimer(backoff)
 		select {
 		case <-ctx.Done():
@@ -285,7 +351,7 @@ func (service *Service) consume(ctx context.Context) error {
 	}
 	defer connection.Close()
 	connection.SetReadLimit(1 << 20)
-	service.setRuntimeState("streaming", true, "", time.Time{})
+	service.setRuntimeState(ModeStreaming, true, "", time.Time{})
 
 	closeOnCancel := make(chan struct{})
 	go func() {
@@ -402,6 +468,8 @@ func (service *Service) Status() Status {
 	running := service.running
 	mode := service.mode
 	issue := service.configurationIssue
+	sourceIssue := service.sourceIssue
+	sourcesPartial := service.sourcesPartial
 	sources := append([]SourceStatus(nil), service.sources...)
 	feeds := make([]FeedStatus, 0, len(service.feedStatuses))
 	for _, status := range service.feedStatuses {
@@ -419,9 +487,12 @@ func (service *Service) Status() Status {
 		Running:            running,
 		Mode:               mode,
 		ConfigurationIssue: issue,
+		SourceIssue:        sourceIssue,
+		SourcesPartial:     sourcesPartial,
 		BlueskyConfigured:  blueskyConfigured,
 		Sources:            sources,
 		Feeds:              feeds,
+		FeedStaleAfter:     DeriveFeedStaleAfter(service.config.FeedInterval),
 		SourceCounts:       service.store.SourceCounts(),
 		RelevantSignals:    relevant,
 		IgnoredPosts:       ignored,
@@ -449,6 +520,18 @@ func (service *Service) resolveSources(ctx context.Context) ([]SourceStatus, err
 			continue
 		}
 		byDID[did] = SourceStatus{Handle: handle, DID: did}
+	}
+	if len(failures) > 0 {
+		issue := safeError(fmt.Errorf("Some Bluesky sources could not be resolved: %s", strings.Join(failures, "; ")))
+		service.mu.Lock()
+		service.sourceIssue = issue
+		service.sourcesPartial = len(byDID) > 0
+		service.mu.Unlock()
+	} else {
+		service.mu.Lock()
+		service.sourceIssue = ""
+		service.sourcesPartial = false
+		service.mu.Unlock()
 	}
 	if len(byDID) == 0 {
 		if len(failures) > 0 {

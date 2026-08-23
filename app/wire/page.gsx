@@ -22,6 +22,7 @@ type SignalCardProps struct {
 	Corroborations     int
 	HasCorroboration   bool
 	CorroborationLabel string
+	Retained           bool
 }
 
 component SignalCard(props: SignalCardProps) {
@@ -41,6 +42,9 @@ component SignalCard(props: SignalCardProps) {
 			</If>
 			<If cond={props.HasCorroboration}>
 				<span class="wire-event__corroboration mono">{props.CorroborationLabel}</span>
+			</If>
+			<If cond={props.Retained}>
+				<span class="wire-event__retained mono">RETAINED · AS OF</span>
 			</If>
 			<time class="mono">{props.Time}</time>
 			<If cond={props.HasURL}>
@@ -138,7 +142,10 @@ func Page() Node {
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot" aria-hidden="true"></span>
-						<span data-wire-status data-gosx-live-bind="status">Watching league news</span>
+						<span data-wire-status data-gosx-live-bind="status">{data.wire_health}</span>
+						<If cond={data.wire_source_issue != ""}>
+							<small class="wire-source-issue">{data.wire_source_issue}</small>
+						</If>
 					</div>
 				</header>
 				<div class="wire-filters" aria-label="Filter signals">
@@ -217,6 +224,10 @@ func Page() Node {
 							<div>
 								<a href={feed.url} target="_blank" rel="noreferrer"><strong>{feed.name} ↗</strong></a>
 								<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
+								<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
+								<If cond={feed.has_error}>
+									<small class="mono">ERROR · {feed.last_error}</small>
+								</If>
 							</div>
 						</Each>
 						<Each of={data.sources} as="source">
