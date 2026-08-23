@@ -168,7 +168,7 @@ func Page() Node {
 								</form>
 							</If>
 							<If cond={player.can_claim}>
-								<form method="post" action={actionPath("claim-file")} data-gosx-managed="true" class="lineup-slot__form">
+								<form method="post" action={actionPath("claim-file") + "#waivers"} data-gosx-managed="true" class="lineup-slot__form">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 									<input type="hidden" name="player_id" value={player.id}></input>
@@ -234,7 +234,7 @@ func Page() Node {
 				</div>
 				<If cond={data.can_edit}>
 					<If cond={data.waivers_faab == false}>
-						<span class="mono">Priority {data.my_waiver_position} of {data.waiver_team_count}</span>
+						<span class="mono">Team waiver position {data.my_waiver_position} of {data.waiver_team_count}</span>
 					</If>
 					<If cond={data.waivers_faab}>
 						<span class="mono">Budget {data.my_faab_remaining} FAAB</span>
@@ -251,6 +251,12 @@ func Page() Node {
 				</div>
 			</If>
 			<If cond={data.can_edit}>
+				<p class="scoring-note waiver-desk-explainer">
+					Your numbered claim order is private to this team and controls which of your requests runs first. Team waiver position is the separate public league tiebreaker.
+					<If cond={data.waivers_faab}>
+						Higher FAAB bids run first; tied bids use public team waiver position, then this private order for claims from the same team.
+					</If>
+				</p>
 				<If cond={data.my_claims_empty}>
 					<div class="empty-tape">
 						<strong>NO OPEN CLAIMS</strong>
@@ -259,9 +265,9 @@ func Page() Node {
 						</p>
 					</div>
 				</If>
-				<div class="pool-list">
+				<div class="pool-list waiver-claim-list">
 					<Each of={data.my_claims} as="claim">
-						<article class="pool-row pool-row--claim">
+						<article class="waiver-claim-row">
 							<div class="pool-player">
 								<div class="pool-player__text">
 									<strong>{claim.add_name}</strong>
@@ -273,15 +279,40 @@ func Page() Node {
 									</small>
 								</div>
 							</div>
-							<span class="position-chip">{claim.add_position}</span>
-							<If cond={claim.faab}>
-								<b class="mono">{claim.bid} FAAB</b>
-							</If>
-							<If cond={claim.faab == false}>
-								<b class="mono">Pos {claim.priority}</b>
-							</If>
-							<div class="board-controls">
-								<form method="post" action={actionPath("claim-cancel")} data-gosx-managed="true">
+							<div class="waiver-claim-meta">
+								<span class="position-chip">{claim.add_position}</span>
+								<b class="mono">Claim order {claim.priority} of {claim.claim_count}</b>
+								<span class="mono">Team waiver position {claim.waiver_position} of {claim.waiver_team_count}</span>
+								<If cond={claim.faab}>
+									<span class="mono">Bid {claim.bid} FAAB</span>
+								</If>
+							</div>
+							<div class="waiver-claim-actions" aria-label={"Filing-order controls for " + claim.add_name}>
+								<If cond={claim.can_move_up}>
+									<form method="post" action={actionPath("claim-move") + "#waivers"} data-gosx-managed="true">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+										<input type="hidden" name="claim_id" value={claim.id}></input>
+										<input type="hidden" name="direction" value="up"></input>
+										<input type="hidden" name="pos" value={data.pos}></input>
+										<input type="hidden" name="q" value={data.query}></input>
+										<input type="hidden" name="page" value={data.pool_page}></input>
+										<button class="board-button" type="submit" aria-label={"Move claim for " + claim.add_name + " up one position"}>Move up</button>
+									</form>
+								</If>
+								<If cond={claim.can_move_down}>
+									<form method="post" action={actionPath("claim-move") + "#waivers"} data-gosx-managed="true">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
+										<input type="hidden" name="claim_id" value={claim.id}></input>
+										<input type="hidden" name="direction" value="down"></input>
+										<input type="hidden" name="pos" value={data.pos}></input>
+										<input type="hidden" name="q" value={data.query}></input>
+										<input type="hidden" name="page" value={data.pool_page}></input>
+										<button class="board-button" type="submit" aria-label={"Move claim for " + claim.add_name + " down one position"}>Move down</button>
+									</form>
+								</If>
+								<form method="post" action={actionPath("claim-cancel") + "#waivers"} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 									<input type="hidden" name="claim_id" value={claim.id}></input>
@@ -309,6 +340,52 @@ func Page() Node {
 					</li>
 				</Each>
 			</ol>
+			<If cond={data.can_edit}>
+				<div class="pool-toolbar waiver-receipts-heading">
+					<div>
+						<span class="section-index">04 // PRIVATE RECEIPTS</span>
+						<h2>Recent waiver outcomes</h2>
+					</div>
+					<span class="mono">THIS TEAM ONLY</span>
+				</div>
+				<p class="scoring-note">Receipts persist independently of email settings. The newest 20 outcomes for this franchise appear here.</p>
+				<If cond={data.my_receipts_empty}>
+					<div class="empty-tape">
+						<strong>NO WAIVER RECEIPTS YET</strong>
+						<p>Won, beaten, and failed claims will appear after the waiver processor resolves them.</p>
+					</div>
+				</If>
+				<div class="waiver-receipt-list">
+					<Each of={data.my_waiver_receipts} as="receipt">
+						<article class="waiver-receipt-row">
+							<div class="waiver-receipt-outcome">
+								<strong class="mono">{receipt.outcome}</strong>
+								<span>Week {receipt.week} · {receipt.resolved_at}</span>
+							</div>
+							<div class="waiver-receipt-player">
+								<strong>{receipt.add_name} <span class="position-chip">{receipt.add_position}</span></strong>
+								<If cond={receipt.has_drop}>
+									<span>Drops {receipt.drop_label}</span>
+								</If>
+								<span>{receipt.reason}</span>
+								<If cond={receipt.has_winner}>
+									<span>Winner: {receipt.winner_name} ({receipt.winner_abbr})</span>
+								</If>
+								<If cond={receipt.has_winning_bid}>
+									<span>Winning bid: {receipt.winning_bid} FAAB</span>
+								</If>
+							</div>
+							<div class="waiver-receipt-order mono">
+								<span>Filed order {receipt.submitted_order}</span>
+								<span>Team position {receipt.waiver_position} of {receipt.waiver_team_count}</span>
+								<If cond={receipt.faab}>
+									<span>Bid {receipt.bid} FAAB</span>
+								</If>
+							</div>
+						</article>
+					</Each>
+				</div>
+			</If>
 		</section>
 	</main>
 }

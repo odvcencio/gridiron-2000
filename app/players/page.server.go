@@ -34,6 +34,10 @@ func redirectTarget(pos, query, page string) string {
 	return "/players?" + values.Encode()
 }
 
+func waiverRedirectTarget(pos, query, page string) string {
+	return redirectTarget(pos, query, page) + "#waivers"
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -57,7 +61,11 @@ func init() {
 					}
 				}
 			}
-			if view, ok := ctx.ActionState("claim-cancel"); ok {
+			for _, name := range []string{"claim-cancel", "claim-move"} {
+				view, ok := ctx.ActionState(name)
+				if !ok {
+					continue
+				}
 				if message := view.Error("claim_id"); message != "" {
 					data["has_players_error"] = true
 					data["players_error"] = message
@@ -102,7 +110,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 			// claim-cancel withdraws one of the acting team's own open
@@ -112,7 +120,17 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
+				return nil
+			},
+			// claim-move changes only the authenticated team's private filing
+			// order; it never changes the public league waiver position.
+			"claim-move": func(ctx *action.Context) error {
+				message, err := league.Default().MoveClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["claim_id"], ctx.FormData["direction"])
+				if err != nil {
+					return actionui.Validation(ctx, "players", "claim_id", err)
+				}
+				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
 		},

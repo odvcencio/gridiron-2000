@@ -202,6 +202,15 @@ func realisticFixture() PersistedState {
 		{ID: "clm-0001", TeamID: "team-1", AddID: "p-30", DropID: "p-31", Bid: 12, Priority: 1, FiledAt: at(4, 1)},
 		{ID: "clm-0002", TeamID: "team-2", AddID: "p-30", Priority: 1, FiledAt: at(4, 2)},
 	}
+	state.WaiverReceipts = []WaiverReceipt{{
+		ClaimID: "clm-resolved", Season: 2026, Week: 2, TeamID: "team-1",
+		Add:   player("p-27", "Receipt Add", "WR", "MIA"),
+		Drops: []TransactionPlayer{player("p-28", "Receipt Drop", "RB", "NYJ")},
+		Bid:   11, SubmittedPriority: 2, WaiverPosition: 4, WaiverTeamCount: 8,
+		Mode: "faab", Outcome: "beaten", WinningTeamID: "team-2", WinningBid: 17, WinningBidKnown: true,
+		Reason:  "Another team acquired this player before this claim resolved.",
+		FiledAt: at(3, 21), ResolvedAt: at(4, 3),
+	}}
 
 	offer := func(id, status string, resolved bool) TradeOffer {
 		o := TradeOffer{
@@ -692,6 +701,15 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
+	for _, args := range [][]any{
+		{0, "legacy-late", "team-1", "p-2", "", 0, 9, "2026-09-01T10:00:00Z"},
+		{1, "legacy-early", "team-1", "p-1", "", 0, 9, "2026-09-01T09:00:00Z"},
+	} {
+		if _, err := db.Exec(`INSERT INTO waiver_claims (ord, id, team_id, add_id, drop_id, bid, priority, filed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args...); err != nil {
+			_ = db.Close()
+			t.Fatal(err)
+		}
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -719,6 +737,19 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 	if len(got.AvatarRefs) != 0 {
 		_ = store.Close()
 		t.Fatalf("v1 migration invented avatar refs: %#v", got.AvatarRefs)
+	}
+	claimPriority := map[string]int{}
+	for _, claim := range got.WaiverClaims {
+		claimPriority[claim.ID] = claim.Priority
+	}
+	if len(got.WaiverClaims) != 2 || claimPriority["legacy-early"] != 1 || claimPriority["legacy-late"] != 2 {
+		_ = store.Close()
+		t.Fatalf("migrated claim priorities = %+v, want deterministic 1..2 order", got.WaiverClaims)
+	}
+	var receiptTable string
+	if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'waiver_receipts'`).Scan(&receiptTable); err != nil {
+		_ = store.Close()
+		t.Fatalf("waiver_receipts table missing after migration: %v", err)
 	}
 	want := got
 	if err := store.Close(); err != nil {

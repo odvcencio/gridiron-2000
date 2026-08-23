@@ -65,6 +65,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate002AvatarRefs,
 	migrate003DraftLifecycle,
 	migrate004PickemMarkets,
+	migrate005WaiverReceipts,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -256,6 +257,36 @@ func migrate004PickemMarkets(tx *sql.Tx) error {
 	return nil
 }
 
+func migrate005WaiverReceipts(tx *sql.Tx) error {
+	// Older stores allowed priority gaps after cancel and could accumulate
+	// duplicate priorities after a later filing. Canonicalize once, before the
+	// move controls make this field manager-visible and authoritative.
+	if _, err := tx.Exec(`WITH ranked AS (
+		SELECT ord, ROW_NUMBER() OVER (
+			PARTITION BY team_id
+			ORDER BY CASE WHEN priority > 0 THEN priority ELSE 2147483647 END, filed_at, id, ord
+		) AS normalized_priority FROM waiver_claims
+	)
+	UPDATE waiver_claims SET priority = (
+		SELECT normalized_priority FROM ranked WHERE ranked.ord = waiver_claims.ord
+	)`); err != nil {
+		return fmt.Errorf("normalize waiver claim priorities: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE waiver_receipts (ord INTEGER PRIMARY KEY, claim_id TEXT NOT NULL,
+		season INTEGER NOT NULL, week INTEGER NOT NULL, team_id TEXT NOT NULL, add_player TEXT NOT NULL,
+		drops TEXT NOT NULL, bid INTEGER NOT NULL, submitted_priority INTEGER NOT NULL,
+		waiver_position INTEGER NOT NULL, waiver_team_count INTEGER NOT NULL, mode TEXT NOT NULL,
+		outcome TEXT NOT NULL, winning_team_id TEXT NOT NULL, winning_bid INTEGER NOT NULL,
+		winning_bid_known INTEGER NOT NULL, reason TEXT NOT NULL,
+		filed_at TEXT NOT NULL, resolved_at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("CREATE TABLE waiver_receipts: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '6')`); err != nil {
+		return fmt.Errorf("stamp schema_version 6: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -295,6 +326,7 @@ const (
 	colLineups
 	colTransactions
 	colWaiverClaims
+	colWaiverReceipts
 	colTradeOffers
 	colRosterZones
 	colSchedule
@@ -355,6 +387,7 @@ type tableDef struct {
 //	               exactly one row. The add/drop player lists are JSON
 //	               columns inside that row.
 //	waiver_claims  one row per open claim.
+//	waiver_receipts one row per resolved claim, season-scoped and append-only.
 //	trade_offers   one row per offer; a status change rewrites that one
 //	               row. Give/Get/Picks/Vetoes are JSON columns.
 //	roster_zones   one row per (team, player). roster_zone_teams as above.
@@ -725,6 +758,24 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			for i, c := range st.WaiverClaims {
 				sink.add("waiver_claims", []any{i},
 					c.ID, c.TeamID, c.AddID, c.DropID, c.Bid, c.Priority, encodeTime(c.FiledAt))
+			}
+		},
+	},
+	colWaiverReceipts: {
+		tables: []tableDef{{
+			name:    "waiver_receipts",
+			keyCols: []string{"ord"},
+			valCols: []string{"claim_id", "season", "week", "team_id", "add_player", "drops", "bid",
+				"submitted_priority", "waiver_position", "waiver_team_count", "mode", "outcome",
+				"winning_team_id", "winning_bid", "winning_bid_known", "reason", "filed_at", "resolved_at"},
+		}},
+		emit: func(st *PersistedState, sink *rowSink) {
+			for i, receipt := range st.WaiverReceipts {
+				sink.add("waiver_receipts", []any{i}, receipt.ClaimID, receipt.Season, receipt.Week,
+					receipt.TeamID, sink.jsonValue(receipt.Add), sink.jsonValue(receipt.Drops), receipt.Bid,
+					receipt.SubmittedPriority, receipt.WaiverPosition, receipt.WaiverTeamCount, receipt.Mode,
+					receipt.Outcome, receipt.WinningTeamID, receipt.WinningBid, boolToInt(receipt.WinningBidKnown), receipt.Reason,
+					encodeTime(receipt.FiledAt), encodeTime(receipt.ResolvedAt))
 			}
 		},
 	},
@@ -1514,6 +1565,40 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		return state, err
 	}
 
+	if err := queryRows(db, `SELECT "claim_id", "season", "week", "team_id", "add_player", "drops", "bid",
+		"submitted_priority", "waiver_position", "waiver_team_count", "mode", "outcome",
+		"winning_team_id", "winning_bid", "winning_bid_known", "reason", "filed_at", "resolved_at" FROM waiver_receipts ORDER BY "ord"`,
+		func(rows *sql.Rows) error {
+			var receipt WaiverReceipt
+			var add, drops, filedAt, resolvedAt string
+			var winningBidKnown int
+			if err := rows.Scan(&receipt.ClaimID, &receipt.Season, &receipt.Week, &receipt.TeamID,
+				&add, &drops, &receipt.Bid, &receipt.SubmittedPriority, &receipt.WaiverPosition,
+				&receipt.WaiverTeamCount, &receipt.Mode, &receipt.Outcome, &receipt.WinningTeamID,
+				&receipt.WinningBid, &winningBidKnown,
+				&receipt.Reason, &filedAt, &resolvedAt); err != nil {
+				return err
+			}
+			receipt.WinningBidKnown = winningBidKnown != 0
+			if err := json.Unmarshal([]byte(add), &receipt.Add); err != nil {
+				return fmt.Errorf("waiver_receipts add: %w", err)
+			}
+			if err := json.Unmarshal([]byte(drops), &receipt.Drops); err != nil {
+				return fmt.Errorf("waiver_receipts drops: %w", err)
+			}
+			var err error
+			if receipt.FiledAt, err = decodeTime(filedAt); err != nil {
+				return err
+			}
+			if receipt.ResolvedAt, err = decodeTime(resolvedAt); err != nil {
+				return err
+			}
+			state.WaiverReceipts = append(state.WaiverReceipts, receipt)
+			return nil
+		}); err != nil {
+		return state, err
+	}
+
 	if err := queryRows(db, `SELECT "id", "from_team_id", "to_team_id", "give", "get", "picks", "note", "status",
 		"parent_id", "vetoes", "fail_reason", "created_at", "accepted_at", "resolved_at"
 		FROM trade_offers ORDER BY "ord"`,
@@ -1862,6 +1947,10 @@ func normalizeState(state *PersistedState) {
 	if state.WaiverClaims == nil {
 		state.WaiverClaims = []WaiverClaim{}
 	}
+	if state.WaiverReceipts == nil {
+		state.WaiverReceipts = []WaiverReceipt{}
+	}
+	normalizeAllClaimPriorities(state.WaiverClaims)
 	if state.TradeOffers == nil {
 		state.TradeOffers = []TradeOffer{}
 	}

@@ -3,6 +3,7 @@ package players
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,6 +25,36 @@ func renderPlayersForUser(t *testing.T, handler http.Handler, email string) stri
 		t.Fatalf("GET /players for %s = %d, want 200; body: %s", email, recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
+}
+
+func TestWaiverDeskManagedFormsAndPrivateReceiptCopyContract(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageText := string(page)
+	for _, want := range []string{
+		`actionPath("claim-move") + "#waivers"`,
+		`actionPath("claim-cancel") + "#waivers"`,
+		`actionPath("claim-file") + "#waivers"`,
+		`data-gosx-managed="true"`, `name="csrf_token"`,
+		`Move up`, `Move down`, `Claim order`, `Team waiver position`,
+		`PRIVATE RECEIPTS`, `NO WAIVER RECEIPTS YET`, `THIS TEAM ONLY`,
+		`Higher FAAB bids run first`,
+	} {
+		if !strings.Contains(pageText, want) {
+			t.Errorf("page.gsx missing waiver desk contract %q", want)
+		}
+	}
+	for _, want := range []string{`"claim-move"`, `waiverRedirectTarget`, `+ "#waivers"`} {
+		if !strings.Contains(string(serverSource), want) {
+			t.Errorf("page.server.go missing waiver route contract %q", want)
+		}
+	}
 }
 
 func buildPlayersAuthenticatedHandler(t *testing.T, currentEmail *string) http.Handler {
