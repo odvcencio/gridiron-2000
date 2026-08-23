@@ -352,6 +352,40 @@ func TestSetDraftOrder(t *testing.T) {
 	}
 }
 
+func TestDrawDraftOrderRejectsStaleAndDoubleSubmissions(t *testing.T) {
+	store := newTestStore(t)
+	first := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
+	schedule := SeasonSchedule{Season: 2026, Seed: 17, StartWeek: 1, Weeks: []ScheduleWeek{{Week: 1}}}
+	created, err := store.DrawDraftOrder(first, "", &schedule)
+	if err != nil {
+		t.Fatalf("first draw: %v", err)
+	}
+	if !created || store.Snapshot().Schedule == nil {
+		t.Fatal("first draw did not atomically publish its schedule")
+	}
+	second := defaultTeamIDs()
+	if _, err := store.DrawDraftOrder(second, "", &SeasonSchedule{Season: 2027}); err == nil {
+		t.Fatal("double submission with the pre-draw token was accepted")
+	}
+	if got := store.Snapshot().DraftOrder; !reflect.DeepEqual(got, first) {
+		t.Fatalf("stale submission changed order: %v", got)
+	}
+	token := orderHash8(first)
+	created, err = store.DrawDraftOrder(second, token, &SeasonSchedule{Season: 2027})
+	if err != nil {
+		t.Fatalf("current-token replacement: %v", err)
+	}
+	if created || store.Snapshot().Schedule.Season != 2026 {
+		t.Fatal("replacement draw did not preserve the existing schedule")
+	}
+	if _, err := store.DrawDraftOrder(first, token, nil); err == nil {
+		t.Fatal("duplicate replacement submission was accepted")
+	}
+	if got := store.Snapshot().DraftOrder; !reflect.DeepEqual(got, second) {
+		t.Fatalf("duplicate replacement changed order: %v", got)
+	}
+}
+
 func TestMakePickHonorsCustomDraftOrder(t *testing.T) {
 	store := newTestStore(t)
 	custom := []string{"team-3", "team-1", "team-4", "team-2", "team-8", "team-6", "team-7", "team-5"}

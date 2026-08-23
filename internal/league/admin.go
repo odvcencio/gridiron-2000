@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -118,6 +119,12 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
+		"draft_order_token": func() string {
+			if len(state.DraftOrder) == 0 {
+				return ""
+			}
+			return orderHash8(state.DraftOrder)
+		}(),
 		// unclaimed_seat_count drives the seat-trim control (04 // DRAFT
 		// ORDER). The commissioner runs the trim an hour before the draft,
 		// so the console must state exactly how many seats it would remove
@@ -852,28 +859,52 @@ func (s *Service) RenameTeam(r *http.Request, teamID, name string) (Team, error)
 	return s.teamView(s.store.Snapshot(), teamID), nil
 }
 
-// AdminRandomizeDraftOrder draws a new draft order for the eight teams with
-// a cryptographic Fisher-Yates shuffle. It fails once picks exist; reset the
-// draft first to redraw the order.
-func (s *Service) AdminRandomizeDraftOrder(r *http.Request) error {
+const (
+	draftOrderShufflePasses  = 6
+	defaultScheduleWeeks     = 14
+	defaultScheduleStartWeek = 1
+)
+
+// AdminRandomizeDraftOrder runs several cryptographic Fisher-Yates passes in
+// memory, publishes only the final order and the regular-season schedule,
+// then emits one notification batch.
+// expectedToken is the order the commissioner actually saw; Store's atomic
+// compare-and-set rejects stale/double submissions before they can notify.
+// The bool result reports whether this draw created the schedule; an existing
+// commissioner-authored schedule is deliberately preserved on replacement.
+func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string) (bool, error) {
 	if err := s.requireCommissioner(r); err != nil {
-		return err
+		return false, err
 	}
+	previous := s.store.Snapshot().DraftOrder
 	order := defaultTeamIDs()
-	for i := len(order) - 1; i > 0; i-- {
-		j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
-		if err != nil {
-			return err
+	for range draftOrderShufflePasses {
+		for i := len(order) - 1; i > 0; i-- {
+			j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+			if err != nil {
+				return false, err
+			}
+			order[i], order[j.Int64()] = order[j.Int64()], order[i]
 		}
-		order[i], order[j.Int64()] = order[j.Int64()], order[i]
 	}
-	if err := s.store.SetDraftOrder(order); err != nil {
-		return err
+	// A replacement draw must visibly replace the prior result. Landing on
+	// the same permutation is extremely unlikely, but a final swap avoids a
+	// confusing "redraw" that sends no new hash-keyed notification.
+	if len(previous) == len(order) && slices.Equal(previous, order) && len(order) > 1 {
+		order[0], order[1] = order[1], order[0]
 	}
-	// N4: notify every seated member the order is drawn (spec section 3,
-	// N4). A no-op when notifications are not wired.
+	schedule, err := s.buildSchedule(defaultScheduleWeeks, defaultScheduleStartWeek, 0)
+	if err != nil {
+		return false, err
+	}
+	scheduleCreated, err := s.store.DrawDraftOrder(order, strings.TrimSpace(expectedToken), &schedule)
+	if err != nil {
+		return false, err
+	}
+	// N4 runs only after the one final order commits. Intermediate shuffle
+	// passes never touch persistence or the notification ledger.
 	s.notifyDraftOrderDrawn(order)
-	return nil
+	return scheduleCreated, nil
 }
 
 // AdminSetScoring overrides one scoring rule's point value. It requires
@@ -1117,6 +1148,20 @@ func (s *Service) AdminRegenerateSchedule(r *http.Request, weeks, startWeek int)
 // service clock (GenerateSchedule itself never touches the clock), and
 // persists the result.
 func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64) (SeasonSchedule, error) {
+	sched, err := s.buildSchedule(weeks, startWeek, seed)
+	if err != nil {
+		return SeasonSchedule{}, err
+	}
+	if err := s.store.SetSchedule(sched); err != nil {
+		return SeasonSchedule{}, err
+	}
+	return sched, nil
+}
+
+// buildSchedule creates a regular-season plan without mutating the store.
+// Keeping generation pure lets the draft-order publication commit the order
+// and first schedule together before any email is queued.
+func (s *Service) buildSchedule(weeks, startWeek int, seed int64) (SeasonSchedule, error) {
 	if startWeek <= 0 {
 		startWeek = 1
 	}
@@ -1139,9 +1184,6 @@ func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64) (Seaso
 		return SeasonSchedule{}, err
 	}
 	sched.GeneratedAt = s.clock().UTC()
-	if err := s.store.SetSchedule(sched); err != nil {
-		return SeasonSchedule{}, err
-	}
 	return sched, nil
 }
 

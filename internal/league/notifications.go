@@ -724,8 +724,9 @@ func (s *Service) yourSlotSummary(state PersistedState, teamID string) string {
 // ---------------------------------------------------------------------
 
 // notifyDraftOrderDrawn fires N4 for every seated member once a new draft
-// order is drawn. Called from AdminRandomizeDraftOrder after
-// Store.SetDraftOrder succeeds (spec section 3, N4).
+// order is drawn. Called from AdminRandomizeDraftOrder after the final order
+// and first regular-season schedule are durably published (spec section 3,
+// N4).
 func (s *Service) notifyDraftOrderDrawn(order []string) {
 	if !s.notifyReady() {
 		return
@@ -764,8 +765,8 @@ func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, has
 	blocks := []emailkit.Block{
 		emailkit.Headline{
 			Title: "FATE HAS SPOKEN.",
-			Lede: fmt.Sprintf("A random draw set the order — no re-rolls, unless the commissioner "+
-				"resets, and everyone will see that. You hold slot %d. Round 2 snakes back to you at pick %d.",
+			Lede: fmt.Sprintf("Six shuffle passes set one final order. A replacement requires explicit commissioner "+
+				"confirmation and sends a new league-wide notice. You hold slot %d. Round 2 snakes back to you at pick %d.",
 				slot, 2*n+1-slot),
 		},
 		emailkit.StatTable{Title: "THE ORDER", Header: []string{"SLOT", "TEAM", "MANAGER"}, Rows: rows, MarkRow: markRow},
