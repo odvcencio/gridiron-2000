@@ -1239,7 +1239,7 @@ textarea {
 .mini-team > div,
 .standing-team,
 .score-team__name,
-.player-identity > div,
+.player-identity > div:not(.stat-tip__panel),
 .pool-player,
 .leader-row > div,
 .scout-row > div,
@@ -6838,5 +6838,50 @@ body.is-on-clock .draft-clock-panel {
 
   .notification-settings-footer .button {
     width: 100%;
+  }
+}
+
+/* A populated lineup has long player labels and managed selects that carry a
+   large intrinsic width. At phone widths those controls must reflow inside the
+   roster panel instead of making the whole Team terminal horizontally scroll.
+   The empty pre-draft preview already fits; keep the same one-column contract
+   after picks arrive. */
+@media (max-width: 38rem) {
+  .team-layout,
+  .roster-panel,
+  .lineup-slot-list,
+  .lineup-slot,
+  .lineup-slot > *,
+  .lineup-toolbar,
+  .lineup-week-form,
+  .lineup-slot__form {
+    min-width: 0;
+  }
+
+  .lineup-slot {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .lineup-slot__chips {
+    grid-column: 2;
+  }
+
+  .lineup-slot__form {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .lineup-slot__form select,
+  .lineup-week-form select {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .lineup-week-form {
+    flex: 1 1 100%;
   }
 }

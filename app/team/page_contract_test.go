@@ -46,3 +46,24 @@ func TestTeamHeroAndBadgePickerKeepTheirWideLayoutStructure(t *testing.T) {
 		}
 	}
 }
+
+func TestPopulatedLineupReflowsWithoutOpeningEveryPlayerDetail(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	for _, want := range []string{
+		".player-identity > div:not(.stat-tip__panel),",
+		".lineup-slot {\n    grid-template-columns: 2.75rem minmax(0, 1fr);",
+		".lineup-slot__form {\n    grid-column: 1 / -1;",
+		".lineup-slot__form select,\n  .lineup-week-form select {",
+	} {
+		if !strings.Contains(styles, want) {
+			t.Errorf("populated mobile lineup stylesheet missing regression contract %q", want)
+		}
+	}
+	if strings.Contains(styles, ".player-identity > div,") {
+		t.Error("generic player identity rule must not override the hidden stat-tip panel")
+	}
+}

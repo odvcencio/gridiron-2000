@@ -1,6 +1,8 @@
 package league
 
 import (
+	"fmt"
+	"net/http"
 	"path/filepath"
 	"testing"
 	"time"
@@ -330,6 +332,92 @@ func TestAutopickPrecedence(t *testing.T) {
 	state = small.store.Snapshot()
 	if _, ok := small.autopickChoice(state, "team-2"); ok {
 		t.Fatal("an exhausted pool must report ok=false")
+	}
+}
+
+func TestDraftSelectionCannotStrandRequiredStarter(t *testing.T) {
+	setRosterShape(rosterPresets["standard"])
+	t.Cleanup(clearRosterShape)
+	draftAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, _ := newClockTestService(t, true, draftAt, draftAt)
+	targetTeam := teamOnClock(nil, 113) // first pick of round 15
+	targetPositions := []string{"QB", "RB", "WR", "WR", "TE", "WR", "DST", "K", "QB", "QB", "WR", "WR", "TE", "WR"}
+	targetCursor := 0
+	pool := make([]Player, 0, 114)
+	picks := make([]DraftPick, 0, 112)
+	for number := 1; number <= 112; number++ {
+		teamID := teamOnClock(nil, number)
+		position := "WR"
+		if teamID == targetTeam {
+			position = targetPositions[targetCursor]
+			targetCursor++
+		}
+		id := fmt.Sprintf("late-pick-%03d", number)
+		pool = append(pool, Player{ID: id, Name: id, Position: position, NFLTeam: "TEST", ADPRank: number})
+		picks = append(picks, DraftPick{Number: number, Round: pickRound(len(defaultTeams()), number), TeamID: teamID, PlayerID: id, MadeAt: draftAt})
+	}
+	bad := Player{ID: "board-extra-wr", Name: "Extra Wideout", Position: "WR", NFLTeam: "TEST", ADPRank: 113}
+	good := Player{ID: "required-rb", Name: "Required Rusher", Position: "RB", NFLTeam: "TEST", ADPRank: 114}
+	pool = append(pool, bad, good)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	service.store.mu.Lock()
+	service.store.state.Picks = picks
+	service.store.state.DraftStarted = true
+	service.store.state.Boards["demo-guest"] = []string{bad.ID, good.ID}
+	persistErr := service.store.persistLocked(colPicks, colBoards, colScalars)
+	service.store.mu.Unlock()
+	if persistErr != nil {
+		t.Fatalf("persist late-draft fixture: %v", persistErr)
+	}
+
+	state := service.store.Snapshot()
+	if got, ok := service.autopickChoice(state, targetTeam); !ok || got != good.ID {
+		t.Fatalf("late autopick = %q, %v, want required RB %q", got, ok, good.ID)
+	}
+	request, _ := http.NewRequest(http.MethodPost, "/draft", nil)
+	data := service.DraftData(request)
+	rows, _ := data["available"].([]map[string]any)
+	eligibility := map[string]bool{}
+	for _, row := range rows {
+		eligibility[row["id"].(string)], _ = row["draft_eligible"].(bool)
+	}
+	if eligibility[bad.ID] || !eligibility[good.ID] {
+		t.Fatalf("late Draft Room eligibility = %+v, want extra WR false and required RB true", eligibility)
+	}
+	if _, _, _, err := service.MakePick(request, targetTeam, bad.ID); err == nil || err.Error() != "choose a player who keeps every required starter slot fillable" {
+		t.Fatalf("stranding manual pick error = %v", err)
+	}
+	if _, _, _, err := service.MakePick(request, targetTeam, good.ID); err != nil {
+		t.Fatalf("required-starter manual pick: %v", err)
+	}
+	roster, _ := service.rosterForTeam(service.store.Snapshot(), targetTeam)
+	if filled := maximumDraftStarterFill(roster, CurrentRoster()); filled != CurrentRoster().Starters() {
+		t.Fatalf("completed target roster fills %d/%d starters", filled, CurrentRoster().Starters())
+	}
+}
+
+func TestCommissionerAutopickCompletesStartableRosters(t *testing.T) {
+	setRosterShape(rosterPresets["standard"])
+	t.Cleanup(clearRosterShape)
+	draftAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, _ := newClockTestService(t, true, draftAt, draftAt)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(200), 1, "demo" })
+	request, _ := http.NewRequest(http.MethodPost, "/draft", nil)
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		if _, _, _, err := service.AdminForceAutopick(request); err != nil {
+			t.Fatalf("commissioner autopick %d: %v", number, err)
+		}
+	}
+	state := service.store.Snapshot()
+	for _, team := range service.Teams() {
+		roster, _ := service.rosterForTeam(state, team.ID)
+		if len(roster) != CurrentDraftRounds() {
+			t.Fatalf("%s roster = %d, want %d", team.ID, len(roster), CurrentDraftRounds())
+		}
+		if filled := maximumDraftStarterFill(roster, CurrentRoster()); filled != CurrentRoster().Starters() {
+			t.Fatalf("%s automatic roster fills %d/%d starters", team.ID, filled, CurrentRoster().Starters())
+		}
 	}
 }
 

@@ -2,6 +2,7 @@ package league
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -172,5 +173,47 @@ func TestLegacyDraftLifecycleNeverInventsEpoch(t *testing.T) {
 	migrateLegacyDraftLifecycle(&state)
 	if !state.DraftStarted || !state.DraftStartedAt.IsZero() {
 		t.Fatalf("zero-time legacy migration = %+v", state)
+	}
+}
+
+func TestDraftDataPublishesTerminalCompletionState(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	if _, err := service.store.StartDraft(now, DefaultPickClock); err != nil {
+		t.Fatalf("start draft: %v", err)
+	}
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := service.store.MakePick(teamID, fmt.Sprintf("terminal-pick-%03d", number), "commissioner", now, now.Add(DefaultPickClock)); err != nil {
+			t.Fatalf("pick %d: %v", number, err)
+		}
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+	data := service.DraftData(request)
+	if data["draft_complete"] != true || data["can_pick"] != false {
+		t.Fatalf("terminal gates = complete:%v can_pick:%v", data["draft_complete"], data["can_pick"])
+	}
+	if data["pick_number"] != total || data["round"] != CurrentDraftRounds() {
+		t.Fatalf("terminal counters = pick:%v round:%v, want %d/%d", data["pick_number"], data["round"], total, CurrentDraftRounds())
+	}
+	if data["on_clock_id"] != "" {
+		t.Fatalf("terminal on_clock_id = %q, want empty", data["on_clock_id"])
+	}
+	draft, _ := data["draft"].(map[string]any)
+	if draft["complete"] != true || draft["status_label"] != "COMPLETE" {
+		t.Fatalf("terminal draft summary = %+v", draft)
+	}
+	teams, _ := data["teams"].([]map[string]any)
+	for _, team := range teams {
+		if team["on_clock"] == true {
+			t.Fatalf("terminal team still on clock: %+v", team)
+		}
+	}
+	clock, _ := data["clock"].(map[string]any)
+	if clock["armed"] == true {
+		t.Fatalf("terminal clock remains armed: %+v", clock)
 	}
 }

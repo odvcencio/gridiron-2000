@@ -191,7 +191,7 @@ func Page() Node {
 							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}>
 								<button class="draft-button" type="button" disabled="disabled">Add</button>
 							</If>
-							<If cond={player.mine}>
+							<If cond={player.can_drop}>
 								<form method="post" action={actionPath("player-drop")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>

@@ -32,6 +32,7 @@ type DraftPlayerCard struct {
 	MatchupTier     string
 	MatchupChip     string
 	MatchupDetail   string
+	CanDraft        bool
 }
 
 type DraftQueueProps struct {
@@ -40,6 +41,7 @@ type DraftQueueProps struct {
 	CSRF          string
 	TeamID        string
 	CanPick       bool
+	DraftComplete bool
 	HasSeat       bool
 	Position      string
 	Query         string
@@ -67,6 +69,7 @@ type DraftQueueProps struct {
 // draft update poll authoritative, and make the first paint usable on a phone.
 func DraftQueue(props DraftQueueProps) Node {
 	return <section class="player-pool">
+		<If cond={props.DraftComplete == false}>
 		<div class="pool-toolbar">
 			<div>
 				<span class="section-index">PLAYER LIST</span>
@@ -171,8 +174,11 @@ func DraftQueue(props DraftQueueProps) Node {
 						<input type="hidden" name="pos" value={props.Position}></input>
 						<input type="hidden" name="q" value={props.Query}></input>
 						<input type="hidden" name="page" value={props.Page}></input>
-						<If cond={props.CanPick}>
+						<If cond={props.CanPick && player.CanDraft}>
 							<button class="draft-button" type="submit">Draft</button>
+						</If>
+						<If cond={props.CanPick && player.CanDraft == false}>
+							<button class="draft-button" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
 						</If>
 						<If cond={props.CanPick == false}>
 							<button class="draft-button" type="button" disabled="disabled">Locked</button>
@@ -200,6 +206,17 @@ func DraftQueue(props DraftQueueProps) Node {
 				<a class="filter-button" href={props.NextHref} data-gosx-link rel="next">Next →</a>
 			</If>
 		</nav>
+		</If>
+		<If cond={props.DraftComplete}>
+			<div class="empty-tape draft-complete-callout">
+				<strong>DRAFT CLOSED · ALL PICKS LOCKED</strong>
+				<p>Drafted rosters are in the Team terminal. Every remaining player is now available through the Player Pool and waiver rules.</p>
+				<div class="hero-actions">
+					<a href="/team" data-gosx-link class="button button--primary">Open team terminal →</a>
+					<a href="/players" data-gosx-link class="button button--ghost">Open player pool →</a>
+				</div>
+			</div>
+		</If>
 	</section>
 }
 
@@ -348,22 +365,25 @@ func DraftRoom(props DraftRoomProps) Node {
 					data-gosx-countdown-format="dhms"
 					>{props.Data.draft.countdown_label}</strong>
 				</If>
-				<If cond={props.Data.draft.started}>
+				<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 					<span>Draft status</span>
 					<strong class="mono">LIVE</strong>
 				</If>
+				<If cond={props.Data.draft.complete}>
+					<span>Draft status</span>
+					<strong class="mono">COMPLETE</strong>
+				</If>
 				<div class="draft-clock-meta">
-					<span>
-						{props.Data.ready_count}
-						/
-						{props.Data.manager_count}
-						ready
-					</span>
-					<span>
-						Pick #
-						{props.Data.pick_number}
-					</span>
+					<If cond={props.Data.draft.complete == false}>
+						<span>{props.Data.ready_count} / {props.Data.manager_count} ready</span>
+						<span>Pick # {props.Data.pick_number}</span>
+					</If>
+					<If cond={props.Data.draft.complete}>
+						<span>{props.Data.round} rounds complete</span>
+						<span>{props.Data.pick_number} picks locked</span>
+					</If>
 				</div>
+				<If cond={props.Data.draft.complete == false}>
 				<div class="pick-clock-row">
 					<span class="mono">ON THE CLOCK //</span>
 					<If cond={props.Data.clock.paused}>
@@ -383,14 +403,18 @@ func DraftRoom(props DraftRoomProps) Node {
 					</If>
 					<span class="mono pick-clock-reason">{props.Data.clock.reason}</span>
 				</div>
+				</If>
+				<If cond={props.Data.draft.complete}>
+					<div class="pick-clock-row"><span class="mono">DRAFT CLOSED //</span><strong class="pick-clock mono">FINAL</strong><span class="mono pick-clock-reason">ALL PICKS LOCKED</span></div>
+				</If>
 				<span
 					class="visually-hidden"
-					data-on-clock={props.Data.draft.started && props.Data.viewer.team_id == props.Data.on_clock_id}
+					data-on-clock={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer.team_id == props.Data.on_clock_id}
 					data-gosx-watch="data-on-clock=true"
 					data-gosx-watch-effect="class:is-on-clock@body,title,cue:chime"
 					data-gosx-watch-title="YOUR PICK IS ON THE CLOCK"
 				></span>
-				<If cond={props.Data.viewer.has_seat}>
+				<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
 					<div class="manager-draft-controls" aria-label="Your draft controls">
 						<div class="manager-draft-control manager-draft-control--checkin" id="ready-toggle" data-ready={props.Data.viewer_ready}>
 							<div class="manager-draft-control__copy">
@@ -445,7 +469,7 @@ func DraftRoom(props DraftRoomProps) Node {
 						</div>
 					</div>
 				</If>
-				<If cond={props.Data.viewer.has_seat == false}>
+				<If cond={props.Data.viewer.has_seat == false && props.Data.draft.complete == false}>
 					<div class="manager-draft-controls">
 						<div class="manager-draft-control">
 							<div class="manager-draft-control__copy">
@@ -454,6 +478,14 @@ func DraftRoom(props DraftRoomProps) Node {
 								<small>Claim a franchise before setting readiness or autopick.</small>
 							</div>
 							<a href="/join" data-gosx-link class="button button--primary button--compact">Claim a team →</a>
+						</div>
+					</div>
+				</If>
+				<If cond={props.Data.draft.complete}>
+					<div class="manager-draft-controls">
+						<div class="manager-draft-control manager-draft-control--checkin">
+							<div class="manager-draft-control__copy"><span class="mono">YOUR NEXT ACTION</span><strong class="draft-checkin-status ready-state is-ready">SET YOUR LINEUP</strong><small>Your drafted roster is ready. Review every starter and bench spot before Week 1.</small></div>
+							<a href="/team" data-gosx-link class="button button--primary button--compact">Open team terminal →</a>
 						</div>
 					</div>
 				</If>
@@ -466,7 +498,7 @@ func DraftRoom(props DraftRoomProps) Node {
 					the commissioner paused the pick clock. Picks stay open.
 				</p>
 			</If>
-			<If cond={props.Data.demo_mode}>
+			<If cond={props.Data.demo_mode && props.Data.draft.complete == false}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
 					the commissioner must still type START; after that, rehearsal picks control the current team on the clock.
@@ -544,6 +576,7 @@ func DraftRoom(props DraftRoomProps) Node {
 		</If>
 		<section class="draft-order-strip">
 			<header>
+				<If cond={props.Data.draft.complete == false}>
 				<span class="section-index">
 					ROUND
 					{props.Data.round}
@@ -553,6 +586,11 @@ func DraftRoom(props DraftRoomProps) Node {
 					ON CLOCK:
 					{props.Data.on_clock.abbreviation}
 				</span>
+				</If>
+				<If cond={props.Data.draft.complete}>
+					<span class="section-index">FINAL // DRAFT ORDER</span>
+					<span class="mono">{props.Data.pick_number} PICKS LOCKED</span>
+				</If>
 				<span class="mono">
 					ORDER:
 					<If cond={props.Data.order_randomized}>
@@ -570,6 +608,7 @@ func DraftRoom(props DraftRoomProps) Node {
 			</div>
 		</section>
 		<If cond={props.Data.viewer.is_commissioner}>
+			<If cond={props.Data.draft.complete == false}>
 			<section class="draft-order-strip commissioner-clock-controls">
 				<header>
 					<span class="section-index">COMMISSIONER // CLOCK</span>
@@ -620,6 +659,7 @@ func DraftRoom(props DraftRoomProps) Node {
 				</div>
 				</If>
 			</section>
+			</If>
 		</If>
 		<p class="draft-manual-refresh mono"><a href="/draft">Reload the room →</a></p>
 	</div>
@@ -635,10 +675,15 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 	return <div class="draft-live-workspace">
 		<p class="draft-region-stale mono" role="status">LIVE UPDATE FAILED · SHOWING LAST CONFIRMED PLAYER POOL AND PICK TAPE. <a href="/draft">Refresh workspace →</a></p>
 		<div class="pool-count-bar">
+			<If cond={props.Data.draft_complete == false}>
 			<span class="mono pool-count">
 				{props.Data.pool_count}
 				PLAYERS
 			</span>
+			</If>
+			<If cond={props.Data.draft_complete}>
+				<span class="mono pool-count">{props.Data.pick_number} PICKS LOCKED</span>
+			</If>
 		</div>
 		<div class="draft-workspace">
 			<DraftQueue
@@ -647,6 +692,7 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 				CSRF={props.CSRF}
 				TeamID={props.Data.on_clock_id}
 				CanPick={props.Data.can_pick}
+				DraftComplete={props.Data.draft_complete}
 				HasSeat={props.Data.viewer.has_seat}
 				Position={props.Data.pool_position}
 				Query={props.Data.pool_query}
@@ -690,14 +736,18 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 						</Each>
 					</div>
 				</If>
-				<If cond={props.Data.board_count == 0}>
+				<If cond={props.Data.board_count == 0 && props.Data.draft_complete == false}>
 					<div class="board-peek-empty">
 						<a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a>
 					</div>
 				</If>
+				<If cond={props.Data.draft_complete}>
+					<div class="board-peek-empty"><a href="/players" data-gosx-link class="mono">SCOUT FREE AGENTS →</a></div>
+				</If>
 				<header>
 					<span class="section-index">PICK TAPE</span>
-					<b class="mono">LIVE LOG</b>
+					<If cond={props.Data.draft_complete == false}><b class="mono">LIVE LOG</b></If>
+					<If cond={props.Data.draft_complete}><b class="mono">FINAL LEDGER</b></If>
 				</header>
 				<If cond={props.Data.picks_empty}>
 					<div class="empty-tape">

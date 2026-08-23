@@ -60,3 +60,23 @@ func TestCommissionerAutopickControlsRequireClaimedSeats(t *testing.T) {
 		t.Fatalf("controls = %+v, want only claimed team-1", controls)
 	}
 }
+
+func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, truth := range []string{
+		"DRAFT CLOSED · ALL PICKS LOCKED",
+		"DraftComplete={props.Data.draft_complete}",
+		"Open team terminal →",
+		"Open player pool →",
+		"Roster need",
+		"props.Data.draft.complete == false",
+	} {
+		if !strings.Contains(source, truth) {
+			t.Errorf("completed-draft contract missing %q", truth)
+		}
+	}
+}

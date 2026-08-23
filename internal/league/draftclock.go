@@ -249,14 +249,13 @@ func (s *Service) teamNeverSeen(state PersistedState, teamID string, now time.Ti
 // autopickChoice resolves the player an auto-pick would select for teamID:
 // first the seat's Big Board, walked in order and skipping any ID that is
 // already picked, does not resolve in the pool, or would breach the
-// league's optional Limits knob (mirrors the board-panel filter in
-// DraftData); then best-available ADP order (the pool's own draft order),
-// same Limits filter. If every remaining candidate would breach some
-// limit — a degenerate config, should not happen in practice — the
-// second pass falls back to ignoring Limits entirely rather than pausing
-// the draft indefinitely; a live draft finishing is more important than a
-// soft cap. ok is false only when neither source has any candidate at all
-// — an empty or exhausted pool (section 8.6).
+// league's optional Limits knob or would leave too few future picks to fill
+// every required starter slot; then best-available ADP order (the pool's
+// own draft order), with the same filters. If every remaining candidate
+// would breach only a soft Limits cap, the second pass ignores that cap but
+// never ignores starter viability. ok is false when no undrafted candidate
+// can finish a legal roster — the clock pauses for commissioner attention
+// instead of auto-drafting an unusable team.
 func (s *Service) autopickChoice(state PersistedState, teamID string) (string, bool) {
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
@@ -265,7 +264,10 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 	pool := s.pool()
 	fits := func(playerID string) bool {
 		_, _, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil)
-		return !breach
+		return !breach && draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
+	}
+	viable := func(playerID string) bool {
+		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
 	}
 	key := s.boardKeyForTeam(state, teamID)
 	for _, id := range state.Boards[key] {
@@ -286,14 +288,81 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 		if picked[id] {
 			continue
 		}
-		if _, ok := pool.byID[id]; ok {
+		if _, ok := pool.byID[id]; ok && viable(id) {
 			return id, true
 		}
 	}
 	for _, player := range pool.players {
-		if !picked[player.ID] {
+		if !picked[player.ID] && viable(player.ID) {
 			return player.ID, true
 		}
 	}
 	return "", false
+}
+
+// draftCandidateKeepsRosterViable is the hard legality boundary shared by
+// manual picks, AUTO, commissioner picks, and the Draft Room button state.
+// A manager may spend early bench depth however they want, but once only N
+// picks remain, at most N required starter slots may still be unfillable.
+// Flexible slots are handled by maximum bipartite matching, so an RB already
+// assigned conceptually to FLEX can be reassigned to RB when that produces a
+// more complete starting shape.
+func draftCandidateKeepsRosterViable(state PersistedState, pool map[string]Player, teamID, candidateID string) bool {
+	candidate, ok := pool[candidateID]
+	if !ok {
+		return false
+	}
+	players := make([]Player, 0, CurrentDraftRounds())
+	pickCount := 0
+	for _, pick := range state.Picks {
+		if pick.TeamID != teamID {
+			continue
+		}
+		pickCount++
+		if player, exists := pool[pick.PlayerID]; exists {
+			players = append(players, player)
+		}
+	}
+	pickCount++
+	players = append(players, candidate)
+	remaining := CurrentDraftRounds() - pickCount
+	if remaining < 0 {
+		return false
+	}
+	preset := CurrentRoster()
+	missing := preset.Starters() - maximumDraftStarterFill(players, preset)
+	return missing <= remaining
+}
+
+// maximumDraftStarterFill returns the largest number of starting slots the
+// supplied roster can fill. This is a small augmenting-path matcher (at most
+// 25 players/slots under config validation), which is clearer and safer than
+// position-count arithmetic once FLEX and SUPERFLEX overlap fixed slots.
+func maximumDraftStarterFill(players []Player, preset RosterPreset) int {
+	slots := lineupSlots(preset)
+	matchedPlayer := make([]int, len(slots))
+	for index := range matchedPlayer {
+		matchedPlayer[index] = -1
+	}
+	var assign func(int, []bool) bool
+	assign = func(playerIndex int, seen []bool) bool {
+		for slotIndex, slot := range slots {
+			if seen[slotIndex] || !slot.Def.Fits(players[playerIndex].Position) {
+				continue
+			}
+			seen[slotIndex] = true
+			if matchedPlayer[slotIndex] == -1 || assign(matchedPlayer[slotIndex], seen) {
+				matchedPlayer[slotIndex] = playerIndex
+				return true
+			}
+		}
+		return false
+	}
+	filled := 0
+	for playerIndex := range players {
+		if assign(playerIndex, make([]bool, len(slots))) {
+			filled++
+		}
+	}
+	return filled
 }

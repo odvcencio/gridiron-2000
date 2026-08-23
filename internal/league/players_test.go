@@ -192,6 +192,48 @@ func TestAddPlayerFreeAgencyClosedPreDraft(t *testing.T) {
 	}
 }
 
+func newInProgressPlayersTestService(t *testing.T) *Service {
+	t.Helper()
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo { return nil })
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return playersFixturePool(), 1, "test" })
+	if _, err := svc.store.StartDraft(now, DefaultPickClock); err != nil {
+		t.Fatalf("start draft: %v", err)
+	}
+	if _, err := svc.store.MakePick(teamOnClock(nil, 1), "rb-open", "manager", now, now.Add(DefaultPickClock)); err != nil {
+		t.Fatalf("first pick: %v", err)
+	}
+	return svc
+}
+
+func TestDropPlayerFreeAgencyClosedDuringDraft(t *testing.T) {
+	svc := newInProgressPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
+	_, err := svc.DropPlayer(request, "team-1", "rb-open")
+	want := "free agency opens once the draft is complete"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if owner := rosterOwner(currentRosters(svc.store.Snapshot())); owner["rb-open"] != "team-1" {
+		t.Fatalf("drafted player owner = %q, want team-1 after rejected drop", owner["rb-open"])
+	}
+}
+
+func TestFileClaimFreeAgencyClosedDuringDraft(t *testing.T) {
+	svc := newInProgressPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
+	_, err := svc.FileClaim(request, "team-1", "fa-open", "", 0)
+	want := "free agency opens once the draft is complete"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if claims := svc.store.Snapshot().WaiverClaims; len(claims) != 0 {
+		t.Fatalf("waiver claims = %+v, want none while draft is live", claims)
+	}
+}
+
 func TestDropPlayerRequiresSignIn(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	svc.demoMode = false
@@ -242,13 +284,11 @@ func TestDropPlayerSucceedsAndAppendsOneTransaction(t *testing.T) {
 	}
 }
 
-// TestPlayersDataPreDraftRendersAddsDisabled checks the free-agency gate
-// at the page-loader level: before the draft completes, every row must
-// render with can_add false and the page's free_agency_open flag false.
-func TestPlayersDataPreDraftRendersAddsDisabled(t *testing.T) {
-	svc := newTestService(t, true)
-	svc.SetScheduleSource(func() []GameInfo { return nil })
-	svc.SetPlayerSource(func() ([]Player, int64, string) { return playersFixturePool(), 1, "test" })
+// TestPlayersDataPreDraftRendersRosterMutationsDisabled checks the
+// free-agency gate at the page-loader level: during a live, incomplete
+// draft, adds, claims, and drops must all remain unavailable.
+func TestPlayersDataPreDraftRendersRosterMutationsDisabled(t *testing.T) {
+	svc := newInProgressPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
 	data := svc.PlayersData(request)
 	if open, _ := data["free_agency_open"].(bool); open {
@@ -261,6 +301,12 @@ func TestPlayersDataPreDraftRendersAddsDisabled(t *testing.T) {
 	for _, row := range rows {
 		if canAdd, _ := row["can_add"].(bool); canAdd {
 			t.Fatalf("row %v: can_add must be false pre-draft", row["name"])
+		}
+		if canClaim, _ := row["can_claim"].(bool); canClaim {
+			t.Fatalf("row %v: can_claim must be false pre-draft", row["name"])
+		}
+		if canDrop, _ := row["can_drop"].(bool); canDrop {
+			t.Fatalf("row %v: can_drop must be false pre-draft", row["name"])
 		}
 	}
 }

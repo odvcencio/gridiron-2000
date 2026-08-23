@@ -1534,6 +1534,14 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		projected += player.Projection
 	}
 	teamMap := s.teamMap(team)
+	// Demo mode grants one synthetic, fully authorized seat without writing
+	// a production Member. Present that authority truthfully on the Team
+	// terminal instead of calling the same viewer both the manager and an
+	// unclaimed guest on adjacent surfaces.
+	if s.demoMode {
+		teamMap["manager"] = "REHEARSAL COMMISSIONER"
+		teamMap["claimed"] = true
+	}
 	boardCount := len(state.Boards[boardKeyForViewer(state, s.viewerKey(r))])
 	managerReady := state.Ready[teamID]
 	badgeToneHex, _ := BadgeToneHex(team.Tone)
@@ -1589,7 +1597,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"has_seat":             true,
 		"team":                 teamMap,
 		"drafted":              drafted,
-		"predraft_visible":     !state.DraftStarted && strings.TrimSpace(team.Manager) != "",
+		"predraft_visible":     !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
 		"predraft_has_board":   boardCount > 0,
 		"predraft_board_count": boardCount,
 		"predraft_ready":       managerReady,
@@ -1888,11 +1896,21 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	}
 	pagination := newPoolPagination(len(available), r.URL.Query().Get("page"))
 	pagedAvailable := available[pagination.Start:pagination.End]
+	complete := draftComplete(state)
 	nextNumber := len(state.Picks) + 1
-	onClockID := teamOnClock(state.DraftOrder, nextNumber)
-	onClock := s.teamView(state, onClockID)
+	displayPickNumber := nextNumber
+	round := pickRound(activeTeamCount(state.DraftOrder), nextNumber)
+	onClockID := ""
+	onClockMap := map[string]any{"abbreviation": ""}
+	if !complete {
+		onClockID = teamOnClock(state.DraftOrder, nextNumber)
+		onClockMap = s.teamMap(s.teamView(state, onClockID))
+	} else {
+		displayPickNumber = len(state.Picks)
+		round = CurrentDraftRounds()
+	}
 	viewerTeam, _ := viewer["team_id"].(string)
-	draftOpen := state.DraftStarted || s.store.draftLifecycleBypass
+	draftOpen := (state.DraftStarted || s.store.draftLifecycleBypass) && !complete
 	canPick := draftOpen && viewerTeam == onClockID
 	if s.demoMode && draftOpen {
 		canPick = true
@@ -1909,12 +1927,16 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 			}
 		}
 	}
+	availableMaps := playerMapsWithScoring(pagedAvailable, scoringValues, matchup)
+	for index, player := range pagedAvailable {
+		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
+	}
 	return map[string]any{
 		"viewer":               viewer,
 		"draft":                s.draftSummary(now),
 		"teams":                s.draftTeamMaps(state, onClockID),
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),
-		"available":            playerMapsWithScoring(pagedAvailable, scoringValues, matchup),
+		"available":            availableMaps,
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
 		"pool_label":           pool.label,
@@ -1941,12 +1963,13 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"pool_k_href":          poolPageHref("/draft", "K", rawQuery, 1),
 		"pool_dst_href":        poolPageHref("/draft", "DST", rawQuery, 1),
 		"pool_p_href":          poolPageHref("/draft", "P", rawQuery, 1),
-		"on_clock":             s.teamMap(onClock),
+		"on_clock":             onClockMap,
 		"on_clock_id":          onClockID,
-		"pick_number":          nextNumber,
+		"pick_number":          displayPickNumber,
 		"picks_empty":          len(state.Picks) == 0,
-		"round":                pickRound(activeTeamCount(state.DraftOrder), nextNumber),
+		"round":                round,
 		"can_pick":             canPick,
+		"draft_complete":       complete,
 		"demo_mode":            s.demoMode,
 		"ready_count":          readyCount(state.Ready),
 		"manager_count":        len(s.Teams()),
@@ -2140,7 +2163,8 @@ func (s *Service) ToggleReady(r *http.Request, requestedTeam string) (bool, stri
 
 func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (DraftPick, Player, Team, error) {
 	playerID = strings.TrimSpace(playerID)
-	player, ok := s.pool().byID[playerID]
+	pool := s.pool()
+	player, ok := pool.byID[playerID]
 	if !ok {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("choose an available player")
 	}
@@ -2159,8 +2183,11 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	}
 	// Limits (optional knob, default off, SK spec): a draft pick is an
 	// enforcement point too, just like an add/claim/trade.
-	if position, limit, breach := teamWouldBreachLimit(state, s.pool().byID, teamID, []string{playerID}, nil); breach {
+	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil); breach {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("%s", limitMessage(position, limit))
+	}
+	if !draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) {
+		return DraftPick{}, Player{}, Team{}, fmt.Errorf("choose a player who keeps every required starter slot fillable")
 	}
 	// The pick and its clock reset land in one store transaction (section
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
@@ -2239,7 +2266,12 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 	}
 	if state.DraftStarted {
 		statusLabel = "LIVE"
-		statusNote = "The commissioner opened the room. Pick one is on the clock."
+		statusNote = "The commissioner opened the room. The current team is on the clock."
+	}
+	complete := draftComplete(state)
+	if complete {
+		statusLabel = "COMPLETE"
+		statusNote = fmt.Sprintf("All %d picks are locked. Set lineups in the Team terminal; undrafted players are now free agents.", len(state.Picks))
 	}
 	startedAt := ""
 	if !state.DraftStartedAt.IsZero() {
@@ -2254,6 +2286,7 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"long_date":       local.Format("Monday, January 2, 2006"),
 		"format":          s.draftFormatLabel(),
 		"started":         state.DraftStarted,
+		"complete":        complete,
 		"started_at":      startedAt,
 		"window_reached":  !now.Before(s.draftAt),
 		"status_label":    statusLabel,

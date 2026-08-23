@@ -298,8 +298,10 @@ func (s *Store) SetReady(teamID string, on bool) error {
 // transaction: one lock acquisition, one persist covers both. madeBy is the
 // pick's provenance ("manager", or "commissioner" for a forced pick routed
 // through this path — see the callers). nextDeadline is the caller's
-// choice: pass now+pickClock to arm the next pick's clock, or the zero
-// value to leave the clock unarmed (the final pick, or a paused draft).
+// choice for every non-final pick: pass now+pickClock to arm the next pick's
+// clock, or the zero value to leave it unarmed during a pause. The Store
+// itself always disarms the terminal pick so a stale caller cannot persist
+// a phantom round's deadline after the draft is complete.
 func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDeadline time.Time) (DraftPick, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,8 +340,16 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 		MadeBy:   madeBy,
 	}
 	prevDeadline := s.state.ClockDeadline
+	prevPaused := s.state.ClockPaused
+	prevRemaining := s.state.ClockRemainingSec
 	s.state.Picks = append(s.state.Picks, pick)
-	s.state.ClockDeadline = nextDeadline
+	if len(s.state.Picks) >= len(defaultTeams())*CurrentDraftRounds() {
+		s.state.ClockDeadline = time.Time{}
+		s.state.ClockPaused = false
+		s.state.ClockRemainingSec = 0
+	} else {
+		s.state.ClockDeadline = nextDeadline
+	}
 	// A failed persist must not leave the pick "real" in memory while the
 	// caller was told it failed (the FirstSend/FirstSendBatch rollback
 	// precedent above): roll the append and the deadline back so the next
@@ -349,6 +359,8 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 	if err := s.persistLocked(colPicks, colScalars); err != nil {
 		s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
 		s.state.ClockDeadline = prevDeadline
+		s.state.ClockPaused = prevPaused
+		s.state.ClockRemainingSec = prevRemaining
 		return DraftPick{}, err
 	}
 	return pick, nil
@@ -455,14 +467,24 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 		MadeBy:   madeBy,
 	}
 	prevDeadline := s.state.ClockDeadline
+	prevPaused := s.state.ClockPaused
+	prevRemaining := s.state.ClockRemainingSec
 	s.state.Picks = append(s.state.Picks, pick)
-	s.state.ClockDeadline = nextDeadline
+	if len(s.state.Picks) >= len(defaultTeams())*CurrentDraftRounds() {
+		s.state.ClockDeadline = time.Time{}
+		s.state.ClockPaused = false
+		s.state.ClockRemainingSec = 0
+	} else {
+		s.state.ClockDeadline = nextDeadline
+	}
 	// Same rollback-on-persist-failure rule as MakePick: an unwound append
 	// keeps the in-memory number and on-clock team matching whatever the
 	// caller (the ticker or AdminForceAutopick) is told actually happened.
 	if err := s.persistLocked(colPicks, colScalars); err != nil {
 		s.state.Picks = s.state.Picks[:len(s.state.Picks)-1]
 		s.state.ClockDeadline = prevDeadline
+		s.state.ClockPaused = prevPaused
+		s.state.ClockRemainingSec = prevRemaining
 		return DraftPick{}, err
 	}
 	return pick, nil

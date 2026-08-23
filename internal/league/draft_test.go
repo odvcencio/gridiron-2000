@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,6 +64,40 @@ func TestUndoLastPickRoundTrip(t *testing.T) {
 	}
 	if got := len(store.Snapshot().Picks); got != 2 {
 		t.Fatalf("picks after repick = %d, want 2", got)
+	}
+}
+
+func TestFinalPickAlwaysDisarmsClock(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		if _, err := store.MakePick(teamOnClock(nil, number), fmt.Sprintf("final-clock-%03d", number), "commissioner", now, now.Add(90*time.Second)); err != nil {
+			t.Fatalf("pick %d: %v", number, err)
+		}
+	}
+	state := store.Snapshot()
+	if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
+		t.Fatalf("terminal clock = deadline:%v paused:%v remaining:%d", state.ClockDeadline, state.ClockPaused, state.ClockRemainingSec)
+	}
+}
+
+func TestFinalAutoPickAlwaysDisarmsClock(t *testing.T) {
+	store := newTestStore(t)
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number < total; number++ {
+		if _, err := store.MakePick(teamOnClock(nil, number), fmt.Sprintf("before-final-auto-%03d", number), "manager", now, now.Add(90*time.Second)); err != nil {
+			t.Fatalf("pick %d: %v", number, err)
+		}
+	}
+	state := store.Snapshot()
+	if _, err := store.AutoPick(teamOnClock(nil, total), "terminal-auto", "commissioner", total, state.ClockDeadline, now, now.Add(90*time.Second)); err != nil {
+		t.Fatalf("final AutoPick: %v", err)
+	}
+	state = store.Snapshot()
+	if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
+		t.Fatalf("terminal auto clock = deadline:%v paused:%v remaining:%d", state.ClockDeadline, state.ClockPaused, state.ClockRemainingSec)
 	}
 }
 

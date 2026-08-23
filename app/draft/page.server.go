@@ -153,6 +153,7 @@ type draftPlayerCardView struct {
 	MatchupTier     string
 	MatchupChip     string
 	MatchupDetail   string
+	CanDraft        bool
 }
 
 type draftRoomView struct {
@@ -210,6 +211,7 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			MatchupTier:     stringField(player, "matchup_tier"),
 			MatchupChip:     stringField(player, "matchup_chip"),
 			MatchupDetail:   stringField(player, "matchup_detail"),
+			CanDraft:        boolField(player, "draft_eligible"),
 		})
 	}
 	return out
@@ -315,6 +317,9 @@ func draftWorkspaceFragmentURL(data map[string]any) string {
 }
 
 func draftRoomStatus(data map[string]any) string {
+	if boolField(mapField(data, "draft"), "complete") {
+		return fmt.Sprintf("Draft complete; %d picks locked; the clock is stopped.", intField(data, "pick_number"))
+	}
 	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
 	clockView := mapField(data, "clock")
 	clockPhrase := "the clock is not running"

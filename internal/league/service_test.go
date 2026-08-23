@@ -407,19 +407,19 @@ func TestAdminDataPoolStatusSeam(t *testing.T) {
 	}
 }
 
-func TestUnclaimedTeamDisplay(t *testing.T) {
+func TestDemoTeamDisplayOwnsRehearsalSeat(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
 	data := service.TeamData(request)
 	team, _ := data["team"].(map[string]any)
-	if team["claimed"] != false || team["manager"] != "UNCLAIMED" || team["record"] != "0–0" {
-		t.Fatalf("unclaimed team display wrong: %+v", team)
+	if team["claimed"] != true || team["manager"] != "REHEARSAL COMMISSIONER" || team["record"] != "0–0" {
+		t.Fatalf("rehearsal team display wrong: %+v", team)
 	}
 	if data["drafted"] != false {
 		t.Error("fresh team must have an empty roster")
 	}
-	if data["predraft_visible"] != false {
-		t.Error("an unclaimed rehearsal seat must not show post-claim setup progress")
+	if data["predraft_visible"] != true {
+		t.Error("the authorized rehearsal seat must show pre-draft setup progress")
 	}
 	if roster, _ := data["roster"].([]map[string]any); len(roster) != 0 {
 		t.Fatalf("roster should be empty, got %d", len(roster))

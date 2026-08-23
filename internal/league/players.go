@@ -43,8 +43,8 @@ func playerMatchesQuery(player Player, query string) bool {
 // search (?q=), both plain GET params, the MY CLAIMS panel, and the
 // WAIVER ORDER strip. Free agency opens the moment the draft completes
 // (section 5.1's post-draft initial-state decision, draftComplete);
-// before that, every row renders honestly with adds and claims disabled
-// rather than pretend an undrafted pool is already free-agent territory.
+// before that, every row renders honestly with adds, claims, and drops
+// disabled rather than permit roster churn while the draft is still live.
 func (s *Service) PlayersData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
@@ -111,6 +111,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["claimed_by_me"] = claimedByMe
 		row["needs_drop"] = atCap
 		row["mine"] = canEdit && rostered && ownerID == teamID
+		row["can_drop"] = canEdit && open && rostered && ownerID == teamID
 		rows = append(rows, row)
 	}
 	pagination := newPoolPagination(len(rows), r.URL.Query().Get("page"))
@@ -301,7 +302,8 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 }
 
 // DropPlayer applies the roster-ops spec section 5.3 player-drop action:
-// W1 (signed-in seat), W7 (ownership), W8 (lock). Appends one drop
+// W1 (signed-in seat), the same post-draft free-agency gate as AddPlayer,
+// W7 (ownership), and W8 (lock). Appends one drop
 // transaction, one persist. The dropped player leaves the acting team's
 // roster the moment this record replays (currentRosters simply stops
 // naming them) and enters the ON WAIVERS state by derivation
@@ -320,6 +322,9 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID string) (str
 		return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
 	}
 	state := s.store.Snapshot()
+	if !draftComplete(state) {
+		return "", fmt.Errorf("free agency opens once the draft is complete")
+	}
 	owner := rosterOwner(currentRosters(state))
 	if owner[dropID] != teamID { // W7
 		return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
@@ -374,6 +379,9 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 		return "", fmt.Errorf("choose an available player")
 	}
 	state := s.store.Snapshot()
+	if !draftComplete(state) {
+		return "", fmt.Errorf("free agency opens once the draft is complete")
+	}
 	rosters := currentRosters(state)
 	owner := rosterOwner(rosters)
 	if owner[addID] != "" { // W3
