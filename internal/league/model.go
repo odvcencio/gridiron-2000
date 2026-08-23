@@ -212,6 +212,10 @@ type PersistedState struct {
 	DraftStartedAt time.Time `json:"draftStartedAt,omitempty"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
+	// PickemEnteredAt is the immutable first successful pick-submission time
+	// for each canonical owner. It is the season participation authority:
+	// every gradeable kickoff at or after this instant is an obligation.
+	PickemEnteredAt map[string]time.Time `json:"pickemEnteredAt,omitempty"`
 	// PickemMarkets maps game ID to its moving candidate or immutable frozen
 	// against-the-spread line. It is league schedule state, not member state.
 	PickemMarkets map[string]PickemMarket `json:"pickemMarkets,omitempty"`

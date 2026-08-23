@@ -94,21 +94,49 @@ func validPick(game GameInfo, pick string) bool {
 	return pick == game.Away || pick == game.Home
 }
 
-func pickemParticipation(games []GameInfo, picks map[string]string) map[int]bool {
-	participated := make(map[int]bool)
+// legacyPickemEnteredAt is the deterministic read-through authority for a
+// pre-v6 owner whose first-submission timestamp has not yet been durably
+// backfilled. It deliberately matches Store.BackfillPickemEnteredAt so a
+// transient migration-write failure cannot change scoring truth.
+func legacyPickemEnteredAt(games []GameInfo, picks map[string]string) time.Time {
+	var enteredAt time.Time
 	for _, game := range games {
-		if validPick(game, picks[game.ID]) {
-			participated[game.Week] = true
+		if game.Kickoff.IsZero() || !validPick(game, picks[game.ID]) {
+			continue
+		}
+		kickoff := game.Kickoff.UTC()
+		if enteredAt.IsZero() || kickoff.Before(enteredAt) {
+			enteredAt = kickoff
 		}
 	}
-	return participated
+	return enteredAt
 }
 
-// gradePickem is the one ATS authority used by cards, records, streaks, and
+func effectivePickemEnteredAt(state PersistedState, owner string, games []GameInfo) time.Time {
+	if enteredAt := state.PickemEnteredAt[owner]; !enteredAt.IsZero() {
+		return enteredAt.UTC()
+	}
+	return legacyPickemEnteredAt(games, state.Pickems[owner])
+}
+
+func pickemGameIsObligation(game GameInfo, enteredAt time.Time) bool {
+	return !enteredAt.IsZero() && !game.Kickoff.IsZero() && !game.Kickoff.Before(enteredAt)
+}
+
+func pickemEntryAppliesToAnyGame(games []GameInfo, enteredAt time.Time) bool {
+	for _, game := range games {
+		if pickemGameIsObligation(game, enteredAt) {
+			return true
+		}
+	}
+	return false
+}
+
+// gradePickemAt is the one ATS authority used by cards, records, streaks, and
 // leaderboards. nflverse's positive line means the home team is favored, so
 // subtracting it from the home margin yields the covering side. A game never
 // grades from a moving candidate or placeholder scores.
-func gradePickem(game GameInfo, market PickemMarket, pick string, participated bool, now time.Time) pickemGrade {
+func gradePickemAt(game GameInfo, market PickemMarket, pick string, enteredAt, now time.Time) pickemGrade {
 	if game.Kickoff.IsZero() || now.Before(game.Kickoff) {
 		return pickemGrade{Outcome: pickemPending}
 	}
@@ -116,7 +144,7 @@ func gradePickem(game GameInfo, market PickemMarket, pick string, participated b
 		return pickemGrade{Outcome: pickemVoid}
 	}
 	if !validPick(game, pick) {
-		if participated {
+		if pickemGameIsObligation(game, enteredAt) {
 			return pickemGrade{Outcome: pickemMissedLoss}
 		}
 		return pickemGrade{Outcome: pickemPending}
@@ -177,11 +205,10 @@ func pickemWeeks(games []GameInfo) []int {
 	return weeks
 }
 
-func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, now time.Time) PickemATSRecord {
-	participated := pickemParticipation(games, picks)
-	record := PickemATSRecord{Participated: len(participated) > 0}
+func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) PickemATSRecord {
+	record := PickemATSRecord{Participated: !enteredAt.IsZero()}
 	for _, game := range games {
-		switch gradePickem(game, markets[game.ID], picks[game.ID], participated[game.Week], now).Outcome {
+		switch gradePickemAt(game, markets[game.ID], picks[game.ID], enteredAt, now).Outcome {
 		case pickemWin:
 			record.Wins++
 		case pickemLoss, pickemMissedLoss:
@@ -201,16 +228,15 @@ func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[str
 // by ID, descending, the same stable tie-break sortGamesByKickoff uses —
 // without it, entries at an identical kickoff have no defined relative
 // order and the streak becomes nondeterministic between runs.
-func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, now time.Time) int {
+func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) int {
 	type graded struct {
 		kickoff time.Time
 		id      string
 		outcome PickemOutcome
 	}
-	participated := pickemParticipation(games, picks)
 	entries := make([]graded, 0, len(games))
 	for _, game := range games {
-		outcome := gradePickem(game, markets[game.ID], picks[game.ID], participated[game.Week], now).Outcome
+		outcome := gradePickemAt(game, markets[game.ID], picks[game.ID], enteredAt, now).Outcome
 		if outcome == pickemPending {
 			continue
 		}
@@ -418,6 +444,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	// A page load is also an immediate reconciliation opportunity. The
 	// lifecycle ticker remains authoritative when nobody has the page open.
 	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
+	_ = s.store.BackfillPickemEnteredAt(allGames)
 	state := s.store.Snapshot()
 	currentWeek := s.pickemWeek(allGames, now)
 
@@ -456,7 +483,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	}
 
 	viewerPicks := state.Pickems[viewerKey]
-	viewerParticipation := pickemParticipation(allGames, viewerPicks)
+	viewerEnteredAt := effectivePickemEnteredAt(state, viewerKey, allGames)
 	pickedCount, unpickedCount := 0, 0
 	games := make([]PickemGameRow, 0, len(weekGames))
 	for _, game := range weekGames {
@@ -468,7 +495,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 			unpickedCount++
 		}
 		market := state.PickemMarkets[game.ID]
-		grade := gradePickem(game, market, pick, viewerParticipation[game.Week], now)
+		grade := gradePickemAt(game, market, pick, viewerEnteredAt, now)
 		awayLine, homeLine, spreadState, spreadAsOf, spreadLock, spreadSource := pickemSpreadView(game, market, marketLocation)
 		scoreDisplay := ""
 		if game.Final {
@@ -509,12 +536,12 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		})
 	}
 
-	seasonLeaderboard := s.pickemLeaderboard(state, allGames, now)
-	weekLeaderboard := s.pickemLeaderboard(state, weekGames, now)
+	seasonLeaderboard := s.pickemLeaderboard(state, allGames, allGames, now)
+	weekLeaderboard := s.pickemLeaderboard(state, weekGames, allGames, now)
 
-	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, now)
-	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, now)
-	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, now)
+	seasonRecord := tallyPicks(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
+	weekRecord := tallyPicks(weekGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
+	streak := pickemStreak(allGames, state.PickemMarkets, viewerPicks, viewerEnteredAt, now)
 
 	return map[string]any{
 		"viewer":            s.Viewer(r),
@@ -588,17 +615,16 @@ func assignSharedRanks(out []PickemLeaderboardEntry) {
 	}
 }
 
-// pickemLeaderboard ranks participating members by ATS wins within games.
-// A member appears as soon as they make one valid pick in that set, even
-// before any game is graded. Called with the full schedule for the season
-// leaderboard and with one week's games for the weekly leaderboard; both
-// share this implementation and its shared-rank tie convention.
-func (s *Service) pickemLeaderboard(state PersistedState, games []GameInfo, now time.Time) []PickemLeaderboardEntry {
+// pickemLeaderboard ranks established season entrants by ATS wins within the
+// requested games. The same persisted first-submission instant drives the
+// season and weekly boards, so an entrant remains visible after skipping a
+// later week.
+func (s *Service) pickemLeaderboard(state PersistedState, games, entryGames []GameInfo, now time.Time) []PickemLeaderboardEntry {
 	tallies := make(map[string]PickemATSRecord)
 	for owner, picks := range state.Pickems {
-		record := tallyPicks(games, state.PickemMarkets, picks, now)
-		if record.Participated {
-			tallies[owner] = record
+		enteredAt := effectivePickemEnteredAt(state, owner, entryGames)
+		if pickemEntryAppliesToAnyGame(games, enteredAt) {
+			tallies[owner] = tallyPicks(games, state.PickemMarkets, picks, enteredAt, now)
 		}
 	}
 
@@ -657,11 +683,13 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 	if err != nil {
 		return GameInfo{}, err
 	}
+	now := s.clock()
 	gameID = strings.TrimSpace(gameID)
 	team = strings.TrimSpace(team)
+	allGames := s.schedule()
 	var game GameInfo
 	found := false
-	for _, candidate := range s.schedule() {
+	for _, candidate := range allGames {
 		if candidate.ID == gameID {
 			game = candidate
 			found = true
@@ -674,10 +702,13 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 	if team != game.Away && team != game.Home {
 		return GameInfo{}, fmt.Errorf("pick one of the two teams")
 	}
-	if game.Kickoff.IsZero() || !s.clock().Before(game.Kickoff) {
+	if game.Kickoff.IsZero() || !now.Before(game.Kickoff) {
 		return GameInfo{}, fmt.Errorf("this game is locked")
 	}
-	if err := s.store.SetPickem(owner, gameID, team); err != nil {
+	if err := s.store.BackfillPickemEnteredAt(allGames); err != nil {
+		return GameInfo{}, err
+	}
+	if err := s.store.SetPickem(owner, gameID, team, now); err != nil {
 		return GameInfo{}, err
 	}
 	return game, nil
@@ -691,19 +722,21 @@ func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now t
 	viewerKey := s.viewerKey(r)
 	allGames := s.schedule()
 	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
+	_ = s.store.BackfillPickemEnteredAt(allGames)
 	state = s.store.Snapshot()
 	week := s.pickemWeek(allGames, now)
 	weekGames := gamesInWeek(allGames, week)
 
 	picks := state.Pickems[viewerKey]
+	enteredAt := effectivePickemEnteredAt(state, viewerKey, allGames)
 	unpicked := 0
 	for _, game := range weekGames {
 		if now.Before(game.Kickoff) && picks[game.ID] == "" {
 			unpicked++
 		}
 	}
-	record := tallyPicks(allGames, state.PickemMarkets, picks, now)
-	streak := pickemStreak(allGames, state.PickemMarkets, picks, now)
+	record := tallyPicks(allGames, state.PickemMarkets, picks, enteredAt, now)
+	streak := pickemStreak(allGames, state.PickemMarkets, picks, enteredAt, now)
 
 	return map[string]any{
 		"week":                week,

@@ -38,6 +38,7 @@ func reconcileIdentityState(state *PersistedState, resolver identity.Resolver) (
 	if err := reconcilePickems(state, resolver); err != nil {
 		return false, err
 	}
+	reconcilePickemEnteredAt(state, resolver)
 	if err := reconcileBlitzEntries(state, resolver); err != nil {
 		return false, err
 	}
@@ -213,6 +214,21 @@ func reconcilePickems(state *PersistedState, resolver identity.Resolver) error {
 	}
 	state.Pickems = out
 	return nil
+}
+
+func reconcilePickemEnteredAt(state *PersistedState, resolver identity.Resolver) {
+	out := make(map[string]time.Time, len(state.PickemEnteredAt))
+	for raw, enteredAt := range state.PickemEnteredAt {
+		if enteredAt.IsZero() {
+			continue
+		}
+		owner := resolver.Resolve(raw)
+		enteredAt = enteredAt.UTC()
+		if previous := out[owner]; previous.IsZero() || enteredAt.Before(previous) {
+			out[owner] = enteredAt
+		}
+	}
+	state.PickemEnteredAt = out
 }
 
 func reconcileBlitzEntries(state *PersistedState, resolver identity.Resolver) error {

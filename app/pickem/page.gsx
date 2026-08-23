@@ -212,7 +212,7 @@ func Page() Node {
 				</h1>
 				<p>
 					Pick against the frozen market spread. Each game stays open until its own kickoff.
-					After you enter a week, a missed kickoff is a loss — later games still stay open.
+					Your first valid pick enters you for the season. After entry, every unpicked kickoff is a loss — later games still stay open.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -287,7 +287,7 @@ func Page() Node {
 			</div>
 			<p class="pickem-rule-note">
 				<strong>THE LINE FREEZES THURSDAY.</strong>
-				The sheet does not. Every matchup accepts picks until that game's kickoff. Once you make any pick this week, a game you miss becomes a loss; games that have not started remain available.
+				The sheet does not. Every matchup accepts picks until that game's kickoff. Your first valid pick enters you for the season; after that, every non-void game you leave unpicked at kickoff is a loss. Games that have not started remain available, and weeks before you entered are not scored against you.
 			</p>
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">

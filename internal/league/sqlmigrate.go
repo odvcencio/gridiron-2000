@@ -235,7 +235,7 @@ func databaseHasStateRows(db *sql.DB) (bool, error) {
 	for _, table := range []string{
 		"kv", "picks", "ready", "members", "co_invites", "invites", "boards",
 		"board_owners", "team_names", "draft_order", "scoring", "pickems", "pickem_markets",
-		"pickem_owners", "blitz_entries", "blitz_owners", "autopick", "sent_log",
+		"pickem_owners", "pickem_entries", "blitz_entries", "blitz_owners", "autopick", "sent_log",
 		"notify_prefs", "notify_pref_owners", "badge_claims", "avatar_refs",
 		"announcements", "lineups", "lineup_weeks", "lineup_teams", "transactions",
 		"waiver_claims", "trade_offers", "roster_zones", "roster_zone_teams", "schedule",

@@ -41,7 +41,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 5
+const currentSchemaVersion = 6
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -145,31 +145,32 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 		filePath: strings.TrimSpace(filePath),
 		shadow:   shadowIndex{},
 		state: PersistedState{
-			SchemaVersion:  currentSchemaVersion,
-			Ready:          map[string]bool{},
-			Picks:          []DraftPick{},
-			Members:        map[string]Member{},
-			Invites:        []string{},
-			Boards:         map[string][]string{},
-			TeamNames:      map[string]string{},
-			DraftOrder:     []string{},
-			Scoring:        map[string]float64{},
-			Pickems:        map[string]map[string]string{},
-			PickemMarkets:  map[string]PickemMarket{},
-			BlitzEntries:   map[string]map[string]BlitzEntry{},
-			Autopick:       map[string]bool{},
-			SentLog:        map[string]time.Time{},
-			NotifyPrefs:    map[string]map[string]bool{},
-			BadgeClaims:    map[string]string{},
-			AvatarRefs:     map[string]string{},
-			Announcements:  []Announcement{},
-			Lineups:        map[string]map[int]map[string]string{},
-			Transactions:   []Transaction{},
-			WaiverClaims:   []WaiverClaim{},
-			TradeOffers:    []TradeOffer{},
-			RosterZones:    map[string]map[string]ZoneAssignment{},
-			CoInvites:      map[string]string{},
-			TrimmedTeamIDs: []string{},
+			SchemaVersion:   currentSchemaVersion,
+			Ready:           map[string]bool{},
+			Picks:           []DraftPick{},
+			Members:         map[string]Member{},
+			Invites:         []string{},
+			Boards:          map[string][]string{},
+			TeamNames:       map[string]string{},
+			DraftOrder:      []string{},
+			Scoring:         map[string]float64{},
+			Pickems:         map[string]map[string]string{},
+			PickemEnteredAt: map[string]time.Time{},
+			PickemMarkets:   map[string]PickemMarket{},
+			BlitzEntries:    map[string]map[string]BlitzEntry{},
+			Autopick:        map[string]bool{},
+			SentLog:         map[string]time.Time{},
+			NotifyPrefs:     map[string]map[string]bool{},
+			BadgeClaims:     map[string]string{},
+			AvatarRefs:      map[string]string{},
+			Announcements:   []Announcement{},
+			Lineups:         map[string]map[int]map[string]string{},
+			Transactions:    []Transaction{},
+			WaiverClaims:    []WaiverClaim{},
+			TradeOffers:     []TradeOffer{},
+			RosterZones:     map[string]map[string]ZoneAssignment{},
+			CoInvites:       map[string]string{},
+			TrimmedTeamIDs:  []string{},
 		},
 	}
 	s.identityResolver = resolver
@@ -1074,6 +1075,7 @@ func (s *Store) ResetLeague() error {
 	s.state.Members = map[string]Member{}
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
+	s.state.PickemEnteredAt = map[string]time.Time{}
 	s.state.PickemMarkets = map[string]PickemMarket{}
 	s.state.BlitzEntries = map[string]map[string]BlitzEntry{}
 	s.state.Transactions = []Transaction{}
@@ -1448,23 +1450,82 @@ func (s *Store) BoardClear(owner string) error {
 	return s.persistLocked(colBoards)
 }
 
-// SetPickem records the owner's pick for one game. It does not validate the
-// game or the team against the schedule; the service layer owns that.
-func (s *Store) SetPickem(owner, gameID, team string) error {
+// SetPickem records the owner's pick and, on the owner's first successful
+// write, the immutable season-entry instant. It does not validate the game or
+// team against the schedule; PickemSet owns that boundary and supplies its
+// single request-clock reading. The pick and first-entry time share one
+// collection/SQLite transaction and roll back together on a pre-commit error.
+func (s *Store) SetPickem(owner, gameID, team string, submittedAt time.Time) error {
 	owner = s.canonicalEmail(owner)
-	if owner == "" || gameID == "" {
-		return fmt.Errorf("pick owner and game are required")
+	if owner == "" || gameID == "" || submittedAt.IsZero() {
+		return fmt.Errorf("pick owner, game, and submission time are required")
 	}
+	submittedAt = submittedAt.UTC()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
+	if s.state.PickemEnteredAt == nil {
+		s.state.PickemEnteredAt = map[string]time.Time{}
+	}
 	if s.state.Pickems[owner] == nil {
 		s.state.Pickems[owner] = map[string]string{}
 	}
 	s.state.Pickems[owner][gameID] = team
-	return s.persistLocked(colPickems)
+	if s.state.PickemEnteredAt[owner].IsZero() {
+		s.state.PickemEnteredAt[owner] = submittedAt
+	}
+	if err := s.persistLocked(colPickems); err != nil {
+		if persistDispositionOf(err) == persistNotCommitted {
+			s.state = previous
+			s.dirty = previousDirty
+		}
+		return err
+	}
+	return nil
+}
+
+// BackfillPickemEnteredAt performs the one bounded legacy migration that
+// requires schedule knowledge unavailable while Store opens. Timestamp-less
+// owners with valid persisted picks receive the earliest such game's kickoff.
+// Once stored, later schedule refreshes cannot move the authority.
+func (s *Store) BackfillPickemEnteredAt(games []GameInfo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if s.state.PickemEnteredAt == nil {
+		s.state.PickemEnteredAt = map[string]time.Time{}
+	}
+	backfill := make(map[string]time.Time)
+	for owner, picks := range s.state.Pickems {
+		if !s.state.PickemEnteredAt[owner].IsZero() {
+			continue
+		}
+		if enteredAt := legacyPickemEnteredAt(games, picks); !enteredAt.IsZero() {
+			backfill[owner] = enteredAt
+		}
+	}
+	if len(backfill) == 0 {
+		return nil
+	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
+	for owner, enteredAt := range backfill {
+		s.state.PickemEnteredAt[owner] = enteredAt
+	}
+	if err := s.persistLocked(colPickems); err != nil {
+		if persistDispositionOf(err) == persistNotCommitted {
+			s.state = previous
+			s.dirty = previousDirty
+		}
+		return err
+	}
+	return nil
 }
 
 // BlitzSetEntry replaces owner's slate entry wholesale. It performs no
@@ -2889,6 +2950,7 @@ func cloneState(in PersistedState) PersistedState {
 		DraftStarted:            in.DraftStarted,
 		DraftStartedAt:          in.DraftStartedAt,
 		Pickems:                 make(map[string]map[string]string, len(in.Pickems)),
+		PickemEnteredAt:         make(map[string]time.Time, len(in.PickemEnteredAt)),
 		PickemMarkets:           make(map[string]PickemMarket, len(in.PickemMarkets)),
 		BlitzEntries:            make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),
 		ClockDeadline:           in.ClockDeadline,
@@ -2936,6 +2998,9 @@ func cloneState(in PersistedState) PersistedState {
 			inner[gameID] = team
 		}
 		out.Pickems[owner] = inner
+	}
+	for owner, enteredAt := range in.PickemEnteredAt {
+		out.PickemEnteredAt[owner] = enteredAt
 	}
 	for gameID, market := range in.PickemMarkets {
 		out.PickemMarkets[gameID] = market

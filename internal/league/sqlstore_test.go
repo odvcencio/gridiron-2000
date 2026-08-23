@@ -114,6 +114,9 @@ func realisticFixture() PersistedState {
 			"one@example.com": {"2026-w01-KC-BAL": "KC", "2026-w01-DAL-PHI": "PHI"},
 			"two@example.com": {},
 		},
+		PickemEnteredAt: map[string]time.Time{
+			"one@example.com": at(1, 8),
+		},
 		BlitzEntries: map[string]map[string]BlitzEntry{
 			"one@example.com": {
 				"pre2": {Players: []string{"p-01", "p-02", "p-03", "p-04", "p-05"}, UpdatedAt: at(1, 9)},
@@ -1174,7 +1177,7 @@ func TestConcurrentMutatorsAndSnapshots(t *testing.T) {
 
 	run(func(i int) error { return store.SetTeamName("team-1", fmt.Sprintf("Name %d", i)) })
 	run(func(i int) error { return store.BoardAdd("one@example.com", fmt.Sprintf("p-%02d", i)) })
-	run(func(i int) error { return store.SetPickem("two@example.com", fmt.Sprintf("g-%02d", i), "KC") })
+	run(func(i int) error { return store.SetPickem("two@example.com", fmt.Sprintf("g-%02d", i), "KC", now) })
 	run(func(i int) error { return store.SetLineupSlot("team-2", 1+i, "QB", "p-09", now) })
 	run(func(i int) error {
 		_, err := store.FirstSend(fmt.Sprintf("kickoff:2026:%d@example.com", i), now)
