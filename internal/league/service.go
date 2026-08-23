@@ -3465,10 +3465,10 @@ func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]fl
 func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any {
 	pool := s.pool()
 	type entry struct {
-		at     time.Time
-		teamID string
-		action string
-		player string
+		at      time.Time
+		teamIDs []string
+		action  string
+		player  string
 	}
 	entries := make([]entry, 0, len(state.Picks)+len(state.Transactions))
 	for _, pick := range state.Picks {
@@ -3476,26 +3476,66 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		if player, ok := pool.byID[pick.PlayerID]; ok {
 			label = fmt.Sprintf("%s (%s)", player.Name, player.Position)
 		}
-		entries = append(entries, entry{at: pick.MadeAt, teamID: pick.TeamID, action: "drafts", player: label})
+		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, action: "drafts", player: label})
 	}
 	for _, txn := range state.Transactions {
 		action, player := activityLine(txn)
-		entries = append(entries, entry{at: txn.At, teamID: txn.TeamID, action: action, player: player})
+		entries = append(entries, entry{at: txn.At, teamIDs: activityTeamIDs(txn), action: action, player: player})
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.After(entries[j].at) })
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
+	location := s.matchupLocation()
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
+		teamDisplay, teamAbbreviations, teamNames := s.activityTeamDisplay(state, e.teamIDs)
 		out = append(out, map[string]any{
-			"time":   e.at.Format("Jan 2, 3:04 PM MST"),
-			"team":   s.teamByID(e.teamID).Abbreviation,
-			"action": e.action,
-			"player": e.player,
+			"time":        e.at.In(location).Format("Jan 2, 3:04 PM MST"),
+			"timezone":    location.String(),
+			"team":        teamDisplay,
+			"teams":       teamAbbreviations,
+			"team_names":  teamNames,
+			"team_ids":    e.teamIDs,
+			"team_search": strings.Join(append(append([]string{}, teamAbbreviations...), teamNames...), " "),
+			"action":      e.action,
+			"player":      e.player,
 		})
 	}
 	return out
+}
+
+// activityTeamDisplay returns the parties represented by one feed entry.
+// Draft picks and ordinary roster moves pass one team ID; a trade passes both
+// sides so the one activity row remains truthful without duplicating the
+// transaction in the feed.
+func (s *Service) activityTeamDisplay(state PersistedState, teamIDs []string) (string, []string, []string) {
+	labels := make([]string, 0, len(teamIDs))
+	abbreviations := make([]string, 0, len(teamIDs))
+	names := make([]string, 0, len(teamIDs))
+	seen := make(map[string]struct{}, len(teamIDs))
+	for _, teamID := range teamIDs {
+		if teamID == "" {
+			continue
+		}
+		if _, ok := seen[teamID]; ok {
+			continue
+		}
+		seen[teamID] = struct{}{}
+		team := s.teamView(state, teamID)
+		label := team.Abbreviation
+		if label == "" {
+			label = teamID
+		}
+		labels = append(labels, label)
+		if team.Abbreviation != "" {
+			abbreviations = append(abbreviations, team.Abbreviation)
+		}
+		if team.Name != "" {
+			names = append(names, team.Name)
+		}
+	}
+	return strings.Join(labels, " ↔ "), abbreviations, names
 }
 
 // leaderMaps ranks the top four pool players by projection for the

@@ -189,3 +189,112 @@ func TestActivityDataFiltersByTeamAndQueryAndPreservesState(t *testing.T) {
 		t.Fatalf("no-match state = has %v empty %v start %v", data["has_transactions"], data["transactions_empty"], data["page_start"])
 	}
 }
+
+func activityParityService(t *testing.T) *Service {
+	t.Helper()
+	svc := newTestService(t, true)
+	svc.teams = []Team{
+		{ID: "team-1", Name: "Alpha Aces", Abbreviation: "ALP"},
+		{ID: "team-2", Name: "Beta Bears", Abbreviation: "BET"},
+		{ID: "team-3", Name: "Gamma Goats", Abbreviation: "GAM"},
+	}
+	return svc
+}
+
+func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
+	svc := activityParityService(t)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	transactions := []Transaction{
+		{
+			ID: "trade-1", Type: "trade", TeamID: "team-1", OtherTeamID: "team-2",
+			Adds:  []TransactionPlayer{{Name: "Incoming Runner", Position: "RB"}},
+			Drops: []TransactionPlayer{{Name: "Outgoing Receiver", Position: "WR"}},
+			At:    base.Add(2 * time.Minute),
+		},
+		{
+			ID: "add-1", Type: "add", TeamID: "team-1", OtherTeamID: "team-2",
+			Adds: []TransactionPlayer{{Name: "Alpha Free Agent", Position: "TE"}},
+			At:   base.Add(time.Minute),
+		},
+	}
+	svc.store.state.Transactions = append(svc.store.state.Transactions, transactions...)
+
+	request, _ := http.NewRequest(http.MethodGet, "/activity?team=BET", nil)
+	data := svc.ActivityData(request)
+	rows, _ := data["transactions"].([]map[string]any)
+	if len(rows) != 1 {
+		t.Fatalf("counterparty team filter rows = %+v, want one trade row", rows)
+	}
+	row := rows[0]
+	if row["team"] != "ALP ↔ BET" {
+		t.Fatalf("trade team display = %v, want both abbreviations", row["team"])
+	}
+	teams, _ := row["teams"].([]string)
+	if len(teams) != 2 || teams[0] != "ALP" || teams[1] != "BET" {
+		t.Fatalf("trade teams = %#v, want [ALP BET]", teams)
+	}
+	names, _ := row["team_names"].([]string)
+	if len(names) != 2 || names[0] != "Alpha Aces" || names[1] != "Beta Bears" {
+		t.Fatalf("trade team names = %#v, want both names", names)
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/activity?q=Beta+Bears", nil)
+	data = svc.ActivityData(request)
+	rows, _ = data["transactions"].([]map[string]any)
+	if len(rows) != 1 || rows[0]["action"] != "trades" {
+		t.Fatalf("counterparty name search rows = %+v, want the trade", rows)
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/activity?q=BET", nil)
+	data = svc.ActivityData(request)
+	rows, _ = data["transactions"].([]map[string]any)
+	if len(rows) != 1 || rows[0]["action"] != "trades" {
+		t.Fatalf("counterparty abbreviation search rows = %+v, want the trade", rows)
+	}
+
+	request, _ = http.NewRequest(http.MethodGet, "/activity?team=ALP", nil)
+	data = svc.ActivityData(request)
+	rows, _ = data["transactions"].([]map[string]any)
+	if len(rows) != 2 {
+		t.Fatalf("initiating team filter rows = %+v, want trade plus ordinary add", rows)
+	}
+	tradeRows := 0
+	for _, candidate := range rows {
+		if candidate["action"] == "trades" {
+			tradeRows++
+		}
+	}
+	if tradeRows != 1 {
+		t.Fatalf("trade rows = %d, want exactly one row", tradeRows)
+	}
+}
+
+func TestActivityMapsUsesLeagueTimezoneAndZoneLabel(t *testing.T) {
+	svc := activityParityService(t)
+	svc.cfg.Timezone = "America/Los_Angeles"
+	svc.draftTZ = nil
+	at := time.Date(2026, 1, 1, 7, 30, 0, 0, time.UTC)
+	state := PersistedState{
+		Transactions: []Transaction{
+			{
+				ID: "txn-timezone", Type: "add", TeamID: "team-1",
+				Adds: []TransactionPlayer{{Name: "Pacific Add", Position: "RB"}}, At: at,
+			},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 1 {
+		t.Fatalf("timezone rows = %d, want 1", len(rows))
+	}
+	if rows[0]["time"] != "Dec 31, 11:30 PM PST" {
+		t.Fatalf("activity time = %q, want configured-zone date rollover", rows[0]["time"])
+	}
+	if rows[0]["timezone"] != "America/Los_Angeles" {
+		t.Fatalf("row timezone = %q, want configured IANA zone", rows[0]["timezone"])
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/activity", nil)
+	data := svc.ActivityData(request)
+	if data["timezone"] != "America/Los_Angeles" {
+		t.Fatalf("activity data timezone = %q, want configured IANA zone", data["timezone"])
+	}
+}
