@@ -1246,17 +1246,12 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 
 // ClaimFantasySeat resolves the signed-in member's email/name from r and
 // completes the fantasy-signup atomic claim (build item 2: team name +
-// badge motif in one seat claim). An anonymous request or an
-// already-seated member is rejected before any store write; see
-// claimFantasySeat for the seat/name/badge write sequence and its
-// rollback contract.
+// badge motif in one seat claim). The primitive owns every admission and
+// existing-seat check so direct/stale action calls cannot bypass them.
 func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Team, error) {
 	user, ok := s.CurrentUser(r)
 	if !ok {
 		return Team{}, fmt.Errorf("Google sign-in is required for league actions")
-	}
-	if member, exists := s.store.MemberByEmail(user.Email); exists && member.TeamID != "" {
-		return Team{}, fmt.Errorf("you already hold a team seat")
 	}
 	return s.claimFantasySeat(user.Email, user.Name, teamName, motif)
 }
@@ -1287,11 +1282,19 @@ func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Tea
 // surface.
 func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, error) {
 	email = s.identityResolver.Resolve(email)
-	if pendingTeamID, pending := s.store.Snapshot().CoInvites[email]; pending {
+	state := s.store.Snapshot()
+	if pendingTeamID, pending := state.CoInvites[email]; pending {
 		return Team{}, fmt.Errorf(
 			"complete your pending co-manager sign-in for %s before claiming another franchise",
 			s.TeamLabel(pendingTeamID),
 		)
+	}
+	member, admitted := state.Members[email]
+	if !admitted {
+		return Team{}, errors.New("league admission is not recorded for this Google account; sign in again or ask the commissioner to verify your identity")
+	}
+	if member.TeamID != "" {
+		return Team{}, errors.New("you already hold a team seat")
 	}
 	if !s.store.IdentityHealthy() {
 		return Team{}, errors.New(identityUnavailableCopy)
@@ -1322,7 +1325,7 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 			return Team{}, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name}
 		}
 	}
-	member, err := s.assignMember(email, name)
+	member, err = s.assignMember(email, name)
 	if err != nil {
 		return Team{}, err
 	}

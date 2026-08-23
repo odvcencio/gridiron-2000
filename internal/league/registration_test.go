@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -42,11 +44,19 @@ func TestSignInMembershipIsSeatless(t *testing.T) {
 // Build item 2 — fantasy signup atomicity
 // ---------------------------------------------------------------------
 
+func admitSeatlessForClaim(t *testing.T, service *Service, email string) {
+	t.Helper()
+	if _, err := service.EnsureMember(email, "Admitted Manager"); err != nil {
+		t.Fatalf("admit %s: %v", email, err)
+	}
+}
+
 // TestClaimFantasySeatAtomic checks the happy path: one claimFantasySeat
 // call claims a seat, sets the team name, and claims the badge motif —
 // all three, in one call.
 func TestClaimFantasySeatAtomic(t *testing.T) {
 	service := newTestService(t, false)
+	admitSeatlessForClaim(t, service, "a@example.com")
 	team, err := service.claimFantasySeat("a@example.com", "A", "The Rebrand", "wolf")
 	if err != nil {
 		t.Fatal(err)
@@ -64,9 +74,99 @@ func TestClaimFantasySeatAtomic(t *testing.T) {
 	}
 }
 
+func TestClaimFantasySeatRejectsUnrecordedSignedInIdentityWithoutMutation(t *testing.T) {
+	service := newTestService(t, false)
+	before := service.store.Snapshot()
+	var claimErr error
+	withPublicEntryRequest(t, service, "unrecorded@example.com", func(r *http.Request) {
+		_, claimErr = service.ClaimFantasySeat(r, "Unrecorded Team", "wolf")
+	})
+	if claimErr == nil || !strings.Contains(strings.ToLower(claimErr.Error()), "admission") ||
+		!strings.Contains(strings.ToLower(claimErr.Error()), "sign in again") {
+		t.Fatalf("unrecorded claim error = %v", claimErr)
+	}
+	if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {
+		t.Fatalf("unrecorded claim mutated state\nbefore: %#v\n after: %#v", before, after)
+	}
+}
+
+func TestClaimFantasySeatRejectsSeatedAndReleasedStaleSessionsWithoutMutation(t *testing.T) {
+	service := newTestService(t, false)
+	const email = "returning@example.com"
+	admitSeatlessForClaim(t, service, email)
+	var claimed Team
+	var claimErr error
+	withPublicEntryRequest(t, service, email, func(r *http.Request) {
+		claimed, claimErr = service.ClaimFantasySeat(r, "Returning Team", "wolf")
+	})
+	if claimErr != nil {
+		t.Fatal(claimErr)
+	}
+
+	seatedBefore := service.store.Snapshot()
+	withPublicEntryRequest(t, service, email, func(r *http.Request) {
+		_, claimErr = service.ClaimFantasySeat(r, "Second Team", "rocket")
+	})
+	if claimErr == nil || claimErr.Error() != "you already hold a team seat" {
+		t.Fatalf("seated claim error = %v", claimErr)
+	}
+	if seatedAfter := service.store.Snapshot(); !reflect.DeepEqual(seatedBefore, seatedAfter) {
+		t.Fatalf("seated claim mutated state\nbefore: %#v\n after: %#v", seatedBefore, seatedAfter)
+	}
+
+	if err := service.store.ReleaseSeat(claimed.ID); err != nil {
+		t.Fatal(err)
+	}
+	releasedBefore := service.store.Snapshot()
+	withPublicEntryRequest(t, service, email, func(r *http.Request) {
+		_, claimErr = service.ClaimFantasySeat(r, "Stale Session Team", "rocket")
+	})
+	if claimErr == nil || !strings.Contains(strings.ToLower(claimErr.Error()), "admission") {
+		t.Fatalf("released-seat stale-session claim error = %v", claimErr)
+	}
+	if releasedAfter := service.store.Snapshot(); !reflect.DeepEqual(releasedBefore, releasedAfter) {
+		t.Fatalf("released-seat claim mutated state\nbefore: %#v\n after: %#v", releasedBefore, releasedAfter)
+	}
+}
+
+func TestClaimFantasySeatPendingCoInviteAlwaysWinsAdmissionCheck(t *testing.T) {
+	for _, withSeatlessMember := range []bool{false, true} {
+		name := "without seatless member"
+		if withSeatlessMember {
+			name = "with seatless member"
+		}
+		t.Run(name, func(t *testing.T) {
+			service := newTestService(t, false)
+			primary, _, err := service.store.AssignMember("primary@example.com", "Primary")
+			if err != nil {
+				t.Fatal(err)
+			}
+			const pendingEmail = "pending@example.com"
+			if withSeatlessMember {
+				admitSeatlessForClaim(t, service, pendingEmail)
+			}
+			if err := service.store.InviteCoManager(primary.TeamID, pendingEmail); err != nil {
+				t.Fatal(err)
+			}
+			before := service.store.Snapshot()
+			var claimErr error
+			withPublicEntryRequest(t, service, pendingEmail, func(r *http.Request) {
+				_, claimErr = service.ClaimFantasySeat(r, "Competing Team", "rocket")
+			})
+			if claimErr == nil || !strings.Contains(strings.ToLower(claimErr.Error()), "pending co-manager") ||
+				!strings.Contains(claimErr.Error(), service.TeamLabel(primary.TeamID)) {
+				t.Fatalf("pending claim error = %v", claimErr)
+			}
+			if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {
+				t.Fatalf("pending claim mutated state\nbefore: %#v\n after: %#v", before, after)
+			}
+		})
+	}
+}
+
 // TestClaimFantasySeatRejectsWhenFull fills every seat, then checks the
-// next signup is turned away with the league's own ErrLeagueFull, and no
-// state was left behind by the rejected attempt.
+// next signup is turned away with the league's own ErrLeagueFull and its
+// existing admitted seatless record remains unchanged.
 func TestClaimFantasySeatRejectsWhenFull(t *testing.T) {
 	service := newTestService(t, false)
 	for _, team := range defaultTeams() {
@@ -74,12 +174,14 @@ func TestClaimFantasySeatRejectsWhenFull(t *testing.T) {
 			t.Fatalf("seed seat for %s: %v", team.ID, err)
 		}
 	}
+	admitSeatlessForClaim(t, service, "late@example.com")
+	before := service.store.Snapshot()
 	_, err := service.claimFantasySeat("late@example.com", "Late", "Latecomers", "wolf")
 	if !errors.Is(err, ErrLeagueFull) {
 		t.Fatalf("err = %v, want ErrLeagueFull", err)
 	}
-	if _, ok := service.store.MemberByEmail("late@example.com"); ok {
-		t.Fatal("a rejected signup must not create a member record")
+	if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {
+		t.Fatalf("full-league rejection mutated state\nbefore: %#v\n after: %#v", before, after)
 	}
 }
 
@@ -90,6 +192,7 @@ func TestClaimFantasySeatRejectsWhenFull(t *testing.T) {
 // rollback contract in claimFantasySeat's doc comment).
 func TestClaimFantasySeatRejectsTakenMotifAndRollsBack(t *testing.T) {
 	service := newTestService(t, false)
+	admitSeatlessForClaim(t, service, "b@example.com")
 	if err := service.store.ClaimBadge("team-1", "wolf"); err != nil {
 		t.Fatal(err)
 	}
@@ -103,8 +206,8 @@ func TestClaimFantasySeatRejectsTakenMotifAndRollsBack(t *testing.T) {
 	if err.Error() != want {
 		t.Fatalf("err = %q, want %q", err.Error(), want)
 	}
-	if _, ok := service.store.MemberByEmail("b@example.com"); ok {
-		t.Fatal("a rolled-back signup must not leave a member record")
+	if member, ok := service.store.MemberByEmail("b@example.com"); !ok || member.TeamID != "" {
+		t.Fatalf("a rejected signup must preserve the admitted seatless member: %+v", member)
 	}
 	if got := claimedSeatCount(service.store.Snapshot().Members); got != before {
 		t.Fatalf("claimed seat count = %d, want %d (rollback must release the seat)", got, before)
@@ -121,6 +224,9 @@ func TestClaimFantasySeatRaceOneMotifTwoSignups(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make([]error, 2)
 	emails := []string{"racer-a@example.com", "racer-b@example.com"}
+	for _, email := range emails {
+		admitSeatlessForClaim(t, service, email)
+	}
 	wg.Add(2)
 	for i := 0; i < 2; i++ {
 		go func(i int) {
@@ -157,15 +263,21 @@ func TestClaimFantasySeatRaceOneMotifTwoSignups(t *testing.T) {
 // claimFantasySeat's AssignMember call must upgrade that existing
 // seatless Member in place — not short-circuit and hand back the
 // still-seatless record unchanged (the bug this test caught: signup
-// silently no-opped for anyone who had ever signed in first).
+// silently no-opped for anyone who had ever signed in first). Driving the
+// public wrapper mirrors the OAuth callback's persisted membership followed
+// by the real /join action.
 func TestClaimFantasySeatAfterSeatlessSignIn(t *testing.T) {
 	service := newTestService(t, false)
 	if _, err := service.EnsureMember("a@example.com", "A"); err != nil {
 		t.Fatal(err)
 	}
-	team, err := service.claimFantasySeat("a@example.com", "A", "Post-Signin Franchise", "wolf")
-	if err != nil {
-		t.Fatal(err)
+	var team Team
+	var claimErr error
+	withPublicEntryRequest(t, service, "a@example.com", func(r *http.Request) {
+		team, claimErr = service.ClaimFantasySeat(r, "Post-Signin Franchise", "wolf")
+	})
+	if claimErr != nil {
+		t.Fatal(claimErr)
 	}
 	member, ok := service.store.MemberByEmail("a@example.com")
 	if !ok || member.TeamID == "" {
@@ -181,6 +293,7 @@ func TestClaimFantasySeatAfterSeatlessSignIn(t *testing.T) {
 // before any store write.
 func TestClaimFantasySeatRequiresTeamName(t *testing.T) {
 	service := newTestService(t, false)
+	admitSeatlessForClaim(t, service, "a@example.com")
 	if _, err := service.claimFantasySeat("a@example.com", "A", "   ", "wolf"); err == nil {
 		t.Fatal("a blank team name must be rejected")
 	}
@@ -188,6 +301,7 @@ func TestClaimFantasySeatRequiresTeamName(t *testing.T) {
 
 func TestClaimFantasySeatRequiresKnownMotif(t *testing.T) {
 	service := newTestService(t, false)
+	admitSeatlessForClaim(t, service, "a@example.com")
 	if _, err := service.claimFantasySeat("a@example.com", "A", "A Team", "not-a-motif"); !errors.Is(err, ErrBadgeUnknownMotif) {
 		t.Fatalf("err = %v, want ErrBadgeUnknownMotif", err)
 	}
