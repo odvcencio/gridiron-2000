@@ -3221,13 +3221,15 @@ body.is-on-clock .draft-clock-panel {
   box-shadow: 0 0 0.5rem var(--color-accent);
 }
 
-.presence-dot[data-presence="idle"] {
+.presence-dot[data-presence="idle"],
+.presence-dot[data-presence="IDLE"] {
   border-color: var(--color-gold);
   background: var(--color-gold);
   box-shadow: 0 0 0.4rem var(--color-gold);
 }
 
-.presence-dot[data-presence="away"] {
+.presence-dot[data-presence="away"],
+.presence-dot[data-presence="AWAY"] {
   border-color: var(--color-danger);
   background: rgba(255, 102, 92, 0.45);
 }

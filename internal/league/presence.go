@@ -7,7 +7,8 @@ import (
 
 const (
 	// PollPeriod documents the client heartbeat: main.go's SetLayout
-	// callback pings /api/league/version every PollPeriod via
+	// callback pings the route-scoped /api/league/presence endpoint every
+	// PollPeriod while the Draft Room is open via
 	// data-gosx-heartbeat-interval (gosx#216). Keep the two in sync.
 	PollPeriod = 4 * time.Second
 

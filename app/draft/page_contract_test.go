@@ -20,6 +20,8 @@ func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
 		"Manual control keeps the full pick clock",
 		"If it expires, auto-select uses your Big Board first",
 		"Presence is observational. AUTO is authority.",
+		"HERE, IDLE, and AWAY retain the normal pick clock",
+		"NOT SEEN may receive the short safety clock only after the two-minute boot grace",
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("draft autopick copy omits truthful engine behavior %q", truth)
@@ -31,6 +33,7 @@ func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
 		"keep the full pick clock",
 		"starts a fresh grace",
 		"resets the grace",
+		"HERE, IDLE, AWAY, and NOT SEEN never shorten a pick",
 	} {
 		if strings.Contains(source, falsePromise) {
 			t.Errorf("draft autopick copy still promises %q", falsePromise)
@@ -77,6 +80,24 @@ func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("completed-draft contract missing %q", truth)
+		}
+	}
+}
+
+func TestPresenceDotsCoverNormalizedAndDisplayCase(t *testing.T) {
+	styles, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(styles)
+	for _, selector := range []string{
+		".presence-dot[data-presence=\"idle\"]",
+		".presence-dot[data-presence=\"IDLE\"]",
+		".presence-dot[data-presence=\"away\"]",
+		".presence-dot[data-presence=\"AWAY\"]",
+	} {
+		if !strings.Contains(source, selector) {
+			t.Errorf("presence dot styles omit %q", selector)
 		}
 	}
 }

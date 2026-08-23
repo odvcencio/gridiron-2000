@@ -76,7 +76,7 @@ func TestPresenceStateTransitions(t *testing.T) {
 // request — no viewer key — is a no-op, not a panic.
 func TestRecordPresenceRespectsViewerKey(t *testing.T) {
 	start := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
-	request, _ := http.NewRequest(http.MethodGet, "/api/league/version", nil)
+	request, _ := http.NewRequest(http.MethodGet, "/api/league/presence", nil)
 
 	demo, _ := newPresenceTestService(t, true, start)
 	demo.RecordPresence(request, start)

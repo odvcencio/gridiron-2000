@@ -207,10 +207,15 @@ func main() {
 		// while a manager is typing in a search box — the exact gap the old
 		// JS's focusedControlActive() special case existed only to close.
 		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
-		// directly on <body>, so no wrapper element is needed. The native
-		// route Document contract carries them through the framework shell.
+		// directly on <body>, so no wrapper element is needed. The endpoint is
+		// route-aware because the one body marker must not turn an ordinary
+		// page's version poll into a draft-room attendance claim. Draft's two
+		// fragment regions own live room/version updates; its body heartbeat
+		// is presence-only. The native route Document contract carries both
+		// through the framework shell and re-reads them after managed navigation.
+		heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path)
 		ctx.BodyAttrs(
-			gosx.Attr("data-gosx-heartbeat", "/api/league/version"),
+			gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
 			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
 		)
 		return server.HTMLDocument(ctx.Document(appName, body))
@@ -331,13 +336,9 @@ func main() {
 		ctx.NoStore()
 		return league.Default().LiveScoresView(ctx.Request.Context()), nil
 	})
-	app.API("GET /api/league/version", func(ctx *server.Context) (any, error) {
-		ctx.NoStore()
-		league.Default().RecordPresence(ctx.Request, time.Now())
+	registerLeagueHeartbeatAPIs(app, league.Default(), func() string {
 		_, poolVersion := fantasyPool.Players()
-		return map[string]any{
-			"fingerprint": league.Default().StateFingerprint(poolVersion),
-		}, nil
+		return league.Default().StateFingerprint(poolVersion)
 	})
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
 	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragment
