@@ -71,7 +71,7 @@ The scheduled time never starts the draft.
 
 1. Keep `/draft` open and enable sound through a normal page interaction.
 2. Watch the on-clock team, remaining time, pick tape, and player availability.
-3. Pick from the live pool. If the clock expires, Gridiron uses the first available Big Board player and then best available rank.
+3. Pick from the available player pool. LIVE is fresh from the source; CACHED, STALE, or DEGRADED is a labeled last-good snapshot that remains usable. OFFLINE or UNAVAILABLE must be resolved before a real draft starts. If the clock expires, Gridiron uses the first available Big Board player and then best available rank.
 4. Use `/team` to verify the roster as picks accumulate.
 
 Do not rehearse start, pick, undo, or reset actions against either live production league. Use a disposable demo state or a separate staging instance.

@@ -57,7 +57,7 @@ func Page() Node {
 			<ol class="guide-checklist">
 				<li><strong>Confirm identity and format.</strong><span>League name, season, timezone, teams, divisions, roster shape, and scoring on <a href="/scoring" data-gosx-link>/scoring</a>.</span></li>
 				<li><strong>Invite the right Google accounts.</strong><span>Use <a href="/admin" data-gosx-link>/admin</a>, then verify each person signs in with the exact invited address.</span></li>
-				<li><strong>Check the player list.</strong><span>Confirm the pool holds enough players to draft from, and watch for errors. Player data is CURRENT, SAVED, or BUILT-IN. Saved and built-in ranks are close, not exact.</span></li>
+				<li><strong>Check the player list.</strong><span>Confirm the pool holds enough players to draft from, then read its freshness label and last-success time. LIVE is fresh from the source. CACHED, STALE, or DEGRADED keeps a labeled last-good snapshot usable. OFFLINE or UNAVAILABLE is not eligible to start a real draft.</span></li>
 				<li><strong>Publish the draft window and order.</strong><span>Set date, timezone, rounds, pick clock, and order. Randomize before pick one; decide what to do with unclaimed seats.</span></li>
 				<li><strong>Ask managers to build boards and mark ready.</strong><span>Readiness is a signal for the commissioner, not a hidden auto-start trigger.</span></li>
 				<li><strong>Start the draft yourself.</strong><span>The scheduled window is a reminder. The draft stays closed until the commissioner types <code>START</code>.</span></li>
@@ -86,7 +86,7 @@ func Page() Node {
 			<header class="guide-section__heading">
 				<span class="section-index">04 // DRAFT READINESS + START</span>
 				<h2 id="draft-heading">Ready first. Start second.</h2>
-				<p>The draft room shows who is ready, who is on the clock, and whether the pool is live.</p>
+				<p>The draft room shows who is ready, who is on the clock, and the player source’s exact freshness state.</p>
 			</header>
 			<div class="guide-callout guide-callout--alert" role="note"><strong>Commissioner-controlled start:</strong> the scheduled date opens a window, not the draft. Only the commissioner can type <code>START</code> to open pick one and arm the pick clock.</div>
 			<div class="guide-card-grid guide-card-grid--three">
@@ -121,7 +121,7 @@ func Page() Node {
 			</header>
 			<div class="guide-card-grid guide-card-grid--two">
 				<article class="guide-card" id="identity"><span class="section-index">IDENTITY // {data.membership_label}</span><h3>Sign-in is not migration</h3><p>{data.membership_detail} Google sign-in proves which person is asking for access; it does not pull an old provider account, roster, record, or history. After admission, the manager claims an open seat, and an optional co-manager invite can be attached from the Team Terminal.</p><ul class="guide-bullets"><li>Use an identity admitted by this league's membership policy.</li><li>Ask the commissioner to correct an invite before claiming the wrong seat.</li><li>Keep provider passwords and sessions outside this league.</li></ul></article>
-				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>Player data is CURRENT, SAVED, or BUILT-IN. Saved and built-in ranks are close, not exact.</p></article>
+				<article class="guide-card" id="data-states"><span class="section-index">DATA // AVAILABILITY</span><h3>Read the state label</h3><p>LIVE means a fresh successful source refresh. CACHED is a fresh saved snapshot; STALE is older than the refresh window; DEGRADED means the latest refresh failed but last-good data remains. OFFLINE is rehearsal-only, and UNAVAILABLE means there is no usable list. When known, the interface shows the exact last-success time.</p></article>
 			</div>
 			<article class="guide-math" id="pool-math">
 				<span class="section-index">PLAYER POOL // ENOUGH TO DRAFT FROM</span>

@@ -734,7 +734,7 @@ func Page() Node {
 				<div class="scout-callout">
 					<span>Roster note</span>
 					<p>
-						The radar lists the best players still undrafted, straight from the live pool.
+						The radar lists the best players still undrafted from the current player-pool snapshot.
 					</p>
 					<a href="/draft" data-gosx-link>Scout draft pool →</a>
 					<If cond={data.is_commissioner}>

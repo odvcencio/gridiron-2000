@@ -107,7 +107,10 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"Lineups",
 		"Pick&#39;em",
 		"Signal Wire",
-		"CURRENT, SAVED, or BUILT-IN",
+		"LIVE is fresh from the source",
+		"CACHED, STALE, or DEGRADED",
+		"OFFLINE or UNAVAILABLE",
+		"exact last-success time",
 		"enough players to draft from",
 		"The pool holds more players than the draft needs.",
 		"Commissioner HQ",
@@ -135,7 +138,7 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 	if strings.Contains(body, "class=\"error-page\"") {
 		t.Fatalf("guide page rendered the GoSX error page: %s", body)
 	}
-	for _, obsolete := range []string{"G2K", "SKL", "Toggle ready", "toggle ready", "DOMAIN + INVITES", "Access comes from an individual invite"} {
+	for _, obsolete := range []string{"G2K", "SKL", "Toggle ready", "toggle ready", "DOMAIN + INVITES", "Access comes from an individual invite", "CURRENT, SAVED, or BUILT-IN", "whether the pool is live"} {
 		if strings.Contains(body, obsolete) {
 			t.Errorf("guide page retained obsolete or league-specific claim %q", obsolete)
 		}
