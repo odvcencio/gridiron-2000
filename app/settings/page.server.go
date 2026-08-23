@@ -22,6 +22,8 @@ type NotificationPreference struct {
 	Delivery    string
 	State       string
 	Enabled     bool
+	CurrentOn   bool
+	CurrentOff  bool
 	CanEdit     bool
 	Planned     bool
 	Action      string
@@ -35,6 +37,7 @@ func notificationPreferenceViews(raw []league.NotificationPreference, actionPath
 			Category: preference.Category, Label: preference.Label,
 			Description: preference.Description, Delivery: preference.Delivery,
 			State: preference.State, Enabled: preference.Enabled,
+			CurrentOn: preference.Enabled, CurrentOff: !preference.Enabled,
 			CanEdit: preference.CanEdit, Planned: preference.Planned,
 			Action: actionPath, CSRF: csrf,
 		})
@@ -67,6 +70,12 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
+			if store := session.Current(ctx.Request); store != nil {
+				if flashes := store.Flashes("notice"); len(flashes) > 0 {
+					data["has_notice"] = true
+					data["notice"] = fmt.Sprint(flashes[0])
+				}
+			}
 			data["has_settings_error"] = false
 			data["settings_error"] = ""
 			if view, ok := ctx.ActionState("notification-set"); ok {
