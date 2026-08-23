@@ -385,33 +385,38 @@ func DraftRoom(props DraftRoomProps) Node {
 				</div>
 				<span
 					class="visually-hidden"
-					data-on-clock={props.Data.viewer.team_id == props.Data.on_clock_id}
+					data-on-clock={props.Data.draft.started && props.Data.viewer.team_id == props.Data.on_clock_id}
 					data-gosx-watch="data-on-clock=true"
 					data-gosx-watch-effect="class:is-on-clock@body,title,cue:chime"
 					data-gosx-watch-title="YOUR PICK IS ON THE CLOCK"
 				></span>
 				<If cond={props.Data.viewer.has_seat}>
 					<div class="manager-draft-controls" aria-label="Your draft controls">
-						<div class="manager-draft-control" id="ready-toggle">
+						<div class="manager-draft-control manager-draft-control--checkin" id="ready-toggle" data-ready={props.Data.viewer_ready}>
 							<div class="manager-draft-control__copy">
-								<span class="mono">YOUR CHECK-IN</span>
-							<If cond={props.Data.viewer_ready}>
-									<strong class="ready-state is-ready">READY</strong>
-									<small>This seat is checked in and ready.</small>
+								<If cond={props.Data.viewer_ready}>
+									<span class="mono">CHECK-IN COMPLETE</span>
 								</If>
-							<If cond={props.Data.viewer_ready == false}>
-									<strong class="ready-state">NOT READY</strong>
-									<small>Check in when you are set for draft night.</small>
+								<If cond={props.Data.viewer_ready == false}>
+									<span class="mono">CHECK-IN REQUIRED</span>
+								</If>
+								<If cond={props.Data.viewer_ready}>
+									<strong class="draft-checkin-status ready-state is-ready" role="status">READY ✓</strong>
+									<small id="ready-checkin-help">You are checked in. Keep this room open so the commissioner can also see your live presence.</small>
+								</If>
+								<If cond={props.Data.viewer_ready == false}>
+									<strong class="draft-checkin-status ready-state" role="status">YOU ARE NOT READY</strong>
+									<small id="ready-checkin-help">Make this your first draft-day action. Check in once your Big Board is set and you are ready for the commissioner to begin.</small>
 								</If>
 							</div>
-						<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
-							<If cond={props.Data.viewer_ready}>
-									<button class="button button--ghost button--compact" type="submit">Mark not ready</button>
+							<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+								<If cond={props.Data.viewer_ready}>
+									<button class="button button--ghost button--compact" type="submit" aria-pressed="true" aria-describedby="ready-checkin-help">Undo ready check-in</button>
 								</If>
-							<If cond={props.Data.viewer_ready == false}>
-									<button class="button button--primary button--compact" type="submit">Mark ready</button>
+								<If cond={props.Data.viewer_ready == false}>
+									<button class="button button--primary draft-checkin-button" type="submit" aria-pressed="false" aria-describedby="ready-checkin-help">I’m here · Mark me ready</button>
 								</If>
 							</form>
 						</div>
@@ -501,10 +506,10 @@ func DraftRoom(props DraftRoomProps) Node {
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
-							<strong>Toggle your ready state</strong>
-							<small>READY is your check-in signal. It is separate from presence: keep this tab open if you want to appear HERE.</small>
+							<strong>Check in as ready</strong>
+							<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
 						</div>
-						<a href="#ready-toggle" class="board-button">Ready toggle ↑</a>
+						<a href="#ready-toggle" class="board-button">Check in now ↑</a>
 					</div>
 					</If>
 					<If cond={props.Data.viewer.has_seat == false}>

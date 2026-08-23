@@ -3051,6 +3051,87 @@ body.is-on-clock .draft-clock-panel {
   width: 100%;
 }
 
+.manager-draft-control--checkin {
+  position: relative;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  overflow: hidden;
+  border-width: 2px;
+  border-color: var(--color-accent-hot);
+  background:
+    linear-gradient(135deg, var(--color-hot-haze), transparent 70%),
+    var(--color-panel-deep);
+  box-shadow: 0 0 1.75rem var(--color-hot-haze);
+}
+
+.manager-draft-control--checkin::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0.25rem;
+  background: var(--color-accent-hot);
+}
+
+.manager-draft-control--checkin[data-ready="true"] {
+  border-color: var(--color-accent);
+  background:
+    linear-gradient(135deg, var(--color-accent-haze), transparent 70%),
+    var(--color-panel-deep);
+  box-shadow: var(--shadow-signal);
+}
+
+.manager-draft-control--checkin[data-ready="true"]::before {
+  background: var(--color-accent);
+}
+
+.manager-draft-control--checkin .manager-draft-control__copy {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.manager-draft-control--checkin .manager-draft-control__copy > span {
+  color: var(--color-accent-hot);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.manager-draft-control--checkin[data-ready="true"] .manager-draft-control__copy > span {
+  color: var(--color-accent);
+}
+
+.manager-draft-control--checkin .manager-draft-control__copy > small {
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+  line-height: 1.55;
+}
+
+.manager-draft-control--checkin .button {
+  min-height: 2.75rem;
+}
+
+.draft-checkin-status.ready-state {
+  color: var(--color-text-primary);
+  font-size: clamp(1.15rem, 3vw, 1.65rem);
+  line-height: 1.05;
+  letter-spacing: 0.035em;
+}
+
+.draft-checkin-status.ready-state.is-ready {
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+}
+
+.draft-checkin-button {
+  min-height: 3.65rem;
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--type-sm);
+  letter-spacing: 0.035em;
+}
+
 .draft-workspace {
   grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.30fr);
 }

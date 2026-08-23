@@ -78,7 +78,22 @@ func TestDraftPageSeatlessOmitsControlsButKeepsOnboarding(t *testing.T) {
 	}
 
 	seated := renderDraftForUser(t, handler, seatedEmail)
-	for _, want := range []string{"#ready-toggle", "#autopick-toggle", "toggle-ready", "toggle-autopick", "make-pick", ">Locked<"} {
+	for _, want := range []string{
+		"#ready-toggle",
+		"#autopick-toggle",
+		"toggle-ready",
+		"toggle-autopick",
+		"make-pick",
+		">Locked<",
+		"CHECK-IN REQUIRED",
+		"YOU ARE NOT READY",
+		"I’m here · Mark me ready",
+		`class="button button--primary draft-checkin-button"`,
+		`data-ready="false"`,
+		`data-on-clock="false"`,
+		`aria-pressed="false"`,
+		"Check in now ↑",
+	} {
 		if !strings.Contains(seated, want) {
 			t.Errorf("seated draft page missing %q: %s", want, seated)
 		}
