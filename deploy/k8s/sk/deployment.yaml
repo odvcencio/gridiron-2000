@@ -40,9 +40,9 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.08.22-42ed337-hqv2; built from
-          # 42ed3373bc06bf7b4d699e42a9301b9f9251f8db at 2026-08-22T14:42:27Z.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:d1d3eceb1d28521e1841fec420ff26735eaab9b5ab9c4035d196baa170fd12aa
+          # release-2026.08.22-91378de-season-ready; built from
+          # 91378de443f39baf1a11127bed1465b7611b65cb at 2026-08-23T02:16:35Z.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:dfa646d9aeaf1c278448b217b6b66616a24345ab4cac426a3e19096678531cbd
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
