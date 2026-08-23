@@ -155,7 +155,7 @@ func main() {
 			AppVersion: appVersion, FrameworkVersion: gosx.Version,
 			GitSHA: appGitSHA, Build: appBuildDate,
 		}, commissionerhq.Pool{
-			Mode: poolStatus.Mode, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
+			Mode: poolStatus.State, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
 			LastSync: poolStatus.LastSync, Error: poolStatus.LastError,
 		}, openData)
 	})
@@ -296,6 +296,7 @@ func main() {
 			"openInjuryState":       openStatus.Injuries.State,
 			"fantasyPoolEnabled":    poolStatus.Enabled,
 			"fantasyPoolMode":       poolStatus.Mode,
+			"fantasyPoolState":      poolStatus.State,
 			"fantasyPoolPlayers":    poolStatus.Players,
 			"fantasyPoolTarget":     poolStatus.PoolLimit,
 			"fantasyRosterCapacity": rosterCapacity,
@@ -303,9 +304,17 @@ func main() {
 			"fantasyPoolCoverage":   poolCoverage,
 			"fantasyPoolScoring":    poolStatus.Scoring,
 			"fantasyPoolError":      poolStatus.LastError,
-			"draftAt":               league.Default().DraftAt().Format(time.RFC3339),
-			"draftStarted":          draftStarted,
-			"draftStartedAt":        draftStartedAtText,
+			"fantasyPoolLastSuccess": func() string {
+				if poolStatus.LastSync.IsZero() {
+					return ""
+				}
+				return poolStatus.LastSync.UTC().Format(time.RFC3339)
+			}(),
+			"fantasyPoolAgeSeconds":             int64(poolStatus.Age / time.Second),
+			"fantasyPoolFreshnessWindowSeconds": int64(poolStatus.FreshFor / time.Second),
+			"draftAt":                           league.Default().DraftAt().Format(time.RFC3339),
+			"draftStarted":                      draftStarted,
+			"draftStartedAt":                    draftStartedAtText,
 			// leagueConfig: "defaults" on an unconfigured checkout, or
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).
@@ -542,14 +551,14 @@ func notificationSender(mailCfg mailer.Config) notify.Sender {
 func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 	var mu sync.Mutex
 	var lastVersion int64
-	var lastMode string
+	var lastState string
 	var converted []league.Player
 	return func() ([]league.Player, int64, string) {
 		players, version := pool.Players()
-		mode := pool.Status().Mode
+		state := pool.Status().State
 		mu.Lock()
 		defer mu.Unlock()
-		if converted == nil || version != lastVersion || mode != lastMode {
+		if converted == nil || version != lastVersion || state != lastState {
 			converted = make([]league.Player, 0, len(players))
 			for _, player := range players {
 				converted = append(converted, league.Player{
@@ -572,9 +581,9 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 				})
 			}
 			lastVersion = version
-			lastMode = mode
+			lastState = state
 		}
-		return converted, version, mode
+		return converted, version, state
 	}
 }
 
@@ -973,63 +982,29 @@ func thousands(value int) string {
 	return b.String()
 }
 
-// fantasyPoolStatus renders the fantasy pool diagnostics as the legible map
-// the commissioner console displays.
-// poolModeLabel turns the pool's internal mode token into the plain-language
-// word a manager reads on the admin card.
-func poolModeLabel(mode string) string {
-	switch mode {
-	case "cache":
-		return "SAVED COPY"
-	case "offline":
-		return "UNAVAILABLE"
-	case "stale":
-		return "OUT OF DATE"
-	case "live":
-		return "CURRENT"
-	default:
-		return mode
-	}
-}
-
+// fantasyPoolStatus projects raw fantasy-source facts into the typed league
+// seam. Presentation and recovery copy stay in internal/league so Draft,
+// Board, Players, and Admin cannot drift into different freshness meanings.
 func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
-	return func() map[string]any {
+	return func() league.PlayerPoolStatus {
 		status := pool.Status()
-		lastSync := "not yet"
-		if !status.LastSync.IsZero() {
-			lastSync = status.LastSync.Local().Format("Jan 2 · 3:04 PM MST")
-		}
-		positions := make([]map[string]any, 0, len(status.Positions))
-		for _, position := range []string{"QB", "RB", "WR", "TE", "K", "P", "DST"} {
-			if count, ok := status.Positions[position]; ok {
-				positions = append(positions, map[string]any{"pos": position, "count": count})
-			}
-		}
-		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
-		cushion := max(0, status.Players-rosterCapacity)
-		coverage := 0.0
-		if rosterCapacity > 0 {
-			coverage = float64(status.PoolLimit) / float64(rosterCapacity)
-		}
-		errorMessage := ""
 		if status.LastError != "" {
 			log.Printf("fantasy pool sync error: %s", status.LastError)
-			errorMessage = "The player pool did not update. Try again later, or check the league setup."
 		}
-		return map[string]any{
-			"mode":            poolModeLabel(status.Mode),
-			"players":         status.Players,
-			"target":          status.PoolLimit,
-			"roster_capacity": rosterCapacity,
-			"cushion":         cushion,
-			"coverage":        fmt.Sprintf("%.1f×", coverage),
-			"with_adp":        status.WithADP,
-			"with_proj":       status.WithProj,
-			"with_bye":        status.WithBye,
-			"requests":        status.Requests,
-			"last_sync":       lastSync,
-			"error":           errorMessage,
-			"positions_list":  positions,
+		return league.PlayerPoolStatus{
+			Provider:        status.Provider,
+			Mode:            status.Mode,
+			State:           status.State,
+			Players:         status.Players,
+			Target:          status.PoolLimit,
+			Positions:       status.Positions,
+			WithADP:         status.WithADP,
+			WithProjection:  status.WithProj,
+			WithBye:         status.WithBye,
+			Requests:        status.Requests,
+			LastSuccess:     status.LastSync,
+			FreshnessWindow: status.FreshFor,
+			LastError:       status.LastError,
 		}
 	}
 }

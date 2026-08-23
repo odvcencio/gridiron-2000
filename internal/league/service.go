@@ -25,9 +25,9 @@ import (
 	"m31labs.dev/gosx/auth"
 )
 
-// PlayerSource supplies the live draft pool: players in draft order, a
-// version that changes when the pool changes, and a mode label
-// (live | cache | stale | offline | demo).
+// PlayerSource supplies the draft pool: players in draft order, a version
+// that changes when the pool changes, and its canonical freshness state
+// (live | cached | stale | degraded | offline | unavailable).
 type PlayerSource func() ([]Player, int64, string)
 
 // playerPool is the indexed, version-cached view of the draft pool.
@@ -762,9 +762,28 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	return hex.EncodeToString(digest[:8])
 }
 
-// PoolStatusSource supplies legible fantasy pool diagnostics for the admin
-// console. main.go injects it to avoid an import cycle with internal/fantasy.
-type PoolStatusSource func() map[string]any
+// PlayerPoolStatus is the typed source-of-truth seam shared by manager pool
+// notices, the commissioner console, and health projections. Keeping source
+// facts typed here prevents each route from independently deciding whether a
+// saved snapshot is live, cached, stale, degraded, offline, or unavailable.
+// main.go adapts internal/fantasy into this shape to avoid an import cycle.
+type PlayerPoolStatus struct {
+	Provider        string
+	Mode            string
+	State           string
+	Players         int
+	Target          int
+	Positions       map[string]int
+	WithADP         int
+	WithProjection  int
+	WithBye         int
+	Requests        int
+	LastSuccess     time.Time
+	FreshnessWindow time.Duration
+	LastError       string
+}
+
+type PoolStatusSource func() PlayerPoolStatus
 
 // SetPoolStatus attaches the diagnostics source. Call it during startup.
 func (s *Service) SetPoolStatus(source PoolStatusSource) {
@@ -773,19 +792,169 @@ func (s *Service) SetPoolStatus(source PoolStatusSource) {
 	s.poolMu.Unlock()
 }
 
-func (s *Service) poolStatusMap() map[string]any {
+func (s *Service) poolSourceStatus(pool playerPool) PlayerPoolStatus {
 	s.poolMu.Lock()
 	source := s.poolStatusFn
 	s.poolMu.Unlock()
 	if source == nil {
-		return map[string]any{
-			"mode": "unknown", "players": 0, "with_adp": 0, "with_proj": 0,
-			"target": 0, "roster_capacity": 0, "cushion": 0, "coverage": "0.0×",
-			"with_bye": 0, "requests": 0, "last_sync": "never", "error": "",
-			"positions_list": []map[string]any{},
+		return PlayerPoolStatus{
+			Mode: pool.label, State: normalizePlayerPoolState("", pool.label, len(pool.players)),
+			Players: len(pool.players),
 		}
 	}
-	return source()
+	status := source()
+	status.State = normalizePlayerPoolState(status.State, status.Mode, status.Players)
+	return status
+}
+
+func normalizePlayerPoolState(state, mode string, players int) string {
+	if players == 0 && state == "" {
+		return "unavailable"
+	}
+	switch state {
+	case "live", "cached", "stale", "degraded", "offline", "unavailable":
+		return state
+	}
+	switch mode {
+	case "live":
+		return "live"
+	case "cache", "cached":
+		return "cached"
+	case "stale":
+		return "stale"
+	case "degraded":
+		return "degraded"
+	case "offline", "demo":
+		return "offline"
+	default:
+		if players > 0 {
+			return "cached"
+		}
+		return "unavailable"
+	}
+}
+
+func playerPoolStateLabel(state string) string {
+	switch state {
+	case "live":
+		return "LIVE"
+	case "cached":
+		return "CACHED SNAPSHOT"
+	case "stale":
+		return "STALE SNAPSHOT"
+	case "degraded":
+		return "DEGRADED SNAPSHOT"
+	case "offline":
+		return "OFFLINE PLAYER LIST"
+	default:
+		return "PLAYER DATA UNAVAILABLE"
+	}
+}
+
+// poolFreshnessMap is the single manager-facing state/recovery contract for
+// Draft, Big Board, and Players. Cached and degraded snapshots retain their
+// useful player rows and name what remains available; no non-live state is
+// collapsed into the old, misleading "OFFLINE POOL" boolean.
+func (s *Service) poolFreshnessMap(pool playerPool) map[string]any {
+	status := s.poolSourceStatus(pool)
+	state := status.State
+	freshnessWindow := playerPoolDurationLabel(status.FreshnessWindow)
+	detail := ""
+	switch state {
+	case "cached":
+		detail = "A saved player-data snapshot is serving this page while the next refresh is pending. Rankings, Big Board work, and draft actions remain available."
+	case "stale":
+		detail = "The last successful player-data update is outside its declared freshness window. The saved snapshot remains available; ask the commissioner to check Data and integrations."
+		if freshnessWindow != "" {
+			detail = "The last successful player-data update is outside its " + freshnessWindow + " freshness window. The saved snapshot remains available; ask the commissioner to check Data and integrations."
+		}
+	case "degraded":
+		detail = "The latest refresh reported a source problem. The last successful snapshot remains available, but some rankings, projections, news, or bye details may be older or unavailable."
+	case "offline":
+		detail = "This instance is using its built-in player list. Rankings are approximate; browsing and rehearsal remain available, but a real draft requires a synced pool."
+	case "unavailable":
+		detail = "No reliable player pool is available. Draft and acquisition actions are blocked; retry later or ask the commissioner to check Data and integrations."
+	}
+	hasLastSuccess := !status.LastSuccess.IsZero()
+	lastSuccess := ""
+	lastSuccessRelative := ""
+	if hasLastSuccess {
+		lastSuccess = status.LastSuccess.In(s.matchupLocation()).Format("Mon Jan 2 · 3:04 PM MST")
+		lastSuccessRelative = relativeTime(s.clock(), status.LastSuccess)
+	}
+	return map[string]any{
+		"state":                 state,
+		"label":                 playerPoolStateLabel(state),
+		"live":                  state == "live",
+		"has_notice":            state != "live",
+		"detail":                detail,
+		"has_last_success":      hasLastSuccess,
+		"last_success":          lastSuccess,
+		"last_success_relative": lastSuccessRelative,
+		"freshness_window":      freshnessWindow,
+	}
+}
+
+func playerPoolDurationLabel(value time.Duration) string {
+	if value <= 0 {
+		return ""
+	}
+	if value%time.Hour == 0 {
+		hours := int(value / time.Hour)
+		if hours == 1 {
+			return "1-hour"
+		}
+		return fmt.Sprintf("%d-hour", hours)
+	}
+	if value%time.Minute == 0 {
+		minutes := int(value / time.Minute)
+		if minutes == 1 {
+			return "1-minute"
+		}
+		return fmt.Sprintf("%d-minute", minutes)
+	}
+	return value.String()
+}
+
+func (s *Service) poolStatusMap() map[string]any {
+	pool := s.pool()
+	status := s.poolSourceStatus(pool)
+	lastSync := "Never successfully updated"
+	if !status.LastSuccess.IsZero() {
+		lastSync = status.LastSuccess.In(s.matchupLocation()).Format("Mon Jan 2 · 3:04 PM MST") + " · " + relativeTime(s.clock(), status.LastSuccess)
+	}
+	positions := make([]map[string]any, 0, len(status.Positions))
+	for _, position := range []string{"QB", "RB", "WR", "TE", "K", "P", "DST"} {
+		if count, ok := status.Positions[position]; ok {
+			positions = append(positions, map[string]any{"pos": position, "count": count})
+		}
+	}
+	rosterCapacity := s.TeamCount() * CurrentDraftRounds()
+	cushion := max(0, status.Players-rosterCapacity)
+	coverage := 0.0
+	if rosterCapacity > 0 {
+		coverage = float64(status.Target) / float64(rosterCapacity)
+	}
+	errorMessage := ""
+	if status.LastError != "" {
+		errorMessage = "The latest player-pool refresh reported a source problem. The saved snapshot remains available while the integration recovers."
+	}
+	return map[string]any{
+		"state":           status.State,
+		"mode":            playerPoolStateLabel(status.State),
+		"players":         status.Players,
+		"target":          status.Target,
+		"roster_capacity": rosterCapacity,
+		"cushion":         cushion,
+		"coverage":        fmt.Sprintf("%.1f×", coverage),
+		"with_adp":        status.WithADP,
+		"with_proj":       status.WithProjection,
+		"with_bye":        status.WithBye,
+		"requests":        status.Requests,
+		"last_sync":       lastSync,
+		"error":           errorMessage,
+		"positions_list":  positions,
+	}
 }
 
 // pool returns the indexed draft pool, rebuilding the index only when the
@@ -1939,8 +2108,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"available":            availableMaps,
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
-		"pool_label":           pool.label,
-		"pool_live":            pool.label == "live",
+		"pool_status":          s.poolFreshnessMap(pool),
 		"pool_count":           len(pool.players),
 		"available_count":      len(available),
 		"pool_query":           rawQuery,

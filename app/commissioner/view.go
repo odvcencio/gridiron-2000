@@ -526,9 +526,12 @@ func seasonPhaseLabel(value string) string {
 // football labels. The default case is a safe neutral word, never the raw
 // mode token.
 var poolModeLabels = map[string]string{
-	"live":    "LIVE",
-	"cache":   "SAVED COPY",
-	"offline": "UNAVAILABLE",
+	"live":        "LIVE",
+	"cached":      "CACHED SNAPSHOT",
+	"stale":       "STALE SNAPSHOT",
+	"degraded":    "DEGRADED SNAPSHOT",
+	"offline":     "OFFLINE PLAYER LIST",
+	"unavailable": "PLAYER DATA UNAVAILABLE",
 }
 
 func poolModeLabel(value string) string {

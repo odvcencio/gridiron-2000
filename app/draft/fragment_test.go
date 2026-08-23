@@ -1,6 +1,7 @@
 package draft
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -54,7 +55,7 @@ func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
 		class  string
 	}{
 		{region: draftRoomRegion, path: "/draft/fragment/room", class: "draft-live-room"},
-		{region: draftWorkspaceRegion, path: "/draft/fragment/workspace?pos=RB&q=run&page=2", class: "draft-live-workspace"},
+		{region: draftWorkspaceRegion, path: "/draft/fragment/workspace", class: "draft-live-workspace"},
 	}
 	for _, test := range tests {
 		t.Run(test.region, func(t *testing.T) {
@@ -66,6 +67,21 @@ func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
 			}
 			if !strings.Contains(first.Body.String(), `class="`+test.class+`"`) || strings.Contains(first.Body.String(), "<html") {
 				t.Fatalf("fragment is not scoped %s markup: %s", test.region, first.Body.String())
+			}
+			if test.region == draftWorkspaceRegion {
+				fixture := load(httptest.NewRequest(http.MethodGet, test.path, nil))
+				players, _ := fixture["available"].([]map[string]any)
+				if len(players) == 0 {
+					t.Fatal("workspace fixture has no available players")
+				}
+				name := stringField(players[0], "name")
+				id := stringField(players[0], "id")
+				if !strings.Contains(first.Body.String(), html.EscapeString(name)) {
+					t.Fatalf("workspace omitted player name %q: %s", name, first.Body.String())
+				}
+				if !strings.Contains(first.Body.String(), `name="player_id" value="`+html.EscapeString(id)+`"`) {
+					t.Fatalf("workspace omitted player id %q", id)
+				}
 			}
 			for name, want := range map[string]string{
 				"Cache-Control": "private, no-store",

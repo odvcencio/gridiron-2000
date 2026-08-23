@@ -110,67 +110,67 @@ func DraftQueue(props DraftQueueProps) Node {
 		</div>
 		<div class="pool-list">
 			<Each of={props.Players} as="player">
-				<article class="pool-row" data-player-position={player.position} data-search={player.search}>
-					<span class="pool-rank mono">{player.rank}</span>
+				<article class="pool-row" data-player-position={player.Position} data-search={player.Search}>
+					<span class="pool-rank mono">{player.Rank}</span>
 					<div class="pool-player pool-player--photo stat-tip" tabindex="0">
-						<If cond={player.has_headshot}>
-							<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
+						<If cond={player.HasHeadshot}>
+							<img class="player-headshot" src={player.Headshot} alt="" loading="lazy" />
 						</If>
 						<div class="pool-player__text">
-							<strong>{player.name}</strong>
-							<If cond={player.has_draft_capital}>
-								<span class="badge-rookie">{player.draft_capital}</span>
+							<strong>{player.Name}</strong>
+							<If cond={player.HasDraftCapital}>
+								<span class="badge-rookie">{player.DraftCapital}</span>
 							</If>
-							<small>{player.detail}</small>
-							<If cond={player.has_opponent}>
+							<small>{player.Detail}</small>
+							<If cond={player.HasOpponent}>
 								<small class="mono">
-									{player.opponent}
-									<If cond={player.has_matchup}>
+									{player.Opponent}
+									<If cond={player.HasMatchup}>
 										·
-										<span class="matchup-chip" data-matchup-tier={player.matchup_tier}>{player.matchup_chip}</span>
+										<span class="matchup-chip" data-matchup-tier={player.MatchupTier}>{player.MatchupChip}</span>
 									</If>
 								</small>
 							</If>
 						</div>
 						<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 							<div class="stat-tip__head">
-								<strong>{player.name}</strong>
-								<span class="mono">{player.jersey}</span>
-								<span class="mono stat-tip__team">{player.nfl_team}</span>
+								<strong>{player.Name}</strong>
+								<span class="mono">{player.Jersey}</span>
+								<span class="mono stat-tip__team">{player.NFLTeam}</span>
 							</div>
-							<If cond={player.has_breakdown}>
+							<If cond={player.HasBreakdown}>
 								<div class="stat-tip__rows">
-									<Each of={player.breakdown} as="row">
-										<div class="stat-tip__row" data-scored={row.scored}>
-											<span>{row.label}</span>
-											<span class="mono">{row.calc}</span>
-											<b class="mono">{row.points}</b>
+									<Each of={player.Breakdown} as="row">
+										<div class="stat-tip__row" data-scored={row.Scored}>
+											<span>{row.Label}</span>
+											<span class="mono">{row.Calc}</span>
+											<b class="mono">{row.Points}</b>
 										</div>
 									</Each>
 									<div class="stat-tip__total">
 										<span>League scoring</span>
-										<b class="mono">{player.breakdown_total}</b>
+										<b class="mono">{player.BreakdownTotal}</b>
 									</div>
 								</div>
 							</If>
-							<If cond={player.has_breakdown == false}>
+							<If cond={player.HasBreakdown == false}>
 								<p class="stat-tip__empty">No projection detail for this position.</p>
 							</If>
-							<If cond={player.has_matchup}>
-								<p class="stat-tip__hist mono">{player.matchup_detail}</p>
+							<If cond={player.HasMatchup}>
+								<p class="stat-tip__hist mono">{player.MatchupDetail}</p>
 							</If>
-							<If cond={player.has_hist}>
-								<p class="stat-tip__hist mono">{player.hist}</p>
+							<If cond={player.HasHist}>
+								<p class="stat-tip__hist mono">{player.Hist}</p>
 							</If>
 						</div>
 					</div>
-					<span class="position-chip">{player.position}</span>
-					<b class="mono">{player.projection}</b>
+					<span class="position-chip">{player.Position}</span>
+					<b class="mono">{player.Projection}</b>
 					<If cond={props.HasSeat}>
 					<form method="post" action={props.Action} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
-						<input type="hidden" name="player_id" value={player.id}></input>
+						<input type="hidden" name="player_id" value={player.ID}></input>
 						<input type="hidden" name="pos" value={props.Position}></input>
 						<input type="hidden" name="q" value={props.Query}></input>
 						<input type="hidden" name="page" value={props.Page}></input>
@@ -504,10 +504,14 @@ func DraftRoom(props DraftRoomProps) Node {
 					the commissioner must still type START; after that, rehearsal picks control the current team on the clock.
 				</p>
 			</If>
-			<If cond={props.Data.pool_live == false}>
+			<If cond={props.Data.pool_status.has_notice}>
 				<p class="demo-message">
-					<strong>OFFLINE POOL:</strong>
-					player ranks are approximate until live data is turned on.
+					<strong>{props.Data.pool_status.label}:</strong>
+					{props.Data.pool_status.detail}
+					<If cond={props.Data.pool_status.has_last_success}>
+						<br></br>
+						<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
+					</If>
 				</p>
 			</If>
 			<If cond={props.Data.has_matchup_source}>
@@ -667,6 +671,7 @@ func DraftRoom(props DraftRoomProps) Node {
 
 type DraftWorkspaceProps struct {
 	Data           map[string]any
+	Players        []DraftPlayerCard
 	CSRF           string
 	MakePickAction string
 }
@@ -687,7 +692,7 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 		</div>
 		<div class="draft-workspace">
 			<DraftQueue
-				Players={props.Data.available}
+				Players={props.Players}
 				Action={props.MakePickAction}
 				CSRF={props.CSRF}
 				TeamID={props.Data.on_clock_id}

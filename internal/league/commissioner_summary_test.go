@@ -81,7 +81,7 @@ func TestCommissionerSummaryIncludesStatePlanesWithoutIdentityData(t *testing.T)
 	}
 	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{
 		Ready: true, AppVersion: "0.53.0", FrameworkVersion: "v0.53.0", GitSHA: "abc", Build: "build",
-	}, commissionerhq.Pool{Mode: "cache", Actual: 200, Target: 240}, openData)
+	}, commissionerhq.Pool{Mode: "cached", Actual: 200, Target: 240}, openData)
 	if summary.Draft.Status != "live" || !summary.Draft.ClockArmed || !summary.Draft.ClockPaused ||
 		summary.Draft.ClockRemainingSec != 42 || len(summary.Draft.Order) != len(ids) || summary.Draft.Order[0] != 1 {
 		t.Fatalf("draft = %+v", summary.Draft)

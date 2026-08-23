@@ -330,6 +330,14 @@ func (s *Service) Players() ([]Player, int64) {
 func (s *Service) Status() Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	now := s.now().UTC()
+	age := time.Duration(0)
+	if !s.lastSync.IsZero() {
+		age = now.Sub(s.lastSync)
+		if age < 0 {
+			age = 0
+		}
+	}
 	positions := make(map[string]int, 6)
 	withADP, withProj, withBye := 0, 0, 0
 	for _, player := range s.players {
@@ -348,6 +356,7 @@ func (s *Service) Status() Status {
 		Enabled:   s.Enabled(),
 		Provider:  "Tank01 (RapidAPI)",
 		Mode:      s.mode,
+		State:     playerPoolState(s.mode, len(s.players), s.lastSync, s.lastErr, now, s.config.SyncInterval),
 		Scoring:   s.config.ScoringFormat,
 		Players:   len(s.players),
 		PoolLimit: s.config.PoolLimit,
@@ -357,16 +366,55 @@ func (s *Service) Status() Status {
 		WithBye:   withBye,
 		Requests:  s.client.requests,
 		LastSync:  s.lastSync,
+		Age:       age,
+		FreshFor:  s.config.SyncInterval,
 		LastError: s.lastErr,
+	}
+}
+
+// playerPoolState turns transport/cache provenance into the one user-facing
+// freshness vocabulary shared by every Gridiron surface. A usable snapshot
+// survives source trouble: an error is degraded, an old success is stale,
+// and only the embedded fallback is offline. "Live" is reserved for a
+// successful source refresh still inside the declared sync interval.
+func playerPoolState(mode string, players int, lastSync time.Time, lastErr string, now time.Time, freshFor time.Duration) string {
+	if players == 0 {
+		return "unavailable"
+	}
+	if mode == "offline" || mode == "demo" {
+		return "offline"
+	}
+	if lastErr != "" {
+		return "degraded"
+	}
+	if lastSync.IsZero() {
+		return "stale"
+	}
+	age := now.Sub(lastSync)
+	if age < 0 {
+		age = 0
+	}
+	if freshFor <= 0 || age > freshFor {
+		return "stale"
+	}
+	switch mode {
+	case "live":
+		return "live"
+	case "cache":
+		return "cached"
+	case "stale":
+		return "stale"
+	default:
+		return "unavailable"
 	}
 }
 
 // recordError mirrors internal/openstats/service.go's recordDatasetError:
 // every hard failure overwrites lastErr, and, when the pool is currently
-// reporting "live", demotes it to "stale" so the freshness signal never
-// keeps claiming a fetch that just failed. A pool that was never live this
-// session (still "cache" or "offline") stays as it was — that label is
-// already honest about not being fresh.
+// reporting raw mode "live", demotes that provenance to "stale". A pool
+// loaded from disk keeps raw mode "cache" so operators can still see where
+// it came from; Status.State independently reports both cases as degraded
+// while a last-good snapshot remains usable.
 func (s *Service) recordError(err error) error {
 	s.mu.Lock()
 	s.lastErr = err.Error()

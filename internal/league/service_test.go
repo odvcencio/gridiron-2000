@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,8 +67,9 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	if available[0]["rank"] != "001" || available[0]["name"] != "Pool Player 001" {
 		t.Errorf("head of pool wrong: %+v", available[0])
 	}
-	if data["pool_label"] != "live" || data["pool_live"] != true {
-		t.Errorf("pool labels wrong: %v %v", data["pool_label"], data["pool_live"])
+	poolStatus, _ := data["pool_status"].(map[string]any)
+	if poolStatus["state"] != "live" || poolStatus["live"] != true {
+		t.Errorf("pool status wrong: %+v", poolStatus)
 	}
 	detail, _ := available[0]["detail"].(string)
 	if detail != "CIN · BYE 10" {
@@ -75,30 +77,86 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	}
 }
 
-// TestCacheModePoolIsNotReportedLive proves the second freshness-signal
-// defect: a pool loaded from the on-disk snapshot at boot ("cache") is
-// explicitly not live, so every page that surfaces pool_live must report
-// false for it — otherwise the OFFLINE POOL warning never fires and the
-// masthead live dot renders as if a fresh sync just landed.
-func TestCacheModePoolIsNotReportedLive(t *testing.T) {
+// TestCachedPoolIsReportedAsUsableSnapshot proves the production regression:
+// a healthy on-disk snapshot is not live, but it is also not offline. Every
+// manager pool surface gets the same cached state, useful-content promise,
+// and exact plus relative last-success evidence.
+func TestCachedPoolIsReportedAsUsableSnapshot(t *testing.T) {
 	service := newTestService(t, true)
+	now := time.Date(2026, time.August, 23, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
 	pool := testPool(150)
-	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 7, "cache" })
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 7, "cached" })
+	service.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{
+			Mode: "cache", State: "cached", Players: len(pool),
+			LastSuccess: now.Add(-45 * time.Minute), FreshnessWindow: 6 * time.Hour,
+		}
+	})
 	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
 
-	draft := service.DraftData(request)
-	if draft["pool_label"] != "cache" || draft["pool_live"] != false {
-		t.Errorf("DraftData pool labels wrong: label=%v live=%v", draft["pool_label"], draft["pool_live"])
+	surfaces := map[string]map[string]any{
+		"DraftData":   service.DraftData(request),
+		"PlayersData": service.PlayersData(request),
+		"BoardData":   service.BoardData(request),
 	}
-
-	players := service.PlayersData(request)
-	if players["pool_label"] != "cache" || players["pool_live"] != false {
-		t.Errorf("PlayersData pool labels wrong: label=%v live=%v", players["pool_label"], players["pool_live"])
+	for name, data := range surfaces {
+		status, ok := data["pool_status"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s pool_status = %#v", name, data["pool_status"])
+		}
+		if status["state"] != "cached" || status["live"] != false || status["has_notice"] != true {
+			t.Errorf("%s cached status = %+v", name, status)
+		}
+		if status["last_success"] == "" || status["last_success_relative"] != "45 minutes ago" {
+			t.Errorf("%s last-success evidence = %+v", name, status)
+		}
+		if detail, _ := status["detail"].(string); !strings.Contains(detail, "draft actions remain available") {
+			t.Errorf("%s does not explain retained capability: %q", name, detail)
+		}
 	}
+}
 
-	board := service.BoardData(request)
-	if board["pool_live"] != false {
-		t.Errorf("BoardData pool_live wrong: %v", board["pool_live"])
+func TestPlayerPoolFreshnessStateContract(t *testing.T) {
+	now := time.Date(2026, time.August, 23, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		state     string
+		hasNotice bool
+		label     string
+	}{
+		{state: "live", label: "LIVE"},
+		{state: "cached", hasNotice: true, label: "CACHED SNAPSHOT"},
+		{state: "stale", hasNotice: true, label: "STALE SNAPSHOT"},
+		{state: "degraded", hasNotice: true, label: "DEGRADED SNAPSHOT"},
+		{state: "offline", hasNotice: true, label: "OFFLINE PLAYER LIST"},
+		{state: "unavailable", hasNotice: true, label: "PLAYER DATA UNAVAILABLE"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.state, func(t *testing.T) {
+			service := newTestService(t, true)
+			service.now = func() time.Time { return now }
+			pool := testPool(150)
+			service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, tt.state })
+			service.SetPoolStatus(func() PlayerPoolStatus {
+				return PlayerPoolStatus{
+					Mode: tt.state, State: tt.state, Players: len(pool),
+					LastSuccess: now.Add(-2 * time.Hour), FreshnessWindow: 6 * time.Hour,
+				}
+			})
+			view := service.poolFreshnessMap(service.pool())
+			if view["state"] != tt.state || view["label"] != tt.label || view["has_notice"] != tt.hasNotice {
+				t.Fatalf("view = %+v", view)
+			}
+			if view["live"] != (tt.state == "live") {
+				t.Fatalf("live signal for %s = %v", tt.state, view["live"])
+			}
+			if tt.hasNotice && view["detail"] == "" {
+				t.Fatalf("%s has no impact/recovery detail: %+v", tt.state, view)
+			}
+			if tt.state == "stale" && !strings.Contains(view["detail"].(string), "6-hour freshness window") {
+				t.Fatalf("stale state omits its declared window: %+v", view)
+			}
+		})
 	}
 }
 
@@ -162,8 +220,9 @@ func TestEmptySourceFallsBackToDemoPool(t *testing.T) {
 	if data["pool_total"] != len(defaultPlayers()) {
 		t.Fatalf("fallback pool total = %v, want %d", data["pool_total"], len(defaultPlayers()))
 	}
-	if data["pool_label"] != "demo" {
-		t.Errorf("pool_label = %v", data["pool_label"])
+	poolStatus, _ := data["pool_status"].(map[string]any)
+	if poolStatus["state"] != "offline" || poolStatus["has_notice"] != true {
+		t.Errorf("fallback pool status = %+v", poolStatus)
 	}
 }
 
@@ -395,14 +454,14 @@ func TestAdminDataPoolStatusSeam(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 	pool, _ := service.AdminData(request)["pool"].(map[string]any)
-	if pool["mode"] != "unknown" || pool["last_sync"] != "never" {
+	if pool["state"] != "offline" || pool["mode"] != "OFFLINE PLAYER LIST" || pool["last_sync"] != "Never successfully updated" {
 		t.Fatalf("default pool status wrong: %+v", pool)
 	}
-	service.SetPoolStatus(func() map[string]any {
-		return map[string]any{"mode": "live", "players": 400}
+	service.SetPoolStatus(func() PlayerPoolStatus {
+		return PlayerPoolStatus{Mode: "live", State: "live", Players: 400}
 	})
 	pool, _ = service.AdminData(request)["pool"].(map[string]any)
-	if pool["mode"] != "live" || pool["players"] != 400 {
+	if pool["state"] != "live" || pool["mode"] != "LIVE" || pool["players"] != 400 {
 		t.Fatalf("injected pool status not surfaced: %+v", pool)
 	}
 }

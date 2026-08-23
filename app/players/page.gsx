@@ -59,10 +59,14 @@ func Page() Node {
 					every undrafted player becomes a free agent the moment the draft completes.
 				</p>
 			</If>
-			<If cond={data.pool_live == false}>
+			<If cond={data.pool_status.has_notice}>
 				<p class="demo-message">
-					<strong>OFFLINE POOL:</strong>
-					player data is approximate until live player data arrives.
+					<strong>{data.pool_status.label}:</strong>
+					{data.pool_status.detail}
+					<If cond={data.pool_status.has_last_success}>
+						<br></br>
+						<span class="mono">LAST SUCCESS · {data.pool_status.last_success} · {data.pool_status.last_success_relative}</span>
+					</If>
 				</p>
 			</If>
 			<If cond={data.has_matchup_source}>

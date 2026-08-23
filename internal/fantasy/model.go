@@ -102,7 +102,8 @@ func (p Player) DraftCapitalLabel() string {
 type Status struct {
 	Enabled   bool           `json:"enabled"`
 	Provider  string         `json:"provider"`
-	Mode      string         `json:"mode"` // live | cache | stale | offline
+	Mode      string         `json:"mode"`  // source provenance: live | cache | stale | offline
+	State     string         `json:"state"` // manager truth: live | cached | stale | degraded | offline | unavailable
 	Scoring   string         `json:"scoring"`
 	Players   int            `json:"players"`
 	PoolLimit int            `json:"poolLimit"`
@@ -112,6 +113,8 @@ type Status struct {
 	WithBye   int            `json:"withBye"`
 	Requests  int            `json:"requestsUsed"`
 	LastSync  time.Time      `json:"lastSync,omitzero"`
+	Age       time.Duration  `json:"-"`
+	FreshFor  time.Duration  `json:"-"`
 	LastError string         `json:"lastError,omitempty"`
 }
 

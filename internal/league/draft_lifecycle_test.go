@@ -27,7 +27,7 @@ func TestDraftStartReadinessUsesActualPool(t *testing.T) {
 	if err := draftStartReadiness(pool("live", 11), false, required); err == nil {
 		t.Fatal("an undersized live pool must not start")
 	}
-	for _, label := range []string{"live", "cache"} {
+	for _, label := range []string{"live", "cached", "stale", "degraded"} {
 		if err := draftStartReadiness(pool(label, 12), false, required); err != nil {
 			t.Fatalf("%s pool rejected: %v", label, err)
 		}

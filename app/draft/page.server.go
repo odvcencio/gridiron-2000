@@ -165,6 +165,7 @@ type draftRoomView struct {
 
 type draftWorkspaceView struct {
 	Data           map[string]any
+	Players        []draftPlayerCardView
 	CSRF           string
 	MakePickAction string
 }
@@ -295,7 +296,9 @@ func prepareDraftData(data map[string]any) map[string]any {
 	}}
 	room.StatusSummary = draftRoomStatus(viewData)
 	data["room"] = room
-	data["workspace"] = draftWorkspaceView{Data: viewData, MakePickAction: draftActionPath("make-pick")}
+	data["workspace"] = draftWorkspaceView{
+		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
+	}
 	return data
 }
 

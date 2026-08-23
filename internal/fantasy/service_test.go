@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // tank01Stub serves fixture payloads for each endpoint and records hits.
@@ -106,7 +107,7 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 		t.Errorf("player without a headshot should stay empty: %+v", players[1])
 	}
 	status := service.Status()
-	if status.Mode != "live" || status.Players != 3 || status.LastError != "" {
+	if status.Mode != "live" || status.State != "live" || status.Players != 3 || status.LastError != "" {
 		t.Errorf("status = %+v", status)
 	}
 	if hits["/getNFLPlayerList"] != 1 || hits["/getNFLADP"] != 1 {
@@ -133,8 +134,8 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 	if len(players2) != 3 {
 		t.Fatalf("reloaded pool size = %d", len(players2))
 	}
-	if reloaded.Status().Mode != "cache" {
-		t.Errorf("reloaded mode = %q", reloaded.Status().Mode)
+	if status := reloaded.Status(); status.Mode != "cache" || status.State != "cached" {
+		t.Errorf("reloaded status = %+v", status)
 	}
 	if players2[0].Headshot != "https://a.espncdn.com/i/headshots/nfl/players/full/4429795.png" {
 		t.Errorf("headshot lost on cache reload: %+v", players2[0])
@@ -154,7 +155,7 @@ func TestNoKeyServesOfflinePool(t *testing.T) {
 		t.Fatalf("offline pool size = %d", len(players))
 	}
 	status := service.Status()
-	if status.Enabled || status.Mode != "offline" {
+	if status.Enabled || status.Mode != "offline" || status.State != "offline" {
 		t.Errorf("status = %+v", status)
 	}
 	if err := service.SyncNow(context.Background()); err == nil {
@@ -222,6 +223,9 @@ func TestSyncNowDemotesModeAfterFailureFollowingSuccess(t *testing.T) {
 	if status.Mode == "live" {
 		t.Fatalf("mode after failed sync = %q, want it demoted off live", status.Mode)
 	}
+	if status.State != "degraded" {
+		t.Fatalf("state after failed sync = %q, want degraded while the last snapshot remains usable", status.State)
+	}
 	if status.LastError == "" {
 		t.Error("LastError must be recorded on the failing sync")
 	}
@@ -266,7 +270,35 @@ func TestSyncPartialFailureKeepsPool(t *testing.T) {
 		t.Fatalf("pool should still swap with partial data: %d", len(players))
 	}
 	status := service.Status()
-	if status.Mode != "live" || status.LastError == "" {
+	if status.Mode != "live" || status.State != "degraded" || status.LastError == "" {
 		t.Errorf("status = %+v", status)
+	}
+}
+
+func TestPlayerPoolStateUsesDeclaredFreshnessWindow(t *testing.T) {
+	now := time.Date(2026, time.August, 23, 12, 0, 0, 0, time.UTC)
+	freshFor := 6 * time.Hour
+	tests := []struct {
+		name     string
+		mode     string
+		players  int
+		lastSync time.Time
+		lastErr  string
+		want     string
+	}{
+		{name: "fresh source", mode: "live", players: 340, lastSync: now.Add(-time.Minute), want: "live"},
+		{name: "fresh saved copy", mode: "cache", players: 340, lastSync: now.Add(-time.Hour), want: "cached"},
+		{name: "old saved copy", mode: "cache", players: 340, lastSync: now.Add(-7 * time.Hour), want: "stale"},
+		{name: "source warning preserves data", mode: "live", players: 340, lastSync: now.Add(-time.Minute), lastErr: "projection timeout", want: "degraded"},
+		{name: "failed refresh preserves cache", mode: "cache", players: 340, lastSync: now.Add(-7 * time.Hour), lastErr: "player list unavailable", want: "degraded"},
+		{name: "embedded list", mode: "offline", players: 150, want: "offline"},
+		{name: "no reliable values", mode: "cache", players: 0, lastSync: now, want: "unavailable"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := playerPoolState(tt.mode, tt.players, tt.lastSync, tt.lastErr, now, freshFor); got != tt.want {
+				t.Fatalf("state = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
