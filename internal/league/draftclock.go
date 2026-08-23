@@ -25,6 +25,25 @@ const (
 	// more than this much per boot.
 	RestartGrace = 30 * time.Second
 
+	// NotSeenClock caps the deadline for a seat whose manager has never sent
+	// one heartbeat this process lifetime (presenceStateSince's not_seen
+	// bucket). Twenty seconds covers one heartbeat poll (PollPeriod) plus a
+	// page load and a snap decision, so a manager who lands on the room at
+	// that exact instant can still act, while meaningfully shortening the
+	// default clock for a seat nobody has ever opened. AWAY and IDLE never
+	// use this constant: a tab must poll at least once to read either state,
+	// so a backgrounded tab is never mistaken for a no-show.
+	NotSeenClock = 20 * time.Second
+
+	// NotSeenBootGrace is the minimum process uptime before a NOT SEEN seat
+	// may have its deadline shortened. presenceStateSince floors every
+	// last-seen instant at the tracker's startedAt, so every seat reads NOT
+	// SEEN for a moment right after a restart. This grace withholds the cap
+	// until real heartbeats have had time to arrive and reclassify
+	// genuinely-present seats, so a restart mid-draft never shortens every
+	// seat's clock at once.
+	NotSeenBootGrace = 2 * time.Minute
+
 	// clockTickPeriod is StartDraftClock's enforcement-loop interval.
 	clockTickPeriod = 1 * time.Second
 )
@@ -166,8 +185,16 @@ func (s *Service) clockTick(now time.Time) {
 }
 
 // effectiveDeadline returns the instant the auto-pick may fire and the
-// reason label ("clock" or "autopick"). Presence is observational only:
-// a disconnect, hidden tab, or process restart never shortens a live pick.
+// reason label ("clock", "autopick", or "not_seen"). Presence is otherwise
+// observational only: a disconnect, hidden tab, or process restart never
+// shortens a live pick. The sole exception is NOT SEEN — a seat whose
+// manager has never sent one heartbeat this process lifetime — which caps
+// the deadline at NotSeenClock once the process has run past
+// NotSeenBootGrace. AWAY and IDLE, which a backgrounded tab can read while
+// its manager is fully engaged elsewhere, never shorten anything. An
+// explicit AUTO toggle keeps first claim on the shortened deadline: the
+// switch below evaluates it before NOT SEEN, so a commissioner's explicit
+// authority is never displaced by an observational signal.
 func (s *Service) effectiveDeadline(state PersistedState, now time.Time) (time.Time, string) {
 	deadline := state.ClockDeadline
 	duration := s.pickClock(state)
@@ -177,13 +204,46 @@ func (s *Service) effectiveDeadline(state PersistedState, now time.Time) (time.T
 
 	effective := deadline
 	reason := "clock"
-	if state.Autopick[teamID] {
+	switch {
+	case state.Autopick[teamID]:
 		if candidate := armAt.Add(AutopickGrace); candidate.Before(effective) {
 			effective = candidate
 			reason = "autopick"
 		}
+	case s.teamNeverSeen(state, teamID, now):
+		if candidate := armAt.Add(NotSeenClock); candidate.Before(effective) {
+			effective = candidate
+			reason = "not_seen"
+		}
 	}
 	return effective, reason
+}
+
+// teamNeverSeen reports whether every operator assigned to teamID has never
+// sent a single heartbeat this process lifetime, and the process has run
+// past NotSeenBootGrace so that reading is trustworthy rather than a
+// restart artifact. Mirrors presenceStateSince's not_seen bucket exactly
+// (see teamPresence, which applies the same per-key classification for the
+// UI): a seat with any co-manager who has ever appeared is not NOT SEEN. An
+// unclaimed seat (no assigned manager) is never NOT SEEN in this sense —
+// there is no manager who has failed to appear. Called by effectiveDeadline
+// on every tick, so a seat's first-ever heartbeat clears this on the very
+// next tick; nothing here is memoized past that heartbeat.
+func (s *Service) teamNeverSeen(state PersistedState, teamID string, now time.Time) bool {
+	if now.Sub(s.presence.startedAt) < NotSeenBootGrace {
+		return false
+	}
+	keys := s.presenceKeysForTeam(state, teamID)
+	if len(keys) == 0 {
+		return false
+	}
+	for _, key := range keys {
+		seenAt, seen := s.presence.seen(key)
+		if presenceStateSince(seenAt, seen, now, s.presence.startedAt) != "not_seen" {
+			return false
+		}
+	}
+	return true
 }
 
 // autopickChoice resolves the player an auto-pick would select for teamID:

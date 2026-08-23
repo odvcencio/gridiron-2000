@@ -143,6 +143,141 @@ func TestEffectiveDeadlinePrecedence(t *testing.T) {
 	})
 }
 
+// TestNotSeenClockCap locks the NOT SEEN clock-shortening contract: a seat
+// whose manager has never sent one heartbeat this process lifetime gets a
+// capped deadline, once the process has run past the restart guard; every
+// other presence bucket (away, idle) keeps the full persisted clock; a
+// first heartbeat restores the full clock on the very next tick; and an
+// explicit AUTO toggle keeps using its own grace, untouched by this change.
+func TestNotSeenClockCap(t *testing.T) {
+	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+
+	t.Run("not_seen, process up past the boot grace: capped deadline", func(t *testing.T) {
+		service, _ := newClockTestService(t, false, draftAt, draftAt)
+		if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil { // team-1
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		now := draftAt.Add(5 * time.Second)
+		// No heartbeat ever recorded for a@example.com: not_seen.
+		effective, reason := service.effectiveDeadline(state, now)
+		armAt := state.ClockDeadline.Add(-service.pickClock(state))
+		want := armAt.Add(NotSeenClock)
+		if reason != "not_seen" || !effective.Equal(want) {
+			t.Fatalf("effective = %v (%s), want %v (not_seen)", effective, reason, want)
+		}
+	})
+
+	t.Run("not_seen within the restart grace: full deadline", func(t *testing.T) {
+		service := &Service{
+			store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
+			feed:     newLiveFeed(nil),
+			draftAt:  draftAt,
+			demoMode: false,
+			teams:    defaultTeams(),
+			players:  defaultPlayers(),
+			cfg:      DefaultConfig(),
+			presence: newPresenceTracker(draftAt), // boots exactly at draftAt
+			now:      func() time.Time { return draftAt },
+		}
+		startTestDraft(t, service.store)
+		if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		now := draftAt.Add(NotSeenBootGrace - time.Second) // still inside the grace window
+		effective, reason := service.effectiveDeadline(state, now)
+		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
+			t.Fatalf("restart guard failed: effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
+		}
+	})
+
+	t.Run("away seat: full deadline (hidden tabs unaffected)", func(t *testing.T) {
+		service, _ := newClockTestService(t, false, draftAt, draftAt)
+		member, _, err := service.store.AssignMember("a@example.com", "A")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		// One heartbeat an hour ago, then silence: away, never not_seen.
+		service.presence.record(member.Email, draftAt.Add(-time.Hour))
+		now := draftAt.Add(5 * time.Second)
+		effective, reason := service.effectiveDeadline(state, now)
+		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
+			t.Fatalf("away must never shorten the clock: effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
+		}
+	})
+
+	t.Run("idle seat: full deadline", func(t *testing.T) {
+		service, _ := newClockTestService(t, false, draftAt, draftAt)
+		member, _, err := service.store.AssignMember("a@example.com", "A")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		now := draftAt.Add(5 * time.Second)
+		service.presence.record(member.Email, now.Add(-30*time.Second)) // within the idle window
+		effective, reason := service.effectiveDeadline(state, now)
+		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
+			t.Fatalf("idle must never shorten the clock: effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
+		}
+	})
+
+	t.Run("first heartbeat restores the full deadline on the next tick", func(t *testing.T) {
+		service, _ := newClockTestService(t, false, draftAt, draftAt)
+		member, _, err := service.store.AssignMember("a@example.com", "A")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		now := draftAt.Add(5 * time.Second)
+		if _, reason := service.effectiveDeadline(state, now); reason != "not_seen" {
+			t.Fatalf("precondition: reason = %q, want not_seen", reason)
+		}
+		service.presence.record(member.Email, now) // the seat's first-ever heartbeat
+		effective, reason := service.effectiveDeadline(state, now)
+		if reason != "clock" || !effective.Equal(state.ClockDeadline) {
+			t.Fatalf("first heartbeat did not restore the full clock: effective = %v (%s), want %v (clock)", effective, reason, state.ClockDeadline)
+		}
+	})
+
+	t.Run("AUTO-armed seat keeps the autopick grace, unaffected by not_seen", func(t *testing.T) {
+		service, _ := newClockTestService(t, false, draftAt, draftAt)
+		if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil { // team-1
+			t.Fatal(err)
+		}
+		if err := service.store.ArmClock(draftAt.Add(90 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.SetAutopick("team-1", true); err != nil {
+			t.Fatal(err)
+		}
+		state := service.store.Snapshot()
+		now := draftAt.Add(5 * time.Second)
+		effective, reason := service.effectiveDeadline(state, now)
+		armAt := state.ClockDeadline.Add(-service.pickClock(state))
+		want := armAt.Add(AutopickGrace)
+		if reason != "autopick" || !effective.Equal(want) {
+			t.Fatalf("effective = %v (%s), want %v (autopick)", effective, reason, want)
+		}
+	})
+}
+
 // TestAutopickPrecedence checks autopickChoice: the board's head is chosen
 // first; picked or stale (pool-unresolvable) board entries are skipped;
 // an exhausted or empty board falls through to best-available ADP; and an

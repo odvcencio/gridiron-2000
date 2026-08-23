@@ -2011,6 +2011,7 @@ var clockReasonLabels = map[string]string{
 	"away-cap": "AWAY — SHORT CLOCK",
 	"autopick": "AUTOPICK ARMED",
 	"paused":   "PAUSED",
+	"not_seen": "NEVER CHECKED IN",
 }
 
 func clockReasonLabel(reason string) string {
