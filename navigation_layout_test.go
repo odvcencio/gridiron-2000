@@ -182,20 +182,20 @@ func surfaceGroups(surface *html.Node) []renderedNavigationGroup {
 
 func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigationGroup {
 	groups := []renderedNavigationGroup{
-		{Name: "today", Links: []string{"/|01 HQ", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
+		{Name: "today", Links: []string{"/|01 Home", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
 		{Name: "my-team"},
-		{Name: "game-day", Links: []string{"/draft|08 Draft room", "/blitz|09 Preseason Blitz"}},
+		{Name: "game-day", Links: []string{"/draft|08 Draft", "/blitz|09 Preseason Blitz"}},
 		{Name: "league", Links: []string{"/wire|10 Signal Wire", "/activity|11 Activity", "/scoring|12 Rules & scoring"}},
 		{Name: "help", Links: []string{"/guide|13 Manager guide"}},
 	}
 	team := &groups[1].Links
 	switch {
 	case viewer.hasSeat:
-		*team = append(*team, "/team|04 My team")
+		*team = append(*team, "/team|04 Team terminal")
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		*team = append(*team, "/team|04 Fantasy status")
+		*team = append(*team, "/team|04 Team status")
 	}
 	*team = append(*team, "/board|05 Draft board")
 	if viewer.hasSeat {

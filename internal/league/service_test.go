@@ -875,6 +875,12 @@ func TestPickemHomeSummaryComputation(t *testing.T) {
 	if summary["unpicked_count"] != 1 {
 		t.Fatalf("unpicked_count = %v, want 1 (only g-open is still open and unpicked)", summary["unpicked_count"])
 	}
+	if summary["game_count"] != 3 || summary["picked_count"] != 1 || summary["open_unpicked_count"] != 1 || summary["locked_unpicked_count"] != 1 {
+		t.Fatalf("pickem buckets = game:%v picked:%v open:%v locked:%v, want 3/1/1/1", summary["game_count"], summary["picked_count"], summary["open_unpicked_count"], summary["locked_unpicked_count"])
+	}
+	if summary["has_next_open_lock"] != true || summary["next_open_lock_at"] == "" {
+		t.Fatalf("next open lock = has:%v at:%v, want true and a timestamp", summary["has_next_open_lock"], summary["next_open_lock_at"])
+	}
 	if summary["season_correct"] != 1 || summary["season_total"] != 2 || summary["season_losses"] != 1 {
 		t.Fatalf("season record = %v-%v, want 1-1 after the missed kicked game", summary["season_correct"], summary["season_losses"])
 	}

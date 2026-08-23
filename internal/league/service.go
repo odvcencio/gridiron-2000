@@ -1406,6 +1406,9 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string]any {
 	now := s.clock()
 	live := s.feed.Snapshot(ctx, now)
+	games := s.schedule()
+	_ = s.store.ReconcilePickemMarkets(now, games, nil)
+	_ = s.store.BackfillPickemEnteredAt(games)
 	state := s.store.Snapshot()
 	viewer := s.Viewer(r)
 	hasSeat, _ := viewer["has_seat"].(bool)
@@ -1414,9 +1417,10 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	transactions := s.activityMaps(state, 5)
 	standings := s.dashboardStandingState(state)
 	standingsTitle, standingsNote, standingsEmptyTitle := s.dashboardStandingsCopy(state, standings)
+	pickemHome := s.pickemHomeSummaryFromSnapshot(r, state, now)
 	return map[string]any{
 		"viewer":                viewer,
-		"public_entry":          s.PublicEntryDataForViewer(r, viewer),
+		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
 		"has_seat":              hasSeat,
 		"draft":                 s.draftSummary(now),
 		"live":                  s.liveMap(live),
@@ -1428,7 +1432,8 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"standings_note":        standingsNote,
 		"standings_empty_title": standingsEmptyTitle,
 		"transactions":          transactions,
-		"pickem_home":           s.pickemHomeSummary(r, state, now),
+		"pickem_home":           pickemHome,
+		"action_center":         s.actionCenterDataForSnapshot(r, state, viewer, pickemHome, now),
 		// fantasy_card is the dashboard's FANTASY status card (registration
 		// wave, build item 3): both status cards are always present for a
 		// signed-in member, seated or not — see fantasyCardData.
@@ -3538,4 +3543,153 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ActionCenterData assembles the authenticated manager's prioritized,
+// read-only home action center from the same authorities used by the
+// destination pages. It intentionally has no route actions or POST handlers.
+func (s *Service) ActionCenterData(r *http.Request) map[string]any {
+	now := s.clock()
+	viewer := s.Viewer(r)
+	games := s.schedule()
+	_ = s.store.ReconcilePickemMarkets(now, games, nil)
+	_ = s.store.BackfillPickemEnteredAt(games)
+	state := s.store.Snapshot()
+	pickemHome := s.pickemHomeSummaryFromSnapshot(r, state, now)
+	return s.actionCenterDataForSnapshot(r, state, viewer, pickemHome, now)
+}
+
+func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedState, viewer map[string]any, pickemHome map[string]any, now time.Time) map[string]any {
+	entry := s.publicEntryViewForViewerState(r, viewer, state)
+	hasSeat, _ := viewer["has_seat"].(bool)
+	teamID, _ := viewer["team_id"].(string)
+	complete := draftComplete(state)
+	seatCapacity := len(s.Teams())
+	claimedSeats := claimedSeatCount(state.Members)
+	claimedTeams := make(map[string]bool, claimedSeats)
+	for _, member := range state.Members {
+		if strings.TrimSpace(member.TeamID) != "" {
+			claimedTeams[member.TeamID] = true
+		}
+	}
+	readySeats := 0
+	for teamID := range claimedTeams {
+		if state.Ready[teamID] {
+			readySeats++
+		}
+	}
+	poolCount := len(s.pool().players)
+	poolTarget := seatCapacity * CurrentDraftRounds()
+	facts := ActionCenterFacts{
+		Now: now, Location: s.draftTZ, EntryState: entry.State,
+		EntryStateLabel: entry.StateLabel, EntryHeadline: entry.Headline,
+		EntryActionHref: entry.ActionHref, EntryActionLabel: entry.ActionLabel,
+		EntryDetail: entry.Detail, Admitted: entry.Admitted, HasSeat: hasSeat,
+		TeamID: teamID, TeamName: entry.TeamName, Commissioner: entry.IsCommissioner,
+		DraftStarted: state.DraftStarted, DraftComplete: complete,
+		DraftAt: s.EffectiveDraftAt(state),
+		Ready:   state.Ready[teamID], SeasonPhase: s.SeasonPhase(now),
+		SeatCapacity: seatCapacity, ClaimedSeats: claimedSeats, ReadySeats: readySeats,
+		DraftOrderSet: len(state.DraftOrder) > 0, DraftPoolCount: poolCount,
+		DraftPoolTarget: poolTarget,
+		ScheduleExists:  state.Schedule != nil,
+		Pickem:          actionCenterPickemFacts(pickemHome),
+	}
+	if facts.Location == nil {
+		facts.Location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	if hasSeat && state.DraftStarted && !complete {
+		next := len(state.Picks) + 1
+		teamCount := len(state.DraftOrder)
+		if teamCount == 0 {
+			teamCount = seatCapacity
+		}
+		total := teamCount * CurrentDraftRounds()
+		if next <= total {
+			onClockID := teamOnClock(state.DraftOrder, next)
+			facts.ViewerOnClock = onClockID == teamID
+			facts.OnClockTeamName = s.teamByID(onClockID).Name
+		}
+		facts.ClockDeadline = state.ClockDeadline
+		facts.ClockPaused = state.ClockPaused
+	}
+	if hasSeat {
+		facts.BoardCount = len(state.Boards[s.boardKeyForTeam(state, teamID)])
+		games := s.schedule()
+		week := s.pickemWeek(games, now)
+		if complete {
+			roster, _ := s.rosterForTeam(state, teamID)
+			general, _, _ := splitRosterZones(state, teamID, roster)
+			lineup := effectiveLineup(CurrentRoster(), general, state.Lineups[teamID], week, games, now)
+			problems := lineupProblems(lineup, games, now)
+			first, ok := firstKickoff(games, week)
+			facts.Lineup = ActionCenterLineupFacts{Week: week, Problems: len(problems), FirstKickoff: first, HasFirstKickoff: ok}
+		}
+		for _, offer := range state.TradeOffers {
+			switch {
+			case offer.Status == TradeStatusOpen && offer.ToTeamID == teamID:
+				facts.Trades.IncomingOpen++
+			case offer.Status == TradeStatusAccepted && (offer.FromTeamID == teamID || offer.ToTeamID == teamID):
+				facts.Trades.AcceptedReview++
+				deadline := offer.AcceptedAt.Add(time.Duration(s.cfg.Trades.ReviewHours) * time.Hour)
+				if !facts.Trades.HasReviewDeadline || deadline.Before(facts.Trades.NextReviewDeadline) {
+					facts.Trades.NextReviewDeadline, facts.Trades.HasReviewDeadline = deadline, true
+				}
+			case offer.Status == TradeStatusOpen && offer.FromTeamID == teamID:
+				facts.Trades.OutgoingOpen++
+			}
+		}
+		facts.Trades.TradeDeadline, facts.Trades.HasTradeDeadline = parseTradeDeadline(s.cfg)
+		pool := s.pool()
+		runAt := firstRunAtOrAfter(s.cfg, now)
+		if !state.WaiversProcessedThrough.IsZero() {
+			processedRun := firstRunStrictlyAfter(s.cfg, state.WaiversProcessedThrough)
+			if processedRun.After(runAt) {
+				runAt = processedRun
+			}
+		}
+		for _, claim := range state.WaiverClaims {
+			if claim.TeamID != teamID {
+				continue
+			}
+			facts.Waivers.OpenClaims++
+			player := pool.byID[claim.AddID]
+			status := playerWaiverStatus(state, s.cfg, games, claim.AddID, player.NFLTeam, now)
+			resolveAt := runAt
+			if status.State == AvailabilityOnWaivers && !status.ResolvesAt.IsZero() {
+				resolveAt = status.ResolvesAt
+			}
+			if !facts.Waivers.HasNextRun || resolveAt.Before(facts.Waivers.NextRun) {
+				facts.Waivers.NextRun, facts.Waivers.HasNextRun = resolveAt, true
+			}
+		}
+	}
+	return BuildActionCenter(facts).Data(facts.Location)
+}
+
+func actionCenterPickemFacts(raw map[string]any) ActionCenterPickemFacts {
+	facts := ActionCenterPickemFacts{
+		Week: actionCenterInt(raw, "week"), GameCount: actionCenterInt(raw, "game_count"),
+		PickedCount: actionCenterInt(raw, "picked_count"), OpenUnpicked: actionCenterInt(raw, "open_unpicked_count"),
+		LockedUnpicked: actionCenterInt(raw, "locked_unpicked_count"),
+	}
+	if value, ok := raw["next_open_lock_at"].(string); ok && value != "" {
+		if at, err := time.Parse(time.RFC3339, value); err == nil {
+			facts.NextOpenLock, facts.HasNextOpenLock = at, true
+		}
+	}
+	return facts
+}
+
+func actionCenterInt(raw map[string]any, key string) int {
+	switch value := raw[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
 }

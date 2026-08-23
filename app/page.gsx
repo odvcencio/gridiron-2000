@@ -102,6 +102,181 @@ component StandingRow(props: StandingRowProps) {
 	</div>
 }
 
+type ActionCenterActionCard struct {
+	ID            string
+	Priority      string
+	PriorityLabel string
+	Label         string
+	Detail        string
+	Href          string
+	DueAt         string
+	HasDueAt      bool
+	DueLabel      string
+	Urgent        bool
+	Primary       bool
+	NativeNavigation bool
+}
+
+type ActionCenterPanelProps struct {
+	Stage               string
+	StageLabel          string
+	Heading             string
+	Summary             string
+	HasActions          bool
+	ActionCount         int
+	Actions             []ActionCenterActionCard
+	HasCommissioner     bool
+	CommissionerActions []ActionCenterActionCard
+}
+
+component ActionCenterTask(props: ActionCenterActionCard) {
+	return <a
+		href={props.Href}
+		data-gosx-link
+		class={"home-action-center__task home-action-center__task--" + props.Priority}
+		data-action-center-task={props.ID}
+		data-action-center-priority={props.Priority}
+	>
+		<span class="home-action-center__task-top">
+			<span class="signal-label">{props.PriorityLabel}</span>
+			<If cond={props.Primary}>
+				<span class="home-action-center__task-marker">PRIMARY</span>
+			</If>
+			<If cond={props.Urgent}>
+				<span class="home-action-center__task-marker home-action-center__task-marker--urgent">URGENT</span>
+			</If>
+			<If cond={props.HasDueAt}>
+				<time class="mono home-action-center__due" dateTime={props.DueAt}>{props.DueLabel}</time>
+			</If>
+		</span>
+		<strong>{props.Label}</strong>
+		<span class="home-action-center__task-detail">{props.Detail}</span>
+		<span class="home-action-center__task-arrow" aria-hidden="true">→</span>
+	</a>
+}
+
+component ActionCenterNativeTask(props: ActionCenterActionCard) {
+	return <a
+		href={props.Href}
+		class={"home-action-center__task home-action-center__task--" + props.Priority}
+		data-action-center-task={props.ID}
+		data-action-center-priority={props.Priority}
+	>
+		<span class="home-action-center__task-top">
+			<span class="signal-label">{props.PriorityLabel}</span>
+			<If cond={props.Primary}>
+				<span class="home-action-center__task-marker">PRIMARY</span>
+			</If>
+			<If cond={props.Urgent}>
+				<span class="home-action-center__task-marker home-action-center__task-marker--urgent">URGENT</span>
+			</If>
+			<If cond={props.HasDueAt}>
+				<time class="mono home-action-center__due" dateTime={props.DueAt}>{props.DueLabel}</time>
+			</If>
+		</span>
+		<strong>{props.Label}</strong>
+		<span class="home-action-center__task-detail">{props.Detail}</span>
+		<span class="home-action-center__task-arrow" aria-hidden="true">→</span>
+	</a>
+}
+
+component ActionCenterPanel(props: ActionCenterPanelProps) {
+	return <section class="home-action-center" data-action-center-stage={props.Stage} aria-labelledby="home-action-center-heading">
+		<header class="home-action-center__header">
+			<div>
+				<span class="section-index">00 // {props.StageLabel}</span>
+				<h1 id="home-action-center-heading">{props.Heading}</h1>
+				<p>{props.Summary}</p>
+			</div>
+			<span class="home-action-center__status mono">ACTION CENTER</span>
+		</header>
+		<div class="home-action-center__body">
+		<If cond={props.HasActions}>
+			<div class="home-action-center__tasks" data-action-center-tasks>
+				<Each of={props.Actions} as="task">
+					<If cond={task.NativeNavigation == false}>
+					<ActionCenterTask
+						ID={task.ID}
+						Priority={task.Priority}
+						PriorityLabel={task.PriorityLabel}
+						Label={task.Label}
+						Detail={task.Detail}
+						Href={task.Href}
+						DueAt={task.DueAt}
+						HasDueAt={task.HasDueAt}
+						DueLabel={task.DueLabel}
+						Urgent={task.Urgent}
+						Primary={task.Primary}
+						NativeNavigation={task.NativeNavigation}
+					></ActionCenterTask>
+					</If>
+					<If cond={task.NativeNavigation}>
+						<ActionCenterNativeTask
+							ID={task.ID}
+							Priority={task.Priority}
+							PriorityLabel={task.PriorityLabel}
+							Label={task.Label}
+							Detail={task.Detail}
+							Href={task.Href}
+							DueAt={task.DueAt}
+							HasDueAt={task.HasDueAt}
+							DueLabel={task.DueLabel}
+							Urgent={task.Urgent}
+							Primary={task.Primary}
+							NativeNavigation={task.NativeNavigation}
+						></ActionCenterNativeTask>
+					</If>
+				</Each>
+			</div>
+		</If>
+		<If cond={props.HasCommissioner}>
+			<aside class="home-action-center__commissioner" data-action-center-commissioner>
+				<div>
+					<span class="signal-label">COMMISSIONER OVERLAY</span>
+					<strong>League controls</strong>
+				</div>
+				<div class="home-action-center__commissioner-links">
+					<Each of={props.CommissionerActions} as="task">
+						<If cond={task.NativeNavigation == false}>
+						<ActionCenterTask
+							ID={task.ID}
+							Priority={task.Priority}
+							PriorityLabel={task.PriorityLabel}
+							Label={task.Label}
+							Detail={task.Detail}
+							Href={task.Href}
+							DueAt={task.DueAt}
+							HasDueAt={task.HasDueAt}
+							DueLabel={task.DueLabel}
+							Urgent={task.Urgent}
+							Primary={task.Primary}
+							NativeNavigation={task.NativeNavigation}
+						></ActionCenterTask>
+						</If>
+						<If cond={task.NativeNavigation}>
+							<ActionCenterNativeTask
+								ID={task.ID}
+								Priority={task.Priority}
+								PriorityLabel={task.PriorityLabel}
+								Label={task.Label}
+								Detail={task.Detail}
+								Href={task.Href}
+								DueAt={task.DueAt}
+								HasDueAt={task.HasDueAt}
+								DueLabel={task.DueLabel}
+								Urgent={task.Urgent}
+								Primary={task.Primary}
+								NativeNavigation={task.NativeNavigation}
+							></ActionCenterNativeTask>
+						</If>
+					</Each>
+				</div>
+			</aside>
+		</If>
+		</div>
+	</section>
+}
+
 func Page() Node {
 	return <main class="page home-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<If cond={data.viewer.signed_in == false}>
@@ -184,166 +359,9 @@ func Page() Node {
 			</section>
 		</If>
 		<If cond={data.viewer.signed_in}>
-			<section class="status-cards">
-				<article class="status-card status-card--fantasy">
-					<div class="signal-label">
-						<span class="live-dot" aria-hidden="true"></span>
-						FANTASY
-					</div>
-					<If cond={data.fantasy_card.has_seat}>
-						<div class="status-card__team">
-							<span class={"team-mark tone-" + data.fantasy_card.team.tone} aria-hidden="true">
-								<If cond={data.fantasy_card.team.has_avatar_image}>
-									<img class="avatar-mark__photo" src={data.fantasy_card.team.avatar_image_url} alt={data.fantasy_card.team.name} loading="lazy" />
-								</If>
-								<If cond={data.fantasy_card.team.has_avatar_image == false}>
-									{data.fantasy_card.team.abbreviation}
-								</If>
-							</span>
-							<div>
-								<strong>{data.fantasy_card.team.name}</strong>
-								<small class="mono">
-									{data.fantasy_card.team.record}
-									·
-									{data.fantasy_card.team.streak}
-								</small>
-							</div>
-						</div>
-						<a href="/team" data-gosx-link class="button button--compact">Open your team →</a>
-					</If>
-					<If cond={data.public_entry.is_co_manager_pending}>
-						<span class="section-index">{data.public_entry.state_label}</span>
-						<strong class="status-card__line">{data.public_entry.headline}</strong>
-						<p class="status-card__line">{data.public_entry.detail}</p>
-						<a href={data.public_entry.action_href} class="button button--ghost">{data.public_entry.action_label}</a>
-					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.can_claim}>
-						<p class="status-card__line">{data.public_entry.detail}</p>
-						<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
-					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false && data.public_entry.is_co_manager_pending == false}>
-						<p class="status-card__line">{data.public_entry.detail}</p>
-						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
-					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.league_full && data.public_entry.is_co_manager_pending == false}>
-						<p class="status-card__line">{data.public_entry.detail}</p>
-						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
-					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted == false}>
-						<p class="status-card__line">{data.public_entry.detail}</p>
-						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
-					</If>
-				</article>
-				<article class="status-card status-card--pickem">
-					<div class="signal-label">
-						<span class="live-dot" aria-hidden="true"></span>
-						PICK'EM
-					</div>
-					<div class="pickem-home-panel__row">
-						<span>This week</span>
-						<strong class="mono">
-							{data.pickem_home.unpicked_count}
-							unpicked
-						</strong>
-					</div>
-					<div class="pickem-home-panel__row">
-						<span>Season record</span>
-						<If cond={data.pickem_home.has_record}>
-							<strong class="mono">
-								{data.pickem_home.season_wins}
-								-
-								{data.pickem_home.season_losses}
-								-
-								{data.pickem_home.season_pushes}
-							</strong>
-						</If>
-						<If cond={data.pickem_home.has_record == false}>
-							<strong class="mono">No picks yet</strong>
-						</If>
-					</div>
-					<div class="pickem-home-panel__row">
-						<span>Current streak</span>
-						<If cond={data.pickem_home.has_streak}>
-							<strong class="mono">
-								{data.pickem_home.streak}
-								W
-							</strong>
-						</If>
-						<If cond={data.pickem_home.has_streak == false}>
-							<strong class="mono">—</strong>
-						</If>
-					</div>
-					<a href="/pickem" data-gosx-link class="button button--compact">Open Pick'em HQ →</a>
-				</article>
-			</section>
+			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
 		<If cond={data.viewer.signed_in && data.has_seat}>
-		<section class="hero-command">
-			<div class="hero-command__copy">
-				<div class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
-					LEAGUE SYSTEM // ONLINE
-				</div>
-				<p class="hero-kicker">
-					{data.league.hero_kicker}
-					<span class="position-chip">{data.league_mode}</span>
-				</p>
-				<h1>
-					THE SEASON
-					<br></br>
-					<span>NEVER SLEEPS.</span>
-				</h1>
-				<p class="hero-deck">
-					Your <strong>{data.league.format_blurb}</strong> league control room: lineups, waivers, and a commissioner-published league record.
-				</p>
-				<div class="hero-actions">
-					<a href="/matchups" data-gosx-link class="button button--primary">
-						Enter live center
-						<span aria-hidden="true">↗</span>
-					</a>
-					<a href="/draft" data-gosx-link class="button button--ghost">Open draft room</a>
-				</div>
-			</div>
-			<aside class="draft-transmission" aria-labelledby="draft-event-heading-member">
-				<div class="transmission-top">
-					<span>Incoming transmission</span>
-					<span class="mono">DRAFT EVENT</span>
-				</div>
-				<div class="chrome-disc" aria-hidden="true">
-					<span>{data.league.short_code}</span>
-				</div>
-				<div class="draft-transmission__body">
-					<h2 id="draft-event-heading-member">{data.draft.event_label}</h2>
-					<time class="event-date">{data.draft.long_date}</time>
-					<div class="event-time">
-						<strong>{data.draft.time}</strong>
-						<span>{data.draft.timezone}</span>
-					</div>
-					<div class="event-state" role="status">
-						<span class="event-state__mark" aria-hidden="true"></span>
-						<strong>{data.draft.status_label}</strong>
-					</div>
-					<p class="event-note">{data.draft.status_note}</p>
-				</div>
-				<If cond={data.draft.window_reached == false}>
-					<div class="countdown-strip">
-						<span>Window in</span>
-						<b
-							class="mono"
-							data-gosx-countdown={data.draft.at}
-							data-gosx-countdown-format="dhms"
-							data-gosx-countdown-then="revalidate"
-						>{data.draft.countdown_label}</b>
-					</div>
-				</If>
-				<If cond={data.draft.window_reached}>
-					<div class="countdown-strip">
-						<span>Window status</span>
-						<b>{data.draft.status_label}</b>
-					</div>
-				</If>
-			</aside>
-		</section>
 		<section class="score-command" data-live-root>
 			<header class="section-heading section-heading--split">
 				<div>

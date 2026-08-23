@@ -161,6 +161,9 @@ func init() {
 			if divisions, ok := data["divisions"].([]map[string]any); ok {
 				data["divisions"] = dashboardDivisions(divisions)
 			}
+			if actionCenter, ok := data["action_center"].(map[string]any); ok {
+				data["action_center"] = dashboardActionCenter(actionCenter)
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
@@ -171,5 +174,73 @@ func init() {
 		},
 	}); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// ActionCenterCard is the typed home action-center view model. The service
+// remains the authority for stage/priority truth; this adapter only proves
+// render-time field coverage.
+type ActionCenterCard struct {
+	Stage               string
+	StageLabel          string
+	Heading             string
+	Summary             string
+	HasActions          bool
+	ActionCount         int
+	Actions             []league.ActionCenterActionCard
+	HasCommissioner     bool
+	CommissionerActions []league.ActionCenterActionCard
+}
+
+func actionCenterActionCardFromMap(raw map[string]any) league.ActionCenterActionCard {
+	return league.ActionCenterActionCard{
+		ID:               stringField(raw, "id"),
+		Priority:         stringField(raw, "priority"),
+		PriorityLabel:    stringField(raw, "priority_label"),
+		Label:            stringField(raw, "label"),
+		Detail:           stringField(raw, "detail"),
+		Href:             stringField(raw, "href"),
+		DueAt:            stringField(raw, "due_at"),
+		HasDueAt:         boolField(raw, "has_due_at"),
+		DueLabel:         stringField(raw, "due_label"),
+		Urgent:           boolField(raw, "urgent"),
+		Primary:          boolField(raw, "primary"),
+		NativeNavigation: boolField(raw, "native_navigation"),
+	}
+}
+
+func actionCenterActionCards(raw any) []league.ActionCenterActionCard {
+	entries, _ := raw.([]map[string]any)
+	out := make([]league.ActionCenterActionCard, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, actionCenterActionCardFromMap(entry))
+	}
+	return out
+}
+
+func dashboardActionCenter(raw map[string]any) ActionCenterCard {
+	return ActionCenterCard{
+		Stage:               stringField(raw, "stage"),
+		StageLabel:          stringField(raw, "stage_label"),
+		Heading:             stringField(raw, "heading"),
+		Summary:             stringField(raw, "summary"),
+		HasActions:          boolField(raw, "has_actions"),
+		ActionCount:         intField(raw, "action_count"),
+		Actions:             actionCenterActionCards(raw["actions"]),
+		HasCommissioner:     boolField(raw, "has_commissioner_actions"),
+		CommissionerActions: actionCenterActionCards(raw["commissioner_actions"]),
+	}
+}
+
+func intField(m map[string]any, key string) int {
+	switch value := m[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
 	}
 }
