@@ -1,38 +1,44 @@
 package board
 
-func BoardRow(props any) Node {
-	return <article class="board-row" data-picked={props.player.picked} data-gosx-reorder-item={props.player.id}>
-		<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + props.player.name}>⠿</span>
-		<span class="pool-rank mono">{props.player.board_rank}</span>
+type BoardRowProps struct {
+	Player       map[string]any
+	RemoveAction string
+	CSRF         string
+}
+
+func BoardRow(props BoardRowProps) Node {
+	return <article class="board-row" data-picked={props.Player.picked} data-gosx-reorder-item={props.Player.id}>
+		<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + props.Player.name}>⠿</span>
+		<span class="pool-rank mono">{props.Player.board_rank}</span>
 		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
-			<If cond={props.player.has_headshot}>
-				<img class="player-headshot" src={props.player.headshot} alt="" loading="lazy" />
+			<If cond={props.Player.has_headshot}>
+				<img class="player-headshot" src={props.Player.headshot} alt="" loading="lazy" />
 			</If>
 			<div class="pool-player__text">
-				<strong>{props.player.name}</strong>
-				<If cond={props.player.has_draft_capital}>
-					<span class="badge-rookie">{props.player.draft_capital}</span>
+				<strong>{props.Player.name}</strong>
+				<If cond={props.Player.has_draft_capital}>
+					<span class="badge-rookie">{props.Player.draft_capital}</span>
 				</If>
-				<small>{props.player.detail}</small>
-				<If cond={props.player.has_opponent}>
+				<small>{props.Player.detail}</small>
+				<If cond={props.Player.has_opponent}>
 					<small class="mono">
-						{props.player.opponent}
-						<If cond={props.player.has_matchup}>
+						{props.Player.opponent}
+						<If cond={props.Player.has_matchup}>
 							·
-							<span class="matchup-chip" data-matchup-tier={props.player.matchup_tier}>{props.player.matchup_chip}</span>
+							<span class="matchup-chip" data-matchup-tier={props.Player.matchup_tier}>{props.Player.matchup_chip}</span>
 						</If>
 					</small>
 				</If>
 			</div>
 			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
 				<div class="stat-tip__head">
-					<strong>{props.player.name}</strong>
-					<span class="mono">{props.player.jersey}</span>
-					<span class="mono stat-tip__team">{props.player.nfl_team}</span>
+					<strong>{props.Player.name}</strong>
+					<span class="mono">{props.Player.jersey}</span>
+					<span class="mono stat-tip__team">{props.Player.nfl_team}</span>
 				</div>
-				<If cond={props.player.has_breakdown}>
+				<If cond={props.Player.has_breakdown}>
 					<div class="stat-tip__rows">
-						<Each of={props.player.breakdown} as="row">
+						<Each of={props.Player.breakdown} as="row">
 							<div class="stat-tip__row" data-scored={row.scored}>
 								<span>{row.label}</span>
 								<span class="mono">{row.calc}</span>
@@ -41,28 +47,28 @@ func BoardRow(props any) Node {
 						</Each>
 						<div class="stat-tip__total">
 							<span>League scoring</span>
-							<b class="mono">{props.player.breakdown_total}</b>
+							<b class="mono">{props.Player.breakdown_total}</b>
 						</div>
 					</div>
 				</If>
-				<If cond={props.player.has_breakdown == false}>
+				<If cond={props.Player.has_breakdown == false}>
 					<p class="stat-tip__empty">No projection detail for this position.</p>
 				</If>
-				<If cond={props.player.has_matchup}>
-					<p class="stat-tip__hist mono">{props.player.matchup_detail}</p>
+				<If cond={props.Player.has_matchup}>
+					<p class="stat-tip__hist mono">{props.Player.matchup_detail}</p>
 				</If>
-				<If cond={props.player.has_hist}>
-					<p class="stat-tip__hist mono">{props.player.hist}</p>
+				<If cond={props.Player.has_hist}>
+					<p class="stat-tip__hist mono">{props.Player.hist}</p>
 				</If>
 			</div>
 		</div>
-		<span class="position-chip">{props.player.position}</span>
-		<b class="mono">{props.player.projection}</b>
+		<span class="position-chip">{props.Player.position}</span>
+		<b class="mono">{props.Player.projection}</b>
 		<div class="board-controls">
 			<form method="post" action={props.RemoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="player_id" value={props.player.id}></input>
-				<button class="board-button board-button--cut" type="submit" aria-label={"Remove " + props.player.name}>✕</button>
+				<input type="hidden" name="player_id" value={props.Player.id}></input>
+				<button class="board-button board-button--cut" type="submit" aria-label={"Remove " + props.Player.name}>✕</button>
 			</form>
 		</div>
 	</article>

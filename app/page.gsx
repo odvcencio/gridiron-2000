@@ -19,7 +19,16 @@ component TeamMark(props: TeamMarkProps) {
 	</span>
 }
 
-func MiniMatchup(props any) Node {
+type MiniMatchupProps struct {
+	ID                string
+	ShowLiveIndicator bool
+	Status            string
+	Clock             string
+	Away              MatchupTeamCard
+	Home              MatchupTeamCard
+}
+
+func MiniMatchup(props MiniMatchupProps) Node {
 	return <article class="mini-matchup" data-live-matchup={props.ID}>
 		<div class="mini-matchup__meta">
 			<span>
