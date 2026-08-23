@@ -2545,12 +2545,12 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 
 // ---------------------------------------------------------------------
 // Trade offers (roster-ops spec section 6). Every content check here
-// (T4-T8, T12) runs through validateTradeAssets — the one function the
-// Service layer's exact-message validation, the propose write, the
-// accept write, and the execution write (commissioner approve or the
-// rosterOpsTick T-exec step, trades.go) all call, so "applied at propose,
-// re-applied at accept, re-applied at execution" (section 6.3) is one
-// function called three times, never three hand-duplicated rule sets.
+// (T4-T8, T12) runs through the shared validateTradeAssetsForOperation
+// implementation. The Service layer's exact-message validation, the propose
+// write, the accept write, and the execution write (commissioner approve or
+// the rosterOpsTick T-exec step, trades.go) all re-apply that implementation;
+// execution selects its operation-specific deadline semantics so an accepted
+// before-deadline offer can finish its review window after T8.
 // Actor-identity checks (T2, T3, T10, T11, T13) and the note-length check
 // (T14) live at the Service layer only: they are derived fresh from the
 // authenticated request on every call, never from stale client-submitted
@@ -2683,14 +2683,16 @@ func (s *Store) AcceptTradeOffer(offerID string, cfg Config, games []GameInfo, p
 // deterministically" race resolution, both fall out of this one status
 // check under one lock.
 //
-// On success: re-validates content (T5-T8; T4/T12 cannot newly fail post-
-// propose) and, only then, appends one "trade" Transaction covering both
+// On success: re-validates content (T5-T7; T4/T8/T12 cannot newly fail post-
+// accept) and, only then, appends one "trade" Transaction covering both
 // sides and marks the offer executed, in the same persist ("executed
 // trades append ONE Type trade transaction ... in the same persist that
 // resolves the offer"). On a re-validation failure — a player moved or
 // locked since accept — fails closed: the offer moves to "failed" with
 // FailReason set, in the same persist, and no Transaction is appended
-// ("never half-applies").
+// ("never half-applies"). The accepted-before-deadline review window remains
+// executable after the global deadline; validateTradeAssetsForExecution still
+// enforces ownership, locks, roster bounds, and position limits.
 func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, starterCount, rosterCap int) (Transaction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2702,7 +2704,7 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		return Transaction{}, fmt.Errorf("this trade is no longer under review")
 	}
 	offer := s.state.TradeOffers[index]
-	if err := validateTradeAssets(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
+	if err := validateTradeAssetsForExecution(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
 		s.state.TradeOffers[index].Status = TradeStatusFailed
 		s.state.TradeOffers[index].FailReason = err.Error()
 		s.state.TradeOffers[index].ResolvedAt = now.UTC()

@@ -39,6 +39,12 @@ func Page() Node {
 					claim a franchise before proposing or responding to trades.
 				</p>
 			</If>
+			<If cond={data.trade_deadline_passed}>
+				<p class="demo-message">
+					<strong>TRADE DEADLINE CLOSED:</strong>
+					New offers, counters, and acceptances are closed. The deadline passed {data.trade_deadline}.
+				</p>
+			</If>
 		</div>
 		<section class="player-pool">
 			<div class="pool-toolbar">
@@ -54,7 +60,7 @@ func Page() Node {
 					<a href="/join" data-gosx-link>Choose your franchise →</a>
 				</div>
 			</If>
-			<If cond={data.can_edit}>
+			<If cond={data.can_compose}>
 				<div class="position-filters" aria-label="Choose a trade partner">
 					<Each of={data.counterparties} as="team">
 						<a href={"/trades?counterparty=" + team.ID} data-gosx-link class="filter-button" aria-current={team.ID == data.compose_counterparty_id}>{team.Name}</a>
@@ -148,19 +154,24 @@ func Page() Node {
 							</If>
 						</div>
 						<div class="board-controls">
+							<If cond={offer.CanAccept}>
 							<form method="post" action={actionPath("trade-accept")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 								<input type="hidden" name="offer_id" value={offer.ID}></input>
 								<button class="draft-button" type="submit">Accept</button>
 							</form>
+							</If>
+							<If cond={offer.CanDecline}>
 							<form method="post" action={actionPath("trade-decline")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 								<input type="hidden" name="offer_id" value={offer.ID}></input>
 								<button class="board-button board-button--cut" type="submit">Decline</button>
 							</form>
+							</If>
 						</div>
+						<If cond={offer.CanCounter}>
 						<details class="trade-counter-details">
 							<summary>Counter</summary>
 							<form method="post" action={actionPath("trade-counter")} data-gosx-managed="true" class="trade-composer">
@@ -194,6 +205,7 @@ func Page() Node {
 								<button class="draft-button" type="submit">Send counter</button>
 							</form>
 						</details>
+						</If>
 					</article>
 				</Each>
 			</div>
