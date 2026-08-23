@@ -104,7 +104,16 @@ func TestPublicEntrySourceKeepsNarrowAndMotionContracts(t *testing.T) {
 	stylesheet := string(css)
 	for _, want := range []string{
 		"@media (max-width: 20rem)",
+		"@media (max-width: 38rem)",
 		"@media (prefers-reduced-motion: reduce)",
+		".home-action-center",
+		".home-action-center__task",
+		".home-action-center__task-top",
+		".home-action-center__task-detail",
+		".home-action-center__body",
+		".home-action-center__task-marker",
+		".home-action-center__task--on_clock",
+		".home-action-center__task--deadline",
 		".hero-command > *",
 		".login-stage > *",
 		"overflow-wrap: anywhere",
@@ -306,22 +315,60 @@ func renderAuthenticatedHomepage(t *testing.T) string {
 	return recorder.Body.String()
 }
 
-func TestPublicStatusCardBranchesOnPublicEntryState(t *testing.T) {
+func TestHomepageActionCenterSourceContract(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	page := string(source)
 	for _, want := range []string{
-		`data.public_entry.can_claim`,
-		`data.public_entry.admitted`,
-		`data.public_entry.action_href`,
+		`<ActionCenterPanel {...data.action_center}>`,
+		`home-action-center`,
+		`home-action-center__task-top`,
+		`home-action-center__task-detail`,
+		`home-action-center__task-marker`,
+		`home-action-center__status`,
+		`home-action-center__body`,
+		`data.public_entry`,
 	} {
 		if !strings.Contains(page, want) {
-			t.Errorf("homepage status card missing public-entry branch %q", want)
+			t.Errorf("homepage source missing action-center contract %q", want)
 		}
 	}
-	if strings.Contains(page, "Claim a team") {
-		t.Fatal("homepage status card retained an unconditional team claim CTA")
+	for _, stale := range []string{`status-cards`, `data.fantasy_card`, `data.pickem_home`, `Claim a team`} {
+		if strings.Contains(page, stale) {
+			t.Errorf("homepage retained replaced authenticated status-card contract %q", stale)
+		}
+	}
+}
+
+func TestHomepageActionCenterTypedAdapterRendersLinkOnly(t *testing.T) {
+	raw := map[string]any{
+		"stage": "regular_season", "stage_label": "REGULAR SEASON // TODAY",
+		"heading": "KEEP THE SEASON MOVING.", "summary": "Deadlines stay visible.",
+		"has_actions": true, "action_count": 1,
+		"actions": []map[string]any{{
+			"id": "lineup", "priority": "deadline", "priority_label": "BEFORE KICKOFF",
+			"label": "Fix your lineup", "detail": "One slot needs attention.",
+			"href": "/team?week=1", "has_due_at": false, "urgent": true, "primary": true,
+		}},
+		"has_commissioner_actions": false, "commissioner_actions": []map[string]any{},
+	}
+	card := dashboardActionCenter(raw)
+	if card.Stage != "regular_season" || len(card.Actions) != 1 || card.Actions[0].Href != "/team?week=1" {
+		t.Fatalf("typed action-center card = %+v", card)
+	}
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(source)
+	for _, want := range []string{`<ActionCenterPanel {...data.action_center}>`, `href={props.Href}`, `home-action-center__task-detail`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("typed action-center template missing %q", want)
+		}
+	}
+	if strings.Contains(page, "<form") {
+		t.Fatal("homepage action center template must remain link-only")
 	}
 }

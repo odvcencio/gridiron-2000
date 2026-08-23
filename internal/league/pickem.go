@@ -688,34 +688,62 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 // and streak, so signing in without a team seat lands on a complete,
 // honest home screen instead of an empty fantasy dashboard (build item 3).
 func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now time.Time) map[string]any {
-	viewerKey := s.viewerKey(r)
 	allGames := s.schedule()
 	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
 	state = s.store.Snapshot()
+	return s.pickemHomeSummaryFromSnapshot(r, state, now)
+}
+
+func (s *Service) pickemHomeSummaryFromSnapshot(r *http.Request, state PersistedState, now time.Time) map[string]any {
+	viewerKey := s.viewerKey(r)
+	allGames := s.schedule()
 	week := s.pickemWeek(allGames, now)
 	weekGames := gamesInWeek(allGames, week)
 
 	picks := state.Pickems[viewerKey]
-	unpicked := 0
+	gameCount := len(weekGames)
+	pickedCount := 0
+	openUnpicked := 0
+	lockedUnpicked := 0
+	var nextOpenLock time.Time
 	for _, game := range weekGames {
-		if now.Before(game.Kickoff) && picks[game.ID] == "" {
-			unpicked++
+		if picks[game.ID] != "" {
+			pickedCount++
+			continue
 		}
+		if !game.Kickoff.IsZero() && now.Before(game.Kickoff) {
+			openUnpicked++
+			if nextOpenLock.IsZero() || game.Kickoff.Before(nextOpenLock) {
+				nextOpenLock = game.Kickoff
+			}
+			continue
+		}
+		lockedUnpicked++
 	}
 	record := tallyPicks(allGames, state.PickemMarkets, picks, now)
 	streak := pickemStreak(allGames, state.PickemMarkets, picks, now)
+	nextOpenLockAt := ""
+	if !nextOpenLock.IsZero() {
+		nextOpenLockAt = nextOpenLock.Format(time.RFC3339)
+	}
 
 	return map[string]any{
-		"week":                week,
-		"unpicked_count":      unpicked,
-		"season_correct":      record.Wins,
-		"season_total":        record.Wins + record.Losses + record.Pushes,
-		"season_wins":         record.Wins,
-		"season_losses":       record.Losses,
-		"season_pushes":       record.Pushes,
-		"has_record":          record.Participated,
-		"streak":              streak,
-		"has_streak":          streak > 0,
-		"has_games_this_week": len(weekGames) > 0,
+		"week":                  week,
+		"unpicked_count":        openUnpicked,
+		"game_count":            gameCount,
+		"picked_count":          pickedCount,
+		"open_unpicked_count":   openUnpicked,
+		"locked_unpicked_count": lockedUnpicked,
+		"has_next_open_lock":    !nextOpenLock.IsZero(),
+		"next_open_lock_at":     nextOpenLockAt,
+		"season_correct":        record.Wins,
+		"season_total":          record.Wins + record.Losses + record.Pushes,
+		"season_wins":           record.Wins,
+		"season_losses":         record.Losses,
+		"season_pushes":         record.Pushes,
+		"has_record":            record.Participated,
+		"streak":                streak,
+		"has_streak":            streak > 0,
+		"has_games_this_week":   len(weekGames) > 0,
 	}
 }

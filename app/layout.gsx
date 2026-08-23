@@ -22,7 +22,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<p class="navigation-group__label mono">TODAY</p>
 				<Link href="/" class="navigation-link">
 					<span class="navigation-link__index mono">01</span>
-					HQ
+					Home
 				</Link>
 				<Link href="/pickem" class="navigation-link navigation-link--hot">
 					<span class="navigation-link__index mono">02</span>
@@ -38,7 +38,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<If cond={props.HasSeat}>
 					<Link href="/team" class="navigation-link">
 						<span class="navigation-link__index mono">04</span>
-						My team
+						Team terminal
 					</Link>
 				</If>
 				<If cond={props.HasSeat == false && props.SeatsOpen && props.CanClaimSeat}>
@@ -50,7 +50,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<If cond={props.HasSeat == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
 					<Link href="/team" class="navigation-link">
 						<span class="navigation-link__index mono">04</span>
-						Fantasy status
+						Team status
 					</Link>
 				</If>
 				<Link href="/board" class="navigation-link">
@@ -74,7 +74,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<p class="navigation-group__label mono">GAME DAY</p>
 				<Link href="/draft" class="navigation-link">
 					<span class="navigation-link__index mono">08</span>
-					Draft room
+					Draft
 				</Link>
 				<Link href="/blitz" class="navigation-link">
 					<span class="navigation-link__index mono">09</span>

@@ -62,6 +62,10 @@ func (s *Service) PublicEntryView(r *http.Request) PublicEntryView {
 	return s.publicEntryViewForViewer(r, s.Viewer(r))
 }
 func (s *Service) publicEntryViewForViewer(r *http.Request, viewer map[string]any) PublicEntryView {
+	return s.publicEntryViewForViewerState(r, viewer, s.store.Snapshot())
+}
+
+func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[string]any, state PersistedState) PublicEntryView {
 	view := PublicEntryView{
 		State:             PublicEntryAnonymous,
 		StateLabel:        "AUTHENTICATION FIRST",
@@ -77,7 +81,6 @@ func (s *Service) publicEntryViewForViewer(r *http.Request, viewer map[string]an
 		IsCommissioner:    s.IsCommissioner(r),
 	}
 
-	state := s.store.Snapshot()
 	openSeats := len(s.Teams()) - claimedSeatCount(state.Members)
 	if openSeats < 0 {
 		openSeats = 0
@@ -192,7 +195,11 @@ func (s *Service) PublicEntryData(r *http.Request) map[string]any {
 }
 
 func (s *Service) PublicEntryDataForViewer(r *http.Request, viewer map[string]any) map[string]any {
-	v := s.publicEntryViewForViewer(r, viewer)
+	return s.publicEntryDataForViewerState(r, viewer, s.store.Snapshot())
+}
+
+func (s *Service) publicEntryDataForViewerState(r *http.Request, viewer map[string]any, state PersistedState) map[string]any {
+	v := s.publicEntryViewForViewerState(r, viewer, state)
 	return map[string]any{
 		"state":                 string(v.State),
 		"state_label":           v.StateLabel,
