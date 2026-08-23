@@ -208,8 +208,9 @@ COMMISSIONER_EMAILS=commissioner@example.com
 IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com
 ```
 
-The alias is checked against the raw league domain/allowlist/invite policy
-first. The mapping then unifies seat ownership, co-manager bindings, Big
+The configured commissioner's explicit alias is admitted by the narrow
+commissioner exception; unrelated aliases are checked against the raw league
+domain/allowlist/invite policy first. The mapping then unifies seat ownership,
 Board, Pick'em, Blitz, notification preferences, sessions, and audit
 attribution. Do not use chained mappings or map two canonical identities
 together; the process fails closed on those configurations.

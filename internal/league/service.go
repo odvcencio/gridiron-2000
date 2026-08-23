@@ -488,39 +488,99 @@ func (s *Service) CurrentUser(r *http.Request) (auth.User, bool) {
 	return s.CanonicalUser(user), true
 }
 
-// membershipAdmissionPolicy returns the effective initial-admission inputs.
-// A configured domain and explicit invitations are additive. The established
-// initial-setup fallback remains open whenever no explicit invitation source
-// exists, even if a domain has already been staged in configuration.
-func (s *Service) membershipAdmissionPolicy() (domain string, invitations []string) {
-	domain = strings.ToLower(strings.TrimSpace(s.cfg.Membership.AllowedDomain))
-	invitations = append(invitations, splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))...)
-	for _, invited := range s.store.Snapshot().Invites {
-		if invited = admissionEmail(invited); invited != "" {
-			invitations = append(invitations, invited)
-		}
-	}
-	return domain, invitations
+// membershipAdmissionResolver is the private enforcement projection behind
+// MembershipPosture. Its invitation and commissioner maps never cross into
+// public view data; callers receive only the typed, PII-free posture value.
+type membershipAdmissionResolver struct {
+	posture       MembershipPosture
+	invitations   map[string]struct{}
+	commissioners map[string]struct{}
 }
 
-// EmailAllowed reports whether a provider identity may create its initial
-// persisted membership. A matching configured domain or an explicit
-// environment/stored invitation admits it. With no explicit invitations,
-// initial setup remains open after sign-in even if a domain is configured.
-// Once membership exists, signed-in entry views use that persisted canonical
-// Member directly instead of reapplying this initial-admission policy.
-func (s *Service) EmailAllowed(email string) bool {
-	email = admissionEmail(email)
-	domain, invitations := s.membershipAdmissionPolicy()
-	if domain != "" && strings.HasSuffix(email, "@"+domain) {
-		return true
+func (s *Service) membershipAdmissionResolver() membershipAdmissionResolver {
+	invitations := make(map[string]struct{})
+	for _, email := range splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS")) {
+		invitations[email] = struct{}{}
 	}
-	for _, candidate := range invitations {
-		if candidate == email {
+	if s.store != nil {
+		for _, invited := range s.store.Snapshot().Invites {
+			if invited = admissionEmail(invited); invited != "" {
+				invitations[invited] = struct{}{}
+			}
+		}
+	}
+	commissioners := make(map[string]struct{})
+	for _, candidate := range splitEmails(os.Getenv("COMMISSIONER_EMAILS")) {
+		canonical := s.identityResolver.Resolve(candidate)
+		if canonical != "" {
+			commissioners[canonical] = struct{}{}
+		}
+	}
+	return membershipAdmissionResolver{
+		posture:       ResolveMembershipPosture(s.cfg.Membership.AllowedDomain, len(invitations) > 0),
+		invitations:   invitations,
+		commissioners: commissioners,
+	}
+}
+
+// MembershipPosture returns the effective, PII-free initial-admission
+// contract used by admission and every public copy surface.
+func (s *Service) MembershipPosture() MembershipPosture {
+	return s.membershipAdmissionResolver().posture
+}
+
+func (p membershipAdmissionResolver) allows(rawEmail, canonicalEmail string) bool {
+	if canonicalEmail != "" {
+		if _, ok := p.commissioners[canonicalEmail]; ok {
 			return true
 		}
 	}
-	return len(invitations) == 0
+	domain := p.posture.Domain
+	if domain != "" && membershipDomainMatches(rawEmail, domain) {
+		return true
+	}
+	if _, ok := p.invitations[rawEmail]; ok {
+		return true
+	}
+	return p.posture.IsOpenAfterSignIn()
+}
+
+func (s *Service) hasPersistedMembership(canonicalEmail string) bool {
+	if s.store == nil || canonicalEmail == "" {
+		return false
+	}
+	state := s.store.Snapshot()
+	if _, ok := state.Members[canonicalEmail]; ok {
+		return true
+	}
+	// Startup reconciliation normally canonicalizes these keys. The scan keeps
+	// a legacy member record continuous if a test or an older state snapshot is
+	// observed before that migration runs.
+	for key, member := range state.Members {
+		if s.identityResolver.Resolve(key) == canonicalEmail ||
+			s.identityResolver.Resolve(member.Email) == canonicalEmail {
+			return true
+		}
+	}
+	return false
+}
+
+// EmailAllowed reports whether a provider identity may create its initial
+// persisted membership. Admission order is: persisted membership continuity,
+// configured commissioner identity/aliases, raw provider-domain match, raw
+// explicit invitation, then the no-domain/no-invitation setup fallback.
+// Raw domain and invitation checks intentionally use the provider identity;
+// the only canonicalization bypass is an explicit configured commissioner.
+func (s *Service) EmailAllowed(email string) bool {
+	rawEmail := admissionEmail(email)
+	if rawEmail == "" {
+		return false
+	}
+	canonicalEmail := s.identityResolver.Resolve(rawEmail)
+	if s.hasPersistedMembership(canonicalEmail) {
+		return true
+	}
+	return s.membershipAdmissionResolver().allows(rawEmail, canonicalEmail)
 }
 
 // IsCommissioner reports whether the request belongs to a commissioner.
@@ -535,7 +595,7 @@ func (s *Service) IsCommissioner(r *http.Request) bool {
 	}
 	email := user.Email
 	for _, candidate := range splitEmails(os.Getenv("COMMISSIONER_EMAILS")) {
-		if candidate == email {
+		if s.identityResolver.Resolve(candidate) == email {
 			return true
 		}
 	}

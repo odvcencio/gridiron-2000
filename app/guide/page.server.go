@@ -13,17 +13,19 @@ import (
 )
 
 var loadPublicGuideData = func() map[string]any {
-	return publicGuideDataAt(league.Default().Config(), league.Default().DraftAt())
+	svc := league.Default()
+	return publicGuideDataAt(svc.Config(), svc.DraftAt(), svc.MembershipPosture())
 }
 
 // publicGuideData deliberately projects only operator-authored, public league
-// configuration. It never reads members, invites, seats, picks, boards, or
-// any other private runtime state.
+// configuration plus the PII-free posture contract. It never exposes members,
+// invitation addresses, seats, picks, boards, or any other private runtime
+// state.
 func publicGuideData(cfg league.Config) map[string]any {
 	return publicGuideDataAt(cfg, cfg.DraftAt)
 }
 
-func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time) map[string]any {
+func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time, postures ...league.MembershipPosture) map[string]any {
 	teamCount := len(cfg.Teams)
 	rosterSpots := cfg.Roster.Total()
 	capacity := teamCount * rosterSpots
@@ -33,11 +35,9 @@ func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time) map[string
 		mode = "LEAGUE"
 	}
 
-	membershipLabel := "OPEN TO INVITES"
-	membershipDetail := "This league has no email-domain rule. The commissioner controls who may claim a seat."
-	if domain := strings.TrimSpace(cfg.Membership.AllowedDomain); domain != "" {
-		membershipLabel = fmt.Sprintf("@%s MANAGERS", domain)
-		membershipDetail = fmt.Sprintf("Managers with an @%s address may join. The commissioner invites everybody else.", domain)
+	posture := league.ResolveMembershipPosture(cfg.Membership.AllowedDomain, false)
+	if len(postures) > 0 {
+		posture = postures[0]
 	}
 	draftAt := effectiveDraftAt
 	if location, err := time.LoadLocation(cfg.Timezone); err == nil {
@@ -56,8 +56,8 @@ func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time) map[string
 		"roster_capacity":         capacity,
 		"draft_at":                draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST"),
 		"draft_timezone":          cfg.Timezone,
-		"membership_label":        membershipLabel,
-		"membership_detail":       membershipDetail,
+		"membership_label":        posture.Label(),
+		"membership_detail":       posture.Detail(),
 		"pool_target":             target,
 		"pool_target_cushion":     max(0, target-capacity),
 		"pool_target_coverage":    coverage,

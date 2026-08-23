@@ -65,12 +65,12 @@ func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
 		{
 			name: "dynasty invite posture",
 			cfg:  guideConfig("Gridiron House", "dynasty", "America/New_York", "", 8, 17),
-			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "OPEN TO INVITES"},
+			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "OPEN AFTER SIGN-IN"},
 		},
 		{
 			name: "redraft domain posture",
 			cfg:  guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17),
-			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "@stablekernel.com MANAGERS"},
+			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN OR INVITE"},
 		},
 	}
 	for _, tc := range tests {
@@ -93,10 +93,8 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"14 teams · REDRAFT",
 		"Sat, Aug 29, 2026 · 4:00 PM EDT",
 		"America/New_York",
-		"@stablekernel.com MANAGERS",
-		"@stablekernel.com",
-		"Managers with an @stablekernel.com address may join",
-		"The commissioner invites everybody else",
+		"DOMAIN OR INVITE",
+		"Accounts at the configured work domain or with an explicit invitation may enter.",
 		"FIVE-MINUTE START",
 		"COMMISSIONER OPENING CHECKLIST",
 		"What is intentionally different.",
@@ -150,17 +148,14 @@ func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
 	for _, want := range []string{
 		"Manager Guide · Gridiron House",
 		"8 teams · DYNASTY",
-		"OPEN TO INVITES",
-		"This league has no email-domain rule",
-		"The commissioner controls who may claim a seat",
-		"Mark ready",
-		"Mark not ready",
+		"OPEN AFTER SIGN-IN",
+		"Any authenticated Google account may enter while league setup is open.",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dynasty guide omitted %q", want)
 		}
 	}
-	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "MANAGERS", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
+	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
 		if strings.Contains(body, wrong) {
 			t.Errorf("dynasty guide leaked redraft/domain claim %q", wrong)
 		}

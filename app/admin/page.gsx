@@ -602,7 +602,7 @@ func Page() Node {
 					<If cond={data.league_open}>
 						<p class="demo-message">
 							<strong>OPEN LEAGUE:</strong>
-							no invite list is set, so any Google account may claim a seat. Add the
+							no invite list or membership domain is set, so any Google account may claim a seat. Add the
 							{data.league.seat_count_word}
 							manager emails below.
 						</p>

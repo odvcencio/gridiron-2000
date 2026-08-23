@@ -293,36 +293,26 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 	}
 }
 
-// rulesMembershipMap renders the Rules page's Membership section from
-// EmailAllowed's own actual gate (service.go) — the domain gate
-// (membership.allowed_domain), then the "both lists empty" open/restricted
-// rule — plus how many of the league's seats are claimed. No invented
-// toggle: this reports exactly what already gates a seat claim. Before the
-// SK unclaimed-seat/domain-gate finding (build item 1's dry run against a
-// real @stablekernel.com-gated config), this section always reported
-// "OPEN — any Google account can claim an unclaimed seat" whenever no
-// invite/env list was set, even when a domain gate WAS configured — a
-// materially false statement for a domain-gated league; domain_gated is
-// mutually exclusive with open and invite_only so exactly one of the three
-// is true, matching page.gsx's three-branch render.
+// rulesMembershipMap projects the same typed, PII-free posture used by
+// EmailAllowed and PublicEntry. Invitation addresses never enter this map;
+// only the public mode, invitation-source presence, and seat counters do.
 func (s *Service) rulesMembershipMap(state PersistedState) map[string]any {
-	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
+	posture := s.MembershipPosture()
 	claimed := 0
 	for _, team := range s.Teams() {
 		if memberForTeam(state.Members, team.ID).Email != "" {
 			claimed++
 		}
 	}
-	domain := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
-	domainGated := domain != ""
-	open := !domainGated && len(envEmails) == 0 && len(state.Invites) == 0
 	return map[string]any{
-		"open":          open,
-		"domain_gated":  domainGated,
-		"domain":        domain,
-		"invite_only":   !domainGated && !open,
-		"seat_count":    len(s.Teams()),
-		"claimed_seats": claimed,
+		"open":                  posture.IsOpenAfterSignIn(),
+		"domain_gated":          posture.IsDomainOrInvite(),
+		"invite_only":           posture.IsInviteOnly(),
+		"label":                 posture.Label(),
+		"has_invitation_source": posture.HasInvitationSource,
+		"detail":                posture.Detail(),
+		"seat_count":            len(s.Teams()),
+		"claimed_seats":         claimed,
 	}
 }
 

@@ -109,13 +109,12 @@ type TradesBlock struct {
 // MembershipBlock is the "membership" config block (registration wave,
 // build item 5 — the platform thesis proof: "separate setups (scoring
 // rules, membership rules, etc) with the same underlying platform").
-// AllowedDomain is a bare domain (no "@"); when set, any Google sign-in
-// whose email carries that domain is admitted as a member without
-// needing an invite-list entry — the invite list still works alongside
-// it (Service.EmailAllowed). An empty AllowedDomain (the zero value, and
-// every config that omits the "membership" block entirely) means no
-// domain gate: membership is invite/env-list only, unchanged from
-// before this block existed.
+// AllowedDomain is a bare domain (no "@"); when set, a matching raw Google
+// provider email is admitted and explicit invitation sources still work
+// alongside it. A configured domain closes the no-source setup fallback:
+// outsiders are rejected until explicitly invited. An empty AllowedDomain
+// means there is no domain path; with no environment or stored invitations,
+// setup is OPEN AFTER SIGN-IN, otherwise admission is invite-only.
 type MembershipBlock struct {
 	AllowedDomain string `json:"allowed_domain,omitempty"`
 }

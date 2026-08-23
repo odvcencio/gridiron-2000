@@ -303,6 +303,7 @@ func Page() Node {
 						{data.public_entry.membership_label}
 					</p>
 					<p class="entry-note">{data.public_entry.detail}</p>
+					<p class="entry-policy-detail">{data.public_entry.membership_detail}</p>
 					<div class="hero-actions">
 						<a href="/login" data-gosx-link class="button button--primary">
 							Sign in with Google
