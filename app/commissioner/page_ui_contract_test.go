@@ -108,3 +108,17 @@ func TestNonCommissionerSSRDoesNotFetchFleet(t *testing.T) {
 		t.Fatalf("noncommissioner fleet readout = %#v", data["fleet"])
 	}
 }
+
+func TestWeekCloseReadyAttentionRoutesToNormalCloseControl(t *testing.T) {
+	card := cardView(commissionerhq.FleetEntry{
+		PeerID: "g2k", PublicURL: "https://gridiron.example",
+		Summary: commissionerhq.Summary{
+			Instance:  commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example"},
+			Season:    commissionerhq.Season{WeekClose: commissionerhq.WeekClose{Week: 1, Ready: true}},
+			Attention: []commissionerhq.Attention{{Code: "week_close_ready", Severity: "warning", Area: "schedule", Message: "ready"}},
+		},
+	})
+	if len(card.Attention) != 1 || card.Attention[0].Section != "week-close" || card.Attention[0].OwnerURL != "https://gridiron.example/admin?section=week-close#admin-week-close" {
+		t.Fatalf("week-close attention route = %+v", card.Attention)
+	}
+}

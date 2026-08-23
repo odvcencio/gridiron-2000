@@ -149,9 +149,15 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 	if !schedule.Published {
 		attention.Add("schedule_missing", commissionerhq.AttentionSeverityWarning, 1,
 			"The regular-season schedule has not been generated.", commissionerhq.AttentionAreaSchedule)
-	} else if season.WeekClose.Week > 0 && !season.WeekClose.Final && !season.WeekClose.Ready {
-		attention.Add("week_close_blocked", commissionerhq.AttentionSeverityWarning, 1,
-			"Current week is not ready to close: "+season.WeekClose.Reason, commissionerhq.AttentionAreaSchedule)
+	} else if close := season.WeekClose; close.Week > 0 && !close.Final {
+		switch {
+		case close.Ready:
+			attention.Add("week_close_ready", commissionerhq.AttentionSeverityWarning, 1,
+				fmt.Sprintf("Week %d is ready to close: all known games are final and player stats are fresh. Review the normal close; forced close remains a separate override.", close.Week), commissionerhq.AttentionAreaSchedule)
+		case close.GamesKnown && close.GamesFinal == close.GamesTotal:
+			attention.Add("week_close_waiting", commissionerhq.AttentionSeverityInfo, 1,
+				fmt.Sprintf("Week %d games are final, but player stats are still settling; normal close is not ready yet.", close.Week), commissionerhq.AttentionAreaSchedule)
+		}
 	}
 	if errors := openDataErrors(seasonOpenData(openData)); errors > 0 {
 		attention.Add("open_data_error", commissionerhq.AttentionSeverityWarning, errors,
