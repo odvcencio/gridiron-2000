@@ -3,7 +3,61 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"strings"
 )
+
+// BoardPositionFilter canonicalizes the position query used by the Big Board.
+// The allowlist is the same pool-position set used by /players; FLEX and
+// SUPERFLEX are slot names, never player positions. Invalid values are
+// ignored so a copied or hand-edited URL cannot create a phantom filter.
+func BoardPositionFilter(raw string) string {
+	position := strings.ToUpper(strings.TrimSpace(raw))
+	if position == "" || position == "ALL" {
+		return ""
+	}
+	for _, allowed := range playerPoolPositions {
+		if position == allowed {
+			return position
+		}
+	}
+	return ""
+}
+
+const boardPoolFragment = "#board-pool"
+
+func boardPageHref(position, query string, page int) string {
+	return poolPageHref("/board", position, query, page) + boardPoolFragment
+}
+
+func boardPositionFilters(active, query string) []map[string]any {
+	tabs := make([]map[string]any, 0, len(playerPoolPositions)+1)
+	tabs = append(tabs, map[string]any{
+		"label":  "ALL",
+		"href":   boardPageHref("", query, 1),
+		"active": active == "",
+	})
+	for _, position := range playerPoolPositions {
+		tabs = append(tabs, map[string]any{
+			"label":  position,
+			"href":   boardPageHref(position, query, 1),
+			"active": active == position,
+		})
+	}
+	return tabs
+}
+
+func boardPageLinks(position, query string, pages, current int) []map[string]any {
+	links := make([]map[string]any, 0, pages)
+	for page := 1; page <= pages; page++ {
+		links = append(links, map[string]any{
+			"label":   fmt.Sprintf("%d", page),
+			"page":    page,
+			"href":    boardPageHref(position, query, page),
+			"current": page == current,
+		})
+	}
+	return links
+}
 
 // BoardData assembles the seat's shared draft board page: the ranked list
 // plus the remaining pool to add from, both in draft-relevant order. Primary
@@ -14,6 +68,9 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	key := boardKeyForViewer(state, s.viewerKey(r))
 	pool := s.pool()
+	position := BoardPositionFilter(r.URL.Query().Get("pos"))
+	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
+	query := strings.ToLower(rawQuery)
 	// Resolve commissioner scoring overrides once so board tooltips show the
 	// same breakdown math as the draft room.
 	scoringValues := s.currentScoringValues()
@@ -41,25 +98,73 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		entry["picked"] = picked[id]
 		entries = append(entries, entry)
 	}
-	available := make([]map[string]any, 0, len(pool.players))
+	availablePlayers := make([]Player, 0, len(pool.players))
 	for _, player := range pool.players {
 		if onBoard[player.ID] || picked[player.ID] {
 			continue
 		}
-		available = append(available, playerMap(player, scoringValues, matchup))
+		availablePlayers = append(availablePlayers, player)
 	}
+	availableCount := len(availablePlayers)
+	matchingPlayers := make([]Player, 0, availableCount)
+	for _, player := range availablePlayers {
+		if position != "" && player.Position != position {
+			continue
+		}
+		if query != "" && !strings.Contains(playerSearchText(player), query) {
+			continue
+		}
+		matchingPlayers = append(matchingPlayers, player)
+	}
+	pagination := newPoolPagination(len(matchingPlayers), r.URL.Query().Get("page"))
+	pagedPlayers := matchingPlayers[pagination.Start:pagination.End]
+	paged := playerMapsWithScoring(pagedPlayers, scoringValues, matchup)
 	return map[string]any{
-		"viewer":               viewer,
-		"can_edit":             key != "",
-		"board":                entries,
-		"board_count":          len(entries),
-		"available":            available,
+		"viewer":      viewer,
+		"can_edit":    key != "",
+		"board":       entries,
+		"board_count": len(entries),
+		"available":   paged,
+		// available_count/available_total are deliberately the unfiltered
+		// available pool. matching_count/pool_total describe the current
+		// server-side filter, so the UI can tell "all available" from
+		// "matches on this query" without shipping the full pool.
+		"available_count":      availableCount,
+		"available_total":      availableCount,
+		"matching_count":       pagination.Total,
+		"matching_empty":       pagination.Total == 0,
+		"available_empty":      availableCount == 0,
+		"has_filters":          position != "" || rawQuery != "",
+		"pos":                  position,
+		"query":                rawQuery,
+		"pool_position":        position,
+		"pool_query":           rawQuery,
+		"pool_total":           pagination.Total,
+		"pool_page":            pagination.Page,
+		"pool_pages":           pagination.Pages,
+		"pool_page_size":       pagination.PageSize,
+		"pool_page_start":      pageRangeStart(pagination),
+		"pool_page_end":        pagination.End,
+		"pool_has_previous":    pagination.HasPrevious,
+		"pool_has_next":        pagination.HasNext,
+		"pool_previous_href":   boardPageHref(position, rawQuery, pagination.Page-1),
+		"pool_next_href":       boardPageHref(position, rawQuery, pagination.Page+1),
+		"pool_page_links":      boardPageLinks(position, rawQuery, pagination.Pages, pagination.Page),
+		"clear_filters_href":   "/board" + boardPoolFragment,
+		"position_filters":     boardPositionFilters(position, rawQuery),
 		"pool_status":          s.poolFreshnessMap(pool),
 		"is_commissioner":      s.IsCommissioner(r),
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 	}
+}
+
+func pageRangeStart(pagination poolPagination) int {
+	if pagination.Total == 0 {
+		return 0
+	}
+	return pagination.Start + 1
 }
 
 func (s *Service) boardOwner(r *http.Request) (string, error) {

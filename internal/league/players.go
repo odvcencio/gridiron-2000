@@ -25,15 +25,19 @@ func positionFilterTabs(active, query string) []map[string]any {
 	return tabs
 }
 
-// playerMatchesQuery reports whether player's name, NFL team, or position
+// playerSearchText is the normalized search text shared by pool maps and
+// server-side filtering on the draft, players, and Big Board surfaces.
+func playerSearchText(player Player) string {
+	return strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position)
+}
+
+// playerMatchesQuery reports whether the normalized player search text
 // contains query (already lower-cased). An empty query always matches.
 func playerMatchesQuery(player Player, query string) bool {
 	if query == "" {
 		return true
 	}
-	return strings.Contains(strings.ToLower(player.Name), query) ||
-		strings.Contains(strings.ToLower(player.NFLTeam), query) ||
-		strings.Contains(strings.ToLower(player.Position), query)
+	return strings.Contains(playerSearchText(player), query)
 }
 
 // PlayersData assembles the /players pool browser (roster-ops spec

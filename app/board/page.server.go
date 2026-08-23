@@ -5,7 +5,9 @@ import (
 	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -14,11 +16,69 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+const boardPoolAnchor = "#board-pool"
+
+// boardRedirectTarget accepts only the board's own canonical filter fields.
+// The path is fixed and url.Values escapes query text, so form data cannot
+// turn a successful add into an open redirect. The pool anchor keeps a
+// manager adding several names anchored at the current discovery surface.
+func boardRedirectTarget(pos, query, page string) string {
+	values := url.Values{}
+	if position := league.BoardPositionFilter(pos); position != "" {
+		values.Set("pos", position)
+	}
+	if query = strings.TrimSpace(query); query != "" {
+		values.Set("q", query)
+	}
+	if parsed, err := strconv.Atoi(strings.TrimSpace(page)); err == nil && parsed > 1 {
+		values.Set("page", strconv.Itoa(parsed))
+	}
+	target := "/board"
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	return target + boardPoolAnchor
+}
+
+// boardRequestWithActionFilters restores the submitted discovery state when
+// GoSX flashes a validation result and redirects a native form back to the
+// page. Managed forms receive the same fields in action.Result.Values; this
+// server fallback also covers a missing Referer without trusting any URL
+// supplied by the browser.
+func boardRequestWithActionFilters(request *http.Request, view action.View) *http.Request {
+	if request == nil {
+		return request
+	}
+	clone := request.Clone(request.Context())
+	values := clone.URL.Query()
+	if query := strings.TrimSpace(view.Value("q")); query != "" {
+		values.Set("q", query)
+	} else {
+		values.Del("q")
+	}
+	if position := league.BoardPositionFilter(view.Value("pos")); position != "" {
+		values.Set("pos", position)
+	} else {
+		values.Del("pos")
+	}
+	if parsed, err := strconv.Atoi(strings.TrimSpace(view.Value("page"))); err == nil && parsed > 1 {
+		values.Set("page", strconv.Itoa(parsed))
+	} else {
+		values.Del("page")
+	}
+	clone.URL.RawQuery = values.Encode()
+	return clone
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			data := league.Default().BoardData(ctx.Request)
+			request := ctx.Request
+			if view, ok := ctx.ActionState("board-add"); ok {
+				request = boardRequestWithActionFilters(request, view)
+			}
+			data := league.Default().BoardData(request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -51,7 +111,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/board", player.Name+" added to your board.")
+				actionui.RedirectWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), player.Name+" added to your board.")
 				return nil
 			},
 			"board-move": func(ctx *action.Context) error {
