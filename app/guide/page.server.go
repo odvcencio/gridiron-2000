@@ -13,13 +13,17 @@ import (
 )
 
 var loadPublicGuideData = func() map[string]any {
-	return publicGuideData(league.Default().Config())
+	return publicGuideDataAt(league.Default().Config(), league.Default().DraftAt())
 }
 
 // publicGuideData deliberately projects only operator-authored, public league
 // configuration. It never reads members, invites, seats, picks, boards, or
 // any other private runtime state.
 func publicGuideData(cfg league.Config) map[string]any {
+	return publicGuideDataAt(cfg, cfg.DraftAt)
+}
+
+func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time) map[string]any {
 	teamCount := len(cfg.Teams)
 	rosterSpots := cfg.Roster.Total()
 	capacity := teamCount * rosterSpots
@@ -35,7 +39,7 @@ func publicGuideData(cfg league.Config) map[string]any {
 		membershipLabel = fmt.Sprintf("@%s MANAGERS", domain)
 		membershipDetail = fmt.Sprintf("Managers with an @%s address may join. The commissioner invites everybody else.", domain)
 	}
-	draftAt := cfg.DraftAt
+	draftAt := effectiveDraftAt
 	if location, err := time.LoadLocation(cfg.Timezone); err == nil {
 		draftAt = draftAt.In(location)
 	}

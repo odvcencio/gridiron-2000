@@ -100,6 +100,21 @@ func TestAdminPageDraftOrderCopyUsesStartLifecycle(t *testing.T) {
 	}
 }
 
+func TestAdminPageRendersDraftMeetingRescheduleControl(t *testing.T) {
+	body := renderAdminPage(t)
+	for _, want := range []string{
+		"draft-reschedule",
+		"type=\"datetime-local\"",
+		"Save meeting time",
+		"configured league timezone",
+		"never starts the draft",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("draft meeting control missing %q", want)
+		}
+	}
+}
+
 func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

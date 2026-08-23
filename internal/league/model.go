@@ -210,6 +210,11 @@ type PersistedState struct {
 	// commissioner explicitly opens the room.
 	DraftStarted   bool      `json:"draftStarted,omitempty"`
 	DraftStartedAt time.Time `json:"draftStartedAt,omitempty"`
+	// DraftAtOverride is the commissioner-chosen pre-draft meeting time. A
+	// zero value means the effective meeting remains the league.json fallback
+	// (Config.DraftAt). It is intentionally separate from DraftStarted: the
+	// meeting is informational and never opens the draft by itself.
+	DraftAtOverride time.Time `json:"draftAtOverride,omitzero"`
 	// Pickems maps owner email to game ID to the picked team abbreviation.
 	Pickems map[string]map[string]string `json:"pickems"`
 	// PickemMarkets maps game ID to its moving candidate or immutable frozen

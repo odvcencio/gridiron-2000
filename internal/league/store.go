@@ -531,6 +531,29 @@ func (s *Store) StartDraft(now time.Time, duration time.Duration) (bool, error) 
 	return true, nil
 }
 
+// SetDraftAtOverride persists the commissioner-selected pre-draft meeting
+// time. The service validates authority, timezone parsing, and that the
+// instant is future relative to its injected clock; this storage boundary
+// still re-checks the lifecycle gate atomically so a racing draft start can
+// never be followed by a schedule mutation.
+func (s *Store) SetDraftAtOverride(at time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if s.state.DraftStarted {
+		return errors.New("the draft meeting cannot be rescheduled after the draft starts")
+	}
+	previous := cloneState(s.state)
+	s.state.DraftAtOverride = at
+	if err := s.persistLocked(colScalars); err != nil {
+		s.state = previous
+		return err
+	}
+	return nil
+}
+
 // PauseClock stops the running deadline, storing the remaining seconds
 // (floored at zero) so a resume can restore it. Persisted, so a restart
 // stays paused. Pauses an unarmed clock harmlessly (remaining stays 0).
@@ -1090,6 +1113,7 @@ func (s *Store) ResetLeague() error {
 	s.state.RosterZones = map[string]map[string]ZoneAssignment{}
 	s.state.DraftStarted = false
 	s.state.DraftStartedAt = time.Time{}
+	s.state.DraftAtOverride = time.Time{}
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colPickemMarkets, colBlitzEntries, colTransactions,
@@ -2888,6 +2912,7 @@ func cloneState(in PersistedState) PersistedState {
 		Scoring:                 make(map[string]float64, len(in.Scoring)),
 		DraftStarted:            in.DraftStarted,
 		DraftStartedAt:          in.DraftStartedAt,
+		DraftAtOverride:         in.DraftAtOverride,
 		Pickems:                 make(map[string]map[string]string, len(in.Pickems)),
 		PickemMarkets:           make(map[string]PickemMarket, len(in.PickemMarkets)),
 		BlitzEntries:            make(map[string]map[string]BlitzEntry, len(in.BlitzEntries)),

@@ -583,15 +583,16 @@ func (s *Service) evalDraftReminders(state PersistedState, now time.Time) {
 	if state.DraftStarted {
 		return
 	}
+	draftAt := s.EffectiveDraftAt(state)
 	for _, lead := range reminderLeads {
-		start, end := draftReminderWindow(s.draftAt, lead.hours)
+		start, end := draftReminderWindow(draftAt, lead.hours)
 		if now.Before(start) {
 			continue
 		}
 		due := !now.After(end)
 
 		for email, member := range state.Members {
-			key := keyDraftReminder(lead.hours, s.draftAt, email)
+			key := keyDraftReminder(lead.hours, draftAt, email)
 			if due {
 				s.recordAndSend(state, email, categoryDraftReminders, key, now, func() renderedNotification {
 					return s.buildDraftReminder(state, member, lead)
@@ -608,7 +609,7 @@ func (s *Service) evalDraftReminders(state PersistedState, now time.Time) {
 			if _, claimed := state.Members[normalizeEmail(email)]; claimed {
 				continue
 			}
-			key := keyDraftReminder(lead.hours, s.draftAt, email)
+			key := keyDraftReminder(lead.hours, draftAt, email)
 			if due {
 				s.recordAndSend(state, email, categoryDraftReminders, key, now, func() renderedNotification {
 					return s.buildDraftReminderInvitee(state, email, lead)
@@ -632,11 +633,12 @@ func draftReminderSubject(hours int, shortDate, draftTime string) (subject, tCod
 
 func (s *Service) buildDraftReminder(state PersistedState, member Member, lead reminderLead) renderedNotification {
 	now := s.clock()
-	draft := s.draftSummary(now)
+	draft := s.draftSummaryForState(now, state)
 	shortDate, _ := draft["date"].(string)
 	draftTime, _ := draft["time"].(string)
 	format, _ := draft["format"].(string)
 	duration := s.pickClock(state)
+	draftAt := s.EffectiveDraftAt(state)
 
 	subject, tCode, leadLabel := draftReminderSubject(lead.hours, shortDate, draftTime)
 	shell := s.shellFor(categoryDraftReminders, "DRAFT EVENT // "+tCode)
@@ -655,17 +657,18 @@ func (s *Service) buildDraftReminder(state PersistedState, member Member, lead r
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
-		Key: keyDraftReminder(lead.hours, s.draftAt, member.Email), Category: categoryDraftReminders,
+		Key: keyDraftReminder(lead.hours, draftAt, member.Email), Category: categoryDraftReminders,
 		To: member.Email, Subject: subject, Text: text, HTML: html,
 	}
 }
 
 func (s *Service) buildDraftReminderInvitee(state PersistedState, email string, lead reminderLead) renderedNotification {
-	draft := s.draftSummary(s.clock())
+	draft := s.draftSummaryForState(s.clock(), state)
 	shortDate, _ := draft["date"].(string)
 	draftTime, _ := draft["time"].(string)
 	format, _ := draft["format"].(string)
 	duration := s.pickClock(state)
+	draftAt := s.EffectiveDraftAt(state)
 
 	subject, tCode, leadLabel := draftReminderSubject(lead.hours, shortDate, draftTime)
 	shell := s.shellForInvitee("DRAFT EVENT // " + tCode)
@@ -683,7 +686,7 @@ func (s *Service) buildDraftReminderInvitee(state PersistedState, email string, 
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
-		Key: keyDraftReminder(lead.hours, s.draftAt, email), Category: categoryDraftReminders,
+		Key: keyDraftReminder(lead.hours, draftAt, email), Category: categoryDraftReminders,
 		To: email, Subject: subject, Text: text, HTML: html,
 	}
 }

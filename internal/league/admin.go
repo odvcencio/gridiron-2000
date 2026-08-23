@@ -819,6 +819,31 @@ func (s *Service) AdminResetDraft(r *http.Request) error {
 	return s.store.ResetDraft()
 }
 
+// AdminRescheduleDraft updates the informational pre-draft meeting. It is
+// commissioner-only, future-only relative to the service clock, and refuses
+// once the authoritative draft lifecycle has started.
+func (s *Service) AdminRescheduleDraft(r *http.Request, raw string) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	state := s.store.Snapshot()
+	if state.DraftStarted {
+		return errors.New("the draft meeting cannot be rescheduled after the draft starts")
+	}
+	location := s.draftTZ
+	if location == nil {
+		location = parseDraftTZ(s.cfg.Timezone)
+	}
+	at, err := parseDraftMeetingLocal(raw, location)
+	if err != nil {
+		return err
+	}
+	if !at.After(s.clock()) {
+		return errors.New("the new draft meeting must be strictly in the future")
+	}
+	return s.store.SetDraftAtOverride(at)
+}
+
 // AdminResetLeague clears picks, seats, ready flags, and boards.
 func (s *Service) AdminResetLeague(r *http.Request) error {
 	if err := s.requireCommissioner(r); err != nil {

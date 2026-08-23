@@ -414,6 +414,28 @@ func Page() Node {
 						</div>
 					</div>
 					<If cond={data.draft_started == false}>
+					<form method="post" action={actionPath("draft-reschedule")} data-gosx-managed="true" class="clock-controls draft-reschedule-form">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<div class="draft-reschedule-form__copy">
+							<strong>Reschedule the meeting point</strong>
+							<p>
+								Current meeting: <b>{data.draft.time}</b> on {data.draft.long_date} ({data.draft.timezone}).
+								<If cond={data.draft.overridden}><span class="position-chip">COMMISSIONER OVERRIDE</span></If>
+								<If cond={data.draft.overridden == false}><span class="position-chip">LEAGUE CONFIG</span></If>
+							</p>
+							<small>Choose a future local time in the configured league timezone. This updates what managers and reminders show; it never starts the draft.</small>
+						</div>
+						<label class="roster-shape-field" for="admin-draft-meeting-at">
+							<span class="mono">NEW MEETING · {data.draft.timezone}</span>
+							<input id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value={data.draft_reschedule.meeting_at} required="required"></input>
+						</label>
+						<button class="button button--primary" type="submit">Save meeting time</button>
+					</form>
+					</If>
+					<If cond={data.draft_started}>
+						<p class="scoring-note"><strong>MEETING LOCKED:</strong> The draft has started, so its meeting record is read-only.</p>
+					</If>
+					<If cond={data.draft_started == false}>
 						<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<label class="mono" for="admin-draft-start-confirm">TYPE START //</label>
