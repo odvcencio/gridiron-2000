@@ -72,7 +72,7 @@ const healedIRWarnWindow = 24 * time.Hour
 // back to one week (7 days) past droppedAt, then the standard first-run
 // rule, so the mechanism still terminates against a thin test schedule.
 func deferredClearsAt(cfg Config, games []GameInfo, droppedAt time.Time) time.Time {
-	week := pickemWeekAt(games, droppedAt)
+	week := lineupCurrentWeekAt(games, droppedAt)
 	if first, ok := firstKickoff(games, week+1); ok {
 		return firstRunAtOrAfter(cfg, first)
 	}
@@ -101,7 +101,7 @@ func (s *Service) evalHealedIR(now time.Time) {
 	}
 	games := s.schedule()
 	pool := s.pool()
-	week := s.pickemWeek(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	for teamID, zones := range state.RosterZones {
 		for playerID, za := range zones {
 			if za.Zone != zoneIR {

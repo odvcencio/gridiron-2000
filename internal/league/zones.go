@@ -482,6 +482,12 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 	if zoneOfPlayer(state, teamID, playerID) != "" {
 		return "", fmt.Errorf("%s already sits in a roster zone", player.Name)
 	}
+	now := s.clock()
+	games := s.schedule()
+	week := lineupCurrentWeekAt(games, now)
+	if playerLocked(games, week, player.NFLTeam, now) {
+		return "", fmt.Errorf("%s is locked and cannot be moved until the week closes", player.Name)
+	}
 	preset := CurrentRoster()
 	capacity, gated := preset.Reserve[player.Position]
 	if !gated || capacity <= 0 {
@@ -490,7 +496,7 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 	if reserveOccupantCount(state, teamID, player.Position) >= capacity {
 		return "", fmt.Errorf("the reserve zone is full for %s", player.Position)
 	}
-	if err := s.store.PlaceInZone(teamID, playerID, zoneReserve, player.Position, s.clock()); err != nil {
+	if err := s.store.PlaceInZone(teamID, playerID, zoneReserve, player.Position, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s moved to reserve.", player.Name), nil
@@ -522,6 +528,12 @@ func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (st
 	if zoneOfPlayer(state, teamID, playerID) != "" {
 		return "", fmt.Errorf("%s already sits in a roster zone", player.Name)
 	}
+	now := s.clock()
+	games := s.schedule()
+	week := lineupCurrentWeekAt(games, now)
+	if playerLocked(games, week, player.NFLTeam, now) {
+		return "", fmt.Errorf("%s is locked and cannot be moved until the week closes", player.Name)
+	}
 	preset := CurrentRoster()
 	if preset.IR <= 0 {
 		return "", fmt.Errorf("this league does not carry an IR zone")
@@ -532,7 +544,7 @@ func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (st
 	if !irEligible(s.injuryDesignationSource(), player) {
 		return "", fmt.Errorf("%s does not carry a qualifying injury designation", player.Name)
 	}
-	if err := s.store.PlaceInZone(teamID, playerID, zoneIR, player.Position, s.clock()); err != nil {
+	if err := s.store.PlaceInZone(teamID, playerID, zoneIR, player.Position, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s moved to IR.", player.Name), nil
@@ -591,7 +603,7 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 	effective := effectiveRosterSize(state, teamID)
 	now := s.clock()
 	games := s.schedule()
-	week := s.pickemWeek(games, now)
+	week := lineupCurrentWeekAt(games, now)
 
 	if dropID != "" {
 		dropPlayer, ok := pool.byID[dropID]

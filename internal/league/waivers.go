@@ -180,7 +180,7 @@ func kickoffLockedGame(games []GameInfo, nflTeam string, now time.Time) (GameInf
 		if g.Away != nflTeam && g.Home != nflTeam {
 			continue
 		}
-		if !g.Final && !now.Before(g.Kickoff) {
+		if !g.Kickoff.IsZero() && !g.Final && !now.Before(g.Kickoff) {
 			return g, true
 		}
 	}

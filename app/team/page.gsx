@@ -434,7 +434,7 @@ func Page() Node {
 			</section>
 		</If>
 		<div class="team-layout">
-			<section class="roster-panel">
+			<section class="roster-panel" id="lineup">
 				<header class="section-heading section-heading--split">
 					<div>
 						<span class="section-index">01 // STARTING LINEUP</span>
@@ -452,6 +452,29 @@ func Page() Node {
 						STARTERS
 					</span>
 				</header>
+				<If cond={data.has_week_notice}>
+					<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
+				</If>
+				<section class="lineup-deadline" aria-live="polite" aria-label="Lineup lock timing">
+					<div class="lineup-deadline__heading">
+						<span class="section-index">WEEK {data.lineup_deadline.week} // LOCK WINDOW</span>
+						<strong>{data.lineup_deadline.headline}</strong>
+					</div>
+					<If cond={data.lineup_deadline.has_deadline}>
+						<p class="lineup-deadline__exact">
+							<span class="mono">NEXT PLAYER LOCK</span>
+							<b>{data.lineup_deadline.exact}</b>
+						</p>
+						<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
+					</If>
+					<p>{data.lineup_deadline.detail}</p>
+					<If cond={data.lineup_deadline.is_no_schedule}>
+						<p class="mono">Do not treat an unavailable timestamp as an unlocked deadline.</p>
+					</If>
+					<If cond={data.lineup_deadline.is_degraded}>
+						<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
+					</If>
+				</section>
 				<div class="roster-shape" aria-label="League roster shape">
 					<Each of={data.roster_shape} as="slot">
 						<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
@@ -474,6 +497,7 @@ func Page() Node {
 							<input type="hidden" name="week" value={data.week}></input>
 							<button class="button button--compact" type="submit">Set best lineup</button>
 						</form>
+						<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster and Big Board order. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
 					</If>
 				</div>
 				<If cond={data.team_terminal_pre_draft}>
@@ -621,6 +645,7 @@ func Page() Node {
 								<p class="stat-tip__empty">No one is on reserve.</p>
 							</If>
 							<If cond={data.reserve_occupants_empty == false}>
+								<p class="scoring-note zone-action-note">Reserve keeps the player on your roster but removes them from starting and bench eligibility. Activate returns them to the general pool; neither action changes the draft or roster count.</p>
 								<div class="roster-list">
 									<Each of={data.reserve_occupants} as="occ">
 										<div class="roster-row">
@@ -642,6 +667,7 @@ func Page() Node {
 											<form method="post" action={actionPath("reserve-activate")} data-gosx-managed="true">
 												<input type="hidden" name="csrf_token" value={csrf.token}></input>
 												<input type="hidden" name="team_id" value={data.team.id}></input>
+												<input type="hidden" name="week" value={data.week}></input>
 												<input type="hidden" name="player_id" value={occ.id}></input>
 												<button class="button button--compact" type="submit">Activate</button>
 											</form>
@@ -650,9 +676,11 @@ func Page() Node {
 								</div>
 							</If>
 							<If cond={data.reserve_place_empty == false}>
+								<p class="scoring-note zone-action-note">Place on reserve is reversible: the player leaves the lineup/bench pool until you activate them again. Your roster capacity does not increase.</p>
 								<form method="post" action={actionPath("reserve-place")} data-gosx-managed="true" class="lineup-toolbar">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.team.id}></input>
+									<input type="hidden" name="week" value={data.week}></input>
 									<select name="player_id" aria-label="Place a player on reserve">
 										<Each of={data.reserve_place_options} as="opt">
 											<option value={opt.id}>{opt.label}</option>
@@ -671,6 +699,7 @@ func Page() Node {
 								<p class="stat-tip__empty">No one is on IR.</p>
 							</If>
 							<If cond={data.ir_occupants_empty == false}>
+								<p class="scoring-note zone-action-note">IR removes an injured player from the counted roster while the designation qualifies. Activate returns them to the roster; if full, choose a drop—the drop is permanent for this transaction and cannot be undone here.</p>
 								<div class="roster-list">
 									<Each of={data.ir_occupants} as="occ">
 										<div class="roster-row">
@@ -699,6 +728,7 @@ func Page() Node {
 											<form method="post" action={actionPath("ir-activate")} data-gosx-managed="true">
 												<input type="hidden" name="csrf_token" value={csrf.token}></input>
 												<input type="hidden" name="team_id" value={data.team.id}></input>
+												<input type="hidden" name="week" value={data.week}></input>
 												<input type="hidden" name="player_id" value={occ.id}></input>
 												<select name="drop_id" aria-label="Optional drop to make room">
 													<option value="">— no drop —</option>
@@ -713,9 +743,11 @@ func Page() Node {
 								</div>
 							</If>
 							<If cond={data.ir_place_empty == false}>
+								<p class="scoring-note zone-action-note">Place on IR is reversible while the player remains eligible. It frees a roster slot for the season; activate later, or review the injury designation before dropping anyone.</p>
 								<form method="post" action={actionPath("ir-place")} data-gosx-managed="true" class="lineup-toolbar">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="team_id" value={data.team.id}></input>
+									<input type="hidden" name="week" value={data.week}></input>
 									<select name="player_id" aria-label="Place a player on IR">
 										<Each of={data.ir_place_options} as="opt">
 											<option value={opt.id}>{opt.label}</option>
