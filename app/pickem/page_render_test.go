@@ -69,10 +69,13 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	// a pick recorded before Sunday and a game that plays out to final
 	// would leave the schedule, so PickemData reports it Locked, Final,
 	// and Correct, and the league's one graded pick reaches the season
-	// leaderboard for real.
+	// leaderboard for real. The selected page below is week 2 while the
+	// upcoming current week remains week 1, so the form context is exercised
+	// on a non-default viewed week too.
 	games := []league.GameInfo{
-		{ID: "g-final", Week: 1, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true, SpreadLineTenths: 35, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
-		{ID: "g-open", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SpreadLineTenths: -25, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		{ID: "g-current", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "SF", Home: "SEA", SpreadLinePresent: true, SpreadLineTenths: 15, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		{ID: "g-final", Week: 2, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true, SpreadLineTenths: 35, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		{ID: "g-open", Week: 2, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SpreadLineTenths: -25, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
 	}
 	league.Default().SetScheduleSource(func() []league.GameInfo { return games })
 
@@ -80,11 +83,11 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if _, err := league.Default().PickemSet(pickReq, "g-final", "BUF"); err != nil {
 		t.Fatalf("seed pick: %v", err)
 	}
-	games[0].Kickoff = now.Add(-72 * time.Hour)
-	games[0].Final = true
-	games[0].ScoresPresent = true
-	games[0].AwayScore = 24
-	games[0].HomeScore = 17
+	games[1].Kickoff = now.Add(-72 * time.Hour)
+	games[1].Final = true
+	games[1].ScoresPresent = true
+	games[1].AwayScore = 24
+	games[1].HomeScore = 17
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -103,7 +106,7 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 		t.Fatalf("BuildChecked: %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/?week=2", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -129,6 +132,12 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	}
 	if !strings.Contains(body, "rank-row") {
 		t.Fatalf("expected the graded pick to reach the season leaderboard as a real rank-row, got: %s", body)
+	}
+	if !strings.Contains(body, "action=\"/__actions/pickem-set?week=2\"") {
+		t.Fatalf("pick forms must carry the selected week in their action URL, got: %s", body)
+	}
+	if !strings.Contains(body, "name=\"week\" value=\"2\"") {
+		t.Fatalf("pick forms must carry the selected week as a hidden field, got: %s", body)
 	}
 	for _, want := range []string{"FROZEN LINE", "BUF +3.5", "MIA -3.5", "WIN · BUF COVERED", "1 - 0 - 0", "THE LINE FREEZES THURSDAY"} {
 		if !strings.Contains(compactBody, want) {
