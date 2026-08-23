@@ -231,6 +231,7 @@ type DraftSeatControlProps struct {
 	Ready           bool
 	Autopick        bool
 	Action          string
+	ReadyAction     string
 	CSRF            string
 }
 
@@ -295,6 +296,18 @@ component DraftSeatControl(props: DraftSeatControlProps) {
 			<If cond={props.Autopick == false}>
 				<input type="hidden" name="on" value="true"></input>
 				<button class="button button--compact autopick-toggle" type="submit">Set AUTO for remaining turns</button>
+			</If>
+		</form>
+		<form method="post" action={props.ReadyAction} data-gosx-managed="true">
+			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+			<input type="hidden" name="team_id" value={props.TeamID}></input>
+			<If cond={props.Ready}>
+				<input type="hidden" name="on" value="false"></input>
+				<button class="button button--compact button--ghost" type="submit">Clear ready flag</button>
+			</If>
+			<If cond={props.Ready == false}>
+				<input type="hidden" name="on" value="true"></input>
+				<button class="button button--compact" type="submit">Mark seat ready</button>
 			</If>
 		</form>
 	</article>
@@ -384,7 +397,7 @@ func DraftRoom(props DraftRoomProps) Node {
 								<span class="mono">YOUR CHECK-IN</span>
 							<If cond={props.Data.viewer_ready}>
 									<strong class="ready-state is-ready">READY</strong>
-									<small>The commissioner sees you checked in and ready.</small>
+									<small>This seat is checked in and ready.</small>
 								</If>
 							<If cond={props.Data.viewer_ready == false}>
 									<strong class="ready-state">NOT READY</strong>

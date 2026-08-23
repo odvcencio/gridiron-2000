@@ -539,6 +539,62 @@ func TestAdminUndoPickRequiresCommissioner(t *testing.T) {
 	}
 }
 
+// TestAdminSetReady checks AdminSetReady's authority gate, its explicit
+// (non-toggle) assignment, and that it rejects an unknown team — the
+// commissioner path that sets any seat's Ready flag on the commissioner's
+// own authority, mirroring AdminSetAutopick.
+func TestAdminSetReady(t *testing.T) {
+	t.Run("sets a different seat's ready flag for the commissioner", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		if err := service.AdminSetReady(request, "team-4", true); err != nil {
+			t.Fatalf("AdminSetReady: %v", err)
+		}
+		state := service.store.Snapshot()
+		if !state.Ready["team-4"] {
+			t.Fatal("team-4 ready = false, want true")
+		}
+		if state.Ready["team-1"] {
+			t.Fatal("team-1 ready = true, want untouched (false)")
+		}
+	})
+
+	t.Run("rejected for non-commissioners", func(t *testing.T) {
+		service := newTestService(t, false)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+
+		if err := service.AdminSetReady(request, "team-4", true); err == nil {
+			t.Fatal("a non-commissioner request must be rejected")
+		}
+	})
+
+	t.Run("rejected for an unknown team", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		if err := service.AdminSetReady(request, "team-not-real", true); err == nil {
+			t.Fatal("an unknown team must be rejected")
+		}
+	})
+
+	t.Run("setting on twice is idempotent, not a toggle", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		if err := service.AdminSetReady(request, "team-2", true); err != nil {
+			t.Fatalf("AdminSetReady (first): %v", err)
+		}
+		if err := service.AdminSetReady(request, "team-2", true); err != nil {
+			t.Fatalf("AdminSetReady (second): %v", err)
+		}
+		if !service.store.Snapshot().Ready["team-2"] {
+			t.Fatal("team-2 ready = false after two explicit sets to true, want true (a toggle would flip back to false)")
+		}
+	})
+}
+
 // TestAdminUndoPickRearmsClockWithInjectedClock checks that AdminUndoPick
 // resolves the re-armed deadline from the service's injected clock
 // (service.now) plus the resolved pick-clock duration, the same
