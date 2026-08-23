@@ -197,6 +197,61 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 	return result
 }
 
+// applyTeamIdentityActionState overlays only failed identity submissions onto the
+// form controls. The service data remains the authoritative current value, so a
+// successful action (or an ordinary GET) always renders the stored identity.
+// Failed native redirects and managed responses both carry the original form
+// values in action.Result.Values; retaining those values makes correction
+// possible without pretending that persistence succeeded.
+func applyTeamIdentityActionState(data map[string]any, states map[string]action.View) {
+	teamName := ""
+	if team, ok := data["team"].(map[string]any); ok {
+		teamName = stringField(team, "name")
+	}
+	data["team_name_value"] = teamName
+	data["has_rename_error"] = false
+	data["rename_error"] = ""
+
+	coManager, _ := data["co_manager"].(map[string]any)
+	if coManager != nil {
+		coManager["invite_email"] = ""
+	}
+	data["has_co_error"] = false
+	data["co_error"] = ""
+
+	if view, ok := states["team-rename"]; ok {
+		if !view.OK() {
+			if value, submitted := view.Result.Values["name"]; submitted {
+				data["team_name_value"] = value
+			}
+		}
+		if message := view.Error("name"); message != "" {
+			data["has_rename_error"] = true
+			data["rename_error"] = message
+		}
+	}
+
+	for _, name := range []string{"co-invite", "co-detach"} {
+		view, ok := states[name]
+		if !ok {
+			continue
+		}
+		if name == "co-invite" && !view.OK() && coManager != nil {
+			if value, submitted := view.Result.Values["email"]; submitted {
+				coManager["invite_email"] = value
+			}
+		}
+		message := view.Error("email")
+		if message == "" {
+			message = view.Error("team_id")
+		}
+		if message != "" {
+			data["has_co_error"] = true
+			data["co_error"] = message
+		}
+	}
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -217,28 +272,7 @@ func init() {
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
-			data["has_rename_error"] = false
-			data["rename_error"] = ""
-			if view, ok := ctx.ActionState("team-rename"); ok {
-				if message := view.Error("name"); message != "" {
-					data["has_rename_error"] = true
-					data["rename_error"] = message
-				}
-			}
-			data["has_co_error"] = false
-			data["co_error"] = ""
-			for _, name := range []string{"co-invite", "co-detach"} {
-				if view, ok := ctx.ActionState(name); ok {
-					message := view.Error("email")
-					if message == "" {
-						message = view.Error("team_id")
-					}
-					if message != "" {
-						data["has_co_error"] = true
-						data["co_error"] = message
-					}
-				}
-			}
+			applyTeamIdentityActionState(data, ctx.ActionStates())
 			data["has_lineup_error"] = false
 			data["lineup_error"] = ""
 			for _, name := range []string{

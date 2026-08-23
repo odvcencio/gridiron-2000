@@ -454,7 +454,7 @@ func signalCardNode(card WireSignalCard) gosx.Node {
 			gosx.Attr("href", card.URL),
 			gosx.Attr("target", "_blank"),
 			gosx.Attr("rel", "noreferrer"),
-		), gosx.Text("Inspect source ↗")))
+		), gosx.Text("Read the report ↗")))
 	}
 	return gosx.El("article", gosx.Attrs(
 		gosx.Attr("class", "wire-event wire-event--"+card.Category),
@@ -484,7 +484,7 @@ func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
 	if !wireConfigured {
 		body = append(body,
 			gosx.El("p", nil, gosx.Text(wireIssue)),
-			gosx.El("p", nil, gosx.Text("No sources are on the wire yet. Ask the commissioner to add reporters.")),
+			gosx.El("p", nil, gosx.Text("Ask the commissioner to add news sources.")),
 		)
 	} else {
 		body = append(body, gosx.El("p", nil, gosx.Text("Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.")))
