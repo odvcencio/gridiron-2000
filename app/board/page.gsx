@@ -163,26 +163,44 @@ func Page() Node {
 					</Each>
 				</div>
 			</section>
-			<section class="player-pool">
+			<section class="player-pool" id="board-pool">
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">02 // PLAYER POOL</span>
 						<h2>Add to board</h2>
 					</div>
 				</div>
-				<div class="pool-search-bar">
+				<div class="position-filters" aria-label="Filter available players by position">
+					<Each of={data.position_filters} as="filter">
+						<a href={filter.href} data-gosx-link class="filter-button" aria-current={filter.active}>{filter.label}</a>
+					</Each>
+				</div>
+				<form method="get" action="/board#board-pool" class="pool-search-bar">
 					<label class="mono" for="board-search">SEARCH //</label>
 					<input
 						id="board-search"
 						type="search"
-						data-gosx-filter="board-pool-rows"
+						name="q"
+						value={data.pool_query}
 						placeholder="Search player, team, or position"
 						autocomplete="off"
 					 />
-				</div>
-				<div class="pool-list pool-list--tall" id="board-pool-rows">
+					<If cond={data.pool_position != ""}>
+						<input type="hidden" name="pos" value={data.pool_position}></input>
+					</If>
+					<button class="filter-button" type="submit">Search</button>
+					<If cond={data.has_filters}>
+						<a class="filter-button" href={data.clear_filters_href} data-gosx-link>Clear</a>
+					</If>
+				</form>
+				<If cond={data.matching_count > 0}>
+					<p class="scoring-note" aria-live="polite">
+						Showing {data.pool_page_start}–{data.pool_page_end} of {data.matching_count} matching players · {data.available_count} available overall · page {data.pool_page} of {data.pool_pages}
+					</p>
+				</If>
+				<div class="pool-list pool-list--tall">
 					<Each of={data.available} as="player">
-						<article class="pool-row" data-player-position={player.position} data-gosx-filter-text={player.search}>
+						<article class="pool-row" data-player-position={player.position}>
 							<span class="pool-rank mono">{player.rank}</span>
 							<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 								<If cond={player.has_headshot}>
@@ -241,6 +259,9 @@ func Page() Node {
 							<form method="post" action={actionPath("board-add")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="player_id" value={player.id}></input>
+								<input type="hidden" name="pos" value={data.pool_position}></input>
+								<input type="hidden" name="q" value={data.pool_query}></input>
+								<input type="hidden" name="page" value={data.pool_page}></input>
 								<If cond={data.can_edit}>
 									<button class="draft-button" type="submit">Add</button>
 								</If>
@@ -251,6 +272,30 @@ func Page() Node {
 						</article>
 					</Each>
 				</div>
+				<If cond={data.available_empty}>
+					<div class="empty-tape">
+						<strong>POOL EMPTY</strong>
+						<p>Every player is already on your board or has been picked.</p>
+					</div>
+				</If>
+				<If cond={data.available_empty == false && data.matching_empty}>
+					<div class="empty-tape">
+						<strong>NO PLAYERS MATCH</strong>
+						<p>Try another position or search, or clear the filters to return to the full available pool.</p>
+						<a class="filter-button" href={data.clear_filters_href} data-gosx-link>Clear filters</a>
+					</div>
+				</If>
+				<nav class="pool-pagination" aria-label="Big Board player pool pages">
+					<If cond={data.pool_has_previous}>
+						<a class="filter-button" href={data.pool_previous_href} data-gosx-link rel="prev">← Previous</a>
+					</If>
+					<Each of={data.pool_page_links} as="link">
+						<a class="filter-button" href={link.href} data-gosx-link aria-current={link.current}>{link.label}</a>
+					</Each>
+					<If cond={data.pool_has_next}>
+						<a class="filter-button" href={data.pool_next_href} data-gosx-link rel="next">Next →</a>
+					</If>
+				</nav>
 			</section>
 		</div>
 	</main>

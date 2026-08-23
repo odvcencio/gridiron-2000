@@ -3287,7 +3287,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"breakdown_total": breakdownTotal,
 		"has_hist":        player.Hist != "",
 		"hist":            player.Hist,
-		"search":          strings.ToLower(player.Name + " " + player.NFLTeam + " " + player.Position),
+		"search":          playerSearchText(player),
 		// is_rookie/draft_capital/has_draft_capital back the pool row's
 		// rookie chip (owner directive 2026-08-18 — "show the reasoning"):
 		// draft_capital is a compact label like "R1 · P8" pre-rendered by
