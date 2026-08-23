@@ -1141,6 +1141,40 @@ func (s *Store) SetDraftOrder(order []string) error {
 	return s.persistLocked(colDraftOrder)
 }
 
+// DrawDraftOrder publishes one commissioner draw and, when the league does not
+// yet have one, its regular-season schedule in the same store transaction.
+// expectedToken is empty for the first draw and orderHash8(current) for an
+// intentional redraw. This compare-and-set makes stale tabs and double
+// submissions harmless: only one request can publish and therefore notify.
+// An existing schedule is preserved; this lets a commissioner-authored plan
+// survive an emergency order redraw.
+func (s *Store) DrawDraftOrder(order []string, expectedToken string, schedule *SeasonSchedule) (bool, error) {
+	if err := validateDraftOrder(order); err != nil {
+		return false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return false, err
+	}
+	if s.state.DraftStarted {
+		return false, fmt.Errorf("reset the draft before changing the order")
+	}
+	currentToken := ""
+	if len(s.state.DraftOrder) > 0 {
+		currentToken = orderHash8(s.state.DraftOrder)
+	}
+	if expectedToken != currentToken {
+		return false, fmt.Errorf("the draft order changed in another tab; reload before drawing again")
+	}
+	s.state.DraftOrder = append([]string(nil), order...)
+	if s.state.Schedule == nil && schedule != nil {
+		s.state.Schedule = cloneSchedule(schedule)
+		return true, s.persistLocked(colDraftOrder, colSchedule, colScalars)
+	}
+	return false, s.persistLocked(colDraftOrder)
+}
+
 // validateDraftOrder rejects anything that is not an exact permutation of
 // the eight default team IDs.
 func validateDraftOrder(order []string) error {

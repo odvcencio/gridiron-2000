@@ -2,6 +2,7 @@ package league
 
 import (
 	"context"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,6 +45,45 @@ func sentLogCount(state PersistedState, prefix string) int {
 		}
 	}
 	return n
+}
+
+func TestDraftOrderDrawEmitsOneBatchAndRejectsRepeatSubmission(t *testing.T) {
+	draftAt := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
+	service, _ := newNotifyTestService(t, draftAt, draftAt.Add(-time.Hour))
+	service.demoMode = true
+	for _, email := range []string{"a@example.com", "b@example.com"} {
+		if _, _, err := service.store.AssignMember(email, strings.ToUpper(email[:1])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	if _, err := service.AdminRandomizeDraftOrder(request, ""); err != nil {
+		t.Fatalf("first draw: %v", err)
+	}
+	if got := service.notifyQueue.Depth(); got != 2 {
+		t.Fatalf("first draw queue depth = %d, want one email for each of 2 members", got)
+	}
+	if got := sentLogCount(service.store.Snapshot(), "order:"); got != 2 {
+		t.Fatalf("first draw sent ledger = %d, want 2", got)
+	}
+
+	if _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
+		t.Fatal("repeated first-draw submission was accepted")
+	}
+	if got := service.notifyQueue.Depth(); got != 2 {
+		t.Fatalf("repeated click queued another email batch: depth=%d, want 2", got)
+	}
+	if got := sentLogCount(service.store.Snapshot(), "order:"); got != 2 {
+		t.Fatalf("repeated click added sent-ledger entries: %d", got)
+	}
+
+	current := service.store.Snapshot().DraftOrder
+	if _, err := service.AdminRandomizeDraftOrder(request, orderHash8(current)); err != nil {
+		t.Fatalf("confirmed replacement: %v", err)
+	}
+	if got := service.notifyQueue.Depth(); got != 4 {
+		t.Fatalf("confirmed replacement queue depth = %d, want exactly one second batch", got)
+	}
 }
 
 // ---------------------------------------------------------------------
