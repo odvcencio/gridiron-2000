@@ -53,6 +53,7 @@ type DraftSeatControlCard struct {
 	Ready          bool
 	Autopick       bool
 	Action         string
+	ReadyAction    string
 	CSRF           string
 }
 
@@ -69,6 +70,17 @@ func parseSeatAutopick(raw string) (bool, error) {
 		return false, nil
 	default:
 		return false, fmt.Errorf("AUTO mode must be exactly true or false")
+	}
+}
+
+func parseSeatReady(raw string) (bool, error) {
+	switch raw {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("Ready must be exactly true or false")
 	}
 }
 
@@ -250,6 +262,7 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
 			Action:         draftActionPath("seat-autopick"),
+			ReadyAction:    draftActionPath("seat-ready"),
 		})
 	}
 	return out
@@ -276,7 +289,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
 		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
 		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
-		"seat_autopick": draftActionPath("seat-autopick"),
+		"seat_autopick": draftActionPath("seat-autopick"), "seat_ready": draftActionPath("seat-ready"),
 	}}
 	room.StatusSummary = draftRoomStatus(viewData)
 	data["room"] = room
@@ -481,6 +494,27 @@ func init() {
 					status = "AUTO mode enabled"
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s for %s.", status, teamID))
+				return nil
+			},
+			// seat-ready sets a claimed seat's Ready flag on the commissioner's
+			// own authority (compare toggle-ready, the manager's own path).
+			// It is restricted to claimed seats, matching seat-autopick: an
+			// unclaimed seat has no manager whose readiness this could assert.
+			"seat-ready": func(ctx *action.Context) error {
+				onRaw := ctx.FormData["on"]
+				on, err := parseSeatReady(onRaw)
+				if err != nil {
+					return actionui.Validation(ctx, "draft", "on", err)
+				}
+				teamID := strings.TrimSpace(ctx.FormData["team_id"])
+				if err := league.Default().AdminSetReady(ctx.Request, teamID, on); err != nil {
+					return action.Error(http.StatusUnauthorized, err.Error())
+				}
+				status := "checked out"
+				if on {
+					status = "locked in"
+				}
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", teamID, status))
 				return nil
 			},
 		},
