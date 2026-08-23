@@ -10,8 +10,8 @@ import (
 	"gridiron-2000/internal/league"
 )
 
-const currentGoSXVersion = "v0.53.1"
-const currentGoSXSum = "h1:UZ6luJP2ul1uxfW3Bw2XUZr28/e4/ijQMFCNHT9zctY="
+const currentGoSXVersion = "v0.53.2"
+const currentGoSXSum = "h1:NzM9QxlLRhTs5G3XKlTE3QhpjcXxufzYykYZwiAOr5g="
 
 const prohibitedReversedIdentityAlias = "IDENTITY_ALIASES=commissioner@example.com=" +
 	"commissioner.alias@example.org"
