@@ -861,7 +861,7 @@ func TestPickemHomeSummaryComputation(t *testing.T) {
 	games := pickemFixture(now)
 	service.SetScheduleSource(func() []GameInfo { return games })
 
-	if err := service.store.SetPickem("demo-guest", "g-final", "BUF"); err != nil {
+	if err := service.store.SetPickem("demo-guest", "g-final", "BUF", games[0].Kickoff.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	// g-locked and g-open are both week 1 and still unpicked; g-locked has

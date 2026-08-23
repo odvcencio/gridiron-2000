@@ -444,31 +444,44 @@ func TestSetScoringValue(t *testing.T) {
 
 func TestSetPickem(t *testing.T) {
 	store := newTestStore(t)
+	firstSubmittedAt := time.Date(2026, 9, 3, 16, 0, 0, 0, time.FixedZone("EDT", -4*60*60))
+	laterSubmittedAt := firstSubmittedAt.Add(24 * time.Hour)
 
-	if err := store.SetPickem("", "game-1", "BUF"); err == nil {
+	if err := store.SetPickem("", "game-1", "BUF", firstSubmittedAt); err == nil {
 		t.Error("empty owner accepted")
 	}
-	if err := store.SetPickem("a@example.com", "", "BUF"); err == nil {
+	if err := store.SetPickem("a@example.com", "", "BUF", firstSubmittedAt); err == nil {
 		t.Error("empty game ID accepted")
 	}
+	if err := store.SetPickem("a@example.com", "game-1", "BUF", time.Time{}); err == nil {
+		t.Error("zero submission time accepted")
+	}
 
-	if err := store.SetPickem("a@example.com", "game-1", "BUF"); err != nil {
+	if err := store.SetPickem("a@example.com", "game-1", "BUF", firstSubmittedAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetPickem("a@example.com", "game-2", "DAL"); err != nil {
+	if err := store.SetPickem("a@example.com", "game-2", "DAL", laterSubmittedAt); err != nil {
 		t.Fatal(err)
 	}
-	if got := store.Snapshot().Pickems["a@example.com"]["game-1"]; got != "BUF" {
+	state := store.Snapshot()
+	if got := state.Pickems["a@example.com"]["game-1"]; got != "BUF" {
 		t.Fatalf("pick = %q, want BUF", got)
 	}
+	if got, want := state.PickemEnteredAt["a@example.com"], firstSubmittedAt.UTC(); !got.Equal(want) {
+		t.Fatalf("first entry = %v, want immutable first submission %v", got, want)
+	}
 
-	// Re-picking a game overwrites the earlier pick.
-	if err := store.SetPickem("a@example.com", "game-1", "MIA"); err != nil {
+	// Re-picking a game overwrites the earlier pick but cannot move entry.
+	if err := store.SetPickem("a@example.com", "game-1", "MIA", laterSubmittedAt.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	picks := store.Snapshot().Pickems["a@example.com"]
+	state = store.Snapshot()
+	picks := state.Pickems["a@example.com"]
 	if picks["game-1"] != "MIA" || len(picks) != 2 {
 		t.Fatalf("pick overwrite failed: %+v", picks)
+	}
+	if got := state.PickemEnteredAt["a@example.com"]; !got.Equal(firstSubmittedAt.UTC()) {
+		t.Fatalf("later mutation moved first entry to %v", got)
 	}
 
 	// The snapshot's inner maps must be independent copies.
@@ -484,17 +497,129 @@ func TestSetPickem(t *testing.T) {
 	if got := store.Snapshot().Pickems; len(got) != 0 {
 		t.Fatalf("league reset must clear pickems: %+v", got)
 	}
+	if got := store.Snapshot().PickemEnteredAt; len(got) != 0 {
+		t.Fatalf("league reset must clear PickemEnteredAt: %+v", got)
+	}
 }
 
 func TestPickemsPersistAcrossReload(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	store := NewStore(path)
-	if err := store.SetPickem("a@example.com", "game-1", "BUF"); err != nil {
+	enteredAt := time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC)
+	if err := store.SetPickem("a@example.com", "game-1", "BUF", enteredAt); err != nil {
 		t.Fatal(err)
 	}
 	reloaded := NewStore(path)
 	if got := reloaded.Snapshot().Pickems["a@example.com"]["game-1"]; got != "BUF" {
 		t.Fatalf("reload lost pick: %q", got)
+	}
+	if got := reloaded.Snapshot().PickemEnteredAt["a@example.com"]; !got.Equal(enteredAt) {
+		t.Fatalf("reload entry time = %v, want %v", got, enteredAt)
+	}
+}
+
+func TestSetPickemRollsBackPickAndEntryOnPersistFailure(t *testing.T) {
+	store := newTestStore(t)
+	failThisStorePersist(store)
+	enteredAt := time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC)
+	if err := store.SetPickem("a@example.com", "game-1", "BUF", enteredAt); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("SetPickem error = %v, want injected persist failure", err)
+	}
+	state := store.Snapshot()
+	if picks := state.Pickems["a@example.com"]; len(picks) != 0 {
+		t.Fatalf("failed persistence left picks in memory: %+v", picks)
+	}
+	if got := state.PickemEnteredAt["a@example.com"]; !got.IsZero() {
+		t.Fatalf("failed persistence established season entry at %v", got)
+	}
+}
+
+func TestSetPickemConcurrentFirstEntryRemainsImmutable(t *testing.T) {
+	store := newTestStore(t)
+	first := time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC)
+	second := first.Add(time.Minute)
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	for index, submittedAt := range []time.Time{first, second} {
+		wg.Add(1)
+		go func(index int, submittedAt time.Time) {
+			defer wg.Done()
+			errs <- store.SetPickem("a@example.com", fmt.Sprintf("game-%d", index), "BUF", submittedAt)
+		}(index, submittedAt)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := store.Snapshot().PickemEnteredAt["a@example.com"]
+	if !got.Equal(first) && !got.Equal(second) {
+		t.Fatalf("concurrent first entry = %v, want one successful request time", got)
+	}
+	if err := store.SetPickem("a@example.com", "game-3", "MIA", second.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if after := store.Snapshot().PickemEnteredAt["a@example.com"]; !after.Equal(got) {
+		t.Fatalf("later pick moved concurrent winner from %v to %v", got, after)
+	}
+}
+
+func TestBackfillPickemEnteredAtPersistsOnceFromEarliestValidLegacyPick(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-state.json")
+	legacy := PersistedState{
+		SchemaVersion: 5,
+		Pickems: map[string]map[string]string{
+			"legacy@example.com": {"later": "D", "earlier": "A", "invalid": "NOPE", "missing": "X"},
+		},
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	if err := store.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	earlier := time.Date(2026, 9, 6, 17, 0, 0, 0, time.UTC)
+	later := earlier.Add(24 * time.Hour)
+	games := []GameInfo{
+		{ID: "later", Kickoff: later, Away: "C", Home: "D"},
+		{ID: "earlier", Kickoff: earlier, Away: "A", Home: "B"},
+		{ID: "invalid", Kickoff: earlier.Add(-24 * time.Hour), Away: "E", Home: "F"},
+	}
+	if err := store.BackfillPickemEnteredAt(games); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().PickemEnteredAt["legacy@example.com"]; !got.Equal(earlier) {
+		t.Fatalf("legacy backfill = %v, want earliest valid picked kickoff %v", got, earlier)
+	}
+
+	// A changed schedule cannot move an already persisted authority.
+	changed := []GameInfo{
+		{ID: "later", Kickoff: later.Add(-7 * 24 * time.Hour), Away: "C", Home: "D"},
+		{ID: "earlier", Kickoff: earlier.Add(7 * 24 * time.Hour), Away: "A", Home: "B"},
+	}
+	if err := store.BackfillPickemEnteredAt(changed); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().PickemEnteredAt["legacy@example.com"]; !got.Equal(earlier) {
+		t.Fatalf("schedule refresh moved legacy backfill to %v", got)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded := NewStore(path)
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if err := reloaded.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	if got := reloaded.Snapshot().PickemEnteredAt["legacy@example.com"]; !got.Equal(earlier) {
+		t.Fatalf("restart lost legacy backfill: %v", got)
 	}
 }
 

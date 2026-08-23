@@ -65,6 +65,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate002AvatarRefs,
 	migrate003DraftLifecycle,
 	migrate004PickemMarkets,
+	migrate005PickemEnteredAt,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -256,6 +257,16 @@ func migrate004PickemMarkets(tx *sql.Tx) error {
 	return nil
 }
 
+func migrate005PickemEnteredAt(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE pickem_entries (owner TEXT PRIMARY KEY, entered_at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("CREATE TABLE pickem_entries: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '6')`); err != nil {
+		return fmt.Errorf("stamp schema_version 6: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -339,7 +350,8 @@ type tableDef struct {
 //	team_names     one row per team.
 //	draft_order    one row per position; the order is redrawn as a whole.
 //	scoring        one row per rule key.
-//	pickems        one row per (owner, game). pickem_owners as for boards.
+//	pickems        one row per (owner, game), plus one immutable first-entry
+//	               row per participating owner. pickem_owners as for boards.
 //	blitz_entries  one row per (owner, slate); the 5-player slate is a JSON
 //	               column, since the entry is always written whole.
 //	autopick       one row per team.
@@ -587,12 +599,18 @@ var collectionSpecs = [collectionCount]collectionSpec{
 		tables: []tableDef{
 			{name: "pickems", keyCols: []string{"owner", "game_id"}, valCols: []string{"team"}},
 			{name: "pickem_owners", keyCols: []string{"owner"}},
+			{name: "pickem_entries", keyCols: []string{"owner"}, valCols: []string{"entered_at"}},
 		},
 		emit: func(st *PersistedState, sink *rowSink) {
 			for owner, picks := range st.Pickems {
 				sink.add("pickem_owners", []any{owner})
 				for gameID, team := range picks {
 					sink.add("pickems", []any{owner, gameID}, team)
+				}
+			}
+			for owner, enteredAt := range st.PickemEnteredAt {
+				if !enteredAt.IsZero() {
+					sink.add("pickem_entries", []any{owner}, encodeTime(enteredAt))
 				}
 			}
 		},
@@ -1291,6 +1309,22 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	}); err != nil {
 		return state, err
 	}
+	if err := queryRows(db, `SELECT "owner", "entered_at" FROM pickem_entries`, func(rows *sql.Rows) error {
+		var owner, raw string
+		if err := rows.Scan(&owner, &raw); err != nil {
+			return err
+		}
+		enteredAt, err := decodeTime(raw)
+		if err != nil {
+			return fmt.Errorf("pickem_entries entered_at: %w", err)
+		}
+		if !enteredAt.IsZero() {
+			state.PickemEnteredAt[owner] = enteredAt
+		}
+		return nil
+	}); err != nil {
+		return state, err
+	}
 	if err := queryRows(db, `SELECT "game_id", "data" FROM pickem_markets`, func(rows *sql.Rows) error {
 		var gameID, raw string
 		if err := rows.Scan(&gameID, &raw); err != nil {
@@ -1828,6 +1862,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
+	}
+	if state.PickemEnteredAt == nil {
+		state.PickemEnteredAt = map[string]time.Time{}
 	}
 	if state.PickemMarkets == nil {
 		state.PickemMarkets = map[string]PickemMarket{}

@@ -55,6 +55,10 @@ func TestIdentityAliasStoreCanonicalizesOwnershipAndPreservesAdmission(t *testin
 		Pickems: map[string]map[string]string{
 			identityAliasEmail: {"game-1": "BUF"},
 		},
+		PickemEnteredAt: map[string]time.Time{
+			identityAliasEmail:     older,
+			identityCanonicalEmail: newer,
+		},
 		BlitzEntries: map[string]map[string]BlitzEntry{
 			identityAliasEmail: {
 				"pre2": {Players: []string{"player-a"}, UpdatedAt: older},
@@ -105,6 +109,12 @@ func TestIdentityAliasStoreCanonicalizesOwnershipAndPreservesAdmission(t *testin
 	}
 	if got.Pickems[identityCanonicalEmail]["game-1"] != "BUF" {
 		t.Fatalf("pick'ems = %#v", got.Pickems)
+	}
+	if _, ok := got.PickemEnteredAt[identityAliasEmail]; ok {
+		t.Fatal("alias PickemEnteredAt key survived migration")
+	}
+	if got.PickemEnteredAt[identityCanonicalEmail] != older {
+		t.Fatalf("PickemEnteredAt = %#v, want earliest alias timestamp", got.PickemEnteredAt)
 	}
 	if got.BlitzEntries[identityCanonicalEmail]["pre2"].UpdatedAt != newer {
 		t.Fatalf("Blitz entry = %#v, want latest duplicate", got.BlitzEntries)
@@ -303,7 +313,8 @@ func TestIdentityAliasStoreActionsUseCanonicalKeys(t *testing.T) {
 	if err := store.BoardAdd(identityAliasEmail, "player-a"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetPickem(identityAliasEmail, "game-1", "BUF"); err != nil {
+	enteredAt := time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC)
+	if err := store.SetPickem(identityAliasEmail, "game-1", "BUF", enteredAt); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SetNotifyPref(identityAliasEmail, categoryDraftLive, false); err != nil {
@@ -315,6 +326,12 @@ func TestIdentityAliasStoreActionsUseCanonicalKeys(t *testing.T) {
 	}
 	if _, ok := got.Pickems[identityAliasEmail]; ok {
 		t.Fatal("pick'em alias key survived write")
+	}
+	if _, ok := got.PickemEnteredAt[identityAliasEmail]; ok {
+		t.Fatal("PickemEnteredAt alias key survived write")
+	}
+	if got.PickemEnteredAt[identityCanonicalEmail] != enteredAt {
+		t.Fatalf("canonical PickemEnteredAt = %v, want %v", got.PickemEnteredAt[identityCanonicalEmail], enteredAt)
 	}
 	if _, ok := got.NotifyPrefs[identityAliasEmail]; ok {
 		t.Fatal("notification alias key survived write")

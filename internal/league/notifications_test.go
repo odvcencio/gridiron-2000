@@ -816,7 +816,7 @@ func TestPickemReminderSendsForUnpickedGameWithin24h(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Prior-season pick makes Alice an eligible, known pick'em participant.
-	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT"); err != nil {
+	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT", now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -847,7 +847,7 @@ func TestPickemReminderStaysSilentMoreThan24hOut(t *testing.T) {
 	if _, _, err := svc.store.AssignMember("a@example.com", "Alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT"); err != nil {
+	if err := svc.store.SetPickem("a@example.com", "prior-game", "PIT", now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -872,7 +872,7 @@ func TestPickemReminderStaysSilentOncePicked(t *testing.T) {
 	if _, _, err := svc.store.AssignMember("a@example.com", "Alice"); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.store.SetPickem("a@example.com", "g1", "PIT"); err != nil {
+	if err := svc.store.SetPickem("a@example.com", "g1", "PIT", now); err != nil {
 		t.Fatal(err)
 	}
 
