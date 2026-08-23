@@ -2,6 +2,7 @@ package league
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -471,6 +472,28 @@ func TestBlitzWorkedExampleScoring(t *testing.T) {
 		}
 		if id == "p-hou-e" && player["revealed"] != false {
 			t.Errorf("Player E's game has not kicked off; the slot must not be revealed: %+v", player)
+		}
+	}
+}
+
+func TestBlitzScoringFallsBackFromNonFiniteRuleValues(t *testing.T) {
+	kickoff := time.Now().Add(-time.Hour)
+	service := newTestService(t, true)
+	pool := service.buildPool(blitzWorkedExamplePool(), 1, "fixture")
+	entry := BlitzEntry{Players: []string{"4038524"}}
+	games := blitzWorkedExampleGames(kickoff)
+	stats := map[string]map[string]float64{
+		"4038524": {"passYds": 101, "passTD": 2},
+	}
+	for _, points := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		values := breakdownDefaultValues()
+		values["passTD"] = points
+		slots := service.blitzSlotMaps(entry, games, stats, values, pool, kickoff.Add(time.Hour))
+		if len(slots) != 1 {
+			t.Fatalf("slots = %+v, want one locked player", slots)
+		}
+		if got := slots[0]["points"]; got != "12.0" {
+			t.Errorf("rule value %v contaminated Blitz points: got %v, want 12.0", points, got)
 		}
 	}
 }

@@ -1751,6 +1751,7 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	// this state becomes the Store's read model. repairIdentityRows already
 	// removed those rows durably before this read; every reload therefore sees
 	// the same repaired identity collections and rebuilds its shadow from them.
+	normalizeScoringValues(state.Scoring)
 	normalizeIdentityCollections(&state)
 	return state, nil
 }
@@ -1950,6 +1951,7 @@ func normalizeState(state *PersistedState) {
 	if state.Scoring == nil {
 		state.Scoring = map[string]float64{}
 	}
+	normalizeScoringValues(state.Scoring)
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
 	}

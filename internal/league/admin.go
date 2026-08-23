@@ -949,6 +949,9 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 	if err != nil {
 		return ScoringRule{}, fmt.Errorf("enter a number")
 	}
+	if err := validateScoringPoints(points); err != nil {
+		return ScoringRule{}, err
+	}
 	if err := s.store.SetScoringValue(key, points); err != nil {
 		return ScoringRule{}, err
 	}

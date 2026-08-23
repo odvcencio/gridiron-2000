@@ -129,7 +129,10 @@ func (r *rosterTotalScorer) TeamWeekScore(teamID string, week int) (points float
 			continue
 		}
 		for ruleKey, statValue := range line {
-			total += statValue * values[ruleKey]
+			if !finiteScoringPoints(statValue) {
+				continue
+			}
+			total += statValue * scoringPoints(values, ruleKey)
 		}
 	}
 	return total, final, nil
@@ -197,7 +200,10 @@ func (l *lineupScorer) TeamWeekScore(teamID string, week int) (points float64, f
 			continue
 		}
 		for ruleKey, statValue := range line {
-			total += statValue * values[ruleKey]
+			if !finiteScoringPoints(statValue) {
+				continue
+			}
+			total += statValue * scoringPoints(values, ruleKey)
 		}
 	}
 	return total, final, nil

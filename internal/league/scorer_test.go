@@ -1,6 +1,7 @@
 package league
 
 import (
+	"math"
 	"testing"
 
 	"gridiron-2000/internal/openstats"
@@ -62,6 +63,27 @@ func TestRosterTotalScorerAppliesOverriddenRules(t *testing.T) {
 	}
 	if points != 12 {
 		t.Fatalf("points = %v, want 12 (2 * overridden value 6)", points)
+	}
+}
+
+func TestRosterTotalScorerFallsBackFromNonFiniteRuleValues(t *testing.T) {
+	roster := map[string][]Player{
+		"team-1": {{ID: "p1", Name: "Josh Allen", Position: "QB"}},
+	}
+	stats := map[int][]WeekStatLine{
+		1: {{Key: normalizePlayerKey("Josh Allen", "QB"), Stats: map[string]float64{"passTD": 2}}},
+	}
+	for _, points := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		values := breakdownDefaultValues()
+		values["passTD"] = points
+		scorer := newRosterTotalScorer(fixtureRosterFn(roster), fixtureStatsFn(stats), func() map[string]float64 { return values }, nil)
+		got, _, err := scorer.TeamWeekScore("team-1", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != 8 {
+			t.Errorf("rule value %v contaminated scorer total: got %v, want 8", points, got)
+		}
 	}
 }
 
