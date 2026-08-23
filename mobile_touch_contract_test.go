@@ -24,6 +24,7 @@ func TestMobileContentControlsKeepTouchBaseline(t *testing.T) {
 		"align-items: center",
 		".site-frame button:not(.badge-option)",
 		".site-frame .wire-filter",
+		".site-frame summary",
 		".site-frame input[type=\"submit\"]",
 		".site-frame input:not([type=\"hidden\"]):not([type=\"radio\"]):not([type=\"checkbox\"])",
 		".site-frame select",

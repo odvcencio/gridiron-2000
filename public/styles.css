@@ -7796,6 +7796,7 @@ body.is-on-clock .draft-clock-panel {
   .site-frame a.board-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
   .site-frame a:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
   .site-frame a[data-gosx-link]:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame summary:not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
   .site-frame .wire-filter:not([role="status"]),
   .site-frame input[type="submit"],
   .site-frame input[type="button"],
