@@ -7782,20 +7782,20 @@ body.is-on-clock .draft-clock-panel {
    Keep this block last so page-specific compact desktop recipes cannot
    shrink the hit area back below the accessibility baseline. */
 @media (max-width: 38rem) {
-  .site-frame a:not(p a):not(li a):not(nav a):not(footer a):not(.next-matchup-panel__link):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip) {
+  .site-frame a:not(p a):not(li a):not(.site-rail a):not(.site-footer a):not(.next-matchup-panel__link):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip) {
     display: inline-flex;
     align-items: center;
     vertical-align: middle;
   }
 
   .site-frame button:not(.badge-option):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a.button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a.google-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a.draft-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a.filter-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a.board-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
-  .site-frame a[data-gosx-link]:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.button:not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.google-button:not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.draft-button:not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.filter-button:not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.board-button:not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a:not(p a):not(li a):not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a[data-gosx-link]:not(p a):not(li a):not(.site-rail a):not(.site-footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
   .site-frame summary:not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
   .site-frame .wire-filter:not([role="status"]),
   .site-frame input[type="submit"],
@@ -7807,6 +7807,31 @@ body.is-on-clock .draft-clock-panel {
     min-block-size: 2.75rem;
     white-space: normal;
     overflow-wrap: anywhere;
+  }
+
+  /* Content paging stays a real control even when its anchors are grouped
+     inside a semantic nav. The global rail/footer exclusions above do not
+     apply to these page-owned navigation surfaces. */
+  .site-frame #main-content .pool-pagination > a[data-gosx-link],
+  .site-frame #main-content .pickem-weeknav > a[data-gosx-link] {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+    justify-content: center;
+  }
+
+  /* GoSX owns pointer and keyboard reorder gestures. Keep its handle
+     tappable after the mobile flex recipe changes the board row layout. */
+  .site-frame [data-gosx-reorder-handle] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+    touch-action: manipulation;
   }
 
   .site-frame input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
