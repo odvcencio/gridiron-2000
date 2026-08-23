@@ -3490,6 +3490,8 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		teamDisplay, teamAbbreviations, teamNames := s.activityTeamDisplay(state, e.teamIDs)
+		teamSearch := append(append([]string{}, teamAbbreviations...), teamNames...)
+		teamSearch = append(teamSearch, e.teamIDs...)
 		out = append(out, map[string]any{
 			"time":        e.at.In(location).Format("Jan 2, 3:04 PM MST"),
 			"timezone":    location.String(),
@@ -3497,7 +3499,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 			"teams":       teamAbbreviations,
 			"team_names":  teamNames,
 			"team_ids":    e.teamIDs,
-			"team_search": strings.Join(append(append([]string{}, teamAbbreviations...), teamNames...), " "),
+			"team_search": strings.Join(teamSearch, " "),
 			"action":      e.action,
 			"player":      e.player,
 		})

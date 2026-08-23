@@ -252,6 +252,24 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 		t.Fatalf("counterparty abbreviation search rows = %+v, want the trade", rows)
 	}
 
+	for _, tc := range []struct {
+		query string
+		want  int
+	}{
+		{query: "team-1", want: 2},
+		{query: "team-2", want: 1},
+	} {
+		request, _ = http.NewRequest(http.MethodGet, "/activity?q="+tc.query, nil)
+		data = svc.ActivityData(request)
+		rows, _ = data["transactions"].([]map[string]any)
+		if len(rows) != tc.want {
+			t.Fatalf("team ID search %q rows = %+v, want %d", tc.query, rows, tc.want)
+		}
+		if rows[0]["action"] != "trades" {
+			t.Fatalf("team ID search %q newest row = %+v, want trade", tc.query, rows[0])
+		}
+	}
+
 	request, _ = http.NewRequest(http.MethodGet, "/activity?team=ALP", nil)
 	data = svc.ActivityData(request)
 	rows, _ = data["transactions"].([]map[string]any)
