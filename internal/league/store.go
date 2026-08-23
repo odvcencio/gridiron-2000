@@ -277,6 +277,23 @@ func (s *Store) ToggleReady(teamID string) (bool, error) {
 	return s.state.Ready[teamID], s.persistLocked(colReady)
 }
 
+// SetReady assigns a team's Ready flag to an explicit value. Unlike
+// ToggleReady's flip, the caller states the outcome directly — the
+// commissioner path (Service.AdminSetReady) needs this so a second call
+// on an already-ready seat is a no-op, not a race-prone read-then-flip.
+func (s *Store) SetReady(teamID string, on bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	s.state.Ready[teamID] = on
+	return s.persistLocked(colReady)
+}
+
 // MakePick records a manual pick and arms the next deadline in the same
 // transaction: one lock acquisition, one persist covers both. madeBy is the
 // pick's provenance ("manager", or "commissioner" for a forced pick routed

@@ -1048,6 +1048,18 @@ func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) erro
 	return s.store.SetAutopick(teamID, on)
 }
 
+// AdminSetReady assigns any seat's Ready flag on the commissioner's
+// authority, rather than the manager's own (compare ToggleReady, the
+// manager's own path). It is a direct assignment, not a toggle: the
+// commissioner states the outcome, so setting a seat ready twice stays
+// ready rather than flipping back.
+func (s *Service) AdminSetReady(r *http.Request, teamID string, on bool) error {
+	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	return s.store.SetReady(teamID, on)
+}
+
 // AdminForceAutopick fires an immediate auto-pick for the on-clock seat,
 // with provenance "commissioner". It works while the clock is paused (this
 // is the whole point: the commissioner is the human confirming a pick

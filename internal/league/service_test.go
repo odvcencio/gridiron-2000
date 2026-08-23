@@ -123,6 +123,33 @@ func TestDraftDataSurfacesViewerReadyAndAutopickState(t *testing.T) {
 	}
 }
 
+// TestToggleReadyStillOnlyAffectsOwnSeat pins that the manager's own
+// ToggleReady path (compare AdminSetReady, the commissioner's path) stays
+// unchanged: it flips only the acting team's own flag, leaving every
+// other seat untouched.
+func TestToggleReadyStillOnlyAffectsOwnSeat(t *testing.T) {
+	service := newTestService(t, true) // demo mode: actingTeam honors the requested team
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	ready, name, err := service.ToggleReady(request, "team-1")
+	if err != nil {
+		t.Fatalf("ToggleReady: %v", err)
+	}
+	if !ready {
+		t.Fatal("ready = false after first toggle, want true")
+	}
+	if want := service.teamByID("team-1").Name; name != want {
+		t.Fatalf("name = %q, want %q", name, want)
+	}
+	state := service.store.Snapshot()
+	if !state.Ready["team-1"] {
+		t.Fatal("team-1 ready = false in the store, want true")
+	}
+	if state.Ready["team-2"] {
+		t.Fatal("team-2 ready = true, want untouched (false)")
+	}
+}
+
 func TestEmptySourceFallsBackToDemoPool(t *testing.T) {
 	service := newTestService(t, true)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return nil, 0, "live" })
