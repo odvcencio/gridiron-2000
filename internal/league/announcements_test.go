@@ -175,7 +175,7 @@ func TestAdminPostAnnouncementProvenanceAndEmailToggle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	a, err := svc.AdminPostAnnouncement(request, "  Draft starts Saturday.  ", false)
+	a, _, err := svc.AdminPostAnnouncement(request, "  Draft starts Saturday.  ", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +191,7 @@ func TestAdminPostAnnouncementProvenanceAndEmailToggle(t *testing.T) {
 		t.Fatalf("also_email=false must not enqueue; depth = %d", got)
 	}
 
-	if _, err := svc.AdminPostAnnouncement(request, "Second note.", true); err != nil {
+	if _, _, err := svc.AdminPostAnnouncement(request, "Second note.", true); err != nil {
 		t.Fatal(err)
 	}
 	if got := svc.notifyQueue.Depth(); got != 1 {
@@ -204,7 +204,7 @@ func TestAdminPostAnnouncementProvenanceAndEmailToggle(t *testing.T) {
 func TestAdminPostAnnouncementRequiresCommissioner(t *testing.T) {
 	svc := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-	if _, err := svc.AdminPostAnnouncement(request, "Hello.", false); err == nil {
+	if _, _, err := svc.AdminPostAnnouncement(request, "Hello.", false); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
 	}
 	if err := svc.AdminDeleteAnnouncement(request, "some-id"); err == nil {

@@ -639,7 +639,7 @@ func TestAdminRandomizeDraftOrder(t *testing.T) {
 	service := newTestService(t, true) // demo mode grants commissioner
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 
-	scheduleCreated, err := service.AdminRandomizeDraftOrder(request, "")
+	scheduleCreated, _, err := service.AdminRandomizeDraftOrder(request, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -666,14 +666,14 @@ func TestAdminRandomizeDraftOrder(t *testing.T) {
 	if !ok || len(draftOrder) != 8 {
 		t.Fatalf("admin draft_order = %v", data["draft_order"])
 	}
-	if _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
+	if _, _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
 		t.Fatal("a repeated first-draw submission replaced the published order")
 	}
 	if got := service.store.Snapshot().DraftOrder; !slices.Equal(got, state.DraftOrder) {
 		t.Fatalf("stale first-draw submission changed order: %v -> %v", state.DraftOrder, got)
 	}
 	originalSchedule := cloneSchedule(state.Schedule)
-	scheduleCreated, err = service.AdminRandomizeDraftOrder(request, token)
+	scheduleCreated, _, err = service.AdminRandomizeDraftOrder(request, token)
 	if err != nil {
 		t.Fatalf("confirmed replacement draw: %v", err)
 	}

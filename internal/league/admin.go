@@ -514,21 +514,22 @@ func (s *Service) TrimUnclaimedSeats(r *http.Request) (kept []Team, removed []st
 // AdminPostAnnouncement posts a new league announcement (league-
 // announcements spec). alsoEmail fires the N11 commissioner-broadcast
 // email to every seated member, respecting each member's own notify
-// preference (notifyAnnouncement, notifications.go); it is a no-op when
-// notifications are not wired, matching every other notify hook.
-func (s *Service) AdminPostAnnouncement(r *http.Request, body string, alsoEmail bool) (Announcement, error) {
+// preference (notifyAnnouncement, notifications.go); the returned receipt
+// reports disabled or unwired delivery without claiming that mail was sent.
+func (s *Service) AdminPostAnnouncement(r *http.Request, body string, alsoEmail bool) (Announcement, NotificationReceipt, error) {
 	if err := s.requireCommissioner(r); err != nil {
-		return Announcement{}, err
+		return Announcement{}, NotificationReceipt{}, err
 	}
 	postedBy := s.commissionerProvenance(r)
 	announcement, err := s.store.PostAnnouncement(body, postedBy, s.clock())
 	if err != nil {
-		return Announcement{}, err
+		return Announcement{}, NotificationReceipt{}, err
 	}
+	receipt := NotificationReceipt{}
 	if alsoEmail {
-		s.notifyAnnouncement(announcement)
+		receipt = s.notifyAnnouncement(announcement)
 	}
-	return announcement, nil
+	return announcement, receipt, nil
 }
 
 // AdminDeleteAnnouncement removes one announcement by ID.
@@ -892,14 +893,14 @@ const (
 
 // AdminRandomizeDraftOrder runs several cryptographic Fisher-Yates passes in
 // memory, publishes only the final order and the regular-season schedule,
-// then emits one notification batch.
+// then evaluates one notification batch and returns its queue receipt.
 // expectedToken is the order the commissioner actually saw; Store's atomic
 // compare-and-set rejects stale/double submissions before they can notify.
 // The bool result reports whether this draw created the schedule; an existing
 // commissioner-authored schedule is deliberately preserved on replacement.
-func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string) (bool, error) {
+func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string) (bool, NotificationReceipt, error) {
 	if err := s.requireCommissioner(r); err != nil {
-		return false, err
+		return false, NotificationReceipt{}, err
 	}
 	previous := s.store.Snapshot().DraftOrder
 	order := defaultTeamIDs()
@@ -907,7 +908,7 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string
 		for i := len(order) - 1; i > 0; i-- {
 			j, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
 			if err != nil {
-				return false, err
+				return false, NotificationReceipt{}, err
 			}
 			order[i], order[j.Int64()] = order[j.Int64()], order[i]
 		}
@@ -920,16 +921,16 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string
 	}
 	schedule, err := s.buildSchedule(defaultScheduleWeeks, defaultScheduleStartWeek, 0)
 	if err != nil {
-		return false, err
+		return false, NotificationReceipt{}, err
 	}
 	scheduleCreated, err := s.store.DrawDraftOrder(order, strings.TrimSpace(expectedToken), &schedule)
 	if err != nil {
-		return false, err
+		return false, NotificationReceipt{}, err
 	}
 	// N4 runs only after the one final order commits. Intermediate shuffle
 	// passes never touch persistence or the notification ledger.
-	s.notifyDraftOrderDrawn(order)
-	return scheduleCreated, nil
+	receipt := s.notifyDraftOrderDrawn(order)
+	return scheduleCreated, receipt, nil
 }
 
 // AdminSetScoring overrides one scoring rule's point value. It requires

@@ -44,6 +44,45 @@ func adminSectionClass(selected, key string) string {
 	return ""
 }
 
+func adminSectionTarget(section string) string {
+	section = validAdminSection(section)
+	if section == "" {
+		return "/admin"
+	}
+	return "/admin?section=" + url.QueryEscape(section) + "#admin-" + section
+}
+
+func adminNotificationReceiptText(receipt league.NotificationReceipt) string {
+	parts := make([]string, 0, 6)
+	if receipt.TransportNotWired {
+		parts = append(parts, "delivery not wired")
+	} else if receipt.TransportDisabled {
+		parts = append(parts, "delivery off")
+	}
+	if receipt.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("%d queued", receipt.Queued))
+	}
+	if receipt.PreferenceSuppressed > 0 {
+		parts = append(parts, fmt.Sprintf("%d suppressed", receipt.PreferenceSuppressed))
+	}
+	if receipt.AlreadyRecorded > 0 {
+		parts = append(parts, fmt.Sprintf("%d already recorded", receipt.AlreadyRecorded))
+	}
+	if receipt.LedgerFailures > 0 {
+		parts = append(parts, fmt.Sprintf("partial failure: %d ledger failure(s)", receipt.LedgerFailures))
+	}
+	if receipt.QueueDrops > 0 {
+		parts = append(parts, fmt.Sprintf("%d dropped (queue full)", receipt.QueueDrops))
+	}
+	if len(parts) == 0 {
+		if receipt.Requested == 0 {
+			return "no recipients requested"
+		}
+		return "no notifications queued"
+	}
+	return strings.Join(parts, ", ")
+}
+
 func adminLeagueSwitcherData(service *commissionerhq.Service, isCommissioner bool) ([]map[string]any, bool) {
 	if !isCommissioner || service == nil {
 		return []map[string]any{}, false
@@ -101,7 +140,17 @@ func init() {
 			data["league_options"] = leagueOptions
 			data["has_league_switcher"] = hasLeagueSwitcher
 			selectedSection := adminSection(ctx.Request)
+			if selectedSection == "" {
+				if _, ok := ctx.ActionState("order-randomize"); ok {
+					selectedSection = "draft-order"
+				} else if _, ok := ctx.ActionState("announcement-post"); ok {
+					selectedSection = "announcements"
+				}
+			}
 			data["admin_section"] = selectedSection
+			data["admin_return_target_field"] = action.ReturnTargetField
+			data["admin_announcements_return_target"] = adminSectionTarget("announcements")
+			data["admin_draft_order_return_target"] = adminSectionTarget("draft-order")
 			for _, key := range adminSectionKeys {
 				data["section_class_"+strings.ReplaceAll(key, "-", "_")] = adminSectionClass(selectedSection, key)
 			}
@@ -387,21 +436,21 @@ func init() {
 				expectedToken := strings.TrimSpace(ctx.FormData["order_token"])
 				redraw := expectedToken != ""
 				if redraw && strings.TrimSpace(ctx.FormData["confirm"]) != "REDRAW ORDER" {
-					message := "type REDRAW ORDER to replace the published order and email everyone again"
+					message := "type REDRAW ORDER to replace the published order and queue a new reminder batch"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				scheduleCreated, err := league.Default().AdminRandomizeDraftOrder(ctx.Request, expectedToken)
+				scheduleCreated, receipt, err := league.Default().AdminRandomizeDraftOrder(ctx.Request, expectedToken)
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				notice := "Final draft order drawn after six shuffle passes. The regular-season schedule is published, then managers receive one notification."
+				notice := "Final draft order drawn after six shuffle passes. The regular-season schedule is published. " + adminNotificationReceiptText(receipt) + "."
 				if !scheduleCreated {
-					notice = "Final draft order drawn after six shuffle passes. The existing regular-season schedule was preserved, then managers receive one notification."
+					notice = "Final draft order drawn after six shuffle passes. The existing regular-season schedule was preserved. " + adminNotificationReceiptText(receipt) + "."
 				}
 				if redraw {
-					notice = "Replacement draft order drawn after six shuffle passes. The existing regular-season schedule was preserved, then managers receive one replacement notification."
+					notice = "Replacement draft order drawn after six shuffle passes. The existing regular-season schedule was preserved. " + adminNotificationReceiptText(receipt) + "."
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", notice)
+				actionui.RedirectWithNotice(ctx, adminSectionTarget("draft-order"), notice)
 				return nil
 			},
 			"clock-pause": func(ctx *action.Context) error {
@@ -531,10 +580,15 @@ func init() {
 			},
 			"announcement-post": func(ctx *action.Context) error {
 				alsoEmail := strings.EqualFold(strings.TrimSpace(ctx.FormData["also_email"]), "true")
-				if _, err := league.Default().AdminPostAnnouncement(ctx.Request, ctx.FormData["body"], alsoEmail); err != nil {
+				_, receipt, err := league.Default().AdminPostAnnouncement(ctx.Request, ctx.FormData["body"], alsoEmail)
+				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Announcement posted.")
+				notice := "Announcement posted."
+				if alsoEmail {
+					notice += " Email: " + adminNotificationReceiptText(receipt) + "."
+				}
+				actionui.RedirectWithNotice(ctx, adminSectionTarget("announcements"), notice)
 				return nil
 			},
 			"announcement-delete": func(ctx *action.Context) error {

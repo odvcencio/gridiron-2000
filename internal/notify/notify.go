@@ -66,6 +66,20 @@ type Message struct {
 // send call here.
 type Sender func(Message) error
 
+// EnqueueResult reports what happened when a message was offered to the
+// bounded queue. Queued means the message was accepted into the FIFO; Dropped
+// means the FIFO was full and the message was not accepted. Delivery is still
+// asynchronous, so Queued is deliberately not a delivery receipt.
+type EnqueueResult string
+
+const (
+	EnqueueQueued  EnqueueResult = "queued"
+	EnqueueDropped EnqueueResult = "dropped"
+)
+
+// Accepted reports whether the message entered the queue.
+func (r EnqueueResult) Accepted() bool { return r == EnqueueQueued }
+
 // sleeper pauses for d or returns early when ctx is done, reporting which
 // happened (true: the full duration elapsed; false: ctx ended the wait
 // early). New wires the real, context-aware implementation; tests inject a
@@ -165,7 +179,7 @@ func (q *Queue) Start(ctx context.Context) {
 // before Start has run still buffers (a queue about to start must not
 // lose it), but the first such message logs a one-time warning so a
 // queue that never starts is not silently invisible (finding m2).
-func (q *Queue) Enqueue(m Message) {
+func (q *Queue) Enqueue(m Message) EnqueueResult {
 	if !q.started.Load() {
 		if !q.warnedUnstarted.Swap(true) {
 			q.logf("notify: message enqueued before Start; queued sends will not be delivered until the worker starts")
@@ -174,8 +188,10 @@ func (q *Queue) Enqueue(m Message) {
 	select {
 	case q.queue <- m:
 		q.outstanding.Add(1)
+		return EnqueueQueued
 	default:
 		q.logf("notify: queue full (capacity %d); dropping key=%s to=%s", queueCapacity, m.Key, m.To)
+		return EnqueueDropped
 	}
 }
 
