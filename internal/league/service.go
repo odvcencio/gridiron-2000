@@ -1712,7 +1712,13 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		}
 	}
 	team := s.teamView(state, teamID)
-	roster, drafted := s.rosterForTeam(state, teamID)
+	roster, _ := s.rosterForTeam(state, teamID)
+	rosterCapacity := CurrentRoster().Total()
+	lifecycle := resolveTeamTerminalLifecycle(state, len(roster), rosterCapacity)
+	terminalData := lifecycle.copy()
+	now := s.clock()
+	radar := s.teamTerminalRadar(state, lifecycle.Phase, now, 3)
+	radarCopy := teamTerminalRadarCopy(lifecycle.Phase)
 	projected := 0.0
 	for _, player := range roster {
 		projected += player.Projection
@@ -1736,7 +1742,6 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		badgeGrid = s.badgeGrid(state, teamID)
 	}
 
-	now := s.clock()
 	games := s.schedule()
 	currentWeek := s.pickemWeek(games, now)
 	week := currentWeek
@@ -1776,18 +1781,20 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		})
 	}
 
-	return map[string]any{
-		"viewer":               viewer,
-		"has_seat":             true,
-		"team":                 teamMap,
-		"drafted":              drafted,
+	data := map[string]any{
+		"viewer":   viewer,
+		"has_seat": true,
+		"team":     teamMap,
+		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
+		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
 		"predraft_has_board":   boardCount > 0,
 		"predraft_board_count": boardCount,
 		"predraft_ready":       managerReady,
 		"projected":            fmt.Sprintf("%.1f", projected),
 		"division":             teamMap["division"],
-		"scouting":             s.topAvailable(state, 3),
+		"scouting":             radar,
+		"scouting_empty":       len(radar) == 0,
 		"is_commissioner":      s.IsCommissioner(r),
 		"league_mode":          s.cfg.ModeLabel,
 		"league":               s.leagueMap(),
@@ -1838,6 +1845,13 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 	}
+	for key, value := range terminalData {
+		data[key] = value
+	}
+	for key, value := range radarCopy {
+		data[key] = value
+	}
+	return data
 }
 
 // coManagerMap renders TeamData's "Operated by X · with Y" block: the

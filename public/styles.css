@@ -2404,7 +2404,7 @@ button.badge-option:hover {
   margin: var(--space-md) 0 var(--space-xl);
   padding: var(--space-md);
   display: grid;
-  grid-template-columns: repeat(4, 1fr) auto;
+  grid-template-columns: repeat(5, 1fr) auto;
   align-items: center;
   gap: var(--space-md);
   border: 1px solid var(--color-border);
@@ -3192,6 +3192,61 @@ body.is-on-clock .draft-clock-panel {
 .roster-predraft-state {
 	border-color: var(--color-accent-cyan);
 	background: var(--color-cyan-haze);
+}
+
+.roster-lifecycle-state {
+	margin: var(--space-md) 0;
+	text-align: left;
+}
+
+.roster-lifecycle-state strong {
+	color: var(--color-accent);
+	font-family: var(--font-display);
+	letter-spacing: 0.08em;
+}
+
+.roster-lifecycle-state p {
+	max-width: 48rem;
+	margin: var(--space-xs) 0 var(--space-md);
+	color: var(--color-text-secondary);
+}
+
+.roster-lifecycle-state--predraft {
+	border-color: var(--color-accent-cyan);
+	background: var(--color-cyan-haze);
+}
+
+.roster-lifecycle-state--live {
+	border-color: var(--color-accent);
+	background: var(--color-accent-haze);
+}
+
+.scout-row {
+	align-items: start;
+}
+
+.scout-row__copy {
+	gap: 0.2rem;
+}
+
+.scout-row__link {
+	width: fit-content;
+	color: var(--color-accent-cyan);
+	font-family: var(--font-mono);
+	font-size: var(--type-xs);
+}
+
+.scout-row__link:hover {
+	color: var(--color-accent);
+}
+
+.scout-row__resolution {
+	color: var(--color-warning);
+}
+
+.scout-empty-state {
+	margin-top: var(--space-md);
+	text-align: left;
 }
 
 .draft-seat-controls {
