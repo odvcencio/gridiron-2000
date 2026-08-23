@@ -206,7 +206,7 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
-		<section class={"team-hero tone-" + data.team.tone} id="team-identity">
+		<section class={"team-hero tone-" + data.team.tone} id="team-identity-hero">
 			<div class="team-hero__identity">
 				<span class="team-monogram">
 					<If cond={data.team.has_avatar_image}>
@@ -363,6 +363,10 @@ func Page() Node {
 				</strong>
 			</div>
 			<div>
+				<span>Roster</span>
+				<strong class="mono">{data.team_terminal_roster_count} / {data.team_terminal_roster_capacity}</strong>
+			</div>
+			<div>
 				<span>Division</span>
 				<strong class="mono">{data.team.division}</strong>
 			</div>
@@ -463,7 +467,7 @@ func Page() Node {
 						</select>
 						<button class="board-button" type="submit">Go</button>
 					</form>
-					<If cond={data.drafted}>
+					<If cond={data.team_terminal_roster_complete}>
 						<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -472,11 +476,24 @@ func Page() Node {
 						</form>
 					</If>
 				</div>
-				<If cond={data.drafted == false}>
-					<div class="empty-tape roster-predraft-state">
-						<strong>ROSTER SLOTS READY · AWAITING DRAFT</strong>
-						<p>{data.starters_total} starting slots and {data.bench_capacity} bench slots are empty until the commissioner starts the room and picks are made. Your Big Board will guide AUTO selections.</p>
-						<a href="/board" data-gosx-link>Open your board →</a>
+				<If cond={data.team_terminal_pre_draft}>
+					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
+						<strong>{data.team_terminal_label}</strong>
+						<p>{data.team_terminal_detail}</p>
+						<div class="hero-actions">
+							<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
+							<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+						</div>
+					</div>
+				</If>
+				<If cond={data.team_terminal_draft_live}>
+					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--live">
+						<strong>{data.team_terminal_label}</strong>
+						<p>{data.team_terminal_detail}</p>
+						<div class="hero-actions">
+							<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
+							<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+						</div>
 					</div>
 				</If>
 				<div class="lineup-slot-list">
@@ -538,10 +555,10 @@ func Page() Node {
 									</div>
 								</If>
 								<If cond={slot.has_player == false}>
-									<If cond={data.drafted}>
+									<If cond={data.team_terminal_roster_complete}>
 										<div class="slot-empty mono">EMPTY</div>
 									</If>
-									<If cond={data.drafted == false}>
+									<If cond={data.team_terminal_roster_complete == false}>
 										<div class="slot-empty mono">AWAITING DRAFT</div>
 									</If>
 								</If>
@@ -556,7 +573,7 @@ func Page() Node {
 										<span class="position-chip position-chip--locked">{slot.lock_label}</span>
 									</If>
 								</div>
-								<If cond={data.drafted && slot.locked == false}>
+								<If cond={data.team_terminal_roster_complete && slot.locked == false}>
 									<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
 										<input type="hidden" name="team_id" value={data.team.id}></input>
@@ -575,10 +592,10 @@ func Page() Node {
 					</div>
 					<h3 class="lineup-bench-title">Bench</h3>
 					<If cond={data.bench_empty}>
-						<If cond={data.drafted}>
+						<If cond={data.team_terminal_roster_complete}>
 							<p class="stat-tip__empty">No bench players.</p>
 						</If>
-						<If cond={data.drafted == false}>
+						<If cond={data.team_terminal_roster_complete == false}>
 							<p class="stat-tip__empty">Bench capacity: {data.bench_capacity} open until the draft fills it.</p>
 						</If>
 					</If>
@@ -712,31 +729,39 @@ func Page() Node {
 			</section>
 			<aside class="scout-panel">
 				<header>
-					<span class="section-index">02 // WAIVER RADAR</span>
-					<h2>Signal watch</h2>
+					<span class="section-index">{data.radar_kicker}</span>
+					<h2>{data.radar_title}</h2>
 				</header>
-				<div class="scout-list">
-					<Each of={data.scouting} as="player">
-						<article class="scout-row">
-							<span class="position-chip">{player.position}</span>
-							<div>
-								<strong>{player.name}</strong>
-								<small>
-									{player.team}
-									·
-									{player.signal}
-								</small>
-							</div>
-							<b class="mono">{player.status}</b>
-						</article>
-					</Each>
-				</div>
+				<If cond={data.scouting_empty}>
+					<div class="empty-tape scout-empty-state">
+						<strong>{data.scouting_empty_title}</strong>
+						<p>{data.scouting_empty_detail}</p>
+					</div>
+				</If>
+				<If cond={data.scouting_empty == false}>
+					<div class="scout-list">
+						<Each of={data.scouting} as="player">
+							<article class="scout-row">
+								<span class="position-chip">{player.position}</span>
+								<div class="scout-row__copy">
+									<strong>{player.name}</strong>
+									<small>{player.team} · {player.signal}</small>
+									<If cond={player.has_resolution}>
+										<small class="mono scout-row__resolution">{player.resolution}</small>
+									</If>
+									<If cond={player.has_link}>
+										<a href={player.href} data-gosx-link class="scout-row__link">{player.link_label} →</a>
+									</If>
+								</div>
+								<b class="mono">{player.status}</b>
+							</article>
+						</Each>
+					</div>
+				</If>
 				<div class="scout-callout">
-					<span>Roster note</span>
-					<p>
-						The radar lists the best players still undrafted from the current player-pool snapshot.
-					</p>
-					<a href="/draft" data-gosx-link>Scout draft pool →</a>
+					<span>Radar note</span>
+					<p>{data.radar_description}</p>
+					<a href={data.radar_link_href} data-gosx-link>{data.radar_link_label} →</a>
 					<If cond={data.is_commissioner}>
 						<a href="/admin" data-gosx-link>Commissioner console →</a>
 					</If>
