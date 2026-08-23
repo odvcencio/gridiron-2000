@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -307,5 +308,66 @@ func TestWirePageAndPulseExposePartialSourceIssue(t *testing.T) {
 	}
 	if got := pulse["status"].(string); !strings.Contains(got, status.SourceIssue) {
 		t.Fatalf("pulse status %q does not expose source issue %q", got, status.SourceIssue)
+	}
+}
+
+func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(pageBytes)
+	const (
+		reportLink       = "Read the report ↗"
+		unconfiguredCopy = "Ask the commissioner to add news sources."
+		configuredCopy   = "Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up."
+		oldReportLink    = "Inspect source ↗"
+		oldUnconfigured  = "No sources are on the wire yet. Ask the commissioner to add reporters."
+	)
+	for _, want := range []string{
+		">" + reportLink + "</a>",
+		"<p>" + unconfiguredCopy + "</p>",
+		"<p>" + configuredCopy + "</p>",
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("first-render Wire copy missing %q", want)
+		}
+	}
+	for _, old := range []string{oldReportLink, oldUnconfigured} {
+		if strings.Contains(source, old) {
+			t.Errorf("first-render Wire source still contains retired copy %q", old)
+		}
+	}
+
+	cardHTML := gosx.RenderHTML(signalCardNode(WireSignalCard{
+		ID: "copy-contract", Category: "news", Label: "NEWS", Text: "A signal",
+		Source: "Publisher", Evidence: "REPORT", Trust: "VERIFIED", Confidence: "80",
+		Time: "NOW", URL: "https://example.test/report", HasURL: true,
+	}))
+	if !strings.Contains(cardHTML, reportLink) {
+		t.Fatalf("feed-fragment SignalCard copy = %q, want %q", cardHTML, reportLink)
+	}
+	if strings.Contains(cardHTML, oldReportLink) {
+		t.Fatalf("feed-fragment SignalCard still contains retired copy %q", oldReportLink)
+	}
+
+	for _, test := range []struct {
+		name       string
+		configured bool
+		want       string
+		unwanted   string
+	}{
+		{name: "unconfigured", configured: false, want: unconfiguredCopy, unwanted: oldUnconfigured},
+		{name: "configured", configured: true, want: configuredCopy, unwanted: oldUnconfigured},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			html := gosx.RenderHTML(wireEmptyStateNode(test.configured, "Wire is not configured."))
+			if !strings.Contains(html, test.want) {
+				t.Fatalf("feed-fragment WireEmptyState copy = %q, want %q", html, test.want)
+			}
+			if strings.Contains(html, test.unwanted) {
+				t.Fatalf("feed-fragment WireEmptyState still contains retired copy %q", test.unwanted)
+			}
+		})
 	}
 }

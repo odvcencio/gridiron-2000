@@ -185,3 +185,90 @@ func TestLineupValidationPreservesNativeAnchorAndManagedValues(t *testing.T) {
 		t.Fatalf("managed validation = %#v, want values without forced redirect", result)
 	}
 }
+
+func TestTeamIdentityFailureRetainsSubmittedValues(t *testing.T) {
+	data := map[string]any{
+		"team":       map[string]any{"name": "Stored Current"},
+		"co_manager": map[string]any{},
+	}
+	states := map[string]action.View{
+		"team-rename": {
+			Result: action.Result{
+				FieldErrors: map[string]string{"name": "name is too long"},
+				Values:      map[string]string{"name": "Submitted Rename"},
+			},
+		},
+		"co-invite": {
+			Result: action.Result{
+				FieldErrors: map[string]string{"email": "enter a valid email address"},
+				Values:      map[string]string{"email": "submitted@example"},
+			},
+		},
+	}
+
+	applyTeamIdentityActionState(data, states)
+	if got := data["team_name_value"]; got != "Submitted Rename" {
+		t.Fatalf("failed rename value = %#v, want submitted value", got)
+	}
+	if got := data["team"].(map[string]any)["name"]; got != "Stored Current" {
+		t.Fatalf("stored team name = %#v, want unchanged current value", got)
+	}
+	if got := data["co_manager"].(map[string]any)["invite_email"]; got != "submitted@example" {
+		t.Fatalf("failed co-manager email = %#v, want submitted value", got)
+	}
+	if !boolField(data, "has_rename_error") || data["rename_error"] != "name is too long" {
+		t.Fatalf("rename error state = (%v, %#v), want field error", data["has_rename_error"], data["rename_error"])
+	}
+	if !boolField(data, "has_co_error") || data["co_error"] != "enter a valid email address" {
+		t.Fatalf("co-manager error state = (%v, %#v), want field error", data["has_co_error"], data["co_error"])
+	}
+}
+
+func TestTeamIdentitySuccessUsesCurrentStoredValues(t *testing.T) {
+	data := map[string]any{
+		"team":       map[string]any{"name": "Stored Current"},
+		"co_manager": map[string]any{"invite_email": "stale@example"},
+	}
+	states := map[string]action.View{
+		"team-rename": {Result: action.Result{OK: true, Values: map[string]string{"name": "Persisted Rename"}}},
+		"co-invite":   {Result: action.Result{OK: true, Values: map[string]string{"email": "persisted@example"}}},
+	}
+
+	applyTeamIdentityActionState(data, states)
+	if got := data["team_name_value"]; got != "Stored Current" {
+		t.Fatalf("successful rename value = %#v, want current stored value", got)
+	}
+	if got := data["team"].(map[string]any)["name"]; got != "Stored Current" {
+		t.Fatalf("successful stored team name = %#v, want unchanged current value", got)
+	}
+	if got := data["co_manager"].(map[string]any)["invite_email"]; got != "" {
+		t.Fatalf("successful co-manager email = %#v, want empty fresh control", got)
+	}
+	if boolField(data, "has_rename_error") || boolField(data, "has_co_error") {
+		t.Fatalf("successful identity state retained errors: rename=%v co=%v", data["has_rename_error"], data["has_co_error"])
+	}
+}
+
+func TestTeamIdentityFormsExposeFailureValueAndA11yContracts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`value={data.team_name_value}`,
+		`aria-invalid={data.has_rename_error}`,
+		`aria-describedby="team-name-error"`,
+		`id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert"`,
+		`value={data.co_manager.invite_email}`,
+		`aria-invalid={data.has_co_error}`,
+		`aria-describedby="co-manager-email-error"`,
+		`id="co-manager-email-error" class="error-message form-error" data-gosx-field-error="email" role="alert"`,
+		`<p class="error-message" role="alert">{data.rename_error}</p>`,
+		`<p class="error-message" role="alert">{data.co_error}</p>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("team identity form missing failure/a11y contract %q", want)
+		}
+	}
+}

@@ -194,10 +194,10 @@ func Page() Node {
 				<p class="error-message">{data.lineup_error}</p>
 			</If>
 			<If cond={data.has_rename_error}>
-				<p class="error-message">{data.rename_error}</p>
+				<p class="error-message" role="alert">{data.rename_error}</p>
 			</If>
 			<If cond={data.has_co_error}>
-				<p class="error-message">{data.co_error}</p>
+				<p class="error-message" role="alert">{data.co_error}</p>
 			</If>
 			<If cond={data.has_matchup_source}>
 				<p class="demo-message">
@@ -280,10 +280,12 @@ func Page() Node {
 							</p>
 						</If>
 						<If cond={data.co_manager.can_invite}>
+							<label class="team-identity-settings__field" for="co-manager-email">Co-manager email</label>
 							<form method="post" action={actionPath("co-invite")} data-gosx-managed="true" class="co-manager-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
-								<input type="email" name="email" placeholder="co-manager@example.com" autocomplete="off" required="required"></input>
+								<input id="co-manager-email" type="email" name="email" value={data.co_manager.invite_email} placeholder="co-manager@example.com" autocomplete="off" required="required" aria-invalid={data.has_co_error} aria-describedby="co-manager-email-error"></input>
+								<p id="co-manager-email-error" class="error-message form-error" data-gosx-field-error="email" role="alert">{data.co_error}</p>
 								<button class="button button--compact" type="submit">Invite co-manager</button>
 							</form>
 						</If>
@@ -298,7 +300,8 @@ func Page() Node {
 						<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.team.id}></input>
-							<input id="team-name-input" type="text" name="name" value={data.team.name} maxlength="40"></input>
+							<input id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" aria-invalid={data.has_rename_error} aria-describedby="team-name-error"></input>
+							<p id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert">{data.rename_error}</p>
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
 						<If cond={data.identity_available}>
