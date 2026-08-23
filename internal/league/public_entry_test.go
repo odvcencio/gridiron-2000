@@ -1,27 +1,36 @@
 package league
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
 	"m31labs.dev/gosx/auth"
 )
 
-func publicEntryForEmail(t *testing.T, service *Service, email string) PublicEntryView {
+func withPublicEntryRequest(t *testing.T, service *Service, email string, fn func(*http.Request)) {
 	t.Helper()
 	authn := auth.New(nil, auth.Options{
 		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
 			return auth.User{ID: email, Email: email, Name: strings.Split(email, "@")[0]}, true
 		}),
 	})
-	var view PublicEntryView
 	handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		view = service.PublicEntryView(r)
+		fn(r)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+}
+
+func publicEntryForEmail(t *testing.T, service *Service, email string) PublicEntryView {
+	t.Helper()
+	var view PublicEntryView
+	withPublicEntryRequest(t, service, email, func(r *http.Request) {
+		view = service.PublicEntryView(r)
+	})
 	return view
 }
 
@@ -109,29 +118,188 @@ func TestPublicEntryPrimaryAndCoManagerStates(t *testing.T) {
 	}
 }
 
-func TestPublicEntryAuthenticatedButNotAdmitted(t *testing.T) {
+func TestPublicEntryUnrecordedIdentityIsRejectedWithoutReadMutation(t *testing.T) {
 	service := newTestService(t, false)
 	t.Setenv("LEAGUE_ALLOWED_EMAILS", "admitted@example.com")
+	before := service.store.Snapshot()
 	view := publicEntryForEmail(t, service, "outsider@example.com")
+	after := service.store.Snapshot()
 	if view.State != PublicEntryAuthenticatedPending || view.Admitted || view.CanClaim || view.HasSeat {
 		t.Fatalf("non-admitted entry = %+v", view)
 	}
 	if view.ActionHref != "/guide#identity" || strings.Contains(strings.ToLower(view.Detail), "claim") {
 		t.Fatalf("non-admitted entry offered seat language: %+v", view)
 	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("public-entry read created membership\nbefore: %#v\n after: %#v", before, after)
+	}
+	if _, exists := service.store.MemberByEmail("outsider@example.com"); exists {
+		t.Fatal("unrecorded signed-in identity was persisted by a read")
+	}
 }
 
-func TestPublicEntryUsesCanonicalIdentityAliases(t *testing.T) {
+func TestPublicEntryPersistedCanonicalMemberSurvivesAliasPolicyChange(t *testing.T) {
 	service := newTestService(t, false)
 	service.identityResolver = testIdentityResolver(t)
 	service.store.identityResolver = service.identityResolver
+	service.cfg.Membership.AllowedDomain = "stablekernel.com"
 	if _, _, err := service.store.AssignMember(identityCanonicalEmail, "Canonical Gridiron Maintainer"); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("LEAGUE_ALLOWED_EMAILS", identityCanonicalEmail)
+	if err := service.store.AddInvite("other@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if service.EmailAllowed(identityCanonicalEmail) {
+		t.Fatal("canonical email intentionally outside configured initial-admission domain")
+	}
+	if !service.EmailAllowed(identityAliasEmail) {
+		t.Fatal("raw provider alias should satisfy configured initial-admission domain")
+	}
 	view := publicEntryForEmail(t, service, identityAliasEmail)
 	if view.State != PublicEntryPrimary || !view.Admitted || view.TeamName == "" {
 		t.Fatalf("alias entry did not resolve canonical seat: %+v", view)
+	}
+}
+
+func TestPublicEntryPersistedMemberSurvivesRemovedInvite(t *testing.T) {
+	service := newTestService(t, false)
+	service.cfg.Membership.AllowedDomain = "stablekernel.com"
+	const email = "returning@example.com"
+	if err := service.store.AddInvite(email); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.EnsureMember(email, "Returning Manager"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.RemoveInvite(email); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.AddInvite("other@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if service.EmailAllowed(email) {
+		t.Fatal("removed invite must not satisfy initial-admission policy")
+	}
+	view := publicEntryForEmail(t, service, email)
+	if view.State != PublicEntryAdmittedSeatlessOpen || !view.Admitted || !view.CanClaim {
+		t.Fatalf("persisted member lost admission after invite removal: %+v", view)
+	}
+}
+
+func TestMembershipAdmissionPolicyModesMatchLabels(t *testing.T) {
+	tests := []struct {
+		name       string
+		domain     string
+		envInvites string
+		wantLabel  string
+		allowed    []string
+		rejected   []string
+	}{
+		{
+			name: "open fallback", wantLabel: "OPEN AFTER SIGN-IN",
+			allowed: []string{"anyone@example.com"},
+		},
+		{
+			name: "invite only", envInvites: "invited@example.com", wantLabel: "INVITE-ONLY",
+			allowed: []string{"invited@example.com"}, rejected: []string{"outsider@example.com"},
+		},
+		{
+			name: "configured domain with open fallback", domain: "stablekernel.com", wantLabel: "OPEN AFTER SIGN-IN",
+			allowed: []string{"colleague@example.com", "outsider@example.com"},
+		},
+		{
+			name: "domain plus invite", domain: "stablekernel.com", envInvites: "guest@example.com", wantLabel: "DOMAIN OR INVITE · @stablekernel.com",
+			allowed: []string{"colleague@example.com", "guest@example.com"}, rejected: []string{"outsider@example.com"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := newTestService(t, false)
+			service.cfg.Membership.AllowedDomain = tt.domain
+			t.Setenv("LEAGUE_ALLOWED_EMAILS", tt.envInvites)
+			if got := service.membershipPolicyLabel(); got != tt.wantLabel {
+				t.Fatalf("membership label = %q, want %q", got, tt.wantLabel)
+			}
+			for _, email := range tt.allowed {
+				if !service.EmailAllowed(email) {
+					t.Errorf("%s should be admitted by %s", email, tt.name)
+				}
+			}
+			for _, email := range tt.rejected {
+				if service.EmailAllowed(email) {
+					t.Errorf("%s should be rejected by %s", email, tt.name)
+				}
+			}
+		})
+	}
+}
+
+func TestPublicEntryPendingCoManagerInviteTransitionsWithoutClaimingASeat(t *testing.T) {
+	service := newTestService(t, false)
+	service.identityResolver = testIdentityResolver(t)
+	service.store.identityResolver = service.identityResolver
+	primary, _, err := service.store.AssignMember("primary@example.com", "Primary Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.EnsureMember(identityCanonicalEmail, "Gridiron Maintainer"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.InviteCoManager(primary.TeamID, identityAliasEmail); err != nil {
+		t.Fatal(err)
+	}
+
+	before := service.store.Snapshot()
+	beforeClaimed := claimedSeatCount(before.Members)
+	beforeOpen := len(service.Teams()) - beforeClaimed
+	view := publicEntryForEmail(t, service, identityAliasEmail)
+	if view.State != PublicEntryCoManagerPending || !view.Admitted || view.HasSeat || view.CanClaim {
+		t.Fatalf("pending co-manager entry = %+v", view)
+	}
+	if view.TeamName != service.TeamLabel(primary.TeamID) || !strings.Contains(view.Detail, view.TeamName) {
+		t.Fatalf("pending entry did not name invited team: %+v", view)
+	}
+	if view.ActionHref != "/auth/google/start?next=%2Fteam" || !strings.Contains(strings.ToLower(view.ActionLabel), "complete") {
+		t.Fatalf("pending entry omitted completion action: %+v", view)
+	}
+
+	var loginEntry, dashboardEntry map[string]any
+	withPublicEntryRequest(t, service, identityAliasEmail, func(r *http.Request) {
+		loginEntry, _ = service.LoginData(r, true)["public_entry"].(map[string]any)
+		dashboardEntry, _ = service.DashboardData(context.Background(), r)["public_entry"].(map[string]any)
+	})
+	for surface, entry := range map[string]map[string]any{"login": loginEntry, "dashboard": dashboardEntry} {
+		if entry["state"] != string(PublicEntryCoManagerPending) || entry["team_name"] != view.TeamName || entry["can_claim"] != false || entry["is_co_manager_pending"] != true {
+			t.Fatalf("%s pending entry = %#v", surface, entry)
+		}
+	}
+
+	claimBefore := service.store.Snapshot()
+	var claimErr error
+	withPublicEntryRequest(t, service, identityAliasEmail, func(r *http.Request) {
+		_, claimErr = service.ClaimFantasySeat(r, "Wrong Franchise", "rocket")
+	})
+	if claimErr == nil || !strings.Contains(claimErr.Error(), view.TeamName) ||
+		!strings.Contains(strings.ToLower(claimErr.Error()), "co-manager") {
+		t.Fatalf("stale /join pending claim error = %v", claimErr)
+	}
+	if claimAfter := service.store.Snapshot(); !reflect.DeepEqual(claimBefore, claimAfter) {
+		t.Fatalf("rejected pending claim mutated state\nbefore: %#v\n after: %#v", claimBefore, claimAfter)
+	}
+
+	if _, bound, err := service.BindCoManagerOnSignIn(identityAliasEmail, "Gridiron Maintainer"); err != nil || !bound {
+		t.Fatalf("bind pending co-manager = bound %v, err %v", bound, err)
+	}
+	after := service.store.Snapshot()
+	afterView := publicEntryForEmail(t, service, identityAliasEmail)
+	if afterView.State != PublicEntryCoManager || !afterView.HasSeat || !afterView.IsCoManager || afterView.TeamName != view.TeamName {
+		t.Fatalf("bound co-manager entry = %+v", afterView)
+	}
+	if afterClaimed := claimedSeatCount(after.Members); afterClaimed != beforeClaimed {
+		t.Fatalf("distinct claimed seats changed from %d to %d after co-manager bind", beforeClaimed, afterClaimed)
+	}
+	if afterOpen := len(service.Teams()) - claimedSeatCount(after.Members); afterOpen != beforeOpen || afterView.OpenSeats != beforeOpen {
+		t.Fatalf("open seats after bind = %d/view %d, want %d", afterOpen, afterView.OpenSeats, beforeOpen)
 	}
 }
 

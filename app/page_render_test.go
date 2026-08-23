@@ -164,6 +164,24 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 	}
 }
 
+func TestHomepagePendingCoManagerInviteRendersTruthfully(t *testing.T) {
+	body := runHomepageStandingsFixture(t, "pending-co-manager")
+	for _, want := range []string{
+		"ADMITTED · CO-MANAGER INVITE",
+		"COMPLETE YOUR SHARED SEAT.",
+		"You are invited to co-manage East 1.",
+		"Complete co-manager sign-in",
+		"/auth/google/start?next=%2Fteam",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending co-manager homepage missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Claim an open franchise") || strings.Contains(body, "Join a team") {
+		t.Fatalf("pending co-manager homepage exposed a competing seat-claim path: %s", body)
+	}
+}
+
 func TestHomepageStandingsPendingStateRendersExplicitly(t *testing.T) {
 	body := runHomepageStandingsFixture(t, "pending")
 	for _, want := range []string{"Standings pending", "NO SEASON TABLE", "The commissioner has not published a regular-season schedule yet."} {
@@ -218,8 +236,21 @@ func TestHomepageStandingsFixtureProcess(t *testing.T) {
 	}
 	service := league.Default()
 	request, _ := http.NewRequest(http.MethodGet, "/", nil)
-	if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
-		t.Fatal(err)
+	if fixture == "pending-co-manager" {
+		primary, err := service.AssignManager("primary@example.com", "Primary Fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.EnsureMember("render@example.com", "Render Fixture"); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.InviteCoManager(request, primary.TeamID, "render@example.com"); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if fixture == "scored" {
 		players := make([]league.Player, 0, 150)

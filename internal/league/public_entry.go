@@ -2,8 +2,9 @@ package league
 
 import (
 	"net/http"
-	"os"
 	"strings"
+
+	"gridiron-2000/internal/navigation"
 )
 
 // PublicEntryState is the finite admission/seat state exposed by the public
@@ -15,6 +16,7 @@ const (
 	PublicEntryAnonymous            PublicEntryState = "anonymous"
 	PublicEntryAuthenticatedPending PublicEntryState = "authenticated_pending"
 	PublicEntryAdmittedSeatlessOpen PublicEntryState = "admitted_seatless_open"
+	PublicEntryCoManagerPending     PublicEntryState = "co_manager_pending"
 	PublicEntryAdmittedSeatlessFull PublicEntryState = "admitted_seatless_full"
 	PublicEntryPrimary              PublicEntryState = "primary"
 	PublicEntryCoManager            PublicEntryState = "co_manager"
@@ -26,29 +28,30 @@ const (
 // actually open franchise. Commissioner access is an overlay, not a second
 // identity or seat state.
 type PublicEntryView struct {
-	State             PublicEntryState
-	StateLabel        string
-	Headline          string
-	Detail            string
-	ActionLabel       string
-	ActionHref        string
-	CommissionerLabel string
-	CommissionerHref  string
-	MembershipLabel   string
-	RoleLabel         string
-	TeamName          string
-	PrimaryName       string
-	FormatBlurb       string
-	ModeLabel         string
-	SignedIn          bool
-	Admitted          bool
-	HasSeat           bool
-	LeagueFull        bool
-	CanClaim          bool
-	IsPrimary         bool
-	IsCoManager       bool
-	IsCommissioner    bool
-	OpenSeats         int
+	State              PublicEntryState
+	StateLabel         string
+	Headline           string
+	Detail             string
+	ActionLabel        string
+	ActionHref         string
+	CommissionerLabel  string
+	CommissionerHref   string
+	MembershipLabel    string
+	RoleLabel          string
+	TeamName           string
+	PrimaryName        string
+	FormatBlurb        string
+	ModeLabel          string
+	SignedIn           bool
+	Admitted           bool
+	HasSeat            bool
+	LeagueFull         bool
+	CanClaim           bool
+	IsPrimary          bool
+	IsCoManager        bool
+	IsCoManagerPending bool
+	IsCommissioner     bool
+	OpenSeats          int
 }
 
 // PublicEntryView resolves one finite public-entry state from the same
@@ -89,31 +92,37 @@ func (s *Service) publicEntryViewForViewer(r *http.Request, viewer map[string]an
 
 	view.SignedIn = true
 	email, _ := viewer["email"].(string)
-	view.Admitted = s.EmailAllowed(email)
+	email = s.identityResolver.Resolve(email)
 	view.State = PublicEntryAuthenticatedPending
-	view.StateLabel = "SIGNED IN · ADMISSION REQUIRED"
-	view.Headline = "ADMISSION REQUIRED."
-	view.Detail = "This Google account is signed in, but it is not admitted by this league's current membership policy. Ask the commissioner to add the correct identity before entering team operations."
+	view.StateLabel = "SIGNED IN · MEMBERSHIP NOT RECORDED"
+	view.Headline = "COMPLETE LEAGUE ADMISSION."
+	view.Detail = "This Google account is authenticated, but the league has no persisted membership for it. Ask the commissioner to verify the admitted identity, then sign in again."
 	view.ActionLabel = "Review admission guidance"
 	view.ActionHref = "/guide#identity"
-	if !view.Admitted {
+
+	if pendingTeamID, pending := state.CoInvites[email]; pending {
+		view.State = PublicEntryCoManagerPending
+		view.StateLabel = "ADMITTED · CO-MANAGER INVITE"
+		view.Headline = "COMPLETE YOUR SHARED SEAT."
+		view.TeamName = s.TeamLabel(pendingTeamID)
+		view.Detail = "You are invited to co-manage " + view.TeamName + ". Complete Google sign-in again to bind this identity to the shared franchise; if that does not finish, ask the primary manager or commissioner to resend the invite."
+		view.ActionLabel = "Complete co-manager sign-in →"
+		view.ActionHref = navigation.OAuthStartPath("/team")
+		view.Admitted = true
+		view.RoleLabel = "CO-MANAGER INVITED"
+		view.CanClaim = false
+		view.IsCoManagerPending = true
 		return view
 	}
 
-	member, exists := s.store.MemberByEmail(email)
+	member, exists := state.Members[email]
 	if !exists {
-		// A policy-admitted identity can briefly arrive before the callback's
-		// membership write is visible. Keep that state seatless and honest;
-		// never fabricate a team association from the first configured team.
-		view.State = PublicEntryAdmittedSeatlessOpen
-		view.StateLabel = "ADMITTED · MEMBERSHIP SYNCING"
-		view.Headline = "MEMBERSHIP SYNCING."
-		view.Detail = "This account is admitted. Your league membership is still being recorded; refresh shortly before entering team operations."
-		view.ActionLabel = "Refresh league entry"
-		view.ActionHref = "/login"
-		view.CanClaim = false
 		return view
 	}
+	// A persisted canonical Member is the admission record. Invite lists and
+	// domain rules govern initial entry only; changing either must not revoke
+	// an existing member's signed-in league access.
+	view.Admitted = true
 
 	view.HasSeat = strings.TrimSpace(member.TeamID) != ""
 	if view.HasSeat {
@@ -185,40 +194,43 @@ func (s *Service) PublicEntryData(r *http.Request) map[string]any {
 func (s *Service) PublicEntryDataForViewer(r *http.Request, viewer map[string]any) map[string]any {
 	v := s.publicEntryViewForViewer(r, viewer)
 	return map[string]any{
-		"state":              string(v.State),
-		"state_label":        v.StateLabel,
-		"headline":           v.Headline,
-		"detail":             v.Detail,
-		"action_label":       v.ActionLabel,
-		"action_href":        v.ActionHref,
-		"commissioner_label": v.CommissionerLabel,
-		"commissioner_href":  v.CommissionerHref,
-		"membership_label":   v.MembershipLabel,
-		"role_label":         v.RoleLabel,
-		"team_name":          v.TeamName,
-		"primary_name":       v.PrimaryName,
-		"format_blurb":       v.FormatBlurb,
-		"mode_label":         v.ModeLabel,
-		"signed_in":          v.SignedIn,
-		"admitted":           v.Admitted,
-		"has_seat":           v.HasSeat,
-		"league_full":        v.LeagueFull,
-		"can_claim":          v.CanClaim,
-		"is_primary":         v.IsPrimary,
-		"is_co_manager":      v.IsCoManager,
-		"is_commissioner":    v.IsCommissioner,
-		"open_seats":         v.OpenSeats,
+		"state":                 string(v.State),
+		"state_label":           v.StateLabel,
+		"headline":              v.Headline,
+		"detail":                v.Detail,
+		"action_label":          v.ActionLabel,
+		"action_href":           v.ActionHref,
+		"commissioner_label":    v.CommissionerLabel,
+		"commissioner_href":     v.CommissionerHref,
+		"membership_label":      v.MembershipLabel,
+		"role_label":            v.RoleLabel,
+		"team_name":             v.TeamName,
+		"primary_name":          v.PrimaryName,
+		"format_blurb":          v.FormatBlurb,
+		"mode_label":            v.ModeLabel,
+		"signed_in":             v.SignedIn,
+		"admitted":              v.Admitted,
+		"has_seat":              v.HasSeat,
+		"league_full":           v.LeagueFull,
+		"can_claim":             v.CanClaim,
+		"is_primary":            v.IsPrimary,
+		"is_co_manager":         v.IsCoManager,
+		"is_co_manager_pending": v.IsCoManagerPending,
+		"is_commissioner":       v.IsCommissioner,
+		"open_seats":            v.OpenSeats,
 	}
 }
 
 func (s *Service) membershipPolicyLabel() string {
-	if domain := strings.TrimSpace(s.cfg.Membership.AllowedDomain); domain != "" {
-		return "DOMAIN-GATED · @" + strings.ToLower(domain)
-	}
-	if len(splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))) > 0 || len(s.store.Snapshot().Invites) > 0 {
+	domain, invites := s.membershipAdmissionPolicy()
+	switch {
+	case len(invites) == 0:
+		return "OPEN AFTER SIGN-IN"
+	case domain != "":
+		return "DOMAIN OR INVITE · @" + domain
+	default:
 		return "INVITE-ONLY"
 	}
-	return "OPEN AFTER SIGN-IN"
 }
 
 func seatCountCopy(open int) string {

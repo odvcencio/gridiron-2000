@@ -90,16 +90,19 @@ func Page() Node {
 							<strong>{data.public_entry.state_label}</strong>
 						</div>
 						<p>{data.public_entry.detail}</p>
+						<If cond={data.public_entry.is_co_manager_pending}>
+							<a href={data.public_entry.action_href} class="button button--ghost">{data.public_entry.action_label}</a>
+						</If>
 						<If cond={data.public_entry.admitted == false}>
 							<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
 						</If>
-						<If cond={data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false}>
+						<If cond={data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false && data.public_entry.is_co_manager_pending == false}>
 							<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
 						</If>
 						<If cond={data.public_entry.can_claim}>
 							<a href="/join" data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 						</If>
-						<If cond={data.public_entry.admitted && data.public_entry.league_full}>
+						<If cond={data.public_entry.admitted && data.public_entry.league_full && data.public_entry.is_co_manager_pending == false}>
 							<a href="/pickem" data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 						</If>
 					</If>

@@ -8,6 +8,7 @@ type PrimaryNavigationProps struct {
 	SignedIn      bool
 	HasSeat       bool
 	SeatsOpen     bool
+	CanClaimSeat  bool
 	Commissioner  bool
 	Initials      string
 	TeamName      string
@@ -40,13 +41,13 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 						My team
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && props.SeatsOpen}>
+				<If cond={props.HasSeat == false && props.SeatsOpen && props.CanClaimSeat}>
 					<Link href="/join" class="navigation-link navigation-link--hot">
 						<span class="navigation-link__index mono">04</span>
 						Join a team
 					</Link>
 				</If>
-				<If cond={props.HasSeat == false && props.SeatsOpen == false}>
+				<If cond={props.HasSeat == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
 					<Link href="/team" class="navigation-link">
 						<span class="navigation-link__index mono">04</span>
 						Fantasy status
@@ -174,6 +175,7 @@ func Layout() Node {
 					SignedIn={data.viewer.signed_in}
 					HasSeat={data.viewer.has_seat}
 					SeatsOpen={data.league.fantasy_seats_open}
+					CanClaimSeat={data.viewer.seat_claim_eligible}
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
@@ -232,6 +234,7 @@ func Layout() Node {
 					SignedIn={data.viewer.signed_in}
 					HasSeat={data.viewer.has_seat}
 					SeatsOpen={data.league.fantasy_seats_open}
+					CanClaimSeat={data.viewer.seat_claim_eligible}
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
@@ -250,6 +253,7 @@ func Layout() Node {
 					SignedIn={data.viewer.signed_in}
 					HasSeat={data.viewer.has_seat}
 					SeatsOpen={data.league.fantasy_seats_open}
+					CanClaimSeat={data.viewer.seat_claim_eligible}
 					Commissioner={data.viewer.is_commissioner}
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}

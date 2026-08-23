@@ -211,15 +211,21 @@ func Page() Node {
 						</div>
 						<a href="/team" data-gosx-link class="button button--compact">Open your team →</a>
 					</If>
+					<If cond={data.public_entry.is_co_manager_pending}>
+						<span class="section-index">{data.public_entry.state_label}</span>
+						<strong class="status-card__line">{data.public_entry.headline}</strong>
+						<p class="status-card__line">{data.public_entry.detail}</p>
+						<a href={data.public_entry.action_href} class="button button--ghost">{data.public_entry.action_label}</a>
+					</If>
 					<If cond={data.public_entry.has_seat == false && data.public_entry.can_claim}>
 						<p class="status-card__line">{data.public_entry.detail}</p>
 						<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false}>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false && data.public_entry.is_co_manager_pending == false}>
 						<p class="status-card__line">{data.public_entry.detail}</p>
 						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
 					</If>
-					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.league_full}>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.league_full && data.public_entry.is_co_manager_pending == false}>
 						<p class="status-card__line">{data.public_entry.detail}</p>
 						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
 					</If>
