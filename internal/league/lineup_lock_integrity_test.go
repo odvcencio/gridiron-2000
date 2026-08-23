@@ -26,13 +26,13 @@ func TestRosterMutationsUseLineupCurrentWeekAt(t *testing.T) {
 		{
 			name: "drop",
 			action: func(svc *Service, request *http.Request) (string, error) {
-				return svc.DropPlayer(request, "team-1", "rb-locked")
+				return svc.DropPlayer(request, "team-1", "rb-locked", playerDropConfirmation)
 			},
 		},
 		{
 			name: "add with drop",
 			action: func(svc *Service, request *http.Request) (string, error) {
-				return svc.AddPlayer(request, "team-1", "fa-open", "rb-locked")
+				return svc.AddPlayer(request, "team-1", "fa-open", "rb-locked", playerAddDropConfirmation)
 			},
 		},
 		{

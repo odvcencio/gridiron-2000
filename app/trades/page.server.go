@@ -216,7 +216,7 @@ func init() {
 				return nil
 			},
 			"trade-accept": func(ctx *action.Context) error {
-				message, err := league.Default().AcceptTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
+				message, err := league.Default().AcceptTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
@@ -226,7 +226,7 @@ func init() {
 			// trade-approve is the commissioner's early-execution action
 			// (commissioner or both veto mode).
 			"trade-approve": func(ctx *action.Context) error {
-				message, err := league.Default().ApproveTrade(ctx.Request, ctx.FormData["offer_id"])
+				message, err := league.Default().ApproveTrade(ctx.Request, ctx.FormData["offer_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
@@ -236,7 +236,7 @@ func init() {
 			// trade-veto-commissioner is the commissioner's veto action
 			// (commissioner or both mode).
 			"trade-veto-commissioner": func(ctx *action.Context) error {
-				message, err := league.Default().CommissionerVetoTrade(ctx.Request, ctx.FormData["offer_id"])
+				message, err := league.Default().CommissionerVetoTrade(ctx.Request, ctx.FormData["offer_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}

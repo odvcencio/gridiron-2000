@@ -100,7 +100,7 @@ func TestTradeDeadlineStalePostsDoNotMutate(t *testing.T) {
 	seed := service.store.Snapshot()
 	service.cfg.Trades.Deadline = now.Format(time.RFC3339)
 	before := service.store.Snapshot()
-	if _, err := service.AcceptTrade(request, "team-2", seed.TradeOffers[0].ID); err == nil {
+	if _, err := service.AcceptTrade(request, "team-2", seed.TradeOffers[0].ID, tradeAcceptConfirmation); err == nil {
 		t.Fatal("stale AcceptTrade unexpectedly succeeded")
 	}
 	if after := service.store.Snapshot(); !reflect.DeepEqual(before.TradeOffers, after.TradeOffers) {
@@ -156,11 +156,11 @@ func TestTradeApproveAfterDeadlineExecutesAcceptedOfferOnce(t *testing.T) {
 	offerID := proposeFixtureOffer(t, service)
 
 	current = deadline.Add(-time.Nanosecond)
-	if _, err := service.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := service.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatalf("pre-deadline AcceptTrade: %v", err)
 	}
 	current = deadline.Add(time.Minute)
-	if _, err := service.ApproveTrade(request, offerID); err != nil {
+	if _, err := service.ApproveTrade(request, offerID, tradeApproveConfirmation); err != nil {
 		t.Fatalf("post-deadline ApproveTrade: %v", err)
 	}
 	state := service.store.Snapshot()
@@ -172,7 +172,7 @@ func TestTradeApproveAfterDeadlineExecutesAcceptedOfferOnce(t *testing.T) {
 	}
 
 	current = current.Add(time.Minute)
-	if _, err := service.ApproveTrade(request, offerID); err == nil {
+	if _, err := service.ApproveTrade(request, offerID, tradeApproveConfirmation); err == nil {
 		t.Fatal("second post-deadline approval unexpectedly succeeded")
 	}
 	if got := len(service.store.Snapshot().Transactions); got != 1 {
@@ -195,7 +195,7 @@ func TestTradeTickExecutesAcceptedOfferAfterDeadlineOnce(t *testing.T) {
 	offerID := proposeFixtureOffer(t, service)
 
 	current = deadline.Add(-time.Minute)
-	if _, err := service.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := service.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatalf("pre-deadline AcceptTrade: %v", err)
 	}
 	execAt := start.Add(26 * time.Hour)
@@ -226,7 +226,7 @@ func TestTradeAcceptAtDeadlineRemainsClosed(t *testing.T) {
 	offerID := proposeFixtureOffer(t, service)
 
 	current = deadline
-	if _, err := service.AcceptTrade(request, "team-2", offerID); err == nil {
+	if _, err := service.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err == nil {
 		t.Fatal("AcceptTrade at the exact deadline unexpectedly succeeded")
 	}
 	state := service.store.Snapshot()
@@ -253,7 +253,7 @@ func TestTradeExecutionAfterDeadlineStillFailsInvalidAssets(t *testing.T) {
 	offerID := proposeFixtureOffer(t, service)
 
 	current = deadline.Add(-time.Minute)
-	if _, err := service.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := service.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatalf("pre-deadline AcceptTrade: %v", err)
 	}
 	dropAt := current.Add(time.Minute)

@@ -275,7 +275,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 // or W6 (roster full with no drop named). One transaction record covers
 // both sides in a single persist (Store.RecordTransaction) — a drop
 // accompanying an add is one atomic move, not two.
-func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string) (string, error) {
+func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confirmation string) (string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam) // W1
 	if err != nil {
 		return "", err
@@ -338,6 +338,11 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, dropIDs); breach {
 		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
+	if dropID != "" {
+		if err := requireMutationConfirmation(playerAddDropConfirmation, confirmation); err != nil {
+			return "", err
+		}
+	}
 
 	id, err := randomTransactionID()
 	if err != nil {
@@ -362,7 +367,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 // (playerWaiverStatus, waivers.go): the same Transaction this call
 // appends is what a later playerWaiverStatus call finds via
 // lastDropInstant to compute the clear window (section 5.1).
-func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID string) (string, error) {
+func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID, confirmation string) (string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam) // W1
 	if err != nil {
 		return "", err
@@ -388,6 +393,9 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID string) (str
 		return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 	}
 
+	if err := requireMutationConfirmation(playerDropConfirmation, confirmation); err != nil {
+		return "", err
+	}
 	id, err := randomTransactionID()
 	if err != nil {
 		return "", err

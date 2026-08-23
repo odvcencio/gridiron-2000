@@ -164,7 +164,20 @@ func Page() Node {
 											</Each>
 										</select>
 									</If>
-									<button class="draft-button" type="submit">Add</button>
+									<If cond={player.needs_drop == false}>
+										<button class="draft-button" type="submit">Add</button>
+									</If>
+									<If cond={player.needs_drop}>
+										<details class="action-confirmation">
+											<summary>Add and drop a player</summary>
+											<p>Adding {player.name} will immediately replace the player you select above. The drop is recorded and cannot be undone from this screen.</p>
+											<label>
+												<input type="checkbox" name="confirmation" value="add-drop-player" required="required"></input>
+												I understand this replaces a rostered player.
+											</label>
+											<button class="draft-button" type="submit">Confirm add and drop</button>
+										</details>
+									</If>
 								</form>
 							</If>
 							<If cond={player.can_claim}>
@@ -203,7 +216,15 @@ func Page() Node {
 									<input type="hidden" name="pos" value={data.pos}></input>
 									<input type="hidden" name="q" value={data.query}></input>
 									<input type="hidden" name="page" value={data.pool_page}></input>
-									<button class="board-button board-button--cut" type="submit" aria-label={"Drop " + player.name}>Drop</button>
+									<details class="action-confirmation">
+										<summary>{"Drop " + player.name}</summary>
+										<p>Dropping this player removes them from your roster and starts the waiver process. This roster change cannot be undone from this screen.</p>
+										<label>
+											<input type="checkbox" name="confirmation" value="drop-player" required="required"></input>
+											I understand this player will leave my roster.
+										</label>
+										<button class="board-button board-button--cut" type="submit" aria-label={"Confirm drop " + player.name}>Confirm drop</button>
+									</details>
 								</form>
 							</If>
 						</div>

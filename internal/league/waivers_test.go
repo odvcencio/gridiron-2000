@@ -623,7 +623,7 @@ func TestCancelClaimUnknownIDIsNoOp(t *testing.T) {
 func TestAddPlayerOnWaiversRoutesToClaimMessage(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-2", "wv-open", "")
+	_, err := svc.AddPlayer(request, "team-2", "wv-open", "", "")
 	if err == nil {
 		t.Fatal("expected an error routing to a claim")
 	}
@@ -642,7 +642,7 @@ func TestAddPlayerKickoffLockedRoutesToClaimMessage(t *testing.T) {
 		return []GameInfo{{ID: "g-wv", Week: 1, Kickoff: now.Add(-time.Minute), Away: "PIT", Home: "NYJ"}}
 	})
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-2", "wv-open", "")
+	_, err := svc.AddPlayer(request, "team-2", "wv-open", "", "")
 	if err == nil {
 		t.Fatal("expected an error routing to a claim")
 	}

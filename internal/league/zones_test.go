@@ -202,7 +202,7 @@ func TestPlaceInIRFreesARosterSpot(t *testing.T) {
 		t.Errorf("effectiveRosterSize after IR placement = %d, want 3 (IR frees the spot)", got)
 	}
 	// The freed spot means AddPlayer's W6 cap check now passes.
-	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", ""); err != nil {
+	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "", ""); err != nil {
 		t.Fatalf("AddPlayer after IR placement must succeed (the freed spot): %v", err)
 	}
 }
@@ -235,7 +235,7 @@ func TestActivateFromIRRequiresDropWhenAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Fill the freed spot with a real add, so activation now needs a drop.
-	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", ""); err != nil {
+	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "", ""); err != nil {
 		t.Fatalf("AddPlayer: %v", err)
 	}
 	if _, err := svc.ActivateFromIR(zonesRequest(), "team-1", "inj-1", ""); err == nil {
@@ -270,10 +270,10 @@ func TestLimitsBlockAddPlayer(t *testing.T) {
 	// qb-1 (4/4, at cap). Drop qb-1 to free a cap spot without touching
 	// the RB count, then try to add fa-1 (a third RB) — Limits, not cap,
 	// must be what blocks it.
-	if _, err := svc.DropPlayer(zonesRequest(), "team-1", "qb-1"); err != nil {
+	if _, err := svc.DropPlayer(zonesRequest(), "team-1", "qb-1", playerDropConfirmation); err != nil {
 		t.Fatalf("DropPlayer: %v", err)
 	}
-	_, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "")
+	_, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "", "")
 	want := limitMessage("RB", 2)
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
