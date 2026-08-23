@@ -74,9 +74,14 @@ func Page() Node {
 				<p>
 					Choose which live league emails reach your manager account. These controls affect future delivery only; they do not replay messages already sent.
 				</p>
-				<If cond={data.has_email}>
+				<If cond={data.has_email && data.delivery_ready}>
 					<p class="notification-settings-account">
 						Delivering to <strong>{data.email}</strong>
+					</p>
+				</If>
+				<If cond={data.has_email && data.delivery_ready == false}>
+					<p class="notification-settings-account">
+						Preferences saved for <strong>{data.email}</strong>. Email delivery is not configured yet.
 					</p>
 				</If>
 			</div>
@@ -87,7 +92,7 @@ func Page() Node {
 					<If cond={data.delivery_ready == false}>EMAIL NOT CONFIGURED</If>
 				</strong>
 				<div class="draft-clock-meta">
-					<span>8 LIVE CATEGORIES</span>
+					<span>{data.live_category_count} LIVE CATEGORIES</span>
 					<span>EMAIL ONLY // SMS NOT SUPPORTED</span>
 				</div>
 			</div>
@@ -114,7 +119,7 @@ func Page() Node {
 					<span class="section-index">01 // LIVE DELIVERY</span>
 					<h2 id="notification-settings-heading">Manager notifications</h2>
 				</div>
-				<span class="mono notification-settings-count">8 AVAILABLE NOW</span>
+				<span class="mono notification-settings-count">{data.live_category_count} AVAILABLE NOW</span>
 			</div>
 			<p class="notification-settings-note">
 				Turn a category on or off with a native form. The server checks your signed-in identity and accepts only the categories listed here.
@@ -162,7 +167,7 @@ func Page() Node {
 					<span class="section-index">02 // DELIVERY ROADMAP</span>
 					<h2 id="planned-notification-heading">Planned categories</h2>
 				</div>
-				<span class="mono notification-settings-count">NOT ACTIVE</span>
+				<span class="mono notification-settings-count">{data.planned_category_count} PLANNED // NOT ACTIVE</span>
 			</div>
 			<p class="notification-settings-note">
 				These catalog entries are documented for the future, but they do not have an active delivery path yet. There is no switch to flip today.

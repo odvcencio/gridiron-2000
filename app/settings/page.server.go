@@ -100,6 +100,17 @@ func init() {
 	}
 }
 
+func notificationPreferenceSavedMessage(enabled, deliveryReady bool) string {
+	state := "OFF"
+	if enabled {
+		state = "ON"
+	}
+	if !deliveryReady {
+		return "Notification preference saved. Email delivery is not configured; this category is set to " + state + " and will apply when delivery is enabled."
+	}
+	return "Notification preference saved. Email delivery is ready; this category is now " + state + "."
+}
+
 func setNotificationPreference(ctx *action.Context) error {
 	category := ctx.FormData["category"]
 	enabled, err := parseNotificationEnabled(ctx.FormData["enabled"])
@@ -109,11 +120,11 @@ func setNotificationPreference(ctx *action.Context) error {
 	if err := league.Default().SetNotificationPreference(ctx.Request, category, enabled); err != nil {
 		return actionui.Validation(ctx, "settings", "settings", err)
 	}
-	state := "off"
-	if enabled {
-		state = "on"
+	deliveryReady := false
+	if data := league.Default().NotificationSettingsData(ctx.Request); data != nil {
+		deliveryReady, _ = data["delivery_ready"].(bool)
 	}
-	message := "Notification preference saved. Email is now " + state + " for that category."
+	message := notificationPreferenceSavedMessage(enabled, deliveryReady)
 	actionui.RedirectWithNotice(ctx, "/settings", message)
 	return nil
 }

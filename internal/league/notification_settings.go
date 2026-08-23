@@ -163,6 +163,8 @@ func (s *Service) NotificationSettingsData(r *http.Request) map[string]any {
 		planned = append(planned, plannedNotificationPreferenceView(category))
 	}
 	readOnlyReason := ""
+	liveCategoryCount := len(preferences)
+	plannedCategoryCount := len(planned)
 	if s.demoMode {
 		readOnlyReason = "Demo mode is read-only. Sign in to save notification preferences."
 	} else if !hasIdentity {
@@ -174,21 +176,23 @@ func (s *Service) NotificationSettingsData(r *http.Request) map[string]any {
 		deliveryMessage = "Email delivery is configured. Changes apply to future alerts; mail already queued may still arrive."
 	}
 	return map[string]any{
-		"viewer":              viewer,
-		"league":              s.leagueMap(),
-		"email":               owner,
-		"has_email":           owner != "",
-		"signed_in":           signedIn,
-		"demo_mode":           s.demoMode,
-		"read_only":           readOnly,
-		"read_only_reason":    readOnlyReason,
-		"delivery_ready":      deliveryReady,
-		"delivery_message":    deliveryMessage,
-		"preferences":         preferences,
-		"draft_preferences":   draftPreferences,
-		"weekly_preferences":  weeklyPreferences,
-		"league_preferences":  leaguePreferences,
-		"planned_preferences": planned,
+		"viewer":                 viewer,
+		"league":                 s.leagueMap(),
+		"email":                  owner,
+		"has_email":              owner != "",
+		"signed_in":              signedIn,
+		"demo_mode":              s.demoMode,
+		"read_only":              readOnly,
+		"read_only_reason":       readOnlyReason,
+		"delivery_ready":         deliveryReady,
+		"delivery_message":       deliveryMessage,
+		"preferences":            preferences,
+		"live_category_count":    liveCategoryCount,
+		"planned_category_count": plannedCategoryCount,
+		"draft_preferences":      draftPreferences,
+		"weekly_preferences":     weeklyPreferences,
+		"league_preferences":     leaguePreferences,
+		"planned_preferences":    planned,
 	}
 }
 

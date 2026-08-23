@@ -10,7 +10,7 @@ import (
 	"m31labs.dev/gosx/auth"
 )
 
-func TestNotificationSettingsDataHasEightLiveAndTwoPlannedCategories(t *testing.T) {
+func TestNotificationSettingsDataExposesCatalogCategoryCounts(t *testing.T) {
 	service := newTestService(t, true)
 	data := service.NotificationSettingsData(httptest.NewRequest(http.MethodGet, "/settings", nil))
 
@@ -18,8 +18,12 @@ func TestNotificationSettingsDataHasEightLiveAndTwoPlannedCategories(t *testing.
 	if !ok {
 		t.Fatalf("preferences type = %T, want []NotificationPreference", data["preferences"])
 	}
-	if len(live) != 8 {
-		t.Fatalf("live preference count = %d, want 8", len(live))
+	liveCount, ok := data["live_category_count"].(int)
+	if !ok {
+		t.Fatalf("live_category_count type = %T, want int", data["live_category_count"])
+	}
+	if liveCount != len(live) || liveCount != len(notificationPreferenceCategories) {
+		t.Fatalf("live category counts = data:%d rows:%d catalog:%d", liveCount, len(live), len(notificationPreferenceCategories))
 	}
 	for key, want := range map[string]int{"draft_preferences": 3, "weekly_preferences": 3, "league_preferences": 2} {
 		group, ok := data[key].([]NotificationPreference)
@@ -35,6 +39,13 @@ func TestNotificationSettingsDataHasEightLiveAndTwoPlannedCategories(t *testing.
 	planned, ok := data["planned_preferences"].([]NotificationPreference)
 	if !ok {
 		t.Fatalf("planned preferences type = %T, want []NotificationPreference", data["planned_preferences"])
+	}
+	plannedCount, ok := data["planned_category_count"].(int)
+	if !ok {
+		t.Fatalf("planned_category_count type = %T, want int", data["planned_category_count"])
+	}
+	if plannedCount != len(planned) {
+		t.Fatalf("planned category counts = data:%d rows:%d", plannedCount, len(planned))
 	}
 	wantPlanned := []string{categoryLeagueNews, categoryWeeklyRecap}
 	gotPlanned := make([]string, 0, len(planned))
