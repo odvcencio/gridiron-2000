@@ -3,6 +3,7 @@ package pickem
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,36 @@ import (
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+func TestPickemUsesCompactRowsAndLeaderboardStackAtTabletWidth(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatalf("read shared styles: %v", err)
+	}
+	css := string(styles)
+	compactStart := strings.Index(css, "@media (max-width: 54rem)")
+	if compactStart < 0 {
+		t.Fatal("expected the shared 54rem compact breakpoint")
+	}
+	compactEnd := strings.Index(css[compactStart:], "@media (max-width: 38rem)")
+	if compactEnd < 0 {
+		t.Fatal("expected the shared 54rem compact breakpoint before the phone breakpoint")
+	}
+	compact := css[compactStart : compactStart+compactEnd]
+	for _, want := range []string{
+		".pickem-row {",
+		"display: flex;",
+		"flex-wrap: wrap;",
+	} {
+		if !strings.Contains(compact, want) {
+			t.Fatalf("54rem Pick'em layout must contain %q so the slate and leaderboards cannot overflow tablet viewports", want)
+		}
+	}
+	const tabletBoards = "@media (max-width: 54rem) {\n  .pickem-boards {\n    grid-template-columns: 1fr;\n  }\n}"
+	if !strings.Contains(css, tabletBoards) {
+		t.Fatal("Pick'em leaderboards must stack at the 54rem tablet breakpoint")
+	}
+}
 
 // TestPickemPageRendersGameRowsWithRealSchedule is the regression guard
 // for the untyped-legacy retirement: PickemRow, ConsensusBar, and

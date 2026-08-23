@@ -2,6 +2,7 @@ package team
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,24 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 		form := source[formStart : formStart+formEnd]
 		if !strings.Contains(form, `name="csrf_token" value={csrf.token}`) {
 			t.Errorf("managed %s form has no csrf.token control", action)
+		}
+	}
+}
+
+func TestTeamHeroAndBadgePickerKeepTheirWideLayoutStructure(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	for _, want := range []string{
+		"grid-template-columns: minmax(0, 1fr) auto;",
+		".badge-option-wrap,\n.badge-option-form {",
+		".badge-option {\n  min-width: 0;\n  width: 100%;",
+		".team-hero__identity > div {\n  min-width: 0;\n  width: min(100%, 48rem);",
+	} {
+		if !strings.Contains(styles, want) {
+			t.Errorf("team layout stylesheet missing regression contract %q", want)
 		}
 	}
 }

@@ -1344,11 +1344,16 @@ textarea {
   margin-top: var(--space-xs);
 }
 
+.badge-option-wrap,
 .badge-option-form {
-  display: contents;
+  min-width: 0;
+  width: 100%;
+  display: grid;
 }
 
 .badge-option {
+  min-width: 0;
+  width: 100%;
   display: grid;
   gap: 0.2rem;
   justify-items: center;
@@ -2296,9 +2301,9 @@ button.badge-option:hover {
   overflow: hidden;
   min-height: 22rem;
   padding: var(--space-2xl);
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: var(--space-xl);
   border: 1px solid currentColor;
   border-radius: var(--radius-lg);
@@ -2323,9 +2328,16 @@ button.badge-option:hover {
 .team-hero__identity {
   position: relative;
   z-index: 2;
+  min-width: 0;
+  width: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-lg);
+}
+
+.team-hero__identity > div {
+  min-width: 0;
+  width: min(100%, 48rem);
 }
 
 .team-monogram {
@@ -2350,7 +2362,11 @@ button.badge-option:hover {
 .team-hero__record {
   position: relative;
   z-index: 2;
+  align-self: start;
+  min-width: 8rem;
+  padding-left: var(--space-lg);
   display: grid;
+  border-left: 1px solid var(--color-border);
   text-align: right;
 }
 
@@ -5054,11 +5070,13 @@ body.is-on-clock .draft-clock-panel {
 
   .team-hero {
     padding: var(--space-xl);
-    align-items: flex-start;
-    flex-direction: column;
+    grid-template-columns: 1fr;
   }
 
   .team-hero__record {
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
     text-align: left;
   }
 
@@ -5147,6 +5165,24 @@ body.is-on-clock .draft-clock-panel {
   .standing-row .streak {
     grid-column: 4;
   }
+
+  .pickem-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .pickem-buttons,
+  .pickem-market {
+    flex: 1 1 100%;
+  }
+
+  .pickem-buttons,
+  .pickem-status {
+    justify-content: flex-start;
+  }
+
 }
 
 @media (max-width: 38rem) {
@@ -5840,6 +5876,12 @@ body.is-on-clock .draft-clock-panel {
   justify-content: space-between;
   gap: var(--space-sm);
   font-size: var(--type-sm);
+}
+
+@media (max-width: 54rem) {
+  .pickem-boards {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 45rem) {
