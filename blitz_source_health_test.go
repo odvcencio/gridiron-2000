@@ -105,14 +105,66 @@ func TestBlitzPollerBoxScoreRecoveryRestoresReadyState(t *testing.T) {
 	poller.health.State = league.BlitzStateReady
 	poller.health.Enabled = true
 	poller.mu.Unlock()
+	poller.enteredTeamsFn = func() map[string]bool { return map[string]bool{"ARI": true} }
 
 	poller.fetchBoxScore(context.Background(), game, false, now)
-	if got := poller.Snapshot().Health.State; got != league.BlitzStateDegraded {
+	failed := poller.Snapshot()
+	if got := failed.Health.State; got != league.BlitzStateDegraded {
 		t.Fatalf("failed fetch state = %q, want degraded", got)
+	}
+	if got := failed.Health.Slates["pre2"].State; got != league.BlitzStateDegraded {
+		t.Fatalf("failed selected slate state = %q, want degraded", got)
+	}
+	if failed.Health.Slates["pre2"].Error == "" {
+		t.Fatal("failed selected slate must retain safe error copy")
 	}
 	poller.fetchBoxScore(context.Background(), game, false, now.Add(time.Minute))
 	final := poller.Snapshot()
-	if final.Health.State != league.BlitzStateReady || final.Health.SafeError != "" {
+	if final.Health.State != league.BlitzStateReady || final.Health.SafeError != "" || !final.Health.Slates["pre2"].ScoringComplete {
 		t.Fatalf("recovered fetch health = %+v, want ready without error", final.Health)
+	}
+	if final.Health.Slates["pre2"].ExpectedScoringGames != 1 || final.Health.Slates["pre2"].FetchedScoringGames != 1 {
+		t.Fatalf("recovered scoring health = %+v, want 1/1", final.Health.Slates["pre2"])
+	}
+}
+
+func TestBlitzPollerFinalRelevantGameWithoutCacheIsFetchEligible(t *testing.T) {
+	poller := newBlitzPoller(nil, nil)
+	poller.enteredTeamsFn = func() map[string]bool { return map[string]bool{"KC": true} }
+	now := time.Now().UTC()
+	game := league.BlitzGame{ID: "final-kc", Slate: "pre2", Away: "KC", Home: "DEN", Kickoff: now.Add(-24 * time.Hour), Final: true}
+	poller.mu.Lock()
+	poller.games = []league.BlitzGame{game}
+	poller.mu.Unlock()
+	target, catchUp := poller.selectFetchTarget(now)
+	if target.ID != game.ID || !catchUp {
+		t.Fatalf("final relevant game target = %+v, catch-up=%v; want fetch despite empty cache", target, catchUp)
+	}
+}
+
+func TestBlitzPollerNoEntrantsMarkFinalScoringComplete(t *testing.T) {
+	poller := newBlitzPoller(nil, nil)
+	poller.enteredTeamsFn = func() map[string]bool { return nil }
+	now := time.Now().UTC()
+	poller.mu.Lock()
+	poller.games = []league.BlitzGame{
+		{ID: "final-pre2", Slate: "pre2", Away: "KC", Home: "DEN", Kickoff: now.Add(-24 * time.Hour), Final: true},
+		{ID: "final-pre3", Slate: "pre3", Away: "BUF", Home: "MIA", Kickoff: now.Add(-24 * time.Hour), Final: true},
+	}
+	poller.health.Slates = map[string]league.BlitzSlateHealth{
+		"pre2": {State: league.BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true},
+		"pre3": {State: league.BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true},
+	}
+	poller.health.Enabled = true
+	poller.recomputeHealthLocked(now)
+	poller.mu.Unlock()
+	snapshot := poller.Snapshot()
+	if !snapshot.Health.ScoringComplete || snapshot.Health.ExpectedScoringGames != 0 || snapshot.Health.FetchedScoringGames != 0 {
+		t.Fatalf("no-entrant scoring health = %+v, want complete zero expectation", snapshot.Health)
+	}
+	for slate, status := range snapshot.Health.Slates {
+		if !status.ScoringComplete || status.ExpectedScoringGames != 0 || status.FetchedScoringGames != 0 {
+			t.Fatalf("%s no-entrant scoring health = %+v", slate, status)
+		}
 	}
 }

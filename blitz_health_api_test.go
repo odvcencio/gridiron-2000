@@ -14,10 +14,11 @@ func TestBlitzHealthPayloadIsSafeAndActionable(t *testing.T) {
 	payload := blitzHealthPayload(league.BlitzDependencyHealth{Source: league.BlitzHealth{
 		Enabled: true, State: league.BlitzStateDegraded, LastAttempt: attempt,
 		LastSuccess: attempt.Add(-time.Hour), SafeError: "source temporarily unavailable",
-		ExpectedGames: 4, FetchedGames: 3, Complete: false,
-		Slates: map[string]league.BlitzSlateHealth{"pre2": {State: league.BlitzStateDegraded, ExpectedGames: 4, FetchedGames: 3}},
+		ExpectedGames: 4, FetchedGames: 3, ExpectedScoringGames: 2, FetchedScoringGames: 1,
+		ScoringComplete: false, Complete: false,
+		Slates: map[string]league.BlitzSlateHealth{"pre2": {State: league.BlitzStateDegraded, ExpectedGames: 4, FetchedGames: 3, ExpectedScoringGames: 2, FetchedScoringGames: 1, ScoringComplete: false}},
 	}, Pre1: league.BlitzPre1Health{State: league.BlitzStateDegraded, ExpectedGames: 2, FetchedGames: 1}})
-	if payload["state"] != league.BlitzStateDegraded || payload["expectedGames"] != 4 || payload["fetchedGames"] != 3 {
+	if payload["state"] != league.BlitzStateDegraded || payload["expectedGames"] != 4 || payload["fetchedGames"] != 3 || payload["expectedScoringGames"] != 2 || payload["fetchedScoringGames"] != 1 || payload["scoringComplete"] != false {
 		t.Fatalf("payload = %+v", payload)
 	}
 	encoded, err := json.Marshal(payload)

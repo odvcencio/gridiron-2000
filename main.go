@@ -438,19 +438,22 @@ func main() {
 // partial evidence must not make live slate readiness look offline.
 func blitzHealthPayload(value league.BlitzDependencyHealth) map[string]any {
 	return map[string]any{
-		"enabled":       value.Source.Enabled,
-		"state":         value.Source.State,
-		"lastAttempt":   value.Source.LastAttempt,
-		"lastSuccess":   value.Source.LastSuccess,
-		"error":         value.Source.SafeError,
-		"expectedGames": value.Source.ExpectedGames,
-		"fetchedGames":  value.Source.FetchedGames,
-		"finalGames":    value.Source.FinalGames,
-		"complete":      value.Source.Complete,
-		"final":         value.Source.Final,
-		"verifiedZero":  value.Source.VerifiedZero,
-		"slates":        value.Source.Slates,
-		"pre1":          value.Pre1,
+		"enabled":              value.Source.Enabled,
+		"state":                value.Source.State,
+		"lastAttempt":          value.Source.LastAttempt,
+		"lastSuccess":          value.Source.LastSuccess,
+		"error":                value.Source.SafeError,
+		"expectedGames":        value.Source.ExpectedGames,
+		"fetchedGames":         value.Source.FetchedGames,
+		"finalGames":           value.Source.FinalGames,
+		"expectedScoringGames": value.Source.ExpectedScoringGames,
+		"fetchedScoringGames":  value.Source.FetchedScoringGames,
+		"scoringComplete":      value.Source.ScoringComplete,
+		"complete":             value.Source.Complete,
+		"final":                value.Source.Final,
+		"verifiedZero":         value.Source.VerifiedZero,
+		"slates":               value.Source.Slates,
+		"pre1":                 value.Pre1,
 	}
 }
 

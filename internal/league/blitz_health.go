@@ -26,18 +26,24 @@ const (
 // is the number with usable kickoff data retained in the snapshot. Complete
 // is true only when the source has accounted for all expected games (including
 // an explicitly verified zero). Final is true only when a complete slate has
-// final status for every expected game.
+// final status for every expected game. ExpectedScoringGames and
+// FetchedScoringGames are the separate entrant-relevant final box-score
+// provenance counts; ScoringComplete is true when there are no relevant final
+// games or every relevant final game has a successful final result.
 type BlitzSlateHealth struct {
-	State         string    `json:"state"`
-	LastAttempt   time.Time `json:"lastAttempt,omitzero"`
-	LastSuccess   time.Time `json:"lastSuccess,omitzero"`
-	Error         string    `json:"error,omitempty"`
-	ExpectedGames int       `json:"expectedGames"`
-	FetchedGames  int       `json:"fetchedGames"`
-	FinalGames    int       `json:"finalGames"`
-	Complete      bool      `json:"complete"`
-	Final         bool      `json:"final"`
-	VerifiedZero  bool      `json:"verifiedZero"`
+	State                string    `json:"state"`
+	LastAttempt          time.Time `json:"lastAttempt,omitzero"`
+	LastSuccess          time.Time `json:"lastSuccess,omitzero"`
+	Error                string    `json:"error,omitempty"`
+	ExpectedGames        int       `json:"expectedGames"`
+	FetchedGames         int       `json:"fetchedGames"`
+	FinalGames           int       `json:"finalGames"`
+	ExpectedScoringGames int       `json:"expectedScoringGames"`
+	FetchedScoringGames  int       `json:"fetchedScoringGames"`
+	ScoringComplete      bool      `json:"scoringComplete"`
+	Complete             bool      `json:"complete"`
+	Final                bool      `json:"final"`
+	VerifiedZero         bool      `json:"verifiedZero"`
 }
 
 // BlitzHealth is the reusable health contract carried by BlitzSnapshot and
@@ -45,18 +51,21 @@ type BlitzSlateHealth struct {
 // SafeError must contain provider-independent copy only; callers must never
 // place URLs, API keys, request headers, or raw provider errors in it.
 type BlitzHealth struct {
-	Enabled       bool                        `json:"enabled"`
-	State         string                      `json:"state"`
-	LastAttempt   time.Time                   `json:"lastAttempt,omitzero"`
-	LastSuccess   time.Time                   `json:"lastSuccess,omitzero"`
-	SafeError     string                      `json:"error,omitempty"`
-	ExpectedGames int                         `json:"expectedGames"`
-	FetchedGames  int                         `json:"fetchedGames"`
-	FinalGames    int                         `json:"finalGames"`
-	Complete      bool                        `json:"complete"`
-	Final         bool                        `json:"final"`
-	VerifiedZero  bool                        `json:"verifiedZero"`
-	Slates        map[string]BlitzSlateHealth `json:"slates,omitempty"`
+	Enabled              bool                        `json:"enabled"`
+	State                string                      `json:"state"`
+	LastAttempt          time.Time                   `json:"lastAttempt,omitzero"`
+	LastSuccess          time.Time                   `json:"lastSuccess,omitzero"`
+	SafeError            string                      `json:"error,omitempty"`
+	ExpectedGames        int                         `json:"expectedGames"`
+	FetchedGames         int                         `json:"fetchedGames"`
+	FinalGames           int                         `json:"finalGames"`
+	ExpectedScoringGames int                         `json:"expectedScoringGames"`
+	FetchedScoringGames  int                         `json:"fetchedScoringGames"`
+	ScoringComplete      bool                        `json:"scoringComplete"`
+	Complete             bool                        `json:"complete"`
+	Final                bool                        `json:"final"`
+	VerifiedZero         bool                        `json:"verifiedZero"`
+	Slates               map[string]BlitzSlateHealth `json:"slates,omitempty"`
 }
 
 // BlitzPre1Health tracks the one-time preseason-week-1 evidence map. It uses
@@ -166,6 +175,10 @@ func BlitzHealthFromSnapshot(health BlitzHealth, games []BlitzGame) BlitzHealth 
 		if health.Complete && health.ExpectedGames > 0 {
 			health.Final = health.FinalGames == health.ExpectedGames
 		}
+		// Legacy snapshots have no box-score provenance. Keep their schedule
+		// inference useful for page rendering, but never infer final scoring
+		// completeness from final schedule rows alone.
+		health.ScoringComplete = false
 		return health
 	}
 	if health.State != "" || health.Enabled || health.LastAttempt.IsZero() == false || len(health.Slates) > 0 {
@@ -181,14 +194,15 @@ func BlitzHealthFromSnapshot(health BlitzHealth, games []BlitzGame) BlitzHealth 
 		final = final && status.Final
 	}
 	return BlitzHealth{
-		Enabled:       true,
-		State:         BlitzStateReady,
-		ExpectedGames: len(games),
-		FetchedGames:  len(games),
-		FinalGames:    countFinalBlitzGames(games),
-		Complete:      complete,
-		Final:         final,
-		Slates:        slates,
+		Enabled:         true,
+		State:           BlitzStateReady,
+		ExpectedGames:   len(games),
+		FetchedGames:    len(games),
+		FinalGames:      countFinalBlitzGames(games),
+		Complete:        complete,
+		Final:           final,
+		ScoringComplete: false,
+		Slates:          slates,
 	}
 }
 
@@ -210,12 +224,13 @@ func inferBlitzSlateHealth(games []BlitzGame) map[string]BlitzSlateHealth {
 			continue
 		}
 		out[slate] = BlitzSlateHealth{
-			State:         BlitzStateReady,
-			ExpectedGames: count,
-			FetchedGames:  count,
-			FinalGames:    final,
-			Complete:      true,
-			Final:         final == count,
+			State:           BlitzStateReady,
+			ExpectedGames:   count,
+			FetchedGames:    count,
+			FinalGames:      final,
+			Complete:        true,
+			Final:           final == count,
+			ScoringComplete: false,
 		}
 	}
 	return out

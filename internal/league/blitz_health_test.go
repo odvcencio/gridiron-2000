@@ -26,8 +26,75 @@ func TestBlitzHealthLegacyGamesRequireBothSlatesForArchiveTruth(t *testing.T) {
 		t.Fatal("a snapshot missing pre3 must not be archive-ready")
 	}
 	both := BlitzSnapshot{Games: []BlitzGame{pre2, pre3}}
-	if !blitzArchiveTruthReady(both) {
-		t.Fatal("complete final legacy fixture should remain archive-ready")
+	if blitzArchiveTruthReady(both) {
+		t.Fatal("final legacy schedule without scoring provenance must not be archive-ready")
+	}
+	verified := both
+	verified.Health = BlitzHealth{
+		Enabled: true, State: BlitzStateReady, ExpectedGames: 2, FetchedGames: 2,
+		FinalGames: 2, ExpectedScoringGames: 0, FetchedScoringGames: 0,
+		ScoringComplete: true, Complete: true, Final: true,
+		Slates: map[string]BlitzSlateHealth{
+			"pre2": {State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ScoringComplete: true},
+			"pre3": {State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ScoringComplete: true},
+		},
+	}
+	if !blitzArchiveTruthReady(verified) {
+		t.Fatal("explicit schedule and scoring provenance should be archive-ready")
+	}
+}
+
+func TestBlitzArchiveRequiresEntrantScoringCompleteness(t *testing.T) {
+	now := time.Now().UTC()
+	games := []BlitzGame{
+		{ID: "pre2-final", Slate: "pre2", Away: "KC", Home: "DEN", Kickoff: now.Add(-48 * time.Hour), Final: true},
+		{ID: "pre3-final", Slate: "pre3", Away: "BUF", Home: "MIA", Kickoff: now.Add(-48 * time.Hour), Final: true},
+	}
+	base := BlitzHealth{
+		Enabled: true, State: BlitzStateDegraded, ExpectedGames: 2, FetchedGames: 2,
+		FinalGames: 2, Complete: true, Final: true, ScoringComplete: false,
+		Slates: map[string]BlitzSlateHealth{
+			"pre2": {State: BlitzStateDegraded, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ExpectedScoringGames: 1, FetchedScoringGames: 0, ScoringComplete: false, Error: "final scoring inputs incomplete"},
+			"pre3": {State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ScoringComplete: true},
+		},
+	}
+	if blitzArchiveTruthReady(BlitzSnapshot{Games: games, Health: base}) {
+		t.Fatal("final schedule with an entrant-relevant missing box score must block archive")
+	}
+	base.State = BlitzStateReady
+	base.ScoringComplete = true
+	base.Slates["pre2"] = BlitzSlateHealth{State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ExpectedScoringGames: 1, FetchedScoringGames: 1, ScoringComplete: true}
+	if !blitzArchiveTruthReady(BlitzSnapshot{Games: games, Health: base}) {
+		t.Fatal("successful final box score should enable archive truth")
+	}
+}
+
+func TestBlitzDataBlocksArchiveWhenFinalScoringInputIsMissing(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Now().UTC()
+	service.now = func() time.Time { return now }
+	service.players = []Player{{ID: "p1", Name: "Entrant", Position: "QB", NFLTeam: "KC"}}
+	if err := service.store.BlitzSetEntry("owner@example.test", "pre2", []string{"p1"}, now); err != nil {
+		t.Fatal(err)
+	}
+	games := []BlitzGame{
+		{ID: "pre2-final", Slate: "pre2", Away: "KC", Home: "DEN", Kickoff: now.Add(-48 * time.Hour), Final: true},
+		{ID: "pre3-final", Slate: "pre3", Away: "BUF", Home: "MIA", Kickoff: now.Add(-48 * time.Hour), Final: true},
+	}
+	service.SetBlitzSource(func() BlitzSnapshot {
+		return BlitzSnapshot{Games: games, Health: BlitzHealth{
+			Enabled: true, State: BlitzStateReady, ExpectedGames: 2, FetchedGames: 2, FinalGames: 2,
+			Complete: true, Final: true, ScoringComplete: true,
+			Slates: map[string]BlitzSlateHealth{
+				"pre2": {State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ExpectedScoringGames: 0, FetchedScoringGames: 0, ScoringComplete: true},
+				"pre3": {State: BlitzStateReady, ExpectedGames: 1, FetchedGames: 1, FinalGames: 1, Complete: true, Final: true, ScoringComplete: true},
+			},
+		}}
+	})
+	request, _ := http.NewRequest(http.MethodGet, "/blitz?slate=pre2", nil)
+	data := service.BlitzData(request)
+	if data["archived"] == true || data["has_archive"] == true || data["archive_blocked"] != true {
+		t.Fatalf("missing final scoring input must keep archive provisional: %+v", data)
 	}
 }
 

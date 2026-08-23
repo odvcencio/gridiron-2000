@@ -202,17 +202,45 @@ func blitzSlateTruthReady(snapshot BlitzSnapshot, slate string) bool {
 }
 
 func blitzArchiveTruthReady(snapshot BlitzSnapshot) bool {
+	return blitzArchiveTruthReadyForTeams(snapshot, nil)
+}
+
+func blitzArchiveTruthReadyForTeams(snapshot BlitzSnapshot, enteredTeams map[string]bool) bool {
 	health := BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
-	if !health.Complete || !health.Final {
+	if !health.Complete || !health.Final || !health.ScoringComplete {
 		return false
 	}
 	for _, slate := range []string{"pre2", "pre3"} {
 		status, ok := health.Slates[slate]
-		if !ok || !status.Complete || !status.Final {
+		if !ok || !status.Complete || !status.Final || !status.ScoringComplete {
+			return false
+		}
+		if enteredTeams != nil && countRelevantFinalBlitzGames(snapshot.Games, slate, enteredTeams) > status.FetchedScoringGames {
+			// Entries can change after the last poll. A newly relevant final
+			// game must not inherit an old no-entrant scoring-complete result.
 			return false
 		}
 	}
 	return true
+}
+
+func countRelevantFinalBlitzGames(games []BlitzGame, slate string, enteredTeams map[string]bool) int {
+	count := 0
+	for _, game := range games {
+		if game.Slate != slate || !game.Final {
+			continue
+		}
+		away := strings.ToUpper(strings.TrimSpace(game.Away))
+		home := strings.ToUpper(strings.TrimSpace(game.Home))
+		if enteredTeams[away] || enteredTeams[home] {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Service) blitzArchiveTruthReady(snapshot BlitzSnapshot) bool {
+	return blitzArchiveTruthReadyForTeams(snapshot, s.BlitzEnteredTeams())
 }
 
 func blitzSlateStatus(snapshot BlitzSnapshot, slate string) BlitzSlateHealth {
@@ -224,31 +252,37 @@ func blitzHealthMap(health BlitzHealth) map[string]any {
 	slates := map[string]any{}
 	for slate, status := range health.Slates {
 		slates[slate] = map[string]any{
-			"state":          status.State,
-			"last_attempt":   formatBlitzHealthTime(status.LastAttempt),
-			"last_success":   formatBlitzHealthTime(status.LastSuccess),
-			"error":          status.Error,
-			"expected_games": status.ExpectedGames,
-			"fetched_games":  status.FetchedGames,
-			"final_games":    status.FinalGames,
-			"complete":       status.Complete,
-			"final":          status.Final,
-			"verified_zero":  status.VerifiedZero,
+			"state":                  status.State,
+			"last_attempt":           formatBlitzHealthTime(status.LastAttempt),
+			"last_success":           formatBlitzHealthTime(status.LastSuccess),
+			"error":                  status.Error,
+			"expected_games":         status.ExpectedGames,
+			"fetched_games":          status.FetchedGames,
+			"final_games":            status.FinalGames,
+			"expected_scoring_games": status.ExpectedScoringGames,
+			"fetched_scoring_games":  status.FetchedScoringGames,
+			"scoring_complete":       status.ScoringComplete,
+			"complete":               status.Complete,
+			"final":                  status.Final,
+			"verified_zero":          status.VerifiedZero,
 		}
 	}
 	return map[string]any{
-		"enabled":        health.Enabled,
-		"state":          health.State,
-		"last_attempt":   formatBlitzHealthTime(health.LastAttempt),
-		"last_success":   formatBlitzHealthTime(health.LastSuccess),
-		"error":          health.SafeError,
-		"expected_games": health.ExpectedGames,
-		"fetched_games":  health.FetchedGames,
-		"final_games":    health.FinalGames,
-		"complete":       health.Complete,
-		"final":          health.Final,
-		"verified_zero":  health.VerifiedZero,
-		"slates":         slates,
+		"enabled":                health.Enabled,
+		"state":                  health.State,
+		"last_attempt":           formatBlitzHealthTime(health.LastAttempt),
+		"last_success":           formatBlitzHealthTime(health.LastSuccess),
+		"error":                  health.SafeError,
+		"expected_games":         health.ExpectedGames,
+		"fetched_games":          health.FetchedGames,
+		"final_games":            health.FinalGames,
+		"expected_scoring_games": health.ExpectedScoringGames,
+		"fetched_scoring_games":  health.FetchedScoringGames,
+		"scoring_complete":       health.ScoringComplete,
+		"complete":               health.Complete,
+		"final":                  health.Final,
+		"verified_zero":          health.VerifiedZero,
+		"slates":                 slates,
 	}
 }
 
@@ -922,7 +956,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		selectedFinal = snapshot.Health.Final
 	}
 	slateKnown := blitzSlateTruthReady(snapshot, slate)
-	archived := blitzArchived(snapshot.Games, now) && blitzArchiveTruthReady(snapshot)
+	archived := blitzArchived(snapshot.Games, now) && s.blitzArchiveTruthReady(snapshot)
 	closed := slateKnown && (slateStatus.Final || blitzSlateClosed(slateGames))
 	liveStats := snapshot.Stats[slate]
 

@@ -206,7 +206,10 @@ func commissionerBlitzHealth(value BlitzDependencyHealth) commissionerhq.BlitzHe
 		LastAttempt: value.Source.LastAttempt, LastSuccess: value.Source.LastSuccess,
 		Error: value.Source.SafeError, ExpectedGames: value.Source.ExpectedGames,
 		FetchedGames: value.Source.FetchedGames, FinalGames: value.Source.FinalGames,
-		Complete: value.Source.Complete, Final: value.Source.Final,
+		ExpectedScoringGames: value.Source.ExpectedScoringGames,
+		FetchedScoringGames:  value.Source.FetchedScoringGames,
+		ScoringComplete:      value.Source.ScoringComplete,
+		Complete:             value.Source.Complete, Final: value.Source.Final,
 		VerifiedZero: value.Source.VerifiedZero,
 		Pre1: commissionerhq.BlitzPre1Health{
 			State: value.Pre1.State, LastAttempt: value.Pre1.LastAttempt,
@@ -221,7 +224,10 @@ func commissionerBlitzHealth(value BlitzDependencyHealth) commissionerhq.BlitzHe
 			State: status.State, LastAttempt: status.LastAttempt, LastSuccess: status.LastSuccess,
 			Error: status.Error, ExpectedGames: status.ExpectedGames, FetchedGames: status.FetchedGames,
 			FinalGames: status.FinalGames, Complete: status.Complete, Final: status.Final,
-			VerifiedZero: status.VerifiedZero,
+			ExpectedScoringGames: status.ExpectedScoringGames,
+			FetchedScoringGames:  status.FetchedScoringGames,
+			ScoringComplete:      status.ScoringComplete,
+			VerifiedZero:         status.VerifiedZero,
 		}
 	}
 	return out
