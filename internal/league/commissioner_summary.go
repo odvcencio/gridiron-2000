@@ -91,7 +91,7 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		}
 	}
 	draft := commissionerhq.Draft{
-		ScheduledAt: stateDraftAt(s),
+		ScheduledAt: s.EffectiveDraftAt(state),
 		Status:      draftStatus,
 		Started:     state.DraftStarted,
 		StartedAt:   state.DraftStartedAt,
@@ -180,10 +180,6 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		OpenData:  data,
 		Attention: attention.Items(),
 	}
-}
-
-func stateDraftAt(s *Service) time.Time {
-	return s.cfg.DraftAt
 }
 
 func commissionerSeason(s *Service, state PersistedState, now time.Time) (commissionerhq.Schedule, commissionerhq.Season) {

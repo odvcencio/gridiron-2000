@@ -54,8 +54,10 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	parts = append(parts, fmt.Sprintf("sched:%d/%d", started, final))
 
 	// The draft-start crossing flips canPick and the draft page's
-	// "started" flag (service.go).
-	parts = append(parts, "draft:"+boundaryFlag(!now.Before(s.draftAt)))
+	// "started" flag (service.go). The announced meeting can be moved before
+	// the lifecycle starts, so resolve it from the same persisted snapshot.
+	draftAt := s.EffectiveDraftAt(s.store.Snapshot())
+	parts = append(parts, "draft:"+boundaryFlag(!now.Before(draftAt)))
 
 	// The trade deadline (T8, trades.go) lives in configuration, so no
 	// state write marks its passing.

@@ -241,7 +241,7 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 		"season":       s.cfg.Season,
 		"team_count":   len(s.Teams()),
 		"timezone":     s.cfg.Timezone,
-		"draft_date":   s.draftAt.In(location).Format("Monday, January 2, 2006"),
+		"draft_date":   s.EffectiveDraftAt(s.store.Snapshot()).In(location).Format("Monday, January 2, 2006"),
 		"season_start": s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006"),
 	}
 }

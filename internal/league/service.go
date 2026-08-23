@@ -452,7 +452,13 @@ func parseBool(value string, fallback bool) bool {
 	return parsed
 }
 
-func (s *Service) DraftAt() time.Time { return s.draftAt }
+func (s *Service) DraftAt() time.Time {
+	state := PersistedState{}
+	if s.store != nil {
+		state = s.store.Snapshot()
+	}
+	return s.EffectiveDraftAt(state)
+}
 
 func (s *Service) DraftLifecycle() (bool, time.Time) {
 	state := PersistedState{}
@@ -2430,24 +2436,29 @@ func (s *Service) draftIsLive(_ time.Time) bool {
 }
 
 func (s *Service) draftSummary(now time.Time) map[string]any {
+	state := PersistedState{}
+	if s.store != nil {
+		state = s.store.Snapshot()
+	}
+	return s.draftSummaryForState(now, state)
+}
+
+func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[string]any {
+	draftAt := s.EffectiveDraftAt(state)
 	location := s.draftTZ
 	if location == nil {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
-	local := s.draftAt.In(location)
+	local := draftAt.In(location)
 	timezone := strings.TrimSpace(s.cfg.Timezone)
 	if timezone == "" {
 		timezone = location.String()
 	}
 	statusLabel := "SCHEDULED WINDOW"
 	statusNote := "The commissioner controls when the room opens. This is the scheduled draft window."
-	if !now.Before(s.draftAt) {
+	if !now.Before(draftAt) {
 		statusLabel = "AWAITING COMMISSIONER"
 		statusNote = "The scheduled window has arrived. The room stays closed until the commissioner starts it."
-	}
-	state := PersistedState{}
-	if s.store != nil {
-		state = s.store.Snapshot()
 	}
 	if state.DraftStarted {
 		statusLabel = "LIVE"
@@ -2463,7 +2474,9 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
 	return map[string]any{
-		"at":              s.draftAt.Format(time.RFC3339),
+		"at":              draftAt.Format(time.RFC3339),
+		"overridden":      !state.DraftAtOverride.IsZero(),
+		"input_value":     draftMeetingInputValue(draftAt, location),
 		"event_label":     "LEAGUE DRAFT",
 		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":            local.Format("3:04 PM MST"),
@@ -2473,11 +2486,11 @@ func (s *Service) draftSummary(now time.Time) map[string]any {
 		"started":         state.DraftStarted,
 		"complete":        complete,
 		"started_at":      startedAt,
-		"window_reached":  !now.Before(s.draftAt),
+		"window_reached":  !now.Before(draftAt),
 		"status_label":    statusLabel,
 		"status_note":     statusNote,
-		"days_until":      max(0, int(s.draftAt.Sub(now).Hours()/24)),
-		"countdown_label": countdownDHMSLabel(s.draftAt.Sub(now)),
+		"days_until":      max(0, int(draftAt.Sub(now).Hours()/24)),
+		"countdown_label": countdownDHMSLabel(draftAt.Sub(now)),
 	}
 }
 

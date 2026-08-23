@@ -452,6 +452,7 @@ const (
 	kvClockDurationSec        = "clock_duration_sec"
 	kvDraftStarted            = "draft_started"
 	kvDraftStartedAt          = "draft_started_at"
+	kvDraftAtOverride         = "draft_at_override"
 	kvScoringChangedAt        = "scoring_changed_at"
 	kvPhase                   = "phase"
 	kvWaiversProcessedThrough = "waivers_processed_through"
@@ -486,6 +487,7 @@ var collectionSpecs = [collectionCount]collectionSpec{
 			put(kvClockDurationSec, strconv.Itoa(st.ClockDurationSec))
 			put(kvDraftStarted, strconv.Itoa(boolToInt(st.DraftStarted)))
 			put(kvDraftStartedAt, encodeTime(st.DraftStartedAt))
+			put(kvDraftAtOverride, encodeTime(st.DraftAtOverride))
 			put(kvScoringChangedAt, encodeTime(st.ScoringChangedAt))
 			put(kvPhase, st.Phase)
 			put(kvWaiversProcessedThrough, encodeTime(st.WaiversProcessedThrough))
@@ -1144,6 +1146,9 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	state.ClockDurationSec, _ = strconv.Atoi(scalars[kvClockDurationSec])
 	state.DraftStarted = scalars[kvDraftStarted] == "1"
 	if state.DraftStartedAt, err = decodeTime(scalars[kvDraftStartedAt]); err != nil {
+		return state, err
+	}
+	if state.DraftAtOverride, err = decodeTime(scalars[kvDraftAtOverride]); err != nil {
 		return state, err
 	}
 	if state.ScoringChangedAt, err = decodeTime(scalars[kvScoringChangedAt]); err != nil {

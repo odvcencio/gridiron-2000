@@ -127,7 +127,7 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -161,6 +161,14 @@ func init() {
 			data["schedule_generation"] = generation
 			data["schedule_regeneration"] = regeneration
 			data["close_form"] = closeForm
+			reschedule := map[string]any{"meeting_at": ""}
+			if draft, ok := data["draft"].(map[string]any); ok {
+				reschedule["meeting_at"] = draft["input_value"]
+			}
+			if view, ok := ctx.ActionState("draft-reschedule"); ok {
+				reschedule["meeting_at"] = view.Value("meeting_at")
+			}
+			data["draft_reschedule"] = reschedule
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
@@ -251,6 +259,13 @@ func init() {
 					message = "Draft was already live; the original clock is unchanged."
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", message)
+				return nil
+			},
+			"draft-reschedule": func(ctx *action.Context) error {
+				if err := league.Default().AdminRescheduleDraft(ctx.Request, ctx.FormData["meeting_at"]); err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				actionui.RedirectWithNotice(ctx, "/admin", "Draft meeting rescheduled. This changes the manager-facing meeting time and reminders; it does not start the draft.")
 				return nil
 			},
 			"invite-add": func(ctx *action.Context) error {
