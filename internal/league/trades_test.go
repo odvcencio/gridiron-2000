@@ -610,11 +610,11 @@ func TestTradeAcceptActorAndStatusChecks(t *testing.T) {
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
 
-	if _, err := svc.AcceptTrade(request, "team-1", offerID); err == nil || err.Error() != "only the receiving manager can accept this offer" {
+	if _, err := svc.AcceptTrade(request, "team-1", offerID, tradeAcceptConfirmation); err == nil || err.Error() != "only the receiving manager can accept this offer" {
 		t.Fatalf("accept by the proposing team: err = %v", err)
 	}
 
-	message, err := svc.AcceptTrade(request, "team-2", offerID)
+	message, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation)
 	if err != nil {
 		t.Fatalf("AcceptTrade: %v", err)
 	}
@@ -631,7 +631,7 @@ func TestTradeAcceptActorAndStatusChecks(t *testing.T) {
 	}
 
 	// T9: accepting an already-accepted offer fails.
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err == nil || err.Error() != "this offer is no longer open" {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err == nil || err.Error() != "this offer is no longer open" {
 		t.Fatalf("accept on a resolved offer: err = %v", err)
 	}
 }
@@ -646,7 +646,7 @@ func TestTradeAcceptUnderNoneModeExecutesImmediately(t *testing.T) {
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
 
-	message, err := svc.AcceptTrade(request, "team-2", offerID)
+	message, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation)
 	if err != nil {
 		t.Fatalf("AcceptTrade: %v", err)
 	}
@@ -689,7 +689,7 @@ func TestTradeTickExecutesAfterReviewWindowAndFiresN16(t *testing.T) {
 	svc.cfg.Trades.ReviewHours = 24
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 
@@ -769,7 +769,7 @@ func TestTradeExecutionFailsClosedAfterMidWindowRosterChange(t *testing.T) {
 	svc.cfg.Trades.ReviewHours = 24
 	offerID := proposeFixtureOffer(t, svc) // team-1 gives t1-a, gets t2-a from team-2
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 
@@ -824,11 +824,11 @@ func TestApproveTradeRequiresCommissioner(t *testing.T) {
 	svc, _ := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 	svc.demoMode = false // demo mode grants commissioner unconditionally; flip it off after the (demo-only) accept
-	_, err := svc.ApproveTrade(request, offerID)
+	_, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation)
 	want := "commissioner access is required"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -839,10 +839,10 @@ func TestApproveTradeExecutesUnderCommissionerMode(t *testing.T) {
 	svc, _ := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
-	message, err := svc.ApproveTrade(request, offerID)
+	message, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation)
 	if err != nil {
 		t.Fatalf("ApproveTrade: %v", err)
 	}
@@ -859,10 +859,10 @@ func TestApproveTradeRejectedUnderVoteMode(t *testing.T) {
 	svc.cfg.Trades.Veto = "vote"
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
-	_, err := svc.ApproveTrade(request, offerID)
+	_, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation)
 	want := "commissioner review is not part of this league's trade policy"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -873,10 +873,10 @@ func TestCommissionerVetoTradeFiresN17(t *testing.T) {
 	svc, _ := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
-	message, err := svc.CommissionerVetoTrade(request, offerID)
+	message, err := svc.CommissionerVetoTrade(request, offerID, tradeVetoConfirmation)
 	if err != nil || message != "Trade vetoed." {
 		t.Fatalf("message=%q err=%v", message, err)
 	}
@@ -901,7 +901,7 @@ func TestVoteVetoTradeRejectsPartyMembers(t *testing.T) {
 	svc.cfg.Trades.Veto = "vote"
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 	_, err := svc.VoteVetoTrade(request, "team-1", offerID)
@@ -916,7 +916,7 @@ func TestVoteVetoTradeCrossesThresholdAndFiresN17(t *testing.T) {
 	svc.cfg.Trades.Veto = "vote"
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 
@@ -955,7 +955,7 @@ func TestVoteVetoRejectedOutsideVoteAndBothMode(t *testing.T) {
 	svc, _ := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc) // default veto mode: commissioner
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 	_, err := svc.VoteVetoTrade(request, "team-3", offerID)
@@ -976,7 +976,7 @@ func acceptedBothModeOffer(t *testing.T) (svc *Service, offerID string, request 
 	svc.cfg.Trades.Veto = "both"
 	offerID = proposeFixtureOffer(t, svc)
 	request, _ = http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
 	return svc, offerID, request
@@ -987,7 +987,7 @@ func acceptedBothModeOffer(t *testing.T) (svc *Service, offerID string, request 
 // crossed threshold.
 func TestBothModeCommissionerApproveExecutes(t *testing.T) {
 	svc, offerID, request := acceptedBothModeOffer(t)
-	if _, err := svc.ApproveTrade(request, offerID); err != nil {
+	if _, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation); err != nil {
 		t.Fatalf("ApproveTrade: %v", err)
 	}
 	if got := svc.store.Snapshot().TradeOffers[0].Status; got != TradeStatusExecuted {
@@ -1023,7 +1023,7 @@ func TestBothModeRaceVetoThenApprove(t *testing.T) {
 	if got := svc.store.Snapshot().TradeOffers[0].Status; got != TradeStatusVetoed {
 		t.Fatalf("status after 3 votes = %q, want vetoed", got)
 	}
-	if _, err := svc.ApproveTrade(request, offerID); err == nil {
+	if _, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation); err == nil {
 		t.Fatal("approve after a completed community veto must fail")
 	} else if want := "this trade is no longer under review"; err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -1040,7 +1040,7 @@ func TestBothModeRaceVetoThenApprove(t *testing.T) {
 // owner amendment).
 func TestBothModeRaceApproveThenVeto(t *testing.T) {
 	svc, offerID, request := acceptedBothModeOffer(t)
-	if _, err := svc.ApproveTrade(request, offerID); err != nil {
+	if _, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation); err != nil {
 		t.Fatalf("ApproveTrade: %v", err)
 	}
 	if got := svc.store.Snapshot().TradeOffers[0].Status; got != TradeStatusExecuted {
@@ -1226,10 +1226,10 @@ func TestTradeNotificationsFireExactlyOnce(t *testing.T) {
 	}
 
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
-	if _, err := svc.AcceptTrade(request, "team-2", offerID); err != nil {
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.ApproveTrade(request, offerID); err != nil {
+	if _, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation); err != nil {
 		t.Fatal(err)
 	}
 	executedOffer := svc.store.Snapshot().TradeOffers[0]

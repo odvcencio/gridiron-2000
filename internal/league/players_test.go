@@ -93,7 +93,7 @@ func TestAddPlayerRequiresSignIn(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	svc.demoMode = false
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "fa-open", "")
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "", "")
 	want := "Google sign-in is required for league actions"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -103,7 +103,7 @@ func TestAddPlayerRequiresSignIn(t *testing.T) {
 func TestAddPlayerUnknownPoolMember(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "ghost", "")
+	_, err := svc.AddPlayer(request, "team-1", "ghost", "", "")
 	want := "choose an available player"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -113,7 +113,7 @@ func TestAddPlayerUnknownPoolMember(t *testing.T) {
 func TestAddPlayerAlreadyRostered(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "other-team-player", "")
+	_, err := svc.AddPlayer(request, "team-1", "other-team-player", "", "")
 	want := "Other Team Player is already on a roster"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -123,7 +123,7 @@ func TestAddPlayerAlreadyRostered(t *testing.T) {
 func TestAddPlayerRosterFullRequiresDrop(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "fa-open", "")
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "", "")
 	want := "your roster is full; choose a player to drop"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -133,7 +133,7 @@ func TestAddPlayerRosterFullRequiresDrop(t *testing.T) {
 func TestAddPlayerDropNotOnRoster(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "fa-open", "fa-two")
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "fa-two", playerAddDropConfirmation)
 	want := "that player is not on your roster"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -143,7 +143,7 @@ func TestAddPlayerDropNotOnRoster(t *testing.T) {
 func TestAddPlayerDropLocked(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "fa-open", "rb-locked")
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "rb-locked", playerAddDropConfirmation)
 	want := "Locked Rusher is locked and cannot be dropped until the week closes"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -153,7 +153,7 @@ func TestAddPlayerDropLocked(t *testing.T) {
 func TestAddPlayerSwapSucceeds(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	message, err := svc.AddPlayer(request, "team-1", "fa-open", "wr-open")
+	message, err := svc.AddPlayer(request, "team-1", "fa-open", "wr-open", playerAddDropConfirmation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestAddPlayerFreeAgencyClosedPreDraft(t *testing.T) {
 	svc.SetScheduleSource(func() []GameInfo { return nil })
 	svc.SetPlayerSource(func() ([]Player, int64, string) { return playersFixturePool(), 1, "test" })
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.AddPlayer(request, "team-1", "fa-open", "")
+	_, err := svc.AddPlayer(request, "team-1", "fa-open", "", "")
 	want := "free agency opens once the draft is complete"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -211,7 +211,7 @@ func newInProgressPlayersTestService(t *testing.T) *Service {
 func TestDropPlayerFreeAgencyClosedDuringDraft(t *testing.T) {
 	svc := newInProgressPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.DropPlayer(request, "team-1", "rb-open")
+	_, err := svc.DropPlayer(request, "team-1", "rb-open", playerDropConfirmation)
 	want := "free agency opens once the draft is complete"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -238,7 +238,7 @@ func TestDropPlayerRequiresSignIn(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	svc.demoMode = false
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.DropPlayer(request, "team-1", "rb-open")
+	_, err := svc.DropPlayer(request, "team-1", "rb-open", playerDropConfirmation)
 	want := "Google sign-in is required for league actions"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -248,7 +248,7 @@ func TestDropPlayerRequiresSignIn(t *testing.T) {
 func TestDropPlayerNotOnRoster(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.DropPlayer(request, "team-1", "fa-open")
+	_, err := svc.DropPlayer(request, "team-1", "fa-open", playerDropConfirmation)
 	want := "that player is not on your roster"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -258,7 +258,7 @@ func TestDropPlayerNotOnRoster(t *testing.T) {
 func TestDropPlayerLocked(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	_, err := svc.DropPlayer(request, "team-1", "rb-locked")
+	_, err := svc.DropPlayer(request, "team-1", "rb-locked", playerDropConfirmation)
 	want := "Locked Rusher is locked and cannot be dropped until the week closes"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
@@ -268,7 +268,7 @@ func TestDropPlayerLocked(t *testing.T) {
 func TestDropPlayerSucceedsAndAppendsOneTransaction(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
-	message, err := svc.DropPlayer(request, "team-1", "rb-open")
+	message, err := svc.DropPlayer(request, "team-1", "rb-open", playerDropConfirmation)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -501,7 +501,7 @@ func (s *Service) WithdrawTrade(r *http.Request, requestedTeam, offerID string) 
 // window: execution runs immediately, in the same request, right after
 // the accept persists (section 6.1: "trades.veto = 'none': executes at
 // accept, no window").
-func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID string) (string, error) {
+func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID, confirmation string) (string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam) // T1
 	if err != nil {
 		return "", err
@@ -519,6 +519,9 @@ func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID string) (s
 	pool := s.pool()
 	starterCount, rosterCap := tradeRosterBounds()
 	if err := validateTradeAssets(state, s.cfg, games, pool.byID, now, offer, starterCount, rosterCap); err != nil {
+		return "", err
+	}
+	if err := requireMutationConfirmation(tradeAcceptConfirmation, confirmation); err != nil {
 		return "", err
 	}
 	if err := s.store.AcceptTradeOffer(offerID, s.cfg, games, pool.byID, now, starterCount, rosterCap); err != nil {
@@ -545,7 +548,7 @@ func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID string) (s
 // moved the offer past "accepted" (Store.CommissionerVetoTradeOffer's
 // doc comment), so this call fails closed on its own without any special
 // case here — "approve does not override a completed community veto."
-func (s *Service) ApproveTrade(r *http.Request, offerID string) (string, error) {
+func (s *Service) ApproveTrade(r *http.Request, offerID, confirmation string) (string, error) {
 	if err := s.requireCommissioner(r); err != nil { // T13
 		return "", err
 	}
@@ -556,6 +559,12 @@ func (s *Service) ApproveTrade(r *http.Request, offerID string) (string, error) 
 	offer, ok := findTradeOffer(state.TradeOffers, offerID)
 	if !ok {
 		return "", fmt.Errorf("this trade is no longer under review")
+	}
+	if offer.Status != TradeStatusAccepted {
+		return "", fmt.Errorf("this trade is no longer under review")
+	}
+	if err := requireMutationConfirmation(tradeApproveConfirmation, confirmation); err != nil {
+		return "", err
 	}
 	now := s.clock()
 	games := s.schedule()
@@ -573,7 +582,7 @@ func (s *Service) ApproveTrade(r *http.Request, offerID string) (string, error) 
 // CommissionerVetoTrade applies section 6.1's veto step under
 // commissioner or both mode: accepted → vetoed. T13's commissioner
 // variant gates it.
-func (s *Service) CommissionerVetoTrade(r *http.Request, offerID string) (string, error) {
+func (s *Service) CommissionerVetoTrade(r *http.Request, offerID, confirmation string) (string, error) {
 	if err := s.requireCommissioner(r); err != nil { // T13
 		return "", err
 	}
@@ -584,6 +593,12 @@ func (s *Service) CommissionerVetoTrade(r *http.Request, offerID string) (string
 	offer, ok := findTradeOffer(state.TradeOffers, offerID)
 	if !ok {
 		return "", fmt.Errorf("this trade is no longer under review")
+	}
+	if offer.Status != TradeStatusAccepted {
+		return "", fmt.Errorf("this trade is no longer under review")
+	}
+	if err := requireMutationConfirmation(tradeVetoConfirmation, confirmation); err != nil {
+		return "", err
 	}
 	if err := s.store.CommissionerVetoTradeOffer(offerID, s.clock()); err != nil {
 		return "", err

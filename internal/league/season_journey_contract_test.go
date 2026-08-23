@@ -313,14 +313,14 @@ func TestSeasonJourneyAcceptance(t *testing.T) {
 	}
 	offerID := state.TradeOffers[0].ID
 	transactionsBeforeRejectedAccept := len(state.Transactions)
-	if _, err := service.AcceptTrade(primaryRequest, "team-2", offerID); err == nil {
+	if _, err := service.AcceptTrade(primaryRequest, "team-2", offerID, tradeAcceptConfirmation); err == nil {
 		t.Fatal("proposing manager accepted the receiving team's offer")
 	}
 	state = service.store.Snapshot()
 	if state.TradeOffers[0].Status != TradeStatusOpen || len(state.Transactions) != transactionsBeforeRejectedAccept {
 		t.Fatalf("rejected cross-team trade accept mutated state: offer=%+v transactions=%d/%d", state.TradeOffers[0], len(state.Transactions), transactionsBeforeRejectedAccept)
 	}
-	if _, err := service.AcceptTrade(teamTwoRequest, "team-2", offerID); err != nil {
+	if _, err := service.AcceptTrade(teamTwoRequest, "team-2", offerID, tradeAcceptConfirmation); err != nil {
 		t.Fatalf("accept trade: %v", err)
 	}
 	state = service.store.Snapshot()

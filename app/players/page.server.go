@@ -84,7 +84,7 @@ func init() {
 			// player-add action: an instant free-agent signing, with an
 			// optional drop_id when the roster is full.
 			"player-add": func(ctx *action.Context) error {
-				message, err := league.Default().AddPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
+				message, err := league.Default().AddPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
@@ -93,7 +93,7 @@ func init() {
 			},
 			// player-drop applies the section 5.3 player-drop action.
 			"player-drop": func(ctx *action.Context) error {
-				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
+				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}

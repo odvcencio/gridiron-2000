@@ -161,7 +161,15 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 								<input type="hidden" name="offer_id" value={offer.ID}></input>
-								<button class="draft-button" type="submit">Accept</button>
+								<details class="action-confirmation">
+									<summary>Accept this trade</summary>
+									<p>Accepting records your agreement. This either opens the league review window or executes immediately, depending on league policy. The roster change cannot be undone from this screen.</p>
+									<label>
+										<input type="checkbox" name="confirmation" value="accept-trade" required="required"></input>
+										I understand this commits the offer.
+									</label>
+									<button class="draft-button" type="submit">Confirm acceptance</button>
+								</details>
 							</form>
 							</If>
 							<If cond={offer.CanDecline}>
@@ -308,12 +316,28 @@ func Page() Node {
 								<form method="post" action={actionPath("trade-approve")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="offer_id" value={offer.ID}></input>
-									<button class="draft-button" type="submit">Approve</button>
+									<details class="action-confirmation">
+										<summary>Approve and execute</summary>
+										<p>Approval executes this accepted trade immediately and moves both rosters. This commissioner action cannot be undone from this screen.</p>
+										<label>
+											<input type="checkbox" name="confirmation" value="approve-trade" required="required"></input>
+											I understand this executes the trade.
+										</label>
+										<button class="draft-button" type="submit">Confirm approval</button>
+									</details>
 								</form>
 								<form method="post" action={actionPath("trade-veto-commissioner")} data-gosx-managed="true">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input>
 									<input type="hidden" name="offer_id" value={offer.ID}></input>
-									<button class="board-button board-button--cut" type="submit">Veto</button>
+									<details class="action-confirmation">
+										<summary>Veto this trade</summary>
+										<p>Vetoing rejects this accepted offer and prevents execution. This commissioner decision cannot be undone from this screen.</p>
+										<label>
+											<input type="checkbox" name="confirmation" value="veto-trade" required="required"></input>
+											I understand this rejects the offer.
+										</label>
+										<button class="board-button board-button--cut" type="submit">Confirm veto</button>
+									</details>
 								</form>
 							</div>
 						</article>
