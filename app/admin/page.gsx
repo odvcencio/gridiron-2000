@@ -7,7 +7,17 @@ package admin
 // bounded-multipart contract; its outer middleware applies the complete-
 // envelope limit before sessions and CSRF parsing (see avatar_handlers.go in
 // the repo root).
-func SeatRow(props any) Node {
+type SeatRowProps struct {
+	Seat              map[string]any
+	ReleaseAction     string
+	RenameAction      string
+	AutopickAction    string
+	AvatarResetAction string
+	CoDetachAction    string
+	CSRF              string
+}
+
+func SeatRow(props SeatRowProps) Node {
 	return <article class="seat-row" data-claimed={props.seat.claimed}>
 		<span class={"team-mark tone-" + props.seat.tone}>
 			<If cond={props.seat.has_avatar_image}>
@@ -115,7 +125,14 @@ func SeatRow(props any) Node {
 	</article>
 }
 
-func AdminTaskLink(props any) Node {
+type AdminTaskLinkProps struct {
+	Href    string
+	Current bool
+	Label   string
+	Status  string
+}
+
+func AdminTaskLink(props AdminTaskLinkProps) Node {
 	return <li class="admin-task-nav__item">
 		<a
 			href={props.Href}

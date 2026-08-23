@@ -1,6 +1,13 @@
 package blitz
 
-func BlitzSlotRow(props any) Node {
+type BlitzSlotRowProps struct {
+	Slot         map[string]any
+	RemoveAction string
+	CSRF         string
+	Slate        string
+}
+
+func BlitzSlotRow(props BlitzSlotRowProps) Node {
 	return <article class="board-row" data-picked={props.Slot.locked}>
 		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
 			<If cond={props.Slot.has_headshot}>
@@ -54,7 +61,15 @@ func BlitzSlotRow(props any) Node {
 	</article>
 }
 
-func BlitzPoolRow(props any) Node {
+type BlitzPoolRowProps struct {
+	Player   map[string]any
+	AddAction string
+	CSRF     string
+	Slate    string
+	Open     bool
+}
+
+func BlitzPoolRow(props BlitzPoolRowProps) Node {
 	return <article class="pool-row" data-player-position={props.Player.position} data-gosx-filter-text={props.Player.search}>
 		<span class="pool-rank mono">{props.Player.rank}</span>
 		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
@@ -129,7 +144,11 @@ func BlitzPoolRow(props any) Node {
 	</article>
 }
 
-func BlitzGameRow(props any) Node {
+type BlitzGameRowProps struct {
+	Game map[string]any
+}
+
+func BlitzGameRow(props BlitzGameRowProps) Node {
 	return <article class="pickem-row">
 		<small class="mono">{props.Game.kickoff_display}</small>
 		<strong>{props.Game.label}</strong>
@@ -139,7 +158,11 @@ func BlitzGameRow(props any) Node {
 	</article>
 }
 
-func BlitzLeaderRow(props any) Node {
+type BlitzLeaderRowProps struct {
+	Entry map[string]any
+}
+
+func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 	return <article class="board-row">
 		<span class="pool-rank mono">{props.Entry.rank}</span>
 		<div class="pool-player">
@@ -189,7 +212,11 @@ func BlitzLeaderRow(props any) Node {
 	</article>
 }
 
-func BlitzArchiveRow(props any) Node {
+type BlitzArchiveRowProps struct {
+	Entry map[string]any
+}
+
+func BlitzArchiveRow(props BlitzArchiveRowProps) Node {
 	return <article class="board-row">
 		<span class="pool-rank mono">{props.Entry.rank}</span>
 		<div class="pool-player">
