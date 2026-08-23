@@ -21,6 +21,7 @@ type navigationViewerFixture struct {
 	hasSeat      bool
 	commissioner bool
 	seatsOpen    bool
+	canClaimSeat bool
 }
 
 type renderedNavigationGroup struct {
@@ -58,12 +59,13 @@ func Page() Node {
 		Load: func(*route.RouteContext, route.FilePage) (any, error) {
 			return map[string]any{
 				"viewer": map[string]any{
-					"signed_in":       viewer.signedIn,
-					"demo":            viewer.demo,
-					"has_seat":        viewer.hasSeat,
-					"is_commissioner": viewer.commissioner,
-					"initials":        "QA",
-					"team_name":       "Quality Agents",
+					"signed_in":           viewer.signedIn,
+					"demo":                viewer.demo,
+					"has_seat":            viewer.hasSeat,
+					"seat_claim_eligible": viewer.canClaimSeat,
+					"is_commissioner":     viewer.commissioner,
+					"initials":            "QA",
+					"team_name":           "Quality Agents",
 				},
 				"league": map[string]any{
 					"name":                 "Test League",
@@ -190,7 +192,7 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	switch {
 	case viewer.hasSeat:
 		*team = append(*team, "/team|04 My team")
-	case viewer.seatsOpen:
+	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
 		*team = append(*team, "/team|04 Fantasy status")
@@ -217,7 +219,8 @@ func TestPrimaryNavigationRoleSeatAndSurfaceMatrix(t *testing.T) {
 		viewer navigationViewerFixture
 	}{
 		{name: "seated manager", viewer: navigationViewerFixture{signedIn: true, hasSeat: true, seatsOpen: true}},
-		{name: "seatless with opening", viewer: navigationViewerFixture{signedIn: true, seatsOpen: true}},
+		{name: "seatless with opening", viewer: navigationViewerFixture{signedIn: true, seatsOpen: true, canClaimSeat: true}},
+		{name: "pending co-manager with opening", viewer: navigationViewerFixture{signedIn: true, seatsOpen: true}},
 		{name: "seatless full", viewer: navigationViewerFixture{signedIn: true}},
 		{name: "demo commissioner without signed in", viewer: navigationViewerFixture{demo: true, commissioner: true}},
 	}

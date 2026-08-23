@@ -482,34 +482,39 @@ func (s *Service) CurrentUser(r *http.Request) (auth.User, bool) {
 	return s.CanonicalUser(user), true
 }
 
-// EmailAllowed reports whether the email may join the league (registration
-// wave, build item 5 — the domain-gate membership rule): it is admitted
-// unconditionally when its domain matches the config's
-// membership.allowed_domain (when one is set), otherwise it must appear
-// in the LEAGUE_ALLOWED_EMAILS environment list or the stored invite
-// list. When both of those lists are empty the league is open (initial
-// setup) regardless of the domain gate. The domain gate and the invite
-// list are additive, not exclusive — "the invite list still works
-// alongside" a configured domain, so a non-domain guest can still be
-// invited by email.
-func (s *Service) EmailAllowed(email string) bool {
-	email = strings.ToLower(strings.TrimSpace(email))
-	if domain := strings.ToLower(strings.TrimSpace(s.cfg.Membership.AllowedDomain)); domain != "" {
-		if strings.HasSuffix(email, "@"+domain) {
-			return true
+// membershipAdmissionPolicy returns the effective initial-admission inputs.
+// A configured domain and explicit invitations are additive. The established
+// initial-setup fallback remains open whenever no explicit invitation source
+// exists, even if a domain has already been staged in configuration.
+func (s *Service) membershipAdmissionPolicy() (domain string, invitations []string) {
+	domain = strings.ToLower(strings.TrimSpace(s.cfg.Membership.AllowedDomain))
+	invitations = append(invitations, splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))...)
+	for _, invited := range s.store.Snapshot().Invites {
+		if invited = admissionEmail(invited); invited != "" {
+			invitations = append(invitations, invited)
 		}
 	}
-	envList := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
-	invites := s.store.Snapshot().Invites
-	if len(envList) == 0 && len(invites) == 0 {
+	return domain, invitations
+}
+
+// EmailAllowed reports whether a provider identity may create its initial
+// persisted membership. A matching configured domain or an explicit
+// environment/stored invitation admits it. With no explicit invitations,
+// initial setup remains open after sign-in even if a domain is configured.
+// Once membership exists, signed-in entry views use that persisted canonical
+// Member directly instead of reapplying this initial-admission policy.
+func (s *Service) EmailAllowed(email string) bool {
+	email = admissionEmail(email)
+	domain, invitations := s.membershipAdmissionPolicy()
+	if domain != "" && strings.HasSuffix(email, "@"+domain) {
 		return true
 	}
-	for _, candidate := range envList {
+	for _, candidate := range invitations {
 		if candidate == email {
 			return true
 		}
 	}
-	return s.store.Invited(email)
+	return len(invitations) == 0
 }
 
 // IsCommissioner reports whether the request belongs to a commissioner.
@@ -1072,11 +1077,9 @@ func (s *Service) EnsureMember(email, name string) (Member, error) {
 	return s.ensureMember(email, name)
 }
 
-// ensureMember is the membership-only counterpart to assignMember: it
-// records email as a league member but never assigns a team seat, and
-// never fires N1 (no seat was claimed). Viewer's just-in-time record and
-// actingTeam's both call this, not assignMember, so loading a page or
-// attempting a non-team action never claims a seat as a side effect.
+// ensureMember is the membership-only counterpart to assignMember. It records
+// email only at deliberate admission/action boundaries, never from a read
+// model such as Viewer, never assigns a team seat, and never fires N1.
 func (s *Service) ensureMember(email, name string) (Member, error) {
 	email = s.identityResolver.Resolve(email)
 	member, _, err := s.store.EnsureMember(email, name)
@@ -1243,17 +1246,12 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 
 // ClaimFantasySeat resolves the signed-in member's email/name from r and
 // completes the fantasy-signup atomic claim (build item 2: team name +
-// badge motif in one seat claim). An anonymous request or an
-// already-seated member is rejected before any store write; see
-// claimFantasySeat for the seat/name/badge write sequence and its
-// rollback contract.
+// badge motif in one seat claim). The primitive owns every admission and
+// existing-seat check so direct/stale action calls cannot bypass them.
 func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Team, error) {
 	user, ok := s.CurrentUser(r)
 	if !ok {
 		return Team{}, fmt.Errorf("Google sign-in is required for league actions")
-	}
-	if member, exists := s.store.MemberByEmail(user.Email); exists && member.TeamID != "" {
-		return Team{}, fmt.Errorf("you already hold a team seat")
 	}
 	return s.claimFantasySeat(user.Email, user.Name, teamName, motif)
 }
@@ -1283,6 +1281,21 @@ func (s *Service) ClaimFantasySeat(r *http.Request, teamName, motif string) (Tea
 // "that badge is already claimed by <team>" message is what both paths
 // surface.
 func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, error) {
+	email = s.identityResolver.Resolve(email)
+	state := s.store.Snapshot()
+	if pendingTeamID, pending := state.CoInvites[email]; pending {
+		return Team{}, fmt.Errorf(
+			"complete your pending co-manager sign-in for %s before claiming another franchise",
+			s.TeamLabel(pendingTeamID),
+		)
+	}
+	member, admitted := state.Members[email]
+	if !admitted {
+		return Team{}, errors.New("league admission is not recorded for this Google account; sign in again or ask the commissioner to verify your identity")
+	}
+	if member.TeamID != "" {
+		return Team{}, errors.New("you already hold a team seat")
+	}
 	if !s.store.IdentityHealthy() {
 		return Team{}, errors.New(identityUnavailableCopy)
 	}
@@ -1312,7 +1325,7 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 			return Team{}, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name}
 		}
 	}
-	member, err := s.assignMember(email, name)
+	member, err = s.assignMember(email, name)
 	if err != nil {
 		return Team{}, err
 	}
@@ -1338,22 +1351,22 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 	if !signedIn {
 		team := s.Teams()[0]
 		return map[string]any{
-			"signed_in":       false,
-			"demo":            s.demoMode,
-			"name":            "Guest Coach",
-			"email":           "",
-			"initials":        "GC",
-			"team_id":         team.ID,
-			"team_name":       team.Name,
-			"has_seat":        s.demoMode,
-			"is_commissioner": s.demoMode,
+			"signed_in":           false,
+			"demo":                s.demoMode,
+			"name":                "Guest Coach",
+			"email":               "",
+			"initials":            "GC",
+			"team_id":             team.ID,
+			"team_name":           team.Name,
+			"has_seat":            s.demoMode,
+			"seat_claim_eligible": false,
+			"is_commissioner":     s.demoMode,
 		}
 	}
-	member, ok := s.store.MemberByEmail(user.Email)
-	if !ok {
-		member, _ = s.ensureMember(user.Email, user.Name)
-	}
+	member, memberExists := s.store.MemberByEmail(user.Email)
+	_, pendingCoInvite := s.store.Snapshot().CoInvites[user.Email]
 	hasSeat := member.TeamID != ""
+	seatClaimEligible := memberExists && !hasSeat && !pendingCoInvite
 	teamID, teamName := "", ""
 	if hasSeat {
 		team := s.teamByID(member.TeamID)
@@ -1364,15 +1377,16 @@ func (s *Service) Viewer(r *http.Request) map[string]any {
 		name = strings.Split(user.Email, "@")[0]
 	}
 	return map[string]any{
-		"signed_in":       true,
-		"demo":            false,
-		"name":            name,
-		"email":           user.Email,
-		"initials":        initials(name),
-		"team_id":         teamID,
-		"team_name":       teamName,
-		"has_seat":        hasSeat,
-		"is_commissioner": s.IsCommissioner(r),
+		"signed_in":           true,
+		"demo":                false,
+		"name":                name,
+		"email":               user.Email,
+		"initials":            initials(name),
+		"team_id":             teamID,
+		"team_name":           teamName,
+		"has_seat":            hasSeat,
+		"seat_claim_eligible": seatClaimEligible,
+		"is_commissioner":     s.IsCommissioner(r),
 	}
 }
 
@@ -1396,6 +1410,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	standingsTitle, standingsNote, standingsEmptyTitle := s.dashboardStandingsCopy(state, standings)
 	return map[string]any{
 		"viewer":                viewer,
+		"public_entry":          s.PublicEntryDataForViewer(r, viewer),
 		"has_seat":              hasSeat,
 		"draft":                 s.draftSummary(now),
 		"live":                  s.liveMap(live),
@@ -2232,12 +2247,14 @@ func (s *Service) StaticPageData(r *http.Request) map[string]any {
 }
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
+	viewer := s.Viewer(r)
 	next := navigation.DefaultReturnPath
 	if r != nil && r.URL != nil {
 		next = navigation.SafeReturnPath(r.URL.Query().Get("next"))
 	}
 	return map[string]any{
-		"viewer":          s.Viewer(r),
+		"viewer":          viewer,
+		"public_entry":    s.PublicEntryDataForViewer(r, viewer),
 		"configured":      configured,
 		"demo_mode":       s.demoMode,
 		"seats":           len(s.Teams()),

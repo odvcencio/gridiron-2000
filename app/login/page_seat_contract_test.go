@@ -17,16 +17,26 @@ func TestSignedInConsoleBranchesOnFantasySeat(t *testing.T) {
 	}
 	page := string(source)
 	for _, want := range []string{
-		`<If cond={data.viewer.has_seat}>`,
-		`<If cond={data.viewer.has_seat == false}>`,
-		`<strong>{data.viewer.team_name}</strong>`,
+		`<If cond={data.public_entry.has_seat}>`,
+		`<If cond={data.public_entry.has_seat == false}>`,
+		`<strong>{data.public_entry.team_name}</strong>`,
+		`data.public_entry.admitted`,
+		`data.public_entry.can_claim`,
+		`data.public_entry.action_label`,
 		`href="/team"`,
-		`ACTIVE · NO FRANCHISE`,
 		`href="/join"`,
-		`Claim a franchise →`,
+		`href="/pickem"`,
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("signed-in login console missing %q", want)
+		}
+	}
+	for _, stale := range []string{
+		"Every seat belongs to one manager.",
+		"Your league access will be waiting...",
+	} {
+		if strings.Contains(page, stale) {
+			t.Errorf("login source retained stale promise %q", stale)
 		}
 	}
 }

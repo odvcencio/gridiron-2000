@@ -72,6 +72,12 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 	if strings.Contains(strings.ToLower(body), "dynasty scoring") {
 		t.Error("redraft landing page still contains dynasty scoring copy")
 	}
+	if !strings.Contains(body, "SIGN IN TO ENTER.") {
+		t.Error("anonymous landing page must make authentication the only promise")
+	}
+	if strings.Contains(body, "CLAIM YOUR SEAT.") {
+		t.Error("anonymous landing page retained unconditional seat-claim copy")
+	}
 	if strings.Contains(body, "Doors in") {
 		t.Error("landing page still uses auto-start-implying Doors in label")
 	}
@@ -158,6 +164,24 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 	}
 }
 
+func TestHomepagePendingCoManagerInviteRendersTruthfully(t *testing.T) {
+	body := runHomepageStandingsFixture(t, "pending-co-manager")
+	for _, want := range []string{
+		"ADMITTED · CO-MANAGER INVITE",
+		"COMPLETE YOUR SHARED SEAT.",
+		"You are invited to co-manage East 1.",
+		"Complete co-manager sign-in",
+		"/auth/google/start?next=%2Fteam",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pending co-manager homepage missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Claim an open franchise") || strings.Contains(body, "Join a team") {
+		t.Fatalf("pending co-manager homepage exposed a competing seat-claim path: %s", body)
+	}
+}
+
 func TestHomepageStandingsPendingStateRendersExplicitly(t *testing.T) {
 	body := runHomepageStandingsFixture(t, "pending")
 	for _, want := range []string{"Standings pending", "NO SEASON TABLE", "The commissioner has not published a regular-season schedule yet."} {
@@ -212,8 +236,21 @@ func TestHomepageStandingsFixtureProcess(t *testing.T) {
 	}
 	service := league.Default()
 	request, _ := http.NewRequest(http.MethodGet, "/", nil)
-	if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
-		t.Fatal(err)
+	if fixture == "pending-co-manager" {
+		primary, err := service.AssignManager("primary@example.com", "Primary Fixture")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.EnsureMember("render@example.com", "Render Fixture"); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.InviteCoManager(request, primary.TeamID, "render@example.com"); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if fixture == "scored" {
 		players := make([]league.Player, 0, 150)
@@ -267,4 +304,24 @@ func renderAuthenticatedHomepage(t *testing.T) string {
 		t.Fatalf("GET / = %d, want 200; body: %s", recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
+}
+
+func TestPublicStatusCardBranchesOnPublicEntryState(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(source)
+	for _, want := range []string{
+		`data.public_entry.can_claim`,
+		`data.public_entry.admitted`,
+		`data.public_entry.action_href`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("homepage status card missing public-entry branch %q", want)
+		}
+	}
+	if strings.Contains(page, "Claim a team") {
+		t.Fatal("homepage status card retained an unconditional team claim CTA")
+	}
 }

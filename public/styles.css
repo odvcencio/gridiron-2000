@@ -920,6 +920,26 @@ textarea {
   box-shadow: inset 0 0 5rem var(--color-hot-haze);
 }
 
+.entry-status,
+.login-entry-policy {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-accent-cyan);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+
+.entry-note,
+.login-admission-note {
+  max-width: 42rem;
+  margin: 0 0 var(--space-lg);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .hero-deck {
   max-width: 42rem;
   margin-bottom: var(--space-lg);

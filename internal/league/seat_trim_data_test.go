@@ -38,6 +38,7 @@ func TestAdminDataCountsUnclaimedSeats(t *testing.T) {
 		t.Errorf("has_unclaimed_seats = %v with no seats claimed, want true", data["has_unclaimed_seats"])
 	}
 
+	admitSeatlessForClaim(t, service, "a@example.com")
 	if _, err := service.claimFantasySeat("a@example.com", "A", "First Claim", "wolf"); err != nil {
 		t.Fatalf("claimFantasySeat: %v", err)
 	}
