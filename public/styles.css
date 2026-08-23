@@ -1652,7 +1652,7 @@ button.badge-option:hover {
 .draft-masthead {
   min-height: 27rem;
   display: grid;
-  grid-template-columns: 1fr minmax(20rem, 0.48fr);
+  grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.48fr);
   align-items: center;
   gap: var(--space-3xl);
 }

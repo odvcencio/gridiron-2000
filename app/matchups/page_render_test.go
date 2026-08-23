@@ -124,6 +124,17 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	}
 }
 
+func TestMatchupsMastheadCanShrinkBesideNavigationRail(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const shrinkableMasthead = "grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.48fr);"
+	if !strings.Contains(string(styles), shrinkableMasthead) {
+		t.Fatalf("page masthead lost its shrinkable primary track; authenticated pages with the desktop navigation rail can overflow")
+	}
+}
+
 func TestMatchupsPageFixtureProcess(t *testing.T) {
 	fixture := os.Getenv("MATCHUPS_RENDER_FIXTURE")
 	if fixture == "" {
