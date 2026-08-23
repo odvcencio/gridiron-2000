@@ -139,6 +139,45 @@ func TestFleetUnavailableCardRetainsConfiguredPublicOrigin(t *testing.T) {
 	}
 }
 
+func TestAdminDestinationsUsePublicTopologyWithoutPeerReads(t *testing.T) {
+	service, err := New(Config{
+		InstanceID: "g2k", Timeout: time.Second,
+		Peers: []Peer{
+			{ID: "skl", ServiceURL: mustOrigin("http://service.internal"), PublicURL: mustOrigin("https://sk.example")},
+			{ID: "fun", ServiceURL: mustOrigin("http://fun.internal"), PublicURL: mustOrigin("https://fun.example")},
+		},
+	}, func() Summary {
+		return testSummary("g2k", "https://gridiron.example")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	destinations := service.AdminDestinations()
+	if len(destinations) != 3 {
+		t.Fatalf("destinations = %#v", destinations)
+	}
+	if local := destinations[0]; !local.Current || local.ID != "g2k" || local.Label != "League g2k" || local.PublicURL != "https://gridiron.example" {
+		t.Fatalf("local destination = %#v", local)
+	}
+	if peer := destinations[1]; peer.Current || peer.ID != "skl" || peer.Label != "SKL · sk.example" || peer.PublicURL != "https://sk.example" {
+		t.Fatalf("peer destination = %#v", peer)
+	}
+	encoded, _ := json.Marshal(destinations)
+	if strings.Contains(string(encoded), "service.internal") || strings.Contains(string(encoded), "fun.internal") {
+		t.Fatalf("admin destinations leaked service topology: %s", encoded)
+	}
+
+	if got, ok := service.AdminURL("skl"); !ok || got != "https://sk.example/admin" {
+		t.Fatalf("peer admin URL = %q, %v", got, ok)
+	}
+	if got, ok := service.AdminURL("g2k"); !ok || got != "https://gridiron.example/admin" {
+		t.Fatalf("local admin URL = %q, %v", got, ok)
+	}
+	if got, ok := service.AdminURL("https://attacker.example"); ok || got != "" {
+		t.Fatalf("unconfigured destination accepted: %q, %v", got, ok)
+	}
+}
+
 func TestFleetBoundsConcurrencyWithoutLimitingFleetSize(t *testing.T) {
 	const (
 		peerCount  = 12
