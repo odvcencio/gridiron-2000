@@ -4,7 +4,64 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 )
+
+// waiverClaimResolutionView projects the actual waiver-resolution evidence
+// for one open private claim. It intentionally distinguishes a scheduled
+// instant from an overdue run and from missing/degraded source data; a blank
+// or stale player state never becomes a guessed timestamp.
+func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInfo, player Player, now time.Time) map[string]any {
+	view := map[string]any{
+		"resolution_state":    "unknown",
+		"resolution_label":    "Resolution time unavailable.",
+		"resolution_at":       "",
+		"resolution_relative": "",
+		"has_resolution_at":   false,
+	}
+	owner := rosterOwner(currentRosters(state))
+	if owner[player.ID] != "" {
+		view["resolution_label"] = "Player status changed; refresh before waiver processing."
+		return view
+	}
+
+	status := playerWaiverStatus(state, cfg, games, player.ID, player.NFLTeam, now)
+	resolveAt := status.ResolvesAt
+	if resolveAt.IsZero() {
+		// A claim may still be open after the daily run instant passed.
+		// Reconstruct the same clear instant from the append-only drop
+		// record so the UI can say OVERDUE without inventing a new time.
+		if droppedAt, origin, found := lastDropInstant(state, player.ID); found {
+			resolveAt = clearsAt(cfg, droppedAt)
+			if origin == "auto-drop" {
+				resolveAt = deferredClearsAt(cfg, games, droppedAt)
+			}
+		}
+	}
+	if resolveAt.IsZero() {
+		for _, game := range games {
+			if (game.Away == player.NFLTeam || game.Home == player.NFLTeam) && game.Kickoff.IsZero() {
+				view["resolution_state"] = "degraded"
+				view["resolution_label"] = "Resolution unavailable; this player's kickoff time is not published yet."
+				return view
+			}
+		}
+		view["resolution_label"] = "No published waiver resolution time is available for this player."
+		return view
+	}
+
+	view["resolution_at"] = formatResolvesAt(cfg, resolveAt)
+	view["resolution_relative"] = deadlineRelativeTime(now, resolveAt)
+	view["has_resolution_at"] = true
+	if resolveAt.After(now) {
+		view["resolution_state"] = "scheduled"
+		view["resolution_label"] = "Resolves"
+	} else {
+		view["resolution_state"] = "overdue"
+		view["resolution_label"] = "Resolution overdue; waiver processing has not recorded an outcome yet."
+	}
+	return view
+}
 
 // playerPoolPositions is the /players position-filter tab set (roster-ops
 // spec section 8.2): the slotTable's real positions, in engine order. FLEX
@@ -116,7 +173,14 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["claimed_by_me"] = claimedByMe
 		row["needs_drop"] = atCap
 		row["mine"] = canEdit && rostered && ownerID == teamID
-		row["can_drop"] = canEdit && open && rostered && ownerID == teamID && !playerLocked(games, lineupWeek, player.NFLTeam, now)
+		dropLocked := rostered && ownerID == teamID && playerLocked(games, lineupWeek, player.NFLTeam, now)
+		dropLockReason := ""
+		if dropLocked {
+			dropLockReason = fmt.Sprintf("DROP LOCKED: %s", lineupLockedMessage(player.Name, lineupWeek, player.NFLTeam))
+		}
+		row["drop_locked"] = dropLocked
+		row["drop_lock_reason"] = dropLockReason
+		row["can_drop"] = canEdit && open && rostered && ownerID == teamID && !dropLocked
 		rows = append(rows, row)
 	}
 	pagination := newPoolPagination(len(rows), r.URL.Query().Get("page"))
@@ -162,21 +226,33 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 				dropLabel = fmt.Sprintf("%s (%s)", dropPlayer.Name, dropPlayer.Position)
 			}
 		}
+		resolution := map[string]any{
+			"resolution_state": "unknown", "resolution_label": "Player data unavailable; refresh before waiver processing.",
+			"resolution_at": "", "resolution_relative": "", "has_resolution_at": false,
+		}
+		if addPlayer.ID != "" {
+			resolution = waiverClaimResolutionView(state, s.cfg, games, addPlayer, now)
+		}
 		myClaims = append(myClaims, map[string]any{
-			"id":                claim.ID,
-			"add_name":          addPlayer.Name,
-			"add_position":      addPlayer.Position,
-			"drop_label":        dropLabel,
-			"has_drop":          dropLabel != "",
-			"filed_at":          claim.FiledAt.Format("Jan 2, 3:04 PM MST"),
-			"bid":               claim.Bid,
-			"priority":          claim.Priority,
-			"claim_count":       len(myClaimIndices),
-			"waiver_position":   myPosition,
-			"waiver_team_count": len(order),
-			"can_move_up":       claimIndex > 0,
-			"can_move_down":     claimIndex+1 < len(myClaimIndices),
-			"faab":              faab,
+			"id":                  claim.ID,
+			"add_name":            addPlayer.Name,
+			"add_position":        addPlayer.Position,
+			"drop_label":          dropLabel,
+			"has_drop":            dropLabel != "",
+			"resolution_state":    resolution["resolution_state"],
+			"resolution_label":    resolution["resolution_label"],
+			"resolution_at":       resolution["resolution_at"],
+			"resolution_relative": resolution["resolution_relative"],
+			"has_resolution_at":   resolution["has_resolution_at"],
+			"filed_at":            claim.FiledAt.Format("Jan 2, 3:04 PM MST"),
+			"bid":                 claim.Bid,
+			"priority":            claim.Priority,
+			"claim_count":         len(myClaimIndices),
+			"waiver_position":     myPosition,
+			"waiver_team_count":   len(order),
+			"can_move_up":         claimIndex > 0,
+			"can_move_down":       claimIndex+1 < len(myClaimIndices),
+			"faab":                faab,
 		})
 	}
 

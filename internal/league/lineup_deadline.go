@@ -149,6 +149,21 @@ func futureRelativeTime(now, then time.Time) string {
 	return "in less than a minute"
 }
 
+// deadlineRelativeTime is the shared relative-time idiom for action-local
+// cutoffs. Future instants use the precise forward-looking copy used by the
+// lineup deadline; elapsed instants use the canonical past-time copy used by
+// activity and freshness surfaces. A zero instant stays blank so degraded
+// data never turns into a made-up deadline.
+func deadlineRelativeTime(now, then time.Time) string {
+	if then.IsZero() {
+		return ""
+	}
+	if then.After(now) {
+		return futureRelativeTime(now, then)
+	}
+	return relativeTime(now, then)
+}
+
 type lineupWeekSelection struct {
 	Week        int
 	CurrentWeek int

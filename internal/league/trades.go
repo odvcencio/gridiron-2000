@@ -986,12 +986,33 @@ type TradeOfferRow struct {
 	AlreadyVoted            bool
 	HasReviewDeadline       bool
 	ReviewDeadline          string
+	HasExpiry               bool
+	Expiry                  string
+	ExpiryRelative          string
+	ExpiryState             string
 }
 
 // tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
 func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, deadlinePassed, isCommissioner bool, threshold int) TradeOfferRow {
+	// Open offers carry a fixed seven-day expiry. Keep the exact timestamp
+	// and relative state beside the row so managers do not have to infer it
+	// from CreatedAt or wait for the background expiry pass.
+	hasExpiry := offer.Status == TradeStatusOpen
+	expiry := time.Time{}
+	expiryState := ""
+	if hasExpiry {
+		if offer.CreatedAt.IsZero() {
+			expiryState = "unknown"
+		} else {
+			expiry = offer.CreatedAt.Add(tradeOfferMaxAge)
+			expiryState = "upcoming"
+			if !expiry.After(s.clock()) {
+				expiryState = "overdue"
+			}
+		}
+	}
 	give := make([]TradePlayerCard, 0, len(offer.Give))
 	for _, id := range offer.Give {
 		p := pool.byID[id]
@@ -1043,6 +1064,12 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		CanVote: canEdit && outsideParty && offer.Status == TradeStatusAccepted &&
 			(s.cfg.Trades.Veto == "vote" || s.cfg.Trades.Veto == "both") && !alreadyVoted,
 		AlreadyVoted: alreadyVoted,
+		HasExpiry:    hasExpiry,
+		ExpiryState:  expiryState,
+	}
+	if !expiry.IsZero() {
+		row.Expiry = formatResolvesAt(s.cfg, expiry)
+		row.ExpiryRelative = deadlineRelativeTime(s.clock(), expiry)
 	}
 	if offer.Status == TradeStatusAccepted {
 		row.HasReviewDeadline = true
@@ -1122,7 +1149,16 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	hasSeat, _ := viewer["has_seat"].(bool)
 	canEdit := hasSeat
 	now := s.clock()
-	_, deadlineConfigured, deadlinePassed, deadlineLabel := tradeDeadlineState(s.cfg, now)
+	deadline, deadlineConfigured, deadlinePassed, deadlineLabel := tradeDeadlineState(s.cfg, now)
+	deadlineRelative := ""
+	deadlineState := "none"
+	if deadlineConfigured {
+		deadlineRelative = deadlineRelativeTime(now, deadline)
+		deadlineState = "upcoming"
+		if deadlinePassed {
+			deadlineState = "passed"
+		}
+	}
 	canCompose := canEdit && !deadlinePassed
 	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
@@ -1205,6 +1241,8 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"trade_deadline_configured": deadlineConfigured,
 		"trade_deadline_passed":     deadlinePassed,
 		"trade_deadline":            deadlineLabel,
+		"trade_deadline_relative":   deadlineRelative,
+		"trade_deadline_state":      deadlineState,
 		"note_max":                  tradeNoteMaxRunes,
 		"counterparties":            counterparties,
 		"counterparties_empty":      len(counterparties) == 0,

@@ -70,6 +70,13 @@ func TestTradesDataDeadlineBoundaryAndActionFlags(t *testing.T) {
 			if data["can_compose"] != !tc.closed || data["compose_active"] != !tc.closed || data["trade_deadline"] == "" {
 				t.Fatalf("compose/deadline data = can_compose:%v active:%v label:%q; want compose/active %v and a label", data["can_compose"], data["compose_active"], data["trade_deadline"], !tc.closed)
 			}
+			wantState := "upcoming"
+			if tc.closed {
+				wantState = "passed"
+			}
+			if data["trade_deadline_state"] != wantState || data["trade_deadline_relative"] == "" {
+				t.Fatalf("deadline timing = state:%v relative:%q; want %s and a relative label", data["trade_deadline_state"], data["trade_deadline_relative"], wantState)
+			}
 		})
 	}
 
@@ -281,5 +288,27 @@ func TestTradeExecutionAfterDeadlineStillFailsInvalidAssets(t *testing.T) {
 	service.rosterOpsTick(execAt.Add(time.Minute))
 	if got := len(service.store.Snapshot().Transactions); got != transactionsBefore {
 		t.Fatalf("Transactions after duplicate failed tick = %d, want %d", got, transactionsBefore)
+	}
+}
+func TestTradeOfferExpiryStates(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	current := now
+	svc.now = func() time.Time { return current }
+	pool := svc.pool()
+	future := svc.tradeOfferRow(pool, TradeOffer{ID: "future", FromTeamID: "team-1", ToTeamID: "team-2", Status: TradeStatusOpen, CreatedAt: now}, "team-2", true, false, false, 3)
+	if future.ExpiryState != "upcoming" || future.Expiry == "" || future.ExpiryRelative != "in 7 days" {
+		t.Fatalf("future expiry = state:%q exact:%q relative:%q", future.ExpiryState, future.Expiry, future.ExpiryRelative)
+	}
+	past := svc.tradeOfferRow(pool, TradeOffer{ID: "past", FromTeamID: "team-1", ToTeamID: "team-2", Status: TradeStatusOpen, CreatedAt: now.Add(-8 * 24 * time.Hour)}, "team-2", true, false, false, 3)
+	if past.ExpiryState != "overdue" || past.Expiry == "" || past.ExpiryRelative != "1 day ago" {
+		t.Fatalf("past expiry = state:%q exact:%q relative:%q", past.ExpiryState, past.Expiry, past.ExpiryRelative)
+	}
+	unknown := svc.tradeOfferRow(pool, TradeOffer{ID: "unknown", FromTeamID: "team-1", ToTeamID: "team-2", Status: TradeStatusOpen}, "team-2", true, false, false, 3)
+	if unknown.ExpiryState != "unknown" || unknown.Expiry != "" || unknown.ExpiryRelative != "" {
+		t.Fatalf("unknown expiry = state:%q exact:%q relative:%q", unknown.ExpiryState, unknown.Expiry, unknown.ExpiryRelative)
+	}
+	resolved := svc.tradeOfferRow(pool, TradeOffer{ID: "resolved", FromTeamID: "team-1", ToTeamID: "team-2", Status: TradeStatusDeclined, CreatedAt: now}, "team-2", true, false, false, 3)
+	if resolved.HasExpiry || resolved.ExpiryState != "" {
+		t.Fatalf("terminal offer carried expiry = %+v", resolved)
 	}
 }
