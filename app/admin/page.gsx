@@ -115,6 +115,20 @@ func SeatRow(props any) Node {
 	</article>
 }
 
+func AdminTaskLink(props any) Node {
+	return <li class="admin-task-nav__item">
+		<a
+			href={props.Href}
+			data-gosx-link
+			class="admin-task-nav__link"
+			aria-current={props.Current}
+		>
+			<span class="admin-task-nav__label">{props.Label}</span>
+			<span class="admin-task-nav__status">{props.Status}</span>
+		</a>
+	</li>
+}
+
 func Page() Node {
 	return <main
 		class="page admin-page"
@@ -215,12 +229,103 @@ func Page() Node {
 			</section>
 		</If>
 		<If cond={data.is_commissioner}>
+			<nav class="admin-task-nav" aria-labelledby="admin-task-nav-heading">
+				<div class="admin-task-nav__header">
+					<div>
+						<span class="section-index">COMMISSIONER // TASK BOARD</span>
+						<h2 id="admin-task-nav-heading">Choose a league job</h2>
+					</div>
+					<p class="admin-task-nav__hint">Routine controls are grouped by when and why you use them. Danger Zone stays at the bottom.</p>
+				</div>
+				<div class="admin-task-nav__readout" aria-live="polite">
+					<strong class="mono">CURRENT CONSOLE STATE</strong>
+					<If cond={data.draft_started}>
+						<span>Draft is live. Operate the current pick from Draft clock.</span>
+					</If>
+					<If cond={data.draft_started == false}>
+						<span>Draft is not live. Confirm seats, draw order, then start it intentionally.</span>
+					</If>
+				</div>
+				<div class="admin-task-nav__groups">
+					<div class="admin-task-nav__group">
+						<h3>Draft preparation and live operation</h3>
+						<ul>
+							<If cond={data.draft_started}>
+								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="LIVE · operate now" />
+							</If>
+							<If cond={data.draft_started == false}>
+								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="START REQUIRED" />
+							</If>
+							<If cond={data.order_randomized}>
+								<AdminTaskLink Label="Draw draft order" Href="/admin?section=draft-order#admin-draft-order" Current={data.admin_section == "draft-order"} Status="PUBLISHED" />
+							</If>
+							<If cond={data.order_randomized == false}>
+								<AdminTaskLink Label="Draw draft order" Href="/admin?section=draft-order#admin-draft-order" Current={data.admin_section == "draft-order"} Status="DRAW REQUIRED" />
+							</If>
+							<If cond={data.pool.error != ""}>
+								<AdminTaskLink Label="Verify player pool" Href="/admin?section=data#admin-data" Current={data.admin_section == "data"} Status="DEGRADED" />
+							</If>
+							<If cond={data.pool.error == ""}>
+								<AdminTaskLink Label="Verify player pool" Href="/admin?section=data#admin-data" Current={data.admin_section == "data"} Status="AVAILABLE" />
+							</If>
+							<If cond={data.clock.armed}>
+								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="ARMED" />
+							</If>
+							<If cond={data.clock.armed == false}>
+								<AdminTaskLink Label="Run pick clock" Href="/admin?section=clock#admin-clock" Current={data.admin_section == "clock"} Status="WAITING" />
+							</If>
+						</ul>
+					</div>
+					<div class="admin-task-nav__group">
+						<h3>Season operation</h3>
+						<ul>
+							<If cond={data.roster_shape.draft_started}>
+								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT LIVE" />
+							</If>
+							<If cond={data.roster_shape.draft_started == false}>
+								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="OPEN" />
+							</If>
+							<If cond={data.schedule.has_schedule}>
+								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="PUBLISHED" />
+							</If>
+							<If cond={data.schedule.has_schedule == false}>
+								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="NEEDS PLAN" />
+							</If>
+							<If cond={data.schedule.has_schedule}>
+								<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
+							</If>
+							<If cond={data.schedule.has_schedule == false}>
+								<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
+							</If>
+						</ul>
+					</div>
+					<div class="admin-task-nav__group">
+						<h3>People and access</h3>
+						<ul>
+							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
+							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
+						</ul>
+					</div>
+					<div class="admin-task-nav__group">
+						<h3>League configuration and communication</h3>
+						<ul>
+							<AdminTaskLink Label="Post league notes" Href="/admin?section=announcements#admin-announcements" Current={data.admin_section == "announcements"} Status="POST / REVIEW" />
+						</ul>
+					</div>
+					<div class="admin-task-nav__group admin-task-nav__group--danger">
+						<h3>Danger Zone</h3>
+						<ul>
+							<AdminTaskLink Label="Reset and recovery controls" Href="/admin?section=danger#admin-danger" Current={data.admin_section == "danger"} Status="IRREVERSIBLE" />
+						</ul>
+					</div>
+				</div>
+			</nav>
 			<div class="admin-grid">
-				<section id="admin-draft-control" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
+				<section id="admin-draft-control" aria-labelledby="admin-draft-control-heading" tabindex="-1" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
-							<h2>
+							<h2 id="admin-draft-control-heading">
 								{data.draft.date}
 								runbook
 							</h2>
@@ -232,7 +337,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>About an hour early, drop the seats nobody claimed</strong>
 								<small>
-									Use Drop unclaimed seats in 04 // DRAFT ORDER. Do this before you randomize, or the
+									Use Drop unclaimed seats in 03 // DRAFT ORDER. Do this before you randomize, or the
 									order still lists the seats you are about to remove.
 								</small>
 							</div>
@@ -242,7 +347,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Draw the final order and publish the schedule</strong>
 								<small>
-									Use Draw order + schedule in 04 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then emails once. Draft order locks when the commissioner starts the draft.
+									Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then emails once. Draft order locks when the commissioner starts the draft.
 								</small>
 							</div>
 						</div>
@@ -268,21 +373,21 @@ func Page() Node {
 							<span class="checklist-mark mono">05</span>
 							<div class="checklist-item__text">
 								<strong>Pause or extend for a break</strong>
-								<small>Use Pause clock, Resume clock, or Extend pick in 06 // DRAFT CLOCK.</small>
+								<small>Use Pause clock, Resume clock, or Extend pick in 05 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
 							<span class="checklist-mark mono">06</span>
 							<div class="checklist-item__text">
 								<strong>Undo a misclick</strong>
-								<small>Type UNDO into Undo last pick in 03 // RESET. It re-arms the clock for that slot.</small>
+								<small>Type UNDO into Undo last pick in 99 // DANGER ZONE. It re-arms the clock for that slot.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
 							<span class="checklist-mark mono">07</span>
 							<div class="checklist-item__text">
 								<strong>Autopick catches an absent manager</strong>
-								<small>Toggle AUTO for a seat in 01 // SEATS, or force one pick now in 06 // DRAFT CLOCK.</small>
+								<small>Toggle AUTO for a seat in 01 // SEATS, or force one pick now in 05 // DRAFT CLOCK.</small>
 							</div>
 						</div>
 						<div class="checklist-item">
@@ -306,11 +411,11 @@ func Page() Node {
 						<p class="flash-message"><strong>DRAFT LIVE:</strong> The commissioner started the draft. That start rules.</p>
 					</If>
 				</section>
-				<section id="admin-schedule" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>
+				<section id="admin-schedule" aria-labelledby="admin-schedule-heading" tabindex="-1" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">SEASON // SCHEDULE</span>
-							<h2>Regular-season control</h2>
+							<h2 id="admin-schedule-heading">Regular-season control</h2>
 							<p class="scoring-note">
 								This plan is durable league state. The final draft-order draw publishes the first 14-week plan automatically; an emergency order redraw preserves it.
 							</p>
@@ -364,11 +469,11 @@ func Page() Node {
 						</If>
 					</If>
 				</section>
-				<section id="admin-week-close" data-admin-section="week-close" class={"player-pool admin-season-ops" + data.section_class_week_close}>
+				<section id="admin-week-close" aria-labelledby="admin-week-close-heading" tabindex="-1" data-admin-section="week-close" class={"player-pool admin-season-ops" + data.section_class_week_close}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">SEASON // WEEK CLOSE</span>
-							<h2>Close a scoring week</h2>
+							<h2 id="admin-week-close-heading">Close a scoring week</h2>
 							<p class="scoring-note">Readiness is advisory. The normal close waits for every real game and a settled player ledger; the override is explicit and records the override in the league log.</p>
 						</div>
 					</div>
@@ -410,11 +515,11 @@ func Page() Node {
 					</If>
 					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> seed the bracket only after the final regular-season week closes and standings are final. The bracket engine exists, but commissioner seeding automation is not wired into this release yet.</p>
 				</section>
-				<section id="admin-seats" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
+				<section id="admin-seats" aria-labelledby="admin-seats-heading" tabindex="-1" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">01 // SEATS</span>
-							<h2>Franchise claims</h2>
+							<h2 id="admin-seats-heading">Franchise claims</h2>
 							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
 						</div>
 					</div>
@@ -435,11 +540,11 @@ func Page() Node {
 						</Each>
 					</div>
 				</section>
-				<section id="admin-invites" data-admin-section="invites" class={"player-pool" + data.section_class_invites}>
+				<section id="admin-invites" aria-labelledby="admin-invites-heading" tabindex="-1" data-admin-section="invites" class={"player-pool" + data.section_class_invites}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">02 // INVITES</span>
-							<h2>Who may claim a seat</h2>
+							<h2 id="admin-invites-heading">Who may claim a seat</h2>
 							<If cond={data.invite_count > 0}>
 								<p class="scoring-note invite-progress" aria-label="Invitation progress">
 									<strong>{data.invite_seated_count} seated</strong>
@@ -525,48 +630,12 @@ func Page() Node {
 						Send managers this address: they sign in with Google and the next open seat is theirs.
 					</p>
 				</section>
-				<section id="admin-danger" data-admin-section="danger" class={"player-pool admin-danger" + data.section_class_danger}>
+
+				<section id="admin-draft-order" aria-labelledby="admin-draft-order-heading" tabindex="-1" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">03 // RESET</span>
-							<h2>Danger zone</h2>
-						</div>
-					</div>
-					<div class="danger-grid">
-						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset draft</strong>
-							<p>
-								Clears every pick and ready flag. Seats and boards survive.
-							</p>
-							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
-							<button class="button" type="submit">Reset draft</button>
-						</form>
-						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Undo last pick</strong>
-							<p>
-								Removes the most recent pick and re-arms the clock for that slot.
-							</p>
-							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
-							<button class="button" type="submit">Undo last pick</button>
-						</form>
-						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset league</strong>
-							<p>
-								Clears seats, picks, ready flags, and boards. Invites survive.
-							</p>
-							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
-							<button class="button" type="submit">Reset league</button>
-						</form>
-					</div>
-				</section>
-				<section id="admin-draft-order" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
-					<div class="pool-toolbar">
-						<div>
-							<span class="section-index">04 // DRAFT ORDER</span>
-							<h2>Snake order</h2>
+							<span class="section-index">03 // DRAFT ORDER</span>
+							<h2 id="admin-draft-order-heading">Snake order</h2>
 						</div>
 						<If cond={data.order_randomized}>
 							<span class="position-chip">RANDOMIZED</span>
@@ -639,11 +708,11 @@ func Page() Node {
 					</If>
 					<p class="scoring-note">Run this one hour before the draft. Locked once the commissioner starts the draft.</p>
 				</section>
-				<section id="admin-data" data-admin-section="data" class={"player-pool" + data.section_class_data}>
+				<section id="admin-data" aria-labelledby="admin-data-heading" tabindex="-1" data-admin-section="data" class={"player-pool" + data.section_class_data}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">05 // PLAYER DATA</span>
-							<h2>Player list update</h2>
+							<span class="section-index">04 // PLAYER DATA</span>
+							<h2 id="admin-data-heading">Player list update</h2>
 						</div>
 					</div>
 					<If cond={data.pool.error != ""}>
@@ -698,11 +767,11 @@ func Page() Node {
 						</div>
 					</If>
 				</section>
-				<section id="admin-clock" data-admin-section="clock" class={"player-pool" + data.section_class_clock}>
+				<section id="admin-clock" aria-labelledby="admin-clock-heading" tabindex="-1" data-admin-section="clock" class={"player-pool" + data.section_class_clock}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">06 // DRAFT CLOCK</span>
-							<h2>Pick clock controls</h2>
+							<span class="section-index">05 // DRAFT CLOCK</span>
+							<h2 id="admin-clock-heading">Pick clock controls</h2>
 						</div>
 						<If cond={data.clock.armed}>
 							<span class="position-chip">ARMED</span>
@@ -781,11 +850,11 @@ func Page() Node {
 						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
 					</p>
 				</section>
-				<section id="admin-roster" data-admin-section="roster" class={"player-pool" + data.section_class_roster}>
+				<section id="admin-roster" aria-labelledby="admin-roster-heading" tabindex="-1" data-admin-section="roster" class={"player-pool" + data.section_class_roster}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">07 // ROSTER SHAPE</span>
-							<h2>Starting lineup and bench</h2>
+							<span class="section-index">06 // ROSTER SHAPE</span>
+							<h2 id="admin-roster-heading">Starting lineup and bench</h2>
 						</div>
 						<If cond={data.roster_shape.has_override}>
 							<span class="position-chip">CUSTOM</span>
@@ -831,7 +900,7 @@ func Page() Node {
 					<If cond={data.roster_shape.draft_started}>
 						<p class="demo-message">
 							<strong>LOCKED:</strong>
-							the roster shape locks once the draft starts. Reset the draft in 03 // RESET to change it again.
+							the roster shape locks once the draft starts. Reset the draft in 99 // DANGER ZONE to change it again.
 						</p>
 					</If>
 					<If cond={data.roster_shape.draft_started == false}>
@@ -888,11 +957,11 @@ func Page() Node {
 						</If>
 					</If>
 				</section>
-				<section id="admin-announcements" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
+				<section id="admin-announcements" aria-labelledby="admin-announcements-heading" tabindex="-1" data-admin-section="announcements" class={"player-pool" + data.section_class_announcements}>
 					<div class="pool-toolbar">
 						<div>
-							<span class="section-index">08 // ANNOUNCEMENTS</span>
-							<h2>League notes</h2>
+							<span class="section-index">07 // ANNOUNCEMENTS</span>
+							<h2 id="admin-announcements-heading">League notes</h2>
 						</div>
 					</div>
 					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
@@ -930,6 +999,43 @@ func Page() Node {
 								</div>
 							</article>
 						</Each>
+					</div>
+				</section>
+				<section id="admin-danger" aria-labelledby="admin-danger-heading" tabindex="-1" data-admin-section="danger" class={"player-pool admin-danger" + data.section_class_danger}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">99 // DANGER ZONE</span>
+							<h2 id="admin-danger-heading">Danger zone</h2>
+						</div>
+					</div>
+					<div class="danger-grid">
+						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<strong>Reset draft</strong>
+							<p>
+								Clears every pick and ready flag. Seats and boards survive.
+							</p>
+							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
+							<button class="button" type="submit">Reset draft</button>
+						</form>
+						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<strong>Undo last pick</strong>
+							<p>
+								Removes the most recent pick and re-arms the clock for that slot.
+							</p>
+							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
+							<button class="button" type="submit">Undo last pick</button>
+						</form>
+						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<strong>Reset league</strong>
+							<p>
+								Clears seats, picks, ready flags, and boards. Invites survive.
+							</p>
+							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
+							<button class="button" type="submit">Reset league</button>
+						</form>
 					</div>
 				</section>
 			</div>

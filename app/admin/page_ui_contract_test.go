@@ -95,6 +95,122 @@ func TestCommissionerLeagueSwitcherIsAllowlistedAndPreservesAdminSection(t *test
 	}
 }
 
+func TestAdminTaskNavigationGroupsAndRoutineOrder(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	quote := string(rune(34))
+	navStart := strings.Index(markup, "class="+quote+"admin-task-nav")
+	navEnd := strings.Index(markup[navStart:], "</nav>")
+	if navStart < 0 || navEnd < 0 {
+		t.Fatal("admin task navigation is missing")
+	}
+	nav := markup[navStart : navStart+navEnd]
+	for _, group := range []string{
+		"Draft preparation and live operation",
+		"Season operation",
+		"People and access",
+		"League configuration and communication",
+		"Danger Zone",
+	} {
+		if !strings.Contains(nav, group) {
+			t.Errorf("task navigation missing group %q", group)
+		}
+	}
+	for _, target := range []string{
+		"section=draft-control#admin-draft-control",
+		"section=draft-order#admin-draft-order",
+		"section=data#admin-data",
+		"section=clock#admin-clock",
+		"section=roster#admin-roster",
+		"section=schedule#admin-schedule",
+		"section=week-close#admin-week-close",
+		"section=seats#admin-seats",
+		"section=invites#admin-invites",
+		"section=announcements#admin-announcements",
+		"section=danger#admin-danger",
+	} {
+		if !strings.Contains(nav, target) {
+			t.Errorf("task navigation missing target %q", target)
+		}
+	}
+
+	sectionIndex := func(id string) int {
+		return strings.Index(markup, "<section id="+quote+id+quote)
+	}
+	danger := sectionIndex("admin-danger")
+	if danger < 0 {
+		t.Fatal("danger section is missing")
+	}
+	for _, id := range []string{
+		"admin-draft-control", "admin-schedule", "admin-week-close",
+		"admin-seats", "admin-invites", "admin-draft-order", "admin-data",
+		"admin-clock", "admin-roster", "admin-announcements",
+	} {
+		if index := sectionIndex(id); index < 0 || index > danger {
+			t.Errorf("routine section %q does not precede Danger Zone: %d vs %d", id, index, danger)
+		}
+	}
+	if strings.Contains(markup, "03 // RESET") {
+		t.Fatal("destructive section retained the old routine-looking 03 // RESET label")
+	}
+	if !strings.Contains(markup, "99 // DANGER ZONE") {
+		t.Fatal("destructive section lacks isolated 99 // DANGER ZONE label")
+	}
+
+	for _, id := range []string{
+		"admin-draft-control", "admin-schedule", "admin-week-close",
+		"admin-seats", "admin-invites", "admin-draft-order", "admin-data",
+		"admin-clock", "admin-roster", "admin-announcements", "admin-danger",
+	} {
+		section := "id=" + quote + id + quote + " aria-labelledby=" + quote + id + "-heading" + quote + " tabindex=" + quote + "-1" + quote
+		if !strings.Contains(markup, section) {
+			t.Errorf("section %q lacks a focusable labelled landmark", id)
+		}
+		if !strings.Contains(markup, "id="+quote+id+"-heading"+quote) {
+			t.Errorf("section %q lacks its labelled heading", id)
+		}
+	}
+
+	for _, action := range []string{
+		"draft-start", "schedule-generate", "schedule-regenerate",
+		"close-week-ready", "close-week-force", "seat-release", "team-rename",
+		"clock-set-autopick", "avatar-reset", "co-detach", "invite-add",
+		"invite-send", "invite-remove", "draft-reset", "draft-undo", "league-reset",
+		"seat-trim", "order-randomize", "clock-pause", "clock-resume",
+		"clock-force-autopick", "clock-extend", "clock-set-duration",
+		"roster-shape-apply", "roster-shape-reset", "announcement-post",
+		"announcement-delete",
+	} {
+		if !strings.Contains(markup, "actionPath("+quote+action+quote+")") {
+			t.Errorf("existing admin action disappeared: %s", action)
+		}
+	}
+}
+
+func TestAdminTaskNavigationRendersAccessibleLinks(t *testing.T) {
+	body := renderAdminPage(t)
+	quote := string(rune(34))
+	if !strings.Contains(body, "class="+quote+"admin-task-nav") {
+		t.Fatal("rendered admin page omitted task navigation")
+	}
+	for _, target := range []string{
+		"section=draft-control#admin-draft-control",
+		"section=seats#admin-seats",
+		"section=danger#admin-danger",
+	} {
+		if !strings.Contains(body, target) {
+			t.Errorf("rendered task navigation missing %s", target)
+		}
+	}
+	if !strings.Contains(body, "aria-labelledby="+quote+"admin-danger-heading"+quote) ||
+		!strings.Contains(body, "tabindex="+quote+"-1"+quote) {
+		t.Fatal("rendered admin sections lost accessible focus metadata")
+	}
+}
+
 func TestCommissionerLeagueSwitcherMarkupAndRouteContract(t *testing.T) {
 	page, err := os.ReadFile("page.gsx")
 	if err != nil {

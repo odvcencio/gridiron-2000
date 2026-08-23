@@ -2809,6 +2809,154 @@ button.badge-option:hover {
   min-block-size: 2.75rem;
   flex: 0 0 auto;
 }
+.admin-task-nav {
+  margin-block-end: var(--space-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, var(--color-cyan-haze), transparent 42%),
+    var(--color-panel-glass);
+  box-shadow: var(--shadow-panel);
+}
+
+.admin-task-nav__header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  margin-block-end: var(--space-md);
+}
+
+.admin-task-nav__header h2 {
+  margin: 0.35rem 0 0;
+}
+
+.admin-task-nav__hint {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+.admin-task-nav__readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-sm);
+  margin-block-end: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+  border-inline-start: 0.25rem solid var(--color-accent);
+  background: var(--color-white-faint);
+}
+
+.admin-task-nav__readout strong {
+  color: var(--color-accent);
+  font-size: var(--type-xs);
+}
+
+.admin-task-nav__readout span {
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+}
+
+.admin-task-nav__groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.admin-task-nav__group {
+  min-width: 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-panel-deep);
+}
+
+.admin-task-nav__group h3 {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+  letter-spacing: 0.05em;
+}
+
+.admin-task-nav__group ul {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-task-nav__item {
+  min-width: 0;
+}
+
+.admin-task-nav__link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-block-size: 2.75rem;
+  min-width: 0;
+  padding: 0.45rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  text-decoration: none;
+}
+
+.admin-task-nav__link:hover,
+.admin-task-nav__link:focus-visible,
+.admin-task-nav__link[aria-current="true"] {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+}
+
+.admin-task-nav__link:focus-visible {
+  outline: 0.2rem solid var(--color-accent);
+  outline-offset: 0.15rem;
+}
+
+.admin-task-nav__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--type-sm);
+}
+
+.admin-task-nav__status {
+  flex: 0 0 auto;
+  color: var(--color-accent-cyan);
+  font: 700 var(--type-xs)/1.2 var(--font-mono);
+  text-align: right;
+}
+
+.admin-task-nav__link:hover .admin-task-nav__status,
+.admin-task-nav__link:focus-visible .admin-task-nav__status,
+.admin-task-nav__link[aria-current="true"] .admin-task-nav__status {
+  color: inherit;
+}
+
+.admin-task-nav__group--danger {
+  border-color: var(--color-accent-magenta, #ff5ec4);
+}
+
+.admin-task-nav__group--danger h3,
+.admin-task-nav__group--danger .admin-task-nav__status {
+  color: var(--color-accent-magenta, #ff5ec4);
+}
+
+.admin-grid > section {
+  min-width: 0;
+  scroll-margin-block-start: 5rem;
+}
+
+.admin-grid > section:focus-visible {
+  outline: 0.2rem solid var(--color-accent);
+  outline-offset: 0.35rem;
+}
+
 
 .draft-clock-meta {
   display: flex;
@@ -4175,6 +4323,10 @@ body.is-on-clock .draft-clock-panel {
   .danger-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+.admin-task-nav__groups {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .pool-row > b {
@@ -6657,11 +6809,29 @@ body.is-on-clock .draft-clock-panel {
     white-space: normal;
   }
 }
-
 @media (max-width: 40rem) {
   .commissioner-hq__attention {
     grid-template-columns: 1fr;
   }
+  .admin-task-nav {
+    padding: var(--space-md);
+  }
+
+  .admin-task-nav__header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-sm);
+  }
+
+  .admin-task-nav__link {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .admin-task-nav__status {
+    text-align: left;
+  }
+
 
   .commissioner-hq__attention a {
     justify-self: start;
