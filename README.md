@@ -26,7 +26,7 @@ There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account int
 
 ## Run locally
 
-Requirements: Go 1.26 and GoSX v0.53.1.
+Requirements: Go 1.26 and GoSX v0.53.3.
 
 ```bash
 cp .env.example .env
