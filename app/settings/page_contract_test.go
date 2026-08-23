@@ -21,8 +21,14 @@ func TestSettingsTemplateHasNativePreferenceFormsAndPlannedNotes(t *testing.T) {
 		"name=\"category\"",
 		"name=\"enabled\" value=\"true\"",
 		"name=\"enabled\" value=\"false\"",
+		"aria-pressed={props.CurrentOn}",
+		"data-current={props.CurrentOn}",
 		">On</button>",
+		"aria-pressed={props.CurrentOff}",
+		"data-current={props.CurrentOff}",
 		">Off</button>",
+		"aria-hidden=\"true\">✓</span> CURRENT",
+		"notification-choice__current",
 		"planned_preferences",
 		"This setting is not active yet.",
 		"data.delivery_message",
@@ -33,6 +39,9 @@ func TestSettingsTemplateHasNativePreferenceFormsAndPlannedNotes(t *testing.T) {
 		"Weekly play",
 		"League",
 		"data-gosx-managed=\"true\"",
+		"EMAIL READY",
+		"EMAIL NOT CONFIGURED",
+		"EMAIL ONLY // SMS NOT SUPPORTED",
 	} {
 		if !strings.Contains(source, want) {
 			t.Errorf("settings template omitted %q", want)

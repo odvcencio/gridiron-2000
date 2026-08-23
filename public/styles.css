@@ -7054,9 +7054,15 @@ body.is-on-clock .draft-clock-panel {
 
 .notification-choice-group form {
   margin: 0;
+  display: grid;
+  gap: var(--space-2xs, 0.25rem);
+  justify-items: center;
 }
 
 .notification-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 4.5rem;
   min-height: 3rem;
   padding: var(--space-xs) var(--space-sm);
@@ -7070,12 +7076,51 @@ body.is-on-clock .draft-clock-panel {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .notification-choice:hover {
   border-color: var(--color-accent-cyan);
   color: var(--color-accent-cyan);
   background: var(--color-cyan-haze);
+}
+
+.notification-choice[aria-pressed="true"],
+.notification-choice[data-current="true"] {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+}
+
+.notification-choice:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 3px;
+}
+
+.notification-choice:active {
+  transform: translateY(1px);
+}
+
+.notification-choice[aria-pressed="true"]:hover,
+.notification-choice[data-current="true"]:hover,
+.notification-choice[aria-pressed="true"]:active,
+.notification-choice[data-current="true"]:active,
+.notification-choice[aria-pressed="true"]:focus-visible,
+.notification-choice[data-current="true"]:focus-visible {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+}
+
+.notification-choice__current {
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .notification-preference__state,

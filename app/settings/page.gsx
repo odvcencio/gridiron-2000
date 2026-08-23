@@ -7,6 +7,8 @@ type NotificationRowProps struct {
 	Delivery    string
 	State       string
 	Enabled     bool
+	CurrentOn   bool
+	CurrentOff  bool
 	CanEdit     bool
 	Planned     bool
 	Action      string
@@ -27,13 +29,19 @@ component NotificationRow(props: NotificationRowProps) {
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="category" value={props.Category}></input>
 						<input type="hidden" name="enabled" value="true"></input>
-						<button class="notification-choice" type="submit">On</button>
+						<button class="notification-choice" type="submit" aria-pressed={props.CurrentOn} data-current={props.CurrentOn}>On</button>
+						<If cond={props.CurrentOn}>
+							<span class="notification-choice__current"><span aria-hidden="true">✓</span> CURRENT</span>
+						</If>
 					</form>
 					<form method="post" action={props.Action} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="category" value={props.Category}></input>
 						<input type="hidden" name="enabled" value="false"></input>
-						<button class="notification-choice" type="submit">Off</button>
+						<button class="notification-choice" type="submit" aria-pressed={props.CurrentOff} data-current={props.CurrentOff}>Off</button>
+						<If cond={props.CurrentOff}>
+							<span class="notification-choice__current"><span aria-hidden="true">✓</span> CURRENT</span>
+						</If>
 					</form>
 				</div>
 			</If>
@@ -73,11 +81,14 @@ func Page() Node {
 				</If>
 			</div>
 			<div class="draft-clock-panel notification-settings-summary">
-				<span>Delivery inventory</span>
-				<strong class="mono">8 LIVE CATEGORIES</strong>
+				<span>Delivery status</span>
+				<strong class="mono notification-settings-summary__status">
+					<If cond={data.delivery_ready}>EMAIL READY</If>
+					<If cond={data.delivery_ready == false}>EMAIL NOT CONFIGURED</If>
+				</strong>
 				<div class="draft-clock-meta">
-					<span>Each category is independent.</span>
-					<span>On or Off</span>
+					<span>8 LIVE CATEGORIES</span>
+					<span>EMAIL ONLY // SMS NOT SUPPORTED</span>
 				</div>
 			</div>
 		</section>

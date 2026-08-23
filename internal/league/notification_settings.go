@@ -53,8 +53,8 @@ var notificationPreferenceCopy = map[string]struct {
 	},
 	categoryPickem: {
 		label:       "Pick'em",
-		description: "Pick'em reminders are live. Pick'em results are planned and are not sent yet.",
-		delivery:    "Reminders live; results planned",
+		description: "Pick'em reminders activate after your first pick or when you explicitly choose On here. Pick'em results are planned and are not sent yet.",
+		delivery:    "Reminders after activation; results planned",
 	},
 	categoryBroadcast: {
 		label:       "Commissioner broadcasts",
