@@ -1703,11 +1703,14 @@ func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any
 	}
 	weeks := seasonScheduleWeeks(*schedule)
 	for _, weekNumber := range weeks {
-		if weekNumber <= currentWeek {
+		if weekNumber < currentWeek {
 			continue
 		}
 		week, ok := scheduleWeekByNumber(*schedule, weekNumber)
 		if !ok {
+			continue
+		}
+		if scheduleWeekIsFinal(week) {
 			continue
 		}
 		if week.ByeTeamID == teamID {

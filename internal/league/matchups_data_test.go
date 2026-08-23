@@ -95,8 +95,8 @@ func TestMatchupsDataCurrentWeekKeepsLiveStateAndNavigation(t *testing.T) {
 		t.Fatalf("current navigation = prev:%v next:%v href:%v", data["has_previous_week"], data["has_next_week"], data["next_week_href"])
 	}
 	next := matchupNextState(t, data)
-	if next["has_matchup"] != true || next["week"] != "2" || next["href"] != "/matchups?week=2" {
-		t.Fatalf("next matchup = %+v", next)
+	if next["has_matchup"] != true || next["week"] != "1" || next["href"] != "/matchups?week=1" {
+		t.Fatalf("current-week matchup = %+v", next)
 	}
 }
 
