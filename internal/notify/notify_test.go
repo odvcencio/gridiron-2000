@@ -179,13 +179,17 @@ func TestQueueEnqueueDropsWhenFull(t *testing.T) {
 	q := New(func(Message) error { return nil }, logf)
 
 	for i := 0; i < queueCapacity; i++ {
-		q.Enqueue(Message{Key: fmt.Sprintf("k%d", i)})
+		if got := q.Enqueue(Message{Key: fmt.Sprintf("k%d", i)}); got != EnqueueQueued {
+			t.Fatalf("enqueue %d result = %q, want %q", i, got, EnqueueQueued)
+		}
 	}
 	if got := len(q.queue); got != queueCapacity {
 		t.Fatalf("queue depth after filling = %d, want %d", got, queueCapacity)
 	}
 
-	q.Enqueue(Message{Key: "overflow", To: "over@example.com"})
+	if got := q.Enqueue(Message{Key: "overflow", To: "over@example.com"}); got != EnqueueDropped {
+		t.Fatalf("overflow enqueue result = %q, want %q", got, EnqueueDropped)
+	}
 
 	got := logs()
 	unstartedWarnings, queueFullLines := 0, 0

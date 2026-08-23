@@ -388,14 +388,14 @@ type renderedNotification struct {
 // committed rn.Key with Store.FirstSend before calling this — enqueueRendered
 // only delivers (spec section 6.3's build-then-FirstSend-then-Enqueue
 // order lives in recordAndSend, below).
-func (s *Service) enqueueRendered(rn renderedNotification) {
+func (s *Service) enqueueRendered(rn renderedNotification) notify.EnqueueResult {
 	s.poolMu.Lock()
 	queue := s.notifyQueue
 	s.poolMu.Unlock()
 	if queue == nil {
-		return
+		return ""
 	}
-	queue.Enqueue(notify.Message{
+	return queue.Enqueue(notify.Message{
 		Key: rn.Key, Category: rn.Category, To: rn.To,
 		Subject: rn.Subject, Text: rn.Text, HTML: rn.HTML,
 	})
@@ -406,19 +406,39 @@ func (s *Service) enqueueRendered(rn renderedNotification) {
 // the ledger, and only when the key was new, build and enqueue. build runs
 // lazily so an already-sent recipient never pays rendering cost on a later
 // tick.
-func (s *Service) recordAndSend(state PersistedState, email, category, key string, now time.Time, build func() renderedNotification) {
+func (s *Service) recordAndSend(state PersistedState, email, category, key string, now time.Time, build func() renderedNotification) NotificationReceipt {
+	receipt := NotificationReceipt{Requested: 1}
+	queue, enabled := s.notificationTransport()
+	if queue == nil {
+		receipt.TransportNotWired = true
+		return receipt
+	}
+	if !enabled {
+		receipt.TransportDisabled = true
+		return receipt
+	}
 	if !s.notifyEnabled(state, email, category) {
-		return
+		receipt.PreferenceSuppressed = 1
+		return receipt
 	}
 	sent, err := s.store.FirstSend(key, now)
 	if err != nil {
 		log.Printf("notify: ledger write failed: key=%s err=%v", key, err)
-		return
+		receipt.LedgerFailures = 1
+		return receipt
 	}
 	if !sent {
-		return
+		receipt.AlreadyRecorded = 1
+		return receipt
 	}
-	s.enqueueRendered(build())
+	if result := s.enqueueRendered(build()); result == notify.EnqueueQueued {
+		receipt.Queued = 1
+	} else if result == notify.EnqueueDropped {
+		receipt.QueueDrops = 1
+	} else {
+		receipt.TransportNotWired = true
+	}
+	return receipt
 }
 
 // recordOnly commits key to the ledger without building or enqueuing
@@ -730,19 +750,18 @@ func (s *Service) yourSlotSummary(state PersistedState, teamID string) string {
 // order is drawn. Called from AdminRandomizeDraftOrder after the final order
 // and first regular-season schedule are durably published (spec section 3,
 // N4).
-func (s *Service) notifyDraftOrderDrawn(order []string) {
-	if !s.notifyReady() {
-		return
-	}
+func (s *Service) notifyDraftOrderDrawn(order []string) NotificationReceipt {
+	receipt := s.notificationTransportReceipt()
 	state := s.store.Snapshot()
 	now := s.clock()
 	hash := orderHash8(order)
 	for email, member := range state.Members {
 		key := keyDraftOrderDrawn(hash, email)
-		s.recordAndSend(state, email, categoryDraftReminders, key, now, func() renderedNotification {
+		receipt.merge(s.recordAndSend(state, email, categoryDraftReminders, key, now, func() renderedNotification {
 			return s.buildDraftOrderDrawn(state, order, hash, member)
-		})
+		}))
 	}
+	return receipt
 }
 
 func (s *Service) buildDraftOrderDrawn(state PersistedState, order []string, hash string, member Member) renderedNotification {
@@ -1227,20 +1246,19 @@ func (s *Service) buildPickemReminder(member Member, week int, due []GameInfo) r
 // N11's existing catalog entry (categoryBroadcast, keyBroadcast) rather
 // than adding a new category — the catalog already carries exactly this
 // entry ("commissioner-broadcast"), registered with N8-N13 pending a
-// template builder; this is that builder. A no-op when notifications are
-// not wired, matching every other notify hook.
-func (s *Service) notifyAnnouncement(a Announcement) {
-	if !s.notifyReady() {
-		return
-	}
+// template builder; this is that builder. When delivery is disabled or not
+// wired, this returns that state in its receipt without writing a ledger.
+func (s *Service) notifyAnnouncement(a Announcement) NotificationReceipt {
+	receipt := s.notificationTransportReceipt()
 	state := s.store.Snapshot()
 	now := s.clock()
 	for email, member := range state.Members {
 		key := keyBroadcast(a.ID, email)
-		s.recordAndSend(state, email, categoryBroadcast, key, now, func() renderedNotification {
+		receipt.merge(s.recordAndSend(state, email, categoryBroadcast, key, now, func() renderedNotification {
 			return s.buildAnnouncement(a, member)
-		})
+		}))
 	}
+	return receipt
 }
 
 func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotification {

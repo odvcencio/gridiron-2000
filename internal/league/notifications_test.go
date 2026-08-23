@@ -57,7 +57,7 @@ func TestDraftOrderDrawEmitsOneBatchAndRejectsRepeatSubmission(t *testing.T) {
 		}
 	}
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-	if _, err := service.AdminRandomizeDraftOrder(request, ""); err != nil {
+	if _, _, err := service.AdminRandomizeDraftOrder(request, ""); err != nil {
 		t.Fatalf("first draw: %v", err)
 	}
 	if got := service.notifyQueue.Depth(); got != 2 {
@@ -67,7 +67,7 @@ func TestDraftOrderDrawEmitsOneBatchAndRejectsRepeatSubmission(t *testing.T) {
 		t.Fatalf("first draw sent ledger = %d, want 2", got)
 	}
 
-	if _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
+	if _, _, err := service.AdminRandomizeDraftOrder(request, ""); err == nil {
 		t.Fatal("repeated first-draw submission was accepted")
 	}
 	if got := service.notifyQueue.Depth(); got != 2 {
@@ -78,7 +78,7 @@ func TestDraftOrderDrawEmitsOneBatchAndRejectsRepeatSubmission(t *testing.T) {
 	}
 
 	current := service.store.Snapshot().DraftOrder
-	if _, err := service.AdminRandomizeDraftOrder(request, orderHash8(current)); err != nil {
+	if _, _, err := service.AdminRandomizeDraftOrder(request, orderHash8(current)); err != nil {
 		t.Fatalf("confirmed replacement: %v", err)
 	}
 	if got := service.notifyQueue.Depth(); got != 4 {

@@ -362,7 +362,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Draw the final order and publish the schedule</strong>
 								<small>
-									Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then emails once. Draft order locks when the commissioner starts the draft.
+									Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft.
 								</small>
 							</div>
 						</div>
@@ -725,27 +725,29 @@ func Page() Node {
 					<If cond={data.order_randomized == false}>
 						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
 							<input type="hidden" name="order_token" value=""></input>
-							<button class="button button--primary" type="submit">Draw order + schedule · email once</button>
+							<button class="button button--primary" type="submit">Draw order + schedule · queue reminders</button>
 						</form>
 						<p class="scoring-note">
-							One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then sends one email to managers with draft reminders enabled.
+							One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then reports how many manager reminders were queued. Queued is not delivery.
 						</p>
 					</If>
 					<If cond={data.order_randomized}>
 						<p class="demo-message">
 							<strong>FINAL ORDER ALREADY SENT:</strong>
-							an ordinary second click cannot redraw it or email the league again.
+							an ordinary second click cannot redraw it or queue the league again.
 						</p>
 						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
 							<input type="hidden" name="order_token" value={data.draft_order_token}></input>
 							<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
 							<input id="draft-order-redraw-confirm" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
-							<button class="button" type="submit">Redraw and email replacement</button>
+							<button class="button" type="submit">Redraw and queue replacement</button>
 						</form>
 						<p class="scoring-note">
-							Replacement draws run six passes, preserve the published schedule, and send exactly one new notice. Use only when the published draw must be replaced.
+							Replacement draws run six passes, preserve the published schedule, and queue exactly one new notice. Queued is not delivery. Use only when the published draw must be replaced.
 						</p>
 					</If>
 					<p class="scoring-note">Run this one hour before the draft. Locked once the commissioner starts the draft.</p>
@@ -1008,10 +1010,11 @@ func Page() Node {
 					</div>
 					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
 						<textarea name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3"></textarea>
 						<label class="announcement-email-toggle">
 							<input type="checkbox" name="also_email" value="true"></input>
-							Also email the league
+							Also queue an email to the league
 						</label>
 						<button class="button button--primary" type="submit">Post announcement</button>
 					</form>
