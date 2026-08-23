@@ -7774,3 +7774,77 @@ body.is-on-clock .draft-clock-panel {
     min-width: 0;
   }
 }
+/* ---- Mobile interaction baseline -------------------------------------
+   Every visible content control keeps a 44px target on a phone. This is
+   deliberately scoped to the page frame: navigation and footer chrome own
+   their own touch contracts, while status/badge chips and visually hidden
+   choice inputs are not controls that should be stretched by this rule.
+   Keep this block last so page-specific compact desktop recipes cannot
+   shrink the hit area back below the accessibility baseline. */
+@media (max-width: 38rem) {
+  .site-frame a:not(p a):not(li a):not(nav a):not(footer a):not(.next-matchup-panel__link):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip) {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+  }
+
+  .site-frame button:not(.badge-option):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.google-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.draft-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.filter-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a.board-button:not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame a[data-gosx-link]:not(p a):not(li a):not(nav a):not(footer a):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame summary:not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip),
+  .site-frame .wire-filter:not([role="status"]),
+  .site-frame input[type="submit"],
+  .site-frame input[type="button"],
+  .site-frame input[type="reset"] {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .site-frame input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
+  .site-frame select,
+  .site-frame textarea {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+
+  .site-frame input[type="file"] {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+
+  .site-frame input[type="file"]::file-selector-button {
+    min-width: 0;
+    max-width: 100%;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+    margin-inline-end: var(--space-sm);
+    padding-inline: var(--space-sm);
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    background: var(--color-white-faint);
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .site-frame input[type="file"]::file-selector-button:hover {
+    border-color: var(--color-accent-cyan);
+    background: var(--color-white-soft);
+  }
+}
