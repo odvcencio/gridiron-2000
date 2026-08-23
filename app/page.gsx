@@ -117,11 +117,17 @@ func Page() Node {
 					<h1>
 						{data.league.name}
 						<br></br>
-						<span>CLAIM YOUR SEAT.</span>
+						<span>{data.public_entry.headline}</span>
 					</h1>
 					<p class="hero-deck">
 						A private <strong>{data.league.format_blurb}</strong> for <strong>{data.league.seat_count_word}</strong> managers: lineups, waivers, and a commissioner-published league record.
 					</p>
+					<p class="entry-status">
+						<strong>{data.public_entry.state_label}</strong>
+						·
+						{data.public_entry.membership_label}
+					</p>
+					<p class="entry-note">{data.public_entry.detail}</p>
 					<div class="hero-actions">
 						<a href="/login" data-gosx-link class="button button--primary">
 							Sign in with Google
@@ -205,15 +211,21 @@ func Page() Node {
 						</div>
 						<a href="/team" data-gosx-link class="button button--compact">Open your team →</a>
 					</If>
-					<If cond={data.fantasy_card.has_seat == false && data.fantasy_card.league_full == false}>
-						<p class="status-card__line">
-							{data.fantasy_card.open_seats}
-							seat(s) open — build your roster before the room fills.
-						</p>
-						<a href="/join" data-gosx-link class="button button--primary">Claim a team →</a>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.can_claim}>
+						<p class="status-card__line">{data.public_entry.detail}</p>
+						<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 					</If>
-					<If cond={data.fantasy_card.has_seat == false && data.fantasy_card.league_full}>
-						<p class="status-card__line">Every manager seat is claimed. Pick'em is always open.</p>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false}>
+						<p class="status-card__line">{data.public_entry.detail}</p>
+						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
+					</If>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted && data.public_entry.league_full}>
+						<p class="status-card__line">{data.public_entry.detail}</p>
+						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
+					</If>
+					<If cond={data.public_entry.has_seat == false && data.public_entry.admitted == false}>
+						<p class="status-card__line">{data.public_entry.detail}</p>
+						<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
 					</If>
 				</article>
 				<article class="status-card status-card--pickem">

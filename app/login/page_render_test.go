@@ -49,8 +49,14 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if !strings.Contains(valid, "After sign-in, we&#39;ll return you to the page you requested.") {
 		t.Fatalf("valid login page omitted the return note: %s", valid)
 	}
-	if !strings.Contains(valid, "Your league access will be waiting. You can claim an open fantasy seat after sign-in.") {
-		t.Fatalf("login page omitted seatless-member guidance: %s", valid)
+	if !strings.Contains(valid, "SIGN IN TO ENTER.") {
+		t.Fatalf("login page omitted authentication-first headline: %s", valid)
+	}
+	if !strings.Contains(valid, "This league checks its admission policy after authentication") {
+		t.Fatalf("login page omitted truthful admission guidance: %s", valid)
+	}
+	if strings.Contains(valid, "Every seat belongs to one manager.") || strings.Contains(valid, "Your league access will be waiting.") {
+		t.Fatalf("login page retained unconditional admission/seat promise: %s", valid)
 	}
 	for _, want := range []string{
 		"LEAGUE DRAFT",

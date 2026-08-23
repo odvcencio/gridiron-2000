@@ -1396,6 +1396,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	standingsTitle, standingsNote, standingsEmptyTitle := s.dashboardStandingsCopy(state, standings)
 	return map[string]any{
 		"viewer":                viewer,
+		"public_entry":         s.PublicEntryDataForViewer(r, viewer),
 		"has_seat":              hasSeat,
 		"draft":                 s.draftSummary(now),
 		"live":                  s.liveMap(live),
@@ -2232,12 +2233,14 @@ func (s *Service) StaticPageData(r *http.Request) map[string]any {
 }
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
+	viewer := s.Viewer(r)
 	next := navigation.DefaultReturnPath
 	if r != nil && r.URL != nil {
 		next = navigation.SafeReturnPath(r.URL.Query().Get("next"))
 	}
 	return map[string]any{
-		"viewer":          s.Viewer(r),
+		"viewer":          viewer,
+		"public_entry":   s.PublicEntryDataForViewer(r, viewer),
 		"configured":      configured,
 		"demo_mode":       s.demoMode,
 		"seats":           len(s.Teams()),

@@ -72,6 +72,12 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 	if strings.Contains(strings.ToLower(body), "dynasty scoring") {
 		t.Error("redraft landing page still contains dynasty scoring copy")
 	}
+	if !strings.Contains(body, "SIGN IN TO ENTER.") {
+		t.Error("anonymous landing page must make authentication the only promise")
+	}
+	if strings.Contains(body, "CLAIM YOUR SEAT.") {
+		t.Error("anonymous landing page retained unconditional seat-claim copy")
+	}
 	if strings.Contains(body, "Doors in") {
 		t.Error("landing page still uses auto-start-implying Doors in label")
 	}
@@ -267,4 +273,24 @@ func renderAuthenticatedHomepage(t *testing.T) string {
 		t.Fatalf("GET / = %d, want 200; body: %s", recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
+}
+
+func TestPublicStatusCardBranchesOnPublicEntryState(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(source)
+	for _, want := range []string{
+		`data.public_entry.can_claim`,
+		`data.public_entry.admitted`,
+		`data.public_entry.action_href`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("homepage status card missing public-entry branch %q", want)
+		}
+	}
+	if strings.Contains(page, "Claim a team") {
+		t.Fatal("homepage status card retained an unconditional team claim CTA")
+	}
 }

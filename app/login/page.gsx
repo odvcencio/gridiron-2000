@@ -8,20 +8,19 @@ func Page() Node {
 					<span class="live-dot" aria-hidden="true"></span>
 					PRIVATE LEAGUE NETWORK
 				</span>
-				<p class="page-kicker">Manager sign-in</p>
+				<p class="page-kicker">{data.public_entry.state_label}</p>
 				<h1>
-					CLAIM
+					{data.league.name}
 					<br></br>
-					YOUR SEAT.
+					<span>{data.public_entry.headline}</span>
 				</h1>
-				<p>
-					This league is invite-only. Every seat belongs to one manager.
-				</p>
+				<p>{data.public_entry.detail}</p>
 				<p class="login-identity">
 					<strong>{data.league.format_blurb}</strong>
 					·
 					{data.league.seat_count_word} manager league
 				</p>
+				<p class="login-entry-policy"><strong>{data.public_entry.state_label}</strong> · {data.public_entry.membership_label}</p>
 				<div class="login-event" aria-labelledby="login-event-heading">
 					<span class="section-index">UP NEXT</span>
 					<h2 id="login-event-heading">{data.draft.event_label}</h2>
@@ -47,8 +46,11 @@ func Page() Node {
 					<span class="section-index">GOOGLE SIGN-IN</span>
 					<h2>Manager check-in</h2>
 					<p>
-						Use the Google account your commissioner invited. Your league access will be waiting. You can claim an open fantasy seat after sign-in.
+						Sign in with the Google account you want to use. After authentication,
+						the league will explain whether this identity is admitted and whether
+						a fantasy seat is available.
 					</p>
+					<p class="login-admission-note">Admission policy: {data.public_entry.membership_label}</p>
 					<If cond={data.has_return_path}>
 						<p class="login-return-note">
 							After sign-in, we'll return you to the page you requested.
@@ -74,20 +76,35 @@ func Page() Node {
 					<div class="account-avatar">{data.viewer.initials}</div>
 					<h2>{data.viewer.name}</h2>
 					<p>{data.viewer.email}</p>
-					<If cond={data.viewer.has_seat}>
+					<If cond={data.public_entry.has_seat}>
 						<div class="account-team">
-							<span>Your franchise</span>
-							<strong>{data.viewer.team_name}</strong>
+							<span>{data.public_entry.role_label}</span>
+							<strong>{data.public_entry.team_name}</strong>
 						</div>
-						<a href="/team" data-gosx-link class="button button--primary">Open team terminal</a>
+						<p>{data.public_entry.detail}</p>
+						<a href="/team" data-gosx-link class="button button--primary">Open team terminal →</a>
 					</If>
-					<If cond={data.viewer.has_seat == false}>
+					<If cond={data.public_entry.has_seat == false}>
 						<div class="account-team">
-							<span>League membership</span>
-							<strong>ACTIVE · NO FRANCHISE</strong>
+							<span>LEAGUE ACCESS</span>
+							<strong>{data.public_entry.state_label}</strong>
 						</div>
-						<p>You are signed in with league access, but no fantasy team is attached yet. Claim an open franchise to unlock roster, draft, waiver, and trade controls.</p>
-						<a href="/join" data-gosx-link class="button button--primary">Claim a franchise →</a>
+						<p>{data.public_entry.detail}</p>
+						<If cond={data.public_entry.admitted == false}>
+							<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
+						</If>
+						<If cond={data.public_entry.admitted && data.public_entry.can_claim == false && data.public_entry.league_full == false}>
+							<a href={data.public_entry.action_href} data-gosx-link class="button button--ghost">{data.public_entry.action_label}</a>
+						</If>
+						<If cond={data.public_entry.can_claim}>
+							<a href="/join" data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
+						</If>
+						<If cond={data.public_entry.admitted && data.public_entry.league_full}>
+							<a href="/pickem" data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
+						</If>
+					</If>
+					<If cond={data.public_entry.is_commissioner}>
+						<a href={data.public_entry.commissioner_href} data-gosx-link class="button button--ghost">{data.public_entry.commissioner_label}</a>
 					</If>
 					<form method="post" action="/auth/logout" data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
