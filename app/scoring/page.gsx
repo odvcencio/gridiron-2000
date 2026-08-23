@@ -399,7 +399,7 @@ func Page() Node {
 					{data.waivers_rules.season_weight_pct}
 					% season rank with
 					{data.waivers_rules.weekly_weight_pct}
-					% this week's rank — the worst combined performance claims first. Winning a claim moves that team to the back of the order until the next weekly close. Before Week 1 closes, the order runs the reverse of round 1 of the draft.
+					% this week's rank — the worst combined performance claims first. Winning a claim moves that team to the back of the order until the next weekly close. Before NFL week {data.waivers_rules.start_week} closes, the order runs the reverse of round 1 of the draft.
 				</p>
 			</If>
 			<If cond={data.waivers_rules.faab}>

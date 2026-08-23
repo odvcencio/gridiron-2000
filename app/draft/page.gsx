@@ -484,7 +484,7 @@ func DraftRoom(props DraftRoomProps) Node {
 				<If cond={props.Data.draft.complete}>
 					<div class="manager-draft-controls">
 						<div class="manager-draft-control manager-draft-control--checkin">
-							<div class="manager-draft-control__copy"><span class="mono">YOUR NEXT ACTION</span><strong class="draft-checkin-status ready-state is-ready">SET YOUR LINEUP</strong><small>Your drafted roster is ready. Review every starter and bench spot before Week 1.</small></div>
+							<div class="manager-draft-control__copy"><span class="mono">YOUR NEXT ACTION</span><strong class="draft-checkin-status ready-state is-ready">SET YOUR LINEUP</strong><small>Your drafted roster is ready. Review every starter and bench spot before NFL week {data.season_start_week}.</small></div>
 							<a href="/team" data-gosx-link class="button button--primary button--compact">Open team terminal →</a>
 						</div>
 					</div>
