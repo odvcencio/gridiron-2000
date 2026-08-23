@@ -336,6 +336,7 @@ func hiddenConsensus() PickemConsensusView {
 // so aria-pressed's true/false must already be a bool field.
 type PickemGameRow struct {
 	ID             string
+	Week           int
 	Label          string
 	KickoffDisplay string
 	Away           string
@@ -507,6 +508,7 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		}
 		games = append(games, PickemGameRow{
 			ID:             game.ID,
+			Week:           game.Week,
 			Label:          game.Away + " @ " + game.Home,
 			KickoffDisplay: game.Kickoff.In(location).Format("Mon Jan 2 · 3:04 PM MST"),
 			Away:           game.Away,

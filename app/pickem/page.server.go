@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"strconv"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -36,13 +38,56 @@ func pickemGameRowViews(games []league.PickemGameRow, actionPath, csrfToken stri
 	return out
 }
 
+// pickemWeekValue accepts only a positive, canonical week number from a
+// form/query value. The action uses this to rebuild a same-origin return
+// target; arbitrary strings never reach a Location header.
+func pickemWeekValue(raw string) (int, bool) {
+	week, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || week < 1 {
+		return 0, false
+	}
+	return week, true
+}
+
+func pickemRedirectTarget(rawWeek string) string {
+	if week, ok := pickemWeekValue(rawWeek); ok {
+		return "/pickem?week=" + strconv.Itoa(week)
+	}
+	return "/pickem"
+}
+
+func pickemActionPath(base string, week int) string {
+	if week < 1 {
+		return base
+	}
+	return base + "?week=" + strconv.Itoa(week)
+}
+
+// pickemValidation keeps native POST-redirect-GET validation on the week the
+// member submitted from. Managed forms stay in place so GoSX can project the
+// validation result into the current page without losing its selected week.
+func pickemValidation(ctx *action.Context, rawWeek string, err error) error {
+	validation := actionui.Validation(ctx, "pickem", "pickem", err)
+	if action.WantsJSON(ctx.Request) {
+		return validation
+	}
+	if result, ok := validation.(*action.ResultError); ok {
+		result.Result.Redirect = pickemRedirectTarget(rawWeek)
+	}
+	return validation
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().PickemData(ctx.Request)
 			if games, ok := data["games"].([]league.PickemGameRow); ok {
-				data["games"] = pickemGameRowViews(games, ctx.ActionPath("pickem-set"), session.Token(ctx.Request))
+				actionPath := ctx.ActionPath("pickem-set")
+				if week, ok := data["week"].(int); ok {
+					actionPath = pickemActionPath(actionPath, week)
+				}
+				data["games"] = pickemGameRowViews(games, actionPath, session.Token(ctx.Request))
 			}
 			data["has_notice"] = false
 			data["notice"] = ""
@@ -74,9 +119,9 @@ func init() {
 			"pickem-set": func(ctx *action.Context) error {
 				_, err := league.Default().PickemSet(ctx.Request, ctx.FormData["game_id"], ctx.FormData["team"])
 				if err != nil {
-					return actionui.Validation(ctx, "pickem", "pickem", err)
+					return pickemValidation(ctx, ctx.FormData["week"], err)
 				}
-				actionui.RedirectWithNotice(ctx, "/pickem", ctx.FormData["team"]+" picked.")
+				actionui.RedirectWithNotice(ctx, pickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
 				return nil
 			},
 		},

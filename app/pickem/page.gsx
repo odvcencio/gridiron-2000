@@ -56,6 +56,7 @@ component ConsensusBar(props: ConsensusBarProps) {
 // PickemGameRow structurally mirrors internal/league's PickemGameRow.
 type PickemGameRow struct {
 	ID             string
+	Week           int
 	Label          string
 	KickoffDisplay string
 	Away           string
@@ -114,6 +115,7 @@ component PickemRow(props: PickemRowProps) {
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
+					<input type="hidden" name="week" value={props.Game.Week}></input>
 					<input type="hidden" name="team" value={props.Game.Away}></input>
 					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
 				</form>
@@ -125,6 +127,7 @@ component PickemRow(props: PickemRowProps) {
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
+					<input type="hidden" name="week" value={props.Game.Week}></input>
 					<input type="hidden" name="team" value={props.Game.Home}></input>
 					<button class="filter-button" type="submit" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
 				</form>
