@@ -345,6 +345,62 @@ func TestHomepageActionCenterSourceContract(t *testing.T) {
 	}
 }
 
+func TestHomepageActionCenterNavigationContract(t *testing.T) {
+	pageSource, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageSource)
+	taskStart := strings.Index(page, "component ActionCenterTask")
+	nativeStart := strings.Index(page, "component ActionCenterNativeTask")
+	panelStart := strings.Index(page, "component ActionCenterPanel")
+	if taskStart < 0 || nativeStart <= taskStart || panelStart <= nativeStart {
+		t.Fatalf("homepage action-center navigation components are not ordered")
+	}
+	managed := page[taskStart:nativeStart]
+	native := page[nativeStart:panelStart]
+	if !strings.Contains(managed, "data-gosx-link") {
+		t.Fatal("ordinary internal action-center links must opt into GoSX managed navigation")
+	}
+	if !strings.Contains(managed, "href={props.Href}") {
+		t.Fatal("managed action-center links must preserve the model href, including fragments")
+	}
+	if strings.Contains(native, "data-gosx-link") {
+		t.Fatal("native action-center links must not be intercepted by managed navigation")
+	}
+
+	loginSource, err := os.ReadFile("login/page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := string(loginSource)
+	oauthStart := strings.Index(login, "href={data.oauth_start}")
+	if oauthStart < 0 {
+		t.Fatal("login page omitted its OAuth start link")
+	}
+	oauthEnd := strings.Index(login[oauthStart:], "</a>")
+	if oauthEnd < 0 {
+		t.Fatal("login OAuth start link is not a complete anchor")
+	}
+	if strings.Contains(login[oauthStart:oauthStart+oauthEnd], "data-gosx-link") {
+		t.Fatal("OAuth hand-off must stay a native top-level navigation")
+	}
+
+	hqSource, err := os.ReadFile("../internal/league/hq.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hq := string(hqSource)
+	for _, fragment := range []string{"#admin-draft-control", "#admin-clock"} {
+		if !strings.Contains(hq, fragment) {
+			t.Errorf("action-center model omitted commissioner fragment %q", fragment)
+		}
+	}
+	if !strings.Contains(hq, `NativeNavigation: strings.HasPrefix(href, "/auth/")`) {
+		t.Fatal("action-center model does not classify OAuth hand-offs as native")
+	}
+}
+
 func TestHomepageActionCenterTypedAdapterRendersLinkOnly(t *testing.T) {
 	raw := map[string]any{
 		"stage": "regular_season", "stage_label": "REGULAR SEASON // TODAY",

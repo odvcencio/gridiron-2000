@@ -67,6 +67,8 @@ func TestBoardPageUsesServerDiscoveryAndKeepsPoolAnchor(t *testing.T) {
 		`name="q"`,
 		`name="pos"`,
 		`name="page"`,
+		`name="__gosx_return_to"`,
+		`value="/board?pos=WR&amp;q=ja#board-pool"`,
 		`pool-pagination`,
 		`#board-pool`,
 	} {
@@ -76,6 +78,18 @@ func TestBoardPageUsesServerDiscoveryAndKeepsPoolAnchor(t *testing.T) {
 	}
 	if strings.Contains(body, `data-gosx-filter="board-pool-rows"`) || strings.Contains(body, `data-gosx-filter-text=`) {
 		t.Fatalf("board page retained client-only filtering attributes: %s", body)
+	}
+}
+
+func TestBoardReturnTargetForDataUsesCanonicalPoolState(t *testing.T) {
+	data := map[string]any{
+		"pool_position": " wr ",
+		"pool_query":    " Tom & / ",
+		"pool_page":     3,
+	}
+	want := "/board?page=3&pos=WR&q=Tom+%26+%2F#board-pool"
+	if got := boardReturnTargetForData(data); got != want {
+		t.Fatalf("boardReturnTargetForData = %q, want %q", got, want)
 	}
 }
 
