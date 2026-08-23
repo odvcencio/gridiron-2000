@@ -63,10 +63,21 @@ type scheduleProvider struct {
 	svc *Service
 }
 
+func (p scheduleProvider) preseasonProvider() demoProvider {
+	startAt := p.svc.cfg.SeasonStartAt
+	if startAt.IsZero() {
+		startAt, _ = time.Parse(time.RFC3339, DefaultSeasonStartAt)
+	}
+	return demoProvider{
+		startWeek: p.svc.seasonStartWeek(),
+		startAt:   startAt,
+	}
+}
+
 func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnapshot, error) {
 	state := p.svc.store.Snapshot()
 	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
-		return demoProvider{}.Snapshot(ctx, now)
+		return p.preseasonProvider().Snapshot(ctx, now)
 	}
 	return p.SnapshotWeek(ctx, now, currentScheduleWeek(*state.Schedule))
 }
@@ -79,7 +90,7 @@ func (p scheduleProvider) Snapshot(ctx context.Context, now time.Time) (LiveSnap
 func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week int) (LiveSnapshot, error) {
 	state := p.svc.store.Snapshot()
 	if state.Schedule == nil || len(state.Schedule.Weeks) == 0 {
-		return demoProvider{}.Snapshot(ctx, now)
+		return p.preseasonProvider().Snapshot(ctx, now)
 	}
 	wk, ok := scheduleWeekByNumber(*state.Schedule, week)
 	if !ok {
@@ -220,18 +231,29 @@ func scheduleWeekByNumber(sch SeasonSchedule, week int) (ScheduleWeek, bool) {
 	return ScheduleWeek{}, false
 }
 
-type demoProvider struct{}
+type demoProvider struct {
+	startWeek int
+	startAt   time.Time
+}
 
 // Snapshot reports the honest preseason state: no matchups exist until the
 // league's real schedule and lineups are in place. The week label derives
-// from the config-driven season_start_at (DefaultSeasonStartAt, mutated
-// once at boot by applyActiveConfig) instead of a hardcoded September 13.
-func (demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, error) {
+// from the active season opening instant and the published schedule's
+// opening NFL week, with neutral defaults before either is available.
+func (p demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, error) {
+	startWeek := p.startWeek
+	if startWeek <= 0 {
+		startWeek = defaultSeasonStartWeek
+	}
+	startAt := p.startAt
+	if startAt.IsZero() {
+		startAt, _ = time.Parse(time.RFC3339, DefaultSeasonStartAt)
+	}
 	return LiveSnapshot{
 		Source:      "preseason",
 		SourceLabel: "Preseason",
-		Week:        1,
-		WeekLabel:   "Week 1 · Sundays from " + seasonOpenDateLabel(),
+		Week:        startWeek,
+		WeekLabel:   fmt.Sprintf("Week %d · Sundays from %s", startWeek, seasonOpenDateLabelAt(startAt)),
 		State:       MatchupStatePreseason,
 		Status:      "League matchups begin when the season starts",
 		LastUpdated: now.UTC(),
@@ -239,12 +261,10 @@ func (demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, er
 	}, nil
 }
 
-// seasonOpenDateLabel renders DefaultSeasonStartAt as "Month Day" ("September
-// 13") for the preseason snapshot's week label. An unparseable value (never
-// expected; LoadConfig validates it) falls back to the raw string.
-func seasonOpenDateLabel() string {
-	start, err := time.Parse(time.RFC3339, DefaultSeasonStartAt)
-	if err != nil {
+// seasonOpenDateLabelAt renders a configured opening instant as "Month Day".
+// The zero-time fallback is kept explicit for tests and neutral checkouts.
+func seasonOpenDateLabelAt(start time.Time) string {
+	if start.IsZero() {
 		return DefaultSeasonStartAt
 	}
 	return start.Format("January 2")

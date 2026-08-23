@@ -47,6 +47,68 @@ func TestPickemWeekSelection(t *testing.T) {
 	}
 }
 
+func TestPickemWeekSelectionUsesPublishedStartWeekAndNormalizesUnavailableQueries(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season:    2026,
+		TeamIDs:   teamIDList(service.teams),
+		StartWeek: 3,
+		Weeks:     2,
+		Seed:      73,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	games := []GameInfo{
+		{ID: "week-3", Week: 3, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true},
+		{ID: "week-4", Week: 4, Kickoff: now.Add(8 * 24 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true},
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+
+	if got := service.seasonStartWeek(); got != 3 {
+		t.Fatalf("seasonStartWeek = %d, want published schedule start week 3", got)
+	}
+	for _, test := range []struct {
+		name       string
+		target     string
+		wantWeek   int
+		wantNotice bool
+	}{
+		{name: "missing query", target: "/pickem", wantWeek: 3},
+		{name: "hostile query", target: "/pickem?week=not-a-week", wantWeek: 3, wantNotice: true},
+		{name: "nonexistent query", target: "/pickem?week=999", wantWeek: 3, wantNotice: true},
+		{name: "real future week", target: "/pickem?week=4", wantWeek: 4},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request, err := http.NewRequest(http.MethodGet, test.target, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data := service.PickemData(request)
+			if got := data["week"]; got != test.wantWeek {
+				t.Fatalf("week = %v, want %d", got, test.wantWeek)
+			}
+			if got := data["has_week_notice"]; got != test.wantNotice {
+				t.Fatalf("has_week_notice = %v, want %v; notice=%v", got, test.wantNotice, data["week_notice"])
+			}
+		})
+	}
+	if got := service.PickemRedirectTarget("999"); got != "/pickem?week=3" {
+		t.Fatalf("invalid action week redirect = %q, want /pickem?week=3", got)
+	}
+	if got := service.PickemRedirectTarget("4"); got != "/pickem?week=4" {
+		t.Fatalf("valid action week redirect = %q, want /pickem?week=4", got)
+	}
+	if got := service.PickemRedirectTarget("not-a-week"); got != "/pickem?week=3" {
+		t.Fatalf("hostile action week redirect = %q, want /pickem?week=3", got)
+	}
+}
+
 func TestPickemDataShape(t *testing.T) {
 	service := newTestService(t, true) // demo mode: viewer key is "demo-guest"
 	now := time.Now()

@@ -41,8 +41,38 @@ type ScheduleParams struct {
 	TeamIDs   []string          // config order, 4-14 entries
 	Divisions map[string]string // teamID -> division name; empty = none
 	StartWeek int               // first NFL week, default 1
-	Weeks     int                // regular-season length, >= 1
+	Weeks     int               // regular-season length, >= 1
 	Seed      int64
+}
+
+// defaultSeasonStartWeek is the honest fallback before a commissioner has
+// published a schedule. league.json currently carries the season opening
+// instant, not an NFL week number, so an unconfigured or pre-schedule league
+// starts from the platform's neutral NFL week-one convention. Once a
+// persisted schedule exists, seasonStartWeekForSchedule is authoritative.
+const defaultSeasonStartWeek = 1
+
+// seasonStartWeekForSchedule resolves the first NFL week represented by a
+// published schedule. StartWeek is the durable header; the first positive
+// week is a defensive fallback for older or partially-written state that has
+// weeks but no header. A nil/empty schedule deliberately falls back to the
+// neutral configured default instead of inventing a week from today's date.
+func seasonStartWeekForSchedule(schedule *SeasonSchedule) int {
+	if schedule != nil {
+		if schedule.StartWeek > 0 {
+			return schedule.StartWeek
+		}
+		start := 0
+		for _, week := range schedule.Weeks {
+			if week.Week > 0 && (start == 0 || week.Week < start) {
+				start = week.Week
+			}
+		}
+		if start > 0 {
+			return start
+		}
+	}
+	return defaultSeasonStartWeek
 }
 
 // maxNFLWeek is the latest NFL week a schedule may reach (section 7,
@@ -155,6 +185,16 @@ func validateScheduleParams(p ScheduleParams) error {
 		return fmt.Errorf("startWeek %d plus %d weeks runs past week %d", startWeek, p.Weeks, maxNFLWeek)
 	}
 	return nil
+}
+
+// seasonStartWeek is the one service-level season-opening-week authority used
+// by preseason copy, week fallback, and page view models. A published state
+// schedule wins; before publication the neutral platform default is explicit.
+func (s *Service) seasonStartWeek() int {
+	if s == nil || s.store == nil {
+		return defaultSeasonStartWeek
+	}
+	return seasonStartWeekForSchedule(s.store.Snapshot().Schedule)
 }
 
 // pairing is one round's matchup: two ring slots, either of which may be

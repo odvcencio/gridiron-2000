@@ -67,12 +67,16 @@ func pickemActionPath(base string, week int) string {
 // member submitted from. Managed forms stay in place so GoSX can project the
 // validation result into the current page without losing its selected week.
 func pickemValidation(ctx *action.Context, rawWeek string, err error) error {
+	return pickemValidationWithRedirect(ctx, pickemRedirectTarget(rawWeek), err)
+}
+
+func pickemValidationWithRedirect(ctx *action.Context, redirect string, err error) error {
 	validation := actionui.Validation(ctx, "pickem", "pickem", err)
 	if action.WantsJSON(ctx.Request) {
 		return validation
 	}
 	if result, ok := validation.(*action.ResultError); ok {
-		result.Result.Redirect = pickemRedirectTarget(rawWeek)
+		result.Result.Redirect = redirect
 	}
 	return validation
 }
@@ -119,9 +123,10 @@ func init() {
 			"pickem-set": func(ctx *action.Context) error {
 				_, err := league.Default().PickemSet(ctx.Request, ctx.FormData["game_id"], ctx.FormData["team"])
 				if err != nil {
-					return pickemValidation(ctx, ctx.FormData["week"], err)
+					redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
+					return pickemValidationWithRedirect(ctx, redirect, err)
 				}
-				actionui.RedirectWithNotice(ctx, pickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
+				actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
 				return nil
 			},
 		},

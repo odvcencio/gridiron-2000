@@ -252,6 +252,20 @@ func TestMatchupUpdateTimestampIncludesDateAndDSTZone(t *testing.T) {
 	}
 }
 
+func TestDemoProviderUsesConfiguredSeasonStartWeek(t *testing.T) {
+	startAt := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	snapshot, err := (demoProvider{startWeek: 6, startAt: startAt}).Snapshot(context.Background(), startAt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snapshot.Week != 6 {
+		t.Fatalf("preseason week = %d, want 6", snapshot.Week)
+	}
+	if snapshot.WeekLabel != "Week 6 · Sundays from September 10" {
+		t.Fatalf("preseason week label = %q, want configured week/date", snapshot.WeekLabel)
+	}
+}
+
 func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
 	snapshot, err := demoProvider{}.Snapshot(context.Background(), time.Now())
 	if err != nil {

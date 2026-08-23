@@ -36,6 +36,9 @@ func (s *Service) schedule() []GameInfo {
 // kicking off within the last four hours or later, or the largest week when
 // every game has already passed that window. An empty schedule returns 1.
 func (s *Service) pickemWeek(games []GameInfo, now time.Time) int {
+	if len(pickemWeeks(games)) == 0 {
+		return s.seasonStartWeek()
+	}
 	return pickemWeekAt(games, now)
 }
 
@@ -45,14 +48,14 @@ func (s *Service) pickemWeek(games []GameInfo, now time.Time) int {
 // week resolver every caller shares, never a second one (spec section
 // 4.4: "reuse it; do not write a second week resolver").
 func pickemWeekAt(games []GameInfo, now time.Time) int {
-	if len(games) == 0 {
-		return 1
-	}
 	cutoff := now.Add(-4 * time.Hour)
-	largestWeek := games[0].Week
+	largestWeek := 0
 	upcomingWeek := 0
 	haveUpcoming := false
 	for _, game := range games {
+		if game.Week <= 0 {
+			continue
+		}
 		if game.Week > largestWeek {
 			largestWeek = game.Week
 		}
@@ -63,6 +66,9 @@ func pickemWeekAt(games []GameInfo, now time.Time) int {
 	}
 	if haveUpcoming {
 		return upcomingWeek
+	}
+	if largestWeek == 0 {
+		return defaultSeasonStartWeek
 	}
 	return largestWeek
 }
@@ -196,6 +202,9 @@ func pickemWeeks(games []GameInfo) []int {
 	seen := make(map[int]bool, 8)
 	weeks := make([]int, 0, 8)
 	for _, game := range games {
+		if game.Week <= 0 {
+			continue
+		}
 		if !seen[game.Week] {
 			seen[game.Week] = true
 			weeks = append(weeks, game.Week)
@@ -203,6 +212,31 @@ func pickemWeeks(games []GameInfo) []int {
 	}
 	sort.Ints(weeks)
 	return weeks
+}
+
+// PickemRedirectTarget returns a safe canonical native-form target. When a
+// published game slate exists, an unknown, malformed, or otherwise
+// unavailable week resolves to the same current/available week PickemData
+// renders. Before games are available, preserve an explicit positive week so
+// the form remains compatible with a schedule that is about to publish.
+func (s *Service) PickemRedirectTarget(rawWeek string) string {
+	raw := strings.TrimSpace(rawWeek)
+	parsed, err := strconv.Atoi(raw)
+	if raw == "" {
+		return "/pickem"
+	}
+	games := s.schedule()
+	weeks := pickemWeeks(games)
+	if len(weeks) == 0 {
+		if err == nil && parsed > 0 {
+			return "/pickem?week=" + strconv.Itoa(parsed)
+		}
+		return "/pickem"
+	}
+	if err == nil && parsed > 0 && containsInt(weeks, parsed) {
+		return "/pickem?week=" + strconv.Itoa(parsed)
+	}
+	return "/pickem?week=" + strconv.Itoa(s.pickemWeek(games, s.clock()))
 }
 
 func tallyPicks(games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) PickemATSRecord {
@@ -448,20 +482,27 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	_ = s.store.BackfillPickemEnteredAt(allGames)
 	state := s.store.Snapshot()
 	currentWeek := s.pickemWeek(allGames, now)
-
+	weeks := pickemWeeks(allGames)
+	hasWeeks := len(weeks) > 0
+	if hasWeeks && !containsInt(weeks, currentWeek) {
+		currentWeek = weeks[0]
+	}
 	week := currentWeek
-	if raw := strings.TrimSpace(r.URL.Query().Get("week")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+	weekNotice := ""
+	rawWeek := strings.TrimSpace(r.URL.Query().Get("week"))
+	if rawWeek != "" {
+		parsed, err := strconv.Atoi(rawWeek)
+		switch {
+		case err != nil || parsed <= 0:
+			weekNotice = fmt.Sprintf("Week %q is not on the available schedule. Showing Week %d.", rawWeek, currentWeek)
+		case !hasWeeks:
+			weekNotice = fmt.Sprintf("Week %d is not available until the schedule is published. Showing NFL week %d.", parsed, currentWeek)
+		case !containsInt(weeks, parsed):
+			weekNotice = fmt.Sprintf("Week %d is not on the published schedule. Showing Week %d.", parsed, currentWeek)
+		default:
 			week = parsed
 		}
 	}
-
-	weeks := pickemWeeks(allGames)
-	minWeek, maxWeek := 1, 1
-	if len(weeks) > 0 {
-		minWeek, maxWeek = weeks[0], weeks[len(weeks)-1]
-	}
-	hasWeeks := len(weeks) > 0
 	weekOptions := make([]map[string]any, 0, len(weeks))
 	for _, w := range weeks {
 		weekOptions = append(weekOptions, map[string]any{
@@ -473,6 +514,22 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 
 	weekGames := gamesInWeek(allGames, week)
 	sortGamesByKickoff(weekGames)
+	previousWeekHref, nextWeekHref := "", ""
+	hasPreviousWeek, hasNextWeek := false, false
+	for index, availableWeek := range weeks {
+		if availableWeek != week {
+			continue
+		}
+		if index > 0 {
+			hasPreviousWeek = true
+			previousWeekHref = "/pickem?week=" + strconv.Itoa(weeks[index-1])
+		}
+		if index+1 < len(weeks) {
+			hasNextWeek = true
+			nextWeekHref = "/pickem?week=" + strconv.Itoa(weeks[index+1])
+		}
+		break
+	}
 
 	location := s.draftTZ
 	if location == nil {
@@ -550,13 +607,15 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 		"week":              week,
 		"current_week":      currentWeek,
 		"is_current_week":   week == currentWeek,
-		"has_prev_week":     week > minWeek,
-		"prev_week_href":    "/pickem?week=" + strconv.Itoa(week-1),
-		"has_next_week":     week < maxWeek,
-		"next_week_href":    "/pickem?week=" + strconv.Itoa(week+1),
+		"has_prev_week":     hasPreviousWeek,
+		"prev_week_href":    previousWeekHref,
+		"has_next_week":     hasNextWeek,
+		"next_week_href":    nextWeekHref,
 		"current_week_href": "/pickem?week=" + strconv.Itoa(currentWeek),
 		"week_options":      weekOptions,
 		"has_weeks":         hasWeeks,
+		"week_notice":       weekNotice,
+		"has_week_notice":   weekNotice != "",
 		"can_pick":          viewerKey != "",
 		"games":             games,
 		"games_empty":       len(games) == 0,

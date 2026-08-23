@@ -450,6 +450,7 @@ func (s *Service) rulesWaiversMap() map[string]any {
 	w := s.cfg.Waivers
 	hour, minute, loc := waiverProcessClock(s.cfg)
 	return map[string]any{
+		"start_week":        s.seasonStartWeek(),
 		"mode":              w.Mode,
 		"faab":              w.Mode == "faab",
 		"season_weight_pct": w.SeasonWeightPct,

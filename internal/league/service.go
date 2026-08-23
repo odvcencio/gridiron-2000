@@ -1507,6 +1507,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"league_size":         len(s.Teams()),
 		"season":              strconv.Itoa(s.cfg.Season),
 		"league_mode":         s.cfg.ModeLabel,
+		"season_start_week":   s.seasonStartWeek(),
 		"league":              s.leagueMap(),
 		"announcements":       announcements,
 		"announcements_empty": len(announcements) == 0,
@@ -2277,6 +2278,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"viewer_autopick":      viewerTeam != "" && state.Autopick[viewerTeam],
 		"order_randomized":     len(state.DraftOrder) > 0,
 		"league_mode":          s.cfg.ModeLabel,
+		"season_start_week":    s.seasonStartWeek(),
 		"clock":                s.clockView(state, now),
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
@@ -2744,11 +2746,10 @@ func (s *Service) heroKicker() string {
 	return label
 }
 
-// seasonOpenLine renders "League play begins Week 1 · {Month Day}." from
-// season_start_at (spec section 3.2's derived preseason string), replacing
-// the old hardcoded "September 13" in app/matchups/page.gsx.
+// seasonOpenLine renders the persisted schedule's opening NFL week, or the
+// explicit platform fallback before a schedule exists, from season_start_at.
 func (s *Service) seasonOpenLine() string {
-	return "League play begins Week 1 · " + s.cfg.SeasonStartAt.Format("January 2") + "."
+	return fmt.Sprintf("League play begins NFL week %d · %s.", s.seasonStartWeek(), s.cfg.SeasonStartAt.Format("January 2"))
 }
 
 // scoringNote renders the scoring page's format footnote from
@@ -3123,6 +3124,9 @@ func matchupStaticPresentation(state string) map[string]string {
 
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	presentation := matchupPresentation(live.State)
+	if live.State == MatchupStatePreseason {
+		presentation["refresh_label"] = fmt.Sprintf("Before NFL week %d", s.seasonStartWeek())
+	}
 	return map[string]any{
 		"source":              live.Source,
 		"source_label":        live.SourceLabel,
@@ -3182,7 +3186,7 @@ func matchupPresentation(state string) map[string]string {
 	default:
 		return map[string]string{
 			"headline_top": "MATCHUPS", "headline_bottom": "COMING SOON.",
-			"sync_label": "Preseason schedule", "refresh_label": "Before Week 1",
+			"sync_label": "Preseason schedule", "refresh_label": "Before season start",
 			"note_title": "Preseason", "note_body": "Fantasy matchup scoring begins when the regular season opens.",
 		}
 	}

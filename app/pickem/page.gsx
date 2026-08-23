@@ -266,6 +266,12 @@ func Page() Node {
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
+			<If cond={data.has_week_notice}>
+				<p class="demo-message">
+					<strong>WEEK ADJUSTED:</strong>
+					{data.week_notice}
+				</p>
+			</If>
 			<If cond={data.has_pickem_error}>
 				<p class="error-message">{data.pickem_error}</p>
 			</If>

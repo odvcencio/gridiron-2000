@@ -393,7 +393,8 @@ func Page() Node {
 				<div class="empty-tape">
 					<strong>SEASON NOT STARTED</strong>
 					<p>
-						Matchups appear in Week 1.
+						Matchups appear in NFL week
+						{data.season_start_week}.
 					</p>
 				</div>
 			</If>
