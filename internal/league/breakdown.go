@@ -138,7 +138,7 @@ func scoreBreakdownWithValues(stats map[string]float64, values map[string]float6
 	}
 	for _, row := range breakdownRows {
 		stat, ok := stats[row.statKey]
-		if !ok || stat == 0 {
+		if !ok || stat == 0 || !finiteScoringPoints(stat) {
 			continue
 		}
 		statText := strconv.FormatFloat(stat, 'f', -1, 64)
@@ -153,7 +153,7 @@ func scoreBreakdownWithValues(stats map[string]float64, values map[string]float6
 			"points": "—",
 		}
 		if row.ruleKey != "" {
-			points := values[row.ruleKey]
+			points := scoringPoints(values, row.ruleKey)
 			scored := stat * points
 			entry["calc"] = statText + " × " + strconv.FormatFloat(points, 'f', -1, 64)
 			entry["points"] = fmt.Sprintf("%+.1f", scored)
@@ -196,10 +196,10 @@ func scoreStatsWithValues(stats map[string]float64, values map[string]float64) f
 			continue
 		}
 		stat, ok := stats[row.statKey]
-		if !ok || stat == 0 {
+		if !ok || stat == 0 || !finiteScoringPoints(stat) {
 			continue
 		}
-		sum += stat * values[row.ruleKey]
+		sum += stat * scoringPoints(values, row.ruleKey)
 	}
 	return sum
 }

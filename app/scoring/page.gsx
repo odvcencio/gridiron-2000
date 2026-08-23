@@ -36,7 +36,7 @@ component ScoringRow(props: ScoringRowProps) {
 			<form class="scoring-row__form" method="post" action={props.SetAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="key" value={props.Rule.Key}></input>
-				<input type="text" name="points" value={props.Rule.Points} class="scoring-input"></input>
+				<input type="number" name="points" value={props.Rule.Points} class="scoring-input" step="any" min="-25" max="25" inputmode="decimal"></input>
 				<button class="board-button" type="submit">Set</button>
 			</form>
 		</If>

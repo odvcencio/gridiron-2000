@@ -762,6 +762,17 @@ func TestScoringDataDefaultsAndOverride(t *testing.T) {
 	if _, err := service.AdminSetScoring(request, "passYards", "not-a-number"); err == nil {
 		t.Error("non-numeric value accepted")
 	}
+	for _, raw := range []string{"NaN", "+Inf", "-Inf"} {
+		if _, err := service.AdminSetScoring(request, "passYards", raw); err == nil {
+			t.Errorf("non-finite value %q accepted", raw)
+		}
+	}
+	if _, err := service.AdminSetScoring(request, "passYards", "-0.125"); err != nil {
+		t.Fatalf("finite negative decimal rejected: %v", err)
+	}
+	if got := service.store.Snapshot().Scoring["passYards"]; got != -0.125 {
+		t.Fatalf("finite negative decimal override = %v, want -0.125", got)
+	}
 }
 
 func TestScoringLockRejectsEdits(t *testing.T) {

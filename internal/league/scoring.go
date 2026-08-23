@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"sort"
@@ -12,6 +13,52 @@ import (
 	"strings"
 	"time"
 )
+
+const (
+	minScoringPoints = -25
+	maxScoringPoints = 25
+)
+
+// validateScoringPoints is the shared scoring-input invariant. ParseFloat
+// accepts NaN and infinities, but those values cannot participate in an
+// authoritative league score and must be rejected before they reach Store.
+func validateScoringPoints(points float64) error {
+	if math.IsNaN(points) || math.IsInf(points, 0) {
+		return fmt.Errorf("points must be finite")
+	}
+	if points < minScoringPoints || points > maxScoringPoints {
+		return fmt.Errorf("points must be between %d and %d", minScoringPoints, maxScoringPoints)
+	}
+	return nil
+}
+
+func finiteScoringPoints(points float64) bool {
+	return !math.IsNaN(points) && !math.IsInf(points, 0)
+}
+
+// normalizeScoringValues is the read boundary for legacy/corrupt state.
+// Unknown finite keys remain intact for legacy round-trip compatibility, but
+// non-finite values are dropped so they can never become live scoring input.
+func normalizeScoringValues(values map[string]float64) {
+	for key, points := range values {
+		if !finiteScoringPoints(points) {
+			delete(values, key)
+		}
+	}
+}
+
+// scoringPoints resolves a rule value defensively for callers that receive a
+// scoring map from persistence, config, or an external adapter. Invalid
+// values fail closed to the shipped rule rather than contaminating totals.
+func scoringPoints(values map[string]float64, key string) float64 {
+	if points, ok := values[key]; ok && finiteScoringPoints(points) {
+		return points
+	}
+	if rule, ok := scoringRuleByKey(key); ok {
+		return rule.Points
+	}
+	return 0
+}
 
 // ScoringRule is one line of the league's scoring settings: how many points
 // a statistical event is worth, grouped for display.

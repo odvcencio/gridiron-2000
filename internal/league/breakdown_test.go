@@ -1,6 +1,9 @@
 package league
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // TestScoreBreakdownQBStatMap checks row order, labels, calc text, and
 // skip-zero behavior for a passing-heavy stat line against the default
@@ -136,6 +139,18 @@ func TestScoreBreakdownCommissionerOverride(t *testing.T) {
 	rows, total = service.scoreBreakdown(stats)
 	if len(rows) != 1 || rows[0]["points"] != "+4.0" || total != "4.0" {
 		t.Fatalf("overridden reception scoring wrong: rows=%+v total=%q", rows, total)
+	}
+}
+
+func TestProjectionScoringFallsBackFromNonFiniteRuleValues(t *testing.T) {
+	player := Player{ID: "p1", Name: "Projected", Position: "QB", ProjStats: map[string]float64{"passTD": 2}}
+	for _, points := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		values := breakdownDefaultValues()
+		values["passTD"] = points
+		view := playerMap(player, values, matchupIndex{})
+		if got := view["breakdown_total"]; got != "8.0" {
+			t.Errorf("rule value %v contaminated projection total: got %v, want 8.0", points, got)
+		}
 	}
 }
 

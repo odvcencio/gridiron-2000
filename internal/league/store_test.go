@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -416,6 +417,11 @@ func TestSetScoringValue(t *testing.T) {
 	if err := store.SetScoringValue("passTD", -26); err == nil {
 		t.Error("below-range value accepted")
 	}
+	for _, points := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if err := store.SetScoringValue("passTD", points); err == nil {
+			t.Errorf("non-finite value %v accepted", points)
+		}
+	}
 
 	if err := store.SetScoringValue("passTD", 5); err != nil {
 		t.Fatal(err)
@@ -439,6 +445,71 @@ func TestSetScoringValue(t *testing.T) {
 	}
 	if got := store.Snapshot().Scoring; len(got) != 0 {
 		t.Fatalf("ResetScoring left overrides: %v", got)
+	}
+}
+
+func TestSetScoringValueRollsBackOnPersistenceFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	if err := store.SetScoringValue("passTD", 5); err != nil {
+		t.Fatal(err)
+	}
+	before := store.Snapshot()
+	failThisStorePersist(store)
+	if err := store.SetScoringValue("passTD", 6); err == nil {
+		t.Fatal("expected scoring persistence failure")
+	}
+	after := store.Snapshot()
+	if !reflect.DeepEqual(after.Scoring, before.Scoring) {
+		t.Fatalf("failed scoring write changed memory: before=%v after=%v", before.Scoring, after.Scoring)
+	}
+	stored := reloadStoredState(t, path)
+	if got := stored.Scoring["passTD"]; got != 5 {
+		t.Fatalf("failed scoring write reached persistence: got %v, want 5", got)
+	}
+}
+
+func TestNormalizeStateDropsNonFiniteScoringValues(t *testing.T) {
+	state := PersistedState{Scoring: map[string]float64{
+		"passTD":    math.NaN(),
+		"passYards": math.Inf(1),
+		"rushTD":    math.Inf(-1),
+		"reception": -0.125,
+	}}
+	normalizeState(&state)
+	if _, ok := state.Scoring["passTD"]; ok {
+		t.Fatal("NaN scoring override survived state normalization")
+	}
+	if _, ok := state.Scoring["passYards"]; ok {
+		t.Fatal("+Inf scoring override survived state normalization")
+	}
+	if _, ok := state.Scoring["rushTD"]; ok {
+		t.Fatal("-Inf scoring override survived state normalization")
+	}
+	if got := state.Scoring["reception"]; got != -0.125 {
+		t.Fatalf("finite negative decimal override = %v, want -0.125", got)
+	}
+}
+
+func TestSnapshotSanitizesNonFiniteScoringValues(t *testing.T) {
+	store := newTestStore(t)
+	store.mu.Lock()
+	store.state.Scoring = map[string]float64{
+		"passTD":    math.NaN(),
+		"passYards": math.Inf(1),
+		"rushTD":    math.Inf(-1),
+		"reception": -0.125,
+	}
+	store.mu.Unlock()
+
+	snapshot := store.Snapshot()
+	for _, key := range []string{"passTD", "passYards", "rushTD"} {
+		if _, ok := snapshot.Scoring[key]; ok {
+			t.Errorf("snapshot exposed non-finite %s scoring override: %v", key, snapshot.Scoring[key])
+		}
+	}
+	if got := snapshot.Scoring["reception"]; got != -0.125 {
+		t.Fatalf("snapshot finite negative decimal override = %v, want -0.125", got)
 	}
 }
 

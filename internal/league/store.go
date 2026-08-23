@@ -258,6 +258,7 @@ func (s *Store) Snapshot() PersistedState {
 		// that bypassed the normal database loader.
 		normalizeIdentityCollections(&out)
 	}
+	normalizeScoringValues(out.Scoring)
 	// The authority marker is boot metadata, not league state. Keep it in the
 	// Store's private working copy so future scalar writes preserve the row,
 	// but never expose it through the public snapshot or legacy JSON-shaped
@@ -1326,20 +1327,30 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 	if !ok {
 		return fmt.Errorf("unknown scoring key %q", key)
 	}
-	if points < -25 || points > 25 {
-		return fmt.Errorf("points must be between -25 and 25")
+	if err := validateScoringPoints(points); err != nil {
+		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
 	if points == rule.Points {
 		delete(s.state.Scoring, key)
 	} else {
 		s.state.Scoring[key] = points
 	}
-	return s.persistLocked(colScoring)
+	if err := s.persistLocked(colScoring); err != nil {
+		// A failed scoring write must not publish a candidate in memory. The
+		// transaction boundary may retain dirty work from another mutator,
+		// so restore that mask alongside the state.
+		s.state = before
+		s.dirty = beforeDirty
+		return err
+	}
+	return nil
 }
 
 // ResetScoring clears every scoring override, restoring the default rules.
@@ -1349,8 +1360,15 @@ func (s *Store) ResetScoring() error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
 	s.state.Scoring = map[string]float64{}
-	return s.persistLocked(colScoring)
+	if err := s.persistLocked(colScoring); err != nil {
+		s.state = before
+		s.dirty = beforeDirty
+		return err
+	}
+	return nil
 }
 
 const boardLimit = 100
