@@ -1370,10 +1370,10 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 	}
 	displayName, err := validateTeamName(teamName)
 	if err != nil {
-		return Team{}, err
+		return Team{}, claimValidationError(ClaimFieldTeamName, err)
 	}
 	if displayName == "" {
-		return Team{}, fmt.Errorf("enter a team name")
+		return Team{}, claimValidationError(ClaimFieldTeamName, errors.New("enter a team name"))
 	}
 	motif = strings.TrimSpace(motif)
 	// An empty motif means the signup form was submitted with no badge
@@ -1384,14 +1384,14 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 	// styling, and a required control that cannot be shown makes Chrome
 	// block submission with no visible message at all.
 	if motif == "" {
-		return Team{}, errors.New("choose a badge for your team")
+		return Team{}, claimValidationError(ClaimFieldMotif, errors.New("choose a badge for your team"))
 	}
 	if !knownMotif(motif) {
-		return Team{}, ErrBadgeUnknownMotif
+		return Team{}, claimValidationError(ClaimFieldMotif, ErrBadgeUnknownMotif)
 	}
 	for holderTeamID, claimedMotif := range s.store.BadgeClaims() {
 		if claimedMotif == motif {
-			return Team{}, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name}
+			return Team{}, claimValidationError(ClaimFieldMotif, &badgeTakenError{teamName: s.teamByID(holderTeamID).Name})
 		}
 	}
 	member, err = s.assignMember(email, name)
@@ -1401,16 +1401,16 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 	teamID := member.TeamID
 	if err := s.store.SetTeamName(teamID, displayName); err != nil {
 		_ = s.store.ReleaseSeat(teamID)
-		return Team{}, err
+		return Team{}, claimValidationError(ClaimFieldTeamName, err)
 	}
 	if err := s.store.ClaimBadge(teamID, motif); err != nil {
 		_ = s.store.SetTeamName(teamID, "")
 		_ = s.store.ReleaseSeat(teamID)
 		var claimed *badgeClaimedError
 		if errors.As(err, &claimed) {
-			return Team{}, &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name}
+			return Team{}, claimValidationError(ClaimFieldMotif, &badgeTakenError{teamName: s.teamByID(claimed.teamID).Name})
 		}
-		return Team{}, err
+		return Team{}, claimValidationError(ClaimFieldMotif, err)
 	}
 	return s.teamByID(teamID), nil
 }

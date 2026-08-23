@@ -1,6 +1,7 @@
 package join
 
 import (
+	"errors"
 	"gridiron-2000/internal/actionui"
 	"log"
 
@@ -32,9 +33,12 @@ func init() {
 				// badge choice after a race or another correctable error.
 				data["team_name_value"] = view.Value("team_name")
 				data["selected_motif"] = view.Value("motif")
-				message := view.Error("motif")
+				message := view.Message()
 				if message == "" {
-					message = view.Error("team_name")
+					message = view.Error("motif")
+					if message == "" {
+						message = view.Error("team_name")
+					}
 				}
 				if message != "" {
 					data["has_signup_error"] = true
@@ -58,7 +62,7 @@ func init() {
 			"signup-claim": func(ctx *action.Context) error {
 				team, err := league.Default().ClaimFantasySeat(ctx.Request, ctx.FormData["team_name"], ctx.FormData["motif"])
 				if err != nil {
-					return actionui.Validation(ctx, "join", "motif", err)
+					return signupClaimValidation(ctx, err)
 				}
 				actionui.RedirectWithNotice(ctx, "/team", "Welcome to "+team.Name+".")
 				return nil
@@ -67,4 +71,28 @@ func init() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// signupClaimField consumes the typed service-boundary attribution. It
+// deliberately declines to mark persistence/identity and admission failures
+// on an input control: those are form-level conditions, not bad field values.
+func signupClaimField(err error) (string, bool) {
+	var validation *league.ClaimValidationError
+	if !errors.As(err, &validation) ||
+		errors.Is(err, league.ErrInternal) ||
+		errors.Is(err, league.ErrPersistenceIndeterminate) {
+		return "", false
+	}
+	return validation.Field.FormKey(), true
+}
+
+func signupClaimValidation(ctx *action.Context, err error) error {
+	if field, ok := signupClaimField(err); ok {
+		return actionui.Validation(ctx, "join", field, err)
+	}
+	var formData map[string]string
+	if ctx != nil {
+		formData = ctx.FormData
+	}
+	return action.Validation(actionui.Message("join", err), nil, formData)
 }

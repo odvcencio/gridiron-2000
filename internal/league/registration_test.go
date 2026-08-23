@@ -248,6 +248,7 @@ func TestClaimFantasySeatRaceOneMotifTwoSignups(t *testing.T) {
 		if !errors.As(err, &taken) {
 			t.Fatalf("loser error = %v, want a badgeTakenError", err)
 		}
+		assertClaimValidationField(t, err, ClaimFieldMotif)
 	}
 	if wins != 1 || losses != 1 {
 		t.Fatalf("wins=%d losses=%d, want exactly one of each", wins, losses)
@@ -296,6 +297,8 @@ func TestClaimFantasySeatRequiresTeamName(t *testing.T) {
 	admitSeatlessForClaim(t, service, "a@example.com")
 	if _, err := service.claimFantasySeat("a@example.com", "A", "   ", "wolf"); err == nil {
 		t.Fatal("a blank team name must be rejected")
+	} else {
+		assertClaimValidationField(t, err, ClaimFieldTeamName)
 	}
 }
 
@@ -304,6 +307,8 @@ func TestClaimFantasySeatRequiresKnownMotif(t *testing.T) {
 	admitSeatlessForClaim(t, service, "a@example.com")
 	if _, err := service.claimFantasySeat("a@example.com", "A", "A Team", "not-a-motif"); !errors.Is(err, ErrBadgeUnknownMotif) {
 		t.Fatalf("err = %v, want ErrBadgeUnknownMotif", err)
+	} else {
+		assertClaimValidationField(t, err, ClaimFieldMotif)
 	}
 }
 
@@ -556,5 +561,61 @@ func TestTeamDataSeatlessHonestState(t *testing.T) {
 	}
 	if card["has_seat"] != false {
 		t.Fatalf("fantasy_card.has_seat = %v, want false", card["has_seat"])
+	}
+}
+
+func assertClaimValidationField(t *testing.T, err error, want ClaimField) {
+	t.Helper()
+	var validation *ClaimValidationError
+	if !errors.As(err, &validation) {
+		t.Fatalf("err = %T %v, want *ClaimValidationError", err, err)
+	}
+	if validation.Field != want {
+		t.Fatalf("claim validation field = %q, want %q", validation.Field, want)
+	}
+}
+
+func TestClaimFantasySeatValidationAttributionCoversBadgeStates(t *testing.T) {
+	tests := []struct {
+		name         string
+		motif        string
+		seedTaken    bool
+		identityLock bool
+		wantIs       error
+	}{
+		{name: "empty", motif: ""},
+		{name: "unknown", motif: "not-a-motif", wantIs: ErrBadgeUnknownMotif},
+		{name: "taken", motif: "wolf", seedTaken: true, wantIs: ErrBadgeTaken},
+		{name: "identity lock", motif: "wolf", identityLock: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newTestService(t, false)
+			admitSeatlessForClaim(t, service, "claimant@example.com")
+			if tc.seedTaken {
+				if err := service.store.ClaimBadge("team-1", tc.motif); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.identityLock {
+				service.store.mu.Lock()
+				service.store.identityUnhealthy = true
+				service.store.mu.Unlock()
+			}
+			_, err := service.claimFantasySeat("claimant@example.com", "A", "Claimant Team", tc.motif)
+			if err == nil {
+				t.Fatal("claim should fail")
+			}
+			if tc.identityLock {
+				if err.Error() != identityUnavailableCopy {
+					t.Fatalf("identity lock error = %v, want %q", err, identityUnavailableCopy)
+				}
+				return
+			}
+			assertClaimValidationField(t, err, ClaimFieldMotif)
+			if tc.wantIs != nil && !errors.Is(err, tc.wantIs) {
+				t.Fatalf("err = %v, want errors.Is(..., %v)", err, tc.wantIs)
+			}
+		})
 	}
 }
