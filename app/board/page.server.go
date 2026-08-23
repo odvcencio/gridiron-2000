@@ -18,6 +18,11 @@ import (
 
 const boardPoolAnchor = "#board-pool"
 
+// boardReturnTargetField is populated into each add form as GoSX's reserved
+// progressive-enhancement field. The framework removes this field before an
+// action handler or flashed validation values can observe it.
+const boardReturnTargetField = action.ReturnTargetField
+
 // boardRedirectTarget accepts only the board's own canonical filter fields.
 // The path is fixed and url.Values escapes query text, so form data cannot
 // turn a successful add into an open redirect. The pool anchor keeps a
@@ -70,6 +75,18 @@ func boardRequestWithActionFilters(request *http.Request, view action.View) *htt
 	return clone
 }
 
+// boardReturnTargetForData mirrors the canonical hrefs emitted by BoardData.
+// It is intentionally built from the server-normalized position, query, and
+// page values so a native form posts a safe same-origin target with the pool
+// anchor, even when the browser did not send a trustworthy Referer header.
+func boardReturnTargetForData(data map[string]any) string {
+	return boardRedirectTarget(
+		fmt.Sprint(data["pool_position"]),
+		fmt.Sprint(data["pool_query"]),
+		fmt.Sprint(data["pool_page"]),
+	)
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -79,6 +96,8 @@ func init() {
 				request = boardRequestWithActionFilters(request, view)
 			}
 			data := league.Default().BoardData(request)
+			data["board_return_target_field"] = boardReturnTargetField
+			data["board_return_target"] = boardReturnTargetForData(data)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

@@ -262,6 +262,7 @@ func Page() Node {
 								<input type="hidden" name="pos" value={data.pool_position}></input>
 								<input type="hidden" name="q" value={data.pool_query}></input>
 								<input type="hidden" name="page" value={data.pool_page}></input>
+								<input type="hidden" name={data.board_return_target_field} value={data.board_return_target}></input>
 								<If cond={data.can_edit}>
 									<button class="draft-button" type="submit">Add</button>
 								</If>
