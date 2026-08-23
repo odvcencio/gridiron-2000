@@ -125,7 +125,7 @@ func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
 		"Draw order + schedule · queue reminders",
 		"six shuffle passes in memory",
 		"atomically publishes the final order and 14-week schedule",
-		"FINAL ORDER ALREADY SENT",
+		"FINAL ORDER PUBLISHED",
 		"type REDRAW ORDER",
 		"Redraw and queue replacement",
 		`name="order_token"`,
@@ -133,6 +133,9 @@ func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft-order safety copy missing %q", want)
 		}
+	}
+	if strings.Contains(page, "FINAL ORDER ALREADY SENT") || strings.Contains(page, "FINAL ORDER DELIVERED") {
+		t.Fatal("persistent draft-order copy claims a notification was sent or delivered")
 	}
 	serverSource, err := os.ReadFile("page.server.go")
 	if err != nil {

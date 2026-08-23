@@ -735,7 +735,7 @@ func Page() Node {
 					</If>
 					<If cond={data.order_randomized}>
 						<p class="demo-message">
-							<strong>FINAL ORDER ALREADY SENT:</strong>
+							<strong>FINAL ORDER PUBLISHED:</strong>
 							an ordinary second click cannot redraw it or queue the league again.
 						</p>
 						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
