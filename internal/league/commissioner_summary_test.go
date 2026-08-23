@@ -243,3 +243,62 @@ func TestCommissionerSummaryPoolCapacityBoundaries(t *testing.T) {
 		})
 	}
 }
+
+func TestCommissionerSummaryWeekCloseAttentionTracksActionability(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(service.teams), StartWeek: 1, Weeks: 1, Seed: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	week := schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: false}}
+	})
+	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(48 * time.Hour) })
+	hasCode := func(summary commissionerhq.Summary, code string) bool {
+		for _, item := range summary.Attention {
+			if item.Code == code {
+				return true
+			}
+		}
+		return false
+	}
+
+	playing := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	if hasCode(playing, "week_close_blocked") || hasCode(playing, "week_close_waiting") || hasCode(playing, "week_close_ready") {
+		t.Fatalf("still-playing week created chronic close attention: %+v", playing.Attention)
+	}
+
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
+	})
+	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(23 * time.Hour) })
+	waiting := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	if !hasCode(waiting, "week_close_waiting") || hasCode(waiting, "week_close_ready") {
+		t.Fatalf("stats-settling week attention = %+v", waiting.Attention)
+	}
+
+	service.SetStatsUpdatedSource(func() time.Time { return kickoff.Add(24 * time.Hour) })
+	ready := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	if !hasCode(ready, "week_close_ready") || hasCode(ready, "week_close_waiting") {
+		t.Fatalf("ready week attention = %+v", ready.Attention)
+	}
+	for index := range schedule.Weeks[0].Matchups {
+		schedule.Weeks[0].Matchups[index].Final = true
+	}
+	if err := service.store.SetScheduleWeek(schedule.Weeks[0]); err != nil {
+		t.Fatal(err)
+	}
+	final := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	if hasCode(final, "week_close_ready") || hasCode(final, "week_close_waiting") || hasCode(final, "week_close_blocked") {
+		t.Fatalf("final week retained close attention: %+v", final.Attention)
+	}
+}

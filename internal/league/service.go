@@ -3687,6 +3687,17 @@ func (s *Service) actionCenterDataForSnapshot(r *http.Request, state PersistedSt
 		ScheduleExists:  state.Schedule != nil,
 		Pickem:          actionCenterPickemFacts(pickemHome),
 	}
+	if state.Schedule != nil {
+		week := currentScheduleWeek(*state.Schedule)
+		info := s.AdminWeekCloseInfo(week, now)
+		facts.WeekCloseWeek = info.Week
+		facts.WeekCloseFinal = info.Final
+		facts.WeekCloseReady = info.Ready
+		facts.WeekCloseGamesFinal = info.GamesFinal
+		facts.WeekCloseGamesTotal = info.GamesTotal
+		facts.WeekCloseStatsFresh = info.StatsFresh
+		facts.WeekCloseReason = info.Reason
+	}
 	if facts.Location == nil {
 		facts.Location, _ = time.LoadLocation(DefaultDraftTZ)
 	}

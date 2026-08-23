@@ -88,40 +88,47 @@ type ActionCenterWaiverFacts struct {
 // ActionCenterFacts is the service-to-pure-model boundary. BuildActionCenter
 // performs no store, clock, or request access.
 type ActionCenterFacts struct {
-	Now              time.Time
-	Location         *time.Location
-	EntryState       PublicEntryState
-	EntryStateLabel  string
-	EntryHeadline    string
-	EntryActionHref  string
-	EntryActionLabel string
-	EntryDetail      string
-	Admitted         bool
-	HasSeat          bool
-	TeamID           string
-	TeamName         string
-	Commissioner     bool
-	DraftStarted     bool
-	DraftComplete    bool
-	DraftAt          time.Time
-	ViewerOnClock    bool
-	OnClockTeamName  string
-	ClockDeadline    time.Time
-	ClockPaused      bool
-	Ready            bool
-	BoardCount       int
-	SeatCapacity     int
-	ClaimedSeats     int
-	ReadySeats       int
-	DraftOrderSet    bool
-	DraftPoolCount   int
-	DraftPoolTarget  int
-	SeasonPhase      string
-	ScheduleExists   bool
-	Pickem           ActionCenterPickemFacts
-	Lineup           ActionCenterLineupFacts
-	Trades           ActionCenterTradeFacts
-	Waivers          ActionCenterWaiverFacts
+	Now                 time.Time
+	Location            *time.Location
+	EntryState          PublicEntryState
+	EntryStateLabel     string
+	EntryHeadline       string
+	EntryActionHref     string
+	EntryActionLabel    string
+	EntryDetail         string
+	Admitted            bool
+	HasSeat             bool
+	TeamID              string
+	TeamName            string
+	Commissioner        bool
+	DraftStarted        bool
+	DraftComplete       bool
+	DraftAt             time.Time
+	ViewerOnClock       bool
+	OnClockTeamName     string
+	ClockDeadline       time.Time
+	ClockPaused         bool
+	Ready               bool
+	BoardCount          int
+	SeatCapacity        int
+	ClaimedSeats        int
+	ReadySeats          int
+	DraftOrderSet       bool
+	DraftPoolCount      int
+	DraftPoolTarget     int
+	SeasonPhase         string
+	ScheduleExists      bool
+	WeekCloseWeek       int
+	WeekCloseFinal      bool
+	WeekCloseReady      bool
+	WeekCloseGamesFinal int
+	WeekCloseGamesTotal int
+	WeekCloseStatsFresh bool
+	WeekCloseReason     string
+	Pickem              ActionCenterPickemFacts
+	Lineup              ActionCenterLineupFacts
+	Trades              ActionCenterTradeFacts
+	Waivers             ActionCenterWaiverFacts
 }
 
 type ActionCenterAction struct {
@@ -423,6 +430,9 @@ func informationalAction(f ActionCenterFacts) ActionCenterAction {
 
 func commissionerActions(f ActionCenterFacts) []ActionCenterAction {
 	if f.DraftComplete {
+		if action := weekCloseAction(f); action != nil {
+			return []ActionCenterAction{*action}
+		}
 		return nil
 	}
 	if f.DraftStarted {
@@ -447,6 +457,18 @@ func commissionerActions(f ActionCenterFacts) []ActionCenterAction {
 	}
 	detail := fmt.Sprintf("%d/%d seats claimed · %d/%d managers ready · %s · %s.", seats, capacity, f.ReadySeats, readyDenom, order, poolDetail)
 	return []ActionCenterAction{{ID: "commissioner-start", Priority: ActionCenterPriorityInfo, PriorityLabel: "COMMISSIONER", Label: "Start and monitor draft", Detail: detail + " Open the existing draft controls when the room is ready.", Href: "/admin?section=draft-control#admin-draft-control"}}
+}
+
+func weekCloseAction(f ActionCenterFacts) *ActionCenterAction {
+	if !f.ScheduleExists || f.WeekCloseWeek <= 0 || f.WeekCloseFinal || !f.WeekCloseReady {
+		return nil
+	}
+	detail := fmt.Sprintf("Week %d is ready: %d/%d games are final and player stats are fresh. Use the normal close; forced close remains a separate override for a data stall.", f.WeekCloseWeek, f.WeekCloseGamesFinal, f.WeekCloseGamesTotal)
+	return &ActionCenterAction{
+		ID: "commissioner-week-close", Priority: ActionCenterPriorityDeadline, PriorityLabel: "READY TO CLOSE",
+		Label: "Close scoring week", Detail: detail, Href: "/admin?section=week-close#admin-week-close",
+		Urgent: true, Primary: true,
+	}
 }
 
 func sortActionCenterActions(actions []ActionCenterAction) {

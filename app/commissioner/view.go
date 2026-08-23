@@ -387,6 +387,8 @@ func attentionSection(item commissionerhq.Attention) string {
 	switch item.Code {
 	case "draft_not_started", "draft_start_required", "draft_order_unset", "draft_clock_not_armed":
 		return "draft-control"
+	case "week_close_ready", "week_close_waiting":
+		return "week-close"
 	case "schedule_missing", "schedule_unpublished", "schedule_redraw_locked":
 		return "schedule"
 	case "week_close_blocked", "week_close_not_ready":

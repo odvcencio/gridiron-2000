@@ -203,3 +203,34 @@ func TestBuildActionCenterCommissionerAnchorsAndPostseasonCopy(t *testing.T) {
 		t.Fatalf("playoff copy invented bracket truth: %+v", playoffs)
 	}
 }
+
+func TestBuildActionCenterCommissionerWeekCloseActionability(t *testing.T) {
+	base := ActionCenterFacts{
+		Now: time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC), Admitted: true, HasSeat: true,
+		Commissioner: true, DraftComplete: true, SeasonPhase: PhaseRegularSeason,
+		ScheduleExists: true, WeekCloseWeek: 1, WeekCloseGamesFinal: 8, WeekCloseGamesTotal: 8,
+		WeekCloseReady: true,
+	}
+	ready := BuildActionCenter(base)
+	action, ok := findAction(ready.CommissionerActions, "commissioner-week-close")
+	if !ok || action.Href != "/admin?section=week-close#admin-week-close" || !action.Urgent || !action.Primary {
+		t.Fatalf("ready week-close action = %+v", ready.CommissionerActions)
+	}
+	if !strings.Contains(action.Detail, "normal close") || !strings.Contains(action.Detail, "forced close") {
+		t.Fatalf("week-close action collapsed the override distinction: %q", action.Detail)
+	}
+
+	waiting := base
+	waiting.WeekCloseReady = false
+	waiting.WeekCloseGamesFinal = 2
+	if len(BuildActionCenter(waiting).CommissionerActions) != 0 {
+		t.Fatalf("still-playing week fabricated a commissioner action: %+v", BuildActionCenter(waiting).CommissionerActions)
+	}
+
+	final := base
+	final.WeekCloseFinal = true
+	final.WeekCloseReady = true
+	if len(BuildActionCenter(final).CommissionerActions) != 0 {
+		t.Fatalf("final week retained a commissioner action: %+v", BuildActionCenter(final).CommissionerActions)
+	}
+}
