@@ -1,11 +1,13 @@
 // Trade offers: the propose/counter/decline/withdraw/accept/approve/veto/
 // execute/expire lifecycle (roster-ops spec section 6). Player-for-player
 // only in v1; Picks is reserved and rejected when non-empty (section 6.2).
-// Content validation (T4-T8, T12) is one function, validateTradeAssets,
-// called at propose, at accept, and at execution (store.go's
-// ProposeTradeOffer/AcceptTradeOffer/ExecuteTradeOffer) — "applied at
-// propose, re-applied at accept, re-applied at execution" is structural,
-// not three hand-copied rule sets.
+// Content validation (T4-T8, T12) is one shared implementation,
+// validateTradeAssetsForOperation, called at propose, at accept, and at
+// execution (store.go's ProposeTradeOffer/AcceptTradeOffer/ExecuteTradeOffer).
+// T8 is operation-specific: proposal/accept validation requires the global
+// deadline to remain open, while execution of an offer accepted before the
+// deadline re-checks the live assets without failing only because the clock
+// has crossed it.
 package league
 
 import (
@@ -113,6 +115,24 @@ func parseTradeDeadline(cfg Config) (time.Time, bool) {
 	return parsed, true
 }
 
+// tradeDeadlineState resolves the configured trade deadline against one
+// service-clock instant. The comparison is expressed in the configured
+// league timezone so the read model and its banner use the same clock the
+// league presents to managers; RFC3339's instant semantics still preserve
+// an explicit offset in the configured value.
+func tradeDeadlineState(cfg Config, now time.Time) (deadline time.Time, configured, passed bool, label string) {
+	deadline, configured = parseTradeDeadline(cfg)
+	if !configured {
+		return time.Time{}, false, false, ""
+	}
+	_, _, location := waiverProcessClock(cfg)
+	if location == nil {
+		location = time.UTC
+	}
+	passed = !now.In(location).Before(deadline.In(location))
+	return deadline, true, passed, formatResolvesAt(cfg, deadline)
+}
+
 // cleanTradePlayerIDs trims, drops empties, and de-duplicates a submitted
 // player-ID list (a give/get checkbox group, or a picks list — always
 // empty in v1).
@@ -147,14 +167,32 @@ func validateTradeAsset(games []GameInfo, poolByID map[string]Player, week int, 
 	return nil
 }
 
-// validateTradeAssets applies section 6.3's content rules — T12 (no pick
-// assets), T4 (both sides non-empty), T5 (ownership, both sides), T6 (no
-// locked players), T7 (roster bounds, both teams), T8 (before the
-// deadline) — against offer, over one (state, cfg, games, pool) snapshot.
-// This is the single function propose, accept, and execution all call
-// (store.go), so "applied at propose, re-applied at accept, re-applied at
-// execution" never drifts into three separately maintained rule sets.
+type tradeValidationOperation uint8
+
+const (
+	tradeValidationMutation tradeValidationOperation = iota
+	tradeValidationExecution
+)
+
+// validateTradeAssets applies section 6.3's content rules to a proposal or
+// acceptance. These mutations are closed at/after the global deadline (T8).
 func validateTradeAssets(state PersistedState, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, offer TradeOffer, starterCount, rosterCap int) error {
+	return validateTradeAssetsForOperation(state, cfg, games, poolByID, now, offer, starterCount, rosterCap, tradeValidationMutation)
+}
+
+// validateTradeAssetsForExecution re-applies the same live asset rules to an
+// already accepted offer. Crossing the global deadline does not invalidate
+// that accepted-before-deadline offer; ownership, locks, roster bounds, and
+// position limits still fail closed here.
+func validateTradeAssetsForExecution(state PersistedState, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, offer TradeOffer, starterCount, rosterCap int) error {
+	return validateTradeAssetsForOperation(state, cfg, games, poolByID, now, offer, starterCount, rosterCap, tradeValidationExecution)
+}
+
+// validateTradeAssetsForOperation is the single implementation for T4-T8
+// and T12. Only the operation's deadline semantics differ: mutation
+// operations enforce T8, execution preserves the accepted-before-deadline
+// review window while still enforcing every live asset rule.
+func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, offer TradeOffer, starterCount, rosterCap int, operation tradeValidationOperation) error {
 	if len(offer.Picks) > 0 { // T12
 		return fmt.Errorf("pick trading opens after the first season rollover")
 	}
@@ -203,8 +241,10 @@ func validateTradeAssets(state PersistedState, cfg Config, games []GameInfo, poo
 	if position, limit, breach := teamWouldBreachLimit(state, poolByID, offer.ToTeamID, offer.Give, offer.Get); breach {
 		return fmt.Errorf("%s", limitMessage(position, limit))
 	}
-	if deadline, ok := parseTradeDeadline(cfg); ok && !now.Before(deadline) { // T8
-		return fmt.Errorf("the trade deadline (%s) has passed", formatResolvesAt(cfg, deadline))
+	if operation != tradeValidationExecution {
+		if deadline, ok := parseTradeDeadline(cfg); ok && !now.Before(deadline) { // T8
+			return fmt.Errorf("the trade deadline (%s) has passed", formatResolvesAt(cfg, deadline))
+		}
 	}
 	return nil
 }
@@ -821,7 +861,7 @@ type TradeOfferRow struct {
 // tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
-func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, isCommissioner bool, threshold int) TradeOfferRow {
+func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, deadlinePassed, isCommissioner bool, threshold int) TradeOfferRow {
 	give := make([]TradePlayerCard, 0, len(offer.Give))
 	for _, id := range offer.Give {
 		p := pool.byID[id]
@@ -855,8 +895,8 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		VetoesCount:         len(offer.Vetoes),
 		VetoesThreshold:     threshold,
 		CanDecline:          canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
-		CanCounter:          canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
-		CanAccept:           canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
+		CanCounter:          canEdit && !deadlinePassed && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
+		CanAccept:           canEdit && !deadlinePassed && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
 		CanWithdraw:         canEdit && offer.Status == TradeStatusOpen && offer.FromTeamID == teamID,
 		CanApprove:          isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
 		CanVetoCommissioner: isCommissioner && offer.Status == TradeStatusAccepted && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both"),
@@ -895,6 +935,9 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	teamID, _ := viewer["team_id"].(string)
 	hasSeat, _ := viewer["has_seat"].(bool)
 	canEdit := hasSeat
+	now := s.clock()
+	_, deadlineConfigured, deadlinePassed, deadlineLabel := tradeDeadlineState(s.cfg, now)
+	canCompose := canEdit && !deadlinePassed
 	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
 	pool := s.pool()
@@ -931,7 +974,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	}
 	composeOptions := []TradeRosterOption{}
 	composeCounterpartyName := ""
-	if canEdit && composeCounterpartyID != "" && knownTeam(composeCounterpartyID) && teamHasManager(state, composeCounterpartyID) {
+	if canCompose && composeCounterpartyID != "" && knownTeam(composeCounterpartyID) && teamHasManager(state, composeCounterpartyID) {
 		composeOptions = rosterOptions(composeCounterpartyID)
 		composeCounterpartyName = s.teamByID(composeCounterpartyID).Name
 	} else {
@@ -945,18 +988,18 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	for _, offer := range state.TradeOffers {
 		switch {
 		case offer.Status == TradeStatusOpen && offer.ToTeamID == teamID:
-			inbox = append(inbox, s.tradeOfferRow(pool, offer, teamID, canEdit, isCommissioner, threshold))
+			inbox = append(inbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		case offer.Status == TradeStatusOpen && offer.FromTeamID == teamID:
-			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, isCommissioner, threshold))
+			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		case offer.Status == TradeStatusAccepted && (offer.FromTeamID == teamID || offer.ToTeamID == teamID):
-			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, isCommissioner, threshold))
+			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		}
 		if offer.Status == TradeStatusAccepted && isCommissioner && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both") {
-			review = append(review, s.tradeOfferRow(pool, offer, teamID, canEdit, isCommissioner, threshold))
+			review = append(review, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		}
 		if offer.Status == TradeStatusAccepted && teamID != "" && teamID != offer.FromTeamID && teamID != offer.ToTeamID &&
 			(s.cfg.Trades.Veto == "vote" || s.cfg.Trades.Veto == "both") {
-			votePanel = append(votePanel, s.tradeOfferRow(pool, offer, teamID, canEdit, isCommissioner, threshold))
+			votePanel = append(votePanel, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		}
 	}
 
@@ -964,8 +1007,12 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"viewer":                    viewer,
 		"league":                    s.leagueMap(),
 		"can_edit":                  canEdit,
+		"can_compose":               canCompose,
 		"is_commissioner":           isCommissioner,
 		"veto_mode":                 s.cfg.Trades.Veto,
+		"trade_deadline_configured": deadlineConfigured,
+		"trade_deadline_passed":     deadlinePassed,
+		"trade_deadline":            deadlineLabel,
 		"note_max":                  tradeNoteMaxRunes,
 		"counterparties":            counterparties,
 		"counterparties_empty":      len(counterparties) == 0,
