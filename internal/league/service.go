@@ -1682,9 +1682,9 @@ func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any
 // its assigned player or EMPTY with a managed assignment form, locked
 // slots render read-only with the kickoff reason, and the bench lists the
 // roster remainder. week defaults to the current NFL week
-// (pickemWeek); ?week=N (current or future) previews a later week's
-// carry-forward/auto-fill resolution, matching section 8.1's week
-// selector.
+// (pickemWeek); ?week=N previews a later published week's
+// carry-forward/auto-fill resolution. Invalid, closed, and unpublished
+// weeks normalize back to the same current week used for lock enforcement.
 func (s *Service) TeamData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
@@ -1738,13 +1738,8 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 
 	now := s.clock()
 	games := s.schedule()
-	currentWeek := s.pickemWeek(games, now)
-	week := currentWeek
-	if raw := strings.TrimSpace(r.URL.Query().Get("week")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= currentWeek {
-			week = parsed
-		}
-	}
+	weekSelection := normalizeLineupWeek(r.URL.Query().Get("week"), games, now)
+	week := weekSelection.Week
 	preset := CurrentRoster()
 	// Zone occupants (RESERVE, IR) never reach the lineup engine: general
 	// is the starters/bench pool effectiveLineup/autoFillWeek may draw
@@ -1760,17 +1755,45 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 			filled++
 		}
 	}
-	weekOptions := make([]map[string]any, 0, 6)
-	for w := currentWeek; w < currentWeek+6; w++ {
+	weekOptions := make([]map[string]any, 0, len(weekSelection.Weeks))
+	for _, w := range sortedFutureLineupWeeks(games, weekSelection.CurrentWeek) {
 		weekOptions = append(weekOptions, map[string]any{
 			"value":    strconv.Itoa(w),
 			"label":    fmt.Sprintf("WEEK %d", w),
 			"selected": w == week,
 		})
 	}
+	if len(weekOptions) == 0 {
+		weekOptions = append(weekOptions, map[string]any{
+			"value": strconv.Itoa(week), "label": fmt.Sprintf("WEEK %d", week), "selected": true,
+		})
+	}
+	lineupDeadline := lineupDeadlineFor(lineup, general, games, week, now, s.matchupLocation())
+	lineupDeadlineMap := map[string]any{
+		"state":          string(lineupDeadline.State),
+		"week":           strconv.Itoa(lineupDeadline.Week),
+		"has_deadline":   lineupDeadline.HasDeadline,
+		"exact":          lineupDeadline.Exact,
+		"relative":       lineupDeadline.Relative,
+		"timezone":       lineupDeadline.Timezone,
+		"headline":       lineupDeadline.Headline,
+		"detail":         lineupDeadline.Detail,
+		"editable_slots": strconv.Itoa(lineupDeadline.EditableSlots),
+		"locked_slots":   strconv.Itoa(lineupDeadline.LockedSlots),
+		"total_slots":    strconv.Itoa(lineupDeadline.TotalSlots),
+		"has_editable":   lineupDeadline.EditableSlots > 0,
+		"is_upcoming":    lineupDeadline.State == LineupDeadlineUpcoming,
+		"is_no_schedule": lineupDeadline.State == LineupDeadlineNoSchedule,
+		"is_no_upcoming": lineupDeadline.State == LineupDeadlineNoUpcoming,
+		"is_all_locked":  lineupDeadline.State == LineupDeadlineAllLocked,
+		"is_degraded":    lineupDeadline.State == LineupDeadlineDegraded,
+	}
 
 	placeOptions := make([]map[string]any, 0, len(general))
 	for _, p := range general {
+		if playerLocked(games, weekSelection.CurrentWeek, p.NFLTeam, now) {
+			continue
+		}
 		placeOptions = append(placeOptions, map[string]any{
 			"id": p.ID, "label": fmt.Sprintf("%s (%s)", p.Name, p.Position),
 		})
@@ -1800,6 +1823,9 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		"shape_summary":        rosterShapeSummary(len(general) + len(reserveOccupants)),
 		"week":                 strconv.Itoa(week),
 		"week_options":         weekOptions,
+		"week_notice":          weekSelection.Notice,
+		"has_week_notice":      weekSelection.Notice != "",
+		"lineup_deadline":      lineupDeadlineMap,
 		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled":      strconv.Itoa(filled),
 		"starters_total":       strconv.Itoa(len(lineup.Slots)),

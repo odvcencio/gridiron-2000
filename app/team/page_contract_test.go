@@ -1,11 +1,15 @@
 package team
 
 import (
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"m31labs.dev/gosx/action"
 )
 
 func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
@@ -110,5 +114,74 @@ func TestPopulatedLineupReflowsWithoutOpeningEveryPlayerDetail(t *testing.T) {
 	}
 	if strings.Contains(styles, ".player-identity > div,") {
 		t.Error("generic player identity rule must not override the hidden stat-tip panel")
+	}
+}
+
+func TestLineupContinuityContracts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<section class="roster-panel" id="lineup">`,
+		`aria-label="Lineup lock timing"`,
+		`data.lineup_deadline.exact`,
+		`data.lineup_deadline.relative`,
+		`data.lineup_deadline.timezone`,
+		`Set best lineup rewrites every currently unlocked starter slot`,
+		`Reserve keeps the player on your roster`,
+		`IR removes an injured player from the counted roster`,
+		`name="week" value={data.week}`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("Team lineup continuity contract missing %q", want)
+		}
+	}
+
+	serverBytes, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := string(serverBytes)
+	for _, want := range []string{
+		`return "/team?week=" + week + "#lineup"`,
+		`result.Result.Redirect = teamLineupTarget(ctx)`,
+		`actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)`,
+		`"reserve-place"`,
+		`"reserve-activate"`,
+		`"ir-place"`,
+		`"ir-activate"`,
+	} {
+		if !strings.Contains(server, want) {
+			t.Errorf("Team action context contract missing %q", want)
+		}
+	}
+}
+
+func TestLineupValidationPreservesNativeAnchorAndManagedValues(t *testing.T) {
+	native := &action.Context{
+		Request:  httptest.NewRequest(http.MethodPost, "/__actions/lineup-set", nil),
+		FormData: map[string]string{"week": "2", "player_id": "p1"},
+	}
+	err := lineupValidation(native, "player_id", errors.New("not editable"))
+	result, ok := err.(*action.ResultError)
+	if !ok {
+		t.Fatalf("lineupValidation returned %T, want *action.ResultError", err)
+	}
+	if result.Result.Redirect != "/team?week=2#lineup" {
+		t.Fatalf("native redirect = %q, want selected week + lineup anchor", result.Result.Redirect)
+	}
+	if result.Result.Values["week"] != "2" {
+		t.Fatalf("native values = %#v, want week preserved", result.Result.Values)
+	}
+
+	managedRequest := httptest.NewRequest(http.MethodPost, "/__actions/lineup-set", nil)
+	managedRequest.Header.Set("Accept", "application/json")
+	managed := &action.Context{Request: managedRequest, FormData: map[string]string{"week": "2", "player_id": "p1"}}
+	err = lineupValidation(managed, "player_id", errors.New("not editable"))
+	result, ok = err.(*action.ResultError)
+	if !ok || result.Result.Redirect != "" || result.Result.Values["week"] != "2" {
+		t.Fatalf("managed validation = %#v, want values without forced redirect", result)
 	}
 }

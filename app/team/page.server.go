@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -173,6 +174,29 @@ func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) 
 	return out
 }
 
+func teamLineupTarget(ctx *action.Context) string {
+	week := ""
+	if ctx != nil {
+		week = strings.TrimSpace(ctx.FormData["week"])
+	}
+	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
+	return "/team?week=" + week + "#lineup"
+}
+
+// lineupValidation keeps native forms anchored to the selected lineup while
+// retaining GoSX's managed JSON field errors. The action framework's
+// progressive fallback will flash the values and errors before redirecting
+// only for a native request; managed clients receive the same structured
+// values without a forced navigation.
+func lineupValidation(ctx *action.Context, field string, err error) error {
+	message := actionui.Message("team", err)
+	result := action.Validation(message, map[string]string{field: message}, ctx.FormData)
+	if !action.WantsJSON(ctx.Request) {
+		result.Result.Redirect = teamLineupTarget(ctx)
+	}
+	return result
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -280,13 +304,13 @@ func init() {
 				week, err := strconv.Atoi(ctx.FormData["week"])
 				if err != nil {
 					message := "choose a valid week"
-					return action.Validation(message, map[string]string{"week": message}, ctx.FormData)
+					return lineupValidation(ctx, "week", fmt.Errorf("%s", message))
 				}
 				message, err := league.Default().SetLineup(ctx.Request, ctx.FormData["team_id"], week, ctx.FormData["slot"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "team", "player_id", err)
+					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 			// co-invite lets a seat's primary manager invite a co-manager by
@@ -314,13 +338,13 @@ func init() {
 				week, err := strconv.Atoi(ctx.FormData["week"])
 				if err != nil {
 					message := "choose a valid week"
-					return action.Validation(message, map[string]string{"week": message}, ctx.FormData)
+					return lineupValidation(ctx, "week", fmt.Errorf("%s", message))
 				}
 				message, err := league.Default().LineupAuto(ctx.Request, ctx.FormData["team_id"], week)
 				if err != nil {
-					return actionui.Validation(ctx, "team", "week", err)
+					return lineupValidation(ctx, "week", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team?week="+ctx.FormData["week"], message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 			// reserve-place/reserve-activate and ir-place/ir-activate
@@ -332,33 +356,33 @@ func init() {
 			"reserve-place": func(ctx *action.Context) error {
 				message, err := league.Default().PlaceInReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "team", "player_id", err)
+					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 			"reserve-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "team", "player_id", err)
+					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 			"ir-place": func(ctx *action.Context) error {
 				message, err := league.Default().PlaceInIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "team", "player_id", err)
+					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 			"ir-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
 				if err != nil {
-					return actionui.Validation(ctx, "team", "player_id", err)
+					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", message)
+				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 				return nil
 			},
 		},

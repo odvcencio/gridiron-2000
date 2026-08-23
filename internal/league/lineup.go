@@ -419,7 +419,10 @@ func playerLockAt(games []GameInfo, week int, nflTeam string) (time.Time, bool) 
 // now: their week-W kickoff has passed. A bye player is never locked.
 func playerLocked(games []GameInfo, week int, nflTeam string, now time.Time) bool {
 	kickoff, ok := playerLockAt(games, week, nflTeam)
-	return ok && !now.Before(kickoff)
+	// A missing kickoff is degraded schedule data, not a kickoff in the
+	// distant past. Keep the player editable while the Team terminal calls
+	// out the unconfirmed lock window explicitly.
+	return ok && !kickoff.IsZero() && !now.Before(kickoff)
 }
 
 // slotWarnsBye reports whether player's bye week matches week (roster-ops
@@ -704,9 +707,8 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	now := s.clock()
 	state := s.store.Snapshot()
 	games := s.schedule()
-	currentWeek := s.pickemWeek(games, now)
-	if week < currentWeek { // L2
-		return "", fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	if err := s.lineupWeekForAction(week, games, now); err != nil { // L2
+		return "", err
 	}
 	preset := CurrentRoster()
 	slot, ok := lineupSlotByID(preset, slotID) // L3
@@ -768,9 +770,8 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 	now := s.clock()
 	state := s.store.Snapshot()
 	games := s.schedule()
-	currentWeek := s.pickemWeek(games, now)
-	if week < currentWeek { // L2
-		return "", fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	if err := s.lineupWeekForAction(week, games, now); err != nil { // L2
+		return "", err
 	}
 	preset := CurrentRoster()
 	roster, _ := s.rosterForTeam(state, teamID)
@@ -881,7 +882,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 				row[k] = v
 			}
 			if a.Locked {
-				if kickoff, ok := playerLockAt(games, lineup.Week, a.Player.NFLTeam); ok {
+				if kickoff, ok := playerLockAt(games, lineup.Week, a.Player.NFLTeam); ok && !kickoff.IsZero() {
 					row["lock_label"] = "LOCKED · " + kickoff.In(location).Format("3:04 PM MST")
 				}
 			}

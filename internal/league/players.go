@@ -57,6 +57,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	open := draftComplete(state)
 	now := s.clock()
 	games := s.schedule()
+	lineupWeek := lineupCurrentWeekAt(games, now)
 	// Resolved once for the same reason scoringValues is: matchupIndexFor
 	// scans the whole schedule, and this pool renders every player in the
 	// league.
@@ -111,7 +112,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["claimed_by_me"] = claimedByMe
 		row["needs_drop"] = atCap
 		row["mine"] = canEdit && rostered && ownerID == teamID
-		row["can_drop"] = canEdit && open && rostered && ownerID == teamID
+		row["can_drop"] = canEdit && open && rostered && ownerID == teamID && !playerLocked(games, lineupWeek, player.NFLTeam, now)
 		rows = append(rows, row)
 	}
 	pagination := newPoolPagination(len(rows), r.URL.Query().Get("page"))
@@ -120,6 +121,9 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	dropOptions := make([]map[string]any, 0, len(myRoster))
 	for _, id := range myRoster {
 		if player, ok := pool.byID[id]; ok {
+			if playerLocked(games, lineupWeek, player.NFLTeam, now) {
+				continue
+			}
 			dropOptions = append(dropOptions, map[string]any{
 				"id":    player.ID,
 				"label": fmt.Sprintf("%s (%s)", player.Name, player.Position),
@@ -255,7 +259,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID string
 		// W12
 		return "", fmt.Errorf("%s is on waivers; claims resolve %s", addPlayer.Name, resolves)
 	}
-	week := s.pickemWeek(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	rosterCap := CurrentRoster().Total()
 
 	txn := Transaction{
@@ -330,7 +334,7 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID string) (str
 	}
 	now := s.clock()
 	games := s.schedule()
-	week := s.pickemWeek(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	if playerLocked(games, week, dropPlayer.NFLTeam, now) { // W8
 		return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 	}
@@ -392,7 +396,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 
 	now := s.clock()
 	games := s.schedule()
-	week := s.pickemWeek(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	rosterCap := CurrentRoster().Total()
 	claim := WaiverClaim{TeamID: teamID, AddID: addID, FiledAt: now}
 

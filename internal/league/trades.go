@@ -163,7 +163,7 @@ func validateTradeAssets(state PersistedState, cfg Config, games []GameInfo, poo
 	}
 	rosters := currentRosters(state)
 	owner := rosterOwner(rosters)
-	week := pickemWeekAt(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	fromName := teamNameByID(offer.FromTeamID)
 	toName := teamNameByID(offer.ToTeamID)
 	for _, id := range offer.Give {
@@ -667,7 +667,7 @@ func (s *Service) notifyTradeExecuted(offer TradeOffer, txn Transaction) {
 // consequence line, and section 6.3's "an emptied current-week slot
 // triggers the N18 warning path, not an error."
 func tradeEmptiedCurrentSlot(state PersistedState, games []GameInfo, now time.Time, teamID string, losses []string) string {
-	week := pickemWeekAt(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	lost := make(map[string]bool, len(losses))
 	for _, id := range losses {
 		lost[id] = true

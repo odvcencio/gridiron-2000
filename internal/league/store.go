@@ -2358,6 +2358,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		return nil, nil
 	}
 
+	week := lineupCurrentWeekAt(games, now)
 	pending := append([]WaiverClaim(nil), s.state.WaiverClaims...)
 	var due, notYetDue []WaiverClaim
 	for _, c := range pending {
@@ -2404,7 +2405,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		case next.DropID != "" && owner[next.DropID] != next.TeamID:
 			result.Outcome = "failed"
 			result.Reason = lineupNotOnRosterMessage
-		case next.DropID != "" && playerLocked(games, pickemWeekAt(games, now), poolByID[next.DropID].NFLTeam, now):
+		case next.DropID != "" && playerLocked(games, week, poolByID[next.DropID].NFLTeam, now):
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
 		case next.DropID == "" && effectiveRosterSize(s.state, next.TeamID)+1 > rosterCap:
@@ -2417,7 +2418,6 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			result.Outcome = "failed"
 			result.Reason = limitMessage(limitPosition, limitCap)
 		default:
-			week := pickemWeekAt(games, now)
 			txn := Transaction{
 				Season: cfg.Season,
 				Week:   week,
@@ -2626,7 +2626,7 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		}
 		return Transaction{}, err
 	}
-	week := pickemWeekAt(games, now)
+	week := lineupCurrentWeekAt(games, now)
 	id, err := randomTransactionID()
 	if err != nil {
 		return Transaction{}, err
