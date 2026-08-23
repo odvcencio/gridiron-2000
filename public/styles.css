@@ -2299,11 +2299,11 @@ button.badge-option:hover {
 .team-hero {
   position: relative;
   overflow: hidden;
-  min-height: 22rem;
+  min-height: 14rem;
   padding: var(--space-2xl);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+  align-items: center;
   gap: var(--space-xl);
   border: 1px solid currentColor;
   border-radius: var(--radius-lg);
@@ -2331,7 +2331,7 @@ button.badge-option:hover {
   min-width: 0;
   width: 100%;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-lg);
 }
 
@@ -2362,7 +2362,7 @@ button.badge-option:hover {
 .team-hero__record {
   position: relative;
   z-index: 2;
-  align-self: start;
+  align-self: center;
   min-width: 8rem;
   padding-left: var(--space-lg);
   display: grid;
@@ -2374,6 +2374,10 @@ button.badge-option:hover {
   color: var(--color-accent);
   font-size: var(--type-3xl);
   line-height: 1;
+}
+
+.team-identity-link {
+  margin-top: var(--space-md);
 }
 
 .team-command-strip {
@@ -2400,6 +2404,108 @@ button.badge-option:hover {
 .team-command-strip strong {
   color: var(--color-text-primary);
   font-size: var(--type-lg);
+}
+
+.team-identity-settings {
+  margin: var(--space-md) 0 var(--space-xl);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-glass);
+}
+
+.team-identity-settings > summary {
+  padding: var(--space-md) var(--space-lg);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-lg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.team-identity-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.team-identity-settings > summary:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: -2px;
+}
+
+.team-identity-settings__summary-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.team-identity-settings__summary-copy > strong {
+  color: var(--color-text-primary);
+  font-size: var(--type-lg);
+}
+
+.team-identity-settings__summary-copy > small {
+  color: var(--color-text-muted);
+}
+
+.team-identity-settings__summary-action {
+  color: var(--color-accent-cyan);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+}
+
+.team-identity-settings__summary-action::before {
+  content: "+ ";
+}
+
+.team-identity-settings[open] .team-identity-settings__summary-action::before {
+  content: "− ";
+}
+
+.team-identity-settings[open] > summary {
+  background: var(--color-cyan-haze);
+}
+
+.team-identity-settings__body {
+  padding: var(--space-lg);
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.72fr) minmax(22rem, 1.28fr);
+  gap: var(--space-xl);
+  border-top: 1px solid var(--color-border);
+}
+
+.team-identity-settings__panel {
+  min-width: 0;
+}
+
+.team-identity-settings__panel + .team-identity-settings__panel {
+  padding-left: var(--space-xl);
+  border-left: 1px solid var(--color-border);
+}
+
+.team-identity-settings__panel > header {
+  margin-bottom: var(--space-md);
+}
+
+.team-identity-settings__panel h2 {
+  margin: var(--space-xs) 0 0;
+  color: var(--color-text-primary);
+  font-size: var(--type-xl);
+}
+
+.team-identity-settings__field {
+  display: block;
+  margin-top: var(--space-md);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.team-identity-settings .badge-picker {
+  max-width: none;
+  grid-template-columns: repeat(auto-fit, minmax(5.25rem, 1fr));
 }
 
 .predraft-progress {
@@ -5088,6 +5194,17 @@ body.is-on-clock .draft-clock-panel {
     grid-column: 1 / 3;
   }
 
+  .team-identity-settings__body {
+    grid-template-columns: 1fr;
+  }
+
+  .team-identity-settings__panel + .team-identity-settings__panel {
+    padding-top: var(--space-lg);
+    padding-left: 0;
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
+
   .predraft-progress__header {
     grid-template-columns: 1fr;
     align-items: start;
@@ -6805,6 +6922,20 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 38rem) {
+	.team-identity-settings > summary {
+		grid-template-columns: 1fr;
+		gap: var(--space-sm);
+		padding: var(--space-md);
+	}
+
+	.team-identity-settings__summary-action {
+		justify-self: start;
+	}
+
+	.team-identity-settings__body {
+		padding: var(--space-md);
+	}
+
 	.draft-seat-controls {
 		grid-template-columns: 1fr;
 	}

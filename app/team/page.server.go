@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"net/http"
 	"strconv"
 
 	"gridiron-2000/internal/league"
@@ -84,6 +85,15 @@ func stringField(m map[string]any, key string) string {
 func boolField(m map[string]any, key string) bool {
 	value, _ := m[key].(bool)
 	return value
+}
+
+func identitySettingsExpanded(r *http.Request, data map[string]any) bool {
+	if r != nil && r.URL.Query().Get("identity") == "edit" {
+		return true
+	}
+	return boolField(data, "has_rename_error") ||
+		boolField(data, "has_co_error") ||
+		boolField(data, "has_avatar_error")
 }
 
 func breakdownRowsFromMaps(raw []map[string]any) []league.BreakdownRow {
@@ -239,6 +249,7 @@ func init() {
 					data["avatar_error"] = fmt.Sprint(flashes[0])
 				}
 			}
+			data["identity_expanded"] = identitySettingsExpanded(ctx.Request, data)
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {

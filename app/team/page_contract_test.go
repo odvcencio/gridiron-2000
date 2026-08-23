@@ -1,6 +1,7 @@
 package team
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,21 +30,65 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 	}
 }
 
-func TestTeamHeroAndBadgePickerKeepTheirWideLayoutStructure(t *testing.T) {
+func TestTeamIdentityEditorUsesProgressiveDisclosureAtWideViewports(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<details class="team-identity-settings" id="team-identity" open={data.identity_expanded}>`,
+		`href="/team?identity=edit#team-identity"`,
+		`class="team-identity-settings__body"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("team identity page missing progressive-disclosure contract %q", want)
+		}
+	}
+
 	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	styles := string(stylesBytes)
 	for _, want := range []string{
+		"min-height: 14rem;",
 		"grid-template-columns: minmax(0, 1fr) auto;",
 		".badge-option-wrap,\n.badge-option-form {",
 		".badge-option {\n  min-width: 0;\n  width: 100%;",
 		".team-hero__identity > div {\n  min-width: 0;\n  width: min(100%, 48rem);",
+		".team-identity-settings__body {\n  padding: var(--space-lg);\n  display: grid;\n  grid-template-columns: minmax(16rem, 0.72fr) minmax(22rem, 1.28fr);",
+		".team-identity-settings .badge-picker {\n  max-width: none;",
 	} {
 		if !strings.Contains(styles, want) {
 			t.Errorf("team layout stylesheet missing regression contract %q", want)
 		}
+	}
+}
+
+func TestIdentitySettingsExpandForIntentOrValidationRecovery(t *testing.T) {
+	request := httptest.NewRequest("GET", "/team", nil)
+	data := map[string]any{
+		"has_rename_error": false,
+		"has_co_error":     false,
+		"has_avatar_error": false,
+	}
+	if identitySettingsExpanded(request, data) {
+		t.Fatal("identity settings expanded without explicit intent or an error")
+	}
+
+	request = httptest.NewRequest("GET", "/team?identity=edit", nil)
+	if !identitySettingsExpanded(request, data) {
+		t.Fatal("identity settings did not expand for the explicit edit target")
+	}
+
+	request = httptest.NewRequest("GET", "/team", nil)
+	for _, field := range []string{"has_rename_error", "has_co_error", "has_avatar_error"} {
+		data[field] = true
+		if !identitySettingsExpanded(request, data) {
+			t.Fatalf("identity settings did not reopen for %s", field)
+		}
+		data[field] = false
 	}
 }
 

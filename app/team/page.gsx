@@ -240,79 +240,14 @@ func Page() Node {
 							{data.team.manager}
 						</p>
 					</If>
-					<If cond={data.team.claimed == false}>
-						<p>
-							Awaiting a manager — sign in to claim this seat.
-						</p>
-					</If>
-					<If cond={data.co_manager.has_pending}>
-						<p class="status-card__line">
-							Co-manager invite pending:
-							{data.co_manager.pending_email}
-						</p>
-					</If>
-					<If cond={data.co_manager.can_invite}>
-						<form method="post" action={actionPath("co-invite")} data-gosx-managed="true" class="co-manager-form">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name="team_id" value={data.team.id}></input>
-							<input type="email" name="email" placeholder="co-manager@example.com" autocomplete="off" required="required"></input>
-							<button class="button button--compact" type="submit">Invite co-manager</button>
-						</form>
-					</If>
-					<If cond={data.co_manager.can_detach}>
-						<form method="post" action={actionPath("co-detach")} data-gosx-managed="true" class="co-manager-form">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name="team_id" value={data.team.id}></input>
-							<button class="button button--compact button--ghost" type="submit">Detach co-manager</button>
-						</form>
-					</If>
-					<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<input type="hidden" name="team_id" value={data.team.id}></input>
-						<input type="text" name="name" value={data.team.name} maxlength="40" aria-label="Team name"></input>
-						<button class="button button--compact" type="submit">Rename</button>
-					</form>
-					<If cond={data.identity_available}>
-					<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<input type="hidden" name="team_id" value={data.team.id}></input>
-						<input type="hidden" name="redirect_to" value="/team"></input>
-						<label for="team-avatar-upload">Upload custom team image</label>
-						<input
-							id="team-avatar-upload"
-							type="file"
-							name="avatar"
-							accept="image/png,image/jpeg"
-							aria-describedby="team-avatar-upload-help"
-							required="required"
-						></input>
-						<button class="button button--compact" type="submit">Upload team avatar</button>
-					</form>
-					<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can claim it.</p>
-					<h2 class="badge-picker-title">Team badge</h2>
-					<p class="scoring-note">Choosing a badge replaces this seat’s active custom image. Release the badge to use the league's standard badge, or your team letters.</p>
-					<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
-						<Each of={data.badge_grid} as="badge">
-							<BadgeCell {...badge}></BadgeCell>
-						</Each>
+						<If cond={data.team.claimed == false}>
+							<p>
+								Awaiting a manager — sign in to claim this seat.
+							</p>
+						</If>
+						<a href="/team?identity=edit#team-identity" data-gosx-link class="button button--ghost button--compact team-identity-link">Customize franchise</a>
 					</div>
-					<If cond={data.has_badge_claim}>
-						<form method="post" action="/avatar/badge" data-gosx-managed="false" class="badge-release-form">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name="team_id" value={data.team.id}></input>
-							<input type="hidden" name="motif" value=""></input>
-							<input type="hidden" name="action" value="release"></input>
-							<input type="hidden" name="redirect_to" value="/team"></input>
-					<button class="button button--compact" type="submit">Release badge</button>
-					</form>
-					<p class="scoring-note">After release, this seat uses the league's standard badge, or your team letters.</p>
-					</If>
-					</If>
-					<If cond={data.identity_available == false}>
-						<p class="error-message" role="status">{data.identity_error}</p>
-					</If>
 				</div>
-			</div>
 			<div class="team-hero__record">
 				<span>Season</span>
 				<strong class="mono">{data.team.record}</strong>
@@ -320,10 +255,101 @@ func Page() Node {
 					{data.team.points_for}
 					PF ·
 					{data.team.streak}
-				</small>
-			</div>
-		</section>
-		<div class="team-command-strip">
+					</small>
+				</div>
+			</section>
+			<details class="team-identity-settings" id="team-identity" open={data.identity_expanded}>
+				<summary>
+					<span class="team-identity-settings__summary-copy">
+						<span class="section-index">FRANCHISE IDENTITY</span>
+						<strong>Customize your team</strong>
+						<small>Name · co-manager · image · league badge</small>
+					</span>
+					<span class="team-identity-settings__summary-action mono">OPEN EDITOR</span>
+				</summary>
+				<div class="team-identity-settings__body">
+					<section class="team-identity-settings__panel" aria-labelledby="team-profile-settings-title">
+						<header>
+							<span class="section-index">01 // PROFILE</span>
+							<h2 id="team-profile-settings-title">Manager and team details</h2>
+						</header>
+						<If cond={data.co_manager.has_pending}>
+							<p class="status-card__line">
+								Co-manager invite pending:
+								{data.co_manager.pending_email}
+							</p>
+						</If>
+						<If cond={data.co_manager.can_invite}>
+							<form method="post" action={actionPath("co-invite")} data-gosx-managed="true" class="co-manager-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.team.id}></input>
+								<input type="email" name="email" placeholder="co-manager@example.com" autocomplete="off" required="required"></input>
+								<button class="button button--compact" type="submit">Invite co-manager</button>
+							</form>
+						</If>
+						<If cond={data.co_manager.can_detach}>
+							<form method="post" action={actionPath("co-detach")} data-gosx-managed="true" class="co-manager-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.team.id}></input>
+								<button class="button button--compact button--ghost" type="submit">Detach co-manager</button>
+							</form>
+						</If>
+						<label class="team-identity-settings__field" for="team-name-input">Team name</label>
+						<form method="post" action={actionPath("team-rename")} data-gosx-managed="true" class="team-rename-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="team_id" value={data.team.id}></input>
+							<input id="team-name-input" type="text" name="name" value={data.team.name} maxlength="40"></input>
+							<button class="button button--compact" type="submit">Rename</button>
+						</form>
+						<If cond={data.identity_available}>
+							<label class="team-identity-settings__field" for="team-avatar-upload">Custom team image</label>
+							<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.team.id}></input>
+								<input type="hidden" name="redirect_to" value="/team"></input>
+								<input
+									id="team-avatar-upload"
+									type="file"
+									name="avatar"
+									accept="image/png,image/jpeg"
+									aria-describedby="team-avatar-upload-help"
+									required="required"
+								></input>
+								<button class="button button--compact" type="submit">Upload image</button>
+							</form>
+							<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. Uploading a custom image releases this seat’s claimed badge so another team can use it.</p>
+						</If>
+					</section>
+					<section class="team-identity-settings__panel" aria-labelledby="team-badge-settings-title">
+						<header>
+							<span class="section-index">02 // LEAGUE BADGE</span>
+							<h2 id="team-badge-settings-title">Choose one shared badge</h2>
+						</header>
+						<If cond={data.identity_available}>
+							<p class="scoring-note">Available badges are exclusive to one team. Choosing one replaces this seat’s custom image; release it to use the league standard or your team letters.</p>
+							<div class="badge-picker" style={"--badge-tone: " + data.badge_tone_hex + ";"}>
+								<Each of={data.badge_grid} as="badge">
+									<BadgeCell {...badge}></BadgeCell>
+								</Each>
+							</div>
+							<If cond={data.has_badge_claim}>
+								<form method="post" action="/avatar/badge" data-gosx-managed="false" class="badge-release-form">
+									<input type="hidden" name="csrf_token" value={csrf.token}></input>
+									<input type="hidden" name="team_id" value={data.team.id}></input>
+									<input type="hidden" name="motif" value=""></input>
+									<input type="hidden" name="action" value="release"></input>
+									<input type="hidden" name="redirect_to" value="/team"></input>
+									<button class="button button--compact" type="submit">Release badge</button>
+								</form>
+							</If>
+						</If>
+						<If cond={data.identity_available == false}>
+							<p class="error-message" role="status">{data.identity_error}</p>
+						</If>
+					</section>
+				</div>
+			</details>
+			<div class="team-command-strip">
 			<div>
 				<span>Projected</span>
 				<strong class="mono">{data.projected}</strong>
@@ -360,9 +386,9 @@ func Page() Node {
 						<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
 						<div class="checklist-item__text">
 							<strong>Claim and personalize your franchise</strong>
-							<small>Your seat is secured. Team name, image, badge, and co-manager controls live above.</small>
+							<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
 						</div>
-						<a href="#team-identity" class="board-button">Edit identity ↑</a>
+						<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
 					</div>
 					<div class="checklist-item">
 						<If cond={data.predraft_has_board}>
