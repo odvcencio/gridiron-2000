@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -176,6 +177,17 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	if got := wirePresentationLabel(sourceFailure, now); got != "DEGRADED" {
 		t.Fatalf("healthy-feed/source-error presentation = %q, want DEGRADED", got)
 	}
+	partialSources := signalwire.Status{
+		Configured: true, BlueskyConfigured: true, Mode: signalwire.ModeStreaming,
+		Sources:        []signalwire.SourceStatus{{Handle: "healthy.example", DID: "did:plc:healthy"}},
+		SourcesPartial: true, SourceIssue: "Some Bluesky sources could not be resolved: broken.example",
+	}
+	if got := wirePresentationLabel(partialSources, now); got != "DEGRADED" {
+		t.Fatalf("partial Bluesky resolution presentation = %q, want DEGRADED", got)
+	}
+	if got := wireHealthLabel(partialSources, now); got != "PARTIAL" {
+		t.Fatalf("partial Bluesky resolution health = %q, want PARTIAL", got)
+	}
 	retained := wireSignalCard(signalwire.Signal{
 		ID: "retained", Source: signalwire.SourceFeed, SourceName: "Broken Publisher", OccurredAt: now.Add(-time.Hour),
 	}, status, now)
@@ -195,6 +207,26 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 	}
 }
 
+func TestWireFeedHealthFollowsConfiguredCadence(t *testing.T) {
+	service, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: true,
+		FeedInterval: time.Hour,
+		FeedSources:  []signalwire.FeedSource{{Name: "Hourly Publisher", URL: "https://publisher.example/feed", EvidenceType: "news", Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := service.Status()
+	t0 := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
+	feed := signalwire.FeedStatus{Name: "Hourly Publisher", State: "ready", LastChecked: t0}
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(15*time.Minute+time.Second)); got != "READY" {
+		t.Fatalf("hourly feed at 15m+1s = %q, want READY", got)
+	}
+	if got := wireFeedHealthLabelForStatus(feed, status, t0.Add(status.FeedStaleAfter+time.Second)); got != "STALE" {
+		t.Fatalf("hourly feed after derived threshold = %q, want STALE (threshold %v)", got, status.FeedStaleAfter)
+	}
+}
+
 func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
 	now := time.Date(2026, 8, 23, 20, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -203,7 +235,7 @@ func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
 		state string
 	}{
 		{name: "never checked", feed: signalwire.FeedStatus{Name: "New", State: "waiting"}, state: "NEVER CHECKED"},
-		{name: "stale", feed: signalwire.FeedStatus{Name: "Old", State: "ready", LastChecked: now.Add(-wireFeedStaleAfter - time.Second)}, state: "STALE"},
+		{name: "stale", feed: signalwire.FeedStatus{Name: "Old", State: "ready", LastChecked: now.Add(-signalwire.DeriveFeedStaleAfter(0) - time.Second)}, state: "STALE"},
 		{name: "error", feed: signalwire.FeedStatus{Name: "Broken", State: "error", LastChecked: now, LastError: "timeout"}, state: "ERROR"},
 		{name: "ready", feed: signalwire.FeedStatus{Name: "Current", State: "ready", LastChecked: now}, state: "READY"},
 	}
@@ -222,5 +254,58 @@ func TestWireFeedHealthDistinguishesNeverCheckedStaleAndError(t *testing.T) {
 	}
 	if got := wireFeedPublishedLabel(signalwire.FeedStatus{LastPublished: now}); got == "NEVER PUBLISHED" {
 		t.Fatalf("published timestamp was rendered as never published")
+	}
+}
+
+func TestWirePageAndPulseExposePartialSourceIssue(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("handle") == "broken.example" {
+			writer.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"did":"did:plc:healthy"}`))
+	}))
+	defer resolver.Close()
+
+	service, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: false,
+		Handles: []string{"healthy.example", "broken.example"}, ResolveURL: resolver.URL,
+		JetstreamURL: "wss://stream.invalid/subscribe", ReconnectMin: time.Millisecond, ReconnectMax: time.Millisecond,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	service.Start(ctx)
+	deadline := time.Now().Add(2 * time.Second)
+	for service.Status().SourceIssue == "" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	status := service.Status()
+	if status.SourceIssue == "" || !status.SourcesPartial {
+		t.Fatalf("source status = %+v, want persistent partial issue", status)
+	}
+	stats, err := openstats.NewService(openstats.Config{Root: t.TempDir(), Season: 2026, Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := wirePageData(httptest.NewRequest(http.MethodGet, "/wire", nil), service, stats)
+	pulse := PulseData(service)
+	if got := data["wire_source_issue"]; got != status.SourceIssue {
+		t.Fatalf("page source issue = %#v, want %q", got, status.SourceIssue)
+	}
+	if got := pulse["source_issue"]; got != status.SourceIssue {
+		t.Fatalf("pulse source issue = %#v, want %q", got, status.SourceIssue)
+	}
+	if got := data["wire_mode"]; got != "DEGRADED" {
+		t.Fatalf("page mode = %#v, want DEGRADED", got)
+	}
+	if got := pulse["mode"]; got != "DEGRADED" {
+		t.Fatalf("pulse mode = %#v, want DEGRADED", got)
+	}
+	if got := pulse["status"].(string); !strings.Contains(got, status.SourceIssue) {
+		t.Fatalf("pulse status %q does not expose source issue %q", got, status.SourceIssue)
 	}
 }

@@ -143,6 +143,9 @@ func Page() Node {
 					<div class="sync-state" role="status" aria-live="polite">
 						<span class="live-dot" aria-hidden="true"></span>
 						<span data-wire-status data-gosx-live-bind="status">{data.wire_health}</span>
+						<If cond={data.wire_source_issue != ""}>
+							<small class="wire-source-issue">{data.wire_source_issue}</small>
+						</If>
 					</div>
 				</header>
 				<div class="wire-filters" aria-label="Filter signals">

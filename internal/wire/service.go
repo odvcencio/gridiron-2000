@@ -56,6 +56,31 @@ var runtimeModes = [...]string{
 	ModeStopped,
 }
 
+const (
+	defaultFeedInterval = 2 * time.Minute
+	minFeedStaleAfter   = 15 * time.Minute
+	feedStaleGrace      = 5 * time.Minute
+)
+
+// DeriveFeedStaleAfter returns the amount of time a feed may go without a
+// successful check before the product should call it stale. The threshold
+// follows the configured polling cadence, while retaining a small grace
+// window for slow or overlapping requests and a useful floor for fast feeds.
+func DeriveFeedStaleAfter(interval time.Duration) time.Duration {
+	if interval <= 0 {
+		interval = defaultFeedInterval
+	}
+	grace := feedStaleGrace
+	if interval/4 > grace {
+		grace = interval / 4
+	}
+	threshold := interval + grace
+	if threshold < minFeedStaleAfter {
+		return minFeedStaleAfter
+	}
+	return threshold
+}
+
 type Config struct {
 	Root            string
 	RulesFile       string
@@ -92,7 +117,7 @@ func ConfigFromEnv() Config {
 		Enabled:        envBool("WIRE_ENABLED", true),
 		FeedsEnabled:   envBool("WIRE_FEEDS_ENABLED", true),
 		SourcesFile:    strings.TrimSpace(os.Getenv("WIRE_SOURCES_FILE")),
-		FeedInterval:   envDuration("WIRE_FEED_INTERVAL", 2*time.Minute),
+		FeedInterval:   envDuration("WIRE_FEED_INTERVAL", defaultFeedInterval),
 		FeedMaxAge:     envDuration("WIRE_FEED_MAX_AGE", 72*time.Hour),
 		FeedMaxBytes:   int64(envInt("WIRE_FEED_MAX_MB", 4)) << 20,
 		RecentLimit:    envInt("WIRE_RECENT_LIMIT", 1000),
@@ -122,6 +147,8 @@ type Service struct {
 	running            bool
 	mode               string
 	configurationIssue string
+	sourceIssue        string
+	sourcesPartial     bool
 	sources            []SourceStatus
 	handleByDID        map[string]string
 	lastError          string
@@ -164,7 +191,7 @@ func NewService(config Config) (*Service, error) {
 		config.ReplayWindow = 0
 	}
 	if config.FeedInterval <= 0 {
-		config.FeedInterval = 2 * time.Minute
+		config.FeedInterval = defaultFeedInterval
 	}
 	if config.FeedMaxAge <= 0 {
 		config.FeedMaxAge = 72 * time.Hour
@@ -441,6 +468,8 @@ func (service *Service) Status() Status {
 	running := service.running
 	mode := service.mode
 	issue := service.configurationIssue
+	sourceIssue := service.sourceIssue
+	sourcesPartial := service.sourcesPartial
 	sources := append([]SourceStatus(nil), service.sources...)
 	feeds := make([]FeedStatus, 0, len(service.feedStatuses))
 	for _, status := range service.feedStatuses {
@@ -458,9 +487,12 @@ func (service *Service) Status() Status {
 		Running:            running,
 		Mode:               mode,
 		ConfigurationIssue: issue,
+		SourceIssue:        sourceIssue,
+		SourcesPartial:     sourcesPartial,
 		BlueskyConfigured:  blueskyConfigured,
 		Sources:            sources,
 		Feeds:              feeds,
+		FeedStaleAfter:     DeriveFeedStaleAfter(service.config.FeedInterval),
 		SourceCounts:       service.store.SourceCounts(),
 		RelevantSignals:    relevant,
 		IgnoredPosts:       ignored,
@@ -488,6 +520,18 @@ func (service *Service) resolveSources(ctx context.Context) ([]SourceStatus, err
 			continue
 		}
 		byDID[did] = SourceStatus{Handle: handle, DID: did}
+	}
+	if len(failures) > 0 {
+		issue := safeError(fmt.Errorf("Some Bluesky sources could not be resolved: %s", strings.Join(failures, "; ")))
+		service.mu.Lock()
+		service.sourceIssue = issue
+		service.sourcesPartial = len(byDID) > 0
+		service.mu.Unlock()
+	} else {
+		service.mu.Lock()
+		service.sourceIssue = ""
+		service.sourcesPartial = false
+		service.mu.Unlock()
 	}
 	if len(byDID) == 0 {
 		if len(failures) > 0 {

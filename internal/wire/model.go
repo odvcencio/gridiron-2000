@@ -105,9 +105,12 @@ type Status struct {
 	Running            bool             `json:"running"`
 	Mode               string           `json:"mode"`
 	ConfigurationIssue string           `json:"configuration_issue,omitempty"`
+	SourceIssue        string           `json:"source_issue,omitempty"`
+	SourcesPartial     bool             `json:"sources_partial"`
 	BlueskyConfigured  bool             `json:"bluesky_configured"`
 	Sources            []SourceStatus   `json:"sources"`
 	Feeds              []FeedStatus     `json:"feeds"`
+	FeedStaleAfter     time.Duration    `json:"feed_stale_after"`
 	SourceCounts       map[string]int64 `json:"source_counts"`
 	RelevantSignals    int64            `json:"relevant_signals"`
 	IgnoredPosts       int64            `json:"ignored_posts"`

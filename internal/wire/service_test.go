@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -87,6 +88,63 @@ func TestSourceErrorIsNotHiddenBySyndication(t *testing.T) {
 	service.run(context.Background())
 	if got := service.Status().Mode; got != ModeSourceError {
 		t.Fatalf("source resolution failure mode = %q, want %q", got, ModeSourceError)
+	}
+}
+
+func TestMixedSourceResolutionKeepsHealthySourcesAndIssue(t *testing.T) {
+	resolver := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Query().Get("handle") == "broken.example" {
+			writer.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"did":"did:plc:healthy"}`))
+	}))
+	defer resolver.Close()
+
+	service, err := NewService(Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: false,
+		Handles: []string{"healthy.example", "broken.example"}, ResolveURL: resolver.URL,
+		JetstreamURL: defaultJetstreamURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sources, err := service.resolveSources(context.Background())
+	if err != nil {
+		t.Fatalf("mixed source resolution returned an error: %v", err)
+	}
+	if len(sources) != 1 || sources[0].DID != "did:plc:healthy" {
+		t.Fatalf("resolved sources = %+v, want only the healthy DID", sources)
+	}
+	status := service.Status()
+	if !status.SourcesPartial {
+		t.Fatal("mixed resolution did not mark the source set partial")
+	}
+	if status.SourceIssue == "" || !strings.Contains(status.SourceIssue, "broken.example") {
+		t.Fatalf("source issue = %q, want a safe failure for broken.example", status.SourceIssue)
+	}
+	service.setRuntimeState(ModeReconnecting, true, "temporary stream disconnect", time.Time{})
+	if got := service.Status().SourceIssue; got != status.SourceIssue {
+		t.Fatalf("source issue changed during reconnect: %q -> %q", status.SourceIssue, got)
+	}
+}
+
+func TestFeedStaleAfterFollowsConfiguredInterval(t *testing.T) {
+	service, err := NewService(Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: true,
+		FeedInterval: time.Hour,
+		FeedSources:  []FeedSource{{Name: "Hourly Publisher", URL: "https://publisher.example/feed", EvidenceType: "news", Enabled: true}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := service.Status()
+	if status.FeedStaleAfter <= 15*time.Minute {
+		t.Fatalf("hourly feed stale threshold = %v, want it above the old 15m floor", status.FeedStaleAfter)
+	}
+	if got, want := status.FeedStaleAfter, DeriveFeedStaleAfter(time.Hour); got != want {
+		t.Fatalf("status stale threshold = %v, want centralized derivation %v", got, want)
 	}
 }
 
