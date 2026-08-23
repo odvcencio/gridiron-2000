@@ -135,6 +135,7 @@ func TestSettingsPageRendersDeliveryTruthAndCurrentMarkers(t *testing.T) {
 	for _, want := range []string{
 		"EMAIL NOT CONFIGURED",
 		"EMAIL ONLY // SMS NOT SUPPORTED",
+		"Preferences saved for",
 		"aria-pressed=\"true\"",
 		"data-current=\"true\"",
 		"CURRENT",
@@ -143,5 +144,8 @@ func TestSettingsPageRendersDeliveryTruthAndCurrentMarkers(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("settings render omitted %q: %s", want, body)
 		}
+	}
+	if strings.Contains(body, "Delivering to") {
+		t.Fatal("settings render claims delivery to an account while email transport is not configured")
 	}
 }

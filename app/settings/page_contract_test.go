@@ -70,3 +70,36 @@ func TestParseNotificationEnabledIsLiteral(t *testing.T) {
 		}
 	}
 }
+
+func TestNotificationPreferenceSavedMessageReportsTransportTruth(t *testing.T) {
+	tests := []struct {
+		name          string
+		enabled       bool
+		deliveryReady bool
+		want          string
+	}{
+		{
+			name:          "mail disabled and preference on",
+			enabled:       true,
+			deliveryReady: false,
+			want:          "Email delivery is not configured; this category is set to ON and will apply when delivery is enabled.",
+		},
+		{
+			name:          "mail ready and preference off",
+			enabled:       false,
+			deliveryReady: true,
+			want:          "Email delivery is ready; this category is now OFF.",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := notificationPreferenceSavedMessage(test.enabled, test.deliveryReady)
+			if !strings.Contains(got, test.want) {
+				t.Fatalf("notificationPreferenceSavedMessage() = %q, want %q", got, test.want)
+			}
+			if strings.Contains(got, "Email is now") {
+				t.Fatalf("notificationPreferenceSavedMessage() made an unconditional transport claim: %q", got)
+			}
+		})
+	}
+}
