@@ -101,10 +101,10 @@ func main() {
 	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	startBlitzPoller(runtimeContext, fantasyPool, league.Default())
-	// startBlitzPre1 makes a handful of REST calls against already-final
-	// games; it backgrounds itself so a slow or unreachable Tank01 never
-	// delays the server accepting requests (see blitz_pre1.go).
-	go startBlitzPre1(runtimeContext, fantasyPool, league.Default())
+	// startBlitzPre1 attaches its loading snapshot before it backgrounds the
+	// handful of REST calls against already-final games, so first render can
+	// distinguish "checking" from a verified zero-player evidence map.
+	startBlitzPre1(runtimeContext, fantasyPool, league.Default())
 	// startMatchupRanks computes the matchup-difficulty rank cache (owner
 	// ask: "we should see the opponent at a glance" plus a difficulty
 	// rank) and keeps it refreshed; it backgrounds itself for the same
@@ -262,6 +262,7 @@ func main() {
 		}
 		persistenceErr := league.Default().PersistenceError()
 		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
+		blitzHealth := league.Default().BlitzDependencyHealth()
 		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
 		poolCushion := max(0, poolStatus.Players-rosterCapacity)
 		poolCoverage := 0.0
@@ -277,7 +278,11 @@ func main() {
 			"readiness":        persistenceReady,
 			"persistenceReady": persistenceReady,
 			"persistenceError": persistenceMessage,
-			"app":              appName,
+			// Blitz is an optional upstream dependency: expose its bounded,
+			// safe provenance without making a Tank01 outage look like a
+			// process-readiness failure.
+			"blitz": blitzHealthPayload(blitzHealth),
+			"app":   appName,
 			// "version" is the Gridiron release, not the GoSX framework
 			// version. Keeping the framework version adjacent makes runtime
 			// drift (and an accidentally old image) immediately visible.
@@ -424,6 +429,31 @@ func main() {
 		// given up on.
 		notifyQueue.Drain(10 * time.Second)
 		stopNotify()
+	}
+}
+
+// blitzHealthPayload keeps the public /api/health shape flat enough for
+// operators while reusing the same typed source facts commissioner summary
+// consumes. The nested pre1 object is intentionally separate because its
+// partial evidence must not make live slate readiness look offline.
+func blitzHealthPayload(value league.BlitzDependencyHealth) map[string]any {
+	return map[string]any{
+		"enabled":              value.Source.Enabled,
+		"state":                value.Source.State,
+		"lastAttempt":          value.Source.LastAttempt,
+		"lastSuccess":          value.Source.LastSuccess,
+		"error":                value.Source.SafeError,
+		"expectedGames":        value.Source.ExpectedGames,
+		"fetchedGames":         value.Source.FetchedGames,
+		"finalGames":           value.Source.FinalGames,
+		"expectedScoringGames": value.Source.ExpectedScoringGames,
+		"fetchedScoringGames":  value.Source.FetchedScoringGames,
+		"scoringComplete":      value.Source.ScoringComplete,
+		"complete":             value.Source.Complete,
+		"final":                value.Source.Final,
+		"verifiedZero":         value.Source.VerifiedZero,
+		"slates":               value.Source.Slates,
+		"pre1":                 value.Pre1,
 	}
 }
 

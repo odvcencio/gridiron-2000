@@ -20,6 +20,7 @@ type Summary struct {
 	Season        Season      `json:"season"`
 	Pool          Pool        `json:"pool"`
 	OpenData      OpenData    `json:"openData"`
+	Blitz         BlitzHealth `json:"blitz"`
 	Attention     []Attention `json:"attention"`
 }
 
@@ -143,6 +144,54 @@ type OpenData struct {
 	Injuries        DatasetStatus `json:"injuries"`
 	TeamStats       DatasetStatus `json:"teamStats"`
 	PlayByPlay      DatasetStatus `json:"playByPlay"`
+}
+
+// BlitzSlateHealth and BlitzHealth are a PII-free, provider-safe projection
+// of the optional preseason source. Error is bounded operator copy only;
+// URLs, credentials, and raw transport failures never cross this contract.
+type BlitzSlateHealth struct {
+	State                string    `json:"state"`
+	LastAttempt          time.Time `json:"lastAttempt,omitzero"`
+	LastSuccess          time.Time `json:"lastSuccess,omitzero"`
+	Error                string    `json:"error,omitempty"`
+	ExpectedGames        int       `json:"expectedGames"`
+	FetchedGames         int       `json:"fetchedGames"`
+	FinalGames           int       `json:"finalGames"`
+	ExpectedScoringGames int       `json:"expectedScoringGames"`
+	FetchedScoringGames  int       `json:"fetchedScoringGames"`
+	ScoringComplete      bool      `json:"scoringComplete"`
+	Complete             bool      `json:"complete"`
+	Final                bool      `json:"final"`
+	VerifiedZero         bool      `json:"verifiedZero"`
+}
+
+type BlitzPre1Health struct {
+	State         string    `json:"state"`
+	LastAttempt   time.Time `json:"lastAttempt,omitzero"`
+	LastSuccess   time.Time `json:"lastSuccess,omitzero"`
+	Error         string    `json:"error,omitempty"`
+	ExpectedGames int       `json:"expectedGames"`
+	FetchedGames  int       `json:"fetchedGames"`
+	Complete      bool      `json:"complete"`
+}
+
+type BlitzHealth struct {
+	Enabled              bool                        `json:"enabled"`
+	State                string                      `json:"state"`
+	LastAttempt          time.Time                   `json:"lastAttempt,omitzero"`
+	LastSuccess          time.Time                   `json:"lastSuccess,omitzero"`
+	Error                string                      `json:"error,omitempty"`
+	ExpectedGames        int                         `json:"expectedGames"`
+	FetchedGames         int                         `json:"fetchedGames"`
+	FinalGames           int                         `json:"finalGames"`
+	ExpectedScoringGames int                         `json:"expectedScoringGames"`
+	FetchedScoringGames  int                         `json:"fetchedScoringGames"`
+	ScoringComplete      bool                        `json:"scoringComplete"`
+	Complete             bool                        `json:"complete"`
+	Final                bool                        `json:"final"`
+	VerifiedZero         bool                        `json:"verifiedZero"`
+	Slates               map[string]BlitzSlateHealth `json:"slates,omitempty"`
+	Pre1                 BlitzPre1Health             `json:"pre1"`
 }
 
 type Attention struct {

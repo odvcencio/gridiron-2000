@@ -106,6 +106,9 @@ type Service struct {
 	// data is available yet — the board falls back to its non-pre1
 	// rookie/ADP tiering, never a crash.
 	blitzPre1Fn BlitzPre1Source
+	// blitzPre1SnapshotFn is the provenance-aware pre1 seam. The legacy
+	// blitzPre1Fn remains for tests/integrations that only provide a map.
+	blitzPre1SnapshotFn BlitzPre1SnapshotSource
 	// matchupFn supplies the matchup-rank cache (main.go's matchup-rank
 	// pipeline); see matchup.go's SetMatchupSource. nil means the cache
 	// has not computed yet — every row still shows its opponent, just no

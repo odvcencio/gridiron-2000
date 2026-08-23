@@ -34,6 +34,8 @@ var blitzWeekProbeParams = []string{"2", "3", "4"}
 // (design spec section 4.8).
 const blitzCacheDir = "data/fantasy/blitz"
 
+const blitzScheduleRefreshInterval = 24 * time.Hour
+
 // blitzBoxScoreCache is the on-disk shape for one game's final box score
 // (F22's atomic-write pattern: temp file, chmod 0600, rename).
 type blitzBoxScoreCache struct {
@@ -56,43 +58,76 @@ type blitzPoller struct {
 	dailyBudget  int
 	pollInterval time.Duration
 
-	mu           sync.Mutex
-	weekParam    map[string]string // slate -> the Tank01 week param that resolved it
-	games        []league.BlitzGame
-	stats        map[string]map[string]map[string]float64 // slate -> playerID -> statKey -> value
-	version      int64
-	lastFetch    map[string]time.Time // gameID -> last box-score fetch instant
-	finalCached  map[string]bool      // gameID -> a final box score is cached (memory or disk)
-	catchUpDone  map[string]string    // gameID -> the UTC date its one-per-boot-per-day catch-up fired
-	lastSchedule map[string]time.Time // slate -> last schedule refresh instant
-	budgetDate   string               // UTC date the counter below is for
-	budgetUsed   int
+	mu             sync.Mutex
+	weekParam      map[string]string // slate -> the Tank01 week param that resolved it
+	games          []league.BlitzGame
+	stats          map[string]map[string]map[string]float64 // slate -> playerID -> statKey -> value
+	version        int64
+	lastFetch      map[string]time.Time // gameID -> last box-score fetch instant
+	finalCached    map[string]bool      // gameID -> a final box score is cached (memory or disk)
+	catchUpDone    map[string]string    // gameID -> the UTC date its one-per-boot-per-day catch-up fired
+	lastSchedule   map[string]time.Time // slate -> last schedule refresh instant
+	scheduleError  map[string]bool      // slate -> the schedule source is currently degraded
+	boxScoreError  map[string]bool      // slate -> the latest box-score attempt failed
+	budgetDate     string               // UTC date the counter below is for
+	budgetUsed     int
+	health         league.BlitzHealth     // source provenance; guarded by mu
+	enteredTeamsFn func() map[string]bool // test seam; production reads league.BlitzEnteredTeams
 }
 
 func newBlitzPoller(pool *fantasy.Service, lg *league.Service) *blitzPoller {
 	return &blitzPoller{
-		pool:         pool,
-		lg:           lg,
-		dailyBudget:  blitzEnvInt("BLITZ_DAILY_BUDGET", 300),
-		pollInterval: blitzEnvDuration("BLITZ_POLL_INTERVAL", 180*time.Second),
-		weekParam:    map[string]string{},
-		stats:        map[string]map[string]map[string]float64{"pre2": {}, "pre3": {}},
-		lastFetch:    map[string]time.Time{},
-		finalCached:  map[string]bool{},
-		catchUpDone:  map[string]string{},
-		lastSchedule: map[string]time.Time{},
+		pool:          pool,
+		lg:            lg,
+		dailyBudget:   blitzEnvInt("BLITZ_DAILY_BUDGET", 300),
+		pollInterval:  blitzEnvDuration("BLITZ_POLL_INTERVAL", 180*time.Second),
+		weekParam:     map[string]string{},
+		stats:         map[string]map[string]map[string]float64{"pre2": {}, "pre3": {}},
+		lastFetch:     map[string]time.Time{},
+		finalCached:   map[string]bool{},
+		catchUpDone:   map[string]string{},
+		lastSchedule:  map[string]time.Time{},
+		scheduleError: map[string]bool{},
+		boxScoreError: map[string]bool{},
+		health: league.BlitzHealth{
+			Enabled: true,
+			State:   league.BlitzStateLoading,
+			Slates: map[string]league.BlitzSlateHealth{
+				"pre2": {State: league.BlitzStateLoading},
+				"pre3": {State: league.BlitzStateLoading},
+			},
+		},
 	}
+}
+
+func (p *blitzPoller) enteredTeams() map[string]bool {
+	if p.enteredTeamsFn != nil {
+		return p.enteredTeamsFn()
+	}
+	if p.lg == nil {
+		return nil
+	}
+	return p.lg.BlitzEnteredTeams()
 }
 
 // startBlitzPoller enables Preseason Blitz (design spec section 5.2) when
 // a Tank01 key is configured; without one, league.SetBlitzSource is never
 // called and /blitz renders its honest feed-offline state.
 func startBlitzPoller(ctx context.Context, pool *fantasy.Service, lg *league.Service) {
+	poller := newBlitzPoller(pool, lg)
 	if !pool.Enabled() {
+		poller.mu.Lock()
+		poller.health.Enabled = false
+		poller.health.State = league.BlitzStateDisabled
+		for slate, status := range poller.health.Slates {
+			status.State = league.BlitzStateDisabled
+			poller.health.Slates[slate] = status
+		}
+		poller.mu.Unlock()
+		lg.SetBlitzSource(poller.Snapshot)
 		log.Printf("blitz: TANK01_API_KEY is not set; Preseason Blitz stays in its feed-offline state")
 		return
 	}
-	poller := newBlitzPoller(pool, lg)
 	lg.SetBlitzSource(poller.Snapshot)
 	go poller.run(ctx)
 }
@@ -109,11 +144,20 @@ func (p *blitzPoller) Snapshot() league.BlitzSnapshot {
 	for slate, byPlayer := range p.stats {
 		inner := make(map[string]map[string]float64, len(byPlayer))
 		for playerID, line := range byPlayer {
-			inner[playerID] = line
+			copyLine := make(map[string]float64, len(line))
+			for key, value := range line {
+				copyLine[key] = value
+			}
+			inner[playerID] = copyLine
 		}
 		stats[slate] = inner
 	}
-	return league.BlitzSnapshot{Version: p.version, Games: games, Stats: stats}
+	health := p.health
+	health.Slates = make(map[string]league.BlitzSlateHealth, len(p.health.Slates))
+	for slate, status := range p.health.Slates {
+		health.Slates[slate] = status
+	}
+	return league.BlitzSnapshot{Version: p.version, Games: games, Stats: stats, Health: health}
 }
 
 // run drives the poller: the cached-finals load and the boot probe happen
@@ -145,10 +189,14 @@ func (p *blitzPoller) run(ctx context.Context) {
 // guessing. Three requests total, regardless of outcome.
 func (p *blitzPoller) probeSlates(ctx context.Context) {
 	results := map[string][]fantasy.PreseasonGame{}
+	var firstErr error
 	for _, weekParam := range blitzWeekProbeParams {
 		games, err := p.pool.FetchPreseasonWeek(ctx, weekParam)
 		if err != nil {
 			log.Printf("blitz: boot probe week=%s failed: %v", weekParam, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		results[weekParam] = games
@@ -156,30 +204,241 @@ func (p *blitzPoller) probeSlates(ctx context.Context) {
 	now := time.Now()
 	p.mu.Lock()
 	for slate, label := range blitzSlateLabels {
-		matched := false
-		for _, weekParam := range blitzWeekProbeParams {
-			games := fantasy.SelectPreseasonGames(results[weekParam], label)
-			if len(games) == 0 {
-				continue
-			}
-			games, dropped := blitzGamesWithKickoff(games)
-			if dropped > 0 {
-				log.Printf("blitz: %s dropped %d game(s) with no kickoff time in the feed; they stay out of the slate until a refresh places them", slate, dropped)
-			}
-			if len(games) == 0 {
-				continue
-			}
-			p.weekParam[slate] = weekParam
-			p.applyGamesLocked(slate, games)
-			matched = true
-			break
-		}
-		if !matched {
-			log.Printf("blitz: no week param returned games labeled %q; %s stays empty until the next probe", label, slate)
-		}
+		p.resolveSlateLocked(slate, label, results, now, firstErr)
 		p.lastSchedule[slate] = now
 	}
+	p.recomputeHealthLocked(now)
 	p.mu.Unlock()
+}
+
+// probeUnresolvedSlate is the recovery path for a slate whose boot probe did
+// not resolve a Tank01 week parameter. It deliberately repeats the bounded
+// spread rather than permanently trusting the first failed boot.
+func (p *blitzPoller) probeUnresolvedSlate(ctx context.Context, slate string, now time.Time) {
+	results := map[string][]fantasy.PreseasonGame{}
+	var firstErr error
+	for _, weekParam := range blitzWeekProbeParams {
+		games, err := p.pool.FetchPreseasonWeek(ctx, weekParam)
+		if err != nil {
+			log.Printf("blitz: recovery probe %s week=%s failed: %v", slate, weekParam, err)
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		results[weekParam] = games
+	}
+	p.mu.Lock()
+	p.resolveSlateLocked(slate, blitzSlateLabels[slate], results, now, firstErr)
+	p.lastSchedule[slate] = now
+	p.recomputeHealthLocked(now)
+	p.mu.Unlock()
+}
+
+func (p *blitzPoller) resolveSlateLocked(slate, label string, results map[string][]fantasy.PreseasonGame, now time.Time, firstErr error) {
+	if p.scheduleError == nil {
+		p.scheduleError = map[string]bool{}
+	}
+	if p.boxScoreError == nil {
+		p.boxScoreError = map[string]bool{}
+	}
+	status := p.health.Slates[slate]
+	status.LastAttempt = now
+	matched := false
+	for _, weekParam := range blitzWeekProbeParams {
+		candidates := fantasy.SelectPreseasonGames(results[weekParam], label)
+		if len(candidates) == 0 {
+			continue
+		}
+		matched = true
+		games, dropped := blitzGamesWithKickoff(candidates)
+		if dropped > 0 {
+			log.Printf("blitz: %s dropped %d game(s) with no kickoff time in the feed; they stay out of the slate until a refresh places them", slate, dropped)
+		}
+		p.weekParam[slate] = weekParam
+		status.ExpectedGames = len(candidates)
+		status.FetchedGames = len(games)
+		status.FinalGames = countFinalPreseasonGames(games)
+		status.Complete = dropped == 0
+		status.VerifiedZero = false
+		status.LastSuccess = now
+		if !p.boxScoreError[slate] {
+			status.Error = ""
+		}
+		if dropped > 0 {
+			p.scheduleError[slate] = true
+			status.State = league.BlitzStateDegraded
+			status.Error = "source returned games without usable kickoff data"
+		} else {
+			p.scheduleError[slate] = false
+			status.State = league.BlitzStateReady
+			status.Final = len(games) > 0 && status.FinalGames == len(games)
+		}
+		if len(games) > 0 {
+			p.applyGamesLocked(slate, games)
+		}
+		break
+	}
+	if matched {
+		if status.Complete && status.FinalGames == status.ExpectedGames {
+			status.Final = status.ExpectedGames > 0
+		} else {
+			status.Final = false
+		}
+	} else {
+		// A clean provider response with no target label is ordinary before
+		// the next preseason slate is published. Keep it loading/unknown so
+		// commissioner ops do not call an expected not-yet-published slate an
+		// outage. Only transport/provider failures enter error/degraded.
+		status.Error = "source has not published this slate"
+		p.scheduleError[slate] = firstErr != nil
+		if firstErr != nil {
+			if !status.LastSuccess.IsZero() || status.Complete {
+				status.State = league.BlitzStateDegraded
+			} else {
+				status.State = league.BlitzStateError
+			}
+		} else {
+			status.State = league.BlitzStateLoading
+		}
+		status.Complete = status.Complete && status.FetchedGames == status.ExpectedGames
+		status.Final = status.Complete && status.Final
+		log.Printf("blitz: no week param returned games labeled %q; %s remains unresolved and will be retried", label, slate)
+	}
+	p.health.Slates[slate] = status
+}
+
+func countFinalPreseasonGames(games []fantasy.PreseasonGame) int {
+	count := 0
+	for _, game := range games {
+		if game.Final {
+			count++
+		}
+	}
+	return count
+}
+
+func (p *blitzPoller) refreshSlateFinalityLocked(slate string) {
+	status := p.health.Slates[slate]
+	status.FinalGames = 0
+	status.FetchedGames = 0
+	for _, game := range p.games {
+		if game.Slate != slate {
+			continue
+		}
+		status.FetchedGames++
+		if game.Final {
+			status.FinalGames++
+		}
+	}
+	status.Final = status.Complete && status.ExpectedGames > 0 && status.FinalGames == status.ExpectedGames
+	p.health.Slates[slate] = status
+}
+
+func (p *blitzPoller) scoringCompletenessLocked(slate string, enteredTeams map[string]bool) (expected, fetched int) {
+	for _, game := range p.games {
+		if game.Slate != slate || !game.Final {
+			continue
+		}
+		away := strings.ToUpper(strings.TrimSpace(game.Away))
+		home := strings.ToUpper(strings.TrimSpace(game.Home))
+		if !enteredTeams[away] && !enteredTeams[home] {
+			continue
+		}
+		expected++
+		if p.finalCached[game.ID] {
+			fetched++
+		}
+	}
+	return expected, fetched
+}
+
+func (p *blitzPoller) recomputeHealthLocked(now time.Time) {
+	if !p.health.Enabled {
+		p.health.State = league.BlitzStateDisabled
+		return
+	}
+	if p.health.Slates == nil {
+		p.health.Slates = map[string]league.BlitzSlateHealth{}
+	}
+	var expected, fetched, final int
+	var expectedScoring, fetchedScoring int
+	complete, terminal, scoringComplete := true, true, true
+	anySuccess, anyError, anyLoading := false, false, false
+	var lastSuccess, lastAttempt time.Time
+	var safeError string
+	enteredTeams := p.enteredTeams()
+	for _, slate := range []string{"pre2", "pre3"} {
+		status := p.health.Slates[slate]
+		status.ExpectedScoringGames, status.FetchedScoringGames = p.scoringCompletenessLocked(slate, enteredTeams)
+		status.ScoringComplete = status.ExpectedScoringGames == status.FetchedScoringGames
+		if p.scheduleError[slate] && status.State == league.BlitzStateReady {
+			status.State = league.BlitzStateDegraded
+		}
+		if p.boxScoreError[slate] {
+			status.State = league.BlitzStateDegraded
+		}
+		if !p.scheduleError[slate] && !p.boxScoreError[slate] {
+			if status.Final && !status.ScoringComplete {
+				status.State = league.BlitzStateDegraded
+				if status.Error == "" {
+					status.Error = "final scoring inputs incomplete"
+				}
+			} else if status.Error == "final scoring inputs incomplete" {
+				status.Error = ""
+				if status.Complete {
+					status.State = league.BlitzStateReady
+				}
+			} else if status.Complete && status.State == league.BlitzStateDegraded && status.Error == "" {
+				status.State = league.BlitzStateReady
+			}
+		}
+		p.health.Slates[slate] = status
+		expected += status.ExpectedGames
+		fetched += status.FetchedGames
+		final += status.FinalGames
+		expectedScoring += status.ExpectedScoringGames
+		fetchedScoring += status.FetchedScoringGames
+		complete = complete && (status.Complete || status.VerifiedZero)
+		terminal = terminal && status.Final
+		scoringComplete = scoringComplete && status.ScoringComplete
+		anySuccess = anySuccess || !status.LastSuccess.IsZero()
+		anyError = anyError || status.State == league.BlitzStateError || status.State == league.BlitzStateDegraded
+		anyLoading = anyLoading || status.State == league.BlitzStateLoading
+		if status.LastSuccess.After(lastSuccess) {
+			lastSuccess = status.LastSuccess
+		}
+		if status.LastAttempt.After(lastAttempt) {
+			lastAttempt = status.LastAttempt
+		}
+		if safeError == "" {
+			safeError = status.Error
+		}
+	}
+	p.health.ExpectedGames = expected
+	p.health.FetchedGames = fetched
+	p.health.FinalGames = final
+	p.health.ExpectedScoringGames = expectedScoring
+	p.health.FetchedScoringGames = fetchedScoring
+	p.health.ScoringComplete = scoringComplete
+	p.health.Complete = complete
+	p.health.Final = complete && terminal
+	p.health.VerifiedZero = complete && expected == 0
+	p.health.LastAttempt = lastAttempt
+	p.health.LastSuccess = lastSuccess
+	p.health.SafeError = safeError
+	switch {
+	case anyError && anySuccess:
+		p.health.State = league.BlitzStateDegraded
+	case anyError:
+		p.health.State = league.BlitzStateError
+	case anyLoading:
+		p.health.State = league.BlitzStateLoading
+	case !lastSuccess.IsZero() && now.Sub(lastSuccess) > blitzScheduleRefreshInterval:
+		p.health.State = league.BlitzStateStale
+	default:
+		p.health.State = league.BlitzStateReady
+	}
 }
 
 // blitzGamesWithKickoff drops slate games Tank01 never placed in time,
@@ -284,34 +543,45 @@ func (p *blitzPoller) tick(ctx context.Context) {
 
 // refreshSchedulesIfDue re-fetches a slate's game list once per 24h,
 // using the week param the boot probe resolved for it. A slate the probe
-// never resolved (weekParam == "") is skipped — nothing to refresh.
+// never resolved is actively re-probed with the bounded spread, so a
+// transient boot failure cannot leave the source one-shot forever.
 func (p *blitzPoller) refreshSchedulesIfDue(ctx context.Context, now time.Time) {
 	for slate := range blitzSlateLabels {
 		p.mu.Lock()
 		last := p.lastSchedule[slate]
 		weekParam := p.weekParam[slate]
 		p.mu.Unlock()
-		if weekParam == "" || now.Sub(last) < 24*time.Hour {
+		if now.Sub(last) < blitzScheduleRefreshInterval {
+			continue
+		}
+		if weekParam == "" {
+			p.probeUnresolvedSlate(ctx, slate, now)
 			continue
 		}
 		games, err := p.pool.FetchPreseasonWeek(ctx, weekParam)
 		p.mu.Lock()
 		p.lastSchedule[slate] = now
-		p.mu.Unlock()
 		if err != nil {
+			status := p.health.Slates[slate]
+			status.LastAttempt = now
+			status.State = league.BlitzStateDegraded
+			status.Error = league.SafeBlitzError(err)
+			if p.scheduleError == nil {
+				p.scheduleError = map[string]bool{}
+			}
+			p.scheduleError[slate] = true
+			p.health.Slates[slate] = status
+			p.recomputeHealthLocked(now)
+			p.mu.Unlock()
 			log.Printf("blitz: schedule refresh for %s failed: %v", slate, err)
 			continue
 		}
-		matched := fantasy.SelectPreseasonGames(games, blitzSlateLabels[slate])
-		matched, dropped := blitzGamesWithKickoff(matched)
-		if dropped > 0 {
-			log.Printf("blitz: %s dropped %d game(s) with no kickoff time in the feed; they stay out of the slate until a refresh places them", slate, dropped)
+		if p.scheduleError == nil {
+			p.scheduleError = map[string]bool{}
 		}
-		if len(matched) == 0 {
-			continue
-		}
-		p.mu.Lock()
-		p.applyGamesLocked(slate, matched)
+		p.scheduleError[slate] = false
+		p.resolveSlateLocked(slate, blitzSlateLabels[slate], map[string][]fantasy.PreseasonGame{weekParam: games}, now, nil)
+		p.recomputeHealthLocked(now)
 		p.mu.Unlock()
 	}
 }
@@ -323,7 +593,7 @@ func (p *blitzPoller) refreshSchedulesIfDue(ctx context.Context, now time.Time) 
 // yet today. "Relevant" means at least one entered player's team is
 // involved (BlitzEnteredTeams).
 func (p *blitzPoller) selectFetchTarget(now time.Time) (league.BlitzGame, bool) {
-	relevantTeams := p.lg.BlitzEnteredTeams()
+	relevantTeams := p.enteredTeams()
 	p.mu.Lock()
 	games := append([]league.BlitzGame(nil), p.games...)
 	p.mu.Unlock()
@@ -358,10 +628,10 @@ func (p *blitzPoller) selectFetchTarget(now time.Time) (league.BlitzGame, bool) 
 
 	today := now.UTC().Format("20060102")
 	for _, game := range games {
-		if game.Final || !relevant(game) {
+		if !relevant(game) {
 			continue
 		}
-		if now.Before(game.Kickoff.Add(5 * time.Hour)) {
+		if !game.Final && now.Before(game.Kickoff.Add(5*time.Hour)) {
 			continue
 		}
 		p.mu.Lock()
@@ -398,14 +668,36 @@ func (p *blitzPoller) chargeBudget(now time.Time) bool {
 // snapshot, and — once final — persists it to disk (F22's atomic-write
 // pattern) so a restart never needs to refetch it.
 func (p *blitzPoller) fetchBoxScore(ctx context.Context, game league.BlitzGame, isCatchUp bool, now time.Time) {
+	p.mu.Lock()
+	if p.health.Slates == nil {
+		p.health.Slates = map[string]league.BlitzSlateHealth{}
+	}
+	status := p.health.Slates[game.Slate]
+	status.LastAttempt = now
+	p.health.Slates[game.Slate] = status
+	p.health.LastAttempt = now
+	p.mu.Unlock()
 	stats, final, err := p.pool.FetchPreseasonBoxScore(ctx, game.ID)
 	p.mu.Lock()
-	p.lastFetch[game.ID] = now
-	if isCatchUp {
-		p.catchUpDone[game.ID] = now.UTC().Format("20060102")
+	if p.lastFetch == nil {
+		p.lastFetch = map[string]time.Time{}
 	}
+	p.lastFetch[game.ID] = now
 	p.mu.Unlock()
 	if err != nil {
+		p.mu.Lock()
+		if p.boxScoreError == nil {
+			p.boxScoreError = map[string]bool{}
+		}
+		p.boxScoreError[game.Slate] = true
+		status := p.health.Slates[game.Slate]
+		status.LastAttempt = now
+		status.State = league.BlitzStateDegraded
+		status.Error = league.SafeBlitzError(err)
+		p.health.Slates[game.Slate] = status
+		p.recomputeHealthLocked(now)
+		p.version++
+		p.mu.Unlock()
 		log.Printf("blitz: box score fetch for %s failed: %v", game.ID, err)
 		return
 	}
@@ -417,7 +709,7 @@ func (p *blitzPoller) fetchBoxScore(ctx context.Context, game league.BlitzGame, 
 	for playerID, line := range stats {
 		p.stats[game.Slate][playerID] = line
 	}
-	if final != game.Final {
+	if final && !game.Final {
 		for i := range p.games {
 			if p.games[i].ID == game.ID {
 				p.games[i].Final = final
@@ -426,7 +718,26 @@ func (p *blitzPoller) fetchBoxScore(ctx context.Context, game league.BlitzGame, 
 	}
 	if final {
 		p.finalCached[game.ID] = true
+		if isCatchUp {
+			if p.catchUpDone == nil {
+				p.catchUpDone = map[string]string{}
+			}
+			p.catchUpDone[game.ID] = now.UTC().Format("20060102")
+		}
 	}
+	if p.boxScoreError == nil {
+		p.boxScoreError = map[string]bool{}
+	}
+	p.boxScoreError[game.Slate] = false
+	status = p.health.Slates[game.Slate]
+	status.LastAttempt = now
+	status.LastSuccess = now
+	if !p.scheduleError[game.Slate] {
+		status.Error = ""
+	}
+	p.health.Slates[game.Slate] = status
+	p.refreshSlateFinalityLocked(game.Slate)
+	p.recomputeHealthLocked(now)
 	p.version++
 	p.mu.Unlock()
 

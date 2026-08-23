@@ -29,6 +29,11 @@ type BlitzSnapshot struct {
 	Games   []BlitzGame
 	// Stats: slate ID -> player ID -> stat key -> value.
 	Stats map[string]map[string]map[string]float64
+	// Health is the source provenance for Games and Stats. A zero value is
+	// accepted for compatibility with older tests; BlitzData infers a
+	// complete value for non-empty fixture snapshots and treats an explicit
+	// empty source as loading/unknown.
+	Health BlitzHealth
 }
 
 // BlitzSource returns the current snapshot from memory. It must not
@@ -53,7 +58,21 @@ func (s *Service) blitzSnapshot() (BlitzSnapshot, bool) {
 	if source == nil {
 		return BlitzSnapshot{}, false
 	}
-	return source(), true
+	snapshot := source()
+	snapshot.Health = BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	return snapshot, true
+}
+
+// BlitzDependencyHealth returns the same source facts used by BlitzData.
+// It performs no network work and is safe for process health and
+// commissioner summary callers.
+func (s *Service) BlitzDependencyHealth() BlitzDependencyHealth {
+	snapshot, attached := s.blitzSnapshot()
+	if !attached {
+		snapshot.Health = BlitzHealth{State: BlitzStateDisabled}
+	}
+	snapshot.Health = BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	return BlitzDependencyHealth{Source: snapshot.Health, Pre1: s.blitzPre1Snapshot().Health}
 }
 
 // BlitzPre1Source returns the current preseason-week-1 per-player raw stat
@@ -77,19 +96,41 @@ type BlitzPre1Source func() map[string]map[string]float64
 func (s *Service) SetBlitzPre1Source(source BlitzPre1Source) {
 	s.poolMu.Lock()
 	s.blitzPre1Fn = source
+	s.blitzPre1SnapshotFn = nil
+	s.poolMu.Unlock()
+}
+
+// SetBlitzPre1SnapshotSource attaches the provenance-aware pre1 feed. A
+// partial map remains available to the board, but its degraded health is
+// preserved so rows can say "evidence incomplete" rather than treating every
+// absent player as verified no snaps.
+func (s *Service) SetBlitzPre1SnapshotSource(source BlitzPre1SnapshotSource) {
+	s.poolMu.Lock()
+	s.blitzPre1SnapshotFn = source
+	s.blitzPre1Fn = nil
 	s.poolMu.Unlock()
 }
 
 // blitzPre1Stats returns the current pre1 stat map, or nil when no source
 // is attached.
 func (s *Service) blitzPre1Stats() map[string]map[string]float64 {
+	snapshot := s.blitzPre1Snapshot()
+	return snapshot.Stats
+}
+
+func (s *Service) blitzPre1Snapshot() BlitzPre1Snapshot {
 	s.poolMu.Lock()
+	snapshotSource := s.blitzPre1SnapshotFn
 	source := s.blitzPre1Fn
 	s.poolMu.Unlock()
-	if source == nil {
-		return nil
+	if snapshotSource != nil {
+		return snapshotSource()
 	}
-	return source()
+	if source == nil {
+		return BlitzPre1Snapshot{Health: BlitzPre1Health{State: BlitzStateDisabled}}
+	}
+	stats := source()
+	return BlitzPre1Snapshot{Stats: stats, Health: NewBlitzPre1Health(stats)}
 }
 
 // validBlitzSlate reports whether id names one of the two Preseason Blitz
@@ -146,6 +187,122 @@ func blitzSlateClosed(games []BlitzGame) bool {
 		}
 	}
 	return true
+}
+
+// blitzSlateTruthReady is the source-completeness gate for terminal copy.
+// Empty is a valid result only when the source explicitly verified zero; an
+// empty loading/error snapshot is unknown and must not be called closed.
+func blitzSlateTruthReady(snapshot BlitzSnapshot, slate string) bool {
+	health := BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	status, ok := health.Slates[slate]
+	if !ok {
+		return false
+	}
+	return status.Complete || status.VerifiedZero
+}
+
+func blitzArchiveTruthReady(snapshot BlitzSnapshot) bool {
+	return blitzArchiveTruthReadyForTeams(snapshot, nil)
+}
+
+func blitzArchiveTruthReadyForTeams(snapshot BlitzSnapshot, enteredTeams map[string]bool) bool {
+	health := BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	if !health.Complete || !health.Final || !health.ScoringComplete {
+		return false
+	}
+	for _, slate := range []string{"pre2", "pre3"} {
+		status, ok := health.Slates[slate]
+		if !ok || !status.Complete || !status.Final || !status.ScoringComplete {
+			return false
+		}
+		if enteredTeams != nil && countRelevantFinalBlitzGames(snapshot.Games, slate, enteredTeams) > status.FetchedScoringGames {
+			// Entries can change after the last poll. A newly relevant final
+			// game must not inherit an old no-entrant scoring-complete result.
+			return false
+		}
+	}
+	return true
+}
+
+func countRelevantFinalBlitzGames(games []BlitzGame, slate string, enteredTeams map[string]bool) int {
+	count := 0
+	for _, game := range games {
+		if game.Slate != slate || !game.Final {
+			continue
+		}
+		away := strings.ToUpper(strings.TrimSpace(game.Away))
+		home := strings.ToUpper(strings.TrimSpace(game.Home))
+		if enteredTeams[away] || enteredTeams[home] {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *Service) blitzArchiveTruthReady(snapshot BlitzSnapshot) bool {
+	return blitzArchiveTruthReadyForTeams(snapshot, s.BlitzEnteredTeams())
+}
+
+func blitzSlateStatus(snapshot BlitzSnapshot, slate string) BlitzSlateHealth {
+	health := BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	return health.Slates[slate]
+}
+
+func blitzHealthMap(health BlitzHealth) map[string]any {
+	slates := map[string]any{}
+	for slate, status := range health.Slates {
+		slates[slate] = map[string]any{
+			"state":                  status.State,
+			"last_attempt":           formatBlitzHealthTime(status.LastAttempt),
+			"last_success":           formatBlitzHealthTime(status.LastSuccess),
+			"error":                  status.Error,
+			"expected_games":         status.ExpectedGames,
+			"fetched_games":          status.FetchedGames,
+			"final_games":            status.FinalGames,
+			"expected_scoring_games": status.ExpectedScoringGames,
+			"fetched_scoring_games":  status.FetchedScoringGames,
+			"scoring_complete":       status.ScoringComplete,
+			"complete":               status.Complete,
+			"final":                  status.Final,
+			"verified_zero":          status.VerifiedZero,
+		}
+	}
+	return map[string]any{
+		"enabled":                health.Enabled,
+		"state":                  health.State,
+		"last_attempt":           formatBlitzHealthTime(health.LastAttempt),
+		"last_success":           formatBlitzHealthTime(health.LastSuccess),
+		"error":                  health.SafeError,
+		"expected_games":         health.ExpectedGames,
+		"fetched_games":          health.FetchedGames,
+		"final_games":            health.FinalGames,
+		"expected_scoring_games": health.ExpectedScoringGames,
+		"fetched_scoring_games":  health.FetchedScoringGames,
+		"scoring_complete":       health.ScoringComplete,
+		"complete":               health.Complete,
+		"final":                  health.Final,
+		"verified_zero":          health.VerifiedZero,
+		"slates":                 slates,
+	}
+}
+
+func formatBlitzHealthTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339)
+}
+
+func pre1HealthMap(health BlitzPre1Health) map[string]any {
+	return map[string]any{
+		"state":          health.State,
+		"last_attempt":   formatBlitzHealthTime(health.LastAttempt),
+		"last_success":   formatBlitzHealthTime(health.LastSuccess),
+		"error":          health.SafeError,
+		"expected_games": health.ExpectedGames,
+		"fetched_games":  health.FetchedGames,
+		"complete":       health.Complete,
+	}
 }
 
 // blitzGameForTeam finds the slate game team plays in, home or away.
@@ -579,6 +736,10 @@ func blitzOrderEligible(rows []blitzEligibleRow) {
 // a rookie flag, and the resting tag, so BlitzPoolRow (app/blitz/
 // page.gsx) never has to compute any of this itself.
 func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64, pre1Stats map[string]map[string]float64, now time.Time) []map[string]any {
+	return s.blitzEligiblePlayersWithHealth(pool, slateGames, scoringValues, pre1Stats, NewBlitzPre1Health(pre1Stats), now)
+}
+
+func (s *Service) blitzEligiblePlayersWithHealth(pool playerPool, slateGames []BlitzGame, scoringValues map[string]float64, pre1Stats map[string]map[string]float64, pre1Health BlitzPre1Health, now time.Time) []map[string]any {
 	gameByTeam := make(map[string]BlitzGame, 2*len(slateGames))
 	for _, game := range slateGames {
 		gameByTeam[game.Away] = game
@@ -616,11 +777,22 @@ func (s *Service) blitzEligiblePlayers(pool playerPool, slateGames []BlitzGame, 
 		summary := "no pre1 snaps"
 		switch {
 		case row.hasData && row.statLine != "":
-			summary = "PRE1 " + fmt.Sprintf("%.1f", row.points) + " — " + row.statLine
+			prefix := "PRE1 "
+			if !pre1Health.Complete {
+				prefix = "PRE1 PROVISIONAL "
+			}
+			summary = prefix + fmt.Sprintf("%.1f", row.points) + " — " + row.statLine
 		case row.hasData:
-			summary = "PRE1 " + fmt.Sprintf("%.1f", row.points)
+			prefix := "PRE1 "
+			if !pre1Health.Complete {
+				prefix = "PRE1 PROVISIONAL "
+			}
+			summary = prefix + fmt.Sprintf("%.1f", row.points)
+		case pre1Health.State != BlitzStateDisabled && pre1Health.State != BlitzStateReady:
+			summary = "PRE1 evidence incomplete — no fetched snaps"
 		}
 		card["has_pre1"] = row.hasData
+		card["pre1_provisional"] = !pre1Health.Complete && row.hasData
 		card["pre1_summary"] = summary
 		card["is_rookie"] = row.player.Rookie
 		card["resting"] = row.resting
@@ -751,6 +923,11 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	pool := s.pool()
 	scoringValues := s.currentScoringValues()
 	snapshot, attached := s.blitzSnapshot()
+	if !attached {
+		snapshot.Health = BlitzHealth{State: BlitzStateDisabled}
+	}
+	snapshot.Health = BlitzHealthFromSnapshot(snapshot.Health, snapshot.Games)
+	pre1 := s.blitzPre1Snapshot()
 
 	slate := strings.TrimSpace(r.URL.Query().Get("slate"))
 	if !validBlitzSlate(slate) {
@@ -762,8 +939,25 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	}
 
 	slateGames := blitzGamesForSlate(snapshot.Games, slate)
-	archived := blitzArchived(snapshot.Games, now)
-	closed := blitzSlateClosed(slateGames)
+	slateStatus := blitzSlateStatus(snapshot, slate)
+	selectedState := slateStatus.State
+	selectedError := slateStatus.Error
+	selectedAsOf := slateStatus.LastSuccess
+	selectedComplete := slateStatus.Complete
+	selectedFinal := slateStatus.Final
+	if selectedState == "" {
+		// Legacy callers may provide only the aggregate health. Keep that
+		// compatibility path, but once a slate health record exists never
+		// let another slate's failure bleed into this page.
+		selectedState = snapshot.Health.State
+		selectedError = snapshot.Health.SafeError
+		selectedAsOf = snapshot.Health.LastSuccess
+		selectedComplete = snapshot.Health.Complete
+		selectedFinal = snapshot.Health.Final
+	}
+	slateKnown := blitzSlateTruthReady(snapshot, slate)
+	archived := blitzArchived(snapshot.Games, now) && s.blitzArchiveTruthReady(snapshot)
+	closed := slateKnown && (slateStatus.Final || blitzSlateClosed(slateGames))
 	liveStats := snapshot.Stats[slate]
 
 	entry := state.BlitzEntries[viewerKey][slate]
@@ -776,7 +970,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	eligible := []map[string]any{}
 	lockedEligible := 0
 	if !archived && !closed {
-		eligible = s.blitzEligiblePlayers(pool, slateGames, scoringValues, s.blitzPre1Stats(), now)
+		eligible = s.blitzEligiblePlayersWithHealth(pool, slateGames, scoringValues, pre1.Stats, pre1.Health, now)
 		for _, row := range eligible {
 			locked, _ := row["locked"].(bool)
 			if locked {
@@ -822,14 +1016,28 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	leaderboard := s.blitzLeaderboard(state, slate, slateGames, liveStats, scoringValues, pool, now)
 
 	data := map[string]any{
-		"viewer":            s.Viewer(r),
-		"feed_offline":      !attached,
-		"archived":          archived,
-		"slate":             slate,
-		"slate_label":       blitzSlateLabel(slate),
-		"other_slate":       other,
-		"other_slate_label": blitzSlateLabel(other),
-		"can_enter":         viewerKey != "" && !archived,
+		"viewer":                s.Viewer(r),
+		"feed_offline":          snapshot.Health.State == BlitzStateDisabled || !attached,
+		"blitz_health":          blitzHealthMap(snapshot.Health),
+		"blitz_state":           selectedState,
+		"blitz_source_error":    selectedError,
+		"blitz_loading":         selectedState == BlitzStateLoading,
+		"blitz_degraded":        selectedState == BlitzStateDegraded || selectedState == BlitzStateStale,
+		"blitz_recovery":        selectedState == BlitzStateError || selectedState == BlitzStateDegraded || selectedState == BlitzStateStale,
+		"blitz_unknown":         !slateKnown,
+		"blitz_as_of":           formatBlitzHealthTime(selectedAsOf),
+		"blitz_source_complete": selectedComplete,
+		"blitz_source_final":    selectedFinal,
+		"pre1_health":           pre1HealthMap(pre1.Health),
+		"pre1_state":            pre1.Health.State,
+		"pre1_partial":          pre1.Health.State == BlitzStateDegraded || (pre1.Health.State == BlitzStateReady && !pre1.Health.Complete),
+		"archived":              archived,
+		"archive_blocked":       !archived && blitzArchived(snapshot.Games, now),
+		"slate":                 slate,
+		"slate_label":           blitzSlateLabel(slate),
+		"other_slate":           other,
+		"other_slate_label":     blitzSlateLabel(other),
+		"can_enter":             viewerKey != "" && !archived,
 		// entry_open gates the slate; each eligible row's own can_add
 		// gates the player (see entryOpen above). The template reads
 		// can_add for the Add button, never entry_open, so a started
@@ -857,6 +1065,9 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"has_archive":           false,
 		"archive":               map[string]any{},
 		"league":                s.leagueMap(),
+	}
+	if snapshot.Health.State == "" {
+		data["blitz_state"] = BlitzStateLoading
 	}
 	matchupLabel, hasMatchupLabel := s.MatchupSourceLabel()
 	data["matchup_source_label"] = matchupLabel

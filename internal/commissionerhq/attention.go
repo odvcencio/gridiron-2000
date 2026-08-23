@@ -7,6 +7,7 @@ const (
 	AttentionAreaSchedule     = "schedule"
 	AttentionAreaPool         = "pool"
 	AttentionAreaOpenData     = "open-data"
+	AttentionAreaBlitz        = "blitz"
 	AttentionSeverityInfo     = "info"
 	AttentionSeverityWarning  = "warning"
 	AttentionSeverityCritical = "critical"
@@ -19,6 +20,7 @@ var attentionAreas = map[string]struct{}{
 	AttentionAreaSchedule:   {},
 	AttentionAreaPool:       {},
 	AttentionAreaOpenData:   {},
+	AttentionAreaBlitz:      {},
 }
 
 var attentionSeverities = map[string]struct{}{
