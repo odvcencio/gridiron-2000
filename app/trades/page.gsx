@@ -85,6 +85,7 @@ func Page() Node {
 					<input type="hidden" name="csrf_token" value={csrf.token}></input>
 					<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 					<input type="hidden" name="to_team_id" value={data.compose_counterparty_id}></input>
+					<input type="hidden" name="counterparty" value={data.compose_counterparty_id}></input>
 					<div class="trade-composer__sides">
 						<div class="trade-composer__side">
 							<h3>You give</h3>
@@ -93,7 +94,7 @@ func Page() Node {
 							</If>
 							<Each of={data.my_options} as="opt">
 								<label class="trade-composer__option">
-									<input type="checkbox" name="give" value={opt.ID}></input>
+									<input type="checkbox" name="give" value={opt.ID} checked={opt.Selected}></input>
 									{opt.Label}
 								</label>
 							</Each>
@@ -105,7 +106,7 @@ func Page() Node {
 							</If>
 							<Each of={data.compose_options} as="opt">
 								<label class="trade-composer__option">
-									<input type="checkbox" name="get" value={opt.ID}></input>
+									<input type="checkbox" name="get" value={opt.ID} checked={opt.Selected}></input>
 									{opt.Label}
 								</label>
 							</Each>
@@ -113,8 +114,9 @@ func Page() Node {
 					</div>
 					<label class="trade-composer__note">
 						Note (optional)
-						<textarea name="note" maxlength={data.note_max} rows="2" placeholder="Add a note for the other manager..."></textarea>
+						<textarea name="note" maxlength={data.note_max} rows="2" placeholder="Add a note for the other manager...">{data.compose_note}</textarea>
 					</label>
+						<p class="error-message form-error" data-gosx-field-error="offer_id" aria-live="polite"></p>
 					<button class="draft-button" type="submit">Send offer</button>
 					</form>
 				</If>
@@ -178,30 +180,41 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 								<input type="hidden" name="offer_id" value={offer.ID}></input>
+								<input type="hidden" name="counterparty" value={offer.FromTeamID}></input>
 								<div class="trade-composer__sides">
 									<div class="trade-composer__side">
 										<h3>You give</h3>
-										<Each of={data.my_options} as="opt">
+										<If cond={offer.CounterGiveOptionsEmpty}>
+											<p class="empty-tape">Your current roster is empty.</p>
+										</If>
+										<Each of={offer.CounterGiveOptions} as="opt">
 											<label class="trade-composer__option">
-												<input type="checkbox" name="give" value={opt.ID}></input>
+												<input type="checkbox" name="give" value={opt.ID} checked={opt.Selected}></input>
 												{opt.Label}
 											</label>
 										</Each>
 									</div>
 									<div class="trade-composer__side">
 										<h3>{"You get from " + offer.FromTeam}</h3>
-										<Each of={offer.Give} as="p">
+										<If cond={offer.CounterGetOptionsEmpty}>
+											<p class="empty-tape">Their current roster is empty.</p>
+										</If>
+										<Each of={offer.CounterGetOptions} as="opt">
 											<label class="trade-composer__option">
-												<input type="checkbox" name="get" value={p.ID}></input>
-												{p.Name + " (" + p.Position + ")"}
+												<input type="checkbox" name="get" value={opt.ID} checked={opt.Selected}></input>
+												{opt.Label}
 											</label>
 										</Each>
 									</div>
 								</div>
 								<label class="trade-composer__note">
 									Note (optional)
-									<textarea name="note" maxlength={data.note_max} rows="2"></textarea>
+									<textarea name="note" maxlength={data.note_max} rows="2">{offer.CounterNote}</textarea>
 								</label>
+								<If cond={offer.HasCounterRecovery}>
+									<small class="form-recovery" aria-live="polite">Your previous counter selections and note were kept. Review them before resending.</small>
+								</If>
+								<p class="error-message form-error" data-gosx-field-error="offer_id" aria-live="polite"></p>
 								<button class="draft-button" type="submit">Send counter</button>
 							</form>
 						</details>
@@ -229,7 +242,7 @@ func Page() Node {
 				<Each of={data.outbox} as="offer">
 					<article class="rank-row rank-row--wide">
 						<div class="pool-player__text">
-							<strong>{"To " + offer.ToTeam + " · " + offer.Status}</strong>
+							<strong>{"To " + offer.ToTeam + " · " + offer.StatusLabel}</strong>
 							<small>
 								You send
 								<Each of={offer.Give} as="p">
@@ -351,5 +364,51 @@ func Page() Node {
 				</div>
 			</section>
 		</If>
+		<section class="player-pool" id="history">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">06 // HISTORY</span>
+					<h2>Trade history</h2>
+				</div>
+			</div>
+			<If cond={data.history_empty}>
+				<div class="empty-tape">
+					<strong>NO TERMINAL TRADE HISTORY</strong>
+					<p>Executed, declined, withdrawn, countered, vetoed, expired, and failed offers appear here for the participating seats.</p>
+				</div>
+			</If>
+			<If cond={data.history_empty == false}>
+				<div class="pool-list">
+					<Each of={data.history} as="offer">
+						<article class="rank-row rank-row--wide">
+							<div class="pool-player__text">
+								<strong>{offer.StatusLabel}</strong>
+								<small>{offer.FromTeam + " ↔ " + offer.ToTeam}</small>
+								<small>Created {offer.CreatedAt}</small>
+								<If cond={offer.ResolvedAt != ""}>
+									<small>Resolved {offer.ResolvedAt}</small>
+								</If>
+								<small>
+									Give:
+									<Each of={offer.Give} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
+									</Each>
+									· Get:
+									<Each of={offer.Get} as="p">
+										{" " + p.Name + " (" + p.Position + ")"}
+									</Each>
+								</small>
+								<If cond={offer.HasNote}>
+									<small>Note: "{offer.Note}"</small>
+								</If>
+								<If cond={offer.Status == "failed"}>
+									<small>Failure reason: {offer.FailReason}</small>
+								</If>
+							</div>
+						</article>
+					</Each>
+				</div>
+			</If>
+		</section>
 	</main>
 }

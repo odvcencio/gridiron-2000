@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -38,6 +39,9 @@ const (
 // tradeOfferMaxAge is the fixed 7-day expiry (section 6.1's T-expire step:
 // "fixed 7 days; not a knob").
 const tradeOfferMaxAge = 7 * 24 * time.Hour
+
+// tradeHistoryCap bounds the terminal ledger rendered in the Trade Desk.
+const tradeHistoryCap = 20
 
 // tradeNoteMaxRunes is T14's note-length bound (section 6.3).
 const tradeNoteMaxRunes = 280
@@ -131,6 +135,44 @@ func tradeDeadlineState(cfg Config, now time.Time) (deadline time.Time, configur
 	}
 	passed = !now.In(location).Before(deadline.In(location))
 	return deadline, true, passed, formatResolvesAt(cfg, deadline)
+}
+
+// tradeStatusLabel turns the persisted transition vocabulary into copy a
+// manager can scan in the terminal history. Keep the raw Status on rows for
+// action guards and tests; templates use this label for user-facing text.
+func tradeStatusLabel(status string) string {
+	switch status {
+	case TradeStatusOpen:
+		return "Open"
+	case TradeStatusAccepted:
+		return "Accepted — in review"
+	case TradeStatusExecuted:
+		return "Executed"
+	case TradeStatusDeclined:
+		return "Declined"
+	case TradeStatusWithdrawn:
+		return "Withdrawn"
+	case TradeStatusCountered:
+		return "Countered"
+	case TradeStatusVetoed:
+		return "Vetoed"
+	case TradeStatusExpired:
+		return "Expired"
+	case TradeStatusFailed:
+		return "Failed"
+	default:
+		return "Trade status unavailable"
+	}
+}
+
+func tradeStatusTerminal(status string) bool {
+	switch status {
+	case TradeStatusExecuted, TradeStatusDeclined, TradeStatusWithdrawn,
+		TradeStatusCountered, TradeStatusVetoed, TradeStatusExpired, TradeStatusFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // cleanTradePlayerIDs trims, drops empties, and de-duplicates a submitted
@@ -490,6 +532,7 @@ func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID string) (s
 		// The offer already recorded "failed" with FailReason inside
 		// ExecuteTradeOffer; surface that reason rather than claiming
 		// success.
+		s.notifyTradeFailed(offer)
 		return "", err
 	}
 	s.notifyTradeExecuted(offer, txn)
@@ -520,6 +563,7 @@ func (s *Service) ApproveTrade(r *http.Request, offerID string) (string, error) 
 	starterCount, rosterCap := tradeRosterBounds()
 	txn, err := s.store.ExecuteTradeOffer(offerID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
 	if err != nil {
+		s.notifyTradeFailed(offer)
 		return "", err
 	}
 	s.notifyTradeExecuted(offer, txn)
@@ -609,6 +653,12 @@ func keyTradeExecuted(offerID, email string) string {
 }
 func keyTradeVetoed(offerID, email string) string {
 	return "tradeveto:" + offerID + ":" + normalizeEmail(email)
+}
+
+// keyTradeFailed backs the terminal failure receipt notification. The key
+// is per offer and recipient so retries and both execution paths deduplicate.
+func keyTradeFailed(offerID, email string) string {
+	return "tradefailed:" + offerID + ":" + normalizeEmail(email)
 }
 
 // tradeOfferShortID renders offer.ID's short form for a Headline signal
@@ -786,6 +836,63 @@ func (s *Service) notifyTradeVetoed(offer TradeOffer, mechanism string) {
 	}
 }
 
+// notifyTradeFailed fires a durable terminal receipt to every operator in
+// both party seats. ExecuteTradeOffer records FailReason before returning,
+// and this hook deliberately reads that persisted value instead of exposing
+// an arbitrary storage/driver error to managers.
+func (s *Service) notifyTradeFailed(offer TradeOffer) {
+	if !s.notifyReady() {
+		return
+	}
+	state := s.store.Snapshot()
+	current, ok := findTradeOffer(state.TradeOffers, offer.ID)
+	if !ok || current.Status != TradeStatusFailed {
+		return
+	}
+	offer = current
+	reason := strings.TrimSpace(offer.FailReason)
+	if reason == "" {
+		reason = "The trade could not be completed. Review the Trade Desk for the current status."
+	}
+	if runes := []rune(reason); len(runes) > tradeNoteMaxRunes {
+		reason = string(runes[:tradeNoteMaxRunes])
+	}
+	for _, teamID := range [2]string{offer.FromTeamID, offer.ToTeamID} {
+		for _, member := range teamMembers(state.Members, teamID) {
+			if member.Email == "" {
+				continue
+			}
+			key := keyTradeFailed(offer.ID, member.Email)
+			recipient := member
+			s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
+				return s.buildTradeFailed(offer, recipient, reason)
+			})
+		}
+	}
+}
+
+func (s *Service) buildTradeFailed(offer TradeOffer, member Member, reason string) renderedNotification {
+	pool := s.pool()
+	giveNames := tradePlayerNames(pool.byID, offer.Give)
+	getNames := tradePlayerNames(pool.byID, offer.Get)
+	subject := fmt.Sprintf("TRADE FAILED: %s for %s", giveNames, getNames)
+	lede := fmt.Sprintf("The trade between %s and %s did not complete.", s.teamByID(offer.FromTeamID).Name, s.teamByID(offer.ToTeamID).Name)
+	shell := s.shellFor(categoryTransactions, "TRADE DESK // FAILED")
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: "THE TRADE DID NOT COMPLETE.", Lede: lede},
+		emailkit.Panel{Rows: []emailkit.PanelRow{
+			{Label: "OFFER", Value: fmt.Sprintf("%s gives %s, gets %s", s.teamByID(offer.FromTeamID).Name, giveNames, getNames)},
+			{Label: "REASON", Value: reason},
+		}},
+		emailkit.CTA{Label: "OPEN THE TRADE DESK →", URL: s.leaguePathURL("trades")},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyTradeFailed(offer.ID, member.Email), Category: categoryTransactions,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
 func (s *Service) buildTradeVetoed(offer TradeOffer, member Member, mechanism string) renderedNotification {
 	pool := s.pool()
 	giveNames := tradePlayerNames(pool.byID, offer.Give)
@@ -832,30 +939,38 @@ type TradePlayerCard struct {
 // for a value a GSX template's <If> guards (see service.go's
 // fantasyCardData doc comment for the same discipline).
 type TradeOfferRow struct {
-	ID                  string
-	Status              string
-	FromTeam            string
-	FromTeamID          string
-	ToTeam              string
-	ToTeamID            string
-	Give                []TradePlayerCard
-	Get                 []TradePlayerCard
-	Note                string
-	HasNote             bool
-	CreatedAt           string
-	FailReason          string
-	VetoesCount         int
-	VetoesThreshold     int
-	CanDecline          bool
-	CanCounter          bool
-	CanAccept           bool
-	CanWithdraw         bool
-	CanApprove          bool
-	CanVetoCommissioner bool
-	CanVote             bool
-	AlreadyVoted        bool
-	HasReviewDeadline   bool
-	ReviewDeadline      string
+	ID                      string
+	Status                  string
+	StatusLabel             string
+	FromTeam                string
+	FromTeamID              string
+	CounterGiveOptions      []TradeRosterOption
+	CounterGetOptions       []TradeRosterOption
+	CounterGiveOptionsEmpty bool
+	CounterGetOptionsEmpty  bool
+	CounterNote             string
+	HasCounterRecovery      bool
+	ToTeam                  string
+	ToTeamID                string
+	Give                    []TradePlayerCard
+	Get                     []TradePlayerCard
+	Note                    string
+	HasNote                 bool
+	CreatedAt               string
+	ResolvedAt              string
+	FailReason              string
+	VetoesCount             int
+	VetoesThreshold         int
+	CanDecline              bool
+	CanCounter              bool
+	CanAccept               bool
+	CanWithdraw             bool
+	CanApprove              bool
+	CanVetoCommissioner     bool
+	CanVote                 bool
+	AlreadyVoted            bool
+	HasReviewDeadline       bool
+	ReviewDeadline          string
 }
 
 // tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
@@ -879,9 +994,18 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 			alreadyVoted = true
 		}
 	}
+	resolvedAt := ""
+	if !offer.ResolvedAt.IsZero() {
+		resolvedAt = offer.ResolvedAt.Format("Jan 2, 3:04 PM MST")
+	}
+	failReason := strings.TrimSpace(offer.FailReason)
+	if offer.Status == TradeStatusFailed && failReason == "" {
+		failReason = "The trade could not be completed. Review the Trade Desk for the current status."
+	}
 	row := TradeOfferRow{
 		ID:                  offer.ID,
 		Status:              offer.Status,
+		StatusLabel:         tradeStatusLabel(offer.Status),
 		FromTeam:            s.teamByID(offer.FromTeamID).Name,
 		FromTeamID:          offer.FromTeamID,
 		ToTeam:              s.teamByID(offer.ToTeamID).Name,
@@ -891,7 +1015,8 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		Note:                offer.Note,
 		HasNote:             offer.Note != "",
 		CreatedAt:           offer.CreatedAt.Format("Jan 2, 3:04 PM MST"),
-		FailReason:          offer.FailReason,
+		ResolvedAt:          resolvedAt,
+		FailReason:          failReason,
 		VetoesCount:         len(offer.Vetoes),
 		VetoesThreshold:     threshold,
 		CanDecline:          canEdit && offer.Status == TradeStatusOpen && offer.ToTeamID == teamID,
@@ -914,8 +1039,9 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 // TradeRosterOption is one player a trade composer's checkbox group
 // offers, from either side's roster.
 type TradeRosterOption struct {
-	ID    string
-	Label string
+	ID       string
+	Label    string
+	Selected bool
 }
 
 // TradeCounterparty is one other team the compose panel's partner picker
@@ -923,6 +1049,51 @@ type TradeRosterOption struct {
 type TradeCounterparty struct {
 	ID   string
 	Name string
+}
+
+// Trade Desk history helpers.
+// tradeHistoryAt returns the terminal resolution instant used for the
+// newest-first history ordering. Legacy offers may have no ResolvedAt, so
+// CreatedAt is the safe deterministic fallback.
+func tradeHistoryAt(offer TradeOffer) time.Time {
+	if !offer.ResolvedAt.IsZero() {
+		return offer.ResolvedAt
+	}
+	return offer.CreatedAt
+}
+
+// tradeHistoryRows returns only terminal offers the viewer is allowed to
+// inspect. A commissioner may review the global terminal ledger; managers
+// see only offers where their seat was one of the two parties.
+func (s *Service) tradeHistoryRows(state PersistedState, pool playerPool, teamID string, isCommissioner bool, threshold int) []TradeOfferRow {
+	offers := make([]TradeOffer, 0, len(state.TradeOffers))
+	for _, offer := range state.TradeOffers {
+		if !tradeStatusTerminal(offer.Status) {
+			continue
+		}
+		if !isCommissioner && (teamID == "" || (offer.FromTeamID != teamID && offer.ToTeamID != teamID)) {
+			continue
+		}
+		offers = append(offers, offer)
+	}
+	sort.SliceStable(offers, func(i, j int) bool {
+		left, right := tradeHistoryAt(offers[i]), tradeHistoryAt(offers[j])
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		if !offers[i].CreatedAt.Equal(offers[j].CreatedAt) {
+			return offers[i].CreatedAt.After(offers[j].CreatedAt)
+		}
+		return offers[i].ID > offers[j].ID
+	})
+	if len(offers) > tradeHistoryCap {
+		offers = offers[:tradeHistoryCap]
+	}
+	rows := make([]TradeOfferRow, 0, len(offers))
+	for _, offer := range offers {
+		rows = append(rows, s.tradeOfferRow(pool, offer, teamID, false, false, isCommissioner, threshold))
+	}
+	return rows
 }
 
 // TradesData assembles the /trades page (roster-ops spec section 8.3):
@@ -988,7 +1159,12 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	for _, offer := range state.TradeOffers {
 		switch {
 		case offer.Status == TradeStatusOpen && offer.ToTeamID == teamID:
-			inbox = append(inbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
+			row := s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold)
+			row.CounterGiveOptions = rosterOptions(teamID)
+			row.CounterGetOptions = rosterOptions(offer.FromTeamID)
+			row.CounterGiveOptionsEmpty = len(row.CounterGiveOptions) == 0
+			row.CounterGetOptionsEmpty = len(row.CounterGetOptions) == 0
+			inbox = append(inbox, row)
 		case offer.Status == TradeStatusOpen && offer.FromTeamID == teamID:
 			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		case offer.Status == TradeStatusAccepted && (offer.FromTeamID == teamID || offer.ToTeamID == teamID):
@@ -1003,6 +1179,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		}
 	}
 
+	history := s.tradeHistoryRows(state, pool, teamID, isCommissioner, threshold)
 	return map[string]any{
 		"viewer":                    viewer,
 		"league":                    s.leagueMap(),
@@ -1018,6 +1195,9 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"counterparties_empty":      len(counterparties) == 0,
 		"my_options":                myOptions,
 		"my_options_empty":          len(myOptions) == 0,
+		"compose_give_selected":     []string{},
+		"compose_get_selected":      []string{},
+		"compose_note":              "",
 		"compose_counterparty_id":   composeCounterpartyID,
 		"compose_counterparty_name": composeCounterpartyName,
 		"compose_active":            composeCounterpartyID != "",
@@ -1031,5 +1211,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"review_empty":              len(review) == 0,
 		"vote_panel":                votePanel,
 		"vote_panel_empty":          len(votePanel) == 0,
+		"history":                   history,
+		"history_empty":             len(history) == 0,
 	}
 }

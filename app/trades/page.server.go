@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"net/http"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -21,11 +23,124 @@ var tradeErrorFields = []string{
 	"trade-accept", "trade-approve", "trade-veto-commissioner", "trade-veto-vote",
 }
 
+func tradeFormIDs(values []string) string {
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(values))
+	for _, raw := range values {
+		for _, part := range strings.Split(raw, ",") {
+			id := strings.TrimSpace(part)
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	return strings.Join(ids, ",")
+}
+
+// tradeFormValues preserves checkbox groups and companion fields when a
+// propose/counter validation fails. Result.Values is scalar, so groups use a
+// stable comma-separated representation for native and managed recovery.
+func tradeFormValues(ctx *action.Context) map[string]string {
+	values := map[string]string{}
+	if ctx == nil {
+		return values
+	}
+	for _, key := range []string{"team_id", "to_team_id", "offer_id", "counterparty", "note"} {
+		if value, ok := ctx.FormData[key]; ok {
+			values[key] = value
+		}
+	}
+	if ctx.Request != nil {
+		_ = ctx.Request.ParseForm()
+		for _, key := range []string{"give", "get"} {
+			if submitted, ok := ctx.Request.Form[key]; ok {
+				values[key] = tradeFormIDs(submitted)
+			} else if value, ok := ctx.FormData[key]; ok {
+				values[key] = tradeFormIDs([]string{value})
+			}
+		}
+	}
+	return values
+}
+
+func tradeValidation(ctx *action.Context, err error) error {
+	message := actionui.Message("trades", err)
+	return action.Validation(message, map[string]string{"offer_id": message}, tradeFormValues(ctx))
+}
+
+func tradeRequestWithCounterparty(request *http.Request, counterparty string) *http.Request {
+	if request == nil || strings.TrimSpace(counterparty) == "" {
+		return request
+	}
+	clone := request.Clone(request.Context())
+	url := *request.URL
+	query := url.Query()
+	query.Set("counterparty", strings.TrimSpace(counterparty))
+	url.RawQuery = query.Encode()
+	clone.URL = &url
+	return clone
+}
+
+func tradeSelectOptions(options []league.TradeRosterOption, raw string) []league.TradeRosterOption {
+	selected := map[string]bool{}
+	for _, id := range strings.Split(raw, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			selected[id] = true
+		}
+	}
+	for i := range options {
+		options[i].Selected = selected[options[i].ID]
+	}
+	return options
+}
+
+func applyTradeProposeRecovery(data map[string]any, view action.View) {
+	if note, ok := view.Result.Values["note"]; ok {
+		data["compose_note"] = note
+	}
+	if options, ok := data["my_options"].([]league.TradeRosterOption); ok {
+		data["my_options"] = tradeSelectOptions(options, view.Value("give"))
+	}
+	if options, ok := data["compose_options"].([]league.TradeRosterOption); ok {
+		data["compose_options"] = tradeSelectOptions(options, view.Value("get"))
+	}
+}
+
+func applyTradeCounterRecovery(data map[string]any, view action.View) {
+	offerID := strings.TrimSpace(view.Value("offer_id"))
+	rows, ok := data["inbox"].([]league.TradeOfferRow)
+	if !ok || offerID == "" {
+		return
+	}
+	for i := range rows {
+		if rows[i].ID != offerID {
+			continue
+		}
+		rows[i].CounterGiveOptions = tradeSelectOptions(rows[i].CounterGiveOptions, view.Value("give"))
+		rows[i].CounterGetOptions = tradeSelectOptions(rows[i].CounterGetOptions, view.Value("get"))
+		if note, ok := view.Result.Values["note"]; ok {
+			rows[i].CounterNote = note
+		}
+		rows[i].HasCounterRecovery = true
+	}
+	data["inbox"] = rows
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			data := league.Default().TradesData(ctx.Request)
+			request := ctx.Request
+			if view, ok := ctx.ActionState("trade-propose"); ok && !view.OK() {
+				counterparty := view.Value("to_team_id")
+				if counterparty == "" {
+					counterparty = view.Value("counterparty")
+				}
+				request = tradeRequestWithCounterparty(request, counterparty)
+			}
+			data := league.Default().TradesData(request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -43,6 +158,12 @@ func init() {
 						data["trades_error"] = message
 					}
 				}
+			}
+			if view, ok := ctx.ActionState("trade-propose"); ok && !view.OK() {
+				applyTradeProposeRecovery(data, view)
+			}
+			if view, ok := ctx.ActionState("trade-counter"); ok && !view.OK() {
+				applyTradeCounterRecovery(data, view)
 			}
 			return data, nil
 		},
@@ -63,7 +184,7 @@ func init() {
 				message, err := league.Default().ProposeTrade(ctx.Request, ctx.FormData["team_id"], toTeamID,
 					ctx.Request.Form["give"], ctx.Request.Form["get"], nil, ctx.FormData["note"])
 				if err != nil {
-					return actionui.Validation(ctx, "trades", "offer_id", err)
+					return tradeValidation(ctx, err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
@@ -73,7 +194,7 @@ func init() {
 				message, err := league.Default().CounterTrade(ctx.Request, ctx.FormData["team_id"], offerID,
 					ctx.Request.Form["give"], ctx.Request.Form["get"], nil, ctx.FormData["note"])
 				if err != nil {
-					return actionui.Validation(ctx, "trades", "offer_id", err)
+					return tradeValidation(ctx, err)
 				}
 				actionui.RedirectWithNotice(ctx, "/trades", message)
 				return nil
