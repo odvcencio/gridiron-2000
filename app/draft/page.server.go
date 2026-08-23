@@ -501,7 +501,7 @@ func init() {
 				if on {
 					status = "AUTO mode enabled"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s for %s.", status, teamID))
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
 				return nil
 			},
 			// seat-ready sets a claimed seat's Ready flag on the commissioner's
@@ -522,7 +522,7 @@ func init() {
 				if on {
 					status = "locked in"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", teamID, status))
+				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
 				return nil
 			},
 		},

@@ -621,7 +621,7 @@ func DraftRoom(props DraftRoomProps) Node {
 				<div class="draft-seat-controls" aria-label="Commissioner seat coverage">
 					<div class="draft-seat-controls__intro">
 						<strong>Presence is observational. AUTO is authority.</strong>
-						<p>HERE, IDLE, AWAY, and NOT SEEN never shorten a pick. Set AUTO for a known absence; the seat gets the short grace and then follows its Big Board.</p>
+						<p>HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
 					</div>
 					<Each of={props.Data.seat_controls} as="seat">
 						<DraftSeatControl {...seat}></DraftSeatControl>

@@ -2331,10 +2331,9 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 var clockReasonLabels = map[string]string{
 	"unarmed":  "NOT RUNNING",
 	"clock":    "ON THE CLOCK",
-	"away-cap": "AWAY — SHORT CLOCK",
 	"autopick": "AUTOPICK ARMED",
 	"paused":   "PAUSED",
-	"not_seen": "NEVER CHECKED IN",
+	"not_seen": "NOT SEEN — SHORT SAFETY CLOCK",
 }
 
 func clockReasonLabel(reason string) string {
