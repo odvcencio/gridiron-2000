@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -205,6 +206,15 @@ func realisticFixture() PersistedState {
 		{ID: "clm-0001", TeamID: "team-1", AddID: "p-30", DropID: "p-31", Bid: 12, Priority: 1, FiledAt: at(4, 1)},
 		{ID: "clm-0002", TeamID: "team-2", AddID: "p-30", Priority: 1, FiledAt: at(4, 2)},
 	}
+	state.WaiverReceipts = []WaiverReceipt{{
+		ClaimID: "clm-resolved", Season: 2026, Week: 2, TeamID: "team-1",
+		Add:   player("p-27", "Receipt Add", "WR", "MIA"),
+		Drops: []TransactionPlayer{player("p-28", "Receipt Drop", "RB", "NYJ")},
+		Bid:   11, SubmittedPriority: 2, WaiverPosition: 4, WaiverTeamCount: 8,
+		Mode: "faab", Outcome: "beaten", WinningTeamID: "team-2", WinningBid: 17, WinningBidKnown: true,
+		Reason:  "Another team acquired this player before this claim resolved.",
+		FiledAt: at(3, 21), ResolvedAt: at(4, 3),
+	}}
 
 	offer := func(id, status string, resolved bool) TradeOffer {
 		o := TradeOffer{
@@ -695,6 +705,15 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 		_ = db.Close()
 		t.Fatal(err)
 	}
+	for _, args := range [][]any{
+		{0, "legacy-late", "team-1", "p-2", "", 0, 9, "2026-09-01T10:00:00Z"},
+		{1, "legacy-early", "team-1", "p-1", "", 0, 9, "2026-09-01T09:00:00Z"},
+	} {
+		if _, err := db.Exec(`INSERT INTO waiver_claims (ord, id, team_id, add_id, drop_id, bid, priority, filed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args...); err != nil {
+			_ = db.Close()
+			t.Fatal(err)
+		}
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -723,6 +742,19 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 		_ = store.Close()
 		t.Fatalf("v1 migration invented avatar refs: %#v", got.AvatarRefs)
 	}
+	claimPriority := map[string]int{}
+	for _, claim := range got.WaiverClaims {
+		claimPriority[claim.ID] = claim.Priority
+	}
+	if len(got.WaiverClaims) != 2 || claimPriority["legacy-early"] != 1 || claimPriority["legacy-late"] != 2 {
+		_ = store.Close()
+		t.Fatalf("migrated claim priorities = %+v, want deterministic 1..2 order", got.WaiverClaims)
+	}
+	var receiptTable string
+	if err := store.db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'waiver_receipts'`).Scan(&receiptTable); err != nil {
+		_ = store.Close()
+		t.Fatalf("waiver_receipts table missing after migration: %v", err)
+	}
 	want := got
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
@@ -734,6 +766,79 @@ func TestV1SQLiteMigratesToV2WithCanonicalIdentityOnly(t *testing.T) {
 	}
 	if got := reloaded.Snapshot(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("reloaded v1->v2 state differs:\n%s", diffStates(t, want, got))
+	}
+}
+
+func TestV6SQLiteMigratesWaiverReceiptsToV7(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), dbFileName)
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	// DB user_version 5 is logical state schema 6: Pick'em entry authority
+	// exists, while waiver receipts and canonical private claim order do not.
+	for step := 0; step < 5; step++ {
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := dbMigrations[step](tx); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if _, err := tx.Exec("PRAGMA user_version = " + strconv.Itoa(step+1)); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+		if err := tx.Commit(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]any{
+		{0, "late", "team-1", "p-2", "", 0, 9, "2026-09-01T10:00:00Z"},
+		{1, "early", "team-1", "p-1", "", 0, 9, "2026-09-01T09:00:00Z"},
+	} {
+		if _, err := db.Exec(`INSERT INTO waiver_claims (ord, id, team_id, add_id, drop_id, bid, priority, filed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := migrateDB(db); err != nil {
+		t.Fatal(err)
+	}
+	var userVersion int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil || userVersion != 6 {
+		t.Fatalf("user_version = %d (err %v), want 6", userVersion, err)
+	}
+	var logicalVersion string
+	if err := db.QueryRow(`SELECT value FROM kv WHERE key = ?`, kvSchemaVersion).Scan(&logicalVersion); err != nil || logicalVersion != "7" {
+		t.Fatalf("logical schema = %q (err %v), want 7", logicalVersion, err)
+	}
+	var receiptTable string
+	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'waiver_receipts'`).Scan(&receiptTable); err != nil {
+		t.Fatalf("waiver_receipts table missing after v6->v7 migration: %v", err)
+	}
+	rows, err := db.Query(`SELECT id, priority FROM waiver_claims ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	priorities := map[string]int{}
+	for rows.Next() {
+		var id string
+		var priority int
+		if err := rows.Scan(&id, &priority); err != nil {
+			t.Fatal(err)
+		}
+		priorities[id] = priority
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if priorities["early"] != 1 || priorities["late"] != 2 {
+		t.Fatalf("normalized priorities = %#v, want early=1 late=2", priorities)
 	}
 }
 

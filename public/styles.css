@@ -3635,6 +3635,97 @@ body.is-on-clock .draft-clock-panel {
   grid-template-columns: minmax(14rem, 1fr) 3.5rem 4rem 5rem;
 }
 
+.waiver-desk-explainer {
+  max-width: 72rem;
+  margin: 0 0 var(--space-sm);
+}
+
+.waiver-claim-list,
+.waiver-receipt-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.waiver-claim-row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 1fr) minmax(13rem, 0.9fr) auto;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-white-faint);
+}
+
+.waiver-claim-meta,
+.waiver-receipt-order,
+.waiver-receipt-outcome,
+.waiver-receipt-player {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2xs, 0.25rem);
+  min-width: 0;
+}
+
+.waiver-claim-meta > span:not(.position-chip),
+.waiver-receipt-row span {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.waiver-claim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2xs, 0.25rem);
+}
+
+.waiver-claim-actions form {
+  margin: 0;
+}
+
+.waiver-claim-actions .board-button {
+  min-height: 2.75rem;
+  white-space: nowrap;
+}
+
+.waiver-receipts-heading {
+  margin-top: var(--space-lg);
+}
+
+.waiver-receipt-row {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.55fr) minmax(14rem, 1.4fr) minmax(11rem, 0.8fr);
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-left: 3px solid var(--color-accent-cyan);
+  background: var(--color-white-faint);
+}
+
+.waiver-receipt-player strong {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 54rem) {
+  .waiver-claim-row,
+  .waiver-receipt-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .waiver-claim-actions {
+    justify-content: flex-start;
+  }
+
+  .waiver-claim-actions form,
+  .waiver-claim-actions .board-button {
+    flex: 1 1 7.5rem;
+  }
+
+  .waiver-claim-actions .board-button {
+    width: 100%;
+  }
+}
+
 .player-pool[data-filter="RB"] .pool-row:not([data-player-position="RB"]),
 .player-pool[data-filter="WR"] .pool-row:not([data-player-position="WR"]),
 .player-pool[data-filter="QB"] .pool-row:not([data-player-position="QB"]),

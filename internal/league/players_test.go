@@ -349,6 +349,9 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 func TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage(t *testing.T) {
 	svc, _ := newPlayersTestService(t)
 	svc.demoMode = false
+	svc.store.mu.Lock()
+	svc.store.state.WaiverReceipts = []WaiverReceipt{{ClaimID: "private", TeamID: "team-1", Outcome: "won"}}
+	svc.store.mu.Unlock()
 
 	authn := auth.New(nil, auth.Options{
 		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
@@ -392,6 +395,9 @@ func TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage(t *testing.T) {
 		if mine, _ := row["mine"].(bool); mine {
 			t.Fatal("seatless viewers must not be assigned a place in the waiver order")
 		}
+	}
+	if receipts, _ := data["my_waiver_receipts"].([]map[string]any); len(receipts) != 0 {
+		t.Fatalf("seatless viewer leaked team-private receipts: %+v", receipts)
 	}
 }
 
@@ -529,7 +535,7 @@ func TestPlayersDataClaimedByMeSuppressesTheClaimButton(t *testing.T) {
 
 // TestPlayersDataMyClaimsPanel checks the MY CLAIMS panel's row shape in
 // perf-priority mode: the add player's name, the drop label, and the
-// team's own waiverOrder position.
+// private filing order and the separate public waiverOrder position.
 func TestPlayersDataMyClaimsPanel(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
@@ -559,6 +565,74 @@ func TestPlayersDataMyClaimsPanel(t *testing.T) {
 	pos, _ := data["my_waiver_position"].(int)
 	if pos < 1 || pos > 8 {
 		t.Fatalf("my_waiver_position = %v, want a position in [1,8]", pos)
+	}
+	if got := claim["priority"]; got != 1 {
+		t.Fatalf("claim priority = %v, want private filing order 1", got)
+	}
+	if got := claim["waiver_position"]; got != pos {
+		t.Fatalf("claim waiver_position = %v, want public position %d", got, pos)
+	}
+}
+
+func TestPlayersDataWaiverReceiptsAreTeamPrivateAndIgnoreEmailPrefs(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	svc.store.mu.Lock()
+	svc.store.state.NotifyPrefs["manager@example.com"] = map[string]bool{"waivers": false}
+	svc.store.state.WaiverReceipts = []WaiverReceipt{
+		{ClaimID: "other", Season: 2026, Week: 1, TeamID: "team-2", Add: TransactionPlayer{Name: "Other Player", Position: "WR"}, Outcome: "won", Reason: "Claim awarded.", ResolvedAt: now},
+		{ClaimID: "mine", Season: 2026, Week: 1, TeamID: "team-1", Add: TransactionPlayer{Name: "My Player", Position: "RB"}, Mode: "faab", Outcome: "beaten", WinningTeamID: "team-2", WinningBid: 14, WinningBidKnown: true, Reason: "outbid", ResolvedAt: now},
+	}
+	svc.store.mu.Unlock()
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	receipts, _ := data["my_waiver_receipts"].([]map[string]any)
+	if len(receipts) != 1 || receipts[0]["claim_id"] != "mine" || receipts[0]["add_name"] != "My Player" {
+		t.Fatalf("private receipts = %+v, want only team-1 receipt", receipts)
+	}
+	if receipts[0]["has_winning_bid"] != true || receipts[0]["winning_bid"] != 14 {
+		t.Fatalf("receipt winning bid projection = %+v", receipts[0])
+	}
+}
+
+func TestMoveClaimUsesAuthenticatedSeatInsteadOfSubmittedTeam(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	svc.demoMode = false
+	primary, err := svc.AssignManager("primary@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.AssignManager("other@example.com", "Other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, claim := range []WaiverClaim{
+		{ID: "auth-a", TeamID: primary.TeamID, AddID: "auth-player-a", FiledAt: now},
+		{ID: "auth-b", TeamID: primary.TeamID, AddID: "auth-player-b", FiledAt: now.Add(time.Minute)},
+	} {
+		if err := svc.store.FileClaim(claim); err != nil {
+			t.Fatal(err)
+		}
+	}
+	currentEmail := other.Email
+	authn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+		return auth.User{ID: currentEmail, Email: currentEmail, Name: "Manager"}, true
+	})})
+	invoke := func() (string, error) {
+		var message string
+		var moveErr error
+		handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			message, moveErr = svc.MoveClaim(r, primary.TeamID, "auth-b", "up")
+			w.WriteHeader(http.StatusNoContent)
+		}))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/players", nil))
+		return message, moveErr
+	}
+	if _, err := invoke(); err == nil || err.Error() != "claim is no longer open" {
+		t.Fatalf("other manager spoofed submitted team: %v", err)
+	}
+	currentEmail = primary.Email
+	if message, err := invoke(); err != nil || message != "Claim moved up one position." {
+		t.Fatalf("primary move = %q, %v", message, err)
 	}
 }
 

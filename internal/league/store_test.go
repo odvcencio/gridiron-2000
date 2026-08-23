@@ -623,6 +623,45 @@ func TestBackfillPickemEnteredAtPersistsOnceFromEarliestValidLegacyPick(t *testi
 	}
 }
 
+func TestJSONV6MigratesToV7WithWaiverCollections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-v6.json")
+	legacy := PersistedState{
+		SchemaVersion: 6,
+		PickemEnteredAt: map[string]time.Time{
+			"manager@example.com": time.Date(2026, 9, 3, 20, 0, 0, 0, time.UTC),
+		},
+		WaiverClaims: []WaiverClaim{{
+			ID: "legacy-claim", TeamID: "team-1", AddID: "p-1", Priority: 4,
+			FiledAt: time.Date(2026, 9, 8, 8, 0, 0, 0, time.UTC),
+		}},
+	}
+	raw, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.StartupError(); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot()
+	if got.SchemaVersion != 7 {
+		t.Fatalf("schema version = %d, want 7", got.SchemaVersion)
+	}
+	if len(got.WaiverReceipts) != 0 {
+		t.Fatalf("v6 migration invented waiver receipts: %#v", got.WaiverReceipts)
+	}
+	if len(got.WaiverClaims) != 1 || got.WaiverClaims[0].Priority != 1 {
+		t.Fatalf("v6 claim migration = %#v, want one normalized priority-1 claim", got.WaiverClaims)
+	}
+	if got.PickemEnteredAt["manager@example.com"].IsZero() {
+		t.Fatal("v6 migration lost persisted Pick'em entry authority")
+	}
+}
+
 func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
 	store := newTestStore(t)
 	custom := []string{"team-2", "team-1", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}

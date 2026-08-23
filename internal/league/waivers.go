@@ -17,10 +17,8 @@ import (
 )
 
 // WaiverClaim is one open, unprocessed waiver claim (roster-ops spec
-// section 5.3). Store.ProcessWaivers removes a claim the instant it
-// resolves; there is no "resolved claim" record beyond the claim
-// Transaction a win appends (a loss or a failure is never logged — the
-// claimant's N14 email is that attempt's only record, section 7.2).
+// section 5.3). Store.ProcessWaivers removes a claim the instant it resolves
+// and appends a team-private WaiverReceipt in the same transaction.
 type WaiverClaim struct {
 	ID     string `json:"id"` // "clm-" + 8 random hex
 	TeamID string `json:"teamId"`
@@ -28,13 +26,90 @@ type WaiverClaim struct {
 	DropID string `json:"dropId,omitempty"` // required when the roster is full
 	Bid    int    `json:"bid,omitempty"`    // faab mode only; 0 allowed
 	// Priority is the manager's own claim order across their own open
-	// claims, 1 first (section 5.3). Store.FileClaim sets it to one past
-	// the filing team's current open-claim count; it never changes after
-	// that except by cancellation renumbering (CancelClaim does not
-	// renumber — a gap is harmless, only relative order inside one team's
-	// claims matters).
+	// claims, 1 first (section 5.3). File, cancel, and move operations
+	// normalize it atomically to a gap-free 1..N sequence per team.
 	Priority int       `json:"priority"`
 	FiledAt  time.Time `json:"filedAt"`
+}
+
+// WaiverReceipt is the season-scoped, team-private resolution ledger for one
+// claim. Player identity is snapshotted so receipts survive pool churn. Team
+// IDs are safe league identities; manager emails never enter this record.
+type WaiverReceipt struct {
+	ClaimID           string              `json:"claimId"`
+	Season            int                 `json:"season"`
+	Week              int                 `json:"week"`
+	TeamID            string              `json:"teamId"`
+	Add               TransactionPlayer   `json:"add"`
+	Drops             []TransactionPlayer `json:"drops,omitempty"`
+	Bid               int                 `json:"bid,omitempty"`
+	SubmittedPriority int                 `json:"submittedPriority"`
+	WaiverPosition    int                 `json:"waiverPosition"`
+	WaiverTeamCount   int                 `json:"waiverTeamCount"`
+	Mode              string              `json:"mode"`
+	Outcome           string              `json:"outcome"`
+	WinningTeamID     string              `json:"winningTeamId,omitempty"`
+	WinningBid        int                 `json:"winningBid,omitempty"`
+	WinningBidKnown   bool                `json:"winningBidKnown,omitempty"`
+	Reason            string              `json:"reason"`
+	FiledAt           time.Time           `json:"filedAt"`
+	ResolvedAt        time.Time           `json:"resolvedAt"`
+}
+
+func receiptPlayer(poolByID map[string]Player, playerID string) TransactionPlayer {
+	if player, ok := poolByID[playerID]; ok {
+		return transactionPlayerFromPlayer(player)
+	}
+	return TransactionPlayer{PlayerID: playerID, Name: playerID}
+}
+
+func waiverWinningBid(transactions []Transaction, playerID, teamID string) (int, bool) {
+	for index := len(transactions) - 1; index >= 0; index-- {
+		txn := transactions[index]
+		// A winning bid describes the transaction that gave the current
+		// owner this current copy of the player. Walk newest-first until
+		// that ownership edge; an older claim is historical once a later
+		// add, trade, or drop has crossed the edge.
+		acquired, released := false, false
+		if txn.TeamID == teamID {
+			for _, add := range txn.Adds {
+				if add.PlayerID == playerID {
+					acquired = true
+					break
+				}
+			}
+			for _, drop := range txn.Drops {
+				if drop.PlayerID == playerID {
+					released = true
+					break
+				}
+			}
+		} else if txn.Type == "trade" && txn.OtherTeamID == teamID {
+			// In a trade the counterparty receives Drops and gives up Adds.
+			for _, drop := range txn.Drops {
+				if drop.PlayerID == playerID {
+					acquired = true
+					break
+				}
+			}
+			for _, add := range txn.Adds {
+				if add.PlayerID == playerID {
+					released = true
+					break
+				}
+			}
+		}
+		if !acquired && !released {
+			continue
+		}
+		if acquired && !released && txn.Type == "claim" {
+			return txn.Bid, true
+		}
+		// A direct add, trade, drop, or malformed/ambiguous event is the
+		// current boundary but carries no trustworthy winning bid.
+		return 0, false
+	}
+	return 0, false
 }
 
 // randomClaimID draws "clm-" + 8 random hex characters from crypto/rand,
@@ -455,6 +530,55 @@ func teamOpenClaimCount(claims []WaiverClaim, teamID string) int {
 	return count
 }
 
+// teamClaimIndices returns one team's claim indexes in their authoritative
+// within-team order. Legacy gaps/duplicates sort by the old priority first,
+// then filing time and ID for deterministic normalization.
+func teamClaimIndices(claims []WaiverClaim, teamID string) []int {
+	indices := make([]int, 0, teamOpenClaimCount(claims, teamID))
+	for index, claim := range claims {
+		if claim.TeamID == teamID {
+			indices = append(indices, index)
+		}
+	}
+	sort.SliceStable(indices, func(i, j int) bool {
+		a, b := claims[indices[i]], claims[indices[j]]
+		priorityA, priorityB := a.Priority, b.Priority
+		if priorityA <= 0 {
+			priorityA = int(^uint(0) >> 1)
+		}
+		if priorityB <= 0 {
+			priorityB = int(^uint(0) >> 1)
+		}
+		if priorityA != priorityB {
+			return priorityA < priorityB
+		}
+		if !a.FiledAt.Equal(b.FiledAt) {
+			return a.FiledAt.Before(b.FiledAt)
+		}
+		return a.ID < b.ID
+	})
+	return indices
+}
+
+func normalizeTeamClaimPriorities(claims []WaiverClaim, teamID string) []int {
+	indices := teamClaimIndices(claims, teamID)
+	for position, index := range indices {
+		claims[index].Priority = position + 1
+	}
+	return indices
+}
+
+func normalizeAllClaimPriorities(claims []WaiverClaim) {
+	seen := make(map[string]struct{})
+	for _, claim := range claims {
+		if _, ok := seen[claim.TeamID]; ok {
+			continue
+		}
+		seen[claim.TeamID] = struct{}{}
+		normalizeTeamClaimPriorities(claims, claim.TeamID)
+	}
+}
+
 // ---------------------------------------------------------------------
 // Processing-run resolution (roster-ops spec section 5.4)
 // ---------------------------------------------------------------------
@@ -470,8 +594,9 @@ type WaiverResult struct {
 	Outcome string
 	// Reason carries the exact failure message for a "failed" outcome.
 	Reason string
-	// Position is the 1-based waiverOrder position a won perf-priority
-	// claim used (Transaction.Position, section 7.1).
+	// Position is the claiming team's public 1-based waiverOrder position at
+	// this claim's selection step. A won perf-priority transaction records the
+	// same value.
 	Position int
 	// WinningTeamID names the team that ended up owning AddID, for a
 	// "beaten" claim's notification ("went to {teamName}").
@@ -486,10 +611,9 @@ type WaiverResult struct {
 // claimLess orders two due claims for one selection round (section 5.4
 // step 2): perf-priority by the claiming team's waiverOrder position
 // ascending, then the team's own Priority ascending; faab by bid
-// descending, ties by waiverOrder position ascending. Two claims from the
-// same team at the same bid (faab) fall through to the original slice
-// order — deterministic, since that order is itself the stable filing
-// order (see pickNextClaim).
+// descending, ties by waiverOrder position ascending and then that team's
+// private Priority. Thus a manager's visible move is authoritative even
+// when two of their own FAAB claims carry the same bid.
 func claimLess(a, b WaiverClaim, order []string) bool {
 	posA, posB := waiverOrderPosition(order, a.TeamID), waiverOrderPosition(order, b.TeamID)
 	if posA != posB {
@@ -502,7 +626,11 @@ func claimLessFAAB(a, b WaiverClaim, order []string) bool {
 	if a.Bid != b.Bid {
 		return a.Bid > b.Bid
 	}
-	return waiverOrderPosition(order, a.TeamID) < waiverOrderPosition(order, b.TeamID)
+	posA, posB := waiverOrderPosition(order, a.TeamID), waiverOrderPosition(order, b.TeamID)
+	if posA != posB {
+		return posA < posB
+	}
+	return a.Priority < b.Priority
 }
 
 // pickNextClaim selects the single highest-priority claim from remaining

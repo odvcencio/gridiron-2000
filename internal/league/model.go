@@ -342,6 +342,12 @@ type PersistedState struct {
 	// load/NewStore/cloneState.
 	WaiverClaims []WaiverClaim `json:"waiverClaims,omitempty"`
 
+	// WaiverReceipts is the durable, season-scoped resolution history for
+	// waiver claims. Every receipt is private to its TeamID and is written in
+	// the same transaction that removes the corresponding open claim. Player
+	// snapshots keep the ledger intelligible after pool changes.
+	WaiverReceipts []WaiverReceipt `json:"waiverReceipts,omitempty"`
+
 	// WaiversProcessedThrough is the instant of the last completed waiver
 	// run (roster-ops spec section 3.1, 5.4). Zero means no run has ever
 	// completed; Service.rosterOpsTick's first tick sets it to now without

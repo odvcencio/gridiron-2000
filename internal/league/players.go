@@ -147,11 +147,10 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		faabRemainingByTeam = faabRemaining(state, s.cfg.Waivers.FAABBudget)
 	}
 
-	myClaims := make([]map[string]any, 0, len(state.WaiverClaims))
-	for _, claim := range state.WaiverClaims {
-		if claim.TeamID != teamID {
-			continue
-		}
+	myClaimIndices := teamClaimIndices(state.WaiverClaims, teamID)
+	myClaims := make([]map[string]any, 0, len(myClaimIndices))
+	for claimIndex, stateIndex := range myClaimIndices {
+		claim := state.WaiverClaims[stateIndex]
 		addPlayer := pool.byID[claim.AddID]
 		dropLabel := ""
 		if claim.DropID != "" {
@@ -160,21 +159,65 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			}
 		}
 		myClaims = append(myClaims, map[string]any{
-			"id":           claim.ID,
-			"add_name":     addPlayer.Name,
-			"add_position": addPlayer.Position,
-			"drop_label":   dropLabel,
-			"has_drop":     dropLabel != "",
-			"filed_at":     claim.FiledAt.Format("Jan 2, 3:04 PM MST"),
-			"bid":          claim.Bid,
-			// priority is the team's own claim position (perf-priority
-			// mode's public order, section 8.2: "the team's current claim
-			// position of N ... from waiverOrder"), not the claim's own
-			// filing-order Priority field (which only breaks ties among
-			// this team's own claims at processing time).
-			"priority": myPosition,
-			"faab":     faab,
+			"id":                claim.ID,
+			"add_name":          addPlayer.Name,
+			"add_position":      addPlayer.Position,
+			"drop_label":        dropLabel,
+			"has_drop":          dropLabel != "",
+			"filed_at":          claim.FiledAt.Format("Jan 2, 3:04 PM MST"),
+			"bid":               claim.Bid,
+			"priority":          claim.Priority,
+			"claim_count":       len(myClaimIndices),
+			"waiver_position":   myPosition,
+			"waiver_team_count": len(order),
+			"can_move_up":       claimIndex > 0,
+			"can_move_down":     claimIndex+1 < len(myClaimIndices),
+			"faab":              faab,
 		})
+	}
+
+	myReceipts := make([]map[string]any, 0, 20)
+	if canEdit {
+		for index := len(state.WaiverReceipts) - 1; index >= 0 && len(myReceipts) < 20; index-- {
+			receipt := state.WaiverReceipts[index]
+			if receipt.TeamID != teamID {
+				continue
+			}
+			dropLabel := ""
+			if len(receipt.Drops) > 0 {
+				dropLabel = fmt.Sprintf("%s (%s)", receipt.Drops[0].Name, receipt.Drops[0].Position)
+			}
+			winnerName, winnerAbbr := "", ""
+			if receipt.WinningTeamID != "" {
+				winner := s.teamByID(receipt.WinningTeamID)
+				winnerName, winnerAbbr = winner.Name, winner.Abbreviation
+			}
+			myReceipts = append(myReceipts, map[string]any{
+				"claim_id":          receipt.ClaimID,
+				"season":            receipt.Season,
+				"week":              receipt.Week,
+				"add_name":          receipt.Add.Name,
+				"add_position":      receipt.Add.Position,
+				"drop_label":        dropLabel,
+				"has_drop":          dropLabel != "",
+				"bid":               receipt.Bid,
+				"faab":              receipt.Mode == "faab",
+				"submitted_order":   receipt.SubmittedPriority,
+				"waiver_position":   receipt.WaiverPosition,
+				"waiver_team_count": receipt.WaiverTeamCount,
+				"outcome":           strings.ToUpper(receipt.Outcome),
+				"won":               receipt.Outcome == "won",
+				"beaten":            receipt.Outcome == "beaten",
+				"failed":            receipt.Outcome == "failed",
+				"reason":            receipt.Reason,
+				"has_winner":        receipt.WinningTeamID != "",
+				"winner_name":       winnerName,
+				"winner_abbr":       winnerAbbr,
+				"winning_bid":       receipt.WinningBid,
+				"has_winning_bid":   receipt.Outcome == "beaten" && receipt.Mode == "faab" && receipt.WinningBidKnown,
+				"resolved_at":       receipt.ResolvedAt.Format("Jan 2, 3:04 PM MST"),
+			})
+		}
 	}
 
 	return map[string]any{
@@ -210,6 +253,8 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"my_faab_remaining":    faabRemainingByTeam[teamID],
 		"my_claims":            myClaims,
 		"my_claims_empty":      len(myClaims) == 0,
+		"my_waiver_receipts":   myReceipts,
+		"my_receipts_empty":    len(myReceipts) == 0,
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 	}
@@ -466,4 +511,30 @@ func (s *Service) CancelClaim(r *http.Request, requestedTeam, claimID string) (s
 		return "", err
 	}
 	return "Claim canceled.", nil
+}
+
+// MoveClaim changes one open claim's private, within-team filing order by
+// one slot. actingTeam binds the mutation to the authenticated franchise;
+// Store.MoveClaim rechecks ownership under the write lock.
+func (s *Service) MoveClaim(r *http.Request, requestedTeam, claimID, direction string) (string, error) {
+	teamID, err := s.actingTeam(r, requestedTeam)
+	if err != nil {
+		return "", err
+	}
+	claimID = strings.TrimSpace(claimID)
+	direction = strings.ToLower(strings.TrimSpace(direction))
+	moved, err := s.store.MoveClaim(teamID, claimID, direction)
+	if err != nil {
+		return "", err
+	}
+	if !moved {
+		if direction == "up" {
+			return "Claim is already first in your filing order.", nil
+		}
+		return "Claim is already last in your filing order.", nil
+	}
+	if direction == "up" {
+		return "Claim moved up one position.", nil
+	}
+	return "Claim moved down one position.", nil
 }

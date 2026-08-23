@@ -238,7 +238,7 @@ func databaseHasStateRows(db *sql.DB) (bool, error) {
 		"pickem_owners", "pickem_entries", "blitz_entries", "blitz_owners", "autopick", "sent_log",
 		"notify_prefs", "notify_pref_owners", "badge_claims", "avatar_refs",
 		"announcements", "lineups", "lineup_weeks", "lineup_teams", "transactions",
-		"waiver_claims", "trade_offers", "roster_zones", "roster_zone_teams", "schedule",
+		"waiver_claims", "waiver_receipts", "trade_offers", "roster_zones", "roster_zone_teams", "schedule",
 		"playoffs",
 	} {
 		var present int
