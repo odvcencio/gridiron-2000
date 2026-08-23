@@ -248,6 +248,30 @@ func Page() Node {
 					live preseason scores are not available yet. Schedules and live scores stay empty until it is.
 				</p>
 			</If>
+			<If cond={data.blitz_loading}>
+				<p class="demo-message">
+					<strong>PRESEASON SOURCE CHECKING:</strong>
+					we're checking the preseason feed now. Empty schedules and zero scores are not verified yet.
+				</p>
+			</If>
+			<If cond={data.blitz_recovery}>
+				<p class="demo-message">
+					<strong>PRESEASON SOURCE DEGRADED:</strong>
+					retained scores stay visible as of {data.blitz_as_of}; terminal copy stays provisional until the source confirms complete, final inputs.
+				</p>
+			</If>
+			<If cond={data.archive_blocked}>
+				<p class="demo-message">
+					<strong>ARCHIVE VERIFICATION PENDING:</strong>
+					the contest clock has elapsed, but final standings wait for complete, final source data. We will retry automatically.
+				</p>
+			</If>
+			<If cond={data.pre1_partial}>
+				<p class="demo-message">
+					<strong>WEEK 1 EVIDENCE PARTIAL:</strong>
+					available preseason-week-1 lines are provisional; players without a fetched line are not confirmed to have no snaps.
+				</p>
+			</If>
 			<If cond={data.slate_closed}>
 				<p class="demo-message">
 					<strong>SLATE CLOSED:</strong>
@@ -313,8 +337,14 @@ func Page() Node {
 				</div>
 				<If cond={data.eligible_empty}>
 					<div class="empty-tape">
-						<strong>NO ELIGIBLE PLAYERS YET</strong>
-						<p>The preseason slate is not published yet.</p>
+						<If cond={data.blitz_unknown}>
+							<strong>WAITING FOR A VERIFIED SLATE</strong>
+							<p>The source has not confirmed this slate yet. We will retry automatically.</p>
+						</If>
+						<If cond={data.blitz_unknown == false}>
+							<strong>NO ELIGIBLE PLAYERS YET</strong>
+							<p>The preseason slate is not published yet.</p>
+						</If>
 					</div>
 				</If>
 				<div class="pool-list pool-list--tall" id="blitz-pool-rows">
@@ -339,8 +369,14 @@ func Page() Node {
 				</div>
 				<If cond={data.games_empty}>
 					<div class="empty-tape">
-						<strong>NO GAMES YET</strong>
-						<p>The preseason slate is not published yet.</p>
+						<If cond={data.blitz_unknown}>
+							<strong>SCHEDULE NOT VERIFIED</strong>
+							<p>The source has not confirmed zero games. We will retry automatically.</p>
+						</If>
+						<If cond={data.blitz_unknown == false}>
+							<strong>NO GAMES YET</strong>
+							<p>The preseason slate is not published yet.</p>
+						</If>
 					</div>
 				</If>
 				<div class="pool-list">

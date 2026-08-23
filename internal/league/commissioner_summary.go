@@ -158,6 +158,23 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 			"One or more open-data feeds need attention.", commissionerhq.AttentionAreaOpenData)
 	}
 
+	blitz := s.BlitzDependencyHealth()
+	switch blitz.Source.State {
+	case BlitzStateError:
+		attention.Add("blitz_source_error", commissionerhq.AttentionSeverityCritical, 1,
+			"Preseason Blitz source data is unavailable; recovery probing is active.", commissionerhq.AttentionAreaBlitz)
+	case BlitzStateDegraded, BlitzStateStale:
+		attention.Add("blitz_source_degraded", commissionerhq.AttentionSeverityWarning, 1,
+			"Preseason Blitz is serving retained or partial source data; terminal standings are provisional.", commissionerhq.AttentionAreaBlitz)
+	case BlitzStateLoading:
+		attention.Add("blitz_source_loading", commissionerhq.AttentionSeverityInfo, 1,
+			"Preseason Blitz source discovery is still in progress.", commissionerhq.AttentionAreaBlitz)
+	}
+	if blitz.Pre1.State == BlitzStateDegraded || blitz.Pre1.State == BlitzStateStale {
+		attention.Add("blitz_pre1_partial", commissionerhq.AttentionSeverityWarning, 1,
+			"Preseason Week 1 evidence is partial or stale; player evidence is provisional.", commissionerhq.AttentionAreaBlitz)
+	}
+
 	data := commissionerhq.OpenData{}
 	if len(openData) > 0 {
 		data = openData[0]
@@ -178,8 +195,36 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		Season:    season,
 		Pool:      pool,
 		OpenData:  data,
+		Blitz:     commissionerBlitzHealth(blitz),
 		Attention: attention.Items(),
 	}
+}
+
+func commissionerBlitzHealth(value BlitzDependencyHealth) commissionerhq.BlitzHealth {
+	out := commissionerhq.BlitzHealth{
+		Enabled: value.Source.Enabled, State: value.Source.State,
+		LastAttempt: value.Source.LastAttempt, LastSuccess: value.Source.LastSuccess,
+		Error: value.Source.SafeError, ExpectedGames: value.Source.ExpectedGames,
+		FetchedGames: value.Source.FetchedGames, FinalGames: value.Source.FinalGames,
+		Complete: value.Source.Complete, Final: value.Source.Final,
+		VerifiedZero: value.Source.VerifiedZero,
+		Pre1: commissionerhq.BlitzPre1Health{
+			State: value.Pre1.State, LastAttempt: value.Pre1.LastAttempt,
+			LastSuccess: value.Pre1.LastSuccess, Error: value.Pre1.SafeError,
+			ExpectedGames: value.Pre1.ExpectedGames, FetchedGames: value.Pre1.FetchedGames,
+			Complete: value.Pre1.Complete,
+		},
+		Slates: make(map[string]commissionerhq.BlitzSlateHealth, len(value.Source.Slates)),
+	}
+	for slate, status := range value.Source.Slates {
+		out.Slates[slate] = commissionerhq.BlitzSlateHealth{
+			State: status.State, LastAttempt: status.LastAttempt, LastSuccess: status.LastSuccess,
+			Error: status.Error, ExpectedGames: status.ExpectedGames, FetchedGames: status.FetchedGames,
+			FinalGames: status.FinalGames, Complete: status.Complete, Final: status.Final,
+			VerifiedZero: status.VerifiedZero,
+		}
+	}
+	return out
 }
 
 func commissionerSeason(s *Service, state PersistedState, now time.Time) (commissionerhq.Schedule, commissionerhq.Season) {

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"gridiron-2000/internal/fantasy"
@@ -47,8 +48,16 @@ const blitzPre1StaleAfter = 24 * time.Hour
 // pattern: temp file, chmod 0600, rename — matching blitzBoxScoreCache
 // in blitz_source.go).
 type blitzPre1Cache struct {
-	Stats      map[string]map[string]float64 `json:"stats"`
-	ComputedAt time.Time                     `json:"computedAt"`
+	Stats         map[string]map[string]float64 `json:"stats"`
+	ComputedAt    time.Time                     `json:"computedAt"`
+	ExpectedGames int                           `json:"expectedGames,omitempty"`
+	FetchedGames  int                           `json:"fetchedGames,omitempty"`
+	Complete      bool                          `json:"complete"`
+}
+
+type blitzPre1Result struct {
+	stats  map[string]map[string]float64
+	health league.BlitzPre1Health
 }
 
 // startBlitzPre1 resolves preseason-week-1 production once at boot: the
@@ -62,15 +71,34 @@ type blitzPre1Cache struct {
 // back to its non-pre1 ordering (see league.BlitzPre1Source's doc
 // comment) — no crash either way.
 func startBlitzPre1(ctx context.Context, pool *fantasy.Service, lg *league.Service) {
+	// Attach the loading source before any asynchronous provider work so the
+	// first render cannot mistake a nil map for verified zero snaps.
+	state := &struct {
+		mu       sync.RWMutex
+		snapshot league.BlitzPre1Snapshot
+	}{snapshot: league.BlitzPre1Snapshot{Health: league.BlitzPre1Health{State: league.BlitzStateLoading}}}
+	lg.SetBlitzPre1SnapshotSource(func() league.BlitzPre1Snapshot {
+		state.mu.RLock()
+		defer state.mu.RUnlock()
+		return state.snapshot
+	})
 	if !pool.Enabled() {
+		state.mu.Lock()
+		state.snapshot.Health = league.BlitzPre1Health{State: league.BlitzStateDisabled}
+		state.mu.Unlock()
 		log.Printf("blitz: pre1 skipped — TANK01_API_KEY is not set")
 		return
 	}
-	stats, ok := loadOrComputeBlitzPre1(ctx, pool, time.Now())
-	if !ok {
-		return
-	}
-	lg.SetBlitzPre1Source(func() map[string]map[string]float64 { return stats })
+	go func() {
+		result, ok := loadOrComputeBlitzPre1Snapshot(ctx, pool, time.Now())
+		state.mu.Lock()
+		if ok {
+			state.snapshot = league.BlitzPre1Snapshot{Stats: result.stats, Health: result.health}
+		} else {
+			state.snapshot.Health = result.health
+		}
+		state.mu.Unlock()
+	}()
 }
 
 // loadOrComputeBlitzPre1 returns the pre1 stat map to serve: the disk
@@ -79,23 +107,51 @@ func startBlitzPre1(ctx context.Context, pool *fantasy.Service, lg *league.Servi
 // one exists (partial or old data beats none); with no cache at all it
 // returns ok=false, having already logged the one required line.
 func loadOrComputeBlitzPre1(ctx context.Context, pool *fantasy.Service, now time.Time) (map[string]map[string]float64, bool) {
+	result, ok := loadOrComputeBlitzPre1Snapshot(ctx, pool, now)
+	if !ok {
+		return nil, false
+	}
+	return result.stats, ok
+}
+
+func loadOrComputeBlitzPre1Snapshot(ctx context.Context, pool *fantasy.Service, now time.Time) (blitzPre1Result, bool) {
 	cache, cacheErr := readBlitzPre1Cache()
 	if cacheErr == nil && now.Sub(cache.ComputedAt) < blitzPre1StaleAfter {
-		return cache.Stats, true
+		complete := cache.Complete
+		if cache.ExpectedGames == 0 && cache.FetchedGames == 0 {
+			// Older cache files predate provenance fields and were written only
+			// after a complete compute.
+			complete = true
+		}
+		state := league.BlitzStateReady
+		if !complete {
+			state = league.BlitzStateDegraded
+		}
+		return blitzPre1Result{stats: cache.Stats, health: league.BlitzPre1Health{
+			State: state, LastSuccess: cache.ComputedAt,
+			ExpectedGames: cache.ExpectedGames, FetchedGames: cache.FetchedGames,
+			Complete: complete,
+		}}, true
 	}
-	stats, err := computeBlitzPre1(ctx, pool)
+	result, err := computeBlitzPre1Detailed(ctx, pool, now)
 	if err != nil {
 		if cacheErr == nil {
 			log.Printf("blitz: pre1 refresh failed (%v); serving the cached pre1 data from %s", err, cache.ComputedAt.Format(time.RFC3339))
-			return cache.Stats, true
+			return blitzPre1Result{stats: cache.Stats, health: league.BlitzPre1Health{
+				State: league.BlitzStateStale, LastSuccess: cache.ComputedAt,
+				ExpectedGames: cache.ExpectedGames, FetchedGames: cache.FetchedGames,
+				Complete: cache.Complete, SafeError: league.SafeBlitzError(err),
+			}}, true
 		}
 		log.Printf("blitz: pre1 data unavailable (%v); the board falls back to its non-pre1 ordering", err)
-		return nil, false
+		result.health.State = league.BlitzStateError
+		result.health.SafeError = league.SafeBlitzError(err)
+		return result, false
 	}
-	if err := writeBlitzPre1Cache(stats, now); err != nil {
+	if err := writeBlitzPre1CacheDetailed(result.stats, now, result.health); err != nil {
 		log.Printf("blitz: pre1 cache write failed: %v", err)
 	}
-	return stats, true
+	return result, true
 }
 
 // computeBlitzPre1 fetches every "Preseason Week 1" game and merges each
@@ -107,11 +163,23 @@ func loadOrComputeBlitzPre1(ctx context.Context, pool *fantasy.Service, now time
 // and skipped so the rest of the week still counts — partial pre1 data
 // beats none.
 func computeBlitzPre1(ctx context.Context, pool *fantasy.Service) (map[string]map[string]float64, error) {
+	result, err := computeBlitzPre1Detailed(ctx, pool, time.Now())
+	return result.stats, err
+}
+
+func computeBlitzPre1Detailed(ctx context.Context, pool *fantasy.Service, now time.Time) (blitzPre1Result, error) {
+	result := blitzPre1Result{stats: map[string]map[string]float64{}, health: league.BlitzPre1Health{
+		State: league.BlitzStateLoading, LastAttempt: now,
+	}}
 	var games []fantasy.PreseasonGame
+	var firstErr error
 	for _, weekParam := range blitzPre1WeekProbeParams {
 		fetched, err := pool.FetchPreseasonWeek(ctx, weekParam)
 		if err != nil {
 			log.Printf("blitz: pre1 probe week=%s failed: %v", weekParam, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		if matched := fantasy.SelectPreseasonGames(fetched, blitzPre1Label); len(matched) > 0 {
@@ -120,11 +188,23 @@ func computeBlitzPre1(ctx context.Context, pool *fantasy.Service) (map[string]ma
 		}
 	}
 	if len(games) == 0 {
-		return nil, fmt.Errorf("no week param returned games labeled %q", blitzPre1Label)
+		err := fmt.Errorf("no week param returned games labeled %q", blitzPre1Label)
+		result.health.State = league.BlitzStateError
+		result.health.SafeError = league.SafeBlitzError(firstErr)
+		if result.health.SafeError == "" {
+			result.health.SafeError = league.SafeBlitzError(err)
+		}
+		return result, err
 	}
 
-	out := map[string]map[string]float64{}
-	fetchedAny := false
+	expectedFinalGames := 0
+	for _, game := range games {
+		if game.Final {
+			expectedFinalGames++
+		}
+	}
+	result.health.ExpectedGames = expectedFinalGames
+	fetchedGames := 0
 	for _, game := range games {
 		if !game.Final {
 			continue
@@ -132,17 +212,34 @@ func computeBlitzPre1(ctx context.Context, pool *fantasy.Service) (map[string]ma
 		stats, _, err := pool.FetchPreseasonBoxScore(ctx, game.ID)
 		if err != nil {
 			log.Printf("blitz: pre1 box score fetch for %s failed: %v", game.ID, err)
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
-		fetchedAny = true
+		fetchedGames++
 		for playerID, line := range stats {
-			out[playerID] = line
+			result.stats[playerID] = line
 		}
 	}
-	if !fetchedAny {
-		return nil, fmt.Errorf("every %s box-score fetch failed", blitzPre1Label)
+	result.health.FetchedGames = fetchedGames
+	result.health.LastSuccess = now
+	if fetchedGames == 0 {
+		err := fmt.Errorf("every %s box-score fetch failed", blitzPre1Label)
+		result.health.State = league.BlitzStateError
+		result.health.SafeError = league.SafeBlitzError(firstErr)
+		if result.health.SafeError == "" {
+			result.health.SafeError = league.SafeBlitzError(err)
+		}
+		return result, err
 	}
-	return out, nil
+	result.health.Complete = fetchedGames == len(games)
+	result.health.State = league.BlitzStateReady
+	if !result.health.Complete {
+		result.health.State = league.BlitzStateDegraded
+		result.health.SafeError = "source returned partial week 1 evidence"
+	}
+	return result, nil
 }
 
 // readBlitzPre1Cache reads and decodes blitzPre1Path. Any error (missing
@@ -163,11 +260,19 @@ func readBlitzPre1Cache() (blitzPre1Cache, error) {
 // writeBlitzPre1Cache writes stats to blitzPre1Path (F22's atomic-write
 // pattern: temp file in the same directory, chmod 0600, rename).
 func writeBlitzPre1Cache(stats map[string]map[string]float64, computedAt time.Time) error {
+	return writeBlitzPre1CacheDetailed(stats, computedAt, league.BlitzPre1Health{State: league.BlitzStateReady, Complete: true})
+}
+
+func writeBlitzPre1CacheDetailed(stats map[string]map[string]float64, computedAt time.Time, health league.BlitzPre1Health) error {
 	dir := filepath.Dir(blitzPre1Path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	encoded, err := json.MarshalIndent(blitzPre1Cache{Stats: stats, ComputedAt: computedAt}, "", "  ")
+	encoded, err := json.MarshalIndent(blitzPre1Cache{
+		Stats: stats, ComputedAt: computedAt,
+		ExpectedGames: health.ExpectedGames, FetchedGames: health.FetchedGames,
+		Complete: health.Complete,
+	}, "", "  ")
 	if err != nil {
 		return err
 	}
