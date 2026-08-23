@@ -23,12 +23,13 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	filtered := make([]map[string]any, 0, len(entries))
 	for _, entry := range entries {
 		entryTeam, _ := entry["team"].(string)
-		if team != "" && entryTeam != team {
+		if team != "" && !activityTeamMatches(entry, team) {
 			continue
 		}
 		if query != "" {
 			haystack := strings.ToLower(strings.Join([]string{
 				entryTeam,
+				activityText(entry["team_search"]),
 				activityText(entry["action"]),
 				activityText(entry["player"]),
 			}, " "))
@@ -50,7 +51,9 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
 	}
+	timezone := s.matchupLocation().String()
 	return map[string]any{
+		"timezone":           timezone,
 		"viewer":             s.Viewer(r),
 		"league":             s.leagueMap(),
 		"transactions":       filtered,
@@ -76,6 +79,34 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 func activityText(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func activityTeamMatches(entry map[string]any, wanted string) bool {
+	for _, key := range []string{"teams", "team_names", "team_ids"} {
+		values, ok := entry[key].([]string)
+		if !ok {
+			continue
+		}
+		for _, value := range values {
+			if strings.EqualFold(strings.TrimSpace(value), wanted) {
+				return true
+			}
+		}
+	}
+	return strings.EqualFold(strings.TrimSpace(activityText(entry["team"])), wanted)
+}
+
+// activityTeamIDs keeps ordinary activity entries scoped to their one team;
+// only a trade's counterparty is included, and a repeated ID is suppressed.
+func activityTeamIDs(txn Transaction) []string {
+	ids := []string{}
+	if txn.TeamID != "" {
+		ids = append(ids, txn.TeamID)
+	}
+	if txn.Type == "trade" && txn.OtherTeamID != "" && txn.OtherTeamID != txn.TeamID {
+		ids = append(ids, txn.OtherTeamID)
+	}
+	return ids
 }
 
 // activityPageHref preserves both filters across pagination and omits page=1

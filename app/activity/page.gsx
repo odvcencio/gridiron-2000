@@ -21,6 +21,7 @@ func Page() Node {
 				<span>Recorded moves</span>
 				<strong class="mono">{data.transactions_count}</strong>
 				<div class="draft-clock-meta">
+					<span class="mono">League time · {data.timezone}</span>
 					<a href="/players" data-gosx-link>Player pool →</a>
 					<a href="/team" data-gosx-link>Team terminal →</a>
 				</div>
