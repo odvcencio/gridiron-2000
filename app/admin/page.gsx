@@ -239,22 +239,32 @@ func Page() Node {
 				</div>
 				<div class="admin-task-nav__readout" aria-live="polite">
 					<strong class="mono">CURRENT CONSOLE STATE</strong>
-					<If cond={data.draft_started}>
-						<span>Draft is live. Operate the current pick from Draft clock.</span>
+					<If cond={data.draft.complete}>
+						<span>Draft is complete. There is no current pick; move on to season operations.</span>
 					</If>
-					<If cond={data.draft_started == false}>
-						<span>Draft is not live. Confirm seats, draw order, then start it intentionally.</span>
+					<If cond={data.draft.complete == false}>
+						<If cond={data.draft_started}>
+							<span>Draft is live. Operate the current pick from Draft clock.</span>
+						</If>
+						<If cond={data.draft_started == false}>
+							<span>Draft is not live. Confirm seats, draw order, then start it intentionally.</span>
+						</If>
 					</If>
 				</div>
 				<div class="admin-task-nav__groups">
 					<div class="admin-task-nav__group">
 						<h3>Draft preparation and live operation</h3>
 						<ul>
-							<If cond={data.draft_started}>
-								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="LIVE · operate now" />
+							<If cond={data.draft.complete}>
+								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="COMPLETE" />
 							</If>
-							<If cond={data.draft_started == false}>
-								<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="START REQUIRED" />
+							<If cond={data.draft.complete == false}>
+								<If cond={data.draft_started}>
+									<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="LIVE · operate now" />
+								</If>
+								<If cond={data.draft_started == false}>
+									<AdminTaskLink Label="Start and monitor draft" Href="/admin?section=draft-control#admin-draft-control" Current={data.admin_section == "draft-control"} Status="START REQUIRED" />
+								</If>
 							</If>
 							<If cond={data.order_randomized}>
 								<AdminTaskLink Label="Draw draft order" Href="/admin?section=draft-order#admin-draft-order" Current={data.admin_section == "draft-order"} Status="PUBLISHED" />
@@ -279,11 +289,16 @@ func Page() Node {
 					<div class="admin-task-nav__group">
 						<h3>Season operation</h3>
 						<ul>
-							<If cond={data.roster_shape.draft_started}>
-								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT LIVE" />
+							<If cond={data.draft.complete}>
+								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT COMPLETE" />
 							</If>
-							<If cond={data.roster_shape.draft_started == false}>
-								<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="OPEN" />
+							<If cond={data.draft.complete == false}>
+								<If cond={data.roster_shape.draft_started}>
+									<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="LOCKED · DRAFT STARTED" />
+								</If>
+								<If cond={data.roster_shape.draft_started == false}>
+									<AdminTaskLink Label="Configure roster shape" Href="/admin?section=roster#admin-roster" Current={data.admin_section == "roster"} Status="OPEN" />
+								</If>
 							</If>
 							<If cond={data.schedule.has_schedule}>
 								<AdminTaskLink Label="Publish regular-season schedule" Href="/admin?section=schedule#admin-schedule" Current={data.admin_section == "schedule"} Status="PUBLISHED" />
@@ -407,8 +422,13 @@ func Page() Node {
 						</form>
 						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players for {data.draft_required_players} draft slots ({data.pool.coverage} target coverage).</p>
 					</If>
-					<If cond={data.draft_started}>
-						<p class="flash-message"><strong>DRAFT LIVE:</strong> The commissioner started the draft. That start rules.</p>
+					<If cond={data.draft.complete}>
+						<p class="flash-message"><strong>DRAFT COMPLETE:</strong> Every pick is locked. Continue with season operations.</p>
+					</If>
+					<If cond={data.draft.complete == false}>
+						<If cond={data.draft_started}>
+							<p class="flash-message"><strong>DRAFT LIVE:</strong> The commissioner started the draft. That start rules.</p>
+						</If>
 					</If>
 				</section>
 				<section id="admin-schedule" aria-labelledby="admin-schedule-heading" tabindex="-1" data-admin-section="schedule" class={"player-pool admin-season-ops" + data.section_class_schedule}>

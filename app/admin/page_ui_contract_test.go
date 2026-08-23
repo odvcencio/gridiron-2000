@@ -1,15 +1,19 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/league"
 )
 
 func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
@@ -209,6 +213,154 @@ func TestAdminTaskNavigationRendersAccessibleLinks(t *testing.T) {
 		!strings.Contains(body, "tabindex="+quote+"-1"+quote) {
 		t.Fatal("rendered admin sections lost accessible focus metadata")
 	}
+}
+
+func TestAdminTaskNavigationKeepsDesktopAndNarrowColumnContracts(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	if !strings.Contains(css, ".admin-task-nav__groups {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));") {
+		t.Fatal("commissioner task board lost its two-column desktop grid")
+	}
+	narrow := "@media (max-width: 60rem) {\n  .board-workspace,\n  .admin-grid,\n  .danger-grid {\n    grid-template-columns: minmax(0, 1fr);\n  }\n\n  .admin-task-nav__groups {\n    grid-template-columns: minmax(0, 1fr);\n  }\n}"
+	if !strings.Contains(css, narrow) {
+		t.Fatal("commissioner task board one-column override escaped the narrow-screen media query")
+	}
+}
+
+func TestAdminTaskBoardDraftPhaseTruthTable(t *testing.T) {
+	fixtures := []struct {
+		phase     string
+		want      []string
+		forbidden []string
+	}{
+		{
+			phase: "scheduled",
+			want: []string{
+				"Draft is not live. Confirm seats, draw order, then start it intentionally.",
+				"START REQUIRED",
+				"Configure roster shape",
+				"OPEN",
+			},
+			forbidden: []string{"LIVE · operate now", "LOCKED · DRAFT STARTED", "LOCKED · DRAFT COMPLETE"},
+		},
+		{
+			phase: "live",
+			want: []string{
+				"Draft is live. Operate the current pick from Draft clock.",
+				"LIVE · operate now",
+				"LOCKED · DRAFT STARTED",
+				"DRAFT LIVE:",
+			},
+			forbidden: []string{"Draft is complete.", "LOCKED · DRAFT COMPLETE", "DRAFT COMPLETE:"},
+		},
+		{
+			phase: "complete",
+			want: []string{
+				"Draft is complete. There is no current pick; move on to season operations.",
+				"LOCKED · DRAFT COMPLETE",
+				"DRAFT COMPLETE:",
+			},
+			forbidden: []string{
+				"Draft is live. Operate the current pick from Draft clock.",
+				"LIVE · operate now",
+				"LOCKED · DRAFT STARTED",
+				"LOCKED · DRAFT LIVE",
+				"DRAFT LIVE:",
+			},
+		},
+	}
+
+	for _, fixture := range fixtures {
+		t.Run(fixture.phase, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestAdminTaskBoardDraftPhaseFixtureProcess$")
+			cmd.Env = append(os.Environ(),
+				"ADMIN_TASK_DRAFT_PHASE="+fixture.phase,
+				"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+				"DEMO_MODE=true",
+				"GOOGLE_CLIENT_ID=",
+				"APP_ENV=",
+				"LEAGUE_FILE=",
+			)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("%s fixture process: %v\n%s", fixture.phase, err, output)
+			}
+			body := string(output)
+			for _, want := range fixture.want {
+				if !strings.Contains(body, want) {
+					t.Errorf("%s fixture missing %q", fixture.phase, want)
+				}
+			}
+			for _, forbidden := range fixture.forbidden {
+				if strings.Contains(body, forbidden) {
+					t.Errorf("%s fixture contains false phase copy %q", fixture.phase, forbidden)
+				}
+			}
+		})
+	}
+}
+
+func TestAdminTaskBoardDraftPhaseFixtureProcess(t *testing.T) {
+	phase := os.Getenv("ADMIN_TASK_DRAFT_PHASE")
+	if phase == "" {
+		t.Skip("fixture helper")
+	}
+
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	if phase == "live" || phase == "complete" {
+		if started, err := service.AdminStartDraft(request); err != nil || !started {
+			t.Fatalf("start %s fixture: started=%v err=%v", phase, started, err)
+		}
+	}
+	if phase == "complete" {
+		data := service.AdminData(request)
+		required, ok := data["draft_required_players"].(int)
+		if !ok || required < 1 {
+			t.Fatalf("draft_required_players = %#v", data["draft_required_players"])
+		}
+		for pick := 1; pick <= required; pick++ {
+			if _, _, _, err := service.AdminForceAutopick(request); err != nil {
+				t.Fatalf("complete fixture pick %d/%d: %v", pick, required, err)
+			}
+		}
+	}
+
+	data := service.AdminData(request)
+	draft, ok := data["draft"].(map[string]any)
+	if !ok {
+		t.Fatalf("draft data = %#v", data["draft"])
+	}
+	wantStarted := phase != "scheduled"
+	wantComplete := phase == "complete"
+	if draft["started"] != wantStarted || data["draft_started"] != wantStarted || draft["complete"] != wantComplete {
+		t.Fatalf("%s data contract: draft=%#v draft_started=%#v", phase, draft, data["draft_started"])
+	}
+
+	fmt.Print(renderAdminPage(t))
+}
+
+func adminTaskFixturePool(size int) []league.Player {
+	players := make([]league.Player, 0, size)
+	positions := []string{"QB", "RB", "WR", "TE", "K", "DST"}
+	for index := 0; index < size; index++ {
+		players = append(players, league.Player{
+			ID:         fmt.Sprintf("admin-task-pool-%03d", index+1),
+			Name:       fmt.Sprintf("Admin Task Player %03d", index+1),
+			Position:   positions[index%len(positions)],
+			NFLTeam:    "CIN",
+			ADP:        float64(index + 1),
+			ADPRank:    index + 1,
+			ByeWeek:    10,
+			Projection: 20 - float64(index)*0.1,
+		})
+	}
+	return players
 }
 
 func TestCommissionerLeagueSwitcherMarkupAndRouteContract(t *testing.T) {

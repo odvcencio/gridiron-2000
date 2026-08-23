@@ -4323,10 +4323,10 @@ body.is-on-clock .draft-clock-panel {
   .danger-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-}
 
-.admin-task-nav__groups {
-  grid-template-columns: minmax(0, 1fr);
+  .admin-task-nav__groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .pool-row > b {
