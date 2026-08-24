@@ -402,94 +402,53 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 
 // FeedFragment renders the markup /wire/fragment answers with (main.go's
 // GET /wire/fragment handler): the data-gosx-region primitive (gosx#217)
-// replaces the wire feed's children with this response verbatim.
-//
-// It cannot call Page()'s own SignalCard/WireEmptyState: a .gsx file's
-// component functions are resolved through gosx's own file-routing render
-// pipeline, not linked as ordinary Go symbols, so no hand-written .go file
-// outside that pipeline — this one included — can call them directly (a
-// plain `go build` reports them "undefined", confirmed against this
-// module's own build server-binary step). signalCardNode and
-// wireEmptyStateNode below re-express the same two markup shapes with
-// gosx's low-level Node API (El/Attrs/Text) instead, over the exact same
-// signalMap data each row already uses, so only the HTML structure is
-// duplicated, not the field derivation. Keep both pairs in sync by hand;
-// see the doc comment on signalCardNode for the upstream gap this reflects.
+// replaces the wire feed's children with this response verbatim. It keeps
+// this historical Node-returning API for callers that already use it; the
+// server route uses FeedFragmentWithError so a failed sibling-program load
+// becomes an HTTP error instead of an empty successful response.
 func FeedFragment(request *http.Request, signals *signalwire.Service) gosx.Node {
+	node, err := FeedFragmentWithError(request, signals)
+	if err != nil {
+		return gosx.Node{}
+	}
+	return node
+}
+
+// FeedFragmentWithError is the error-reporting form used by the production
+// /wire/fragment handler. GoSX v0.53.6's relocation-safe route API resolves
+// page.gsx next to this source file even in a -trimpath binary moved away from
+// its build checkout. The program is loaded exactly once per request, then
+// every row (or the empty state) is rendered through the typed components the
+// initial page uses; no second HTML/node implementation can drift from them.
+func FeedFragmentWithError(request *http.Request, signals *signalwire.Service) (gosx.Node, error) {
+	program, err := route.LoadFileProgramHere("page.gsx")
+	if err != nil {
+		return gosx.Node{}, fmt.Errorf("load wire page.gsx: %w", err)
+	}
 	category := strings.TrimSpace(request.URL.Query().Get("category"))
 	wireStatus := signals.Status()
 	now := time.Now().UTC()
 	recent := signals.Recent(50, category)
 	if len(recent) == 0 {
-		return wireEmptyStateNode(wireStatus.Configured, wireStatus.ConfigurationIssue)
+		return route.RenderProgramComponentNode(program, "WireEmptyState", route.ProgramRenderEnv{
+			Props: WireEmptyView{
+				WireConfigured: wireStatus.Configured,
+				WireIssue:      wireStatus.ConfigurationIssue,
+			},
+		})
 	}
 	cards := make([]gosx.Node, 0, len(recent))
 	for _, signal := range recent {
-		cards = append(cards, signalCardNode(wireSignalCard(signal, wireStatus, now)))
+		card := wireSignalCard(signal, wireStatus, now)
+		node, err := route.RenderProgramComponentNode(program, "SignalCard", route.ProgramRenderEnv{
+			Props: card,
+		})
+		if err != nil {
+			return gosx.Node{}, fmt.Errorf("render wire SignalCard %q: %w", card.ID, err)
+		}
+		cards = append(cards, node)
 	}
-	return gosx.Fragment(cards...)
-}
-
-// signalCardNode is a hand-written mirror of page.gsx's SignalCard
-// component — see FeedFragment's doc comment for why a fragment handler
-// outside the file-routing pipeline cannot call SignalCard itself. Keep
-// this in exact structural sync with SignalCard by hand; a mismatch here
-// is invisible to `gosx check` (it only validates the .gsx side).
-func signalCardNode(card WireSignalCard) gosx.Node {
-	footer := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(card.Source)),
-	}
-	if card.HasReporter {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("VIA "+card.ReportedBy)))
-	}
-	if card.HasCorroboration {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__corroboration mono")), gosx.Text(card.CorroborationLabel)))
-	}
-	if card.Retained {
-		footer = append(footer, gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__retained mono")), gosx.Text("RETAINED · AS OF")))
-	}
-	footer = append(footer, gosx.El("time", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text(card.Time)))
-	if card.HasURL {
-		footer = append(footer, gosx.El("a", gosx.Attrs(
-			gosx.Attr("href", card.URL),
-			gosx.Attr("target", "_blank"),
-			gosx.Attr("rel", "noreferrer"),
-		), gosx.Text("Read the report ↗")))
-	}
-	return gosx.El("article", gosx.Attrs(
-		gosx.Attr("class", "wire-event wire-event--"+card.Category),
-		gosx.Attr("data-wire-event", card.ID),
-		gosx.Attr("data-wire-category", card.Category),
-	),
-		gosx.El("header", nil,
-			gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-event__heading")),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__label")), gosx.Text(card.Label)),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__evidence")), gosx.Text(card.Evidence)),
-			),
-			gosx.El("span", gosx.Attrs(gosx.Attr("class", "wire-event__trust mono")), gosx.Text(card.Trust+" · "+card.Confidence+"%")),
-		),
-		gosx.El("p", nil, gosx.Text(card.Text)),
-		gosx.El("footer", nil, gosx.Fragment(footer...)),
-	)
-}
-
-// wireEmptyStateNode is a hand-written mirror of page.gsx's WireEmptyState
-// component — see FeedFragment's doc comment for why. Keep this in exact
-// structural sync with WireEmptyState by hand.
-func wireEmptyStateNode(wireConfigured bool, wireIssue string) gosx.Node {
-	body := []gosx.Node{
-		gosx.El("span", gosx.Attrs(gosx.Attr("class", "mono")), gosx.Text("NO SIGNALS YET")),
-		gosx.El("h3", nil, gosx.Text("Your wire is quiet—not broken.")),
-	}
-	if !wireConfigured {
-		body = append(body,
-			gosx.El("p", nil, gosx.Text(wireIssue)),
-			gosx.El("p", nil, gosx.Text("Ask the commissioner to add news sources.")),
-		)
-	} else {
-		body = append(body, gosx.El("p", nil, gosx.Text("Relevant feed items and league sightings appear here, and stay provisional until the official stats catch up.")))
-	}
-	return gosx.El("div", gosx.Attrs(gosx.Attr("class", "wire-empty"), gosx.BoolAttr("data-wire-empty")), gosx.Fragment(body...))
+	return gosx.Fragment(cards...), nil
 }
 
 // PulseData is the small polled JSON object /api/wire/pulse answers with
