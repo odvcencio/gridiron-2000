@@ -143,8 +143,8 @@ func TestPublicEntryPersistedCanonicalMemberSurvivesAliasPolicyChange(t *testing
 	service := newTestService(t, false)
 	service.identityResolver = testIdentityResolver(t)
 	service.store.identityResolver = service.identityResolver
-	service.cfg.Membership.AllowedDomain = "stablekernel.com"
-	if _, _, err := service.store.AssignMember(identityCanonicalEmail, "Canonical Gridiron Maintainer"); err != nil {
+	service.cfg.Membership.AllowedDomain = "example.net"
+	if _, _, err := service.store.AssignMember(identityCanonicalEmail, "Canonical Commissioner"); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.store.AddInvite("other@example.com"); err != nil {
@@ -164,7 +164,7 @@ func TestPublicEntryPersistedCanonicalMemberSurvivesAliasPolicyChange(t *testing
 
 func TestPublicEntryPersistedMemberSurvivesRemovedInvite(t *testing.T) {
 	service := newTestService(t, false)
-	service.cfg.Membership.AllowedDomain = "stablekernel.com"
+	service.cfg.Membership.AllowedDomain = "example.net"
 	const email = "returning@example.com"
 	if err := service.store.AddInvite(email); err != nil {
 		t.Fatal(err)
@@ -205,12 +205,12 @@ func TestMembershipAdmissionPolicyModesMatchLabels(t *testing.T) {
 			allowed: []string{"invited@example.com"}, rejected: []string{"outsider@example.com"},
 		},
 		{
-			name: "configured domain is gated even with no invitations", domain: "stablekernel.com", wantLabel: "DOMAIN OR INVITE",
-			allowed: []string{"colleague@example.com"}, rejected: []string{"outsider@example.com"},
+			name: "configured domain is gated even with no invitations", domain: "example.net", wantLabel: "DOMAIN OR INVITE",
+			allowed: []string{"colleague@example.net"}, rejected: []string{"outsider@example.com"},
 		},
 		{
-			name: "domain plus invite", domain: "stablekernel.com", envInvites: "guest@example.com", wantLabel: "DOMAIN OR INVITE",
-			allowed: []string{"colleague@example.com", "guest@example.com"}, rejected: []string{"outsider@example.com"},
+			name: "domain plus invite", domain: "example.net", envInvites: "guest@example.com", wantLabel: "DOMAIN OR INVITE",
+			allowed: []string{"colleague@example.net", "guest@example.com"}, rejected: []string{"outsider@example.com"},
 		},
 	}
 	for _, tt := range tests {
@@ -243,7 +243,7 @@ func TestPublicEntryPendingCoManagerInviteTransitionsWithoutClaimingASeat(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.EnsureMember(identityCanonicalEmail, "Gridiron Maintainer"); err != nil {
+	if _, err := service.EnsureMember(identityCanonicalEmail, "Commissioner Example"); err != nil {
 		t.Fatal(err)
 	}
 	if err := service.store.InviteCoManager(primary.TeamID, identityAliasEmail); err != nil {
@@ -288,7 +288,7 @@ func TestPublicEntryPendingCoManagerInviteTransitionsWithoutClaimingASeat(t *tes
 		t.Fatalf("rejected pending claim mutated state\nbefore: %#v\n after: %#v", claimBefore, claimAfter)
 	}
 
-	if _, bound, err := service.BindCoManagerOnSignIn(identityAliasEmail, "Gridiron Maintainer"); err != nil || !bound {
+	if _, bound, err := service.BindCoManagerOnSignIn(identityAliasEmail, "Commissioner Example"); err != nil || !bound {
 		t.Fatalf("bind pending co-manager = bound %v, err %v", bound, err)
 	}
 	after := service.store.Snapshot()

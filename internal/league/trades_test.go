@@ -364,7 +364,7 @@ func tradesFixturePoolSlice() []Player {
 }
 
 // newTradesTestService builds a demo-mode, notify-wired Service: 8 seated
-// teams (team-1@example.com..team-8@example.com, in defaultTeams() order)
+// teams (team-1 through team-8 at example.com, in defaultTeams() order)
 // unless skipManagerTeamID names one team to leave unmanned (the T3
 // fixture); a tiny 3-spot roster shape (1 starter [RB], 2 bench —
 // starterCount 1, rosterCap 3); a two-game week-1 schedule (PIT unlocked

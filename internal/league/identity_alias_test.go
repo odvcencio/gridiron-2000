@@ -304,7 +304,7 @@ func TestIdentityAliasStoreActionsUseCanonicalKeys(t *testing.T) {
 	store := NewStoreWithIdentity("", resolver)
 	t.Cleanup(func() { _ = store.Close() })
 
-	if _, _, err := store.EnsureMember(identityAliasEmail, "Gridiron Maintainer"); err != nil {
+	if _, _, err := store.EnsureMember(identityAliasEmail, "Commissioner Example"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := store.MemberByEmail(identityCanonicalEmail); !ok {

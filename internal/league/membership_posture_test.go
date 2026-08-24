@@ -7,7 +7,7 @@ import (
 )
 
 func TestMembershipPostureDecisionTable(t *testing.T) {
-	const domain = "stablekernel.com"
+	const domain = "example.com"
 	const invite = "guest@example.com"
 	tests := []struct {
 		name          string
@@ -84,25 +84,25 @@ func TestEmailAllowedMembershipDecisionTable(t *testing.T) {
 		},
 		{
 			name:     "domain with zero invites rejects outsider",
-			domain:   "stablekernel.com",
-			allowed:  "colleague@example.com",
+			domain:   "example.net",
+			allowed:  "colleague@example.net",
 			wantMode: MembershipPostureDomainOrInvite,
 			rejected: []string{"outsider@example.com"},
 		},
 		{
 			name:        "domain or environment invitation",
-			domain:      "stablekernel.com",
+			domain:      "example.net",
 			envInvite:   "guest@example.com",
-			allowed:     "colleague@example.com",
+			allowed:     "colleague@example.net",
 			alsoAllowed: []string{"guest@example.com"},
 			rejected:    []string{"outsider@example.com"},
 			wantMode:    MembershipPostureDomainOrInvite,
 		},
 		{
 			name:         "domain or stored invitation",
-			domain:       "stablekernel.com",
+			domain:       "example.net",
 			storedInvite: "stored@example.com",
-			allowed:      "colleague@example.com",
+			allowed:      "colleague@example.net",
 			alsoAllowed:  []string{"stored@example.com"},
 			rejected:     []string{"outsider@example.com"},
 			wantMode:     MembershipPostureDomainOrInvite,
@@ -148,7 +148,7 @@ func TestEmailAllowedMembershipDecisionTable(t *testing.T) {
 
 func TestMembershipPosturePreservesPersistedMembers(t *testing.T) {
 	service := newTestService(t, false)
-	service.cfg.Membership.AllowedDomain = "stablekernel.com"
+	service.cfg.Membership.AllowedDomain = "example.net"
 	const returning = "returning@example.com"
 	if _, err := service.EnsureMember(returning, "Returning Manager"); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestCommissionerAliasAdmissionPrecedesRawPolicy(t *testing.T) {
 	resolver := testIdentityResolver(t)
 	service.identityResolver = resolver
 	service.store.identityResolver = resolver
-	service.cfg.Membership.AllowedDomain = "example.com"
+	service.cfg.Membership.AllowedDomain = "example.net"
 	t.Setenv("COMMISSIONER_EMAILS", identityCanonicalEmail)
 	t.Setenv("LEAGUE_ALLOWED_EMAILS", "")
 
@@ -181,7 +181,7 @@ func TestCommissionerAliasAdmissionPrecedesRawPolicy(t *testing.T) {
 
 func TestMembershipPosturePublicProjectionIsPIIFree(t *testing.T) {
 	service := newTestService(t, false)
-	service.cfg.Membership.AllowedDomain = "stablekernel.com"
+	service.cfg.Membership.AllowedDomain = "example.net"
 	t.Setenv("LEAGUE_ALLOWED_EMAILS", "guest@example.com")
 	if err := service.store.AddInvite("stored@example.com"); err != nil {
 		t.Fatal(err)
@@ -189,7 +189,7 @@ func TestMembershipPosturePublicProjectionIsPIIFree(t *testing.T) {
 
 	posture := service.MembershipPosture()
 	publicCopy := posture.Label() + " " + posture.Detail()
-	for _, secret := range []string{"stablekernel.com", "guest@example.com", "stored@example.com"} {
+	for _, secret := range []string{"example.net", "guest@example.com", "stored@example.com"} {
 		if strings.Contains(publicCopy, secret) || strings.Contains(publicCopy, "@") {
 			t.Fatalf("posture copy disclosed %q: %q", secret, publicCopy)
 		}
@@ -206,7 +206,7 @@ func TestMembershipPosturePublicProjectionIsPIIFree(t *testing.T) {
 	rules := service.rulesMembershipMap(service.store.Snapshot())
 	for key, value := range rules {
 		if text, ok := value.(string); ok {
-			for _, secret := range []string{"stablekernel.com", "guest@example.com", "stored@example.com"} {
+			for _, secret := range []string{"example.net", "guest@example.com", "stored@example.com"} {
 				if strings.Contains(text, secret) || strings.Contains(text, "@") {
 					t.Fatalf("rules[%q] disclosed %q: %q", key, secret, text)
 				}

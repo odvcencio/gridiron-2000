@@ -16,8 +16,8 @@ func TestCommissionerCanonicalIdentityAcceptsExplicitProviderAlias(t *testing.T)
 	if !commissionerForEmail(t, service, "commissioner.alias@example.org") {
 		t.Fatal("explicit Stable Kernel alias must resolve to the canonical commissioner")
 	}
-	if !commissionerForEmail(t, service, "commissioner@example.com") {
-		t.Fatal("canonical m31labs.dev commissioner must be authorized case-insensitively")
+	if !commissionerForEmail(t, service, "COMMISSIONER@EXAMPLE.COM") {
+		t.Fatal("canonical commissioner must be authorized case-insensitively")
 	}
 	if commissionerForEmail(t, service, "not-the-commissioner@example.com") {
 		t.Fatal("an unlisted identity must not receive commissioner access")

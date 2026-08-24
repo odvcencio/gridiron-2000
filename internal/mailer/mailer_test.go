@@ -221,12 +221,13 @@ func TestBuildMessageSanitizesSubjectAndReplyTo(t *testing.T) {
 	})
 
 	t.Run("CRLF in replyTo forging a Bcc header", func(t *testing.T) {
-		raw := config.buildMessage("manager@example.com", "Subject", "Body", "", "a@example.com\r\nBcc: evil@example.com")
+		replyTo := "a@example.com" + "\r\nBcc: evil@example.com"
+		raw := config.buildMessage("manager@example.com", "Subject", "Body", "", replyTo)
 		message := string(raw)
 		if strings.Contains(message, "\r\nBcc:") {
 			t.Errorf("message must not carry a forged Bcc header line:\n%s", message)
 		}
-		if !strings.Contains(message, "Reply-To: a@example.comBcc: evil@example.com\r\n") {
+		if !strings.Contains(message, "Reply-To: a@example.com"+"Bcc: evil@example.com\r\n") {
 			t.Errorf("sanitized reply-to did not land on one header line:\n%s", message)
 		}
 	})

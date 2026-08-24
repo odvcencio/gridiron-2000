@@ -86,7 +86,7 @@ existing persisted membership; the canonical identities in
 a raw environment or stored invitation; and finally the open-after-sign-in
 fallback only when both the domain and invitation sources are empty. This
 keeps a colleague-domain gate truthful while ensuring a configured
-commissioner—such as the commissioner's `m31labs.dev` identity and its explicit
+commissioner—such as the commissioner's canonical identity and its explicit
 Stable Kernel alias—can still sign in. Alias canonicalization is not a
 general bypass for unrelated authorization. After admission, the canonical
 identity is used for commissioner authorization, seat/team ownership,

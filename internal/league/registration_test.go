@@ -499,14 +499,14 @@ func TestCoManagerNotificationsReachBoth(t *testing.T) {
 // the domain gate, not instead of it).
 func TestEmailAllowedDomainGate(t *testing.T) {
 	service := newTestService(t, false)
-	service.cfg.Membership.AllowedDomain = "stablekernel.com"
+	service.cfg.Membership.AllowedDomain = "example.net"
 	// A non-empty invite list keeps EmailAllowed off its "both lists
 	// empty means wide open" fallback, so the domain gate is the thing
 	// actually under test here.
 	if err := service.store.AddInvite("someone-else@example.com"); err != nil {
 		t.Fatal(err)
 	}
-	if !service.EmailAllowed("new-hire@example.com") {
+	if !service.EmailAllowed("new-hire@example.net") {
 		t.Fatal("a matching domain must be admitted without an invite")
 	}
 	if service.EmailAllowed("outsider@example.com") {
@@ -521,12 +521,12 @@ func TestEmailAllowedDomainGate(t *testing.T) {
 // item 5): empty is valid (no gate), an "@" address is rejected, and a
 // malformed domain is rejected. A valid bare domain — the flagship
 // omits this block; a config like a "SK" deployment's would set
-// stablekernel.com — passes.
+// example.com — passes.
 func TestValidateMembershipDomain(t *testing.T) {
 	if err := validateMembership(MembershipBlock{}); err != nil {
 		t.Fatalf("empty allowed_domain must validate: %v", err)
 	}
-	if err := validateMembership(MembershipBlock{AllowedDomain: "stablekernel.com"}); err != nil {
+	if err := validateMembership(MembershipBlock{AllowedDomain: "example.com"}); err != nil {
 		t.Fatalf("a valid bare domain must validate: %v", err)
 	}
 	if err := validateMembership(MembershipBlock{AllowedDomain: "someone@example.com"}); err == nil {
