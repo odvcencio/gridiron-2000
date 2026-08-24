@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -15,12 +16,23 @@ import (
 // AssignMember always claims the first unclaimed team in defaultTeams()
 // order, so calling this n times in a row claims exactly team-1..team-n.
 func claimSeat(t *testing.T, svc *Service, email string) Member {
+
 	t.Helper()
 	member, _, err := svc.store.AssignMember(email, email)
 	if err != nil {
 		t.Fatalf("AssignMember(%s): %v", email, err)
 	}
 	return member
+}
+func trimUnclaimedSeatsForTest(t *testing.T, svc *Service, request *http.Request) ([]Team, []string, error) {
+	t.Helper()
+	data := svc.AdminData(request)
+	count, ok := data["unclaimed_seat_count"].(int)
+	if !ok {
+		t.Fatalf("unclaimed_seat_count = %T", data["unclaimed_seat_count"])
+	}
+	token, _ := data["unclaimed_seat_token"].(string)
+	return svc.TrimUnclaimedSeats(request, seatTrimConfirmation(count), token)
 }
 
 // TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed is the trim's core
@@ -41,7 +53,7 @@ func TestTrimUnclaimedSeatsDropsUnclaimedKeepsClaimed(t *testing.T) {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
 
-	kept, removed, err := svc.TrimUnclaimedSeats(request)
+	kept, removed, err := trimUnclaimedSeatsForTest(t, svc, request)
 	if err != nil {
 		t.Fatalf("TrimUnclaimedSeats: %v", err)
 	}
@@ -91,7 +103,7 @@ func TestTrimUnclaimedSeatsRequiresCommissioner(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
-	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
 	}
 	if got := len(defaultTeams()); got != 8 {
@@ -114,7 +126,7 @@ func TestTrimUnclaimedSeatsLocksOnceDraftStarts(t *testing.T) {
 	if _, err := svc.store.MakePick(all[0].ID, "p-01", "manager", time.Now(), time.Time{}); err != nil {
 		t.Fatalf("MakePick: %v", err)
 	}
-	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); err == nil {
 		t.Fatal("a trim must be rejected once the draft has picks on the tape")
 	}
 	if got := len(defaultTeams()); got != 8 {
@@ -132,7 +144,7 @@ func TestTrimUnclaimedSeatsMinFloor(t *testing.T) {
 	for i := 0; i < 2; i++ { // fewer than minTeams (4)
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
-	if _, _, err := svc.TrimUnclaimedSeats(request); err == nil {
+	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); err == nil {
 		t.Fatal("a trim leaving fewer than minTeams claimed seats must be rejected")
 	}
 	if got := len(defaultTeams()); got != 8 {
@@ -154,23 +166,15 @@ func TestTrimUnclaimedSeatsIdempotent(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
-	kept1, removed1, err := svc.TrimUnclaimedSeats(request)
+	kept1, removed1, err := trimUnclaimedSeatsForTest(t, svc, request)
 	if err != nil {
 		t.Fatalf("first trim: %v", err)
 	}
-	kept2, removed2, err := svc.TrimUnclaimedSeats(request)
-	if err != nil {
-		t.Fatalf("second trim: %v", err)
+	if _, _, err = trimUnclaimedSeatsForTest(t, svc, request); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("second trim error = %v, want stale render rejection", err)
 	}
-	if len(kept1) != len(kept2) || len(removed1) != len(removed2) {
-		t.Fatalf("trim is not idempotent: first (kept=%d removed=%d), second (kept=%d removed=%d)",
-			len(kept1), len(removed1), len(kept2), len(removed2))
-	}
-	for i := range kept1 {
-		if kept1[i] != kept2[i] {
-			t.Fatalf("kept[%d] changed across repeat trims: %+v vs %+v", i, kept1[i], kept2[i])
-		}
-	}
+	_ = kept1
+	_ = removed1
 }
 
 // TestTrimUnclaimedSeatsClearsStaleDraftOrder proves a draft order drawn
@@ -189,7 +193,7 @@ func TestTrimUnclaimedSeatsClearsStaleDraftOrder(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
-	if _, _, err := svc.TrimUnclaimedSeats(request); err != nil {
+	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); err != nil {
 		t.Fatalf("TrimUnclaimedSeats: %v", err)
 	}
 	if got := svc.store.Snapshot().DraftOrder; len(got) != 0 {
@@ -220,7 +224,7 @@ func TestTrimUnclaimedSeatsClearsAndRegeneratesSchedule(t *testing.T) {
 		claimSeat(t, svc, fmt.Sprintf("member-%d@example.com", i))
 	}
 
-	kept, removed, err := svc.TrimUnclaimedSeats(request)
+	kept, removed, err := trimUnclaimedSeatsForTest(t, svc, request)
 	if err != nil {
 		t.Fatalf("trim scheduled league: %v", err)
 	}
@@ -277,7 +281,7 @@ func TestTrimUnclaimedSeatsPersistFailureIsAtomic(t *testing.T) {
 	}
 	before := svc.store.Snapshot()
 	failThisStorePersist(svc.store)
-	if _, _, err := svc.TrimUnclaimedSeats(request); !errors.Is(err, errInjectedPersist) {
+	if _, _, err := trimUnclaimedSeatsForTest(t, svc, request); !errors.Is(err, errInjectedPersist) {
 		t.Fatalf("failed trim error = %v, want injected persist failure", err)
 	}
 	after := svc.store.Snapshot()
@@ -288,4 +292,291 @@ func TestTrimUnclaimedSeatsPersistFailureIsAtomic(t *testing.T) {
 	if !reflect.DeepEqual(reloaded.Schedule, before.Schedule) || !reflect.DeepEqual(reloaded.TrimmedTeamIDs, before.TrimmedTeamIDs) {
 		t.Fatalf("failed trim changed durable topology:\n before=%+v\n reloaded=%+v", before, reloaded)
 	}
+}
+func TestTrimUnclaimedSeatsRejectsWrongAndStaleConfirmation(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("manager-%d@example.com", i))
+	}
+
+	data := svc.AdminData(request)
+	count := data["unclaimed_seat_count"].(int)
+	token := data["unclaimed_seat_token"].(string)
+	before := svc.store.Snapshot()
+	if _, _, err := svc.TrimUnclaimedSeats(request, "DROP 99 UNCLAIMED SEATS", token); err == nil {
+		t.Fatal("wrong confirmation unexpectedly succeeded")
+	}
+	afterWrong := svc.store.Snapshot()
+	if !reflect.DeepEqual(afterWrong.TrimmedTeamIDs, before.TrimmedTeamIDs) ||
+		!reflect.DeepEqual(afterWrong.Schedule, before.Schedule) {
+		t.Fatal("wrong confirmation changed league topology")
+	}
+
+	// A newly claimed seat invalidates the exact count and token rendered
+	// above; submitting that stale form must not trim the new state.
+	claimSeat(t, svc, "manager-5@example.com")
+	if _, _, err := svc.TrimUnclaimedSeats(request, seatTrimConfirmation(count), token); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("stale trim error = %v, want stale-action rejection", err)
+	}
+	current := svc.store.Snapshot()
+	if len(current.TrimmedTeamIDs) != 0 {
+		t.Fatalf("stale trim changed topology: %#v", current.TrimmedTeamIDs)
+	}
+}
+
+func TestTrimUnclaimedSeatsRejectsConcurrentDuplicateSubmission(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("manager-%d@example.com", i))
+	}
+	data := svc.AdminData(request)
+	count := data["unclaimed_seat_count"].(int)
+	token := data["unclaimed_seat_token"].(string)
+	confirmation := seatTrimConfirmation(count)
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			_, _, err := svc.TrimUnclaimedSeats(request, confirmation, token)
+			results <- err
+		}()
+	}
+	close(start)
+	var success, stale int
+	for i := 0; i < 2; i++ {
+		err := <-results
+		switch {
+		case err == nil:
+			success++
+		case errors.Is(err, errAdminActionStale):
+			stale++
+		default:
+			t.Fatalf("duplicate trim error = %v, want success or stale rejection", err)
+		}
+	}
+	if success != 1 || stale != 1 {
+		t.Fatalf("duplicate trim outcomes = success:%d stale:%d, want 1/1", success, stale)
+	}
+}
+func TestTrimUnclaimedSeatsRejectsScheduleRace(t *testing.T) {
+	t.Cleanup(clearSeatTrim)
+	svc := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	for i := 0; i < 5; i++ {
+		claimSeat(t, svc, fmt.Sprintf("manager-%d@example.com", i))
+	}
+	initial := SeasonSchedule{Season: svc.cfg.Season, Weeks: []ScheduleWeek{{
+		Week: 1, Matchups: []LeagueMatchup{{ID: "race-1", HomeTeamID: "team-1", AwayTeamID: "team-2"}},
+	}}}
+	if err := svc.store.SetSchedule(initial); err != nil {
+		t.Fatalf("set initial schedule: %v", err)
+	}
+	data := svc.AdminData(request)
+	count := data["unclaimed_seat_count"].(int)
+	token := data["unclaimed_seat_token"].(string)
+	changed := SeasonSchedule{Season: svc.cfg.Season, Weeks: []ScheduleWeek{{
+		Week: 1, Matchups: []LeagueMatchup{{ID: "race-2", HomeTeamID: "team-1", AwayTeamID: "team-3"}},
+	}}}
+	if err := svc.store.SetSchedule(changed); err != nil {
+		t.Fatalf("set changed schedule: %v", err)
+	}
+	if _, _, err := svc.TrimUnclaimedSeats(request, seatTrimConfirmation(count), token); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("schedule-race trim error = %v, want stale-action rejection", err)
+	}
+	current := svc.store.Snapshot()
+	if current.Schedule == nil || !reflect.DeepEqual(*current.Schedule, changed) {
+		t.Fatalf("stale trim discarded changed schedule: %#v", current.Schedule)
+	}
+}
+func pauseTrimAfterStore(t *testing.T, svc *Service, request *http.Request) (chan struct{}, <-chan error) {
+	t.Helper()
+	data := svc.AdminData(request)
+	count := data["unclaimed_seat_count"].(int)
+	token := data["unclaimed_seat_token"].(string)
+	paused := make(chan struct{})
+	release := make(chan struct{})
+	svc.topologyMutationHook = func(operation string) {
+		if operation == "trim-after-store" {
+			close(paused)
+			<-release
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := svc.TrimUnclaimedSeats(request, seatTrimConfirmation(count), token)
+		done <- err
+	}()
+	select {
+	case <-paused:
+	case <-time.After(2 * time.Second):
+		t.Fatal("seat trim did not reach its post-store publication checkpoint")
+	}
+	return release, done
+}
+
+func assertTopologyWriterBlocked(t *testing.T, done <-chan error, release chan struct{}) {
+	t.Helper()
+	select {
+	case err := <-done:
+		close(release)
+		t.Fatalf("topology writer completed inside trim publication gap: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func assertNoTrimmedTopologyReferences(t *testing.T, state PersistedState) {
+	t.Helper()
+	trimmed := make(map[string]bool, len(state.TrimmedTeamIDs))
+	for _, teamID := range state.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	for _, member := range state.Members {
+		if trimmed[member.TeamID] {
+			t.Fatalf("trimmed team retained durable member: %+v", member)
+		}
+	}
+	for _, teamID := range state.DraftOrder {
+		if trimmed[teamID] {
+			t.Fatalf("draft order reintroduced trimmed team %q", teamID)
+		}
+	}
+	if state.Schedule != nil {
+		for _, week := range state.Schedule.Weeks {
+			if trimmed[week.ByeTeamID] {
+				t.Fatalf("schedule bye reintroduced trimmed team %q", week.ByeTeamID)
+			}
+			for _, matchup := range week.Matchups {
+				if trimmed[matchup.HomeTeamID] || trimmed[matchup.AwayTeamID] {
+					t.Fatalf("schedule reintroduced trimmed team: %+v", matchup)
+				}
+			}
+		}
+	}
+}
+
+func TestSeatTrimSerializesRuntimeDerivedTopologyWriters(t *testing.T) {
+	t.Run("claim waits for trim publication", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("claim-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		claimDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AssignManager("late-service@example.com", "Late")
+			claimDone <- err
+		}()
+		assertTopologyWriterBlocked(t, claimDone, release)
+		if _, _, err := svc.store.AssignMember("late-store@example.com", "Late Store"); !errors.Is(err, ErrLeagueFull) {
+			close(release)
+			t.Fatalf("direct store claim in publication gap = %v, want league full", err)
+		}
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-claimDone; !errors.Is(err, ErrLeagueFull) {
+			t.Fatalf("serialized claim = %v, want league full", err)
+		}
+		assertNoTrimmedTopologyReferences(t, svc.store.Snapshot())
+	})
+
+	t.Run("draft order waits and uses kept teams", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("order-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		orderDone := make(chan error, 1)
+		go func() {
+			_, _, err := svc.AdminRandomizeDraftOrder(request, "")
+			orderDone <- err
+		}()
+		assertTopologyWriterBlocked(t, orderDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-orderDone; err != nil {
+			t.Fatalf("serialized draft order: %v", err)
+		}
+		state := svc.store.Snapshot()
+		if len(state.DraftOrder) != minTeams {
+			t.Fatalf("draft order has %d teams, want %d", len(state.DraftOrder), minTeams)
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
+
+	t.Run("schedule generation waits and uses kept teams", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("schedule-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		scheduleDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AdminGenerateSchedule(request, 2, 1, 991)
+			scheduleDone <- err
+		}()
+		assertTopologyWriterBlocked(t, scheduleDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-scheduleDone; err != nil {
+			t.Fatalf("serialized schedule generation: %v", err)
+		}
+		state := svc.store.Snapshot()
+		if state.Schedule == nil {
+			t.Fatal("kept-team schedule was not persisted")
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
+
+	t.Run("schedule regeneration cannot resurrect cleared topology", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 2, 1, 992); err != nil {
+			t.Fatalf("initial schedule: %v", err)
+		}
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("regenerate-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		regenerateDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AdminRegenerateSchedule(request, 0, 0)
+			regenerateDone <- err
+		}()
+		assertTopologyWriterBlocked(t, regenerateDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-regenerateDone; err == nil || !strings.Contains(err.Error(), "no schedule exists") {
+			t.Fatalf("serialized regeneration = %v, want cleared-schedule rejection", err)
+		}
+		state := svc.store.Snapshot()
+		if state.Schedule != nil {
+			t.Fatalf("regeneration resurrected trimmed schedule: %+v", state.Schedule)
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
 }

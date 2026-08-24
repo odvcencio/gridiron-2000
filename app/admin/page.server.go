@@ -346,7 +346,7 @@ func init() {
 				return nil
 			},
 			"seat-release": func(ctx *action.Context) error {
-				team, err := league.Default().AdminReleaseSeat(ctx.Request, ctx.FormData["team_id"])
+				team, err := league.Default().AdminReleaseSeat(ctx.Request, ctx.FormData["team_id"], ctx.FormData["confirm"], ctx.FormData["seat_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
@@ -413,7 +413,7 @@ func init() {
 						scheduleBefore, _ = schedule["has_schedule"].(bool)
 					}
 				}
-				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request)
+				kept, removed, err := league.Default().TrimUnclaimedSeats(ctx.Request, ctx.FormData["confirm"], ctx.FormData["unclaimed_seat_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}

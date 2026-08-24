@@ -399,3 +399,43 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGeneration(t *testing.T) {
 		t.Fatalf("forced close confirmation error missing: %s", forceReloadRes.Body.String())
 	}
 }
+func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
+	body := renderAdminPage(t)
+	for _, want := range []string{
+		`name="unclaimed_seat_token"`,
+		`DROP 8 UNCLAIMED SEATS`,
+		`discards that unplayed schedule`,
+		`Reload this page if the claim count changes`,
+		`NOT RUNNING`,
+		`Pause unavailable - clock is NOT RUNNING`,
+		`Resume unavailable - NOT RUNNING`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("admin safety render missing %q", want)
+		}
+	}
+
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		`seat-release-disclosure`,
+		`seat-release-confirm-`,
+		`name="seat_token"`,
+		`primary manager, co-manager, pending co-invite`,
+		`props.seat.release_confirmation`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("seat release source contract missing %q", want)
+		}
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(serverSource), `ctx.FormData["seat_token"]`) {
+		t.Error("seat release action boundary does not forward the opaque current-seat token")
+	}
+}

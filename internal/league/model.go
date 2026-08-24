@@ -384,6 +384,13 @@ type PersistedState struct {
 	// it in load/NewStore/cloneState.
 	CoInvites map[string]string `json:"coInvites,omitempty"`
 
+	// SeatRevisions is a monotonic generation per franchise seat. Destructive
+	// commissioner confirmations bind to this durable generation and the
+	// current occupant, so a form rendered for an earlier claim can never
+	// release a later occupant after release/reclaim or a league reset.
+	// Missing entries from older state decode as generation zero.
+	SeatRevisions map[string]uint64 `json:"seatRevisions,omitempty"`
+
 	// TrimmedTeamIDs holds the team IDs a commissioner's seat trim (SK
 	// unclaimed-seat spec, Store.TrimUnclaimedSeats) removed as unclaimed.
 	// Empty means no trim has run: defaultTeams() returns the full

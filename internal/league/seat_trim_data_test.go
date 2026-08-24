@@ -81,7 +81,7 @@ func TestAdminDataLocksSeatTrimOnceDraftStarts(t *testing.T) {
 	if got := service.AdminData(request)["draft_started"]; got != true {
 		t.Errorf("draft_started = %v after a pick landed, want true", got)
 	}
-	if _, _, err := service.TrimUnclaimedSeats(request); err == nil {
+	if _, _, err := trimUnclaimedSeatsForTest(t, service, request); err == nil {
 		t.Errorf("TrimUnclaimedSeats succeeded after the draft started, want it rejected")
 	}
 }

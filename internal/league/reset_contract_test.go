@@ -431,7 +431,7 @@ func TestAdminResetLeagueTopologyPublicationLinearizesRosterMutations(t *testing
 		}
 		trimDone := make(chan error, 1)
 		go func() {
-			_, _, err := service.TrimUnclaimedSeats(request)
+			_, _, err := trimUnclaimedSeatsForTest(t, service, request)
 			trimDone <- err
 		}()
 		<-trimPaused
