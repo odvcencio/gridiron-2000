@@ -1,0 +1,7 @@
+{
+  "key_id": "league-a",
+  "secret": "0123456789abcdef0123456789abcdef",
+  "timestamp": "1787592600",
+  "canonical_input": "GET\n/api/internal/v1/commissioner-summary\n1787592600\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "signature": "sha256=13d5af5c2fa6e53fe85cb7be091dbdd8345cab7665d86a43fefd04fc471a2b92"
+}

@@ -1,0 +1,12 @@
+{
+  "request_id": "req_0123456789abcdef",
+  "statuses": {
+    "400": {"error":{"code":"invalid_request","message":"Request was invalid","request_id":"req_0123456789abcdef"}},
+    "401": {"error":{"code":"unauthorized","message":"Request could not be authorized","request_id":"req_0123456789abcdef"}},
+    "403": {"error":{"code":"forbidden","message":"Access is not permitted","request_id":"req_0123456789abcdef"}},
+    "405": {"error":{"code":"method_not_allowed","message":"Method is not allowed","request_id":"req_0123456789abcdef"}},
+    "429": {"error":{"code":"rate_limited","message":"Retry later","request_id":"req_0123456789abcdef"}},
+    "500": {"error":{"code":"internal_error","message":"Internal error","request_id":"req_0123456789abcdef"}},
+    "503": {"error":{"code":"temporarily_unavailable","message":"League data is temporarily unavailable","request_id":"req_0123456789abcdef"}}
+  }
+}
