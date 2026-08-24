@@ -1792,13 +1792,14 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
 	state := s.store.Snapshot()
+	lineupTarget := s.lineupViewTargetForRequest(r, state, teamID)
 	identityAvailable, identityError := s.identityView()
 	// A seatless member (no team_id) gets the honest "no franchise" state
 	// with the signup CTA, never team-1's roster (registration wave, build
 	// item 6 — the flagged paper cut: teamView's empty-TeamID fallback to
 	// defaultTeams()[0] used to leak team-1's own lineup to every seatless
 	// visitor of /team).
-	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
+	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat && !lineupTarget.Intervention {
 		return map[string]any{
 			"viewer":               viewer,
 			"public_entry":         publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
@@ -1815,6 +1816,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 			"badge_grid":           []map[string]any{},
 		}
 	}
+	teamID = lineupTarget.TeamID
 	team := s.teamView(state, teamID)
 	roster, _ := s.rosterForTeam(state, teamID)
 	rosterCapacity := CurrentRoster().Total()
@@ -1844,6 +1846,22 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	if identityAvailable {
 		_, hasBadgeClaim = s.store.BadgeClaim(teamID)
 		badgeGrid = s.badgeGrid(state, teamID)
+	}
+	coManager := s.coManagerMap(r, state, teamID)
+	if lineupTarget.Intervention {
+		// Intervention is a lineup-only projection. Keep the selected
+		// franchise label for context, but do not carry its manager,
+		// co-manager, badge, or identity-editor state into the view model.
+		teamMap["manager"] = ""
+		coManager = map[string]any{
+			"primary_name": "", "has_co": false, "co_name": "",
+			"has_pending": false, "pending_email": "",
+			"can_invite": false, "can_detach": false,
+		}
+		identityAvailable = false
+		identityError = ""
+		hasBadgeClaim = false
+		badgeGrid = []map[string]any{}
 	}
 
 	games := s.schedule()
@@ -1909,13 +1927,17 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 
 	data := map[string]any{
-		"viewer":       viewer,
-		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
-		"has_seat":     true,
-		"team":         teamMap,
+		"viewer":                        viewer,
+		"lineup_target_options":         s.lineupTargetOptions(state, lineupTarget.TeamID, week),
+		"lineup_intervention_exit_href": "/team?week=" + strconv.Itoa(week) + "#lineup",
+		"public_entry":                  publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"has_seat":                      true,
+		"lineup_intervention":           lineupTarget.Intervention,
+		"lineup_target_id":              lineupTarget.TeamID,
+		"team":                          teamMap,
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
-		"predraft_visible":     !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
+		"predraft_visible":     !lineupTarget.Intervention && !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
 		"predraft_has_board":   boardCount > 0,
 		"predraft_board_count": boardCount,
 		"predraft_ready":       managerReady,
@@ -1966,7 +1988,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 		// is primary-only (only the primary may invite); can_detach also
 		// admits the commissioner (canManageCoManager), matching
 		// InviteCoManager/DetachCoManager's own authority rules.
-		"co_manager": s.coManagerMap(r, state, teamID),
+		"co_manager": coManager,
 		// fantasy_card is unused on the seated branch's own template path
 		// (its <If> only reaches the seatless section above), but the key
 		// stays present anyway — the same "every branch carries the same

@@ -202,6 +202,33 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
+		<If cond={data.lineup_intervention}>
+			<section class="lineup-intervention-banner" aria-labelledby="lineup-intervention-title">
+				<span class="section-index">COMMISSIONER // LINEUP CONTROL</span>
+				<strong id="lineup-intervention-title">LINEUP INTERVENTION · {data.team.name}</strong>
+				<p>You are editing this claimed franchise for week {data.week}. Only lineup controls are enabled here; identity, ownership, badge, roster transactions, ready status, and autopick remain with the franchise manager.</p>
+			</section>
+		</If>
+		<If cond={data.is_commissioner}>
+			<section class="lineup-target-switcher" aria-label="Commissioner lineup target">
+				<div>
+					<span class="section-index">COMMISSIONER HQ // CLAIMED FRANCHISES</span>
+					<strong>Set lineup for another franchise</strong>
+				</div>
+				<form method="get" action="/team" class="lineup-target-switcher__form">
+					<input type="hidden" name="week" value={data.week}></input>
+					<select name="team" aria-label="Choose a claimed franchise lineup">
+						<Each of={data.lineup_target_options} as="option">
+							<option value={option.id} selected={option.selected}>{option.label}</option>
+						</Each>
+					</select>
+					<button class="button button--compact" type="submit">Open lineup</button>
+				</form>
+				<If cond={data.lineup_intervention}>
+					<a href={data.lineup_intervention_exit_href} data-gosx-link class="lineup-target-switcher__exit">Return to my lineup →</a>
+				</If>
+			</section>
+		</If>
 		<section class={"team-hero tone-" + data.team.tone} id="team-identity-hero">
 			<div class="team-hero__identity">
 				<span class="team-monogram">
@@ -222,6 +249,7 @@ func Page() Node {
 						{data.team.division}
 						DIVISION
 					</small>
+					<If cond={data.lineup_intervention == false}>
 					<If cond={data.team.claimed && data.co_manager.has_co}>
 						<p>
 							Operated by
@@ -242,6 +270,7 @@ func Page() Node {
 							</p>
 						</If>
 						<a href="/team?identity=edit#team-identity" data-gosx-link class="button button--ghost button--compact team-identity-link">Customize franchise</a>
+						</If>
 					</div>
 				</div>
 			<div class="team-hero__record">
@@ -254,6 +283,7 @@ func Page() Node {
 					</small>
 				</div>
 			</section>
+			<If cond={data.lineup_intervention == false}>
 			<details class="team-identity-settings" id="team-identity" open={data.identity_expanded}>
 				<summary>
 					<span class="team-identity-settings__summary-copy">
@@ -348,6 +378,7 @@ func Page() Node {
 					</section>
 				</div>
 			</details>
+			</If>
 			<div class="team-command-strip">
 			<div>
 				<span>Projected</span>
@@ -373,9 +404,11 @@ func Page() Node {
 				<span>League</span>
 				<strong class="mono">{data.league_mode}</strong>
 			</div>
+			<If cond={data.lineup_intervention == false}>
 			<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
+			</If>
 		</div>
-		<If cond={data.predraft_visible}>
+		<If cond={data.predraft_visible && data.lineup_intervention == false}>
 			<section class="predraft-progress" aria-labelledby="predraft-progress-title">
 				<header class="predraft-progress__header">
 					<div>
@@ -482,6 +515,9 @@ func Page() Node {
 				</div>
 				<div class="lineup-toolbar">
 					<form method="get" action="/team" class="lineup-week-form">
+						<If cond={data.lineup_intervention}>
+							<input type="hidden" name="team" value={data.lineup_target_id}></input>
+						</If>
 						<select name="week" aria-label="Select week">
 							<Each of={data.week_options} as="wk">
 								<option value={wk.value} selected={wk.selected}>{wk.label}</option>
@@ -499,7 +535,7 @@ func Page() Node {
 						<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster and Big Board order. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
 					</If>
 				</div>
-				<If cond={data.team_terminal_pre_draft}>
+				<If cond={data.team_terminal_pre_draft && data.lineup_intervention == false}>
 					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
 						<strong>{data.team_terminal_label}</strong>
 						<p>{data.team_terminal_detail}</p>
@@ -509,7 +545,13 @@ func Page() Node {
 						</div>
 					</div>
 				</If>
-				<If cond={data.team_terminal_draft_live}>
+				<If cond={data.lineup_intervention && data.team_terminal_pre_draft}>
+					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
+						<strong>ROSTER PREVIEW · DRAFT PENDING</strong>
+						<p>This claimed franchise has no players yet. Starting slots remain empty until the commissioner starts the draft and picks are recorded.</p>
+					</div>
+				</If>
+				<If cond={data.team_terminal_draft_live && data.lineup_intervention == false}>
 					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--live">
 						<strong>{data.team_terminal_label}</strong>
 						<p>{data.team_terminal_detail}</p>
@@ -637,7 +679,7 @@ func Page() Node {
 								<RosterRow {...player}></RosterRow>
 							</Each>
 						</div>
-						<If cond={data.has_reserve}>
+						<If cond={data.has_reserve && data.lineup_intervention == false}>
 							<h3 class="lineup-bench-title">
 								Reserve
 								<small class="mono">{data.reserve_capacity}</small>
@@ -691,7 +733,7 @@ func Page() Node {
 								</form>
 							</If>
 						</If>
-						<If cond={data.has_ir}>
+						<If cond={data.has_ir && data.lineup_intervention == false}>
 							<h3 class="lineup-bench-title">
 								IR
 								<small class="mono">{data.ir_capacity}</small>

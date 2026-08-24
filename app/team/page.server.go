@@ -5,6 +5,7 @@ import (
 	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -176,10 +177,15 @@ func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) 
 
 func teamLineupTarget(ctx *action.Context) string {
 	week := ""
+	target := ""
 	if ctx != nil {
 		week = strings.TrimSpace(ctx.FormData["week"])
+		target = strings.TrimSpace(ctx.FormData["team_id"])
 	}
 	week = strconv.Itoa(league.Default().NormalizeLineupWeek(week))
+	if ctx != nil && league.Default().LineupTargetAllowed(ctx.Request, target) {
+		return "/team?team=" + url.QueryEscape(target) + "&week=" + week + "#lineup"
+	}
 	return "/team?week=" + week + "#lineup"
 }
 

@@ -146,6 +146,9 @@ func TestLineupContinuityContracts(t *testing.T) {
 	server := string(serverBytes)
 	for _, want := range []string{
 		`return "/team?week=" + week + "#lineup"`,
+		`LineupTargetAllowed(ctx.Request, target)`,
+		`target = strings.TrimSpace(ctx.FormData["team_id"])`,
+		`url.QueryEscape(target)`,
 		`result.Result.Redirect = teamLineupTarget(ctx)`,
 		`actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)`,
 		`"reserve-place"`,
@@ -270,5 +273,46 @@ func TestTeamIdentityFormsExposeFailureValueAndA11yContracts(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("team identity form missing failure/a11y contract %q", want)
 		}
+	}
+}
+
+func TestCommissionerLineupInterventionContracts(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		"<If cond={data.lineup_intervention}>",
+		"COMMISSIONER // LINEUP CONTROL",
+		"Only lineup controls are enabled here",
+		"<section class=\"lineup-target-switcher\" aria-label=\"Commissioner lineup target\">",
+		"name=\"team\" aria-label=\"Choose a claimed franchise lineup\"",
+		"value={data.lineup_target_id}",
+		"data.lineup_intervention_exit_href",
+		"<If cond={data.lineup_intervention == false}>",
+		"<If cond={data.has_reserve && data.lineup_intervention == false}>",
+		"<If cond={data.has_ir && data.lineup_intervention == false}>",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("commissioner lineup intervention contract missing %q", want)
+		}
+	}
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	for _, want := range []string{
+		".lineup-intervention-banner {",
+		".lineup-target-switcher {",
+		".lineup-target-switcher__form select,",
+	} {
+		if !strings.Contains(styles, want) {
+			t.Errorf("commissioner lineup intervention style missing %q", want)
+		}
+	}
+	if !strings.Contains(page, "<If cond={data.lineup_intervention == false}>\n\t\t\t<details class=\"team-identity-settings\"") {
+		t.Fatal("targeted Team terminal must hide franchise identity controls")
 	}
 }
