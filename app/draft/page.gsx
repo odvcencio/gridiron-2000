@@ -112,11 +112,12 @@ func DraftQueue(props DraftQueueProps) Node {
 			<Each of={props.Players} as="player">
 				<article class="pool-row" data-player-position={player.Position} data-search={player.Search}>
 					<span class="pool-rank mono">{player.Rank}</span>
-					<div class="pool-player pool-player--photo stat-tip" tabindex="0">
+					<details class="stat-tip">
+						<summary class="pool-player pool-player--photo stat-tip__summary">
 						<If cond={player.HasHeadshot}>
 							<img class="player-headshot" src={player.Headshot} alt="" loading="lazy" />
 						</If>
-						<div class="pool-player__text">
+						<span class="pool-player__text">
 							<strong>{player.Name}</strong>
 							<If cond={player.HasDraftCapital}>
 								<span class="badge-rookie">{player.DraftCapital}</span>
@@ -131,8 +132,9 @@ func DraftQueue(props DraftQueueProps) Node {
 									</If>
 								</small>
 							</If>
-						</div>
-						<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+						</span>
+						</summary>
+						<div class="stat-tip__panel">
 							<div class="stat-tip__head">
 								<strong>{player.Name}</strong>
 								<span class="mono">{player.Jersey}</span>
@@ -163,7 +165,7 @@ func DraftQueue(props DraftQueueProps) Node {
 								<p class="stat-tip__hist mono">{player.Hist}</p>
 							</If>
 						</div>
-					</div>
+					</details>
 					<span class="position-chip">{player.Position}</span>
 					<b class="mono">{player.Projection}</b>
 					<If cond={props.HasSeat}>

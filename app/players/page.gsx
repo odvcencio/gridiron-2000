@@ -114,11 +114,12 @@ func Page() Node {
 				<Each of={data.players} as="player">
 					<article class="pool-row pool-row--status" data-player-position={player.position}>
 						<span class="pool-rank mono">{player.rank}</span>
-						<div class="pool-player" tabindex="0">
+						<details class="stat-tip">
+							<summary class="pool-player pool-player--photo stat-tip__summary">
 							<If cond={player.has_headshot}>
 								<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
 							</If>
-							<div class="pool-player__text">
+							<span class="pool-player__text">
 								<strong>{player.name}</strong>
 								<If cond={player.has_draft_capital}>
 									<span class="badge-rookie">{player.draft_capital}</span>
@@ -133,8 +134,56 @@ func Page() Node {
 										</If>
 									</small>
 								</If>
+							</span>
+							</summary>
+							<div class="stat-tip__panel">
+								<div class="stat-tip__head">
+									<strong>{player.name}</strong>
+									<span class="mono">{player.position}</span>
+									<span class="mono stat-tip__team">{player.nfl_team}</span>
+								</div>
+								<div class="stat-tip__rows">
+									<div class="stat-tip__row">
+										<span>Projection</span>
+										<b class="mono">{player.projection}</b>
+									</div>
+									<If cond={player.rostered}>
+										<div class="stat-tip__row">
+											<span>Availability</span>
+											<b class="mono">ROSTERED · {player.owner_abbr}</b>
+										</div>
+									</If>
+									<If cond={player.on_waivers}>
+										<div class="stat-tip__row">
+											<span>Availability</span>
+											<span class="mono">ON WAIVERS</span>
+											<b class="mono">{player.waiver_resolves}</b>
+										</div>
+									</If>
+									<If cond={player.free_agent}>
+										<div class="stat-tip__row">
+											<span>Availability</span>
+											<b class="mono">FREE AGENT</b>
+										</div>
+									</If>
+									<If cond={player.claimed_by_me}>
+										<p class="stat-tip__hist mono">Claim filed for this player.</p>
+									</If>
+									<If cond={player.needs_drop && player.can_add}>
+										<p class="stat-tip__hist mono">Adding requires a drop from your full roster.</p>
+									</If>
+								</div>
+								<If cond={player.has_opponent}>
+									<p class="stat-tip__hist mono">{player.opponent}</p>
+									<If cond={player.has_matchup}>
+										<p class="stat-tip__hist mono">{player.matchup_detail}</p>
+									</If>
+								</If>
+								<If cond={player.has_hist}>
+									<p class="stat-tip__hist mono">{player.hist}</p>
+								</If>
 							</div>
-						</div>
+						</details>
 						<span class="position-chip">{player.position}</span>
 						<b class="mono">{player.projection}</b>
 						<If cond={player.rostered}>

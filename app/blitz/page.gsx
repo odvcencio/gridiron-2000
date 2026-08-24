@@ -9,15 +9,17 @@ type BlitzSlotRowProps struct {
 
 func BlitzSlotRow(props BlitzSlotRowProps) Node {
 	return <article class="board-row" data-picked={props.Slot.locked}>
-		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
+		<details class="stat-tip">
+			<summary class="pool-player pool-player--photo stat-tip__summary">
 			<If cond={props.Slot.has_headshot}>
 				<img class="player-headshot" src={props.Slot.headshot} alt="" loading="lazy" />
 			</If>
-			<div class="pool-player__text">
+			<span class="pool-player__text">
 				<strong>{props.Slot.name}</strong>
 				<small>{props.Slot.detail}</small>
-			</div>
-			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+			</span>
+			</summary>
+			<div class="stat-tip__panel">
 				<div class="stat-tip__head">
 					<strong>{props.Slot.name}</strong>
 					<span class="mono">{props.Slot.jersey}</span>
@@ -42,7 +44,7 @@ func BlitzSlotRow(props BlitzSlotRowProps) Node {
 					<p class="stat-tip__empty">No recorded scoring stats yet.</p>
 				</If>
 			</div>
-		</div>
+		</details>
 		<span class="position-chip">{props.Slot.position}</span>
 		<b class="mono">{props.Slot.points}</b>
 		<div class="board-controls">
@@ -72,11 +74,12 @@ type BlitzPoolRowProps struct {
 func BlitzPoolRow(props BlitzPoolRowProps) Node {
 	return <article class="pool-row" data-player-position={props.Player.position} data-gosx-filter-text={props.Player.search}>
 		<span class="pool-rank mono">{props.Player.rank}</span>
-		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
+		<details class="stat-tip">
+			<summary class="pool-player pool-player--photo stat-tip__summary">
 			<If cond={props.Player.has_headshot}>
 				<img class="player-headshot" src={props.Player.headshot} alt="" loading="lazy" />
 			</If>
-			<div class="pool-player__text">
+			<span class="pool-player__text">
 				<strong>{props.Player.name}</strong>
 				<If cond={props.Player.is_rookie}>
 					<span class="badge-rookie">ROOKIE</span>
@@ -98,8 +101,9 @@ func BlitzPoolRow(props BlitzPoolRowProps) Node {
 						</If>
 					</small>
 				</If>
-			</div>
-			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+			</span>
+			</summary>
+			<div class="stat-tip__panel">
 				<div class="stat-tip__head">
 					<strong>{props.Player.name}</strong>
 					<span class="mono">{props.Player.jersey}</span>
@@ -127,7 +131,7 @@ func BlitzPoolRow(props BlitzPoolRowProps) Node {
 					<p class="stat-tip__hist mono">{props.Player.matchup_detail}</p>
 				</If>
 			</div>
-		</div>
+		</details>
 		<span class="position-chip">{props.Player.position}</span>
 		<b class="mono">{props.Player.projection}</b>
 		<form method="post" action={props.AddAction} data-gosx-managed="true">
@@ -172,7 +176,8 @@ func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 		<b class="mono">{props.Entry.total}</b>
 		<div class="blitz-chip-row">
 			<Each of={props.Entry.players} as="chip">
-				<div class="pool-player stat-tip" tabindex="0">
+				<details class="stat-tip">
+					<summary class="pool-player stat-tip__summary">
 					<If cond={chip.revealed}>
 						<small class="mono">{chip.position}</small>
 						<span>{chip.name}</span>
@@ -182,7 +187,8 @@ func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 						<span>Hidden</span>
 					</If>
 					<b class="mono">{chip.points}</b>
-					<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+					</summary>
+					<div class="stat-tip__panel">
 						<div class="stat-tip__head">
 							<strong>{chip.name}</strong>
 							<span class="mono stat-tip__team">{chip.team}</span>
@@ -206,7 +212,7 @@ func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 							<p class="stat-tip__empty">Locks at this player's kickoff.</p>
 						</If>
 					</div>
-				</div>
+				</details>
 			</Each>
 		</div>
 	</article>
