@@ -22,3 +22,17 @@ func RedirectWithNotice(ctx *action.Context, target, message string) {
 	}
 	ctx.RedirectWithMessage(target, message)
 }
+
+// RedirectBackWithNotice preserves the existing native POST-redirect-GET
+// notice while returning the same message and submitted same-origin target to
+// GoSX-managed forms. When no valid target was submitted, fallback is used.
+func RedirectBackWithNotice(ctx *action.Context, fallback, message string) {
+	if ctx == nil {
+		return
+	}
+	message = strings.TrimSpace(message)
+	if message != "" && !action.WantsJSON(ctx.Request) {
+		session.AddFlash(ctx.Request, "notice", message)
+	}
+	ctx.RedirectBackWithMessage(fallback, message)
+}
