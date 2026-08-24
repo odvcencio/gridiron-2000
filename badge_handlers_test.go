@@ -152,6 +152,24 @@ func TestBadgeUploadHandlerRunsBehindRealCSRFProtection(t *testing.T) {
 	}
 }
 
+func TestBadgeUploadHandlerPreservesIdentityEditorFragment(t *testing.T) {
+	fake := &fakeBadgeUpdater{}
+	manager, token, cookies := sessionWithCSRFCookie(t, "badge_identity_fragment")
+	const target = "/team?identity=edit#team-identity"
+	req := badgeFormRequest(t, target, token)
+	for _, cookie := range cookies {
+		req.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	manager.Middleware(manager.Protect(badgeUploadHandler(fake))).ServeHTTP(response, req)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", response.Code)
+	}
+	if got := response.Header().Get("Location"); got != target {
+		t.Fatalf("identity editor redirect location = %q, want %q", got, target)
+	}
+}
+
 func TestBadgeUploadHandlerFlashesAvatarClearedTransition(t *testing.T) {
 	fake := &fakeBadgeUpdater{
 		transition:    league.BadgeTransition{AvatarCleared: true},

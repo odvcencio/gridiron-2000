@@ -26,8 +26,31 @@ const (
 // characters. Fragments are not accepted because browsers never send them
 // to the server.
 func SafeReturnPath(raw string) string {
-	if raw == "" || len(raw) > maxReturnPathBytes || strings.Contains(raw, "#") || strings.ContainsFunc(raw, unsafeReturnRune) {
+	return safeReturnPath(raw, false)
+}
+
+// SafeActionReturnPath validates a return target submitted by a same-origin
+// form action. Unlike a browser request URI, an action form can carry a
+// fragment in its body, so this helper preserves one after validating the
+// path, query, and fragment as a single relative URL. Authentication and
+// action endpoints remain invalid destinations.
+func SafeActionReturnPath(raw string) string {
+	return safeReturnPath(raw, true)
+}
+
+func safeReturnPath(raw string, allowFragment bool) string {
+	if raw == "" || len(raw) > maxReturnPathBytes || (!allowFragment && strings.Contains(raw, "#")) || strings.ContainsFunc(raw, unsafeReturnRune) {
 		return DefaultReturnPath
+	}
+	pathQuery := raw
+	fragmentRaw := ""
+	hasFragment := false
+	if allowFragment {
+		if fragmentIndex := strings.IndexByte(raw, '#'); fragmentIndex >= 0 {
+			pathQuery = raw[:fragmentIndex]
+			fragmentRaw = raw[fragmentIndex+1:]
+			hasFragment = true
+		}
 	}
 
 	// Require a path-absolute reference with exactly one leading slash before
@@ -38,7 +61,7 @@ func SafeReturnPath(raw string) string {
 		return DefaultReturnPath
 	}
 
-	parsed, err := url.ParseRequestURI(raw)
+	parsed, err := url.ParseRequestURI(pathQuery)
 	if err != nil || parsed == nil || parsed.Scheme != "" || parsed.Opaque != "" || parsed.Host != "" || parsed.User != nil {
 		return DefaultReturnPath
 	}
@@ -47,6 +70,13 @@ func SafeReturnPath(raw string) string {
 	}
 	if hasDoubleEncodedAmbiguity(raw) {
 		return DefaultReturnPath
+	}
+	fragment := ""
+	if hasFragment {
+		fragment, err = url.PathUnescape(fragmentRaw)
+		if err != nil || !utf8.ValidString(fragment) || strings.Contains(fragment, "\\") || strings.ContainsFunc(fragment, unsafeReturnRune) {
+			return DefaultReturnPath
+		}
 	}
 
 	// ParseRequestURI validates path escapes but deliberately leaves RawQuery
@@ -59,13 +89,16 @@ func SafeReturnPath(raw string) string {
 	if strings.ContainsFunc(parsed.Path, unsafeReturnRune) {
 		return DefaultReturnPath
 	}
-	if isAuthenticationReturnPath(parsed.Path) {
+	if isAuthenticationReturnPath(parsed.Path) || (allowFragment && isActionReturnPath(parsed.Path)) {
 		return DefaultReturnPath
 	}
 
 	// RequestURI preserves the caller's encoded path/query while ensuring any
 	// ordinary spaces in a parsed path are escaped for the Location header.
 	target := parsed.RequestURI()
+	if hasFragment {
+		target += "#" + (&url.URL{Fragment: fragment}).EscapedFragment()
+	}
 	if len(target) > maxReturnPathBytes || !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
 		return DefaultReturnPath
 	}
@@ -116,4 +149,9 @@ func isAuthenticationReturnPath(rawPath string) bool {
 	default:
 		return false
 	}
+}
+
+func isActionReturnPath(rawPath string) bool {
+	cleanPath := path.Clean(rawPath)
+	return cleanPath == "/avatar/upload" || cleanPath == "/avatar/badge" || cleanPath == "/__actions" || strings.Contains(cleanPath, "/__actions/")
 }

@@ -377,6 +377,23 @@ func TestAvatarUploadHandlerSanitizesRedirectBoundary(t *testing.T) {
 	}
 }
 
+func TestAvatarUploadHandlerPreservesIdentityEditorFragment(t *testing.T) {
+	fake := &fakeAvatarUploader{}
+	manager, err := session.New("avatar-handler-identity-fragment-secret", session.Options{CookieName: "avatar_handler_identity_fragment", AllowInsecure: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const target = "/team?identity=edit#team-identity"
+	response := httptest.NewRecorder()
+	manager.Middleware(avatarUploadHandler(fake)).ServeHTTP(response, avatarMultipartRequestTo(t, target))
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", response.Code)
+	}
+	if got := response.Header().Get("Location"); got != target {
+		t.Fatalf("identity editor redirect location = %q, want %q", got, target)
+	}
+}
+
 func TestAvatarUploadHandlerFlashesNeutralBadgeReleaseCopy(t *testing.T) {
 	fake := &fakeAvatarUploader{result: league.AvatarUploadResult{BadgeReleased: true}}
 	manager, err := session.New("avatar-handler-test-secret", session.Options{CookieName: "avatar_handler", AllowInsecure: true})

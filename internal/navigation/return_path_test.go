@@ -54,6 +54,44 @@ func TestSafeReturnPath(t *testing.T) {
 	}
 }
 
+func TestSafeActionReturnPathPreservesRelativeFragmentTargets(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "team identity editor", raw: "/team?identity=edit#team-identity", want: "/team?identity=edit#team-identity"},
+		{name: "query and fragment", raw: "/wire?category=injury#schedule", want: "/wire?category=injury#schedule"},
+		{name: "admin action context", raw: "/admin?seat=team-1#identity", want: "/admin?seat=team-1#identity"},
+		{name: "external URL", raw: "https://evil.example/#steal", want: "/"},
+		{name: "protocol relative", raw: "//evil.example/steal#x", want: "/"},
+		{name: "encoded protocol relative", raw: "/%2F%2Fevil.example/#x", want: "/"},
+		{name: "encoded backslash", raw: "/team#bad%5Ctarget", want: "/"},
+		{name: "raw backslash", raw: "/team#bad\\target", want: "/"},
+		{name: "encoded control", raw: "/team#bad%0d%0atarget", want: "/"},
+		{name: "malformed fragment escape", raw: "/team#bad%zz", want: "/"},
+		{name: "malformed query escape", raw: "/team?next=%zz#identity", want: "/"},
+		{name: "double encoded backslash", raw: "/team#bad%255ctarget", want: "/"},
+		{name: "oversized fragment", raw: "/team#" + strings.Repeat("x", maxReturnPathBytes), want: "/"},
+		{name: "login endpoint", raw: "/login#identity", want: "/"},
+		{name: "oauth callback endpoint", raw: "/auth/google/callback#identity", want: "/"},
+		{name: "avatar action endpoint", raw: "/avatar/upload#identity", want: "/"},
+		{name: "badge action endpoint", raw: "/avatar/badge#identity", want: "/"},
+		{name: "gosx action endpoint", raw: "/team/__actions/save#identity", want: "/"},
+		{name: "encoded badge action endpoint", raw: "/avatar%2Fbadge#identity", want: "/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SafeActionReturnPath(tt.raw); got != tt.want {
+				t.Fatalf("SafeActionReturnPath(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+	if got := SafeReturnPath("/team?identity=edit#team-identity"); got != DefaultReturnPath {
+		t.Fatalf("SafeReturnPath accepted an action-only fragment target: %q", got)
+	}
+}
+
 func TestSafeReturnPathBudgetBoundaries(t *testing.T) {
 	exact := "/" + strings.Repeat("a", maxReturnPathBytes-1)
 	if len(exact) != maxReturnPathBytes {

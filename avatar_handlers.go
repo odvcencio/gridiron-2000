@@ -92,7 +92,7 @@ func avatarUploadHandler(svc avatarUploader) http.Handler {
 			return
 		}
 		rawRedirect := r.FormValue("redirect_to")
-		redirectTo := navigation.SafeReturnPath(rawRedirect)
+		redirectTo := navigation.SafeActionReturnPath(rawRedirect)
 		if rawRedirect == "" || (redirectTo == navigation.DefaultReturnPath && rawRedirect != navigation.DefaultReturnPath) {
 			redirectTo = "/team"
 		}
