@@ -7990,7 +7990,102 @@ body.is-on-clock .draft-clock-panel {
   padding-inline: var(--space-xs);
 }
 
+.lineup-intervention-banner {
+  display: grid;
+  gap: var(--space-xs);
+  margin-block: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-accent-lime);
+  border-inline-start: 0.35rem solid var(--color-accent-lime);
+  border-radius: var(--radius-md);
+  color: var(--color-text-primary);
+  background:
+    linear-gradient(135deg, rgba(208, 255, 45, 0.13), rgba(45, 224, 255, 0.06)),
+    var(--color-panel);
+  box-shadow: 0 0 1.5rem rgba(208, 255, 45, 0.08);
+}
+
+.lineup-intervention-banner .section-index {
+  color: var(--color-accent-lime);
+}
+
+.lineup-intervention-banner strong {
+  color: var(--color-text-primary);
+  font-size: clamp(1rem, 0.8rem + 0.7vw, 1.35rem);
+  letter-spacing: 0.08em;
+}
+
+.lineup-intervention-banner p {
+  max-width: 62rem;
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.lineup-target-switcher {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-sm) var(--space-md);
+  align-items: end;
+  margin-block: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-panel-soft);
+}
+
+.lineup-target-switcher > div {
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+.lineup-target-switcher .section-index {
+  color: var(--color-accent-cyan);
+}
+
+.lineup-target-switcher__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: flex-end;
+}
+
+.lineup-target-switcher__form select {
+  min-width: min(16rem, 100%);
+}
+
+.lineup-target-switcher__exit {
+  grid-column: 2;
+  justify-self: end;
+  color: var(--color-accent-lime);
+}
+
+@media (max-width: 38rem) {
+  .lineup-intervention-banner {
+    padding: var(--space-md);
+  }
+
+  .lineup-target-switcher {
+    grid-template-columns: 1fr;
+  }
+
+  .lineup-target-switcher__form {
+    justify-content: stretch;
+  }
+
+
+  .lineup-target-switcher__form select,
+  .lineup-target-switcher__form button {
+    width: 100%;
+  }
+
+  .lineup-target-switcher__exit {
+    grid-column: 1;
+    justify-self: start;
+  }
+}
+
 @media (min-width: 38.0625rem) {
+
   .board-page #board-pool .pool-row {
     min-width: 0;
     grid-template-columns: 2.5rem minmax(0, 1fr) 3.5rem 4.25rem auto;

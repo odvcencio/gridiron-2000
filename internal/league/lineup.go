@@ -682,13 +682,17 @@ func lineupLockedMessage(name string, week int, nflTeam string) string {
 // the requester may act for it: the signed-in seat's own team
 // (Service.actingTeam — roster-ops spec section 4.4, L1), or, per this
 // work package's explicit test-plan direction, a commissioner acting on a
-// named seat's behalf (dead-manager insurance). The roster-ops spec's
+// claimed seat's behalf (dead-manager insurance). The roster-ops spec's
 // section 14 open question 2 ("should the commissioner set another team's
 // lineup?") default is "v1 says no"; this work package's brief overrides
 // that default to "yes" — report the reconciliation at hand-off.
 func (s *Service) lineupActingTeam(r *http.Request, requestedTeam string) (string, error) {
-	if s.IsCommissioner(r) && knownTeam(strings.TrimSpace(requestedTeam)) {
-		return strings.TrimSpace(requestedTeam), nil
+	requestedTeam = strings.TrimSpace(requestedTeam)
+	if s.IsCommissioner(r) && requestedTeam != "" {
+		if _, ok := s.claimedLineupTeam(s.store.Snapshot(), requestedTeam); ok {
+			return requestedTeam, nil
+		}
+		return "", fmt.Errorf("commissioner lineup intervention requires a claimed team")
 	}
 	return s.actingTeam(r, requestedTeam)
 }
