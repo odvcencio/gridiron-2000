@@ -332,10 +332,7 @@ func main() {
 			"time":         time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	})
-	app.API("GET /api/live/week", func(ctx *server.Context) (any, error) {
-		ctx.NoStore()
-		return league.Default().LiveScoresView(ctx.Request.Context()), nil
-	})
+	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
 	registerLeagueHeartbeatAPIs(app, league.Default(), func() string {
 		_, poolVersion := fantasyPool.Players()
 		return league.Default().StateFingerprint(poolVersion)

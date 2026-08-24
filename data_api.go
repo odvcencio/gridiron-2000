@@ -145,18 +145,34 @@ func mountCSVExport(app *server.App, protect func(http.Handler) http.Handler, st
 }
 
 func requireLeagueAccess(next http.Handler) http.Handler {
+	return requireLeagueAccessWithPolicy(next,
+		func() bool { return league.Default().DemoMode() },
+		func(request *http.Request) bool {
+			_, ok := league.Default().CurrentUser(request)
+			return ok
+		},
+	)
+}
+
+func requireLeagueAccessWithPolicy(next http.Handler, demoMode func() bool, signedIn func(*http.Request) bool) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if league.Default().DemoMode() {
+		if demoMode() {
 			next.ServeHTTP(writer, request)
 			return
 		}
-		if _, ok := league.Default().CurrentUser(request); !ok {
+		if !signedIn(request) {
 			writer.Header().Set("Cache-Control", "no-store")
 			http.Error(writer, "Google sign-in is required", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(writer, request)
 	})
+}
+
+func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
+	return protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeDataJSON(writer, http.StatusOK, league.Default().LiveScoresView(request.Context()))
+	}))
 }
 
 func queryInt(request *http.Request, key string, fallback int) int {
