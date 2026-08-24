@@ -7969,6 +7969,13 @@ body.is-on-clock .draft-clock-panel {
   .lineup-week-form {
     flex: 1 1 100%;
   }
+
+  /* Week navigation is a frequent mobile control. Keep its short GO label
+     at the touch-target baseline even when the viewport is 390px wide. */
+  .lineup-week-form button {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+  }
 }
 
 /* Board discovery owns a narrower desktop column than the draft room. Keep

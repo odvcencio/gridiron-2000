@@ -64,20 +64,20 @@ component BadgeCell(props: BadgeCellProps) {
 				<input type="hidden" name="redirect_to" value={props.RedirectTo}></input>
 				<button type="submit" class="badge-option" title={props.Name} data-badge-state="available" aria-label={"Choose " + props.Name + " badge (available)"}>
 					<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
-					<small>{props.Name}</small>
+					<small>AVAILABLE · {props.Name}</small>
 				</button>
 			</form>
 		</If>
 		<If cond={props.Mine}>
 			<div class="badge-option badge-option--mine" role="img" title={props.Name} data-badge-state="current" aria-label={"Current badge: " + props.Name} aria-current="true">
 				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
-				<small>{props.Name}</small>
+				<small>CURRENT · {props.Name}</small>
 			</div>
 		</If>
 		<If cond={props.TakenByOther}>
 			<div class="badge-option badge-option--taken" role="img" title={props.Name} data-badge-state="taken" aria-label={props.Name + " badge is taken by " + props.ClaimedByAbbr} aria-disabled="true">
 				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + props.Slug + ".png);"} aria-hidden="true"></span>
-				<small>{props.ClaimedByAbbr}</small>
+				<small>TAKEN · {props.ClaimedByAbbr}</small>
 			</div>
 		</If>
 	</div>
@@ -335,7 +335,7 @@ func Page() Node {
 							<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
-								<input type="hidden" name="redirect_to" value="/team"></input>
+								<input type="hidden" name="redirect_to" value="/team?identity=edit#team-identity"></input>
 								<input
 									id="team-avatar-upload"
 									type="file"
@@ -367,7 +367,7 @@ func Page() Node {
 									<input type="hidden" name="team_id" value={data.team.id}></input>
 									<input type="hidden" name="motif" value=""></input>
 									<input type="hidden" name="action" value="release"></input>
-									<input type="hidden" name="redirect_to" value="/team"></input>
+									<input type="hidden" name="redirect_to" value="/team?identity=edit#team-identity"></input>
 									<button class="button button--compact" type="submit">Release badge</button>
 								</form>
 							</If>

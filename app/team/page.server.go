@@ -273,7 +273,7 @@ func init() {
 				// present.
 				if team, ok := data["team"].(map[string]any); ok {
 					teamID := stringField(team, "id")
-					data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team")
+					data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team?identity=edit#team-identity")
 				}
 			}
 			data["has_notice"] = false
