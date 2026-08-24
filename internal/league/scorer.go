@@ -29,6 +29,64 @@ type WeekStatLine struct {
 // ScheduleSource / HistoricalSource pattern.
 type WeekStatsSource func(week int) []WeekStatLine
 
+// weekStatsSnapshot reads one weekly ledger for a scoring operation. The
+// source is intentionally queried once by callers that render a whole
+// matchup, so displayed starter rows and the aggregate total observe the
+// same source slice.
+func weekStatsSnapshot(source WeekStatsSource, week int) ([]WeekStatLine, bool, bool, string, error) {
+	if source == nil {
+		return nil, false, false, "unavailable", fmt.Errorf("no week stats source is configured")
+	}
+	lines := source(week)
+	if len(lines) == 0 {
+		return lines, false, false, "empty", nil
+	}
+	return lines, true, true, "available", nil
+}
+
+func weekStatsByKey(lines []WeekStatLine) map[string]map[string]float64 {
+	byKey := make(map[string]map[string]float64, len(lines))
+	for _, line := range lines {
+		byKey[line.Key] = line.Stats
+	}
+	return byKey
+}
+
+// scorePlayerPoints is the single player-to-points calculation used by both
+// MatchupScorer.TeamWeekScore and the explanatory starter ledger. Keeping the
+// join and rule application here prevents a rendered row from drifting away
+// from the team's aggregate score.
+func scorePlayerPoints(player Player, byKey map[string]map[string]float64, values map[string]float64) (float64, bool) {
+	line, ok := byKey[normalizePlayerKey(player.Name, player.Position)]
+	if !ok {
+		return 0, false
+	}
+	points := 0.0
+	for ruleKey, statValue := range line {
+		if !finiteScoringPoints(statValue) {
+			continue
+		}
+		points += statValue * scoringPoints(values, ruleKey)
+	}
+	return points, true
+}
+
+func scorePlayers(players []Player, lines []WeekStatLine, values map[string]float64, week int, teamID string, onMiss func(JoinMiss)) float64 {
+	byKey := weekStatsByKey(lines)
+	total := 0.0
+	for _, player := range players {
+		points, joined := scorePlayerPoints(player, byKey, values)
+		if !joined {
+			if onMiss != nil {
+				onMiss(JoinMiss{Week: week, TeamID: teamID, PlayerID: player.ID, PlayerName: player.Name, Position: player.Position})
+			}
+			continue
+		}
+		total += points
+	}
+	return total
+}
+
 // SetWeekStatsSource attaches the weekly stats feed. Call it once during
 // startup, before the server accepts requests.
 func (s *Service) SetWeekStatsSource(fn WeekStatsSource) {
@@ -104,38 +162,15 @@ func newRosterTotalScorer(roster func(teamID string) []Player, stats WeekStatsSo
 // (season.go's WeekCloseReady) is the authoritative "is this week done"
 // gate; this flag is advisory.
 func (r *rosterTotalScorer) TeamWeekScore(teamID string, week int) (points float64, final bool, err error) {
-	if r.stats == nil {
-		return 0, false, fmt.Errorf("no week stats source is configured")
-	}
-	lines := r.stats(week)
-	final = len(lines) > 0
-	byKey := make(map[string]map[string]float64, len(lines))
-	for _, line := range lines {
-		byKey[line.Key] = line.Stats
+	lines, final, _, _, err := weekStatsSnapshot(r.stats, week)
+	if err != nil {
+		return 0, false, err
 	}
 	values := map[string]float64{}
 	if r.values != nil {
 		values = r.values()
 	}
-	roster := r.roster(teamID)
-	total := 0.0
-	for _, player := range roster {
-		key := normalizePlayerKey(player.Name, player.Position)
-		line, ok := byKey[key]
-		if !ok {
-			if r.onMiss != nil {
-				r.onMiss(JoinMiss{Week: week, TeamID: teamID, PlayerID: player.ID, PlayerName: player.Name, Position: player.Position})
-			}
-			continue
-		}
-		for ruleKey, statValue := range line {
-			if !finiteScoringPoints(statValue) {
-				continue
-			}
-			total += statValue * scoringPoints(values, ruleKey)
-		}
-	}
-	return total, final, nil
+	return scorePlayers(r.roster(teamID), lines, values, week, teamID, r.onMiss), final, nil
 }
 
 // lineupScorer is the roster-ops spec's lineupScorer (section 4.6):
@@ -175,38 +210,15 @@ func newLineupScorer(starters func(teamID string, week int) []Player, stats Week
 // simply absent from starters' result. final keeps rosterTotalScorer's
 // advisory semantics (see that type's TeamWeekScore doc comment).
 func (l *lineupScorer) TeamWeekScore(teamID string, week int) (points float64, final bool, err error) {
-	if l.stats == nil {
-		return 0, false, fmt.Errorf("no week stats source is configured")
-	}
-	lines := l.stats(week)
-	final = len(lines) > 0
-	byKey := make(map[string]map[string]float64, len(lines))
-	for _, line := range lines {
-		byKey[line.Key] = line.Stats
+	lines, final, _, _, err := weekStatsSnapshot(l.stats, week)
+	if err != nil {
+		return 0, false, err
 	}
 	values := map[string]float64{}
 	if l.values != nil {
 		values = l.values()
 	}
-	starters := l.starters(teamID, week)
-	total := 0.0
-	for _, player := range starters {
-		key := normalizePlayerKey(player.Name, player.Position)
-		line, ok := byKey[key]
-		if !ok {
-			if l.onMiss != nil {
-				l.onMiss(JoinMiss{Week: week, TeamID: teamID, PlayerID: player.ID, PlayerName: player.Name, Position: player.Position})
-			}
-			continue
-		}
-		for ruleKey, statValue := range line {
-			if !finiteScoringPoints(statValue) {
-				continue
-			}
-			total += statValue * scoringPoints(values, ruleKey)
-		}
-	}
-	return total, final, nil
+	return scorePlayers(l.starters(teamID, week), lines, values, week, teamID, l.onMiss), final, nil
 }
 
 // lineupStarters resolves teamID's effective-lineup starters for week

@@ -417,10 +417,51 @@ type Announcement struct {
 
 // ScoreTeam is the live score representation returned to browsers.
 type ScoreTeam struct {
-	ID           string  `json:"id"`
-	Name         string  `json:"name"`
-	Abbreviation string  `json:"abbreviation"`
-	Score        float64 `json:"score"`
+	ID              string             `json:"id"`
+	Name            string             `json:"name"`
+	Abbreviation    string             `json:"abbreviation"`
+	Score           float64            `json:"score"`
+	ScoreText       string             `json:"scoreText,omitempty"`
+	ScoreKnown      bool               `json:"scoreKnown"`
+	LedgerTotal     float64            `json:"ledgerTotal"`
+	LedgerTotalText string             `json:"ledgerTotalText,omitempty"`
+	LedgerKnown     bool               `json:"ledgerKnown"`
+	ScoreBasis      string             `json:"scoreBasis,omitempty"`
+	ScoreNote       string             `json:"scoreNote,omitempty"`
+	StarterLedger   []StarterLedgerRow `json:"starterLedger,omitempty"`
+}
+
+// StarterLedgerRow is one configured starting slot's scoring explanation.
+// Rows deliberately include empty slots: a manager can distinguish an empty
+// slot from a player whose stat join is missing, and from a known zero-point
+// line. Bench, reserve, and IR players never appear here.
+type StarterLedgerRow struct {
+	LiveKey    string  `json:"liveKey"`
+	Slot       string  `json:"slot"`
+	PlayerID   string  `json:"playerId,omitempty"`
+	PlayerName string  `json:"playerName"`
+	Position   string  `json:"position"`
+	NFLTeam    string  `json:"nflTeam"`
+	Points     float64 `json:"points"`
+	PointsText string  `json:"pointsText"`
+	Provenance string  `json:"provenance"`
+	JoinState  string  `json:"joinState"`
+	Detail     string  `json:"detail"`
+}
+
+// TeamWeekLedger is the one scoring calculation shared by the live matchup
+// totals and the starter rows rendered on a matchup card. Known is false when
+// the week-stats source is absent, empty, or cannot join every configured
+// starter. A partial join is not presented as a complete authoritative zero.
+type TeamWeekLedger struct {
+	TeamID      string             `json:"teamId"`
+	Week        int                `json:"week"`
+	Total       float64            `json:"total"`
+	TotalText   string             `json:"totalText"`
+	Known       bool               `json:"known"`
+	Final       bool               `json:"final"`
+	SourceState string             `json:"sourceState"`
+	Rows        []StarterLedgerRow `json:"rows"`
 }
 
 // ScoreMatchup is a paired fantasy matchup.
@@ -443,14 +484,20 @@ const (
 
 // LiveSnapshot is the stable JSON contract consumed by the score enhancer.
 type LiveSnapshot struct {
-	OK                  bool           `json:"ok"`
-	Source              string         `json:"source"`
-	SourceLabel         string         `json:"sourceLabel"`
-	Week                int            `json:"week"`
-	WeekLabel           string         `json:"weekLabel"`
-	State               string         `json:"state"`
-	Status              string         `json:"status"`
+	OK          bool   `json:"ok"`
+	Source      string `json:"source"`
+	SourceLabel string `json:"sourceLabel"`
+	Week        int    `json:"week"`
+	WeekLabel   string `json:"weekLabel"`
+	State       string `json:"state"`
+	Status      string `json:"status"`
+	// LastUpdated remains the legacy source-update field. When the player
+	// ledger freshness seam is unavailable it falls back to the checked
+	// instant for old clients; new consumers should use StatsUpdatedAt and
+	// CheckedAt to distinguish those cases explicitly.
 	LastUpdated         time.Time      `json:"lastUpdated"`
+	CheckedAt           time.Time      `json:"checkedAt,omitzero"`
+	StatsUpdatedAt      time.Time      `json:"statsUpdatedAt,omitzero"`
 	RefreshAfterSeconds int            `json:"refreshAfterSeconds"`
 	Matchups            []ScoreMatchup `json:"matchups"`
 	Warning             string         `json:"warning,omitempty"`
