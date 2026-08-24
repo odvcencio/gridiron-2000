@@ -294,6 +294,26 @@ func TestCommissionerSummaryV1NormalizesSourceTruthAcrossSurfaces(t *testing.T) 
 	}
 }
 
+func TestCommissionerSummaryV1NormalizesFantasyRuntimeStates(t *testing.T) {
+	for _, test := range []struct {
+		state string
+		want  string
+	}{
+		{state: "cached", want: "stale"},
+		{state: "offline", want: "unreachable"},
+		{state: "unavailable", want: "unreachable"},
+		{state: "degraded", want: "degraded"},
+		{state: "live", want: "live"},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			data := commissionerV1NormalizeData(CommissionerSummaryV1DataSnapshot{SourceMode: "live", SourceState: test.state})
+			if data.SourceState != test.want {
+				t.Fatalf("normalized state = %q, want %q", data.SourceState, test.want)
+			}
+		})
+	}
+}
+
 func TestCommissionerSummaryV1PrivacySentinelsNeverSerialize(t *testing.T) {
 	cfg, state, data, release := commissionerV1Fixture()
 	state.Members["victim@private.test"] = Member{TeamID: "team-1", Name: "oauth-user-secret", Email: "victim@private.test", Role: "co"}

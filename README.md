@@ -263,6 +263,11 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `COMMISSIONER_HQ_PEERS` | empty | Comma-separated `id=service-origin\|public-origin` entries for every other league this instance should display; fleet size is not capped |
 | `COMMISSIONER_HQ_CONCURRENCY` | `8` | Simultaneous peer-summary reads, from 1–64; bounds resource use without limiting fleet size |
 | `COMMISSIONER_HQ_TIMEOUT` | `1.5s` | Per-peer read timeout, greater than zero and at most 10 seconds |
+| `COMMISSIONER_HQ_LEAGUE_ID` | unset | Stable expected league ID for the private v1 summary provider; setting it opts into the all-or-nothing provider configuration |
+| `COMMISSIONER_HQ_PROVIDER_KEY_ID` | unset | Opaque HMAC key ID for the private v1 provider; never reuse the legacy `COMMISSIONER_HQ_TOKEN` |
+| `COMMISSIONER_HQ_PROVIDER_SECRET` / `COMMISSIONER_HQ_PROVIDER_SECRET_FILE` | unset | Exactly one 32–4096 byte HMAC secret source; the file path must be absolute and bytes are not trimmed |
+| `COMMISSIONER_HQ_PROVIDER_ADDR` | `:8091` when configured | Private numeric bind address for the v1 provider; this listener must not be routed by the public Service or Ingress |
+| `APP_IMAGE_DIGEST` | empty | Optional immutable `sha256:` release digest reported to HQ; empty is represented as unknown rather than guessed |
 | `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
 | `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |

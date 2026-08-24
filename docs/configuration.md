@@ -151,6 +151,34 @@ the prior JSON/default value after an invalid override.
 
 Other environment variables configure private identity policy, credentials, providers, storage, or runtime behavior; they are not part of the public `league.json` schema. See [`.env.example`](../.env.example) and the README configuration map.
 
+## Private Commissioner HQ v1 provider
+
+Each league binary can expose its signed, read-only commissioner summary on a
+dedicated internal listener. The provider is disabled only when all of
+`COMMISSIONER_HQ_LEAGUE_ID`, `COMMISSIONER_HQ_PROVIDER_KEY_ID`,
+`COMMISSIONER_HQ_PROVIDER_SECRET`, `COMMISSIONER_HQ_PROVIDER_SECRET_FILE`, and
+`COMMISSIONER_HQ_PROVIDER_ADDR` are absent. Setting any one opts in and startup
+then requires a complete configuration:
+
+- an explicit `COMMISSIONER_INSTANCE_ID` and `COMMISSIONER_HQ_LEAGUE_ID`;
+- `COMMISSIONER_HQ_PROVIDER_KEY_ID` plus exactly one of the provider secret or
+  an absolute provider-secret-file path; and
+- an optional numeric bind address, defaulting to `:8091`.
+
+Secret-file bytes are read exactly—no newline or whitespace trimming—and are
+bounded to 32–4096 bytes by the HMAC credential contract. Never reuse the
+legacy `COMMISSIONER_HQ_TOKEN`; it protects a different protocol. A configured
+invalid release SHA/build timestamp, incomplete identity, unusable secret, or
+failed private bind aborts startup. `/api/health` reports only whether this
+provider is configured and listening; it exposes no address, key ID, secret,
+or file path.
+
+The v1 path is served only on the private listener. The public application
+router, Service, and Ingress must not mount or proxy it. Per-instance internal
+Services and restrictive NetworkPolicies belong to the declarative fleet
+topology once its HQ-host relationship is explicit; do not compensate with an
+allow-all rule on port 8091.
+
 ## Fleet document and generated publication
 
 cmd/fleetgen accepts an explicit fleet.json; it does not discover a fleet from

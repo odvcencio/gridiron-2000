@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -25,6 +24,7 @@ import (
 	draftpage "gridiron-2000/app/draft"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/commissionerhq/v1provider"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
@@ -171,6 +171,14 @@ func main() {
 		log.Fatal(err)
 	}
 	commissionerhq.SetDefault(hqService)
+	hqV1Config, err := v1provider.ConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hqV1Runtime, err := buildCommissionerHQV1Runtime(hqV1Config, league.Default(), fantasyPool, openStats)
+	if err != nil {
+		log.Fatal(err)
+	}
 	port := getenv("PORT", "8080")
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
@@ -305,29 +313,31 @@ func main() {
 			// "version" is the Gridiron release, not the GoSX framework
 			// version. Keeping the framework version adjacent makes runtime
 			// drift (and an accidentally old image) immediately visible.
-			"version":               appVersion,
-			"appVersion":            appVersion,
-			"frameworkVersion":      gosx.Version,
-			"gitSHA":                appGitSHA,
-			"buildDate":             appBuildDate,
-			"googleOAuthReady":      googleConfigured,
-			"signalWireReady":       wireStatus.Configured,
-			"signalWireMode":        wireStatus.Mode,
-			"ownedSignals":          wireStatus.RelevantSignals,
-			"openStatsRunning":      openStatus.Running,
-			"openScheduleState":     openStatus.Schedules.State,
-			"openPlayerStatsState":  openStatus.PlayerStats.State,
-			"openInjuryState":       openStatus.Injuries.State,
-			"fantasyPoolEnabled":    poolStatus.Enabled,
-			"fantasyPoolMode":       poolStatus.Mode,
-			"fantasyPoolState":      poolStatus.State,
-			"fantasyPoolPlayers":    poolStatus.Players,
-			"fantasyPoolTarget":     poolStatus.PoolLimit,
-			"fantasyRosterCapacity": rosterCapacity,
-			"fantasyPoolCushion":    poolCushion,
-			"fantasyPoolCoverage":   poolCoverage,
-			"fantasyPoolScoring":    poolStatus.Scoring,
-			"fantasyPoolError":      poolStatus.LastError,
+			"version":                    appVersion,
+			"appVersion":                 appVersion,
+			"frameworkVersion":           gosx.Version,
+			"gitSHA":                     appGitSHA,
+			"buildDate":                  appBuildDate,
+			"googleOAuthReady":           googleConfigured,
+			"commissionerHQV1Configured": hqV1Config.Enabled,
+			"commissionerHQV1Listening":  hqV1Runtime.Listening(),
+			"signalWireReady":            wireStatus.Configured,
+			"signalWireMode":             wireStatus.Mode,
+			"ownedSignals":               wireStatus.RelevantSignals,
+			"openStatsRunning":           openStatus.Running,
+			"openScheduleState":          openStatus.Schedules.State,
+			"openPlayerStatsState":       openStatus.PlayerStats.State,
+			"openInjuryState":            openStatus.Injuries.State,
+			"fantasyPoolEnabled":         poolStatus.Enabled,
+			"fantasyPoolMode":            poolStatus.Mode,
+			"fantasyPoolState":           poolStatus.State,
+			"fantasyPoolPlayers":         poolStatus.Players,
+			"fantasyPoolTarget":          poolStatus.PoolLimit,
+			"fantasyRosterCapacity":      rosterCapacity,
+			"fantasyPoolCushion":         poolCushion,
+			"fantasyPoolCoverage":        poolCoverage,
+			"fantasyPoolScoring":         poolStatus.Scoring,
+			"fantasyPoolError":           poolStatus.LastError,
 			"fantasyPoolLastSuccess": func() string {
 				if poolStatus.LastSync.IsZero() {
 					return ""
@@ -421,29 +431,57 @@ func main() {
 		log.Printf("Free public feed mesh is active; add optional BLUESKY_HANDLES / BLUESKY_DIDS for event-driven social alerts")
 	}
 	log.Printf("%s listening on http://localhost:%s", appName, port)
-	serverErrors := make(chan error, 1)
+	if hqV1Runtime != nil {
+		log.Printf("Commissioner HQ v1 provider listening on its private listener")
+	}
+	type runtimeServerError struct {
+		name string
+		err  error
+	}
+	serverErrors := make(chan runtimeServerError, 2)
 	go func() {
-		serverErrors <- app.ListenAndServe(":" + port)
+		serverErrors <- runtimeServerError{name: "application", err: app.ListenAndServe(":" + port)}
 	}()
+	if hqV1Runtime != nil {
+		go func() {
+			serverErrors <- runtimeServerError{name: "Commissioner HQ provider", err: hqV1Runtime.Serve()}
+		}()
+	}
+	var runtimeFailure *runtimeServerError
 	select {
-	case err := <-serverErrors:
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal(err)
+	case result := <-serverErrors:
+		if result.err != nil && !errors.Is(result.err, http.ErrServerClosed) {
+			runtimeFailure = &result
 		}
 	case <-runtimeContext.Done():
-		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancelShutdown()
+	}
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	var shutdownGroup sync.WaitGroup
+	shutdownGroup.Add(1)
+	go func() {
+		defer shutdownGroup.Done()
 		if err := app.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("server shutdown: %v", err)
 		}
-		// Give the notify worker a bounded window to finish delivering
-		// whatever was already queued before the process exits; Drain logs
-		// the remaining count itself if the deadline is reached (finding
-		// m1). stopNotify then cancels the worker's context so it does not
-		// linger up to another 30s in a retry wait the drain has already
-		// given up on.
-		notifyQueue.Drain(10 * time.Second)
-		stopNotify()
+	}()
+	if hqV1Runtime != nil {
+		shutdownGroup.Add(1)
+		go func() {
+			defer shutdownGroup.Done()
+			if err := hqV1Runtime.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Printf("Commissioner HQ provider shutdown: %v", err)
+			}
+		}()
+	}
+	shutdownGroup.Wait()
+	cancelShutdown()
+	// Give the notify worker a bounded window to finish delivering whatever
+	// was already queued before the process exits. This applies equally to a
+	// signal and either listener failing unexpectedly.
+	notifyQueue.Drain(10 * time.Second)
+	stopNotify()
+	if runtimeFailure != nil {
+		log.Fatalf("%s listener failed: %v", runtimeFailure.name, runtimeFailure.err)
 	}
 }
 
@@ -637,40 +675,8 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 // are Eastern. Final follows actual result/score presence, never elapsed time,
 // and a missing spread remains distinct from a real pick'em line of zero.
 func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
-	eastern := openStatsEastern()
 	return func() []league.GameInfo {
-		snapshot := stats.ScheduleSnapshot()
-		out := make([]league.GameInfo, 0, len(snapshot.Games))
-		for _, game := range snapshot.Games {
-			if game.GameType != "REG" {
-				continue
-			}
-			kickoff, ok := openStatsKickoff(game, eastern)
-			if !ok {
-				continue
-			}
-			info := league.GameInfo{
-				ID:               game.GameID,
-				Week:             game.Week,
-				Kickoff:          kickoff,
-				Away:             strings.ToUpper(game.AwayTeam),
-				Home:             strings.ToUpper(game.HomeTeam),
-				AwayScore:        int(game.AwayScore),
-				HomeScore:        int(game.HomeScore),
-				Final:            game.HasResult(),
-				ScoresPresent:    game.HasFinalScore(),
-				SourceObservedAt: snapshot.ObservedAt,
-				SourceUpdatedAt:  snapshot.UpdatedAt,
-				SourceURL:        snapshot.SourceURL,
-				SourceProvenance: snapshot.Provenance,
-			}
-			if game.SpreadLine != nil {
-				info.SpreadLinePresent = true
-				info.SpreadLineTenths = int(math.Round(*game.SpreadLine * 10))
-			}
-			out = append(out, info)
-		}
-		return out
+		return leagueGamesFromScheduleSnapshot(stats.ScheduleSnapshot())
 	}
 }
 

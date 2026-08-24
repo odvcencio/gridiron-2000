@@ -498,6 +498,12 @@ func commissionerV1DataHealth(data CommissionerSummaryV1DataSnapshot, now time.T
 func commissionerV1NormalizeData(data CommissionerSummaryV1DataSnapshot) CommissionerSummaryV1DataSnapshot {
 	mode := commissionerV1Token(data.SourceMode, "")
 	state := commissionerV1Token(data.SourceState, "")
+	switch state {
+	case "cached":
+		state = "stale"
+	case "offline", "unavailable":
+		state = "unreachable"
+	}
 	if (mode == "cache" || mode == "cached") && state == "live" {
 		state = "stale"
 	}
