@@ -190,7 +190,11 @@ Two paths work; use either or both:
    ```
 
 The commissioner console also releases seats and resets the draft or the
-whole league (type RESET to confirm).
+whole league. Destructive reset confirmations are distinct: type `RESET
+DRAFT` for the draft-scoped reset or `RESET LEAGUE` for the full league reset.
+The full reset returns roster and seat topology to the league config defaults
+while retaining franchise name overrides, invites, scoring, announcements, and
+notification preferences.
 
 ### Commissioner identities and explicit aliases
 

@@ -15,6 +15,12 @@ const (
 	tradeAcceptConfirmation   = "accept-trade"
 	tradeApproveConfirmation  = "approve-trade"
 	tradeVetoConfirmation     = "veto-trade"
+	// ResetDraftConfirmation and ResetLeagueConfirmation are intentionally
+	// distinct, human-readable phrases. They are part of the destructive
+	// action contract: a browser cannot accidentally invoke one reset with the
+	// confirmation meant for the other.
+	ResetDraftConfirmation  = "RESET DRAFT"
+	ResetLeagueConfirmation = "RESET LEAGUE"
 )
 
 // requireMutationConfirmation is the server-side enforcement point for

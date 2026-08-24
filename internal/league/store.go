@@ -1034,13 +1034,14 @@ var resetDraftSentLogPrefixes = []string{
 var resetLeagueSentLogPrefixes = append(append([]string{}, resetDraftSentLogPrefixes...),
 	"seat:", "pickem-remind:", "pickem-results:", "recap:", "scoring:", "kickoff:")
 
-// ResetDraft clears every pick and ready flag. Seats and boards survive. The
-// clock fields and the Autopick map are also cleared: a redrawn draft
-// starts with a clean, unarmed clock and no stale away-mode toggles.
-// Transactions is cleared too (roster-ops spec section 7.3): every record
-// references a rostered player, and a redrawn draft orphans them all. The
-// draft-scoped SentLog entries (resetDraftSentLogPrefixes) are pruned in
-// the same persist.
+// ResetDraft clears draft-scoped state: Picks, Ready, the authoritative draft
+// lifecycle and clock/autopick state, plus every roster-derived collection
+// (Transactions, Lineups, WaiverClaims, WaiverReceipts,
+// WaiversProcessedThrough, TradeOffers, and RosterZones). Draft-scoped
+// SentLog receipts are pruned atomically. Seats, membership, boards, league
+// configuration, identity claims, and the persisted season topology
+// (DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs,
+// and DraftAtOverride) survive.
 func (s *Store) ResetDraft() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1081,14 +1082,15 @@ func (s *Store) ResetDraft() error {
 	return nil
 }
 
-// ResetLeague clears picks, seats, ready flags, boards, pick'em picks,
-// Preseason Blitz entries, and Transactions (section 7.3, same rationale
-// as ResetDraft). Invites and team name overrides survive; both are
-// commissioner configuration, not game state. Clock fields and Autopick
-// are cleared, same as ResetDraft. Blitz entries are game state, not
-// draft state (F19), so ResetDraft does not touch them. The league-scoped
-// SentLog entries (resetLeagueSentLogPrefixes) are pruned in the same
-// persist.
+// ResetLeague restores a blank, pre-draft topology. It clears competitive
+// state (including DraftOrder, Schedule, Playoffs, and Phase), all seats and
+// seat-bound identity/membership state, every roster/contest collection, and
+// the league-scoped SentLog receipts. Invites, franchise name overrides, scoring,
+// announcements, notification preferences, and unrelated SentLog receipts
+// are intentional operator configuration/history and survive. The persisted
+// roster-shape override and seat trim are cleared so active topology returns
+// to config defaults. Immutable avatar objects remain on disk, but their
+// cleared references cannot orphan a badge/avatar identity lock.
 func (s *Store) ResetLeague() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1099,11 +1101,20 @@ func (s *Store) ResetLeague() error {
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
+	s.state.CoInvites = map[string]string{}
 	s.state.Boards = map[string][]string{}
 	s.state.Pickems = map[string]map[string]string{}
 	s.state.PickemEnteredAt = map[string]time.Time{}
 	s.state.PickemMarkets = map[string]PickemMarket{}
 	s.state.BlitzEntries = map[string]map[string]BlitzEntry{}
+	s.state.DraftOrder = []string{}
+	s.state.RosterOverride = nil
+	s.state.TrimmedTeamIDs = []string{}
+	s.state.Schedule = nil
+	s.state.Playoffs = nil
+	s.state.Phase = ""
+	s.state.BadgeClaims = map[string]string{}
+	s.state.AvatarRefs = map[string]string{}
 	s.state.Transactions = []Transaction{}
 	// Lineups derive from the roster the draft produced; a reset that
 	// clears Picks must clear them too (roster-ops spec section 7.3 —
@@ -1123,7 +1134,8 @@ func (s *Store) ResetLeague() error {
 	s.clearClockFieldsLocked()
 	s.pruneSentLogPrefixesLocked(resetLeagueSentLogPrefixes...)
 	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colPickemMarkets, colBlitzEntries, colTransactions,
-		colLineups, colWaiverClaims, colWaiverReceipts, colTradeOffers, colRosterZones, colAutopick, colSentLog, colScalars); err != nil {
+		colLineups, colWaiverClaims, colWaiverReceipts, colTradeOffers, colRosterZones, colCoInvites, colDraftOrder,
+		colSchedule, colPlayoffs, colBadgeClaims, colAvatarRefs, colAutopick, colSentLog, colScalars); err != nil {
 		s.state = previous
 		return err
 	}

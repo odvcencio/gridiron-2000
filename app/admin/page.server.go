@@ -378,14 +378,10 @@ func init() {
 				return nil
 			},
 			"draft-reset": func(ctx *action.Context) error {
-				if ctx.FormData["confirm"] != "RESET" {
-					message := "type RESET to confirm"
-					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				if err := league.Default().AdminResetDraft(ctx.Request, ctx.FormData["confirm"]); err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				if err := league.Default().AdminResetDraft(ctx.Request); err != nil {
-					return action.Error(http.StatusUnauthorized, err.Error())
-				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Draft picks and ready flags are cleared.")
+				actionui.RedirectWithNotice(ctx, "/admin", "Draft reset: draft-scoped state cleared; league topology and configuration preserved.")
 				return nil
 			},
 			"draft-undo": func(ctx *action.Context) error {
@@ -400,14 +396,10 @@ func init() {
 				return nil
 			},
 			"league-reset": func(ctx *action.Context) error {
-				if ctx.FormData["confirm"] != "RESET" {
-					message := "type RESET to confirm"
-					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				if err := league.Default().AdminResetLeague(ctx.Request, ctx.FormData["confirm"]); err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				if err := league.Default().AdminResetLeague(ctx.Request); err != nil {
-					return action.Error(http.StatusUnauthorized, err.Error())
-				}
-				actionui.RedirectWithNotice(ctx, "/admin", "League state is fully reset: seats, picks, and boards.")
+				actionui.RedirectWithNotice(ctx, "/admin", "League reset: blank pre-draft topology restored. Franchise name overrides, invites, scoring, announcements, and notification preferences preserved.")
 				return nil
 			},
 			// seat-trim is the T-1hr action: drop every seat nobody claimed,

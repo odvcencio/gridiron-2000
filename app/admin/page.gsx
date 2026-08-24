@@ -1074,10 +1074,11 @@ func Page() Node {
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<strong>Reset draft</strong>
-							<p>
-								Clears every pick and ready flag. Seats and boards survive.
-							</p>
-							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
+							<ul class="reset-contract-list">
+								<li><strong>Destroyed:</strong> Picks, Ready, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, and draft-scoped notification receipts.</li>
+								<li><strong>Preserved:</strong> Members/seats, CoInvites, Boards, Invites, TeamNames, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, DraftAtOverride (scheduled meeting time), Scoring, Pickems, BlitzEntries, BadgeClaims, AvatarRefs, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+							</ul>
+							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
 							<button class="button" type="submit">Reset draft</button>
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
@@ -1092,10 +1093,11 @@ func Page() Node {
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<strong>Reset league</strong>
-							<p>
-								Clears seats, picks, ready flags, and boards. Invites survive.
-							</p>
-							<input type="text" name="confirm" placeholder="type RESET" autocomplete="off"></input>
+							<ul class="reset-contract-list">
+								<li><strong>Destroyed:</strong> Members/seats, CoInvites, Picks, Ready, Boards, Pickems/PickemEnteredAt/PickemMarkets, BlitzEntries, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, BadgeClaims, AvatarRefs, DraftAtOverride, and league-scoped notification receipts.</li>
+								<li><strong>Preserved:</strong> Invites, TeamNames (franchise name overrides), Scoring, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+							</ul>
+							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
 							<button class="button" type="submit">Reset league</button>
 						</form>
 					</div>

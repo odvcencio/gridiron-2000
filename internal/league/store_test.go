@@ -733,7 +733,7 @@ func TestJSONV6MigratesToV7WithWaiverCollections(t *testing.T) {
 	}
 }
 
-func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
+func TestResetDraftKeepsDraftOrderAndResetLeagueClearsSeasonTopology(t *testing.T) {
 	store := newTestStore(t)
 	custom := []string{"team-2", "team-1", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}
 	if err := store.SetDraftOrder(custom); err != nil {
@@ -758,8 +758,8 @@ func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
 		t.Fatal(err)
 	}
 	state = store.Snapshot()
-	if !reflect.DeepEqual(state.DraftOrder, custom) {
-		t.Fatalf("league reset must keep the draft order: %v", state.DraftOrder)
+	if len(state.DraftOrder) != 0 {
+		t.Fatalf("league reset must clear the draft order: %v", state.DraftOrder)
 	}
 	if state.Scoring["passTD"] != 5 {
 		t.Fatal("league reset must keep scoring overrides")

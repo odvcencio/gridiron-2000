@@ -52,6 +52,42 @@ func renderAdminPage(t *testing.T) string {
 	return rec.Body.String()
 }
 
+func TestAdminPageRendersExactResetContracts(t *testing.T) {
+	body := renderAdminPage(t)
+	if got := strings.Count(body, "reset-contract-list"); got != 2 {
+		t.Fatalf("reset danger cards rendered %d contract lists, want 2", got)
+	}
+	for _, want := range []string{
+		"RESET DRAFT</span> to confirm.",
+		"RESET LEAGUE</span> to confirm.",
+		"DraftAtOverride (scheduled meeting time)",
+		"RosterOverride",
+		"TrimmedTeamIDs",
+		"TeamNames (franchise name overrides)",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("reset contract copy missing %q", want)
+		}
+	}
+
+	draftStart := strings.Index(body, "<strong>Reset draft</strong>")
+	leagueStart := strings.Index(body, "<strong>Reset league</strong>")
+	if draftStart < 0 || leagueStart <= draftStart {
+		t.Fatal("reset danger cards are missing or out of order")
+	}
+	draftCard := body[draftStart:leagueStart]
+	if !strings.Contains(draftCard, "<strong>Destroyed:</strong>") ||
+		!strings.Contains(draftCard, "<strong>Preserved:</strong>") {
+		t.Fatal("draft reset card is not rendered as destroyed/preserved semantic lists")
+	}
+	leagueCard := body[leagueStart:]
+	preserved := strings.Index(leagueCard, "<strong>Preserved:</strong>")
+	if preserved < 0 || strings.Contains(leagueCard[preserved:], "RosterOverride") ||
+		strings.Contains(leagueCard[preserved:], "TrimmedTeamIDs") {
+		t.Fatal("full reset card still presents roster shape or seat trim as preserved")
+	}
+}
+
 // TestAdminPageOffersSeatTrimBeforeTheDraft guards the control the league
 // runs an hour before the draft. The trim itself was implemented and tested
 // at the service layer (Service.TrimUnclaimedSeats) but reached no page, so

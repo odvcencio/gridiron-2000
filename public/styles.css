@@ -4429,6 +4429,15 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
+.danger-grid .reset-contract-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: var(--space-2xs, 0.25rem);
+  font-size: var(--type-xs);
+  line-height: 1.45;
+}
+
 .clock-controls {
   margin-top: var(--space-md);
   display: flex;
