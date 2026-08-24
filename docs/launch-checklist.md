@@ -260,10 +260,18 @@ strictly Stable Kernel (SK) canary first, then flagship:
    one newly generated independent 256-bit token into both application
    Secrets before either Deployment rolls; otherwise leave it untouched;
 3. apply the new digest-pinned SK Deployment manifest and wait for its
-   canary gates;
-4. apply the new digest-pinned flagship Deployment manifest only after SK
-   passes;
-5. smoke both instances and verify both Commissioner HQ peer cards.
+   rollout;
+4. complete the authenticated SK canary gate in step 11.1. Health and
+   redirect checks alone are not sufficient: an allowed manager must verify
+   login continuity plus read-only Team, Board, and Draft truth, and an
+   authenticated commissioner must verify the local HQ card and the exact
+   candidate release metadata. The old flagship peer may be unavailable or
+   still report its previous release during this canary gate;
+5. apply the new digest-pinned flagship Deployment manifest only after the
+   complete SK gate passes;
+6. complete the bilateral post-flagship gate in step 11.2. Both instances
+   must pass authenticated manager and commissioner acceptance, and both HQ
+   peers must be available and show the candidate release metadata.
 
 ### 10.1 Record the rollback point before either Deployment rolls
 
@@ -350,10 +358,12 @@ kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
   --timeout=5m
 ```
 
-Run the SK health and redirect checks in step 11. During this first roll, SK's
-Commissioner HQ page may show the flagship peer card as unavailable because
-the flagship is still on the old image. That card can remain unavailable until
-the second roll; it is expected canary state, not an SK canary failure.
+Run the complete authenticated canary gate in step 11.1. During this first
+roll, SK's Commissioner HQ page may show the flagship peer card as unavailable
+or may show the flagship's previous release metadata because the flagship is
+still on the old image. That peer state can remain until the second roll; the
+SK local card, authenticated manager journey, and candidate release metadata
+must still pass.
 
 ### 10.4 Apply the flagship Deployment manifest only after SK passes
 
@@ -363,9 +373,10 @@ kubectl -n gridiron rollout status deployment/gridiron-2000 \
   --timeout=5m
 ```
 
-After this second roll, rerun the health, redirect, login, draft-room, and
-Commissioner HQ checks for both hosts. Both peer cards must be available
-before acceptance; the temporary first-roll exception no longer applies.
+After this second roll, run the complete bilateral acceptance gate in step
+11.2 for both hosts. Both authenticated manager journeys and commissioner
+checks must pass, both HQ peer cards must be available, and each local card
+must show the exact candidate release metadata before the release is accepted.
 
 ### 10.5 Rollback criteria and commands
 
@@ -403,13 +414,72 @@ manifest. Keep the newly installed HQ token in both Secrets during an image
 rollback; never print or fetch it. Do not bypass the manifest source of truth
 with `kubectl set image`.
 
-## 11. Pre-draft smoke test
+## 11. Authenticated acceptance and pre-draft smoke test
 
-Run every check below independently against both league hosts. This is a
-read-only release smoke: it must never POST draft start, click a Start
-control, submit a pick, or mutate seats, members, or league state.
+Release acceptance has two ordered gates. The SK canary gate below must pass
+before the flagship Deployment is applied; the bilateral gate must pass after
+the flagship rollout. Health and redirect checks are necessary transport
+evidence, but they are not sufficient release acceptance.
 
-1. **Health endpoint on both instances.** A passing response has `ok: true`,
+Every acceptance action is read-only. Do not POST or submit any production
+mutation during either gate. In particular, do not start the draft, make a
+pick, change ready/autopick or presence, claim or release a seat, invite or
+remove a member, rename a team, upload an image, edit a Big Board, change a
+lineup, submit a waiver, trade, Pick'em, or Blitz action, or alter any
+commissioner setting. If a flow cannot be checked without a mutation, stop
+and test that flow in a separate staging or rehearsal environment instead.
+Use a fresh authenticated browser session per host; never carry a cookie,
+OAuth callback, or return URL from one league instance to the other.
+
+### 11.1 SK canary acceptance before flagship
+
+Run the shared health and redirect checks below for Stable Kernel only, then
+complete both authenticated acceptance roles on the SK host:
+
+1. An allowed manager signs in from a deep link and confirms login continuity
+   returns to the same SK host. The manager then opens Team, Board, and Draft
+   and verifies the instance's truthful identity, roster-capacity/empty
+   pre-draft state, Big Board controls, draft order, player pool, pick tape,
+   and closed/ready state. Do not save, toggle, claim, or start anything.
+2. An authenticated commissioner opens Commissioner HQ on SK and confirms the
+   local card is available, contains no PII, and reports the exact candidate
+   release metadata: release/app version, source Git SHA, build timestamp,
+   and framework version. Separately verify the immutable image digest with
+   read-only Deployment metadata against the operator release record; the HQ
+   card is not a digest source. The flagship peer may be unavailable or may
+   still show its previous release during this gate; that temporary peer state
+   is the only canary exception.
+
+Do not apply the flagship manifest until both authenticated SK checks and all
+shared SK transport checks pass.
+
+### 11.2 Bilateral post-flagship acceptance
+
+After the flagship rollout is Ready, run the shared checks for both hosts and
+repeat both authenticated acceptance roles independently on each host:
+
+1. An allowed manager completes login continuity and the read-only Team, Board,
+   and Draft truth checks on flagship and SK. Each session must remain on its
+   own host and show that instance's league configuration and state.
+2. An authenticated commissioner opens Commissioner HQ on each host. Each
+   local card and its peer card must be available, contain no PII, and show
+   the exact candidate release metadata. Separately verify that both
+   Deployment image references resolve to the exact candidate immutable
+   digest. Both peers must be reachable and agree on the candidate release
+   identity before acceptance is recorded.
+
+The first-roll peer exception ends when the flagship rollout begins. An
+unavailable peer, stale candidate metadata, or cross-host session continuity
+failure is a final-gate failure and requires rollback or investigation before
+the release is accepted.
+
+### 11.3 Shared pre-draft smoke checks
+
+Run the checks below only against the host scope required by 11.1 or 11.2.
+They provide the repeatable health, redirect, and page-level evidence used by
+those gates.
+
+1. **Health endpoint for the requested host set.** A passing response has `ok: true`,
    `fantasyPoolMode` equal to `live` or `cache`, an empty
    `fantasyPoolError`, and `fantasyPoolPlayers >= fantasyRosterCapacity`:
    ```bash
@@ -431,14 +501,17 @@ control, submit a pick, or mutate seats, members, or league state.
      fi
      printf '%s: health OK\n' "${label}"
    }
+   # SK canary gate (11.1):
+   check_health stable-kernel https://sk.gridiron.draco.quest
+
+   # Bilateral final gate (11.2):
    check_health flagship https://gridiron.draco.quest
    check_health stable-kernel https://sk.gridiron.draco.quest
    ```
    `set -euo pipefail` makes a failure on either host fail this block
    immediately; the second host cannot mask a first-host failure.
-2. **HTTP redirects on both instances.** With redirects disabled, confirm
-   `http://gridiron.draco.quest/` and
-   `http://sk.gridiron.draco.quest/` each return a permanent redirect whose
+2. **HTTP redirects for the requested host set.** With redirects disabled,
+   confirm each requested host returns a permanent redirect whose
    `Location` is the matching HTTPS host. The SK result verifies the
    tracked/live-resolved `sk/http-redirect.yaml` wiring:
    ```bash
@@ -459,24 +532,31 @@ control, submit a pick, or mutate seats, members, or league state.
      fi
      printf '%s: redirect OK\n' "${host}"
    }
+   # SK canary gate (11.1):
+   check_redirect sk.gridiron.draco.quest
+
+   # Bilateral final gate (11.2):
    check_redirect gridiron.draco.quest
    check_redirect sk.gridiron.draco.quest
    ```
    The same `set -euo pipefail` fail-fast rule means either host's redirect
    failure makes this block nonzero; a later success cannot mask it.
-3. **Login on both instances.** Open each `/login` URL in a browser, sign in
-   with an allowed manager account, and confirm that account returns to that
-   host's home page. Do not carry a session or callback URL between hosts.
-4. **Draft room on both instances.** Open each `/draft` URL and confirm the
-   draft order, player pool, pick tape, and closed/ready state render.
-5. **Commissioner HQ after the second roll.** Open `/commissioner` on both
-   hosts. Confirm the local card and the peer card are available, show the
-   expected release metadata, and contain no PII. A peer-unavailable card is
-   tolerated only during the SK-first canary window described in step 10.3.
-6. **No draft mutation.** Do not run a draft-start request, click
-   `START`, submit a pick, or use a demo-mode rehearsal against either
-   production host. Test those mutations only in a separate staging
-   environment and outside this release gate.
+3. **Allowed-manager session continuity.** For every host in the active gate,
+   open a deep link such as `/draft?week=1`, sign in with an allowed manager,
+   and confirm the sanitized return lands on that same host. Then inspect
+   `/team`, `/board`, and `/draft` as described in the gate above.
+4. **Commissioner session and metadata.** For every host in the active gate,
+   open `/commissioner` as the authenticated commissioner and compare the
+   local and peer cards with the exact candidate release record. Verify the
+   four visible build fields there; verify the immutable digest separately
+   from read-only Deployment metadata. The local candidate must be exact in
+   11.1; both local and peer candidates must be exact and available in 11.2.
+   Do not accept a generic healthy response as a substitute for the visible
+   release metadata check.
+5. **No mutation or peer exception outside the canary.** The only tolerated
+   unavailable peer is the old flagship peer during SK canary acceptance in
+   11.1. Any final-gate peer outage or any attempted production mutation
+   fails acceptance. Test mutations only in a separate staging environment.
 
 ## 12. Separate post-acceptance secret maintenance
 

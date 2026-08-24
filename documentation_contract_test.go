@@ -191,3 +191,45 @@ func TestTrackedIdentityExamplesKeepCanonicalDirection(t *testing.T) {
 		t.Fatalf(".env.example omitted canonical alias=identity example %q", canonical)
 	}
 }
+
+func TestReleaseChecklistRequiresAuthenticatedPromotionGates(t *testing.T) {
+	doc := readDocumentationFile(t, filepath.Join("docs", "launch-checklist.md"))
+	normalized := strings.Join(strings.Fields(doc), " ")
+	for _, required := range []string{
+		"### 11.1 SK canary acceptance before flagship",
+		"### 11.2 Bilateral post-flagship acceptance",
+		"allowed manager",
+		"read-only Team, Board, and Draft",
+		"exact candidate release metadata",
+		"four visible build fields",
+		"read-only Deployment metadata",
+		"HQ card is not a digest source",
+		"old flagship peer may be unavailable",
+		"both HQ peer cards must be available",
+		"Do not POST or submit any production mutation",
+		"claim or release a seat",
+		"the exact candidate release record",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("release checklist omitted authenticated gate contract %q", required)
+		}
+	}
+
+	ordered := []string{
+		"apply the new digest-pinned SK Deployment manifest",
+		"complete the authenticated SK canary gate",
+		"apply the new digest-pinned flagship Deployment manifest",
+		"complete the bilateral post-flagship gate",
+	}
+	previous := -1
+	for _, marker := range ordered {
+		at := strings.Index(doc, marker)
+		if at < 0 {
+			t.Fatalf("release checklist omitted ordered promotion marker %q", marker)
+		}
+		if at <= previous {
+			t.Fatalf("release checklist reordered promotion marker %q", marker)
+		}
+		previous = at
+	}
+}
