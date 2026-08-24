@@ -47,6 +47,21 @@ func TestCommissionerSummaryIsPIIFreeAndExplainsPoolCoverage(t *testing.T) {
 	}
 }
 
+func TestCommissionerSummaryCarriesStateSchemaReleaseEvidence(t *testing.T) {
+	service := newTestService(t, false)
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{
+		Ready: true,
+		StateSchema: commissionerhq.StateSchema{
+			PersistedVersion: 9, SupportedVersion: 8, Compatible: false,
+		},
+	}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	if summary.Runtime.StateSchema.PersistedVersion != 9 ||
+		summary.Runtime.StateSchema.SupportedVersion != 8 ||
+		summary.Runtime.StateSchema.Compatible {
+		t.Fatalf("runtime state schema = %+v", summary.Runtime.StateSchema)
+	}
+}
+
 func TestCommissionerSummaryIncludesStatePlanesWithoutIdentityData(t *testing.T) {
 	service := newTestService(t, false)
 	teams := service.Teams()

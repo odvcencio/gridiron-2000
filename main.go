@@ -150,10 +150,16 @@ func main() {
 	hqService, err := commissionerhq.New(hqConfig, func() commissionerhq.Summary {
 		poolStatus := fantasyPool.Status()
 		openData := commissionerOpenData(openStats.Status())
+		stateSchema := league.Default().StateSchemaCompatibility()
 		return league.Default().CommissionerSummary(hqConfig.InstanceID, commissionerhq.Runtime{
 			Ready:      league.Default().PersistenceError() == nil,
 			AppVersion: appVersion, FrameworkVersion: gosx.Version,
 			GitSHA: appGitSHA, Build: appBuildDate,
+			StateSchema: commissionerhq.StateSchema{
+				PersistedVersion: stateSchema.PersistedVersion,
+				SupportedVersion: stateSchema.SupportedVersion,
+				Compatible:       stateSchema.Compatible,
+			},
 		}, commissionerhq.Pool{
 			Mode: poolStatus.State, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
 			LastSync: poolStatus.LastSync, Error: poolStatus.LastError,
@@ -267,6 +273,7 @@ func main() {
 		}
 		persistenceErr := league.Default().PersistenceError()
 		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
+		stateSchema := league.Default().StateSchemaCompatibility()
 		blitzHealth := league.Default().BlitzDependencyHealth()
 		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
 		poolCushion := max(0, poolStatus.Players-rosterCapacity)
@@ -283,6 +290,11 @@ func main() {
 			"readiness":        persistenceReady,
 			"persistenceReady": persistenceReady,
 			"persistenceError": persistenceMessage,
+			// State schema evidence is intentionally numeric and PII-free. It
+			// reports the authoritative persisted marker, not the normalized
+			// in-memory version, so release rollback decisions can be made
+			// before an image-only change.
+			"stateSchema": stateSchemaPayload(stateSchema),
 			// Blitz is an optional upstream dependency: expose its bounded,
 			// safe provenance without making a Tank01 outage look like a
 			// process-readiness failure.
@@ -1160,6 +1172,14 @@ func persistenceHealth(err error) (ready bool, status int, publicError string) {
 		return false, http.StatusServiceUnavailable, mapPersistenceHealthError(err)
 	}
 	return true, http.StatusOK, ""
+}
+
+func stateSchemaPayload(value league.StateSchemaCompatibility) map[string]any {
+	return map[string]any{
+		"persistedVersion": value.PersistedVersion,
+		"supportedVersion": value.SupportedVersion,
+		"compatible":       value.Compatible,
+	}
 }
 
 func livenessPayload() map[string]any {

@@ -48,6 +48,18 @@ const currentSchemaVersion = 8
 // silently drop fields a newer one wrote (section 6.3).
 var errSchemaTooNew = errors.New("state file schema version is newer than this binary supports")
 
+// StateSchemaCompatibility is the small, non-PII release-safety projection
+// of the store's logical persistence schema. PersistedVersion is read from
+// the authoritative SQLite marker (or the rejected JSON/SQLite marker when
+// startup fails); SupportedVersion is this binary's actual upper bound.
+// Compatible is false whenever the persisted marker is unknown or newer than
+// the binary, so a release surface can never certify an unverified rollback.
+type StateSchemaCompatibility struct {
+	PersistedVersion int  `json:"persistedVersion"`
+	SupportedVersion int  `json:"supportedVersion"`
+	Compatible       bool `json:"compatible"`
+}
+
 // Store holds the league's authoritative state. The record of truth is a
 // SQLite database, one file per league (data/league.db); the in-memory
 // PersistedState below is the working copy every read serves, and every
@@ -110,8 +122,14 @@ type Store struct {
 	// returned by StartupError, so health reflects a failure that happened
 	// after startup as well.
 	persistenceWriteError error
-	poisonedState         PersistedState
-	poisonedDirty         uint32
+	// persistedSchemaVersion is the logical schema marker in the
+	// authoritative store. It is captured before a too-new startup failure
+	// closes the database, so diagnostics can report the evidence that made
+	// the binary incompatible without exposing any state or operator data.
+	persistedSchemaVersion int
+	persistedSchemaKnown   bool
+	poisonedState          PersistedState
+	poisonedDirty          uint32
 	// loadErr holds a boot failure the constructor could not recover from: a
 	// state whose schema version is newer than this binary supports (section
 	// 6.3), a database that cannot be opened, or a legacy state file that
@@ -175,6 +193,13 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			SeatRevisions:   map[string]uint64{},
 			TrimmedTeamIDs:  []string{},
 		},
+	}
+	// An empty path is the explicit in-memory/test mode: the state this
+	// binary owns is exactly the current schema. Durable stores establish
+	// their value from the database or JSON source during openLocked.
+	if s.filePath == "" {
+		s.persistedSchemaVersion = currentSchemaVersion
+		s.persistedSchemaKnown = true
 	}
 	s.identityResolver = resolver
 	if err := s.openLocked(); err != nil {
@@ -240,6 +265,32 @@ func (s *Store) PersistenceError() error {
 // after process start.
 func (s *Store) StartupError() error {
 	return s.PersistenceError()
+}
+
+// StateSchemaCompatibility returns the store's PII-free schema evidence for
+// release and health metadata. The persisted value is deliberately not
+// inferred from PersistedState.SchemaVersion: loads normalize old additive
+// state to the current in-memory shape, while this accessor reports the
+// marker the store actually persisted.
+func (s *Store) StateSchemaCompatibility() StateSchemaCompatibility {
+	if s == nil {
+		return StateSchemaCompatibility{SupportedVersion: currentSchemaVersion}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	status := StateSchemaCompatibility{
+		PersistedVersion: s.persistedSchemaVersion,
+		SupportedVersion: currentSchemaVersion,
+	}
+	status.Compatible = s.persistedSchemaKnown && status.PersistedVersion <= status.SupportedVersion
+	return status
+}
+
+func (s *Store) capturePersistedSchemaVersion(db *sql.DB) {
+	if version, known, err := logicalSchemaVersion(db); err == nil && known {
+		s.persistedSchemaVersion = version
+		s.persistedSchemaKnown = true
+	}
 }
 
 func (s *Store) Snapshot() PersistedState {

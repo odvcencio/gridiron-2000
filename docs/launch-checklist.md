@@ -54,9 +54,11 @@ docker image inspect --format='{{index .RepoDigests 0}}' "${IMAGE}"
 ```
 
 The `/api/health` response exposes `appVersion`, `gitSHA`, `buildDate`, and
-`frameworkVersion` separately. This makes an old image or a source/image
-branch mismatch visible without reading registry internals. Do not copy a
-digest from a manifest into this runbook as a new release digest.
+`frameworkVersion` separately, plus the PII-free `stateSchema` object with
+`persistedVersion`, `supportedVersion`, and `compatible`. This makes an old
+image or a source/image branch mismatch visible without reading registry
+internals. Do not copy a digest from a manifest into this runbook as a new
+release digest.
 
 ## First-install boundary for steps 2–9
 
@@ -299,6 +301,28 @@ kubectl -n gridiron rollout history deployment/gridiron-2000 \
 Keep the exact old revision numbers and image digests. Do not guess them and
 do not substitute the current manifest digest for the new release digest.
 
+Also record the state-schema evidence independently for each instance. The
+persisted value is the live store's authoritative `kv.schema_version` marker;
+it is not the normalized in-memory `PersistedState.SchemaVersion` and it is
+not inferred from a Deployment revision:
+
+```bash
+curl --fail-with-body -sS https://sk.gridiron.draco.quest/api/health \
+  | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
+  > "${RECORD_DIR}/sk-before-health.txt"
+curl --fail-with-body -sS https://gridiron.draco.quest/api/health \
+  | jq '{appVersion,gitSHA,buildDate,frameworkVersion,stateSchema}' \
+  > "${RECORD_DIR}/flagship-before-health.txt"
+```
+
+Before either manifest is applied, adjudicate the candidate against those
+records. A candidate must support at least the persisted version it will
+read. If the candidate advances the storage schema, record a separately
+tested, schema-compatible fallback digest and its release metadata for each
+rollout (digest, app version, source SHA, build timestamp, and supported
+schema version). The previous revision is not presumed compatible merely
+because Kubernetes can address it.
+
 ### 10.2 Provision or intentionally rotate the Commissioner HQ token
 
 Run this step only when enabling Commissioner HQ for the first time or when a
@@ -387,17 +411,29 @@ Ready, health is not `ok`, the pool mode is neither `live` nor `cache`,
 cannot complete its read-only smoke checks. After the second roll, an
 unavailable HQ peer card is also a rollback failure.
 
+Rollback is a schema-aware adjudication, not an image-only undo. Before
+running any command below, compare the target revision or tested fallback's
+recorded `stateSchema.supportedVersion` with the live instance's recorded
+`stateSchema.persistedVersion`. A target is eligible only when it supports
+that persisted version and its metadata was tested for this release. Do not
+run `kubectl rollout undo` to an incompatible binary. If the previous
+revision is too old, roll forward the candidate or apply the exact tested
+compatible fallback digest from the release record; do not invent a backup,
+promise old-binary compatibility, or assume an off-node backup exists.
+
 Use the exact old revision numbers and image references captured in step
 10.1; placeholders below are deliberately not current digests:
 
 ```bash
-# SK canary failed before the flagship rolled:
+# SK canary failed before the flagship rolled, and the recorded target passed
+# the schema compatibility adjudication above:
 kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \
   --to-revision=<recorded-sk-before-revision>
 kubectl -n stablekernel rollout status deployment/gridiron-2000-sk \
   --timeout=5m
 
-# Flagship or final acceptance failed after both rolls:
+# Flagship or final acceptance failed after both rolls; adjudicate both
+# targets independently before running either undo:
 kubectl -n gridiron rollout undo deployment/gridiron-2000 \
   --to-revision=<recorded-flagship-before-revision>
 kubectl -n gridiron rollout status deployment/gridiron-2000 \
