@@ -847,7 +847,9 @@ func seatBoardEscrowKey(teamID string) string {
 // the supplied orders. Lifecycle callers pass the primary/escrow order first,
 // then the co-manager or claimant's legacy personal order, so the merge is
 // deterministic and never drops a distinct entry.
-func mergeUniqueBoardOrders(orders ...[]string) []string {
+var errBoardMergeLimit = errors.New("merged seat board exceeds capacity")
+
+func mergeUniqueBoardOrders(orders ...[]string) ([]string, error) {
 	seen := make(map[string]struct{})
 	merged := make([]string, 0)
 	for _, order := range orders {
@@ -857,9 +859,12 @@ func mergeUniqueBoardOrders(orders ...[]string) []string {
 			}
 			seen[playerID] = struct{}{}
 			merged = append(merged, playerID)
+			if len(merged) > boardLimit {
+				return nil, fmt.Errorf("%w: the merged board would exceed the %d-player limit; remove entries and retry", errBoardMergeLimit, boardLimit)
+			}
 		}
 	}
-	return merged
+	return merged, nil
 }
 
 // primaryBoardOwnerKey resolves the canonical primary identity for a seat.
@@ -922,6 +927,16 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		if name == "" {
 			name = team.Manager
 		}
+		escrowKey := seatBoardEscrowKey(team.ID)
+		escrow, hasEscrow := s.state.Boards[escrowKey]
+		var promotedBoard []string
+		if hasEscrow {
+			var mergeErr error
+			promotedBoard, mergeErr = mergeUniqueBoardOrders(escrow, s.state.Boards[email])
+			if mergeErr != nil {
+				return Member{}, false, mergeErr
+			}
+		}
 		previous := cloneState(s.state)
 		previousDirty := s.dirty
 		newMember := Member{TeamID: team.ID, Name: name, Email: email}
@@ -931,11 +946,8 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 		// A release moves the seat's previous shared order to escrow. On the
 		// next claim, promote that order into the new canonical primary key,
 		// appending any claimant-owned legacy entries exactly once.
-		escrowKey := seatBoardEscrowKey(team.ID)
-		escrow, hasEscrow := s.state.Boards[escrowKey]
 		if hasEscrow {
-			claimantBoard := s.state.Boards[email]
-			s.state.Boards[email] = mergeUniqueBoardOrders(escrow, claimantBoard)
+			s.state.Boards[email] = promotedBoard
 			delete(s.state.Boards, escrowKey)
 		}
 
@@ -1122,10 +1134,14 @@ func (s *Store) releaseSeat(teamID, confirmation, token string, confirmed bool) 
 		if existing, ok := s.state.Boards[escrowKey]; ok {
 			orders = append(orders, existing)
 		}
+		escrowBoard, mergeErr := mergeUniqueBoardOrders(orders...)
+		if mergeErr != nil {
+			return mergeErr
+		}
 		if s.state.Boards == nil {
 			s.state.Boards = map[string][]string{}
 		}
-		s.state.Boards[escrowKey] = mergeUniqueBoardOrders(orders...)
+		s.state.Boards[escrowKey] = escrowBoard
 		boardChanged = true
 		for _, member := range boundMembers {
 			owner := s.canonicalEmail(member.Email)
@@ -1271,7 +1287,10 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 		}
 		previous := cloneState(s.state)
 		previousDirty := s.dirty
-		boardChanged := s.mergeLegacyCoBoardLocked(teamID, email)
+		boardChanged, mergeErr := s.mergeLegacyCoBoardLocked(teamID, email)
+		if mergeErr != nil {
+			return Member{}, false, mergeErr
+		}
 		// A stale duplicate invite for an already-bound co-manager is safe to
 		// consume. Returning the existing record keeps retries idempotent and
 		// never rewrites its seat or role.
@@ -1293,7 +1312,10 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 	}
 	previous := cloneState(s.state)
 	previousDirty := s.dirty
-	boardChanged := s.mergeLegacyCoBoardLocked(teamID, email)
+	boardChanged, mergeErr := s.mergeLegacyCoBoardLocked(teamID, email)
+	if mergeErr != nil {
+		return Member{}, false, mergeErr
+	}
 	newMember := Member{TeamID: teamID, Name: name, Email: email, Role: "co"}
 	s.state.Members[email] = newMember
 	delete(s.state.CoInvites, email)
@@ -1317,22 +1339,26 @@ func (s *Store) BindCoManager(email, name string) (member Member, bound bool, er
 // the canonical primary board. It must run while the caller holds s.mu: the
 // primary order wins ties, co entries append in their existing order, and the
 // legacy co key is deleted in the same persistence transaction as the bind.
-func (s *Store) mergeLegacyCoBoardLocked(teamID, coEmail string) bool {
+func (s *Store) mergeLegacyCoBoardLocked(teamID, coEmail string) (bool, error) {
 	primaryKey := s.primaryBoardOwnerKey(teamID)
 	if primaryKey == "" || primaryKey == coEmail {
-		return false
+		return false, nil
 	}
 	coBoard, hasCoBoard := s.state.Boards[coEmail]
 	if !hasCoBoard {
-		return false
+		return false, nil
 	}
 	primaryBoard := s.state.Boards[primaryKey]
+	merged, err := mergeUniqueBoardOrders(primaryBoard, coBoard)
+	if err != nil {
+		return false, err
+	}
 	if s.state.Boards == nil {
 		s.state.Boards = map[string][]string{}
 	}
-	s.state.Boards[primaryKey] = mergeUniqueBoardOrders(primaryBoard, coBoard)
+	s.state.Boards[primaryKey] = merged
 	delete(s.state.Boards, coEmail)
-	return true
+	return true, nil
 }
 
 // DetachCoManager removes teamID's co-manager, bound or still pending

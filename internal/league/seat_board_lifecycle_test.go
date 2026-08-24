@@ -2,7 +2,9 @@ package league
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -195,6 +197,170 @@ func TestSeatBoardLifecyclePersistenceFailuresRollbackExactState(t *testing.T) {
 		}
 		if after := store.Snapshot(); !reflect.DeepEqual(after, before) {
 			t.Fatalf("failed co bind changed state:\n before=%+v\n after=%+v", before, after)
+		}
+	})
+}
+
+func setLifecycleBoard(t *testing.T, store *Store, owner string, board []string) {
+	t.Helper()
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.state.Boards == nil {
+		store.state.Boards = map[string][]string{}
+	}
+	store.state.Boards[owner] = append([]string(nil), board...)
+	if err := store.persistLocked(colBoards); err != nil {
+		t.Fatalf("persist %s board: %v", owner, err)
+	}
+}
+
+func setLifecycleCoInvite(t *testing.T, store *Store, email, teamID string) {
+	t.Helper()
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.state.CoInvites == nil {
+		store.state.CoInvites = map[string]string{}
+	}
+	store.state.CoInvites[email] = teamID
+	if err := store.persistLocked(colCoInvites); err != nil {
+		t.Fatalf("persist %s co-invite: %v", email, err)
+	}
+}
+
+func lifecycleStateAndDirty(store *Store) (PersistedState, uint32) {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	return cloneState(store.state), store.dirty
+}
+
+func lifecycleBoardEntries(prefix string, count int) []string {
+	entries := make([]string, count)
+	for index := range entries {
+		entries[index] = fmt.Sprintf("%s-%03d", prefix, index)
+	}
+	return entries
+}
+
+func assertLifecycleMergeRejected(t *testing.T, store *Store, before PersistedState, beforeDirty uint32, call func() error) {
+	t.Helper()
+	err := call()
+	if !errors.Is(err, errBoardMergeLimit) || !strings.Contains(err.Error(), "remove entries and retry") {
+		t.Fatalf("merge error = %v, want actionable board-capacity error", err)
+	}
+	after, afterDirty := lifecycleStateAndDirty(store)
+	if !reflect.DeepEqual(after, before) || afterDirty != beforeDirty {
+		t.Fatalf("rejected merge changed state/dirty:\n before=%+v dirty:%d\n after=%+v dirty:%d", before, beforeDirty, after, afterDirty)
+	}
+}
+
+func TestSeatBoardMergeCapacityRejectsAndRecovers(t *testing.T) {
+	primaryBoard := lifecycleBoardEntries("primary", boardLimit)
+	if len(primaryBoard) > boardLimit {
+		t.Fatalf("primary fixture has %d entries, want <= %d", len(primaryBoard), boardLimit)
+	}
+
+	t.Run("co bind", func(t *testing.T) {
+		store := newTestStore(t)
+		primary, _, err := store.AssignMember("capacity-primary@example.com", "Primary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLifecycleBoard(t, store, primary.Email, primaryBoard)
+		if err := store.InviteCoManager(primary.TeamID, "capacity-co@example.com"); err != nil {
+			t.Fatal(err)
+		}
+		setLifecycleBoard(t, store, "capacity-co@example.com", []string{"co-overflow"})
+		before, beforeDirty := lifecycleStateAndDirty(store)
+		assertLifecycleMergeRejected(t, store, before, beforeDirty, func() error {
+			_, _, err := store.BindCoManager("capacity-co@example.com", "Co")
+			return err
+		})
+
+		setLifecycleBoard(t, store, "capacity-co@example.com", nil)
+		co, bound, err := store.BindCoManager("capacity-co@example.com", "Co")
+		if err != nil || !bound || co.Role != "co" {
+			t.Fatalf("recovered co bind = %+v bound:%v err:%v", co, bound, err)
+		}
+		state := store.Snapshot()
+		if len(state.Boards[primary.Email]) != boardLimit || len(state.Boards["capacity-co@example.com"]) != 0 {
+			t.Fatalf("recovered co boards = primary:%d co:%#v", len(state.Boards[primary.Email]), state.Boards["capacity-co@example.com"])
+		}
+
+		// A stale duplicate invite follows the already-bound co-manager path;
+		// it must apply the same capacity guard before consuming the invite.
+		setLifecycleBoard(t, store, "capacity-co@example.com", []string{"co-stale-overflow"})
+		setLifecycleCoInvite(t, store, "capacity-co@example.com", primary.TeamID)
+		before, beforeDirty = lifecycleStateAndDirty(store)
+		assertLifecycleMergeRejected(t, store, before, beforeDirty, func() error {
+			_, _, err := store.BindCoManager("capacity-co@example.com", "Co")
+			return err
+		})
+		setLifecycleBoard(t, store, "capacity-co@example.com", nil)
+		if _, bound, err := store.BindCoManager("capacity-co@example.com", "Co"); err != nil || !bound {
+			t.Fatalf("recovered stale co bind = bound:%v err:%v", bound, err)
+		}
+	})
+
+	t.Run("release", func(t *testing.T) {
+		store := newTestStore(t)
+		primary, _, err := store.AssignMember("capacity-release@example.com", "Primary")
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLifecycleBoard(t, store, primary.Email, primaryBoard)
+		if err := store.InviteCoManager(primary.TeamID, "capacity-release-co@example.com"); err != nil {
+			t.Fatal(err)
+		}
+		if _, bound, err := store.BindCoManager("capacity-release-co@example.com", "Co"); err != nil || !bound {
+			t.Fatalf("seed co bind = bound:%v err:%v", bound, err)
+		}
+		setLifecycleBoard(t, store, "capacity-release-co@example.com", []string{"co-overflow"})
+		before, beforeDirty := lifecycleStateAndDirty(store)
+		assertLifecycleMergeRejected(t, store, before, beforeDirty, func() error {
+			return store.ReleaseSeat(primary.TeamID)
+		})
+
+		setLifecycleBoard(t, store, "capacity-release-co@example.com", nil)
+		if err := store.ReleaseSeat(primary.TeamID); err != nil {
+			t.Fatalf("recovered release = %v", err)
+		}
+		state := store.Snapshot()
+		if got := len(state.Boards[seatBoardEscrowKey(primary.TeamID)]); got != boardLimit {
+			t.Fatalf("recovered escrow length = %d, want %d", got, boardLimit)
+		}
+		if len(state.Members) != 0 {
+			t.Fatalf("recovered release members = %#v, want empty", state.Members)
+		}
+	})
+
+	t.Run("reclaim", func(t *testing.T) {
+		store := newTestStore(t)
+		old, _, err := store.AssignMember("capacity-old@example.com", "Old")
+		if err != nil {
+			t.Fatal(err)
+		}
+		setLifecycleBoard(t, store, old.Email, primaryBoard)
+		if err := store.ReleaseSeat(old.TeamID); err != nil {
+			t.Fatal(err)
+		}
+		setLifecycleBoard(t, store, "capacity-claimant@example.com", []string{"claimant-overflow"})
+		before, beforeDirty := lifecycleStateAndDirty(store)
+		assertLifecycleMergeRejected(t, store, before, beforeDirty, func() error {
+			_, _, err := store.AssignMember("capacity-claimant@example.com", "Claimant")
+			return err
+		})
+
+		setLifecycleBoard(t, store, "capacity-claimant@example.com", nil)
+		claimant, created, err := store.AssignMember("capacity-claimant@example.com", "Claimant")
+		if err != nil || !created || claimant.TeamID != old.TeamID {
+			t.Fatalf("recovered reclaim = %+v created:%v err:%v", claimant, created, err)
+		}
+		state := store.Snapshot()
+		if got := len(state.Boards[claimant.Email]); got != boardLimit {
+			t.Fatalf("recovered claimant board length = %d, want %d", got, boardLimit)
+		}
+		if _, exists := state.Boards[seatBoardEscrowKey(old.TeamID)]; exists {
+			t.Fatal("recovered reclaim retained escrow")
 		}
 	})
 }

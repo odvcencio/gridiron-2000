@@ -35,6 +35,9 @@ seat.
 - Release, reclaim, and co-manager binding retries are idempotent. A
   persistence failure restores the exact pre-mutation state and does not
   publish a partial board or membership transition.
+- A lifecycle merge is rejected before any state change when its distinct
+  entries would exceed the 100-player board limit. Entries are never
+  truncated; remove entries from one source board and retry the operation.
 - Concurrent edits use the store's serialized mutation path. The last
   committed move/add/remove wins, and a successful action reports the updated
   order to the acting manager.
