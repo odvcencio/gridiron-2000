@@ -1,6 +1,7 @@
 package league
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -66,7 +67,14 @@ func boardPageLinks(position, query string, pages, current int) []map[string]any
 func (s *Service) BoardData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
-	key := boardKeyForViewer(state, s.viewerKey(r))
+	// Read and mutation projections share the same persisted seat authority,
+	// so an authenticated but unseated identity cannot acquire or view a
+	// private scratch board that the draft clock would never use.
+	authority, authorityErr := s.requestSeatAuthorityForState(r, state, "")
+	key := ""
+	if authorityErr == nil {
+		key = authority.OwnerKey
+	}
 	pool := s.pool()
 	position := BoardPositionFilter(r.URL.Query().Get("pos"))
 	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -120,11 +128,12 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	pagedPlayers := matchingPlayers[pagination.Start:pagination.End]
 	paged := playerMapsWithScoring(pagedPlayers, scoringValues, matchup)
 	return map[string]any{
-		"viewer":      viewer,
-		"can_edit":    key != "",
-		"board":       entries,
-		"board_count": len(entries),
-		"available":   paged,
+		"viewer":       viewer,
+		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"can_edit":     key != "",
+		"board":        entries,
+		"board_count":  len(entries),
+		"available":    paged,
 		// available_count/available_total are deliberately the unfiltered
 		// available pool. matching_count/pool_total describe the current
 		// server-side filter, so the UI can tell "all available" from
@@ -175,6 +184,20 @@ func (s *Service) boardOwner(r *http.Request) (string, error) {
 	return key, nil
 }
 
+func (s *Service) boardActionOwner(r *http.Request) (string, error) {
+	authority, err := s.requestSeatAuthority(r, "")
+	switch {
+	case errors.Is(err, errSeatActionSignIn):
+		return "", fmt.Errorf("sign in to build a draft board")
+	case errors.Is(err, errSeatActionRequired):
+		return "", fmt.Errorf("claim a team seat before building a draft board")
+	case err != nil:
+		return "", err
+	default:
+		return authority.OwnerKey, nil
+	}
+}
+
 // boardKeyForViewer returns the durable owner key for a draft board. A seated
 // viewer, including a co-manager, uses the primary member's normalized email;
 // this preserves existing primary-manager boards while making the board a
@@ -198,7 +221,7 @@ func boardKeyForViewer(state PersistedState, viewerKey string) string {
 
 // BoardAdd puts a pool player on the viewer's board.
 func (s *Service) BoardAdd(r *http.Request, playerID string) (Player, error) {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return Player{}, err
 	}
@@ -211,7 +234,7 @@ func (s *Service) BoardAdd(r *http.Request, playerID string) (Player, error) {
 
 // BoardMove shifts a board entry one slot up or down.
 func (s *Service) BoardMove(r *http.Request, playerID, direction string) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -227,7 +250,7 @@ func (s *Service) BoardMove(r *http.Request, playerID, direction string) error {
 // app/board/page.gsx) posts on drop. It mirrors BoardMove's ownership
 // check; the store clamps an out-of-range index rather than rejecting it.
 func (s *Service) BoardMoveTo(r *http.Request, playerID string, index int) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -236,7 +259,7 @@ func (s *Service) BoardMoveTo(r *http.Request, playerID string, index int) error
 
 // BoardRemove drops a board entry.
 func (s *Service) BoardRemove(r *http.Request, playerID string) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -245,7 +268,7 @@ func (s *Service) BoardRemove(r *http.Request, playerID string) error {
 
 // BoardClear empties the viewer's board.
 func (s *Service) BoardClear(r *http.Request) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}

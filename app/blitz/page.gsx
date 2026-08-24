@@ -265,8 +265,9 @@ func Page() Node {
 			</If>
 			<If cond={data.can_enter == false}>
 				<p class="demo-message">
-					<strong>SIGN IN REQUIRED:</strong>
-					use League access to enter the blitz tied to your seat.
+					<strong>{data.public_entry.state_label}:</strong>
+					{data.public_entry.detail}
+					<a class="filter-button" href={data.public_entry.action_href} data-gosx-link>{data.public_entry.action_label}</a>
 				</p>
 			</If>
 			<If cond={data.feed_offline}>
@@ -324,17 +325,30 @@ func Page() Node {
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">01 // ENTRY BUILDER</span>
-						<h2>Your five</h2>
+						<If cond={data.can_enter}>
+							<h2>Your five</h2>
+						</If>
+						<If cond={data.can_enter == false}>
+							<h2>Seat entry locked</h2>
+						</If>
 					</div>
 				</div>
 				<p class="stat-tip__empty">
 					Starters may not play. Pool players only — practice-squad heroes are not selectable.
 				</p>
 				<If cond={data.slots_empty}>
-					<div class="empty-tape">
-						<strong>NO PLAYERS ENTERED</strong>
-						<p>Add up to 5 players from the eligible list below. Max 2 per NFL team.</p>
-					</div>
+					<If cond={data.can_enter}>
+						<div class="empty-tape">
+							<strong>NO PLAYERS ENTERED</strong>
+							<p>Add up to 5 players from the eligible list below. Max 2 per NFL team.</p>
+						</div>
+					</If>
+					<If cond={data.can_enter == false}>
+						<div class="empty-tape">
+							<strong>BROWSE THE ELIGIBLE POOL</strong>
+							<p>Eligible players remain visible below. Entry controls unlock only for an identity that manages a franchise seat.</p>
+						</div>
+					</If>
 				</If>
 				<div class="pool-list">
 					<Each of={data.slots} as="slot">
@@ -349,7 +363,12 @@ func Page() Node {
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">ELIGIBLE PLAYERS</span>
-						<h2>Add to your entry</h2>
+						<If cond={data.can_enter}>
+							<h2>Add to your entry</h2>
+						</If>
+						<If cond={data.can_enter == false}>
+							<h2>Browse eligible players</h2>
+						</If>
 					</div>
 				</div>
 				<div class="pool-search-bar">

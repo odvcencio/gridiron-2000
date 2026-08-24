@@ -1798,6 +1798,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
 		return map[string]any{
 			"viewer":               viewer,
+			"public_entry":         publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
 			"has_seat":             false,
 			"predraft_visible":     false,
 			"predraft_has_board":   false,
@@ -1905,9 +1906,10 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 
 	data := map[string]any{
-		"viewer":   viewer,
-		"has_seat": true,
-		"team":     teamMap,
+		"viewer":       viewer,
+		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"has_seat":     true,
+		"team":         teamMap,
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
@@ -2542,6 +2544,67 @@ func (s *Service) ToggleAutopick(r *http.Request, requestedTeam string) (bool, s
 		return false, "", err
 	}
 	return on, s.teamByID(teamID).Name, nil
+}
+
+// seatActionAuthority is the canonical request-to-seat projection for every
+// manager-facing seat-tied action. OwnerKey is the primary manager identity
+// shared by a primary and co-manager. A commissioner receives no implicit
+// cross-seat authority here; explicit commissioner APIs own that policy.
+type seatActionAuthority struct {
+	TeamID   string
+	OwnerKey string
+}
+
+var (
+	errSeatActionSignIn   = errors.New("Google sign-in is required for seat actions")
+	errSeatActionRequired = errors.New("claim a team seat before taking this action")
+	errSeatActionWrong    = errors.New("you may act only for your own team seat")
+)
+
+// requestSeatAuthority resolves a real persisted seat without creating
+// membership as a side effect. requestedTeam may be empty; when present it
+// must match the signed-in manager seat. Demo rehearsal retains its explicit
+// synthetic authority and may name a known seat.
+func (s *Service) requestSeatAuthority(r *http.Request, requestedTeam string) (seatActionAuthority, error) {
+	return s.requestSeatAuthorityForState(r, s.store.Snapshot(), requestedTeam)
+}
+
+func (s *Service) requestSeatAuthorityForState(r *http.Request, state PersistedState, requestedTeam string) (seatActionAuthority, error) {
+	requestedTeam = strings.TrimSpace(requestedTeam)
+	if user, ok := s.CurrentUser(r); ok {
+		canonicalEmail := s.identityResolver.Resolve(user.Email)
+		member, exists := memberByEmail(state.Members, canonicalEmail)
+		teamID := strings.TrimSpace(member.TeamID)
+		if !exists || teamID == "" || !knownTeam(teamID) {
+			return seatActionAuthority{}, errSeatActionRequired
+		}
+		if requestedTeam != "" && requestedTeam != teamID {
+			return seatActionAuthority{}, errSeatActionWrong
+		}
+		owner := normalizeEmail(memberForTeam(state.Members, teamID).Email)
+		if owner == "" {
+			owner = normalizeEmail(member.Email)
+		}
+		if owner == "" {
+			return seatActionAuthority{}, errSeatActionRequired
+		}
+		return seatActionAuthority{TeamID: teamID, OwnerKey: owner}, nil
+	}
+	if s.demoMode {
+		teamID := requestedTeam
+		if teamID == "" {
+			teams := s.Teams()
+			if len(teams) == 0 {
+				return seatActionAuthority{}, errSeatActionRequired
+			}
+			teamID = teams[0].ID
+		}
+		if !knownTeam(teamID) {
+			return seatActionAuthority{}, errSeatActionWrong
+		}
+		return seatActionAuthority{TeamID: teamID, OwnerKey: "demo-guest"}, nil
+	}
+	return seatActionAuthority{}, errSeatActionSignIn
 }
 
 func (s *Service) actingTeam(r *http.Request, requested string) (string, error) {
