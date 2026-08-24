@@ -151,6 +151,48 @@ the prior JSON/default value after an invalid override.
 
 Other environment variables configure private identity policy, credentials, providers, storage, or runtime behavior; they are not part of the public `league.json` schema. See [`.env.example`](../.env.example) and the README configuration map.
 
+## Fleet document and generated publication
+
+cmd/fleetgen accepts an explicit fleet.json; it does not discover a fleet from
+the current directory or from environment variables. Each league_config_path is
+resolved relative to the fleet document, preflighted by the canonical league
+loader, and copied byte-for-byte into the generated ConfigMap. The
+privacy-safe starting point is config/fleet.json.example, whose
+league.json.example reference resolves beside it.
+
+The fleet schema has version, an immutable image in
+repository@sha256:<64 lowercase hex> form, a relay statrelay_origin, an
+ingress_class, a certificate_issuer, and one or more instances. Every instance
+supplies a lowercase id, Kubernetes namespace and resource_prefix, an HTTPS
+public_origin, a fleet-relative league_config_path, a positive pvc_storage
+quantity, and an explicit hq_participant boolean. A fleet definition has no
+credentials, Secret values, email addresses, member identities, DNS records, or
+OAuth client material.
+
+Use fleetgen render --file <fleet.json> --out <directory> only after the
+document and every league source validate. The publisher writes a complete
+deterministic bundle behind a fixed .fleetgen-owner marker and replaces a
+non-empty directory only when that exact marker is already present. Review
+operator-checklist.md and each instance's generated Secret example before
+provisioning anything. The checklist prints the exact callback
+<public_origin>/auth/google/callback for every instance.
+
+fleetgen check --file <fleet.json> --out <directory> compiles the same
+in-memory expected publication and is strictly read-only. A clean check
+returns zero; drift reports sorted expected-missing, changed, and
+unexpected-existing paths. The output is generated and owned; existing
+hand-authored production manifests under deploy/k8s/** are not implicitly
+adopted by this tooling.
+
+For first installation, author the league and run leaguecheck, render/check and
+review the fleet bundle, provision Secrets/DNS/OAuth, then apply in the
+reviewed order. For an existing immutable release, build once, pass the SK
+canary gate, and roll the identical recorded image digest through the flagship
+and remaining fleet. The shared statrelay is the sole Tank01 key owner.
+Generated local-path PVCs are node-local ReadWriteOnce storage; check the
+StorageClass reclaim policy and arrange backups separately, without assuming HA
+or backups from the bundle.
+
 ## Validate before rollout
 
 Use the same checks as the application build:

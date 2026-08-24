@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "image": "registry.example.test/gridiron/example@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "statrelay_origin": "http://statrelay.example.test",
+  "ingress_class": "traefik",
+  "certificate_issuer": "example-issuer",
+  "instances": [
+    {
+      "id": "example",
+      "namespace": "example",
+      "resource_prefix": "example-app",
+      "public_origin": "https://example.test",
+      "league_config_path": "league.json.example",
+      "pvc_storage": "1Gi",
+      "hq_participant": false
+    }
+  ]
+}
