@@ -63,7 +63,7 @@ func Page() Node {
 		<section class="draft-masthead notification-settings-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					ACCOUNT // EMAIL SETTINGS
 				</span>
 				<h1>

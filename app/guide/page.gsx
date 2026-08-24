@@ -4,7 +4,7 @@ func Page() Node {
 	return <main class="page guide-page" id="main-content">
 		<header class="page-masthead guide-masthead">
 			<div>
-				<span class="signal-label"><span class="live-dot" aria-hidden="true"></span>MANAGER GUIDE // START HERE</span>
+				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>MANAGER GUIDE // START HERE</span>
 				<p class="page-kicker">{data.league_name} · {data.mode_label} · For managers arriving from any platform</p>
 				<h1>PLAY<br></br>THE<br></br>ROOM.</h1>
 				<p class="guide-lede">{data.league_name} is a private league room, not a second account at your old provider. Bring your football knowledge; the commissioner sets this league's rules, membership, and draft start. This guide gets you from invite to game day in one pass.</p>

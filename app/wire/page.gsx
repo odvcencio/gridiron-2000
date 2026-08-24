@@ -83,7 +83,7 @@ func Page() Node {
 		<header class="page-masthead wire-masthead">
 			<div>
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					PRIVATE LEAGUE NEWS
 				</span>
 				<p class="page-kicker">News, community tips, and social · always free</p>
@@ -141,7 +141,7 @@ func Page() Node {
 						<h2>Fantasy-relevant dispatches</h2>
 					</div>
 					<div class="sync-state" role="status" aria-live="polite">
-						<span class="live-dot" aria-hidden="true"></span>
+						<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="indicator">{data.wire_indicator}</span>
 						<span data-wire-status data-gosx-live-bind="status">{data.wire_health}</span>
 						<If cond={data.wire_source_issue != ""}>
 							<small class="wire-source-issue">{data.wire_source_issue}</small>
@@ -175,7 +175,7 @@ func Page() Node {
 						<b>Owner-operated data</b>
 					</header>
 					<div class="wire-system-row">
-						<span class="status-pin" aria-hidden="true"></span>
+						<span class="signal-mark" aria-hidden="true"></span>
 						<div>
 							<strong>Public feeds</strong>
 							<small>{data.feed_ready}/{data.feed_count} ready · updates every 2 min</small>
@@ -183,7 +183,7 @@ func Page() Node {
 					</div>
 					<If cond={data.bluesky_count > 0}>
 						<div class="wire-system-row">
-							<span class="status-pin" aria-hidden="true"></span>
+							<span class="signal-mark" aria-hidden="true"></span>
 							<div>
 								<strong>Bluesky event wire</strong>
 								<small>{data.wire_mode} · {data.bluesky_count} tracked accounts</small>
@@ -191,21 +191,21 @@ func Page() Node {
 						</div>
 					</If>
 					<div class="wire-system-row">
-						<span class="status-pin status-pin--cyan" aria-hidden="true"></span>
+						<span class="signal-mark signal-mark--cyan" aria-hidden="true"></span>
 						<div>
 							<strong>Schedule data</strong>
 							<small>{data.schedule_state} · {data.schedule_rows} games · {data.schedule_updated}</small>
 						</div>
 					</div>
 					<div class="wire-system-row">
-						<span class="status-pin status-pin--hot" aria-hidden="true"></span>
+						<span class="signal-mark signal-mark--hot" aria-hidden="true"></span>
 						<div>
 							<strong>{data.season} player ledger</strong>
 							<small>{data.player_state} · {data.player_rows} players · {data.player_updated}</small>
 						</div>
 					</div>
 					<div class="wire-system-row">
-						<span class="status-pin status-pin--cyan" aria-hidden="true"></span>
+						<span class="signal-mark signal-mark--cyan" aria-hidden="true"></span>
 						<div>
 							<strong>{data.season} injury ledger</strong>
 							<small>{data.injury_state} · {data.injury_rows} reports · {data.injury_updated}</small>

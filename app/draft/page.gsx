@@ -344,7 +344,7 @@ func DraftRoom(props DraftRoomProps) Node {
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					DRAFT EVENT //
 					{props.Data.draft.date}
 				</span>
@@ -784,7 +784,10 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 				</If>
 				<header>
 					<span class="section-index">PICK TAPE</span>
-					<If cond={props.Data.draft_complete == false}><b class="mono">LIVE LOG</b></If>
+					<If cond={props.Data.draft.started == false}><b class="mono">DRAFT LOG</b></If>
+					<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
+						<b class="mono"><span class="live-dot live-dot--bound" aria-hidden="true">LIVE</span> LIVE LOG</b>
+					</If>
 					<If cond={props.Data.draft_complete}><b class="mono">FINAL LEDGER</b></If>
 				</header>
 				<If cond={props.Data.picks_empty}>
