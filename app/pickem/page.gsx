@@ -73,6 +73,7 @@ type PickemGameRow struct {
 	Push           bool
 	MissedLoss     bool
 	Void           bool
+	MarketUnavailable bool
 	Outcome        string
 	ResultLabel    string
 	AwayLine       string
@@ -92,7 +93,7 @@ type PickemRowProps struct {
 }
 
 component PickemRow(props: PickemRowProps) {
-	return <article class="pickem-row" data-picked={props.Game.Picked}>
+	return <article class="pickem-row" data-game-id={props.Game.ID} data-picked={props.Game.Picked}>
 		<small class="mono">{props.Game.KickoffDisplay}</small>
 		<strong>{props.Game.Label}</strong>
 		<div class="pickem-market" data-state={props.Game.SpreadState}>
@@ -111,6 +112,11 @@ component PickemRow(props: PickemRowProps) {
 			</small>
 		</div>
 		<div class="pickem-buttons">
+			<If cond={props.Game.MarketUnavailable}>
+				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-disabled="true" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
+			</If>
+			<If cond={props.Game.MarketUnavailable == false}>
 			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -134,6 +140,7 @@ component PickemRow(props: PickemRowProps) {
 			</If>
 			<If cond={props.Game.Locked}>
 				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
+			</If>
 			</If>
 		</div>
 		<div class="pickem-status">

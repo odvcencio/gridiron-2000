@@ -2,6 +2,7 @@ package league
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -313,6 +314,132 @@ func TestPickemSetGuards(t *testing.T) {
 	}
 	if enteredAt := service.store.Snapshot().PickemEnteredAt["demo-guest"]; !enteredAt.Equal(now) {
 		t.Fatalf("entry time = %v, want request clock %v", enteredAt, now)
+	}
+}
+
+func TestPickemSetRejectsDurableUnavailableMarketBeforeLegacyBackfill(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 20, 16, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	games := []GameInfo{
+		{ID: "legacy-entry", Week: 1, Kickoff: now.Add(-2 * time.Hour), Away: "LEG", Home: "ACY", SpreadLinePresent: true, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+		{ID: "void-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "AAA", Home: "BBB", SourceObservedAt: now},
+		{ID: "no-line-game", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "CCC", Home: "DDD", SourceObservedAt: now},
+		{ID: "neighbor", Week: 1, Kickoff: now.Add(4 * time.Hour), Away: "EEE", Home: "FFF", SpreadLinePresent: true, SpreadLineTenths: 25, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+	if err := service.store.SetPickem("demo-guest", "legacy-entry", "LEG", games[0].Kickoff.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	// Model a pre-v6 owner whose valid pick exists but whose immutable entry
+	// timestamp still needs the legacy backfill. Both durable unavailable
+	// market shapes must be rejected before that migration can run.
+	service.store.mu.Lock()
+	delete(service.store.state.PickemEnteredAt, "demo-guest")
+	service.store.state.PickemMarkets["void-game"] = PickemMarket{
+		Week: 1, Kickoff: games[1].Kickoff, Away: "AAA", Home: "BBB", LockAt: now.Add(time.Hour),
+		Void: true, VoidReason: "no eligible market line before lock",
+	}
+	service.store.state.PickemMarkets["no-line-game"] = PickemMarket{
+		Week: 1, Kickoff: games[2].Kickoff, Away: "CCC", Home: "DDD", LockAt: now.Add(2 * time.Hour),
+	}
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodPost, "/pickem", nil)
+	for _, test := range []struct {
+		gameID string
+		team   string
+	}{
+		{gameID: "void-game", team: "AAA"},
+		{gameID: "no-line-game", team: "CCC"},
+	} {
+		_, err := service.PickemSet(request, test.gameID, test.team)
+		if err == nil || !strings.Contains(err.Error(), "no eligible market line") {
+			t.Fatalf("PickemSet(%s) error = %v, want unavailable-market rejection", test.gameID, err)
+		}
+	}
+	state := service.store.Snapshot()
+	if got := state.Pickems["demo-guest"]["void-game"]; got != "" {
+		t.Fatalf("void game pick mutated to %q", got)
+	}
+	if got := state.Pickems["demo-guest"]["no-line-game"]; got != "" {
+		t.Fatalf("no-line game pick mutated to %q", got)
+	}
+	if enteredAt := state.PickemEnteredAt["demo-guest"]; !enteredAt.IsZero() {
+		t.Fatalf("unavailable submission ran legacy backfill at %v", enteredAt)
+	}
+	if got := state.Pickems["demo-guest"]["legacy-entry"]; got != "LEG" {
+		t.Fatalf("legacy pick changed during unavailable submission: %q", got)
+	}
+}
+
+func TestPickemSetKeepsValidNeighborPickableWhenAnotherMarketIsVoid(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 20, 16, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	games := []GameInfo{
+		{ID: "void-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "AAA", Home: "BBB", SourceObservedAt: now},
+		{ID: "neighbor", Week: 1, Kickoff: now.Add(4 * time.Hour), Away: "EEE", Home: "FFF", SpreadLinePresent: true, SpreadLineTenths: 25, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+	service.store.mu.Lock()
+	service.store.state.PickemMarkets["void-game"] = PickemMarket{
+		Week: 1, Kickoff: games[0].Kickoff, Away: "AAA", Home: "BBB", LockAt: now.Add(time.Hour), Void: true,
+	}
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodPost, "/pickem", nil)
+	if _, err := service.PickemSet(request, "neighbor", "EEE"); err != nil {
+		t.Fatalf("valid neighboring game rejected: %v", err)
+	}
+	state := service.store.Snapshot()
+	if got := state.Pickems["demo-guest"]["neighbor"]; got != "EEE" {
+		t.Fatalf("neighbor pick = %q, want EEE", got)
+	}
+	if enteredAt := state.PickemEnteredAt["demo-guest"]; !enteredAt.Equal(now) {
+		t.Fatalf("neighbor entry time = %v, want request time %v", enteredAt, now)
+	}
+}
+
+func TestPickemDataMarksFutureUnavailableMarketWithoutClosingNeighbor(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 20, 16, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	games := []GameInfo{
+		{ID: "void-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "AAA", Home: "BBB", SourceObservedAt: now},
+		{ID: "neighbor", Week: 1, Kickoff: now.Add(4 * time.Hour), Away: "EEE", Home: "FFF", SpreadLinePresent: true, SpreadLineTenths: 25, SourceObservedAt: now.Add(-14 * 24 * time.Hour)},
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+	service.store.mu.Lock()
+	service.store.state.PickemMarkets["void-game"] = PickemMarket{
+		Week: 1, Kickoff: games[0].Kickoff, Away: "AAA", Home: "BBB", LockAt: now.Add(time.Hour), Void: true,
+	}
+	service.store.mu.Unlock()
+
+	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
+	data := service.PickemData(request)
+	rows := data["games"].([]PickemGameRow)
+	byID := make(map[string]PickemGameRow, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	voidRow := byID["void-game"]
+	if !voidRow.MarketUnavailable || !voidRow.Void || voidRow.Locked || voidRow.Picked {
+		t.Fatalf("future void row = %+v, want unavailable/unlocked/unpicked", voidRow)
+	}
+	if voidRow.ResultLabel != "NO PICK · MARKET VOID" {
+		t.Fatalf("future void result label = %q, want explicit no-pick state", voidRow.ResultLabel)
+	}
+	if data["picked_count"] != 0 || data["unpicked_count"] != 1 {
+		t.Fatalf("Pick'em counters = picked:%v unpicked:%v, want void excluded and neighbor actionable", data["picked_count"], data["unpicked_count"])
+	}
+	neighbor := byID["neighbor"]
+	if neighbor.MarketUnavailable || neighbor.Locked || neighbor.AwayLine != "EEE +2.5" || neighbor.HomeLine != "FFF -2.5" {
+		t.Fatalf("valid neighbor row = %+v, want open frozen-line controls", neighbor)
+	}
+	summary := service.pickemHomeSummaryFromSnapshot(request, service.store.Snapshot(), now)
+	if summary["game_count"] != 1 || summary["open_unpicked_count"] != 1 || summary["locked_unpicked_count"] != 0 || summary["unpicked_count"] != 1 {
+		t.Fatalf("home Pick'em summary = %+v, want only the valid neighbor in actionable counts", summary)
 	}
 }
 
@@ -857,7 +984,8 @@ func TestPickemSetAndDataUseInjectedPerGameClock(t *testing.T) {
 	kickoff := time.Date(2026, 9, 20, 20, 0, 0, 0, time.UTC)
 	now := kickoff.Add(-time.Second)
 	svc.now = func() time.Time { return now }
-	games := []GameInfo{{ID: "early", Week: 2, Kickoff: kickoff, Away: "AAA", Home: "BBB", SpreadLinePresent: true, SourceObservedAt: now.Add(-time.Hour)}, {ID: "late", Week: 2, Kickoff: kickoff.Add(time.Hour), Away: "CCC", Home: "DDD", SpreadLinePresent: true, SourceObservedAt: now.Add(-time.Hour)}}
+	preLockObservation := kickoff.Add(-14 * 24 * time.Hour)
+	games := []GameInfo{{ID: "early", Week: 2, Kickoff: kickoff, Away: "AAA", Home: "BBB", SpreadLinePresent: true, SourceObservedAt: preLockObservation}, {ID: "late", Week: 2, Kickoff: kickoff.Add(time.Hour), Away: "CCC", Home: "DDD", SpreadLinePresent: true, SourceObservedAt: preLockObservation}}
 	svc.SetScheduleSource(func() []GameInfo { return games })
 	req, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
 	if _, err := svc.PickemSet(req, "early", "AAA"); err != nil {
