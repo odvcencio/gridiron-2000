@@ -42,9 +42,12 @@ func commissionerV1Fixture() (CommissionerSummaryV1ConfigSnapshot, PersistedStat
 			"co-one@example.test":      {TeamID: "team-1", Name: "Co One", Email: "co-one@example.test", Role: "co"},
 			"primary-two@example.test": {TeamID: "team-2", Name: "Primary Two", Email: "primary-two@example.test"},
 		},
-		Invites:    []string{"pending@example.test"},
-		CoInvites:  map[string]string{"pending-co@example.test": "team-2"},
-		Boards:     map[string][]string{"team-1": {"player-1"}, "team-2": {}},
+		Invites:   []string{"pending@example.test"},
+		CoInvites: map[string]string{"pending-co@example.test": "team-2"},
+		Boards: map[string][]string{
+			"primary-one@example.test": {"player-1"},
+			"primary-two@example.test": {},
+		},
 		DraftOrder: []string{"team-1", "team-2"},
 		Picks:      []DraftPick{},
 		Pickems: map[string]map[string]string{
@@ -79,6 +82,41 @@ func commissionerV1Fixture() (CommissionerSummaryV1ConfigSnapshot, PersistedStat
 		ImageDigest: "sha256:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 	}
 	return CommissionerSummaryV1ConfigSnapshot{InstanceID: "fixture", LeagueID: "fixture-league", Config: cfg, Teams: teams, BlitzEnabled: true}, state, data, release
+}
+
+func TestCommissionerSummaryV1BoardGapsUseCanonicalSeatOwner(t *testing.T) {
+	cfg, state, data, release := commissionerV1Fixture()
+
+	// Mixed-case persisted member data still resolves to the normalized board
+	// key. The co-manager shares the primary's order; an unclaimed team's
+	// unrelated board-like key is never included in claimed-seat readiness.
+	primary := state.Members["primary-one@example.test"]
+	delete(state.Members, "primary-one@example.test")
+	primary.Email = "PRIMARY-ONE@EXAMPLE.TEST"
+	state.Members["PRIMARY-ONE@EXAMPLE.TEST"] = primary
+	state.Boards["co-one@example.test"] = []string{"legacy-co-player"}
+	state.Boards["team-3"] = []string{"unclaimed-player"}
+
+	summary, err := projectCommissionerSummaryV1(commissionerSummaryV1Tuple{
+		config: cfg, state: state, data: data, release: release, now: commissionerV1TestNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *summary.Draft.BoardGapCount; got != 1 {
+		t.Fatalf("board gap count = %d, want only claimed team-2's empty board", got)
+	}
+
+	delete(state.Boards, "primary-one@example.test")
+	summary, err = projectCommissionerSummaryV1(commissionerSummaryV1Tuple{
+		config: cfg, state: state, data: data, release: release, now: commissionerV1TestNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *summary.Draft.BoardGapCount; got != 2 {
+		t.Fatalf("board gap count = %d, want both claimed seats empty; co legacy board must not mask the gap", got)
+	}
 }
 
 func TestCommissionerSummaryV1CapturesOneCoherentTuple(t *testing.T) {

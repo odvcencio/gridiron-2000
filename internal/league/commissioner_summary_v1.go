@@ -161,7 +161,7 @@ func projectCommissionerSummaryV1(t commissionerSummaryV1Tuple) (hqv1.Summary, e
 		if t.state.Ready[teamID] {
 			ready++
 		}
-		if len(t.state.Boards[teamID]) == 0 {
+		if len(t.state.Boards[commissionerV1BoardOwnerKey(t.state, teamID)]) == 0 {
 			boardGaps++
 		}
 	}
@@ -221,6 +221,15 @@ func projectCommissionerSummaryV1(t commissionerSummaryV1Tuple) (hqv1.Summary, e
 		return hqv1.Summary{}, err
 	}
 	return summary, nil
+}
+
+// commissionerV1BoardOwnerKey mirrors the persisted Big Board ownership
+// contract used by the Draft Room: a claimed seat's board belongs to its
+// normalized primary-manager identity, not to the team ID. Commissioner HQ
+// consumes only the resulting count/gap signal; it never exposes the private
+// player order.
+func commissionerV1BoardOwnerKey(state PersistedState, teamID string) string {
+	return normalizeEmail(memberForTeam(state.Members, teamID).Email)
 }
 
 func cloneCommissionerV1Config(cfg Config) Config {
