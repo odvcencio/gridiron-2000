@@ -261,6 +261,12 @@ func (s *Store) Close() error {
 func (s *Store) PersistenceError() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.persistenceErrorLocked()
+}
+
+// persistenceErrorLocked returns the current read-health result while the
+// caller holds s.mu for reading or writing.
+func (s *Store) persistenceErrorLocked() error {
 	if s.loadErr != nil {
 		return s.loadErr
 	}
@@ -320,6 +326,22 @@ func (s *Store) capturePersistedSchemaVersion(db *sql.DB) {
 func (s *Store) Snapshot() PersistedState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.snapshotLocked()
+}
+
+// ReadableSnapshot couples persistence health and the cloned state under one
+// read lock. Commissioner-summary v1 uses this instead of observing health and
+// state in two generations. It performs no reconciliation or write.
+func (s *Store) ReadableSnapshot() (PersistedState, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if err := s.persistenceErrorLocked(); err != nil {
+		return PersistedState{}, err
+	}
+	return s.snapshotLocked(), nil
+}
+
+func (s *Store) snapshotLocked() PersistedState {
 	out := cloneState(s.state)
 	if !s.identityHealthyLocked() {
 		if s.persistencePoison != nil {

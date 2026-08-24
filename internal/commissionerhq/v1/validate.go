@@ -302,21 +302,8 @@ func (v *validator) draft(s Summary) {
 	if allInts(d.ReadyTeams, d.ExpectedTeams) && *d.ReadyTeams > *d.ExpectedTeams {
 		v.add("draft.ready_teams must not exceed expected_teams")
 	}
-	if allInts(d.ExpectedTeams, s.Competition.Teams.Occupied) && *d.ExpectedTeams > *s.Competition.Teams.Occupied {
-		v.add("draft.expected_teams must not exceed occupied teams")
-	}
 	if allInts(d.ExpectedTeams, s.Competition.Teams.Total) && *d.ExpectedTeams > *s.Competition.Teams.Total {
 		v.add("draft.expected_teams must not exceed total teams")
-	}
-	if scheduledAt, ok := optionalParsedUTC(d.ScheduledAt); ok {
-		if producedAt, producedOK := parseUTC(s.ProducedAt); producedOK {
-			if d.State == "scheduled" && !producedAt.Before(scheduledAt) {
-				v.add("draft.state scheduled requires produced_at before scheduled_at")
-			}
-			if d.State == "open" && producedAt.Before(scheduledAt) {
-				v.add("draft.state open requires produced_at at or after scheduled_at")
-			}
-		}
 	}
 	switch s.Competition.Phase {
 	case "pre-draft":
