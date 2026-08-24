@@ -86,14 +86,15 @@ component BadgeCell(props: BadgeCellProps) {
 component RosterRow(props: RosterRowProps) {
 	return <div class="roster-row">
 		<div class="position-chip">{props.Position}</div>
-		<div class="player-identity stat-tip" tabindex="0">
+		<details class="player-identity stat-tip">
+			<summary class="stat-tip__summary">
 			<If cond={props.HasHeadshot}>
 				<img class="player-avatar player-avatar--photo" src={props.Headshot} alt="" loading="lazy" />
 			</If>
 			<If cond={props.HasHeadshot == false}>
 				<span class="player-avatar" aria-hidden="true">{props.NFLTeam}</span>
 			</If>
-			<div>
+			<span class="player-identity__text">
 				<strong>{props.Name}</strong>
 				<small>
 					{props.NFLTeam}
@@ -106,8 +107,9 @@ component RosterRow(props: RosterRowProps) {
 						</If>
 					</If>
 				</small>
-			</div>
-			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+			</span>
+			</summary>
+			<div class="stat-tip__panel">
 				<div class="stat-tip__head">
 					<strong>{props.Name}</strong>
 					<span class="mono">{props.Jersey}</span>
@@ -138,7 +140,7 @@ component RosterRow(props: RosterRowProps) {
 					<p class="stat-tip__hist mono">{props.Hist}</p>
 				</If>
 			</div>
-		</div>
+		</details>
 		<div class="game-state">
 			<span class="signal-mark" aria-hidden="true"></span>
 			{props.Status}
@@ -522,14 +524,15 @@ func Page() Node {
 							<div class="lineup-slot">
 								<div class="lineup-slot__id mono">{slot.slot_id}</div>
 								<If cond={slot.has_player}>
-									<div class="player-identity stat-tip" tabindex="0">
+									<details class="player-identity stat-tip">
+										<summary class="stat-tip__summary">
 										<If cond={slot.has_headshot}>
 											<img class="player-avatar player-avatar--photo" src={slot.headshot} alt="" loading="lazy" />
 										</If>
 										<If cond={slot.has_headshot == false}>
 											<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
 										</If>
-										<div>
+										<span class="player-identity__text">
 											<strong>{slot.name}</strong>
 											<small>
 												{slot.position}
@@ -544,8 +547,9 @@ func Page() Node {
 													</If>
 												</If>
 											</small>
-										</div>
-										<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+										</span>
+										</summary>
+										<div class="stat-tip__panel">
 											<div class="stat-tip__head">
 												<strong>{slot.name}</strong>
 												<span class="mono">{slot.jersey}</span>
@@ -573,7 +577,7 @@ func Page() Node {
 												<p class="stat-tip__hist mono">{slot.matchup_detail}</p>
 											</If>
 										</div>
-									</div>
+									</details>
 								</If>
 								<If cond={slot.has_player == false}>
 									<If cond={data.team_terminal_roster_complete}>

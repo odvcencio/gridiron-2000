@@ -1274,6 +1274,7 @@ textarea {
 .standing-team,
 .score-team__name,
 .player-identity > div:not(.stat-tip__panel),
+.player-identity__text,
 .pool-player,
 .leader-row > div,
 .scout-row > div,
@@ -3870,6 +3871,44 @@ body.is-on-clock .draft-clock-panel {
    per-trigger anchor below. */
 .stat-tip {
   position: static;
+  display: block;
+  min-width: 0;
+}
+
+.stat-tip__summary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  list-style: none;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.stat-tip__summary::-webkit-details-marker,
+.stat-tip__summary::marker {
+  display: none;
+  content: "";
+}
+
+.stat-tip__summary:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 0.2rem;
+}
+
+.stat-tip__summary::after {
+  content: "DETAILS +";
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--color-text-muted);
+  font: 700 var(--type-xs)/1 var(--font-mono);
+  letter-spacing: 0.06em;
+}
+
+.stat-tip[open] > .stat-tip__summary::after {
+  content: "DETAILS −";
+  color: var(--color-accent-cyan);
 }
 
 .stat-tip__panel {
@@ -3892,8 +3931,7 @@ body.is-on-clock .draft-clock-panel {
   text-align: left;
 }
 
-.stat-tip:hover .stat-tip__panel,
-.stat-tip:focus-within .stat-tip__panel {
+.stat-tip[open] > .stat-tip__panel {
   display: block;
 }
 
@@ -3904,14 +3942,10 @@ body.is-on-clock .draft-clock-panel {
    a later sibling row's own text painted through the leading edge of an
    open panel even though DOM hit-testing showed the panel on top). Scoping
    the raised stacking to only the row with an open panel avoids it. */
-.pool-row:has(.stat-tip:hover),
-.pool-row:has(.stat-tip:focus-within),
-.board-row:has(.stat-tip:hover),
-.board-row:has(.stat-tip:focus-within),
-.roster-row:has(.stat-tip:hover),
-.roster-row:has(.stat-tip:focus-within),
-.pickem-row:has(.stat-tip:hover),
-.pickem-row:has(.stat-tip:focus-within) {
+.pool-row:has(.stat-tip[open]),
+.board-row:has(.stat-tip[open]),
+.roster-row:has(.stat-tip[open]),
+.pickem-row:has(.stat-tip[open]) {
   z-index: 41;
 }
 
@@ -3921,6 +3955,14 @@ body.is-on-clock .draft-clock-panel {
    width (clamped to the viewport for narrow screens). */
 .blitz-chip-row .stat-tip {
   position: relative;
+}
+
+.blitz-chip-row .stat-tip__summary::after {
+  content: "+";
+}
+
+.blitz-chip-row .stat-tip[open] > .stat-tip__summary::after {
+  content: "−";
 }
 
 .blitz-chip-row .stat-tip__panel {
@@ -3979,6 +4021,10 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-text-muted);
 }
 
+.stat-tip__row > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .stat-tip__total {
   margin-top: var(--space-xs);
   padding-top: var(--space-xs);
@@ -4009,9 +4055,26 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-/* Touch has no hover: the tabindex="0" trigger above already opens the
-   panel on :focus-within (tap), and losing focus (tapping elsewhere)
-   closes it, so no separate touch rule is needed here. */
+/* Native details/summary owns the open state, so mouse, keyboard, touch, and
+   assistive technology all receive the same disclosure instead of a hover
+   tooltip. Keep the panel row-anchored at wide widths; the narrow clamp
+   keeps it inside a 390px viewport without script. */
+@media (max-width: 38rem) {
+  .stat-tip__summary {
+    min-height: 2.75rem;
+  }
+
+  .stat-tip__panel {
+    left: var(--space-xs);
+    right: var(--space-xs);
+    max-width: calc(100vw - 2 * var(--space-md));
+    max-height: min(65vh, 22rem);
+  }
+
+  .blitz-chip-row .stat-tip__panel {
+    min-width: min(17rem, calc(100vw - 2 * var(--space-md)));
+  }
+}
 
 .board-workspace,
 .admin-grid {

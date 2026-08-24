@@ -10,11 +10,12 @@ func BoardRow(props BoardRowProps) Node {
 	return <article class="board-row" data-picked={props.Player.picked} data-gosx-reorder-item={props.Player.id}>
 		<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + props.Player.name}>⠿</span>
 		<span class="pool-rank mono">{props.Player.board_rank}</span>
-		<div class="pool-player pool-player--photo stat-tip" tabindex="0">
+		<details class="stat-tip">
+			<summary class="pool-player pool-player--photo stat-tip__summary">
 			<If cond={props.Player.has_headshot}>
 				<img class="player-headshot" src={props.Player.headshot} alt="" loading="lazy" />
 			</If>
-			<div class="pool-player__text">
+			<span class="pool-player__text">
 				<strong>{props.Player.name}</strong>
 				<If cond={props.Player.has_draft_capital}>
 					<span class="badge-rookie">{props.Player.draft_capital}</span>
@@ -29,8 +30,9 @@ func BoardRow(props BoardRowProps) Node {
 						</If>
 					</small>
 				</If>
-			</div>
-			<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+			</span>
+			</summary>
+			<div class="stat-tip__panel">
 				<div class="stat-tip__head">
 					<strong>{props.Player.name}</strong>
 					<span class="mono">{props.Player.jersey}</span>
@@ -61,7 +63,7 @@ func BoardRow(props BoardRowProps) Node {
 					<p class="stat-tip__hist mono">{props.Player.hist}</p>
 				</If>
 			</div>
-		</div>
+		</details>
 		<span class="position-chip">{props.Player.position}</span>
 		<b class="mono">{props.Player.projection}</b>
 		<div class="board-controls">
@@ -224,11 +226,12 @@ func Page() Node {
 					<Each of={data.available} as="player">
 						<article class="pool-row" data-player-position={player.position}>
 							<span class="pool-rank mono">{player.rank}</span>
-							<div class="pool-player pool-player--photo stat-tip" tabindex="0">
+							<details class="stat-tip">
+								<summary class="pool-player pool-player--photo stat-tip__summary">
 								<If cond={player.has_headshot}>
 									<img class="player-headshot" src={player.headshot} alt="" loading="lazy" />
 								</If>
-								<div class="pool-player__text">
+								<span class="pool-player__text">
 									<strong>{player.name}</strong>
 									<If cond={player.has_draft_capital}>
 										<span class="badge-rookie">{player.draft_capital}</span>
@@ -243,8 +246,9 @@ func Page() Node {
 											</If>
 										</small>
 									</If>
-								</div>
-								<div class="stat-tip__panel" role="tooltip" aria-hidden="true">
+								</span>
+								</summary>
+								<div class="stat-tip__panel">
 									<div class="stat-tip__head">
 										<strong>{player.name}</strong>
 										<span class="mono">{player.jersey}</span>
@@ -275,7 +279,7 @@ func Page() Node {
 										<p class="stat-tip__hist mono">{player.hist}</p>
 									</If>
 								</div>
-							</div>
+							</details>
 							<span class="position-chip">{player.position}</span>
 							<b class="mono">{player.projection}</b>
 							<form method="post" action={actionPath("board-add")} data-gosx-managed="true">

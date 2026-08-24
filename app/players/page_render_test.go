@@ -118,4 +118,18 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 	if !strings.Contains(seated, "disabled=\"disabled\">Add") {
 		t.Errorf("seated pre-draft page lost its honest disabled Add state: %s", seated)
 	}
+	for _, want := range []string{
+		`<details class="stat-tip">`,
+		`stat-tip__summary`,
+		`class="stat-tip__panel"`,
+		"Projection",
+		"Availability",
+	} {
+		if !strings.Contains(seated, want) {
+			t.Errorf("players page missing accessible detail context %q: %s", want, seated)
+		}
+	}
+	if strings.Contains(seated, `role="tooltip"`) || strings.Contains(seated, `stat-tip" tabindex="0"`) {
+		t.Errorf("players page rendered a legacy tooltip trigger: %s", seated)
+	}
 }

@@ -344,6 +344,48 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	}
 }
 
+// TestPlayersDataPlayerDetailContextKeepsDecisionFields checks that the
+// native Player Pool disclosure can explain the same roster, projection,
+// matchup, and availability decisions already carried by PlayersData.
+func TestPlayersDataPlayerDetailContextKeepsDecisionFields(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	byID := map[string]map[string]any{}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		byID[id] = row
+	}
+	freeAgent, ok := byID["fa-open"]
+	if !ok {
+		t.Fatal("fa-open must appear in the Player Pool")
+	}
+	for _, key := range []string{
+		"position", "nfl_team", "projection", "has_breakdown", "has_opponent",
+		"opponent", "has_matchup", "matchup_detail", "has_hist", "hist",
+		"rostered", "free_agent", "on_waivers", "waiver_resolves", "owner_abbr",
+		"claimed_by_me", "needs_drop", "can_add", "can_claim", "can_drop",
+	} {
+		if _, exists := freeAgent[key]; !exists {
+			t.Errorf("fa-open detail context lost data key %q", key)
+		}
+	}
+	if freeAgent["projection"] != "9.0" || freeAgent["free_agent"] != true {
+		t.Fatalf("fa-open detail context = %+v, want projection 9.0 and free_agent=true", freeAgent)
+	}
+	if freeAgent["needs_drop"] != true {
+		t.Fatal("fa-open detail context must retain the full-roster drop guidance")
+	}
+	rostered, ok := byID["rb-open"]
+	if !ok {
+		t.Fatal("rb-open must appear in the Player Pool")
+	}
+	if rostered["rostered"] != true || rostered["owner_abbr"] == "" {
+		t.Fatalf("rb-open detail context = %+v, want rostered owner abbreviation", rostered)
+	}
+}
+
 // TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage checks the
 // invitation-to-seat gap explicitly: authentication grants pool visibility,
 // while roster and waiver controls require an actual franchise seat.
