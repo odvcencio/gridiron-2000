@@ -95,7 +95,8 @@ type Store struct {
 	// an unknown/committed persist outcome. Production always reads the
 	// authoritative database through loadStateFromDB; tests can make that
 	// read fail to prove the Store restores its pre-candidate state before
-	// poisoning all later persistence.
+	// poisoning all later persistence. ResetLeague reuses the same
+	// reconciliation boundary for its whole-state candidate.
 	identityReconcileReadHook func(*sql.DB) (PersistedState, error)
 	// persistencePoison is a fatal runtime persistence stop. Once an
 	// identity outcome cannot be reconciled, every later DB write returns
@@ -1019,13 +1020,14 @@ func (s *Store) DetachCoManager(teamID string) error {
 // section 6.2). "waiver:" (N14) and "lineupwarn:" (N18, a WP-R2 omission
 // this closes) join the list under the roster-ops spec section 7.3: every
 // waiver claim and lineup reference a rostered player, and a redrawn draft
-// orphans them all. "tradeoffer:", "tradedone:", and "tradeveto:" (N15-N17,
-// roster-ops spec section 9) join the list here (WP-R5): every trade offer
-// names rostered players too, and a redrawn draft orphans them the same
-// way.
+// orphans them all. "tradeoffer:", "tradedone:", "tradeveto:", and
+// "tradefailed:" (N15-N18, roster-ops spec section 9) join the list here:
+// every trade receipt names a roster transition, and a redrawn draft orphans
+// them the same way. "irheal:" is included for IR-heal notices, whose
+// player/roster reference is equally draft-scoped.
 var resetDraftSentLogPrefixes = []string{
 	"onclock:", "autopick:", "draftdone:", "waiver:", "lineupwarn:",
-	"tradeoffer:", "tradedone:", "tradeveto:",
+	"tradeoffer:", "tradedone:", "tradeveto:", "tradefailed:", "irheal:",
 }
 
 // resetLeagueSentLogPrefixes extends resetDraftSentLogPrefixes: a rebuilt
@@ -1098,6 +1100,7 @@ func (s *Store) ResetLeague() error {
 		return err
 	}
 	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
@@ -1136,10 +1139,67 @@ func (s *Store) ResetLeague() error {
 	if err := s.persistLocked(colPicks, colReady, colMembers, colBoards, colPickems, colPickemMarkets, colBlitzEntries, colTransactions,
 		colLineups, colWaiverClaims, colWaiverReceipts, colTradeOffers, colRosterZones, colCoInvites, colDraftOrder,
 		colSchedule, colPlayoffs, colBadgeClaims, colAvatarRefs, colAutopick, colSentLog, colScalars); err != nil {
-		s.state = previous
-		return err
+		return s.reconcileResetPersistLocked(previous, cloneState(s.state), previousDirty, err)
 	}
 	return nil
+}
+
+// reconcileResetPersistLocked handles the same committed/unknown transaction
+// boundary as mutateAvatarIdentity, but compares the complete reset candidate
+// rather than one identity pair. A reset may clear seats and their badge/avatar
+// references in one transaction; blindly restoring the pre-reset working copy
+// after an unknown commit would republish stale identity locks even though the
+// database is already blank. A fresh authoritative read therefore either
+// publishes the committed candidate, restores a proven pre-reset database, or
+// poisons the Store and fails identity reads closed.
+//
+// The caller must hold s.mu. previousDirty is retained when the database proves
+// that the transaction did not land, so unrelated pending work remains
+// retryable just as it does for avatar identity transitions.
+func (s *Store) reconcileResetPersistLocked(previous, desired PersistedState, previousDirty uint32, persistErr error) error {
+	if persistDispositionOf(persistErr) == persistNotCommitted {
+		s.state = previous
+		s.dirty = previousDirty
+		return persistErr
+	}
+
+	readState := loadStateFromDB
+	if s.identityReconcileReadHook != nil {
+		readState = s.identityReconcileReadHook
+	}
+	stored, readErr := readState(s.db)
+	if readErr == nil {
+		if persistedStatesEqual(stored, desired) {
+			s.state = stored
+			if rebuildErr := s.rebuildShadowLocked(); rebuildErr != nil {
+				s.poisonIdentityLocked(previous, previousDirty)
+				return ErrPersistenceIndeterminate
+			}
+			s.dirty = 0
+			s.persistenceWriteError = nil
+			return nil
+		}
+		if persistedStatesEqual(stored, previous) {
+			// The transaction did not land. Rebuild the shadow from the
+			// authoritative database before restoring the prior in-memory
+			// candidate and its dirty mask.
+			s.state = stored
+			if rebuildErr := s.rebuildShadowLocked(); rebuildErr != nil {
+				s.poisonIdentityLocked(previous, previousDirty)
+				return ErrPersistenceIndeterminate
+			}
+			s.state = previous
+			s.dirty = previousDirty
+			return persistErr
+		}
+	}
+
+	// A read failure, or a readable database that matches neither side of
+	// the reset, is fatal. Restoring the old state internally is safe only
+	// behind the Store-wide poison: public identity reads fail closed and
+	// no later mutator may publish another candidate.
+	s.poisonIdentityLocked(previous, previousDirty)
+	return ErrPersistenceIndeterminate
 }
 
 // clearClockFieldsLocked zeroes every clock field and the Autopick map. The

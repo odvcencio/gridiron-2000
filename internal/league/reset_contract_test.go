@@ -1,6 +1,8 @@
 package league
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -260,6 +262,69 @@ func TestResetLeagueContractRoundTripsAndRestoresTruthfulPreDraftHQ(t *testing.T
 	}
 }
 
+func TestResetLeagueCommitErrorReconcilesCommittedBlankState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	seedResetFixture(t, store)
+
+	store.mu.Lock()
+	store.commitTx = func(tx *sql.Tx) error {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return errInjectedPersist
+	}
+	store.mu.Unlock()
+
+	if err := store.ResetLeague(); err != nil {
+		t.Fatalf("committed reset reported an error after reconciliation: %v", err)
+	}
+	if !store.IdentityHealthy() {
+		t.Fatal("a readable committed reset poisoned identity health")
+	}
+	state := store.Snapshot()
+	if len(state.Members) != 0 || len(state.BadgeClaims) != 0 || len(state.AvatarRefs) != 0 ||
+		state.RosterOverride != nil || len(state.TrimmedTeamIDs) != 0 || !state.DraftAtOverride.IsZero() {
+		t.Fatalf("reconciled reset republished stale state: %+v", state)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted := NewStore(path)
+	t.Cleanup(func() { _ = restarted.Close() })
+	state = restarted.Snapshot()
+	if len(state.Members) != 0 || len(state.BadgeClaims) != 0 || len(state.AvatarRefs) != 0 ||
+		state.RosterOverride != nil || len(state.TrimmedTeamIDs) != 0 || !state.DraftAtOverride.IsZero() {
+		t.Fatalf("reconciled reset was not blank after restart: %+v", state)
+	}
+}
+
+func TestResetLeagueReconcileReadFailurePoisonsStaleIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	seedResetFixture(t, store)
+	t.Cleanup(func() { _ = store.Close() })
+
+	store.mu.Lock()
+	store.commitTx = func(*sql.Tx) error { return errInjectedPersist }
+	store.identityReconcileReadHook = func(*sql.DB) (PersistedState, error) {
+		return PersistedState{}, errors.New("injected reset reconciliation read failure")
+	}
+	store.mu.Unlock()
+
+	if err := store.ResetLeague(); !errors.Is(err, ErrPersistenceIndeterminate) {
+		t.Fatalf("irreconcilable reset error = %v, want ErrPersistenceIndeterminate", err)
+	}
+	if store.IdentityHealthy() {
+		t.Fatal("irreconcilable reset left identity health enabled")
+	}
+	state := store.Snapshot()
+	if len(state.BadgeClaims) != 0 || len(state.AvatarRefs) != 0 {
+		t.Fatalf("poisoned reset exposed stale identity locks: claims=%#v refs=%#v", state.BadgeClaims, state.AvatarRefs)
+	}
+}
+
 func TestAdminResetLeagueRestoresRuntimeTopologyDefaults(t *testing.T) {
 	service := newTestService(t, true)
 	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
@@ -286,6 +351,114 @@ func TestAdminResetLeagueRestoresRuntimeTopologyDefaults(t *testing.T) {
 	if got := len(service.Teams()); got != len(activeTeams) {
 		t.Fatalf("service teams after full reset = %d, want %d", got, len(activeTeams))
 	}
+}
+
+func TestAdminResetLeagueTopologyPublicationLinearizesRosterMutations(t *testing.T) {
+	t.Cleanup(clearRosterShape)
+	t.Cleanup(clearSeatTrim)
+
+	t.Run("roster shape after reset", func(t *testing.T) {
+		clearRosterShape()
+		clearSeatTrim()
+		service := newTestService(t, true)
+		request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+		before := RosterPreset{
+			Name:  "before-reset",
+			Slots: map[string]int{"QB": 1, "RB": 2, "WR": 2, "FLEX": 1},
+			Bench: 1,
+		}
+		setRosterShape(before)
+
+		resetPaused := make(chan struct{})
+		releaseReset := make(chan struct{})
+		service.topologyMutationHook = func(operation string) {
+			if operation == "league-reset-after-store" {
+				close(resetPaused)
+				<-releaseReset
+			}
+		}
+		resetDone := make(chan error, 1)
+		go func() { resetDone <- service.AdminResetLeague(request, ResetLeagueConfirmation) }()
+		<-resetPaused
+
+		shapeDone := make(chan error, 1)
+		go func() {
+			_, err := service.AdminSetRosterShape(request, validGridironShape())
+			shapeDone <- err
+		}()
+		select {
+		case err := <-shapeDone:
+			close(releaseReset)
+			t.Fatalf("roster shape committed while reset publication was paused: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+		if got := CurrentRoster().Name; got != before.Name {
+			close(releaseReset)
+			t.Fatalf("runtime roster changed before reset publication: %q, want %q", got, before.Name)
+		}
+		close(releaseReset)
+		if err := <-resetDone; err != nil {
+			t.Fatalf("AdminResetLeague: %v", err)
+		}
+		if err := <-shapeDone; err != nil {
+			t.Fatalf("AdminSetRosterShape after reset: %v", err)
+		}
+		wantRoster := rosterOverridePreset(validGridironShape())
+		if got := CurrentRoster().Name; got != wantRoster.Name {
+			t.Fatalf("runtime roster after serialized reset/shape = %q, want %q", got, wantRoster.Name)
+		}
+		if service.store.Snapshot().RosterOverride == nil {
+			t.Fatal("serialized roster shape was not persisted after reset")
+		}
+	})
+
+	t.Run("seat trim before reset", func(t *testing.T) {
+		clearRosterShape()
+		clearSeatTrim()
+		service := newTestService(t, true)
+		request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, service, fmt.Sprintf("linear-trim-%d@example.com", i))
+		}
+
+		trimPaused := make(chan struct{})
+		releaseTrim := make(chan struct{})
+		service.topologyMutationHook = func(operation string) {
+			if operation == "trim-after-store" {
+				close(trimPaused)
+				<-releaseTrim
+			}
+		}
+		trimDone := make(chan error, 1)
+		go func() {
+			_, _, err := service.TrimUnclaimedSeats(request)
+			trimDone <- err
+		}()
+		<-trimPaused
+
+		resetDone := make(chan error, 1)
+		go func() { resetDone <- service.AdminResetLeague(request, ResetLeagueConfirmation) }()
+		select {
+		case err := <-resetDone:
+			close(releaseTrim)
+			t.Fatalf("league reset committed while seat-trim publication was paused: %v", err)
+		case <-time.After(100 * time.Millisecond):
+		}
+		close(releaseTrim)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("TrimUnclaimedSeats: %v", err)
+		}
+		if err := <-resetDone; err != nil {
+			t.Fatalf("AdminResetLeague after trim: %v", err)
+		}
+		state := service.store.Snapshot()
+		if len(state.Members) != 0 || len(state.TrimmedTeamIDs) != 0 {
+			t.Fatalf("serialized reset left seat state: members=%#v trim=%#v", state.Members, state.TrimmedTeamIDs)
+		}
+		if got := len(defaultTeams()); got != len(activeTeams) {
+			t.Fatalf("runtime teams after serialized trim/reset = %d, want %d", got, len(activeTeams))
+		}
+	})
 }
 
 func TestAdminResetConfirmationsAreDistinctAndServerValidated(t *testing.T) {

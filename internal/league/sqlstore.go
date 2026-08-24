@@ -1099,6 +1099,22 @@ func (s *Store) rebuildShadowLocked() error {
 	return nil
 }
 
+// persistedStatesEqual compares the canonical JSON form used by persistence
+// verification. Reset reconciliation must tolerate harmless nil/empty and
+// time-location representation details while still requiring every persisted
+// collection and scalar to match the authoritative database.
+func persistedStatesEqual(a, b PersistedState) bool {
+	left, err := json.Marshal(cloneState(a))
+	if err != nil {
+		return false
+	}
+	right, err := json.Marshal(cloneState(b))
+	if err != nil {
+		return false
+	}
+	return string(left) == string(right)
+}
+
 // verifyPersistedLocked re-reads the whole state from the database and
 // compares it with the in-memory model. Any difference means a mutator
 // changed a collection it did not declare, so the write was skipped. The
