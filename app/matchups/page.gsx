@@ -153,14 +153,14 @@ func MatchupCard(props MatchupCardProps) Node {
 							<li class="matchup-ledger__row">
 								<div class="matchup-ledger__slot">
 									<strong>{row.team_name} · {row.slot}</strong>
-									<span>{row.player_name}</span>
-									<small>{row.position}<If cond={row.has_nfl_team}> · {row.nfl_team}</If></small>
+									<span data-gosx-live-bind={"starterPlayerName." + row.live_key}>{row.player_name}</span>
+									<small><span data-gosx-live-bind={"starterPosition." + row.live_key}>{row.position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + row.live_key}>{row.nfl_team}</span></small>
 								</div>
 								<div class="matchup-ledger__score">
 									<b class="mono" data-gosx-live-bind={"starterPoints." + row.live_key}>{row.points}</b>
-									<span>{row.provenance} · {row.join_state}</span>
+									<span><span data-gosx-live-bind={"starterProvenance." + row.live_key}>{row.provenance}</span> · <span data-gosx-live-bind={"starterJoinState." + row.live_key}>{row.join_state}</span></span>
 								</div>
-								<small class="matchup-ledger__detail">{row.detail}</small>
+								<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + row.live_key}>{row.detail}</small>
 							</li>
 						</Each>
 					</ul>

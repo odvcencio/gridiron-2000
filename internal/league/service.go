@@ -2447,17 +2447,36 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	presentation := matchupPresentation(live.State)
 	scores := make(map[string]string, len(live.Matchups)*2)
 	starterPoints := make(map[string]string)
+	starterPlayerName := make(map[string]string)
+	starterPosition := make(map[string]string)
+	starterNFLTeam := make(map[string]string)
+	starterProvenance := make(map[string]string)
+	starterJoinState := make(map[string]string)
+	starterDetail := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
+	addStarterRow := func(row StarterLedgerRow) {
+		// Keep every visible starter field in a stable, one-level map keyed by
+		// the slot. The page binds all of these fields to the same live key so
+		// a poll cannot pair a new points value with the prior identity or join
+		// explanation when a lineup/stat join changes.
+		starterPoints[row.LiveKey] = row.PointsText
+		starterPlayerName[row.LiveKey] = row.PlayerName
+		starterPosition[row.LiveKey] = row.Position
+		starterNFLTeam[row.LiveKey] = row.NFLTeam
+		starterProvenance[row.LiveKey] = row.Provenance
+		starterJoinState[row.LiveKey] = row.JoinState
+		starterDetail[row.LiveKey] = row.Detail
+	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
 		scores[matchup.Home.ID] = matchupScoreText(matchup.Home)
 		for _, row := range matchup.Away.StarterLedger {
-			starterPoints[row.LiveKey] = row.PointsText
+			addStarterRow(row)
 		}
 		for _, row := range matchup.Home.StarterLedger {
-			starterPoints[row.LiveKey] = row.PointsText
+			addStarterRow(row)
 		}
 		status := matchup.Status
 		if status == "" {
@@ -2478,31 +2497,37 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		liveStatus += " · BACKUP SCORES"
 	}
 	return map[string]any{
-		"ok":               live.OK,
-		"source":           live.Source,
-		"sourceLabel":      live.SourceLabel,
-		"week":             live.Week,
-		"weekLabel":        live.WeekLabel,
-		"state":            live.State,
-		"status":           live.Status,
-		"warning":          live.Warning,
-		"scores":           scores,
-		"matchupStatus":    matchupStatus,
-		"matchupClock":     matchupClock,
-		"matchupIndicator": matchupIndicator,
-		"starterPoints":    starterPoints,
-		"liveStatus":       liveStatus,
-		"liveUpdated":      checked,
-		"lastUpdated":      statsUpdated,
-		"checkedAt":        checked,
-		"statsUpdatedAt":   statsUpdated,
-		"liveStatsUpdated": statsUpdated,
-		"liveIndicator":    liveIndicatorToken(live.State),
-		"headlineTop":      presentation["headline_top"],
-		"headlineBottom":   presentation["headline_bottom"],
-		"refreshLabel":     presentation["refresh_label"],
-		"noteTitle":        presentation["note_title"],
-		"noteBody":         presentation["note_body"],
+		"ok":                live.OK,
+		"source":            live.Source,
+		"sourceLabel":       live.SourceLabel,
+		"week":              live.Week,
+		"weekLabel":         live.WeekLabel,
+		"state":             live.State,
+		"status":            live.Status,
+		"warning":           live.Warning,
+		"scores":            scores,
+		"matchupStatus":     matchupStatus,
+		"matchupClock":      matchupClock,
+		"matchupIndicator":  matchupIndicator,
+		"starterPoints":     starterPoints,
+		"starterPlayerName": starterPlayerName,
+		"starterPosition":   starterPosition,
+		"starterNFLTeam":    starterNFLTeam,
+		"starterProvenance": starterProvenance,
+		"starterJoinState":  starterJoinState,
+		"starterDetail":     starterDetail,
+		"liveStatus":        liveStatus,
+		"liveUpdated":       checked,
+		"lastUpdated":       statsUpdated,
+		"checkedAt":         checked,
+		"statsUpdatedAt":    statsUpdated,
+		"liveStatsUpdated":  statsUpdated,
+		"liveIndicator":     liveIndicatorToken(live.State),
+		"headlineTop":       presentation["headline_top"],
+		"headlineBottom":    presentation["headline_bottom"],
+		"refreshLabel":      presentation["refresh_label"],
+		"noteTitle":         presentation["note_title"],
+		"noteBody":          presentation["note_body"],
 	}
 }
 

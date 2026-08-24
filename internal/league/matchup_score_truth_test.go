@@ -142,6 +142,108 @@ func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) 
 	}
 }
 
+type starterRowSequenceProvider struct {
+	snapshots []LiveSnapshot
+	index     int
+}
+
+func (p *starterRowSequenceProvider) Snapshot(context.Context, time.Time) (LiveSnapshot, error) {
+	if len(p.snapshots) == 0 {
+		return LiveSnapshot{}, nil
+	}
+	index := p.index
+	if index >= len(p.snapshots) {
+		index = len(p.snapshots) - 1
+	}
+	p.index++
+	return p.snapshots[index], nil
+}
+
+func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(t *testing.T) {
+	row := func(slot, playerID, playerName, position, nflTeam, points, provenance, joinState, detail string) StarterLedgerRow {
+		return StarterLedgerRow{
+			LiveKey:    "team-1_" + slot,
+			Slot:       slot,
+			PlayerID:   playerID,
+			PlayerName: playerName,
+			Position:   position,
+			NFLTeam:    nflTeam,
+			PointsText: points,
+			Provenance: provenance,
+			JoinState:  joinState,
+			Detail:     detail,
+		}
+	}
+	snapshot := func(qb, rb StarterLedgerRow) LiveSnapshot {
+		return LiveSnapshot{
+			OK:          true,
+			Source:      "test",
+			SourceLabel: "Test source",
+			Week:        1,
+			WeekLabel:   "Week 1",
+			State:       MatchupStateInProgress,
+			Status:      "LIVE",
+			Matchups: []ScoreMatchup{{
+				ID:   "matchup-1",
+				Away: ScoreTeam{ID: "team-1", StarterLedger: []StarterLedgerRow{qb, rb}},
+				Home: ScoreTeam{ID: "team-2"},
+			}},
+		}
+	}
+	provider := &starterRowSequenceProvider{snapshots: []LiveSnapshot{
+		snapshot(
+			row("QB", "p-a", "Player A", "QB", "AAA", "0.0", "explicit", "missing-join", "No matching player-stat row for Player A."),
+			row("RB1", "", "Empty slot", "RB", "", "0.0", "empty", "empty", "No player configured in this starting slot."),
+		),
+		snapshot(
+			row("QB", "p-b", "Player B", "QB", "BBB", "6.0", "auto-filled", "matched", "Matched current player-stat row."),
+			row("RB1", "p-c", "Player C", "RB", "CCC", "3.0", "explicit", "matched", "Matched current player-stat row."),
+		),
+	}}
+	svc := newTestService(t, true)
+	svc.feed = newLiveFeed(provider)
+	svc.feed.cacheFor = 0
+
+	fieldValues := func(view map[string]any, key string) map[string]string {
+		values, ok := view[key].(map[string]string)
+		if !ok {
+			t.Fatalf("live view field %q = %#v, want a typed one-level binding map", key, view[key])
+		}
+		return values
+	}
+	assertView := func(view map[string]any, want map[string][2]string) {
+		for field, expected := range want {
+			values := fieldValues(view, field)
+			if values["team-1_QB"] != expected[0] || values["team-1_RB1"] != expected[1] {
+				t.Errorf("live view %s = %#v, want QB=%q RB1=%q", field, values, expected[0], expected[1])
+			}
+		}
+	}
+	wantFields := map[string][2]string{
+		"starterPoints":     {"0.0", "0.0"},
+		"starterPlayerName": {"Player A", "Empty slot"},
+		"starterPosition":   {"QB", "RB"},
+		"starterNFLTeam":    {"AAA", ""},
+		"starterProvenance": {"explicit", "empty"},
+		"starterJoinState":  {"missing-join", "empty"},
+		"starterDetail":     {"No matching player-stat row for Player A.", "No player configured in this starting slot."},
+	}
+	assertView(svc.LiveScoresView(context.Background()), wantFields)
+	wantFields = map[string][2]string{
+		"starterPoints":     {"6.0", "3.0"},
+		"starterPlayerName": {"Player B", "Player C"},
+		"starterPosition":   {"QB", "RB"},
+		"starterNFLTeam":    {"BBB", "CCC"},
+		"starterProvenance": {"auto-filled", "explicit"},
+		"starterJoinState":  {"matched", "matched"},
+		"starterDetail":     {"Matched current player-stat row.", "Matched current player-stat row."},
+	}
+	assertView(svc.LiveScoresView(context.Background()), wantFields)
+	if provider.index != 2 {
+		t.Fatalf("live snapshot calls = %d, want one authoritative snapshot per poll", provider.index)
+	}
+}
+
 func TestScheduleProviderSharesOneWeeklyStatsSnapshotAcrossScoresAndLedgers(t *testing.T) {
 	svc := newTestService(t, true)
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
