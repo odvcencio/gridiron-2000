@@ -29,13 +29,25 @@ var topologyMutationMu sync.Mutex
 // AdminData assembles the commissioner console: seat claims, invites, and
 // league state counters. The page itself renders a restricted notice for
 // non-commissioners; every action re-checks authority server-side.
+func (s *Service) unclaimedSeatIDs(state PersistedState) []string {
+	ids := make([]string, 0, len(s.Teams()))
+	for _, team := range s.Teams() {
+		if memberForTeam(state.Members, team.ID).Email == "" {
+			ids = append(ids, team.ID)
+		}
+	}
+	return ids
+}
+
 func (s *Service) AdminData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
+	unclaimedSeatIDs := s.unclaimedSeatIDs(state)
 	identityAvailable, identityError := s.identityView()
 	seats := make([]map[string]any, 0, len(s.Teams()))
 	for _, team := range s.Teams() {
 		member := memberForTeam(state.Members, team.ID)
 		item := s.teamMap(s.teamView(state, team.ID))
+		item["release_confirmation"] = seatReleaseConfirmation(team.ID, item["name"].(string))
 		item["email"] = member.Email
 		item["ready"] = state.Ready[team.ID]
 		// co_email (registration wave, build item 4): the admin seats grid
@@ -139,8 +151,10 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// before they commit to it. claimedSeatIDs counts a seat as claimed
 		// for a primary manager or a co-manager, matching what
 		// Store.TrimUnclaimedSeats itself drops.
-		"unclaimed_seat_count": len(s.Teams()) - claimedSeatCount(state.Members),
-		"has_unclaimed_seats":  len(s.Teams())-claimedSeatCount(state.Members) > 0,
+		"unclaimed_seat_count":   len(unclaimedSeatIDs),
+		"has_unclaimed_seats":    len(unclaimedSeatIDs) > 0,
+		"unclaimed_seat_token":   seatTrimToken(unclaimedSeatIDs, state.DraftOrder, state.Schedule),
+		"unclaimed_seat_confirm": seatTrimConfirmation(len(unclaimedSeatIDs)),
 		// draft_started hides the seat-trim control once the first pick
 		// lands, matching the roster-shape panel's own lock. The store
 		// rejects a late trim anyway ("seats lock once the draft starts"),
@@ -506,13 +520,13 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 // (CurrentDraftRounds), never from team count. Commissioner-only; rejected
 // once the draft has picks on the tape or the claimed count would fall
 // below the engine's team floor (Store.TrimUnclaimedSeats).
-func (s *Service) TrimUnclaimedSeats(r *http.Request) (kept []Team, removed []string, err error) {
+func (s *Service) TrimUnclaimedSeats(r *http.Request, confirmation, token string) (kept []Team, removed []string, err error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return nil, nil, err
 	}
 	topologyMutationMu.Lock()
 	defer topologyMutationMu.Unlock()
-	kept, removed, err = s.store.TrimUnclaimedSeats()
+	kept, removed, err = s.store.TrimUnclaimedSeatsConfirmed(confirmation, token)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -819,11 +833,11 @@ func (s *Service) AdminRemoveInvite(r *http.Request, email string) error {
 }
 
 // AdminReleaseSeat unbinds whoever holds the team seat.
-func (s *Service) AdminReleaseSeat(r *http.Request, teamID string) (Team, error) {
+func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation string) (Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return Team{}, err
 	}
-	if err := s.store.ReleaseSeat(teamID); err != nil {
+	if err := s.store.ReleaseSeatConfirmed(teamID, confirmation); err != nil {
 		return Team{}, err
 	}
 	return s.teamView(s.store.Snapshot(), teamID), nil
@@ -1015,6 +1029,10 @@ func (s *Service) AdminPauseClock(r *http.Request) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
+	state := s.store.Snapshot()
+	if state.ClockDeadline.IsZero() || state.ClockPaused {
+		return errors.New("the clock is not running")
+	}
 	return s.store.PauseClock(s.clock())
 }
 
@@ -1027,6 +1045,15 @@ func (s *Service) AdminResumeClock(r *http.Request) error {
 		return err
 	}
 	state := s.store.Snapshot()
+	if !state.DraftStarted {
+		return errors.New("start the draft before resuming its clock")
+	}
+	if draftComplete(state) {
+		return errors.New("the draft is complete; the clock cannot resume")
+	}
+	if !state.ClockDeadline.IsZero() && !state.ClockPaused {
+		return errors.New("the clock is already running")
+	}
 	return s.store.ResumeClock(s.clock(), s.pickClock(state))
 }
 

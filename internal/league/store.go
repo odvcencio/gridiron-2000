@@ -843,13 +843,46 @@ func (s *Store) Invited(email string) bool {
 // orphaned invite that would silently re-bind a future sign-in to a seat
 // that has since moved on.
 func (s *Store) ReleaseSeat(teamID string) error {
+	return s.releaseSeat(teamID, "", false)
+}
+
+// ReleaseSeatConfirmed performs the same atomic seat release after checking
+// the exact target phrase against the current seat label. The label check is
+// inside the store lock, so a rename or seat reset cannot turn a stale render
+// into a release of a different current target.
+func (s *Store) ReleaseSeatConfirmed(teamID, confirmation string) error {
+	return s.releaseSeat(teamID, confirmation, true)
+}
+
+func (s *Store) releaseSeat(teamID, confirmation string, confirmed bool) error {
+	if confirmed && strings.TrimSpace(confirmation) == "" {
+		return requireMutationConfirmation("RELEASE SEAT", confirmation)
+	}
 	if !knownTeam(teamID) {
+		if confirmed {
+			return errAdminActionStale
+		}
 		return fmt.Errorf("unknown team %q", teamID)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
+	}
+	if confirmed {
+		name := ""
+		for _, team := range activeTeams {
+			if team.ID == teamID {
+				name = team.Name
+				break
+			}
+		}
+		if override := strings.TrimSpace(s.state.TeamNames[teamID]); override != "" {
+			name = override
+		}
+		if err := requireMutationConfirmation(seatReleaseConfirmation(teamID, name), confirmation); err != nil {
+			return err
+		}
 	}
 	for email, member := range s.state.Members {
 		if member.TeamID == teamID {
@@ -1348,8 +1381,8 @@ func validateDraftOrder(order []string) error {
 // the engine's own floor (config.go, also GenerateSchedule's own 4-team
 // floor). Always evaluated against activeTeams (the full config-seeded
 // list), never against an already-trimmed defaultTeams() result, so a
-// repeat call recomputes the same answer instead of compounding —
-// idempotent. Also clears any already-drawn DraftOrder: an order drawn
+// repeat call uses the submitted token to bind the pre-draft order and
+// schedule, and a repeat or stale form is rejected before mutation. Also clears any already-drawn DraftOrder: an order drawn
 // before the trim named the full, now-stale team set (SetDraftOrder's own
 // permutation check would fail against the new, smaller defaultTeamIDs()
 // on the next redraw regardless), so the trim itself resets it rather than
@@ -1357,7 +1390,7 @@ func validateDraftOrder(order []string) error {
 // count. A pre-draft schedule is stale for the same reason, so it is cleared
 // in the same persistence transaction and must be regenerated for the kept
 // teams.
-func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err error) {
+func (s *Store) TrimUnclaimedSeatsConfirmed(confirmation, token string) (kept []Team, removedIDs []string, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -1365,6 +1398,9 @@ func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err erro
 	}
 	if s.state.DraftStarted {
 		return nil, nil, fmt.Errorf("seats lock once the draft starts")
+	}
+	if len(s.state.TrimmedTeamIDs) > 0 {
+		return nil, nil, errAdminActionStale
 	}
 	for _, team := range activeTeams {
 		if memberForTeam(s.state.Members, team.ID).Email != "" {
@@ -1375,6 +1411,12 @@ func (s *Store) TrimUnclaimedSeats() (kept []Team, removedIDs []string, err erro
 	}
 	if len(kept) < minTeams {
 		return nil, nil, fmt.Errorf("at least %d seats must be claimed before trimming", minTeams)
+	}
+	if strings.TrimSpace(token) == "" || token != seatTrimToken(removedIDs, s.state.DraftOrder, s.state.Schedule) {
+		return nil, nil, errAdminActionStale
+	}
+	if err := requireMutationConfirmation(seatTrimConfirmation(len(removedIDs)), confirmation); err != nil {
+		return nil, nil, err
 	}
 	previous := cloneState(s.state)
 	previousDirty := s.dirty

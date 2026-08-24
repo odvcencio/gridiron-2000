@@ -57,11 +57,17 @@ func SeatRow(props SeatRowProps) Node {
 			<b class="ready-state">Not ready</b>
 		</If>
 		<If cond={props.seat.claimed}>
-			<form method="post" action={props.ReleaseAction} data-gosx-managed="true">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="team_id" value={props.seat.id}></input>
-				<button class="board-button board-button--cut" type="submit">Release</button>
-			</form>
+			<details class="seat-release-disclosure">
+				<summary class="board-button board-button--cut">Release seat</summary>
+				<form method="post" action={props.ReleaseAction} data-gosx-managed="true" class="seat-release-form">
+					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+					<input type="hidden" name="team_id" value={props.seat.id}></input>
+					<label for={"seat-release-confirm-" + props.seat.id}>Type <span class="mono">{props.seat.release_confirmation}</span> to confirm.</label>
+					<input id={"seat-release-confirm-" + props.seat.id} type="text" name="confirm" autocomplete="off" placeholder={props.seat.release_confirmation} required="required"></input>
+					<p class="scoring-note">This releases the primary manager, co-manager, pending co-invite, and ready state for this seat.</p>
+					<button class="board-button board-button--cut" type="submit">Release {props.seat.name}</button>
+				</form>
+			</details>
 		</If>
 		<If cond={props.seat.has_co}>
 			<form method="post" action={props.CoDetachAction} data-gosx-managed="true">
@@ -724,9 +730,12 @@ func Page() Node {
 					</div>
 					<If cond={data.has_unclaimed_seats}>
 						<If cond={data.draft_started == false}>
-							<form method="post" action={actionPath("seat-trim")} data-gosx-managed="true">
+							<form method="post" action={actionPath("seat-trim")} data-gosx-managed="true" class="seat-trim-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
-								<button class="button" type="submit">Drop unclaimed seats</button>
+								<input type="hidden" name="unclaimed_seat_token" value={data.unclaimed_seat_token}></input>
+								<label for="admin-seat-trim-confirm">Type <span class="mono">{data.unclaimed_seat_confirm}</span> to confirm.</label>
+								<input id="admin-seat-trim-confirm" class="scoring-input" type="text" name="confirm" value="" autocomplete="off" placeholder={data.unclaimed_seat_confirm} required="required"></input>
+								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_count} unclaimed seat(s)</button>
 							</form>
 							<p class="demo-message">
 								<strong>SCHEDULE WARNING:</strong>
@@ -735,7 +744,7 @@ func Page() Node {
 							<p class="scoring-note">
 								{data.unclaimed_seat_count}
 								seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
-								in every round: it runs the full pick clock down, then autopicks a player.
+								in every round: it runs the full pick clock down, then autopicks a player. Reload this page if the claim count changes before you confirm.
 							</p>
 						</If>
 					</If>
@@ -834,22 +843,12 @@ func Page() Node {
 							<span class="section-index">05 // DRAFT CLOCK</span>
 							<h2 id="admin-clock-heading">Pick clock controls</h2>
 						</div>
-						<If cond={data.clock.armed}>
-							<span class="position-chip">ARMED</span>
-						</If>
-						<If cond={data.clock.armed == false}>
-							<span class="position-chip">UNARMED</span>
-						</If>
+						<span class="position-chip">{data.clock.state}</span>
 					</div>
 					<div class="pool-stats">
 						<div class="pool-stat">
 							<span>State</span>
-							<If cond={data.clock.paused}>
-								<b class="mono">PAUSED</b>
-							</If>
-							<If cond={data.clock.paused == false}>
-								<b class="mono">RUNNING</b>
-							</If>
+							<b class="mono">{data.clock.state}</b>
 						</div>
 						<div class="pool-stat">
 							<span>Reason</span>
@@ -884,19 +883,34 @@ func Page() Node {
 						</div>
 					</div>
 					<div class="clock-controls">
-						<form method="post" action={actionPath("clock-pause")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<button class="button" type="submit">Pause clock</button>
-						</form>
-						<form method="post" action={actionPath("clock-resume")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<button class="button button--primary" type="submit">Resume / start clock</button>
-						</form>
-						<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
-							<button class="button" type="submit">Extend pick</button>
-						</form>
+						<If cond={data.clock.can_pause}>
+							<form method="post" action={actionPath("clock-pause")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<button class="button" type="submit">Pause running clock</button>
+							</form>
+						</If>
+						<If cond={data.clock.can_pause == false}>
+							<button class="button" type="button" disabled="disabled">Pause unavailable - clock is {data.clock.state}</button>
+						</If>
+						<If cond={data.clock.can_resume}>
+							<form method="post" action={actionPath("clock-resume")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<button class="button button--primary" type="submit">Resume / start clock</button>
+							</form>
+						</If>
+						<If cond={data.clock.can_resume == false}>
+							<button class="button button--primary" type="button" disabled="disabled">Resume unavailable - {data.clock.state}</button>
+						</If>
+						<If cond={data.clock.can_extend}>
+							<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+								<button class="button" type="submit">Extend running pick</button>
+							</form>
+						</If>
+						<If cond={data.clock.can_extend == false}>
+							<button class="button" type="button" disabled="disabled">Extend unavailable - no running pick</button>
+						</If>
 						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>

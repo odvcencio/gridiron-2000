@@ -2318,7 +2318,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 // with the enforcement loop's own decision.
 func (s *Service) clockView(state PersistedState, now time.Time) map[string]any {
 	deadline := state.ClockDeadline
-	armed := !deadline.IsZero()
+	armed := !deadline.IsZero() || state.ClockPaused
 	effective := deadline
 	reason := "clock"
 	switch {
@@ -2330,15 +2330,28 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		effective, reason = s.effectiveDeadline(state, now)
 	}
 	remaining := 0
-	if armed && !state.ClockPaused {
+	if !deadline.IsZero() && !state.ClockPaused {
 		remaining = int(effective.Sub(now).Seconds())
 		if remaining < 0 {
 			remaining = 0
 		}
 	}
+	clockState := "NOT RUNNING"
+	if state.ClockPaused {
+		clockState = "PAUSED"
+	} else if !deadline.IsZero() {
+		clockState = "RUNNING"
+	}
+	canPause := clockState == "RUNNING"
+	canResume := state.DraftStarted && !draftComplete(state) && (clockState == "PAUSED" || clockState == "NOT RUNNING")
+	canExtend := canPause
 	return map[string]any{
 		"armed":              armed,
 		"paused":             state.ClockPaused,
+		"state":              clockState,
+		"can_pause":          canPause,
+		"can_resume":         canResume,
+		"can_extend":         canExtend,
 		"deadline":           formatClockInstant(deadline),
 		"effective_deadline": formatClockInstant(effective),
 		"reason":             clockReasonLabel(reason),

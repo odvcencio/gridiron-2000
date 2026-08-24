@@ -772,3 +772,88 @@ func TestAdminDataMailEnabledTrueWithSMTP(t *testing.T) {
 		t.Errorf("mail_enabled = %v, want true with SMTP env set", data["mail_enabled"])
 	}
 }
+
+func TestAdminReleaseSeatRequiresCurrentTargetConfirmation(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	member, _, err := service.store.AssignMember("primary@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := service.Teams()[0]
+	expected := seatReleaseConfirmation(team.ID, team.Name)
+	for _, confirmation := range []string{"", "RELEASE TEAM-2 WRONG"} {
+		before := service.store.Snapshot()
+		if _, err := service.AdminReleaseSeat(request, team.ID, confirmation); err == nil || err.Error() != "this action requires explicit confirmation" {
+			t.Fatalf("confirmation %q error = %v, want explicit confirmation rejection", confirmation, err)
+		}
+		after := service.store.Snapshot()
+		if after.Members["primary@example.com"].TeamID != before.Members["primary@example.com"].TeamID {
+			t.Fatalf("rejected release changed member binding: before=%+v after=%+v", before.Members, after.Members)
+		}
+	}
+	if _, err := service.AdminRenameTeam(request, team.ID, "Renamed Franchise"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AdminReleaseSeat(request, team.ID, expected); err == nil || err.Error() != "this action requires explicit confirmation" {
+		t.Fatalf("stale label confirmation error = %v, want explicit confirmation rejection", err)
+	}
+	if got := service.store.Snapshot().Members[member.Email].TeamID; got != team.ID {
+		t.Fatalf("stale release changed member binding to %q", got)
+	}
+	current := seatReleaseConfirmation(team.ID, "Renamed Franchise")
+	if _, err := service.AdminReleaseSeat(request, team.ID, current); err != nil {
+		t.Fatalf("current target confirmation: %v", err)
+	}
+	if got := service.store.Snapshot().Members[member.Email].TeamID; got != "" {
+		t.Fatalf("confirmed release left member binding %q", got)
+	}
+}
+
+func TestAdminClockViewHasOneTruthfulState(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name       string
+		state      PersistedState
+		wantState  string
+		wantArmed  bool
+		wantPause  bool
+		wantResume bool
+	}{
+		{name: "unarmed", state: PersistedState{}, wantState: "NOT RUNNING", wantArmed: false, wantPause: false, wantResume: false},
+		{name: "paused", state: PersistedState{DraftStarted: true, ClockPaused: true, ClockRemainingSec: 42}, wantState: "PAUSED", wantArmed: true, wantPause: false, wantResume: true},
+		{name: "running", state: PersistedState{DraftStarted: true, ClockDeadline: now.Add(time.Minute)}, wantState: "RUNNING", wantArmed: true, wantPause: true, wantResume: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			view := service.clockView(tc.state, now)
+			if view["state"] != tc.wantState || view["armed"] != tc.wantArmed {
+				t.Fatalf("clock view state=%v armed=%v, want %s/%v: %+v", view["state"], view["armed"], tc.wantState, tc.wantArmed, view)
+			}
+			if view["can_pause"] != tc.wantPause || view["can_resume"] != tc.wantResume {
+				t.Fatalf("clock controls pause=%v resume=%v, want %v/%v: %+v", view["can_pause"], view["can_resume"], tc.wantPause, tc.wantResume, view)
+			}
+		})
+	}
+}
+
+func TestAdminClockActionsRejectImpossibleTransitions(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	if err := service.AdminPauseClock(request); err == nil || err.Error() != "the clock is not running" {
+		t.Fatalf("pause unarmed error = %v, want not-running rejection", err)
+	}
+	if err := service.AdminResumeClock(request); err == nil || err.Error() != "start the draft before resuming its clock" {
+		t.Fatalf("resume pre-draft error = %v, want lifecycle rejection", err)
+	}
+	service.store.state.DraftStarted = true
+	service.store.state.ClockPaused = true
+	service.store.state.ClockRemainingSec = 30
+	if err := service.AdminResumeClock(request); err != nil {
+		t.Fatalf("resume paused clock: %v", err)
+	}
+	if err := service.AdminResumeClock(request); err == nil || err.Error() != "the clock is already running" {
+		t.Fatalf("resume running error = %v, want already-running rejection", err)
+	}
+}

@@ -4324,6 +4324,61 @@ body.is-on-clock .draft-clock-panel {
   flex: 1 1 14rem;
 }
 
+.seat-release-disclosure {
+  flex: 0 1 19rem;
+  min-width: min(100%, 15rem);
+}
+
+.seat-release-disclosure > summary {
+  display: inline-block;
+  cursor: pointer;
+  list-style: none;
+}
+
+.seat-release-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.seat-release-disclosure[open] > summary {
+  margin-bottom: var(--space-xs);
+}
+
+.seat-release-form,
+.seat-trim-form {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-accent-hot);
+  background: var(--color-black-faint, rgba(0, 0, 0, 0.14));
+}
+
+.seat-release-form label,
+.seat-trim-form label {
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.4;
+}
+
+.seat-release-form label .mono,
+.seat-trim-form label .mono {
+  color: var(--color-accent);
+  overflow-wrap: anywhere;
+}
+
+.seat-release-form input[type="text"],
+.seat-trim-form input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.35rem;
+  padding: 0.35rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
 .seat-row[data-claimed="false"] .seat-identity strong {
   color: var(--color-text-muted);
 }
