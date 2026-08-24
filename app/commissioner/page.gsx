@@ -96,6 +96,25 @@ func FleetReadout(props FleetReadoutProps) Node {
 								</div>
 								<span class="position-chip">{card.draft_status}</span>
 							</div>
+							<section class="commissioner-hq__provenance" aria-label="Release metadata">
+								<span>
+									<strong>APP VERSION</strong>
+									<span class="mono"><If cond={card.app_version != ""}>{card.app_version}</If><If cond={card.app_version == ""}>UNKNOWN</If></span>
+								</span>
+								<span>
+									<strong>SOURCE GIT SHA</strong>
+									<span class="mono"><If cond={card.git_sha != ""}>{card.git_sha}</If><If cond={card.git_sha == ""}>UNKNOWN</If></span>
+								</span>
+								<span>
+									<strong>BUILD TIMESTAMP</strong>
+									<If cond={card.build != ""}><time class="mono" datetime={card.build}>{card.build}</time></If>
+									<If cond={card.build == ""}><span class="mono">UNKNOWN</span></If>
+								</span>
+								<span>
+									<strong>FRAMEWORK VERSION</strong>
+									<span class="mono"><If cond={card.framework_version != ""}>{card.framework_version}</If><If cond={card.framework_version == ""}>UNKNOWN</If></span>
+								</span>
+							</section>
 							<div class="commissioner-hq__details">
 								<section id={"commissioner-"+card.peer_id+"-seats"} class="commissioner-hq__detail">
 									<h3>SEATS · LEDGER</h3>

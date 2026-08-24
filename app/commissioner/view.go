@@ -218,7 +218,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		ShortCode: summary.Instance.ShortCode, Mode: summary.Instance.Mode,
 		Season: summary.Instance.Season, PublicURL: publicURL, HostLabel: hostLabel(publicURL),
 		RuntimeReady: summary.Runtime.Ready, AppVersion: summary.Runtime.AppVersion,
-		FrameworkVersion: summary.Runtime.FrameworkVersion, GitSHA: shortSHAView(summary.Runtime.GitSHA),
+		FrameworkVersion: summary.Runtime.FrameworkVersion, GitSHA: sourceSHAView(summary.Runtime.GitSHA),
 		Build: summary.Runtime.Build, GeneratedAt: displayTime(summary.GeneratedAt),
 		GeneratedAtISO: isoTime(summary.GeneratedAt), Seats: summary.Membership.Seats,
 		ClaimedSeats: summary.Membership.ClaimedSeats, ReadySeats: summary.Membership.ReadySeats,
@@ -483,12 +483,8 @@ func hostLabel(raw string) string {
 	return parsed.Host
 }
 
-func shortSHAView(value string) string {
-	value = strings.TrimSpace(value)
-	if len(value) > 12 {
-		return value[:12]
-	}
-	return value
+func sourceSHAView(value string) string {
+	return strings.TrimSpace(value)
 }
 
 // draftStatusLabels turns commissioner_summary.go's draft status constants

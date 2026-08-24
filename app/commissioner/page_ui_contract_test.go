@@ -20,6 +20,12 @@ func TestCommissionerSSRIsRichReadOnlyAndPIIFree(t *testing.T) {
 	page := string(source)
 	for _, want := range []string{
 		"commissioner-hq__queue",
+		"commissioner-hq__provenance",
+		"APP VERSION",
+		"SOURCE GIT SHA",
+		"BUILD TIMESTAMP",
+		"FRAMEWORK VERSION",
+		"UNKNOWN",
 		"commissioner-hq__ledger",
 		"commissioner-hq__details",
 		"datetime={props.GeneratedAtISO}",
