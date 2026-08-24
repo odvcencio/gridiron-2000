@@ -129,6 +129,48 @@ func TestBoardValidationStateRestoresCanonicalFilters(t *testing.T) {
 	}
 }
 
+func TestBoardNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatalf("read Board page: %v", err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		"MoveAction={actionPath(\"board-move\")}",
+		"name=\"direction\" value=\"up\"",
+		"name=\"direction\" value=\"down\"",
+		"name=\"pos\" value={props.Position}",
+		"name=\"q\" value={props.Query}",
+		"name=\"page\" value={props.Page}",
+		"name={props.ReturnTargetField} value={props.ReturnTarget}",
+		"CanMoveUp={entry.board_can_move_up}",
+		"CanMoveDown={entry.board_can_move_down}",
+		"aria-label={\"Move \" + props.Player.name + \" up\"}",
+		"aria-label={\"Move \" + props.Player.name + \" down\"}",
+		"type=\"button\" disabled=\"disabled\"",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("page.gsx missing native reorder contract %q", want)
+		}
+	}
+
+	server, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatalf("read Board server: %v", err)
+	}
+	serverSource := string(server)
+	for _, want := range []string{
+		"return ctx.Success(\"Board order updated.\", nil)",
+		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Board order updated.\")",
+		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Player removed from your board.\")",
+		"actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData[\"pos\"], ctx.FormData[\"q\"], ctx.FormData[\"page\"]), \"Your board is cleared.\")",
+	} {
+		if !strings.Contains(serverSource, want) {
+			t.Fatalf("page.server.go missing Board action continuity contract %q", want)
+		}
+	}
+}
+
 func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
@@ -144,6 +186,8 @@ func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 		".board-page #board-pool .pool-pagination > .filter-button",
 		"min-width: 2.75rem;",
 		"min-height: 2.75rem;",
+		"min-inline-size: 44px;",
+		"min-block-size: 44px;",
 		"@media (min-width: 38.0625rem)",
 	} {
 		if !strings.Contains(source, want) {

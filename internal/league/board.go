@@ -103,6 +103,8 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		onBoard[id] = true
 		entry := playerMap(player, scoringValues, matchup)
 		entry["board_rank"] = fmt.Sprintf("%02d", index+1)
+		entry["board_can_move_up"] = index > 0
+		entry["board_can_move_down"] = index+1 < len(boardIDs)
 		entry["picked"] = picked[id]
 		entries = append(entries, entry)
 	}

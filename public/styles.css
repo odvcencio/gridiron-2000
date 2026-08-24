@@ -3729,6 +3729,14 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-xs);
 }
 
+.position-filters > .filter-button {
+  min-width: 44px;
+  min-inline-size: 44px;
+  min-height: 44px;
+  min-block-size: 44px;
+  justify-content: center;
+}
+
 .filter-button {
   min-height: 2.35rem;
   padding: 0.35rem var(--space-sm);
@@ -4288,16 +4296,27 @@ body.is-on-clock .draft-clock-panel {
 
 .board-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-xs);
   justify-content: end;
 }
 
+.board-controls form {
+  display: flex;
+}
+
 .board-button {
-  min-height: 2.1rem;
-  min-width: 2.1rem;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  min-block-size: 44px;
+  min-inline-size: 44px;
   padding: 0.2rem 0.45rem;
   font-family: var(--font-mono);
   font-size: var(--type-xs);
+}
+
+.board-button--move {
+  color: var(--color-accent-cyan);
 }
 
 .board-button--cut {

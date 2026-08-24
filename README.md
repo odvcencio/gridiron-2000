@@ -22,6 +22,10 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - A public /guide for managers arriving from another fantasy provider, with a five-minute start, commissioner checklist, draft controls, data states, and a manual migration checklist.
 - An explicit [season operations handbook](docs/season-operations.md) for draft night, weekly lineup locks, waivers, trades, week close, degraded data, and fleet-scale commissioner operations.
 
+The seat-scoped board ownership, transfer/detach behavior, legacy per-account
+migration, rollback, and attribution follow-up are versioned in
+[Decision 0001](docs/decisions/0001-seat-scoped-big-board.md).
+
 There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
 
 ## Run locally
