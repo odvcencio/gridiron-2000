@@ -194,7 +194,7 @@ func (s *Service) evalWaiverRun(now time.Time) {
 		return
 	}
 
-	nextRun := firstRunStrictlyAfter(cfg, state.WaiversProcessedThrough)
+	nextRun := nextWaiverProcessingRun(cfg, state.WaiversProcessedThrough, now)
 	if now.Before(nextRun) {
 		return
 	}

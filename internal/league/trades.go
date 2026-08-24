@@ -137,6 +137,20 @@ func tradeDeadlineState(cfg Config, now time.Time) (deadline time.Time, configur
 	return deadline, true, passed, formatResolvesAt(cfg, deadline)
 }
 
+// tradeOfferExpiryAt is the display and enforcement cutoff for an open
+// offer: seven days from creation or the configured league deadline,
+// whichever comes first. A missing creation instant is not displayable.
+func tradeOfferExpiryAt(cfg Config, createdAt time.Time) (time.Time, bool) {
+	if createdAt.IsZero() {
+		return time.Time{}, false
+	}
+	expiresAt := createdAt.Add(tradeOfferMaxAge)
+	if deadline, ok := parseTradeDeadline(cfg); ok && deadline.Before(expiresAt) {
+		expiresAt = deadline
+	}
+	return expiresAt, true
+}
+
 // tradeStatusLabel turns the persisted transition vocabulary into copy a
 // manager can scan in the terminal history. Keep the raw Status on rows for
 // action guards and tests; templates use this label for user-facing text.
@@ -986,12 +1000,33 @@ type TradeOfferRow struct {
 	AlreadyVoted            bool
 	HasReviewDeadline       bool
 	ReviewDeadline          string
+	HasExpiry               bool
+	Expiry                  string
+	ExpiryRelative          string
+	ExpiryState             string
 }
 
 // tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
 func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, deadlinePassed, isCommissioner bool, threshold int) TradeOfferRow {
+	// Open offers expose the same earliest cutoff enforced by
+	// Store.ExpireTradeOffer: seven days or the league deadline.
+	hasExpiry := offer.Status == TradeStatusOpen
+	expiry := time.Time{}
+	expiryState := ""
+	if hasExpiry {
+		var expiryKnown bool
+		expiry, expiryKnown = tradeOfferExpiryAt(s.cfg, offer.CreatedAt)
+		if !expiryKnown {
+			expiryState = "unknown"
+		} else {
+			expiryState = "upcoming"
+			if !expiry.After(s.clock()) {
+				expiryState = "overdue"
+			}
+		}
+	}
 	give := make([]TradePlayerCard, 0, len(offer.Give))
 	for _, id := range offer.Give {
 		p := pool.byID[id]
@@ -1043,6 +1078,12 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		CanVote: canEdit && outsideParty && offer.Status == TradeStatusAccepted &&
 			(s.cfg.Trades.Veto == "vote" || s.cfg.Trades.Veto == "both") && !alreadyVoted,
 		AlreadyVoted: alreadyVoted,
+		HasExpiry:    hasExpiry,
+		ExpiryState:  expiryState,
+	}
+	if !expiry.IsZero() {
+		row.Expiry = formatResolvesAt(s.cfg, expiry)
+		row.ExpiryRelative = deadlineRelativeTime(s.clock(), expiry)
 	}
 	if offer.Status == TradeStatusAccepted {
 		row.HasReviewDeadline = true
@@ -1122,7 +1163,16 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	hasSeat, _ := viewer["has_seat"].(bool)
 	canEdit := hasSeat
 	now := s.clock()
-	_, deadlineConfigured, deadlinePassed, deadlineLabel := tradeDeadlineState(s.cfg, now)
+	deadline, deadlineConfigured, deadlinePassed, deadlineLabel := tradeDeadlineState(s.cfg, now)
+	deadlineRelative := ""
+	deadlineState := "none"
+	if deadlineConfigured {
+		deadlineRelative = deadlineRelativeTime(now, deadline)
+		deadlineState = "upcoming"
+		if deadlinePassed {
+			deadlineState = "passed"
+		}
+	}
 	canCompose := canEdit && !deadlinePassed
 	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
@@ -1205,6 +1255,8 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 		"trade_deadline_configured": deadlineConfigured,
 		"trade_deadline_passed":     deadlinePassed,
 		"trade_deadline":            deadlineLabel,
+		"trade_deadline_relative":   deadlineRelative,
+		"trade_deadline_state":      deadlineState,
 		"note_max":                  tradeNoteMaxRunes,
 		"counterparties":            counterparties,
 		"counterparties_empty":      len(counterparties) == 0,

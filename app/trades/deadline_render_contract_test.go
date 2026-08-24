@@ -30,6 +30,12 @@ func TestTradesPageDeadlineRenderContract(t *testing.T) {
 		"<If cond={offer.CanDecline}>",
 		"<If cond={offer.CanWithdraw}>",
 		"TRADE DEADLINE CLOSED:",
+		"<If cond={data.trade_deadline_configured && data.trade_deadline_passed == false}>",
+		"TRADE CREATION OPEN:",
+		"data.trade_deadline_relative",
+		"offer.ExpiryState",
+		"offer.ExpiryRelative",
+		"Existing offers can still be declined or withdrawn.",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("trades template lost deadline/action marker %q", marker)

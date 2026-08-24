@@ -42,7 +42,13 @@ func Page() Node {
 			<If cond={data.trade_deadline_passed}>
 				<p class="demo-message">
 					<strong>TRADE DEADLINE CLOSED:</strong>
-					New offers, counters, and acceptances are closed. The deadline passed {data.trade_deadline}.
+					New offers, counters, and acceptances are closed. The deadline passed {data.trade_deadline} ({data.trade_deadline_relative}). Existing offers can still be declined or withdrawn.
+				</p>
+			</If>
+			<If cond={data.trade_deadline_configured && data.trade_deadline_passed == false}>
+				<p class="demo-message">
+					<strong>TRADE CREATION OPEN:</strong>
+					New offers, counters, and acceptances close {data.trade_deadline} ({data.trade_deadline_relative}). Existing offers remain available for review, decline, or withdrawal.
 				</p>
 			</If>
 		</div>
@@ -154,6 +160,17 @@ func Page() Node {
 							<If cond={offer.HasNote}>
 								<small>"{offer.Note}"</small>
 							</If>
+							<If cond={offer.HasExpiry}>
+								<If cond={offer.ExpiryState == "upcoming"}>
+									<small>Offer expires {offer.Expiry} ({offer.ExpiryRelative}).</small>
+								</If>
+								<If cond={offer.ExpiryState == "overdue"}>
+									<small>Offer expiry passed {offer.Expiry} ({offer.ExpiryRelative}); waiting for cleanup.</small>
+								</If>
+								<If cond={offer.ExpiryState == "unknown"}>
+									<small>Offer expiry unknown; creation time is unavailable.</small>
+								</If>
+							</If>
 						</div>
 						<div class="board-controls">
 							<If cond={offer.CanAccept}>
@@ -263,6 +280,17 @@ func Page() Node {
 							</small>
 							<If cond={offer.Status == "accepted"}>
 								<small>Review window ends {offer.ReviewDeadline} · {offer.VetoesCount} of {offer.VetoesThreshold} vetoes filed</small>
+							</If>
+							<If cond={offer.HasExpiry}>
+								<If cond={offer.ExpiryState == "upcoming"}>
+									<small>Offer expires {offer.Expiry} ({offer.ExpiryRelative}).</small>
+								</If>
+								<If cond={offer.ExpiryState == "overdue"}>
+									<small>Offer expiry passed {offer.Expiry} ({offer.ExpiryRelative}); waiting for cleanup.</small>
+								</If>
+								<If cond={offer.ExpiryState == "unknown"}>
+									<small>Offer expiry unknown; creation time is unavailable.</small>
+								</If>
 							</If>
 						</div>
 						<div class="board-controls">

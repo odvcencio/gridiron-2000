@@ -227,6 +227,9 @@ func Page() Node {
 									</details>
 								</form>
 							</If>
+							<If cond={player.drop_locked}>
+								<small class="position-chip position-chip--locked" role="status">{player.drop_lock_reason}</small>
+							</If>
 						</div>
 						</If>
 					</article>
@@ -306,6 +309,21 @@ func Page() Node {
 								<span class="mono">Team waiver position {claim.waiver_position} of {claim.waiver_team_count}</span>
 								<If cond={claim.faab}>
 									<span class="mono">Bid {claim.bid} FAAB</span>
+								</If>
+								<If cond={claim.resolution_state == "scheduled"}>
+									<span class="mono">RESOLVES {claim.resolution_at} ({claim.resolution_relative})</span>
+								</If>
+								<If cond={claim.resolution_state == "overdue"}>
+									<span class="position-chip position-chip--warn">RESOLUTION OVERDUE</span>
+									<small>{claim.resolution_at} ({claim.resolution_relative})</small>
+								</If>
+								<If cond={claim.resolution_state == "degraded"}>
+									<span class="position-chip position-chip--warn">RESOLUTION DEGRADED</span>
+									<small>{claim.resolution_label}</small>
+								</If>
+								<If cond={claim.resolution_state == "unknown"}>
+									<span class="position-chip position-chip--warn">RESOLUTION UNKNOWN</span>
+									<small>{claim.resolution_label}</small>
 								</If>
 							</div>
 							<div class="waiver-claim-actions" aria-label={"Filing-order controls for " + claim.add_name}>
