@@ -282,6 +282,16 @@ func firstRunStrictlyAfter(cfg Config, from time.Time) time.Time {
 	return candidate
 }
 
+// nextWaiverProcessingRun is the processor's authoritative next cycle.
+// A zero baseline means the next tick only records now, so the first cycle
+// that can resolve a claim is the daily run strictly after now.
+func nextWaiverProcessingRun(cfg Config, processedThrough, now time.Time) time.Time {
+	if processedThrough.IsZero() {
+		return firstRunStrictlyAfter(cfg, now)
+	}
+	return firstRunStrictlyAfter(cfg, processedThrough)
+}
+
 // clearsAt resolves a dropped player's clear instant (section 5.1):
 // the first daily process instant at or after droppedAt plus
 // waivers.clear_days days.

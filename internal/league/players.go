@@ -7,10 +7,12 @@ import (
 	"time"
 )
 
-// waiverClaimResolutionView projects the actual waiver-resolution evidence
-// for one open private claim. It intentionally distinguishes a scheduled
-// instant from an overdue run and from missing/degraded source data; a blank
-// or stale player state never becomes a guessed timestamp.
+// waiverClaimResolutionView projects the processor-authoritative resolution
+// state for one open private claim. A drop-clear instant may delay the next
+// processor run, but a stale clear instant never substitutes for that run.
+// Kickoff waivers depend on the live Final flag, so their approximate
+// kickoff-plus-five-hours display estimate is never promoted to an exact
+// claim-resolution timestamp.
 func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInfo, player Player, now time.Time) map[string]any {
 	view := map[string]any{
 		"resolution_state":    "unknown",
@@ -25,29 +27,21 @@ func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInf
 		return view
 	}
 
+	resolveAt := nextWaiverProcessingRun(cfg, state.WaiversProcessedThrough, now)
 	status := playerWaiverStatus(state, cfg, games, player.ID, player.NFLTeam, now)
-	resolveAt := status.ResolvesAt
-	if resolveAt.IsZero() {
-		// A claim may still be open after the daily run instant passed.
-		// Reconstruct the same clear instant from the append-only drop
-		// record so the UI can say OVERDUE without inventing a new time.
-		if droppedAt, origin, found := lastDropInstant(state, player.ID); found {
-			resolveAt = clearsAt(cfg, droppedAt)
-			if origin == "auto-drop" {
-				resolveAt = deferredClearsAt(cfg, games, droppedAt)
-			}
+	if status.State == AvailabilityOnWaivers {
+		if status.Reason == "kickoff" {
+			view["resolution_state"] = "degraded"
+			view["resolution_label"] = "Resolution timing is unavailable until this player's game is marked final."
+			return view
 		}
-	}
-	if resolveAt.IsZero() {
-		for _, game := range games {
-			if (game.Away == player.NFLTeam || game.Home == player.NFLTeam) && game.Kickoff.IsZero() {
-				view["resolution_state"] = "degraded"
-				view["resolution_label"] = "Resolution unavailable; this player's kickoff time is not published yet."
-				return view
-			}
+		if status.ResolvesAt.IsZero() {
+			view["resolution_label"] = "The waiver processor has no authoritative resolution time for this claim."
+			return view
 		}
-		view["resolution_label"] = "No published waiver resolution time is available for this player."
-		return view
+		if status.ResolvesAt.After(resolveAt) {
+			resolveAt = status.ResolvesAt
+		}
 	}
 
 	view["resolution_at"] = formatResolvesAt(cfg, resolveAt)

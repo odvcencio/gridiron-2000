@@ -312,3 +312,31 @@ func TestTradeOfferExpiryStates(t *testing.T) {
 		t.Fatalf("terminal offer carried expiry = %+v", resolved)
 	}
 }
+
+func TestTradeOfferExpiryUsesEarlierConfiguredDeadline(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	createdAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	deadline := time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC)
+	current := createdAt
+	svc.now = func() time.Time { return current }
+	svc.cfg.Timezone = "UTC"
+	svc.cfg.Trades.Deadline = deadline.Format(time.RFC3339)
+
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.ProposeTrade(request, "team-1", "team-2", []string{"t1-a"}, []string{"t2-a"}, nil, ""); err != nil {
+		t.Fatalf("ProposeTrade: %v", err)
+	}
+	offer := svc.store.Snapshot().TradeOffers[0]
+	row := svc.tradeOfferRow(svc.pool(), offer, "team-2", true, false, false, 3)
+	want := formatResolvesAt(svc.cfg, deadline)
+	if row.Expiry != want || row.ExpiryState != "upcoming" || row.ExpiryRelative != "tomorrow" {
+		t.Fatalf("deadline-limited expiry = state:%q exact:%q relative:%q, want upcoming %q tomorrow", row.ExpiryState, row.Expiry, row.ExpiryRelative, want)
+	}
+
+	if expired, err := svc.store.ExpireTradeOffer(offer.ID, svc.cfg, deadline.Add(-time.Nanosecond)); err != nil || expired {
+		t.Fatalf("expiry before configured deadline = %v, %v; want false, nil", expired, err)
+	}
+	if expired, err := svc.store.ExpireTradeOffer(offer.ID, svc.cfg, deadline); err != nil || !expired {
+		t.Fatalf("expiry at configured deadline = %v, %v; want true, nil", expired, err)
+	}
+}

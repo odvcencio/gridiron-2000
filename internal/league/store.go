@@ -2938,10 +2938,8 @@ func (s *Store) ExpireTradeOffer(offerID string, cfg Config, now time.Time) (boo
 		return false, nil
 	}
 	offer := s.state.TradeOffers[index]
-	due := now.Sub(offer.CreatedAt) >= tradeOfferMaxAge
-	if deadline, ok := parseTradeDeadline(cfg); ok && !now.Before(deadline) {
-		due = true
-	}
+	expiresAt, known := tradeOfferExpiryAt(cfg, offer.CreatedAt)
+	due := !known || !now.Before(expiresAt)
 	if !due {
 		return false, nil
 	}

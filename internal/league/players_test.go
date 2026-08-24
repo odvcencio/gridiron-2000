@@ -724,14 +724,21 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 	if _, err := overdueSvc.FileClaim(deadlineTestPOST("/players"), "team-1", "wv-open", "rb-open", 0); err != nil {
 		t.Fatalf("seed overdue claim: %v", err)
 	}
-	overdueSvc.now = func() time.Time { return overdueNow.Add(3 * 24 * time.Hour) }
+	overdueState := overdueSvc.store.Snapshot()
+	overduePlayer := overdueSvc.pool().byID["wv-open"]
+	clearRun := playerWaiverStatus(overdueState, overdueSvc.cfg, overdueSvc.schedule(), overduePlayer.ID, overduePlayer.NFLTeam, overdueNow).ResolvesAt
+	overdueSvc.store.mu.Lock()
+	overdueSvc.store.state.WaiversProcessedThrough = clearRun.Add(-24 * time.Hour)
+	overdueSvc.store.mu.Unlock()
+	overdueSvc.SetScheduleSource(func() []GameInfo { return nil })
+	overdueSvc.now = func() time.Time { return clearRun.Add(time.Hour) }
 	overdue := claimRow(overdueSvc)
 	if overdue == nil || overdue["resolution_state"] != "overdue" || overdue["resolution_at"] == "" || overdue["resolution_relative"] == "" {
 		t.Fatalf("overdue claim resolution = %+v, want overdue exact+relative state", overdue)
 	}
 
 	unknownSvc, unknownNow := newWaiversTestService(t)
-	if err := unknownSvc.store.FileClaim(WaiverClaim{ID: "unknown-claim", TeamID: "team-1", AddID: "fa-open", FiledAt: unknownNow}); err != nil {
+	if err := unknownSvc.store.FileClaim(WaiverClaim{ID: "unknown-claim", TeamID: "team-1", AddID: "missing-player", FiledAt: unknownNow}); err != nil {
 		t.Fatalf("seed unknown claim: %v", err)
 	}
 	unknown := claimRow(unknownSvc)
@@ -744,11 +751,51 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 		t.Fatalf("seed degraded claim: %v", err)
 	}
 	degradedSvc.SetScheduleSource(func() []GameInfo {
-		return []GameInfo{{ID: "unpublished", Week: 1, Away: "PIT", Home: "NYJ"}}
+		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: degradedNow.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
 	})
 	degraded := claimRow(degradedSvc)
 	if degraded == nil || degraded["resolution_state"] != "degraded" || degraded["resolution_at"] != "" || degraded["resolution_relative"] != "" {
 		t.Fatalf("degraded claim resolution = %+v, want explicit degraded state", degraded)
+	}
+}
+
+func TestPlayersDataClaimFiledAfterProcessedRunUsesNextRun(t *testing.T) {
+	svc, _ := newWaiversTestService(t)
+	svc.cfg.Timezone = "UTC"
+	svc.cfg.Waivers.ClearDays = 0
+	svc.cfg.Waivers.ProcessTime = "09:00"
+	processedThrough := time.Date(2026, 9, 13, 9, 0, 0, 0, time.UTC)
+	filedAt := processedThrough.Add(time.Minute)
+	svc.now = func() time.Time { return filedAt }
+
+	foundDrop := false
+	svc.store.mu.Lock()
+	svc.store.state.WaiversProcessedThrough = processedThrough
+	for index := range svc.store.state.Transactions {
+		if svc.store.state.Transactions[index].ID == "txn-seed" {
+			svc.store.state.Transactions[index].At = processedThrough.Add(-time.Hour)
+			foundDrop = true
+		}
+	}
+	svc.store.state.WaiverClaims = []WaiverClaim{{
+		ID: "after-run", TeamID: "team-1", AddID: "wv-open", DropID: "rb-open", FiledAt: filedAt,
+	}}
+	svc.store.mu.Unlock()
+	if !foundDrop {
+		t.Fatal("seed drop transaction not found")
+	}
+
+	data := svc.PlayersData(deadlineTestGET("/players"))
+	claims, _ := data["my_claims"].([]map[string]any)
+	if len(claims) != 1 {
+		t.Fatalf("my_claims = %+v, want one claim", claims)
+	}
+	wantRun := firstRunStrictlyAfter(svc.cfg, processedThrough)
+	if claims[0]["resolution_state"] != "scheduled" || claims[0]["resolution_at"] != formatResolvesAt(svc.cfg, wantRun) {
+		t.Fatalf("resolution = state:%v exact:%v, want scheduled at %s", claims[0]["resolution_state"], claims[0]["resolution_at"], formatResolvesAt(svc.cfg, wantRun))
+	}
+	if claims[0]["resolution_at"] == formatResolvesAt(svc.cfg, processedThrough) {
+		t.Fatal("claim incorrectly reused the already-processed 09:00 drop-clear instant")
 	}
 }
 

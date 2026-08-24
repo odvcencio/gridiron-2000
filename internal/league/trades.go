@@ -137,6 +137,20 @@ func tradeDeadlineState(cfg Config, now time.Time) (deadline time.Time, configur
 	return deadline, true, passed, formatResolvesAt(cfg, deadline)
 }
 
+// tradeOfferExpiryAt is the display and enforcement cutoff for an open
+// offer: seven days from creation or the configured league deadline,
+// whichever comes first. A missing creation instant is not displayable.
+func tradeOfferExpiryAt(cfg Config, createdAt time.Time) (time.Time, bool) {
+	if createdAt.IsZero() {
+		return time.Time{}, false
+	}
+	expiresAt := createdAt.Add(tradeOfferMaxAge)
+	if deadline, ok := parseTradeDeadline(cfg); ok && deadline.Before(expiresAt) {
+		expiresAt = deadline
+	}
+	return expiresAt, true
+}
+
 // tradeStatusLabel turns the persisted transition vocabulary into copy a
 // manager can scan in the terminal history. Keep the raw Status on rows for
 // action guards and tests; templates use this label for user-facing text.
@@ -996,17 +1010,17 @@ type TradeOfferRow struct {
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
 func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, deadlinePassed, isCommissioner bool, threshold int) TradeOfferRow {
-	// Open offers carry a fixed seven-day expiry. Keep the exact timestamp
-	// and relative state beside the row so managers do not have to infer it
-	// from CreatedAt or wait for the background expiry pass.
+	// Open offers expose the same earliest cutoff enforced by
+	// Store.ExpireTradeOffer: seven days or the league deadline.
 	hasExpiry := offer.Status == TradeStatusOpen
 	expiry := time.Time{}
 	expiryState := ""
 	if hasExpiry {
-		if offer.CreatedAt.IsZero() {
+		var expiryKnown bool
+		expiry, expiryKnown = tradeOfferExpiryAt(s.cfg, offer.CreatedAt)
+		if !expiryKnown {
 			expiryState = "unknown"
 		} else {
-			expiry = offer.CreatedAt.Add(tradeOfferMaxAge)
 			expiryState = "upcoming"
 			if !expiry.After(s.clock()) {
 				expiryState = "overdue"
