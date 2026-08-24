@@ -474,10 +474,27 @@ func DraftRoom(props DraftRoomProps) Node {
 						<div class="manager-draft-control">
 							<div class="manager-draft-control__copy">
 								<span class="mono">DRAFT CONTROLS</span>
+								<If cond={props.Data.public_entry.can_claim}>
 								<strong class="ready-state">NO TEAM SEAT</strong>
-								<small>Claim a franchise before setting readiness or autopick.</small>
+								<small>{props.Data.public_entry.detail}</small>
+								</If>
+								<If cond={props.Data.public_entry.can_claim == false}>
+								<strong class="ready-state">{props.Data.public_entry.state_label}</strong>
+								<small>{props.Data.public_entry.detail}</small>
+								</If>
 							</div>
-							<a href="/join" data-gosx-link class="button button--primary button--compact">Claim a team →</a>
+							<If cond={props.Data.public_entry.can_claim}>
+								<a href={props.Data.public_entry.action_href} data-gosx-link class="button button--primary button--compact">{props.Data.public_entry.action_label}</a>
+							</If>
+							<If cond={props.Data.public_entry.can_claim == false}>
+								<a href={props.Data.public_entry.action_href} data-gosx-link class="button button--ghost button--compact">{props.Data.public_entry.action_label}</a>
+								<If cond={props.Data.public_entry.admitted == false}>
+									<a href="/pickem" data-gosx-link class="button button--ghost button--compact">Open Pick'em HQ →</a>
+								</If>
+								<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
+									<a href="/players" data-gosx-link class="button button--ghost button--compact">Browse player pool →</a>
+								</If>
+							</If>
 						</div>
 					</div>
 				</If>
@@ -548,14 +565,30 @@ func DraftRoom(props DraftRoomProps) Node {
 						<a href="#ready-toggle" class="board-button">Check in now ↑</a>
 					</div>
 					</If>
-					<If cond={props.Data.viewer.has_seat == false}>
+					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
 					<div class="checklist-item">
 						<span class="checklist-mark mono">02</span>
 						<div class="checklist-item__text">
 							<strong>Claim a franchise</strong>
-							<small>A team seat unlocks draft check-in, autopick, and picks when the commissioner starts the room.</small>
+							<small>{props.Data.public_entry.detail}</small>
 						</div>
-						<a href="/join" data-gosx-link class="board-button">Claim franchise →</a>
+						<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
+					</div>
+					</If>
+					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
+					<div class="checklist-item">
+						<span class="checklist-mark mono">02</span>
+						<div class="checklist-item__text">
+							<strong>{props.Data.public_entry.state_label}</strong>
+							<small>{props.Data.public_entry.detail}</small>
+						</div>
+						<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
+						<If cond={props.Data.public_entry.admitted == false}>
+							<a href="/pickem" data-gosx-link class="board-button">Open Pick'em HQ →</a>
+						</If>
+						<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
+							<a href="/players" data-gosx-link class="board-button">Browse player pool →</a>
+						</If>
 					</div>
 					</If>
 					<div class="checklist-item">

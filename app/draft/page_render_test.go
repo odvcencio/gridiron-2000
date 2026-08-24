@@ -1,6 +1,7 @@
 package draft
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -74,6 +75,41 @@ func TestDraftPageSeatlessOmitsControlsButKeepsOnboarding(t *testing.T) {
 	for _, forbidden := range []string{"#ready-toggle", "#autopick-toggle", "toggle-ready", "toggle-autopick", "make-pick", ">Locked<"} {
 		if strings.Contains(seatless, forbidden) {
 			t.Errorf("seatless draft page rendered forbidden control %q: %s", forbidden, seatless)
+		}
+	}
+
+	pickemOnly := renderDraftForUser(t, handler, "pickem-only-draft-render@example.com")
+	for _, want := range []string{"SIGNED IN · MEMBERSHIP NOT RECORDED", `href="/guide#identity"`, "Open Pick&#39;em HQ"} {
+		if !strings.Contains(pickemOnly, want) {
+			t.Errorf("pick'em-only draft page missing truthful next link %q: %s", want, pickemOnly)
+		}
+	}
+	for _, forbidden := range []string{"Claim an open franchise", "Claim a franchise", `href="/join"`} {
+		if strings.Contains(pickemOnly, forbidden) {
+			t.Errorf("pick'em-only draft page offered unavailable action %q: %s", forbidden, pickemOnly)
+		}
+	}
+
+	// Fill the remaining seats, then admit a persisted but seatless viewer.
+	// This distinguishes a full league from the open-seat fixture above and
+	// proves the CTA changes to waiting guidance without retaining /join.
+	for index := 0; index < len(service.Teams())-1; index++ {
+		if _, err := service.AssignManager(fmt.Sprintf("full-draft-render-%d@example.com", index), fmt.Sprintf("Full Draft Render %d", index)); err != nil {
+			t.Fatalf("AssignManager %d: %v", index, err)
+		}
+	}
+	if _, err := service.EnsureMember("full-draft-render@example.com", "Full Draft Render"); err != nil {
+		t.Fatalf("EnsureMember full viewer: %v", err)
+	}
+	full := renderDraftForUser(t, handler, "full-draft-render@example.com")
+	for _, want := range []string{"ADMITTED · NO FRANCHISE", `href="/pickem"`, "Browse player pool"} {
+		if !strings.Contains(full, want) {
+			t.Errorf("full-league draft page missing truthful waiting link %q: %s", want, full)
+		}
+	}
+	for _, forbidden := range []string{"Claim an open franchise", "Claim a franchise", `href="/join"`} {
+		if strings.Contains(full, forbidden) {
+			t.Errorf("full-league draft page offered unavailable action %q: %s", forbidden, full)
 		}
 	}
 

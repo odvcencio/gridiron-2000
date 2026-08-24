@@ -2,6 +2,7 @@ package league
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -330,4 +331,167 @@ func TestPublicEntryCommissionerOverlayPreservesBaseState(t *testing.T) {
 			t.Fatalf("commissioner seatless overlay changed base state: %+v", view)
 		}
 	})
+}
+
+func TestPublicEntryRoleMatrixFeedsDraftMatchupsAndPickem(t *testing.T) {
+	tests := []struct {
+		name             string
+		email            string
+		setup            func(*testing.T, *Service)
+		commissioner     bool
+		wantState        PublicEntryState
+		wantAdmitted     bool
+		wantSeat         bool
+		wantEligible     bool
+		wantFull         bool
+		wantClaim        bool
+		wantAction       string
+		wantPickem       bool
+		wantCommissioner bool
+	}{
+		{
+			name:  "admitted seatless with open franchise",
+			email: "open-role@example.com",
+			setup: func(t *testing.T, service *Service) {
+				if _, err := service.EnsureMember("open-role@example.com", "Open Role"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantState:    PublicEntryAdmittedSeatlessOpen,
+			wantAdmitted: true,
+			wantEligible: true,
+			wantClaim:    true,
+			wantAction:   "/join",
+			wantPickem:   true,
+		},
+		{
+			name:  "admitted seatless with full league",
+			email: "full-role@example.com",
+			setup: func(t *testing.T, service *Service) {
+				for index, team := range service.Teams() {
+					if _, _, err := service.store.AssignMember(fmt.Sprintf("full-role-%d@example.com", index), team.Name); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := service.EnsureMember("full-role@example.com", "Full Role"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantState:    PublicEntryAdmittedSeatlessFull,
+			wantAdmitted: true,
+			wantEligible: true,
+			wantFull:     true,
+			wantAction:   "/pickem",
+			wantPickem:   true,
+		},
+		{
+			name:       "authenticated pickem-only identity",
+			email:      "pickem-only-role@example.com",
+			setup:      func(_ *testing.T, _ *Service) {},
+			wantState:  PublicEntryAuthenticatedPending,
+			wantAction: "/guide#identity",
+			wantPickem: true,
+		},
+		{
+			name:  "seated primary manager",
+			email: "primary-role@example.com",
+			setup: func(t *testing.T, service *Service) {
+				if _, _, err := service.store.AssignMember("primary-role@example.com", "Primary Role"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantState:    PublicEntryPrimary,
+			wantAdmitted: true,
+			wantSeat:     true,
+			wantAction:   "/team",
+			wantPickem:   true,
+		},
+		{
+			name:  "seated co-manager",
+			email: "co-role@example.com",
+			setup: func(t *testing.T, service *Service) {
+				primary, _, err := service.store.AssignMember("primary-co-role@example.com", "Primary Co Role")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.InviteCoManager(primary.TeamID, "co-role@example.com"); err != nil {
+					t.Fatal(err)
+				}
+				if _, bound, err := service.BindCoManagerOnSignIn("co-role@example.com", "Co Role"); err != nil || !bound {
+					t.Fatalf("bind co-manager = bound %v, err %v", bound, err)
+				}
+			},
+			wantState:    PublicEntryCoManager,
+			wantAdmitted: true,
+			wantSeat:     true,
+			wantAction:   "/team",
+			wantPickem:   true,
+		},
+		{
+			name:  "commissioner admitted seatless with open franchise",
+			email: "commissioner-role@example.com",
+			setup: func(t *testing.T, service *Service) {
+				if _, err := service.EnsureMember("commissioner-role@example.com", "Commissioner Role"); err != nil {
+					t.Fatal(err)
+				}
+			},
+			commissioner:     true,
+			wantState:        PublicEntryAdmittedSeatlessOpen,
+			wantAdmitted:     true,
+			wantEligible:     true,
+			wantClaim:        true,
+			wantAction:       "/join",
+			wantPickem:       true,
+			wantCommissioner: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := newTestService(t, false)
+			tt.setup(t, service)
+			if tt.commissioner {
+				t.Setenv("COMMISSIONER_EMAILS", tt.email)
+			}
+
+			withPublicEntryRequest(t, service, tt.email, func(r *http.Request) {
+				view := service.PublicEntryView(r)
+				if view.State != tt.wantState || view.Admitted != tt.wantAdmitted || view.HasSeat != tt.wantSeat ||
+					view.CanClaim != tt.wantClaim || view.LeagueFull != tt.wantFull || view.IsCommissioner != tt.wantCommissioner {
+					t.Fatalf("role view = %+v", view)
+				}
+				viewer := service.Viewer(r)
+				if viewer["seat_claim_eligible"] != tt.wantEligible {
+					t.Fatalf("viewer seat_claim_eligible = %v, want %v; viewer = %#v", viewer["seat_claim_eligible"], tt.wantEligible, viewer)
+				}
+
+				draft := service.DraftData(r)
+				matchups := service.MatchupsData(context.Background(), r)
+				pickem := service.PickemData(r)
+				canonical := publicEntryData(view)
+				for page, data := range map[string]map[string]any{"draft": draft, "matchups": matchups} {
+					entry, ok := data["public_entry"].(map[string]any)
+					if !ok {
+						t.Fatalf("%s public_entry = %#v, want map", page, data["public_entry"])
+					}
+					if !reflect.DeepEqual(entry, canonical) {
+						t.Errorf("%s public_entry = %#v, want canonical %#v", page, entry, canonical)
+					}
+					if entry["action_href"] != tt.wantAction || entry["can_claim"] != tt.wantClaim {
+						t.Errorf("%s CTA = href %v/can_claim %v, want %s/%v", page, entry["action_href"], entry["can_claim"], tt.wantAction, tt.wantClaim)
+					}
+				}
+				if pickem["can_pick"] != tt.wantPickem {
+					t.Errorf("Pick'em can_pick = %v, want %v", pickem["can_pick"], tt.wantPickem)
+				}
+				next, ok := matchups["next_matchup"].(map[string]any)
+				if !ok {
+					t.Fatalf("next_matchup = %#v, want map", matchups["next_matchup"])
+				}
+				if !tt.wantSeat && !tt.wantClaim && next["message"] != view.Detail {
+					t.Errorf("seatless guidance = %q, want canonical detail %q", next["message"], view.Detail)
+				}
+			})
+		})
+	}
 }
