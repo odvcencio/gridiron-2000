@@ -38,9 +38,11 @@ type Instance struct {
 // protocol's own Summary.SchemaVersion: this describes the league state a
 // candidate binary must be able to read before a rollout or rollback.
 type StateSchema struct {
-	PersistedVersion int  `json:"persistedVersion"`
-	SupportedVersion int  `json:"supportedVersion"`
-	Compatible       bool `json:"compatible"`
+	PersistedVersion         int  `json:"persistedVersion"`
+	SupportedVersion         int  `json:"supportedVersion"`
+	PersistedDatabaseVersion int  `json:"persistedDatabaseVersion"`
+	SupportedDatabaseVersion int  `json:"supportedDatabaseVersion"`
+	Compatible               bool `json:"compatible"`
 }
 
 type Runtime struct {

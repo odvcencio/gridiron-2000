@@ -243,7 +243,10 @@ func TestReleaseChecklistRequiresSchemaAwareRollbackAdjudication(t *testing.T) {
 		"stateSchema",
 		"persistedVersion",
 		"supportedVersion",
+		"persistedDatabaseVersion",
+		"supportedDatabaseVersion",
 		"schema-aware adjudication",
+		"both persisted versions",
 		"separately tested, schema-compatible fallback digest",
 		"Do not run `kubectl rollout undo` to an incompatible binary",
 	} {

@@ -49,15 +49,18 @@ const currentSchemaVersion = 8
 var errSchemaTooNew = errors.New("state file schema version is newer than this binary supports")
 
 // StateSchemaCompatibility is the small, non-PII release-safety projection
-// of the store's logical persistence schema. PersistedVersion is read from
-// the authoritative SQLite marker (or the rejected JSON/SQLite marker when
-// startup fails); SupportedVersion is this binary's actual upper bound.
-// Compatible is false whenever the persisted marker is unknown or newer than
-// the binary, so a release surface can never certify an unverified rollback.
+// of both persistence schema layers. PersistedVersion is the logical state
+// marker and PersistedDatabaseVersion is SQLite's migration marker (or the
+// rejected marker when startup fails); the Supported* fields are this
+// binary's actual upper bounds. Compatible is true only when both markers
+// are known and within their corresponding bounds, so a release surface can
+// never certify an unverified rollback.
 type StateSchemaCompatibility struct {
-	PersistedVersion int  `json:"persistedVersion"`
-	SupportedVersion int  `json:"supportedVersion"`
-	Compatible       bool `json:"compatible"`
+	PersistedVersion         int  `json:"persistedVersion"`
+	SupportedVersion         int  `json:"supportedVersion"`
+	PersistedDatabaseVersion int  `json:"persistedDatabaseVersion"`
+	SupportedDatabaseVersion int  `json:"supportedDatabaseVersion"`
+	Compatible               bool `json:"compatible"`
 }
 
 // Store holds the league's authoritative state. The record of truth is a
@@ -128,8 +131,14 @@ type Store struct {
 	// the binary incompatible without exposing any state or operator data.
 	persistedSchemaVersion int
 	persistedSchemaKnown   bool
-	poisonedState          PersistedState
-	poisonedDirty          uint32
+	// persistedDatabaseVersion is SQLite's PRAGMA user_version migration
+	// marker. It is captured before migrateDB refuses a newer database, so
+	// compatibility evidence covers the physical schema as well as logical
+	// state rows.
+	persistedDatabaseVersion int
+	persistedDatabaseKnown   bool
+	poisonedState            PersistedState
+	poisonedDirty            uint32
 	// loadErr holds a boot failure the constructor could not recover from: a
 	// state whose schema version is newer than this binary supports (section
 	// 6.3), a database that cannot be opened, or a legacy state file that
@@ -200,6 +209,8 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 	if s.filePath == "" {
 		s.persistedSchemaVersion = currentSchemaVersion
 		s.persistedSchemaKnown = true
+		s.persistedDatabaseVersion = currentDBVersion
+		s.persistedDatabaseKnown = true
 	}
 	s.identityResolver = resolver
 	if err := s.openLocked(); err != nil {
@@ -271,18 +282,27 @@ func (s *Store) StartupError() error {
 // release and health metadata. The persisted value is deliberately not
 // inferred from PersistedState.SchemaVersion: loads normalize old additive
 // state to the current in-memory shape, while this accessor reports the
-// marker the store actually persisted.
+// markers the store actually persisted. Both logical state and SQLite
+// migration bounds must be known and supported for Compatible to be true.
 func (s *Store) StateSchemaCompatibility() StateSchemaCompatibility {
 	if s == nil {
-		return StateSchemaCompatibility{SupportedVersion: currentSchemaVersion}
+		return StateSchemaCompatibility{
+			SupportedVersion:         currentSchemaVersion,
+			SupportedDatabaseVersion: currentDBVersion,
+		}
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	status := StateSchemaCompatibility{
-		PersistedVersion: s.persistedSchemaVersion,
-		SupportedVersion: currentSchemaVersion,
+		PersistedVersion:         s.persistedSchemaVersion,
+		SupportedVersion:         currentSchemaVersion,
+		PersistedDatabaseVersion: s.persistedDatabaseVersion,
+		SupportedDatabaseVersion: currentDBVersion,
 	}
-	status.Compatible = s.persistedSchemaKnown && status.PersistedVersion <= status.SupportedVersion
+	status.Compatible = s.persistedSchemaKnown &&
+		s.persistedDatabaseKnown &&
+		status.PersistedVersion <= status.SupportedVersion &&
+		status.PersistedDatabaseVersion <= status.SupportedDatabaseVersion
 	return status
 }
 
@@ -290,6 +310,10 @@ func (s *Store) capturePersistedSchemaVersion(db *sql.DB) {
 	if version, known, err := logicalSchemaVersion(db); err == nil && known {
 		s.persistedSchemaVersion = version
 		s.persistedSchemaKnown = true
+	}
+	if version, err := dbUserVersion(db); err == nil {
+		s.persistedDatabaseVersion = version
+		s.persistedDatabaseKnown = true
 	}
 }
 

@@ -156,9 +156,11 @@ func main() {
 			AppVersion: appVersion, FrameworkVersion: gosx.Version,
 			GitSHA: appGitSHA, Build: appBuildDate,
 			StateSchema: commissionerhq.StateSchema{
-				PersistedVersion: stateSchema.PersistedVersion,
-				SupportedVersion: stateSchema.SupportedVersion,
-				Compatible:       stateSchema.Compatible,
+				PersistedVersion:         stateSchema.PersistedVersion,
+				SupportedVersion:         stateSchema.SupportedVersion,
+				PersistedDatabaseVersion: stateSchema.PersistedDatabaseVersion,
+				SupportedDatabaseVersion: stateSchema.SupportedDatabaseVersion,
+				Compatible:               stateSchema.Compatible,
 			},
 		}, commissionerhq.Pool{
 			Mode: poolStatus.State, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
@@ -1176,9 +1178,11 @@ func persistenceHealth(err error) (ready bool, status int, publicError string) {
 
 func stateSchemaPayload(value league.StateSchemaCompatibility) map[string]any {
 	return map[string]any{
-		"persistedVersion": value.PersistedVersion,
-		"supportedVersion": value.SupportedVersion,
-		"compatible":       value.Compatible,
+		"persistedVersion":         value.PersistedVersion,
+		"supportedVersion":         value.SupportedVersion,
+		"persistedDatabaseVersion": value.PersistedDatabaseVersion,
+		"supportedDatabaseVersion": value.SupportedDatabaseVersion,
+		"compatible":               value.Compatible,
 	}
 }
 

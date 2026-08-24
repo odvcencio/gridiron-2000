@@ -29,9 +29,10 @@ Deployment changes, record each old revision and exact image reference, then
 follow [the launch checklist's SK-first canary gate](../docs/launch-checklist.md).
 After the second (flagship) roll, compare the live `gitSHA` and `appVersion`
 in both `/api/health` responses with the release record. Also compare each
-instance's PII-free `stateSchema` object (`persistedVersion`,
-`supportedVersion`, `compatible`) before treating a release as accepted. The
-two instances intentionally share a binary and relay but keep separate
+instance's PII-free `stateSchema` object (logical `persistedVersion` and
+`supportedVersion`, physical `persistedDatabaseVersion` and
+`supportedDatabaseVersion`, and `compatible`) before treating a release as
+accepted. The two instances intentionally share a binary and relay but keep separate
 `LEAGUE_FILE` ConfigMaps and state volumes.
 
 The release health gate accepts `fantasyPoolMode` `live` or `cache`, but
@@ -58,19 +59,22 @@ first SK canary, the flagship peer card may be unavailable because it is
 still on the old image; that is expected until the second roll. After the
 flagship roll, both peer cards must be available.
 
-Record `/api/health`'s `stateSchema` independently for each rollout. It is
-the store's actual persisted-schema marker, not a claim derived from the
-image tag or Deployment revision. When a candidate advances the storage
-schema, the release record must include a separately tested compatible
-fallback digest and its release metadata for that specific instance. The old
-revision is not automatically a safe fallback.
+Record `/api/health`'s `stateSchema` independently for each rollout. Its
+logical persisted value is the store's actual `kv.schema_version` marker and
+its physical persisted value is SQLite's `PRAGMA user_version`; neither is a
+claim derived from the image tag or Deployment revision. When a candidate
+advances either storage schema, the release record must include a separately
+tested compatible fallback digest and its release metadata for that specific
+instance. The old revision is not automatically a safe fallback.
 
 Rollback uses the exact revisions captured before the change only after the
-schema-aware check confirms that the target supports the live persisted
-version. An image-only `rollout undo` to an incompatible binary is forbidden;
-roll forward or apply the tested compatible fallback digest recorded for that
-instance instead. This runbook makes no promise of old-binary compatibility
-and does not require off-node backups.
+schema-aware check confirms that the target supports both live persisted
+versions (`persistedVersion`/`supportedVersion` and
+`persistedDatabaseVersion`/`supportedDatabaseVersion`) and reports
+`compatible: true`. An image-only `rollout undo` to an incompatible binary is
+forbidden; roll forward or apply the tested compatible fallback digest
+recorded for that instance instead. This runbook makes no promise of
+old-binary compatibility and does not require off-node backups.
 
 ```bash
 kubectl -n stablekernel rollout undo deployment/gridiron-2000-sk \

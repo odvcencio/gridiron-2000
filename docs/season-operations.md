@@ -35,7 +35,7 @@ The commissioner performs this once for each isolated league instance.
 1. Configure `league.json`. Confirm league name, mode, timezone, season, team IDs, roster shape, draft rounds, waiver mode, and trade policy. Team IDs are durable; do not rename IDs after state refers to them.
 2. Open `/scoring` and read the rendered rules as a manager would. This catches a valid configuration that still expresses the wrong league.
 3. Confirm Google OAuth, COMMISSIONER_EMAILS, admission policy, and any IDENTITY_ALIASES. An identity alias unifies one person's internal ownership; a configured commissioner's explicit alias is admitted by the narrow commissioner exception, while unrelated aliases still need raw league policy.
-4. Confirm `/api/health` reports the expected league configuration source, release identity, player-pool mode, player count, roster capacity, no pool error, and a `stateSchema` object whose `persistedVersion` is no greater than `supportedVersion` and whose `compatible` flag is true.
+4. Confirm `/api/health` reports the expected league configuration source, release identity, player-pool mode, player count, roster capacity, no pool error, and a `stateSchema` object whose logical `persistedVersion` is no greater than `supportedVersion`, whose physical `persistedDatabaseVersion` is no greater than `supportedDatabaseVersion`, and whose `compatible` flag is true.
 5. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
 6. Ask every manager to claim the intended franchise before draft order is finalized.
 7. At the draft-order milestone, one draw publishes both the final order and the default 14-week regular-season schedule, then sends one notification batch. Use the separate schedule control beforehand only when the league needs a custom span or first NFL week.
@@ -153,7 +153,7 @@ Use the least destructive response that preserves an honest league record.
 - Incorrect open week lineup: change only players whose games have not locked.
 - Incorrect final week: stop and make a commissioner ruling before attempting any repair. A final week is intentionally immutable through normal manager flows.
 - Source outage: preserve the last good cache and diagnose the relay or upstream. Do not replace a known snapshot with fabricated zeros.
-- Release failure: follow `docs/launch-checklist.md`, canary Stable Kernel first, and adjudicate the recorded state-schema compatibility before using any prior revision. If an old binary cannot read the persisted marker, roll forward or use the separately tested compatible fallback digest; an image-only undo is forbidden.
+- Release failure: follow `docs/launch-checklist.md`, canary Stable Kernel first, and adjudicate both recorded logical and physical state-schema bounds before using any prior revision. If an old binary cannot read either persisted marker, roll forward or use the separately tested compatible fallback digest; an image-only undo is forbidden.
 
 ## Current year-one boundary
 

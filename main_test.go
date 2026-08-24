@@ -61,12 +61,19 @@ func TestLivenessPayloadDoesNotDependOnPersistence(t *testing.T) {
 
 func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
 	payload := stateSchemaPayload(league.StateSchemaCompatibility{
-		PersistedVersion: 9, SupportedVersion: 8, Compatible: false,
+		PersistedVersion:         9,
+		SupportedVersion:         8,
+		PersistedDatabaseVersion: 7,
+		SupportedDatabaseVersion: 6,
+		Compatible:               false,
 	})
 	if payload["persistedVersion"] != 9 || payload["supportedVersion"] != 8 || payload["compatible"] != false {
 		t.Fatalf("state schema payload = %#v", payload)
 	}
-	if len(payload) != 3 {
+	if payload["persistedDatabaseVersion"] != 7 || payload["supportedDatabaseVersion"] != 6 {
+		t.Fatalf("state database schema payload = %#v", payload)
+	}
+	if len(payload) != 5 {
 		t.Fatalf("state schema payload exposed unexpected fields: %#v", payload)
 	}
 }
