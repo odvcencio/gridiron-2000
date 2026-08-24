@@ -203,40 +203,20 @@ func renderMatchupsPage(t *testing.T) string {
 // page's strict-component boundary was judged safe by inspection
 // instead of duplicating this harness per page).
 func TestMatchupsPageRendersWithRealScheduleData(t *testing.T) {
-	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
-	t.Setenv("DEMO_MODE", "true")
-	t.Setenv("GOOGLE_CLIENT_ID", "")
-
-	seedRequest, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-	if _, err := league.Default().AdminGenerateSchedule(seedRequest, 14, 1, 42); err != nil {
-		t.Fatalf("seed schedule: %v", err)
-	}
-
-	router := route.NewRouter()
-	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		ctx.SetLanguage("en")
-		return server.HTMLDocument(ctx.Document("Test", body))
-	})
-	// "." is this package's own directory (app/matchups): AddDir treats it
-	// as the route tree's root, so page.gsx here answers "/" — enough to
-	// drive one real render without pulling every other page's file
-	// modules (and their own env/store needs) into this test.
-	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
-		t.Fatalf("AddDir: %v", err)
-	}
-	handler, err := router.BuildChecked()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=scheduled",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("BuildChecked: %v", err)
+		t.Fatalf("real-schedule fixture process: %v\n%s", err, output)
 	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET / (matchups page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
+	body := string(output)
 	if strings.Contains(body, "WENT DARK") || strings.Contains(body, "render strict component") {
 		t.Fatalf("matchups page rendered the error page instead of matchup cards: %s", body)
 	}

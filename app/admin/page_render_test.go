@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -263,6 +264,25 @@ func adminCSRFToken(t *testing.T, body string) string {
 }
 
 func TestAdminSeasonControlsRenderAndRetainInvalidGeneration(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_SEASON_CONTROLS_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin season controls fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_SEASON_CONTROLS_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
 	handler := adminTestHandler(t)
 	get := httptest.NewRequest(http.MethodGet, "/", nil)
 	getRes := httptest.NewRecorder()

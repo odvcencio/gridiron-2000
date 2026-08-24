@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,6 +53,25 @@ func buildDraftAuthenticatedHandler(t *testing.T) http.Handler {
 }
 
 func TestDraftPageSeatlessOmitsControlsButKeepsOnboarding(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftPageSeatlessOmitsControlsButKeepsOnboardingFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"DRAFT_SEATLESS_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=false",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("draft seatless fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestDraftPageSeatlessOmitsControlsButKeepsOnboardingFixtureProcess(t *testing.T) {
+	if os.Getenv("DRAFT_SEATLESS_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "false")
 	t.Setenv("GOOGLE_CLIENT_ID", "")

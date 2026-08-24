@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,6 +27,35 @@ import (
 // following app/matchups and app/join's harness, after submitting a real
 // community sighting so data.signals is genuinely non-empty.
 func TestWirePageRendersSignalCardsWithRealData(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWirePageRendersSignalCardsWithRealDataFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"WIRE_RENDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"WIRE_ROOT="+t.TempDir(),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("wire real-data fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{"wire-event", "League group chat", "DEGRADED"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("wire fixture missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "NO SIGNALS YET") {
+		t.Fatalf("wire fixture rendered the empty state: %s", body)
+	}
+}
+
+func TestWirePageRendersSignalCardsWithRealDataFixtureProcess(t *testing.T) {
+	if os.Getenv("WIRE_RENDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
@@ -119,6 +149,7 @@ func TestWirePageRendersSignalCardsWithRealData(t *testing.T) {
 			t.Fatalf("render leaked machine mode token %q: %s", token, body)
 		}
 	}
+	_, _ = os.Stdout.WriteString(body)
 }
 
 func TestWireModeLabelsCoverServiceVocabulary(t *testing.T) {
