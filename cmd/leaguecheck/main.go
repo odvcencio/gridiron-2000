@@ -8,7 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -101,19 +100,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	restoreLog := directConfigWarnings(stderr)
-	defer restoreLog()
-	restoreEnv, err := setExplicitLeagueFile(*file)
-	if err != nil {
-		fmt.Fprintf(stderr, "leaguecheck: %v\n", err)
-		return 1
-	}
-	defer restoreEnv()
-
-	cfg, err := league.LoadConfig()
+	cfg, warnings, err := league.LoadConfigFileWithEnvOverrides(*file)
 	if err != nil {
 		fmt.Fprintf(stderr, "leaguecheck: invalid: %v\n", err)
 		return 1
+	}
+	for _, warning := range warnings {
+		fmt.Fprintf(stderr, "warning: league config: %s\n", warning)
 	}
 	summary := summarize(cfg)
 	if *format == "json" {
@@ -127,34 +120,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	writeText(stdout, summary)
 	return 0
-}
-
-func setExplicitLeagueFile(path string) (func(), error) {
-	previous, existed := os.LookupEnv("LEAGUE_FILE")
-	if err := os.Setenv("LEAGUE_FILE", path); err != nil {
-		return nil, err
-	}
-	return func() {
-		if existed {
-			_ = os.Setenv("LEAGUE_FILE", previous)
-		} else {
-			_ = os.Unsetenv("LEAGUE_FILE")
-		}
-	}, nil
-}
-
-func directConfigWarnings(stderr io.Writer) func() {
-	previousWriter := log.Writer()
-	previousFlags := log.Flags()
-	previousPrefix := log.Prefix()
-	log.SetOutput(stderr)
-	log.SetFlags(0)
-	log.SetPrefix("warning: ")
-	return func() {
-		log.SetOutput(previousWriter)
-		log.SetFlags(previousFlags)
-		log.SetPrefix(previousPrefix)
-	}
 }
 
 func summarize(cfg league.Config) configSummary {

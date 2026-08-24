@@ -19,6 +19,7 @@ func clearConfigOverrides(t *testing.T) {
 func TestRunValidatesAndSummarizesEffectiveConfig(t *testing.T) {
 	clearConfigOverrides(t)
 	file := filepath.Join("..", "..", "config", "league.json.example")
+	t.Setenv("LEAGUE_FILE", filepath.Join(t.TempDir(), "hostile-league.json"))
 	var stdout, stderr bytes.Buffer
 	if code := run([]string{"--file", file}, &stdout, &stderr); code != 0 {
 		t.Fatalf("run code = %d; stderr: %s", code, stderr.String())

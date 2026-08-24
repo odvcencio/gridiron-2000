@@ -2,10 +2,12 @@ package league
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -146,6 +148,141 @@ func TestLoadConfigUnknownFieldFails(t *testing.T) {
 	_, err := loadConfigFromEnvFile(t, body)
 	if err == nil || !strings.Contains(err.Error(), `league config: unknown field "bogus_field"`) {
 		t.Fatalf("error = %v, want the unknown-field message", err)
+	}
+}
+
+func TestLoadConfigFileStrictlyRejectsUnknownAndTrailingJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "unknown field",
+			body: strings.Replace(minimalValidConfigJSON, `"version": 1,`, `"version": 1, "bogus_field": true,`, 1),
+			want: `league config: unknown field "bogus_field"`,
+		},
+		{
+			name: "trailing value",
+			body: minimalValidConfigJSON + "\n{}\n",
+			want: "trailing JSON data",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeConfig(t, tc.body)
+			cfg, warnings, err := LoadConfigFile(path)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("LoadConfigFile() cfg=%+v warnings=%v error=%v, want error containing %q", cfg, warnings, err, tc.want)
+			}
+			if warnings != nil {
+				t.Fatalf("warnings = %v on strict decode failure, want nil", warnings)
+			}
+		})
+	}
+}
+
+func TestLoadConfigFileIsExplicitAndIgnoresAmbientEnvironment(t *testing.T) {
+	explicit := writeConfig(t, minimalValidConfigJSON)
+	hostile := strings.Replace(minimalValidConfigJSON, `"name": "Test League"`, `"name": "Hostile League"`, 1)
+	hostilePath := writeConfig(t, hostile)
+	t.Setenv("LEAGUE_FILE", hostilePath)
+	t.Setenv("GOSX_APP_ROOT", filepath.Dir(hostilePath))
+	t.Setenv("DATA_FILE", filepath.Join(filepath.Dir(hostilePath), "state.json"))
+	t.Setenv("APP_NAME", "Ambient League")
+	t.Setenv("DRAFT_TZ", "Not/AZone")
+	t.Setenv("LEAGUE_URL", "https://ambient.example.test")
+	t.Setenv("SCORING_FORMAT", "not-a-format")
+	t.Setenv("DRAFT_AT", "not-a-timestamp")
+	t.Setenv("SEASON_START_AT", "not-a-timestamp")
+	t.Setenv("NFL_SEASON", "not-a-season")
+
+	cfg, warnings, err := LoadConfigFile(explicit)
+	if err != nil {
+		t.Fatalf("LoadConfigFile() error = %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if cfg.Name != "Test League" || cfg.Season != 2026 || cfg.Timezone != "America/New_York" {
+		t.Fatalf("cfg = %+v, want explicit file values despite hostile environment", cfg)
+	}
+	if cfg.Source != "file:"+explicit {
+		t.Errorf("Source = %q, want %q", cfg.Source, "file:"+explicit)
+	}
+}
+
+func warningConfigJSON(t *testing.T) string {
+	t.Helper()
+	var file map[string]any
+	if err := json.Unmarshal([]byte(minimalValidConfigJSON), &file); err != nil {
+		t.Fatal(err)
+	}
+	teams := make([]any, 14)
+	for i := range teams {
+		label := itoa(i + 1)
+		teams[i] = map[string]any{
+			"id": "team-" + label, "name": "Team " + label,
+			"abbreviation": "T" + label, "division": "", "tone": "",
+		}
+	}
+	file["teams"] = teams
+	file["roster"] = map[string]any{"preset": "deep-league"}
+	draft := file["draft"].(map[string]any)
+	draft["rounds"] = 14
+	body, err := json.Marshal(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+func TestLoadConfigFileReturnsNonfatalWarnings(t *testing.T) {
+	cfg, warnings, err := LoadConfigFile(writeConfig(t, warningConfigJSON(t)))
+	if err != nil {
+		t.Fatalf("LoadConfigFile() error = %v", err)
+	}
+	if cfg.Name != "Test League" {
+		t.Errorf("Name = %q, want Test League", cfg.Name)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "deep-league") {
+		t.Fatalf("warnings = %v, want one deep-league guidance warning", warnings)
+	}
+}
+
+func TestLoadConfigFileConcurrentExplicitLoadsAreIsolated(t *testing.T) {
+	pathA := writeConfig(t, strings.Replace(minimalValidConfigJSON, `"name": "Test League"`, `"name": "Alpha League"`, 1))
+	pathB := writeConfig(t, strings.Replace(minimalValidConfigJSON, `"name": "Test League"`, `"name": "Beta League"`, 1))
+	type loadCase struct {
+		path string
+		want string
+	}
+	cases := []loadCase{{path: pathA, want: "Alpha League"}, {path: pathB, want: "Beta League"}}
+	errs := make(chan error, len(cases)*8)
+	var wg sync.WaitGroup
+	for _, tc := range cases {
+		for i := 0; i < 8; i++ {
+			wg.Add(1)
+			go func(tc loadCase) {
+				defer wg.Done()
+				for j := 0; j < 8; j++ {
+					cfg, warnings, err := LoadConfigFile(tc.path)
+					if err != nil {
+						errs <- err
+						return
+					}
+					if cfg.Name != tc.want || cfg.Source != "file:"+tc.path || len(warnings) != 0 {
+						errs <- fmt.Errorf("got name=%q source=%q warnings=%v for %s", cfg.Name, cfg.Source, warnings, tc.path)
+						return
+					}
+				}
+			}(tc)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
 	}
 }
 

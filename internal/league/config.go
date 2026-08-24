@@ -13,8 +13,10 @@
 package league
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -286,10 +288,7 @@ func LoadConfig() (Config, error) {
 		cfg = fileCfg
 		cfg.Source = "file:" + path
 	}
-	if err := applyEnvOverrides(&cfg); err != nil {
-		return Config{}, err
-	}
-	warnings, err := validateConfig(&cfg)
+	cfg, warnings, err := finishConfigLoad(cfg, true)
 	for _, w := range warnings {
 		log.Printf("league config: %s", w)
 	}
@@ -297,6 +296,53 @@ func LoadConfig() (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// LoadConfigFile reads and validates exactly path. It never performs the
+// runtime config-path lookup and never reads any process environment, so an
+// explicit file cannot be redirected by LEAGUE_FILE, GOSX_APP_ROOT, DATA_FILE,
+// or one of the runtime's seven supported field overrides. Warnings are
+// returned to the caller rather than logged.
+func LoadConfigFile(path string) (Config, []string, error) {
+	cfg, err := loadConfigFile(path)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	cfg.Source = "file:" + path
+	return finishConfigLoad(cfg, false)
+}
+
+// LoadConfigFileWithEnvOverrides reads exactly path and applies the same
+// seven documented field overrides as LoadConfig: APP_NAME, DRAFT_TZ,
+// LEAGUE_URL, SCORING_FORMAT, DRAFT_AT, SEASON_START_AT, and NFL_SEASON.
+// It deliberately does not consult the runtime path-lookup variables
+// LEAGUE_FILE, GOSX_APP_ROOT, or DATA_FILE. This is used by leaguecheck, whose
+// documented contract includes the field overrides while keeping --file
+// authoritative.
+func LoadConfigFileWithEnvOverrides(path string) (Config, []string, error) {
+	cfg, err := loadConfigFile(path)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	cfg.Source = "file:" + path
+	return finishConfigLoad(cfg, true)
+}
+
+// finishConfigLoad applies the optional runtime field overrides and runs the
+// one shared validation path. Keeping this order preserves LoadConfig's
+// built-in < file < environment precedence while allowing explicit callers
+// to opt out of all environment access.
+func finishConfigLoad(cfg Config, withEnvOverrides bool) (Config, []string, error) {
+	if withEnvOverrides {
+		if err := applyEnvOverrides(&cfg); err != nil {
+			return Config{}, nil, err
+		}
+	}
+	warnings, err := validateConfig(&cfg)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	return cfg, warnings, nil
 }
 
 // resolveConfigPath implements the spec section 3.3 lookup order: an
@@ -355,13 +401,20 @@ func loadConfigFile(path string) (Config, error) {
 		return Config{}, fmt.Errorf("league config: %s: %w", path, err)
 	}
 	var file configFile
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&file); err != nil {
 		if field, ok := unknownFieldName(err); ok {
 			return Config{}, fmt.Errorf("league config: unknown field %q", field)
 		}
 		return Config{}, fmt.Errorf("league config: %s: %w", path, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		if err == nil {
+			return Config{}, fmt.Errorf("league config: %s: trailing JSON data", path)
+		}
+		return Config{}, fmt.Errorf("league config: %s: trailing JSON: %w", path, err)
 	}
 
 	cfg := Config{

@@ -11,7 +11,9 @@ go run ./cmd/leaguecheck --file deploy/local/league.json
 go run ./cmd/leaguecheck --file deploy/local/league-sk.json --format json
 ```
 
-`leaguecheck` uses the same strict loader and supported environment overrides as the application, but it does not start the server or open the league state database. A successful text report shows the resolved public identity, season, draft meeting and timezone, team count, roster capacity, membership posture, waivers, and trade policy. JSON output is intended for fleet automation. An invalid file exits nonzero before a deployment changes.
+`leaguecheck` uses the same strict loader and the seven supported field environment overrides as the application, but it does not start the server or open the league state database. The `--file` path is authoritative: `LEAGUE_FILE`, `GOSX_APP_ROOT`, `DATA_FILE`, and the current working directory cannot redirect it. A successful text report shows the resolved public identity, season, draft meeting and timezone, team count, roster capacity, membership posture, waivers, and trade policy. JSON output is intended for fleet automation. An invalid file exits nonzero before a deployment changes.
+
+Library callers that need an isolated preflight can use `league.LoadConfigFile(path)`. It reads exactly the supplied path, applies strict decoding, preset resolution, and validation, returns nonfatal warnings, and does not read process environment. `league.LoadConfigFileWithEnvOverrides(path)` is the explicit-path variant for tools such as `leaguecheck` that intentionally retain the seven documented field overrides.
 
 ## File lookup and precedence
 
