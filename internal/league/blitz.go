@@ -1,6 +1,7 @@
 package league
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -446,6 +447,20 @@ func (s *Service) BlitzEnteredTeams() map[string]bool {
 	return teams
 }
 
+func (s *Service) blitzActionOwner(r *http.Request) (string, error) {
+	authority, err := s.requestSeatAuthority(r, "")
+	switch {
+	case errors.Is(err, errSeatActionSignIn):
+		return "", fmt.Errorf("sign in to enter the blitz")
+	case errors.Is(err, errSeatActionRequired):
+		return "", fmt.Errorf("claim a team seat before entering the blitz")
+	case err != nil:
+		return "", err
+	default:
+		return authority.OwnerKey, nil
+	}
+}
+
 // BlitzAdd adds playerID to the viewer's slate entry after validating
 // section 7's rules in order: V1 sign-in, V2 known slate, V10 slate
 // closed, V3 pool membership, V4 not a defense, V5 team plays in the
@@ -453,9 +468,9 @@ func (s *Service) BlitzEnteredTeams() map[string]bool {
 // sixth player, V8 team cap.
 func (s *Service) BlitzAdd(r *http.Request, slate, playerID string) error {
 	now := s.clock()
-	owner := s.viewerKey(r)
-	if owner == "" {
-		return fmt.Errorf("sign in to enter the blitz")
+	owner, err := s.blitzActionOwner(r)
+	if err != nil {
+		return err
 	}
 	slate = strings.TrimSpace(slate)
 	if !validBlitzSlate(slate) {
@@ -509,9 +524,9 @@ func (s *Service) BlitzAdd(r *http.Request, slate, playerID string) error {
 // slate closed, V11 player is in the entry, V9 not yet kicked off.
 func (s *Service) BlitzRemove(r *http.Request, slate, playerID string) error {
 	now := s.clock()
-	owner := s.viewerKey(r)
-	if owner == "" {
-		return fmt.Errorf("sign in to enter the blitz")
+	owner, err := s.blitzActionOwner(r)
+	if err != nil {
+		return err
 	}
 	slate = strings.TrimSpace(slate)
 	if !validBlitzSlate(slate) {
@@ -921,8 +936,11 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	viewer := s.Viewer(r)
 	publicEntry := publicEntryData(s.publicEntryViewForViewerState(r, viewer, state))
-	viewerKey := s.viewerKey(r)
-	hasSeat, _ := viewer["has_seat"].(bool)
+	authority, authorityErr := s.requestSeatAuthorityForState(r, state, "")
+	owner := ""
+	if authorityErr == nil {
+		owner = authority.OwnerKey
+	}
 	pool := s.pool()
 	scoringValues := s.currentScoringValues()
 	snapshot, attached := s.blitzSnapshot()
@@ -963,19 +981,13 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	closed := slateKnown && (slateStatus.Final || blitzSlateClosed(slateGames))
 	liveStats := snapshot.Stats[slate]
 
-	entry := state.BlitzEntries[viewerKey][slate]
-	if !hasSeat {
-		// Keep an unseated identity from seeing or editing a seat-tied entry
-		// surface. The mutation handlers still enforce their own existing
-		// authority checks; this is a read projection boundary.
-		entry = BlitzEntry{}
-	}
+	entry := state.BlitzEntries[owner][slate]
 	slots := s.blitzSlotMaps(entry, slateGames, liveStats, scoringValues, pool, now)
 	// entryOpen gates the slate as a whole (sign-in, sunset, every game
 	// final). Each eligible row then gates itself on its own game's
 	// kickoff, so a slate that is still open never offers an Add button
 	// for a player whose game has started.
-	entryOpen := viewerKey != "" && hasSeat && !archived && !closed
+	entryOpen := owner != "" && !archived && !closed
 	eligible := []map[string]any{}
 	lockedEligible := 0
 	if !archived && !closed {
@@ -1047,7 +1059,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"slate_label":           blitzSlateLabel(slate),
 		"other_slate":           other,
 		"other_slate_label":     blitzSlateLabel(other),
-		"can_enter":             viewerKey != "" && hasSeat && !archived,
+		"can_enter":             owner != "" && !archived,
 		// entry_open gates the slate; each eligible row's own can_add
 		// gates the player (see entryOpen above). The template reads
 		// can_add for the Add button, never entry_open, so a started

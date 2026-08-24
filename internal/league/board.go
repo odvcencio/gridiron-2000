@@ -1,6 +1,7 @@
 package league
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -66,11 +67,14 @@ func boardPageLinks(position, query string, pages, current int) []map[string]any
 func (s *Service) BoardData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
-	// A board is a seat-tied draft control. Keep the existing action
-	// ownership boundary intact, but do not render an unseated identity's
-	// private scratch board as if it were a live team board. PublicEntryView
-	// is the shared admission/seat truth used for the next-step copy below.
-	key := boardViewKeyForViewer(state, viewer, s.viewerKey(r))
+	// Read and mutation projections share the same persisted seat authority,
+	// so an authenticated but unseated identity cannot acquire or view a
+	// private scratch board that the draft clock would never use.
+	authority, authorityErr := s.requestSeatAuthorityForState(r, state, "")
+	key := ""
+	if authorityErr == nil {
+		key = authority.OwnerKey
+	}
 	pool := s.pool()
 	position := BoardPositionFilter(r.URL.Query().Get("pos"))
 	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -165,19 +169,6 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	}
 }
 
-// boardViewKeyForViewer limits the board shown by the read projection to an
-// actual franchise seat. The action handlers retain their existing service
-// authority and continue to re-check ownership independently; this helper
-// prevents a seatless request from receiving a private board or edit affordance
-// in the page surface.
-func boardViewKeyForViewer(state PersistedState, viewer map[string]any, viewerKey string) string {
-	hasSeat, _ := viewer["has_seat"].(bool)
-	if !hasSeat {
-		return ""
-	}
-	return boardKeyForViewer(state, viewerKey)
-}
-
 func pageRangeStart(pagination poolPagination) int {
 	if pagination.Total == 0 {
 		return 0
@@ -191,6 +182,20 @@ func (s *Service) boardOwner(r *http.Request) (string, error) {
 		return "", fmt.Errorf("sign in to build a draft board")
 	}
 	return key, nil
+}
+
+func (s *Service) boardActionOwner(r *http.Request) (string, error) {
+	authority, err := s.requestSeatAuthority(r, "")
+	switch {
+	case errors.Is(err, errSeatActionSignIn):
+		return "", fmt.Errorf("sign in to build a draft board")
+	case errors.Is(err, errSeatActionRequired):
+		return "", fmt.Errorf("claim a team seat before building a draft board")
+	case err != nil:
+		return "", err
+	default:
+		return authority.OwnerKey, nil
+	}
 }
 
 // boardKeyForViewer returns the durable owner key for a draft board. A seated
@@ -216,7 +221,7 @@ func boardKeyForViewer(state PersistedState, viewerKey string) string {
 
 // BoardAdd puts a pool player on the viewer's board.
 func (s *Service) BoardAdd(r *http.Request, playerID string) (Player, error) {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return Player{}, err
 	}
@@ -229,7 +234,7 @@ func (s *Service) BoardAdd(r *http.Request, playerID string) (Player, error) {
 
 // BoardMove shifts a board entry one slot up or down.
 func (s *Service) BoardMove(r *http.Request, playerID, direction string) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -245,7 +250,7 @@ func (s *Service) BoardMove(r *http.Request, playerID, direction string) error {
 // app/board/page.gsx) posts on drop. It mirrors BoardMove's ownership
 // check; the store clamps an out-of-range index rather than rejecting it.
 func (s *Service) BoardMoveTo(r *http.Request, playerID string, index int) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -254,7 +259,7 @@ func (s *Service) BoardMoveTo(r *http.Request, playerID string, index int) error
 
 // BoardRemove drops a board entry.
 func (s *Service) BoardRemove(r *http.Request, playerID string) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}
@@ -263,7 +268,7 @@ func (s *Service) BoardRemove(r *http.Request, playerID string) error {
 
 // BoardClear empties the viewer's board.
 func (s *Service) BoardClear(r *http.Request) error {
-	owner, err := s.boardOwner(r)
+	owner, err := s.boardActionOwner(r)
 	if err != nil {
 		return err
 	}

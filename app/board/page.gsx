@@ -148,12 +148,22 @@ func Page() Node {
 					</If>
 				</div>
 				<If cond={data.board_count == 0}>
-					<div class="empty-tape">
-						<strong>NO PLAYERS RANKED</strong>
-						<p>
-							Add players from the pool on the right. Your order is saved to your seat.
-						</p>
-					</div>
+					<If cond={data.can_edit}>
+						<div class="empty-tape">
+							<strong>NO PLAYERS RANKED</strong>
+							<p>
+								Add players from the pool on the right. Your order is saved to your seat.
+							</p>
+						</div>
+					</If>
+					<If cond={data.can_edit == false}>
+						<div class="empty-tape">
+							<strong>BROWSE THE PLAYER POOL</strong>
+							<p>
+								Player rankings remain visible below. A franchise seat is required before this page can save a private draft order.
+							</p>
+						</div>
+					</If>
 				</If>
 				<div
 					class="pool-list"
@@ -174,7 +184,12 @@ func Page() Node {
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">02 // PLAYER POOL</span>
-						<h2>Add to board</h2>
+						<If cond={data.can_edit}>
+							<h2>Add to board</h2>
+						</If>
+						<If cond={data.can_edit == false}>
+							<h2>Browse available players</h2>
+						</If>
 					</div>
 				</div>
 				<div class="position-filters" aria-label="Filter available players by position">
