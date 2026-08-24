@@ -7,11 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/actionui"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/session"
 )
 
-func TestBoardAddExplicitSuccessRedirectWinsOverReturnTarget(t *testing.T) {
+func TestBoardAddSuccessRedirectBackUsesSubmittedReturnTarget(t *testing.T) {
 	returnTarget := boardRedirectTarget("WR", "Tom & /", "3")
 	values := url.Values{
 		action.ReturnTargetField: {returnTarget},
@@ -25,15 +26,15 @@ func TestBoardAddExplicitSuccessRedirectWinsOverReturnTarget(t *testing.T) {
 		if _, ok := ctx.FormData[action.ReturnTargetField]; ok {
 			t.Fatal("reserved return target reached the Board add handler")
 		}
-		ctx.Redirect("/board?success=1#board-pool")
+		actionui.RedirectBackWithNotice(ctx, "/board#board-pool", "Player added.")
 		return nil
 	})
 
 	if response.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", response.Code)
 	}
-	if got := response.Header().Get("Location"); got != "/board?success=1#board-pool" {
-		t.Fatalf("Location = %q, want explicit success redirect", got)
+	if got := response.Header().Get("Location"); got != returnTarget {
+		t.Fatalf("Location = %q, want submitted return target %q", got, returnTarget)
 	}
 }
 

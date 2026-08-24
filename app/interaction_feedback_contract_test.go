@@ -46,8 +46,10 @@ func TestLayoutProvidesAccessibleFloatingManagedActionFeedback(t *testing.T) {
 }
 
 func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
-	const wantRedirects = 73
+	const wantRedirects = 70
+	const wantRedirectBacks = 3
 	redirects := 0
+	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -61,6 +63,7 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 		}
 		text := string(source)
 		redirects += strings.Count(text, "actionui.RedirectWithNotice(")
+		redirectBacks += strings.Count(text, "actionui.RedirectBackWithNotice(")
 		if strings.Contains(text, `session.AddFlash(ctx.Request, "notice"`) {
 			t.Errorf("%s bypasses shared redirect feedback with a raw notice flash", path)
 		}
@@ -71,6 +74,9 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if redirectBacks != wantRedirectBacks {
+		t.Fatalf("RedirectBackWithNotice inventory = %d, want %d", redirectBacks, wantRedirectBacks)
 	}
 	if redirects != wantRedirects {
 		t.Fatalf("RedirectWithNotice inventory = %d, want %d", redirects, wantRedirects)

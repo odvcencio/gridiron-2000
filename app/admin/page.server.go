@@ -442,7 +442,7 @@ func init() {
 				if redraw {
 					notice = "Replacement draft order drawn after six shuffle passes. The existing regular-season schedule was preserved. " + adminNotificationReceiptText(receipt) + "."
 				}
-				actionui.RedirectWithNotice(ctx, adminSectionTarget("draft-order"), notice)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("draft-order"), notice)
 				return nil
 			},
 			"clock-pause": func(ctx *action.Context) error {
@@ -580,7 +580,7 @@ func init() {
 				if alsoEmail {
 					notice += " Email: " + adminNotificationReceiptText(receipt) + "."
 				}
-				actionui.RedirectWithNotice(ctx, adminSectionTarget("announcements"), notice)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("announcements"), notice)
 				return nil
 			},
 			"announcement-delete": func(ctx *action.Context) error {

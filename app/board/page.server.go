@@ -130,7 +130,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), player.Name+" added to your board.")
+				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), player.Name+" added to your board.")
 				return nil
 			},
 			"board-move": func(ctx *action.Context) error {
