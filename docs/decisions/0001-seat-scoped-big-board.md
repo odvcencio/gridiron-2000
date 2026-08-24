@@ -19,22 +19,25 @@ seat.
 - Detaching a co-manager removes that person's access only. The seat board is
   retained under its canonical primary owner key for the next authorized
   operator.
-- A primary transfer or identity migration carries the board to the new
-  canonical owner in the same transaction as the seat change. No partial
-  transfer may leave picks and AUTO pointing at different board keys.
-- When importing legacy per-account boards, prefer the existing primary's
-  order. If only the co-manager has a legacy order, promote that order to the
-  seat key. If both differ, preserve the primary order and append co-manager
-  entries that are not already present, keeping first appearance order.
-- Every migration is idempotent and records the source keys and resulting
-  order in the migration/audit record. A failed migration rolls back the
-  member/key change and leaves both source boards untouched; retrying after
-  correction is safe.
+- Releasing a claimed seat folds the primary board first and any legacy
+  co-manager board second into a unique, first-appearance order under the
+  deterministic internal key `seat:<teamID>`. The primary and co-manager
+  member records and their personal board keys are removed in that same
+  mutation; pending co-invites and readiness are cleared as part of seat
+  release.
+- Reclaiming an open seat promotes its escrow order into the claimant's
+  normalized primary identity key. Any existing claimant personal entries
+  append after escrow entries, with duplicates removed by first appearance;
+  the escrow key is deleted in the same mutation.
+- Binding a co-manager folds that person's legacy personal board after the
+  existing primary order, removes duplicate player IDs, stores the result
+  under the normalized primary identity key, and deletes the co-manager key.
+- Release, reclaim, and co-manager binding retries are idempotent. A
+  persistence failure restores the exact pre-mutation state and does not
+  publish a partial board or membership transition.
 - Concurrent edits use the store's serialized mutation path. The last
   committed move/add/remove wins, and a successful action reports the updated
-  order to the acting manager. Attribution/activity work remains a follow-up:
-  record which authorized operator submitted each change without exposing
-  the private ranking to commissioner summaries.
+  order to the acting manager.
 
 ## Related product contract
 
