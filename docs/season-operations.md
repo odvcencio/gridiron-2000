@@ -48,7 +48,7 @@ For a multi-instance Kubernetes topology, every league can use the shared `statr
 2. Claim the correct franchise at `/join`. Signing in and owning a team seat are separate states.
 3. Open `/scoring` and read the active league's roster, scoring, waivers, trades, and lock rules.
 4. Open `/team`; set the franchise name and visual identity if the league permits it.
-5. Build a ranked, deep Big Board at `/board`. Primary and co-manager share the seat-level board.
+5. Build a ranked, deep Big Board at `/board`. Primary and co-manager share the seat-level board; the lifecycle, legacy migration, and rollback contract is [Decision 0001](decisions/0001-seat-scoped-big-board.md).
 6. Open `/draft`, choose the truthful ready and autopick states, and leave the room available on draft night.
 
 A custom PNG or JPEG becomes the franchise identity and releases any claimed stock badge so another team may claim it.

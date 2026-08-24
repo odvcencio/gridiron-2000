@@ -1,9 +1,17 @@
 package board
 
 type BoardRowProps struct {
-	Player       map[string]any
-	RemoveAction string
-	CSRF         string
+	Player            map[string]any
+	MoveAction        string
+	RemoveAction      string
+	CSRF              string
+	ReturnTargetField string
+	ReturnTarget      string
+	Position          string
+	Query             string
+	Page              any
+	CanMoveUp         bool
+	CanMoveDown       bool
 }
 
 func BoardRow(props BoardRowProps) Node {
@@ -67,9 +75,43 @@ func BoardRow(props BoardRowProps) Node {
 		<span class="position-chip">{props.Player.position}</span>
 		<b class="mono">{props.Player.projection}</b>
 		<div class="board-controls">
+			<form method="post" action={props.MoveAction} data-gosx-managed="true">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="player_id" value={props.Player.id}></input>
+				<input type="hidden" name="direction" value="up"></input>
+				<input type="hidden" name="pos" value={props.Position}></input>
+				<input type="hidden" name="q" value={props.Query}></input>
+				<input type="hidden" name="page" value={props.Page}></input>
+				<input type="hidden" name={props.ReturnTargetField} value={props.ReturnTarget}></input>
+				<If cond={props.CanMoveUp}>
+					<button class="board-button board-button--move" type="submit" aria-label={"Move " + props.Player.name + " up"}>↑ <span class="visually-hidden">Move up</span></button>
+				</If>
+				<If cond={props.CanMoveUp == false}>
+					<button class="board-button board-button--move" type="button" disabled="disabled" aria-label={props.Player.name + " is already first"}>↑ <span class="visually-hidden">Already first</span></button>
+				</If>
+			</form>
+			<form method="post" action={props.MoveAction} data-gosx-managed="true">
+				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+				<input type="hidden" name="player_id" value={props.Player.id}></input>
+				<input type="hidden" name="direction" value="down"></input>
+				<input type="hidden" name="pos" value={props.Position}></input>
+				<input type="hidden" name="q" value={props.Query}></input>
+				<input type="hidden" name="page" value={props.Page}></input>
+				<input type="hidden" name={props.ReturnTargetField} value={props.ReturnTarget}></input>
+				<If cond={props.CanMoveDown}>
+					<button class="board-button board-button--move" type="submit" aria-label={"Move " + props.Player.name + " down"}>↓ <span class="visually-hidden">Move down</span></button>
+				</If>
+				<If cond={props.CanMoveDown == false}>
+					<button class="board-button board-button--move" type="button" disabled="disabled" aria-label={props.Player.name + " is already last"}>↓ <span class="visually-hidden">Already last</span></button>
+				</If>
+			</form>
 			<form method="post" action={props.RemoveAction} data-gosx-managed="true">
 				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 				<input type="hidden" name="player_id" value={props.Player.id}></input>
+				<input type="hidden" name="pos" value={props.Position}></input>
+				<input type="hidden" name="q" value={props.Query}></input>
+				<input type="hidden" name="page" value={props.Page}></input>
+				<input type="hidden" name={props.ReturnTargetField} value={props.ReturnTarget}></input>
 				<button class="board-button board-button--cut" type="submit" aria-label={"Remove " + props.Player.name}>✕</button>
 			</form>
 		</div>
@@ -145,6 +187,10 @@ func Page() Node {
 					<If cond={data.board_count > 0}>
 						<form method="post" action={actionPath("board-clear")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="pos" value={data.pool_position}></input>
+							<input type="hidden" name="q" value={data.pool_query}></input>
+							<input type="hidden" name="page" value={data.pool_page}></input>
+							<input type="hidden" name={data.board_return_target_field} value={data.board_return_target}></input>
 							<button class="filter-button" type="submit">Clear board</button>
 						</form>
 					</If>
@@ -176,8 +222,16 @@ func Page() Node {
 					<Each of={data.board} as="entry">
 						<BoardRow
 							player={entry}
+							MoveAction={actionPath("board-move")}
 							RemoveAction={actionPath("board-remove")}
 							CSRF={csrf.token}
+							ReturnTargetField={data.board_return_target_field}
+							ReturnTarget={data.board_return_target}
+							Position={data.pool_position}
+							Query={data.pool_query}
+							Page={data.pool_page}
+							CanMoveUp={entry.board_can_move_up}
+							CanMoveDown={entry.board_can_move_down}
 						 />
 					</Each>
 				</div>

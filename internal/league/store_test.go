@@ -90,8 +90,8 @@ func TestReleaseSeatAndResets(t *testing.T) {
 	if len(state.Picks) != 0 {
 		t.Fatal("draft reset kept picks")
 	}
-	if len(state.Boards["a@example.com"]) != 1 {
-		t.Fatal("draft reset must keep boards")
+	if len(state.Boards[seatBoardEscrowKey(member.TeamID)]) != 1 {
+		t.Fatal("draft reset must keep released seat board in escrow")
 	}
 
 	if err := store.AddInvite("keep@example.com"); err != nil {

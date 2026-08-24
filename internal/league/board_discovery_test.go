@@ -115,6 +115,36 @@ func TestBoardDataDistinguishesEmptyPoolFromEmptyFilter(t *testing.T) {
 	}
 }
 
+func TestBoardDataExposesNativeReorderBoundaries(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(3)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	request, _ := http.NewRequest(http.MethodGet, "/board?pos=WR&q=target&page=2", nil)
+
+	for _, id := range []string{"pool-001", "pool-002"} {
+		if _, err := service.BoardAdd(request, id); err != nil {
+			t.Fatalf("BoardAdd(%q): %v", id, err)
+		}
+	}
+	data := service.BoardData(request)
+	board, ok := data["board"].([]map[string]any)
+	if !ok {
+		t.Fatalf("board = %#v, want typed rows", data["board"])
+	}
+	if len(board) != 2 {
+		t.Fatalf("board rows = %d, want 2", len(board))
+	}
+	if board[0]["board_can_move_up"] != false || board[0]["board_can_move_down"] != true {
+		t.Fatalf("first row boundaries = up:%v down:%v, want false/true", board[0]["board_can_move_up"], board[0]["board_can_move_down"])
+	}
+	if board[1]["board_can_move_up"] != true || board[1]["board_can_move_down"] != false {
+		t.Fatalf("last row boundaries = up:%v down:%v, want true/false", board[1]["board_can_move_up"], board[1]["board_can_move_down"])
+	}
+	if data["pool_position"] != "WR" || data["pool_query"] != "target" || data["pool_page"] != 1 {
+		t.Fatalf("canonical pool context = pos:%v q:%v page:%v, want WR/target/1", data["pool_position"], data["pool_query"], data["pool_page"])
+	}
+}
+
 func TestBoardPositionFilterUsesPoolAllowlist(t *testing.T) {
 	for _, test := range []struct {
 		input string

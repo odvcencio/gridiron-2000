@@ -92,8 +92,11 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			request := ctx.Request
-			if view, ok := ctx.ActionState("board-add"); ok {
-				request = boardRequestWithActionFilters(request, view)
+			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear"} {
+				if view, ok := ctx.ActionState(name); ok {
+					request = boardRequestWithActionFilters(request, view)
+					break
+				}
 			}
 			data := league.Default().BoardData(request)
 			data["board_return_target_field"] = boardReturnTargetField
@@ -110,7 +113,11 @@ func init() {
 			data["board_error"] = ""
 			for _, name := range []string{"board-add", "board-move", "board-remove", "board-clear"} {
 				if view, ok := ctx.ActionState(name); ok {
-					if message := view.Error("player_id"); message != "" {
+					message := view.Error("player_id")
+					if message == "" {
+						message = view.Error("item_id")
+					}
+					if message != "" {
 						data["has_board_error"] = true
 						data["board_error"] = message
 					}
@@ -138,7 +145,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/board", "Board order updated.")
+				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Board order updated.")
 				return nil
 			},
 			// board-move-to is the absolute-index action the declarative
@@ -155,20 +162,20 @@ func init() {
 				if err := league.Default().BoardMoveTo(ctx.Request, ctx.FormData["item_id"], index); err != nil {
 					return actionui.Validation(ctx, "board", "item_id", err)
 				}
-				return ctx.Success("", nil)
+				return ctx.Success("Board order updated.", nil)
 			},
 			"board-remove": func(ctx *action.Context) error {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return actionui.Validation(ctx, "board", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/board", "Player removed from your board.")
+				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Player removed from your board.")
 				return nil
 			},
 			"board-clear": func(ctx *action.Context) error {
 				if err := league.Default().BoardClear(ctx.Request); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
-				actionui.RedirectWithNotice(ctx, "/board", "Your board is cleared.")
+				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Your board is cleared.")
 				return nil
 			},
 		},
