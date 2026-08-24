@@ -1,0 +1,23 @@
+{
+  "contract": "gridiron.hq.commissioner-summary",
+  "schema_version": "1.0",
+  "instance": {"id": "future", "league_id": "future-league", "region": "moon-1"},
+  "league": {"name": "FUTURE LEAGUE", "short_name": "FTR", "format": "guillotine", "season": 2027, "timezone": "America/Chicago", "rules_generation": 2},
+  "capabilities": ["auction.v2"],
+  "competition": {"phase": "midseason", "teams": {"occupied": 10, "vacant": 0, "total": 10}, "extra_state": "known-only-to-newer-clients"},
+  "membership": {"claimed_teams": 10, "open_teams": 0, "pending_invites": 0, "primary_managers": 10, "co_managers": 0},
+  "lineup": {"issue_count": 0, "next_lock_at": null},
+  "waivers": {"mode": "rolling", "open_claims": 0, "next_run_at": null},
+  "trades": {"pending_count": 0, "commissioner_decisions": 0},
+  "pickem": {"week": null, "unpicked": null, "next_deadline_at": null},
+  "warnings": [{"code": "future_notice", "severity": "info", "summary": "A newer provider feature is available.", "future_detail": true}],
+  "calendar": {"next_deadline": null, "deadlines": []},
+  "attention_items": [],
+  "recent_activity": {"items": [], "truncated": false, "as_of": "2027-08-24T20:30:00Z", "cursor": "opaque"},
+  "configuration": {"format": "guillotine", "team_count": 10, "roster_model": "elimination", "scoring_model": "configured", "waiver_mode": "rolling", "trade_policy": "closed", "pickem_enabled": false, "blitz_enabled": false, "timezone": "America/Chicago"},
+  "data_health": {"quality": "warming", "source_mode": "replicated", "source_state": "backfilling", "player_count": 500, "last_degradation": null, "last_success_at": "2027-08-24T20:30:00Z", "as_of": "2027-08-24T20:30:00Z", "new_metric": 1},
+  "release": {"git_sha": "abcdef1234567890abcdef1234567890abcdef12", "built_at": "2027-08-24T20:00:00Z", "image_digest": null},
+  "links": {"league": "/", "overview": "/", "join": "/join", "draft": null, "board": null, "team": "/team", "players": "/players", "trades": "/trades", "pickem": null, "blitz": null, "activity": "/activity", "commissioner": "/admin"},
+  "produced_at": "2027-08-24T20:30:05Z",
+  "future_top_level": {"safe": true}
+}

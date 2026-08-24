@@ -1,0 +1,22 @@
+{
+  "contract": "gridiron.hq.commissioner-summary",
+  "schema_version": "1.0",
+  "instance": {"id": "minimal", "league_id": "minimal-league"},
+  "league": {"name": "MINIMAL LEAGUE", "short_name": "MIN", "format": "keeper", "season": 2026, "timezone": "UTC"},
+  "capabilities": [],
+  "competition": {"phase": "unknown", "teams": {"occupied": null, "vacant": null, "total": null}},
+  "membership": {"claimed_teams": null, "open_teams": null, "pending_invites": null, "primary_managers": null, "co_managers": null},
+  "lineup": {"issue_count": null, "next_lock_at": null},
+  "waivers": {"mode": null, "open_claims": null, "next_run_at": null},
+  "trades": {"pending_count": null, "commissioner_decisions": null},
+  "pickem": {"week": null, "unpicked": null, "next_deadline_at": null},
+  "warnings": [],
+  "calendar": {"next_deadline": null, "deadlines": []},
+  "attention_items": [],
+  "recent_activity": {"items": [], "truncated": false, "as_of": "2026-08-24T20:30:00Z"},
+  "configuration": {"format": null, "team_count": null, "roster_model": null, "scoring_model": null, "waiver_mode": null, "trade_policy": null, "pickem_enabled": null, "blitz_enabled": null, "timezone": null},
+  "data_health": {"quality": "not_reported", "source_mode": null, "source_state": null, "player_count": null, "last_degradation": null, "last_success_at": null, "as_of": null},
+  "release": {"git_sha": "1234567890abcdef1234567890abcdef12345678", "built_at": "2026-08-24T20:00:00Z", "image_digest": null},
+  "links": {"league": "/", "overview": "/", "join": "/join", "draft": null, "board": null, "team": "/team", "players": "/players", "trades": "/trades", "pickem": null, "blitz": null, "activity": "/activity", "commissioner": "/admin"},
+  "produced_at": "2026-08-24T20:30:05Z"
+}
