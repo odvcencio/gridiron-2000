@@ -179,6 +179,40 @@ Services and restrictive NetworkPolicies belong to the declarative fleet
 topology once its HQ-host relationship is explicit; do not compensate with an
 allow-all rule on port 8091.
 
+## Commissioner HQ v1 connection registry
+
+The HQ consumer core reads one strict versioned JSON registry from the explicit
+absolute `COMMISSIONER_HQ_V1_REGISTRY_FILE` path. If the variable is absent, v1
+fleet hosting is disabled. Start with
+[`config/commissioner-hq-v1.example.json`](../config/commissioner-hq-v1.example.json).
+The registry is operator-owned topology, not league state: it contains stable
+connection/league IDs, display metadata, fixed order, reviewed provider and
+public origins, capabilities, canonical links, and one environment-variable or
+absolute-file secret reference. It must never contain a secret value, email,
+member identity, invitation, or raw upstream response.
+
+Loading is bounded and fail-closed for malformed JSON, unknown fields, unsafe
+origins/links, duplicate key/order/league identity, unsupported versions, and
+more than 64 connections. An enabled connection whose referenced secret is
+temporarily missing becomes a safe `misconfigured` row without preventing
+other leagues from loading. Disabled hosting and disabled connections validate
+safe topology but never read credentials or make provider requests.
+
+The consumer keeps only a process-local last-success cache. Collection uses a
+two-second per-provider timeout, three-second aggregate deadline, and at most
+eight concurrent provider calls while preserving configured row order. A valid
+success is `connected/live` and replaces only that connection's cache. A later
+failure retains the exact prior provider snapshot as `stale` for at most 24
+hours; after that, facts are `unavailable/not_reported`. Provider data quality
+(`healthy`, `degraded`, or `not_reported`) remains independent of transport and
+freshness. Restarts intentionally begin with an empty cache.
+
+The source-only retry core fetches exactly one known connection and uses the
+same timeout, classification, cache, and attempt-generation rules. The later
+commissioner browser API owns session authorization, CSRF, per-commissioner
+rate limiting, envelopes, and `Retry-After`; those concerns are deliberately
+not guessed inside the identity-free fleet collector.
+
 ## Fleet document and generated publication
 
 cmd/fleetgen accepts an explicit fleet.json; it does not discover a fleet from

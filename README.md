@@ -267,6 +267,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `COMMISSIONER_HQ_PROVIDER_KEY_ID` | unset | Opaque HMAC key ID for the private v1 provider; never reuse the legacy `COMMISSIONER_HQ_TOKEN` |
 | `COMMISSIONER_HQ_PROVIDER_SECRET` / `COMMISSIONER_HQ_PROVIDER_SECRET_FILE` | unset | Exactly one 32–4096 byte HMAC secret source; the file path must be absolute and bytes are not trimmed |
 | `COMMISSIONER_HQ_PROVIDER_ADDR` | `:8091` when configured | Private numeric bind address for the v1 provider; this listener must not be routed by the public Service or Ingress |
+| `COMMISSIONER_HQ_V1_REGISTRY_FILE` | unset | Absolute path to the strict v1 HQ-host connection registry; absence disables v1 fleet hosting, and the registry stores secret references rather than secret bytes |
 | `APP_IMAGE_DIGEST` | empty | Optional immutable `sha256:` release digest reported to HQ; empty is represented as unknown rather than guessed |
 | `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
 | `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |

@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "enabled": true,
+  "connections": [
+    {
+      "key": "gridiron",
+      "order": 10,
+      "enabled": true,
+      "league_id": "gridiron-2000",
+      "display_name": "GRIDIRON 2000",
+      "short_code": "G2K",
+      "accent": "cyan",
+      "provider_origin": "http://gridiron-2000-hq.gridiron.svc.cluster.local:8091",
+      "public_origin": "https://gridiron.example",
+      "capabilities": ["draft.v1", "readiness.v1", "data-health.v1"],
+      "links": {
+        "league": "/",
+        "overview": "/",
+        "join": "/join",
+        "draft": "/draft",
+        "board": "/board",
+        "team": "/team",
+        "players": "/players",
+        "trades": "/trades",
+        "pickem": "/pickem",
+        "blitz": "/blitz",
+        "activity": "/activity",
+        "commissioner": "/admin"
+      },
+      "credential": {
+        "key_id": "hq-primary",
+        "secret_env": "GRIDIRON_HQ_PROVIDER_SECRET",
+        "secret_file": ""
+      }
+    }
+  ]
+}
