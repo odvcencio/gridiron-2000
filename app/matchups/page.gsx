@@ -263,7 +263,18 @@ func Page() Node {
 					</If>
 					<If cond={data.next_matchup.has_seat == false}>
 						<p class="next-matchup-panel__message">{data.next_matchup.message}</p>
-						<a href="/join" class="access-link">Claim a franchise</a>
+						<If cond={data.public_entry.can_claim}>
+							<a href={data.public_entry.action_href} data-gosx-link class="access-link">{data.public_entry.action_label}</a>
+						</If>
+						<If cond={data.public_entry.can_claim == false}>
+							<a href={data.public_entry.action_href} data-gosx-link class="access-link">{data.public_entry.action_label}</a>
+							<If cond={data.public_entry.admitted == false}>
+								<a href="/pickem" data-gosx-link class="access-link">Open Pick'em HQ →</a>
+							</If>
+							<If cond={data.public_entry.admitted && data.public_entry.league_full}>
+								<a href="/players" data-gosx-link class="access-link">Browse player pool →</a>
+							</If>
+						</If>
 					</If>
 				</section>
 				<header>

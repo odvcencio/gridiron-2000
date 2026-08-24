@@ -17,11 +17,13 @@ func (s *Service) viewerReadOnly(r *http.Request, state PersistedState) map[stri
 			"signed_in": false, "demo": s.demoMode, "name": "Guest Coach",
 			"email": "", "initials": "GC", "team_id": team.ID,
 			"team_name": team.Name, "has_seat": s.demoMode,
-			"is_commissioner": s.demoMode,
+			"seat_claim_eligible": false,
+			"is_commissioner":     s.demoMode,
 		}
 	}
 
 	member, ok := memberByEmail(state.Members, user.Email)
+	_, pendingCoInvite := state.CoInvites[user.Email]
 	hasSeat := ok && member.TeamID != ""
 	teamID, teamName := "", ""
 	if hasSeat {
@@ -36,6 +38,7 @@ func (s *Service) viewerReadOnly(r *http.Request, state PersistedState) map[stri
 		"signed_in": true, "demo": false, "name": name,
 		"email": user.Email, "initials": initials(name), "team_id": teamID,
 		"team_name": teamName, "has_seat": hasSeat,
-		"is_commissioner": s.IsCommissioner(r),
+		"seat_claim_eligible": ok && !hasSeat && !pendingCoInvite,
+		"is_commissioner":     s.IsCommissioner(r),
 	}
 }

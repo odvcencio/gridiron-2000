@@ -1569,6 +1569,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	state := s.store.Snapshot()
 	live := s.feed.Snapshot(ctx, s.clock())
 	viewer := s.Viewer(r)
+	publicEntry := s.publicEntryViewForViewerState(r, viewer, state)
 	currentWeek := live.Week
 	selectedWeek := live.Week
 	weekNotice := ""
@@ -1659,7 +1660,8 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"week_notice":        weekNotice,
 		"has_week_notice":    weekNotice != "",
 		"live_interval":      map[bool]string{true: "1m", false: ""}[isCurrentWeek],
-		"next_matchup":       s.nextManagerMatchup(state, viewer, state.Schedule, currentWeek),
+		"next_matchup":       s.nextManagerMatchup(state, viewer, state.Schedule, currentWeek, publicEntry),
+		"public_entry":       publicEntryData(publicEntry),
 	}
 }
 
@@ -1672,7 +1674,7 @@ func containsInt(values []int, want int) bool {
 	return false
 }
 
-func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any, schedule *SeasonSchedule, currentWeek int) map[string]any {
+func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any, schedule *SeasonSchedule, currentWeek int, publicEntry PublicEntryView) map[string]any {
 	out := map[string]any{
 		"has_seat":         false,
 		"has_matchup":      false,
@@ -1689,6 +1691,9 @@ func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any
 	}
 	hasSeat, _ := viewer["has_seat"].(bool)
 	if !hasSeat {
+		if publicEntry.SignedIn && !publicEntry.CanClaim {
+			out["message"] = publicEntry.Detail
+		}
 		return out
 	}
 	out["has_seat"] = true
@@ -1699,7 +1704,9 @@ func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any
 	teamID, _ := viewer["team_id"].(string)
 	if strings.TrimSpace(teamID) == "" {
 		out["has_seat"] = false
-		out["message"] = "Claim a franchise to see your next matchup."
+		if publicEntry.SignedIn && !publicEntry.CanClaim {
+			out["message"] = publicEntry.Detail
+		}
 		return out
 	}
 	weeks := seasonScheduleWeeks(*schedule)
@@ -2164,6 +2171,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		viewer = s.Viewer(r)
 		state = s.store.Snapshot()
 	}
+	publicEntry := s.publicEntryViewForViewerState(r, viewer, state)
 	pool := s.pool()
 	// Resolved once for the whole render: up to hundreds of players render
 	// per page, and scoreBreakdown would otherwise snapshot store state once
@@ -2235,6 +2243,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	}
 	return map[string]any{
 		"viewer":               viewer,
+		"public_entry":         publicEntryData(publicEntry),
 		"draft":                s.draftSummary(now),
 		"teams":                s.draftTeamMaps(state, onClockID),
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),

@@ -203,6 +203,15 @@ func (s *Service) PublicEntryDataForViewer(r *http.Request, viewer map[string]an
 
 func (s *Service) publicEntryDataForViewerState(r *http.Request, viewer map[string]any, state PersistedState) map[string]any {
 	v := s.publicEntryViewForViewerState(r, viewer, state)
+	return publicEntryData(v)
+}
+
+// publicEntryData is the stable map boundary consumed by GoSX templates.
+// Keeping the conversion separate from state resolution lets pages that need
+// more than one related view (for example Matchups' next-matchup panel) share
+// one PublicEntryView rather than independently guessing at admission or seat
+// availability.
+func publicEntryData(v PublicEntryView) map[string]any {
 	return map[string]any{
 		"state":                 string(v.State),
 		"state_label":           v.StateLabel,

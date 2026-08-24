@@ -57,7 +57,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="navigation-link__index mono">05</span>
 					Draft board
 				</Link>
-				<If cond={props.HasSeat}>
+				<If cond={props.HasSeat || props.SignedIn}>
 					<Link href="/players" class="navigation-link">
 						<span class="navigation-link__index mono">06</span>
 						Player pool

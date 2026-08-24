@@ -198,7 +198,7 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 		*team = append(*team, "/team|04 Team status")
 	}
 	*team = append(*team, "/board|05 Draft board")
-	if viewer.hasSeat {
+	if viewer.hasSeat || viewer.signedIn {
 		*team = append(*team, "/players|06 Player pool")
 	}
 	if viewer.hasSeat || viewer.commissioner {
@@ -211,6 +211,40 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 		}})
 	}
 	return groups
+}
+
+func TestPrimaryNavigationAuthenticatedSeatlessPlayerPoolAcrossMobileSurfaces(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true, seatsOpen: true})
+	document := parseNavigationDocument(t, body)
+	surfaces := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "primary-navigation")
+	})
+	if len(surfaces) != 3 {
+		t.Fatalf("primary navigation surface count = %d, want desktop/enhanced/static", len(surfaces))
+	}
+	for index, surface := range surfaces {
+		players := findNodes(surface, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" &&
+				nodeAttr(node, "href") == "/players" && hasClass(node, "navigation-link")
+		})
+		if len(players) != 1 {
+			t.Errorf("surface %d player-pool link count = %d, want 1", index, len(players))
+		}
+	}
+	for index, navigation := range surfaces {
+		nav := findNodes(navigation, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "nav"
+		})
+		if len(nav) != 1 || nodeAttr(nav[0], "aria-label") != "Primary navigation" {
+			t.Errorf("surface %d lacks the labelled primary navigation landmark", index)
+		}
+	}
+	dialogs := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && nodeAttr(node, "data-navigation-surface") == "mobile-enhanced-dialog"
+	})
+	if len(dialogs) != 1 || nodeAttr(dialogs[0], "role") != "dialog" || nodeAttr(dialogs[0], "aria-modal") != "true" {
+		t.Fatalf("enhanced mobile navigation dialog lost its modal accessibility contract")
+	}
 }
 
 func TestPrimaryNavigationRoleSeatAndSurfaceMatrix(t *testing.T) {
