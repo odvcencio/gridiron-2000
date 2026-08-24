@@ -387,16 +387,29 @@ type PickemGameRow struct {
 	Push           bool
 	MissedLoss     bool
 	Void           bool
-	Outcome        string
-	ResultLabel    string
-	AwayLine       string
-	HomeLine       string
-	SpreadState    string
-	SpreadAsOf     string
-	SpreadLock     string
-	SpreadSource   string
-	ScoreDisplay   string
-	Consensus      PickemConsensusView
+	// MarketUnavailable means the durable market has no eligible line for
+	// this game. It is separate from Locked: a future game can be void before
+	// kickoff, and must show a no-pick state rather than an active form.
+	MarketUnavailable bool
+	Outcome           string
+	ResultLabel       string
+	AwayLine          string
+	HomeLine          string
+	SpreadState       string
+	SpreadAsOf        string
+	SpreadLock        string
+	SpreadSource      string
+	ScoreDisplay      string
+	Consensus         PickemConsensusView
+}
+
+// pickemMarketUnavailable is the submission/rendering guard for a durable
+// market record. A missing market record is still a pre-sync state and does
+// not close a game; once a record exists, however, no line means there is no
+// against-the-spread contest to enter. Void records are immutable and remain
+// unavailable even if a later feed refresh supplies a line.
+func pickemMarketUnavailable(market PickemMarket) bool {
+	return market.Void || !market.LinePresent
 }
 
 func spreadTeamDisplay(team string, lineTenths int) string {
@@ -452,7 +465,13 @@ func pickemSpreadView(game GameInfo, market PickemMarket, location *time.Locatio
 	return
 }
 
-func pickemResultLabel(grade pickemGrade, locked bool) string {
+func pickemResultLabel(grade pickemGrade, locked, marketUnavailable, picked bool) string {
+	if marketUnavailable {
+		if !picked {
+			return "NO PICK · MARKET VOID"
+		}
+		return "VOID · NO FROZEN LINE"
+	}
 	switch grade.Outcome {
 	case pickemWin:
 		return "WIN · " + grade.Cover + " COVERED"
@@ -547,12 +566,18 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 	for _, game := range weekGames {
 		pick := viewerPicks[game.ID]
 		locked := !now.Before(game.Kickoff)
-		if pick != "" {
-			pickedCount++
-		} else if !locked {
-			unpickedCount++
+		market, marketExists := state.PickemMarkets[game.ID]
+		marketUnavailable := marketExists && pickemMarketUnavailable(market)
+		// A durable no-line/VOID game remains visible for auditability, but
+		// it is not an actionable pick or a missed obligation. Do not let a
+		// legacy pick on that game inflate the viewer's current counters.
+		if !marketUnavailable {
+			if pick != "" {
+				pickedCount++
+			} else if !locked {
+				unpickedCount++
+			}
 		}
-		market := state.PickemMarkets[game.ID]
 		grade := gradePickemAt(game, market, pick, viewerEnteredAt, now)
 		awayLine, homeLine, spreadState, spreadAsOf, spreadLock, spreadSource := pickemSpreadView(game, market, marketLocation)
 		scoreDisplay := ""
@@ -564,34 +589,35 @@ func (s *Service) PickemData(r *http.Request) map[string]any {
 			consensus = pickemConsensus(state, game)
 		}
 		games = append(games, PickemGameRow{
-			ID:             game.ID,
-			Week:           game.Week,
-			Label:          game.Away + " @ " + game.Home,
-			KickoffDisplay: game.Kickoff.In(location).Format("Mon Jan 2 · 3:04 PM MST"),
-			Away:           game.Away,
-			Home:           game.Home,
-			Pick:           pick,
-			PickedAway:     pick != "" && pick == game.Away,
-			PickedHome:     pick != "" && pick == game.Home,
-			Picked:         pick != "",
-			Locked:         locked,
-			Final:          game.Final,
-			Winner:         grade.Cover,
-			Correct:        grade.Outcome == pickemWin,
-			Wrong:          grade.Outcome == pickemLoss || grade.Outcome == pickemMissedLoss,
-			Push:           grade.Outcome == pickemPush,
-			MissedLoss:     grade.Outcome == pickemMissedLoss,
-			Void:           grade.Outcome == pickemVoid,
-			Outcome:        string(grade.Outcome),
-			ResultLabel:    pickemResultLabel(grade, locked),
-			AwayLine:       awayLine,
-			HomeLine:       homeLine,
-			SpreadState:    spreadState,
-			SpreadAsOf:     spreadAsOf,
-			SpreadLock:     spreadLock,
-			SpreadSource:   spreadSource,
-			ScoreDisplay:   scoreDisplay,
-			Consensus:      consensus,
+			ID:                game.ID,
+			Week:              game.Week,
+			Label:             game.Away + " @ " + game.Home,
+			KickoffDisplay:    game.Kickoff.In(location).Format("Mon Jan 2 · 3:04 PM MST"),
+			Away:              game.Away,
+			Home:              game.Home,
+			Pick:              pick,
+			PickedAway:        pick != "" && pick == game.Away,
+			PickedHome:        pick != "" && pick == game.Home,
+			Picked:            pick != "",
+			Locked:            locked,
+			Final:             game.Final,
+			Winner:            grade.Cover,
+			Correct:           grade.Outcome == pickemWin,
+			Wrong:             grade.Outcome == pickemLoss || grade.Outcome == pickemMissedLoss,
+			Push:              grade.Outcome == pickemPush,
+			MissedLoss:        grade.Outcome == pickemMissedLoss,
+			Void:              marketUnavailable || grade.Outcome == pickemVoid,
+			MarketUnavailable: marketUnavailable,
+			Outcome:           string(grade.Outcome),
+			ResultLabel:       pickemResultLabel(grade, locked, marketUnavailable, pick != ""),
+			AwayLine:          awayLine,
+			HomeLine:          homeLine,
+			SpreadState:       spreadState,
+			SpreadAsOf:        spreadAsOf,
+			SpreadLock:        spreadLock,
+			SpreadSource:      spreadSource,
+			ScoreDisplay:      scoreDisplay,
+			Consensus:         consensus,
 		})
 	}
 
@@ -732,8 +758,9 @@ func (s *Service) teamAbbreviation(teamID string) string {
 }
 
 // PickemSet stores the viewer's pick for one real game after validating the
-// game exists, the team is one of the two sides, and the game has not
-// kicked off yet. It records only a pick, never a team seat: boardOwner
+// game exists, the team is one of the two sides, the durable market is
+// available, and the game has not kicked off yet. It records only a pick,
+// never a team seat: boardOwner
 // resolves the acting email alone, and Store.SetPickem writes under that
 // email with no Members-map read or write at all (seatless-membership
 // audit, gridiron-2000 pick'em HQ task — this is the path the task asked
@@ -766,6 +793,16 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 	if game.Kickoff.IsZero() || !now.Before(game.Kickoff) {
 		return GameInfo{}, fmt.Errorf("this game is locked")
 	}
+	// Reconcile before any legacy-entry backfill. A durable no-line/VOID
+	// market is a terminal contest decision; rejecting here guarantees an
+	// invalid game cannot create either a pick or the owner's season-entry
+	// timestamp as a side effect.
+	if err := s.store.ReconcilePickemMarkets(now, allGames, nil); err != nil {
+		return GameInfo{}, err
+	}
+	if market, exists := s.store.Snapshot().PickemMarkets[gameID]; exists && pickemMarketUnavailable(market) {
+		return GameInfo{}, fmt.Errorf("this game has no eligible market line; pick'em is void")
+	}
 	if err := s.store.BackfillPickemEnteredAt(allGames); err != nil {
 		return GameInfo{}, err
 	}
@@ -795,12 +832,19 @@ func (s *Service) pickemHomeSummaryFromSnapshot(r *http.Request, state Persisted
 
 	picks := state.Pickems[viewerKey]
 	enteredAt := effectivePickemEnteredAt(state, viewerKey, allGames)
-	gameCount := len(weekGames)
+	gameCount := 0
 	pickedCount := 0
 	openUnpicked := 0
 	lockedUnpicked := 0
 	var nextOpenLock time.Time
 	for _, game := range weekGames {
+		market, marketExists := state.PickemMarkets[game.ID]
+		if marketExists && pickemMarketUnavailable(market) {
+			// Keep the game on the full Pick'em page, but do not present a
+			// void/no-line market as an actionable home-dashboard task.
+			continue
+		}
+		gameCount++
 		if picks[game.ID] != "" {
 			pickedCount++
 			continue

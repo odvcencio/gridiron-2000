@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
 )
 
@@ -66,5 +67,26 @@ func TestPickemValidationPreservesWeekForNativeFormsOnly(t *testing.T) {
 				t.Fatalf("validation field error = %q, want locked message", got)
 			}
 		})
+	}
+}
+
+func TestPickemSetActionProjectsUnavailableMarketErrorAndWeek(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/pickem/__actions/pickem-set?week=2", nil)
+	ctx := &action.Context{
+		Request:  req,
+		FormData: map[string]string{"game_id": "void-game", "team": "AAA", "week": "2"},
+	}
+	err := pickemSetAction(ctx, func(*http.Request, string, string) (league.GameInfo, error) {
+		return league.GameInfo{}, errors.New("this game has no eligible market line; pick'em is void")
+	})
+	result, ok := err.(*action.ResultError)
+	if !ok {
+		t.Fatalf("pickemSetAction returned %T, want *action.ResultError", err)
+	}
+	if got := result.Result.Redirect; got != "/pickem?week=2" {
+		t.Fatalf("unavailable-market redirect = %q, want selected week", got)
+	}
+	if got := result.Result.FieldErrors["pickem"]; got != "this game has no eligible market line; pick'em is void" {
+		t.Fatalf("unavailable-market error = %q, want service message", got)
 	}
 }

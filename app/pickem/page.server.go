@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -81,6 +82,19 @@ func pickemValidationWithRedirect(ctx *action.Context, redirect string, err erro
 	return validation
 }
 
+// pickemSetAction keeps the route's mutation boundary injectable for tests:
+// PickemSet owns market validation and persistence, while this adapter owns
+// only the action's validation projection and selected-week redirect.
+func pickemSetAction(ctx *action.Context, set func(*http.Request, string, string) (league.GameInfo, error)) error {
+	_, err := set(ctx.Request, ctx.FormData["game_id"], ctx.FormData["team"])
+	if err != nil {
+		redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
+		return pickemValidationWithRedirect(ctx, redirect, err)
+	}
+	actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
+	return nil
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -121,13 +135,7 @@ func init() {
 		},
 		Actions: route.FileActions{
 			"pickem-set": func(ctx *action.Context) error {
-				_, err := league.Default().PickemSet(ctx.Request, ctx.FormData["game_id"], ctx.FormData["team"])
-				if err != nil {
-					redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
-					return pickemValidationWithRedirect(ctx, redirect, err)
-				}
-				actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
-				return nil
+				return pickemSetAction(ctx, league.Default().PickemSet)
 			},
 		},
 	}); err != nil {

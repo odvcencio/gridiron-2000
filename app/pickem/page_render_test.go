@@ -76,6 +76,10 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 		{ID: "g-current", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "SF", Home: "SEA", SpreadLinePresent: true, SpreadLineTenths: 15, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
 		{ID: "g-final", Week: 2, Kickoff: now.Add(time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true, SpreadLineTenths: 35, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
 		{ID: "g-open", Week: 2, Kickoff: now.Add(3 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true, SpreadLineTenths: -25, SourceObservedAt: now.Add(-14 * 24 * time.Hour), SourceURL: "https://github.com/nflverse"},
+		// This future game has no eligible line at the already-passed
+		// Thursday boundary. It must render as a disabled no-pick row while
+		// g-open remains an active neighboring game.
+		{ID: "g-void", Week: 2, Kickoff: now.Add(2 * time.Hour), Away: "NYJ", Home: "NE", SourceObservedAt: now},
 	}
 	league.Default().SetScheduleSource(func() []league.GameInfo { return games })
 
@@ -143,5 +147,32 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 		if !strings.Contains(compactBody, want) {
 			t.Fatalf("expected ATS Pick'em contract %q in rendered page, got: %s", want, body)
 		}
+	}
+	voidStart := strings.Index(body, `data-game-id="g-void"`)
+	if voidStart < 0 {
+		t.Fatalf("void game row did not render: %s", body)
+	}
+	voidEnd := strings.Index(body[voidStart:], "</article>")
+	if voidEnd < 0 {
+		t.Fatalf("void game row was not closed: %s", body)
+	}
+	voidRow := body[voidStart : voidStart+voidEnd]
+	if !strings.Contains(voidRow, "NO PICK · MARKET VOID") || !strings.Contains(voidRow, `disabled="disabled"`) {
+		t.Fatalf("void row must show explicit no-pick state and disabled controls: %s", voidRow)
+	}
+	if strings.Contains(voidRow, `method="post"`) || strings.Contains(voidRow, `name="game_id"`) {
+		t.Fatalf("void row must not render active pick forms: %s", voidRow)
+	}
+	neighborStart := strings.Index(body, `data-game-id="g-open"`)
+	if neighborStart < 0 {
+		t.Fatalf("valid neighboring game row did not render: %s", body)
+	}
+	neighborEnd := strings.Index(body[neighborStart:], "</article>")
+	if neighborEnd < 0 {
+		t.Fatalf("valid neighboring game row was not closed: %s", body)
+	}
+	neighborRow := body[neighborStart : neighborStart+neighborEnd]
+	if !strings.Contains(neighborRow, `method="post"`) || !strings.Contains(neighborRow, `name="game_id"`) {
+		t.Fatalf("valid neighboring game lost its active pick forms: %s", neighborRow)
 	}
 }
