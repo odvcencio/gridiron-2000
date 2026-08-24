@@ -361,6 +361,58 @@ func TestPublicationCleanupSwapCannotEscapeBackupDirectory(t *testing.T) {
 	}
 }
 
+func TestPublicationCleanupPreOpenSwapCannotEscapeBackupDirectory(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux openat2 directory handles")
+	}
+	parent := t.TempDir()
+	out := filepath.Join(parent, "bundle")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("must-survive-pre-open\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldBundle := publicationTestBundle(
+		File{Path: "old.txt", Data: []byte("old\n")},
+		File{Path: "nested/old.txt", Data: []byte("nested-old\n")},
+	)
+	newBundle := publicationTestBundle(File{Path: "new.txt", Data: []byte("new\n")})
+	if err := Publish(oldBundle, out); err != nil {
+		t.Fatal(err)
+	}
+	fault := &swapBeforeOpenFS{
+		publicationFS: osPublicationFS{},
+		baseName:      "nested",
+		triggerAt:     3, // initial snapshot, recheck, then backup cleanup
+		replacement:   outside,
+	}
+	publisher := &Publisher{fs: fault, nonce: func() string { return "pre-open" }}
+	err := publisher.Publish(newBundle, out)
+	var committed *CommittedPublicationError
+	if !errors.As(err, &committed) {
+		t.Fatalf("backup pre-open swap error = %v, want committed publication error", err)
+	}
+	if !fault.swapped {
+		t.Fatal("pre-open swap regression did not execute the hook")
+	}
+	got, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "must-survive-pre-open\n" {
+		t.Fatalf("backup cleanup escaped during pre-open substitution: %q", got)
+	}
+	if fault.swapErr != nil {
+		t.Fatalf("injected pre-open swap failed: %v", fault.swapErr)
+	}
+	if _, err := os.Lstat(committed.Artifact); err != nil {
+		t.Fatalf("backup artifact disappeared: %v", err)
+	}
+}
+
 func TestPublicationParentSwapCannotRedirectOwnedOutput(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("requires Linux openat2 directory handles")
@@ -413,6 +465,143 @@ func TestPublicationParentSwapCannotRedirectOwnedOutput(t *testing.T) {
 	}
 	if err := os.Rename(fault.savedPath, parent); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPublicationRejectsHandleOpenedOnSwappedAndRestoredParent(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux openat2 directory handles")
+	}
+	anchor := t.TempDir()
+	oldBundle := publicationTestBundle(File{Path: "old.txt", Data: []byte("old\n")})
+	expectedBundle := publicationTestBundle(File{Path: "expected.txt", Data: []byte("expected\n")})
+	otherBundle := publicationTestBundle(File{Path: "other.txt", Data: []byte("other\n")})
+
+	publishA := filepath.Join(anchor, "publish-a")
+	publishB := filepath.Join(anchor, "publish-b")
+	if err := os.Mkdir(publishA, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(publishB, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	publishOutA := filepath.Join(publishA, "bundle")
+	publishOutB := filepath.Join(publishB, "bundle")
+	if err := Publish(oldBundle, publishOutA); err != nil {
+		t.Fatal(err)
+	}
+	if err := Publish(otherBundle, publishOutB); err != nil {
+		t.Fatal(err)
+	}
+	beforePublishA := snapshotTree(t, publishOutA)
+	beforePublishB := snapshotTree(t, publishOutB)
+	publishFault := &swapOpenRestoreFS{
+		publicationFS: osPublicationFS{},
+		target:        publishA,
+		replacement:   publishB,
+	}
+	publishErr := (&Publisher{fs: publishFault, nonce: func() string { return "open-restore-publish" }}).Publish(expectedBundle, publishOutA)
+	if publishErr == nil || !strings.Contains(publishErr.Error(), "opened directory") {
+		t.Fatalf("publish swap-open-restore error = %v, want opened-directory identity error", publishErr)
+	}
+	if !publishFault.swapped {
+		t.Fatal("publish regression did not execute the swap-open-restore hook")
+	}
+	if after := snapshotTree(t, publishOutA); !reflect.DeepEqual(beforePublishA, after) {
+		t.Fatalf("publish changed validated parent tree:\nbefore=%#v\nafter=%#v", beforePublishA, after)
+	}
+	if after := snapshotTree(t, publishOutB); !reflect.DeepEqual(beforePublishB, after) {
+		t.Fatalf("publish changed swapped-in parent tree:\nbefore=%#v\nafter=%#v", beforePublishB, after)
+	}
+
+	checkA := filepath.Join(anchor, "check-a")
+	checkB := filepath.Join(anchor, "check-b")
+	if err := os.Mkdir(checkA, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(checkB, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	checkOutA := filepath.Join(checkA, "bundle")
+	checkOutB := filepath.Join(checkB, "bundle")
+	if err := Publish(expectedBundle, checkOutA); err != nil {
+		t.Fatal(err)
+	}
+	if err := Publish(otherBundle, checkOutB); err != nil {
+		t.Fatal(err)
+	}
+	beforeCheckA := snapshotTree(t, checkOutA)
+	beforeCheckB := snapshotTree(t, checkOutB)
+	checkFault := &swapOpenRestoreFS{
+		publicationFS: osPublicationFS{},
+		target:        checkA,
+		replacement:   checkB,
+	}
+	if _, err := (&Publisher{fs: checkFault}).Check(expectedBundle, checkOutA); err == nil || !strings.Contains(err.Error(), "opened directory") {
+		t.Fatalf("check swap-open-restore error = %v, want opened-directory identity error", err)
+	}
+	if !checkFault.swapped {
+		t.Fatal("check regression did not execute the swap-open-restore hook")
+	}
+	if after := snapshotTree(t, checkOutA); !reflect.DeepEqual(beforeCheckA, after) {
+		t.Fatalf("check changed validated parent tree:\nbefore=%#v\nafter=%#v", beforeCheckA, after)
+	}
+	if after := snapshotTree(t, checkOutB); !reflect.DeepEqual(beforeCheckB, after) {
+		t.Fatalf("check changed swapped-in parent tree:\nbefore=%#v\nafter=%#v", beforeCheckB, after)
+	}
+}
+
+func TestPublicationRejectsMarkerOpenedOnSwappedAndRestoredFile(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux openat2 directory handles")
+	}
+	anchor := t.TempDir()
+	parentA := filepath.Join(anchor, "file-a")
+	parentB := filepath.Join(anchor, "file-b")
+	if err := os.Mkdir(parentA, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(parentB, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	outA := filepath.Join(parentA, "bundle")
+	outB := filepath.Join(parentB, "bundle")
+	if err := os.Mkdir(outA, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outA, OwnershipMarkerPath), []byte("operator-marker\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outA, "operator.txt"), []byte("operator\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	otherBundle := publicationTestBundle(File{Path: "other.txt", Data: []byte("other\n")})
+	if err := Publish(otherBundle, outB); err != nil {
+		t.Fatal(err)
+	}
+	expectedBundle := publicationTestBundle(File{Path: "expected.txt", Data: []byte("expected\n")})
+	beforeA := snapshotTree(t, outA)
+	beforeB := snapshotTree(t, outB)
+	fault := &swapOpenRestoreFileFS{
+		publicationFS: osPublicationFS{},
+		target:        filepath.Join(outA, OwnershipMarkerPath),
+		replacement:   filepath.Join(outB, OwnershipMarkerPath),
+	}
+	err := (&Publisher{fs: fault, nonce: func() string { return "file-open-restore" }}).Publish(expectedBundle, outA)
+	if err == nil || !strings.Contains(err.Error(), "changed during open") {
+		t.Fatalf("marker swap-open-restore error = %v, want file identity error", err)
+	}
+	if fault.swaps == 0 {
+		t.Fatal("marker regression did not execute the swap-open-restore hook")
+	}
+	if fault.swapErr != nil {
+		t.Fatalf("injected marker swap failed: %v", fault.swapErr)
+	}
+	if after := snapshotTree(t, outA); !reflect.DeepEqual(beforeA, after) {
+		t.Fatalf("publish changed unowned marker tree:\nbefore=%#v\nafter=%#v", beforeA, after)
+	}
+	if after := snapshotTree(t, outB); !reflect.DeepEqual(beforeB, after) {
+		t.Fatalf("publish changed swapped-in marker tree:\nbefore=%#v\nafter=%#v", beforeB, after)
 	}
 }
 
@@ -503,6 +692,80 @@ type swapOnReadDir struct {
 	path  string
 }
 
+type swapBeforeOpenFS struct {
+	publicationFS
+	baseName    string
+	triggerAt   int
+	replacement string
+	openCount   int
+	swapped     bool
+	swapErr     error
+	mu          sync.Mutex
+}
+
+func (f *swapBeforeOpenFS) OpenDir(path string) (publicationDir, error) {
+	dir, err := f.publicationFS.OpenDir(path)
+	if err != nil {
+		return nil, err
+	}
+	return &swapBeforeOpenDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type swapBeforeOpenDir struct {
+	publicationDir
+	owner *swapBeforeOpenFS
+	path  string
+}
+
+func (d *swapBeforeOpenDir) OpenDir(name string) (publicationDir, error) {
+	childPath := filepath.Join(d.path, name)
+	d.owner.mu.Lock()
+	shouldSwap := filepath.Base(childPath) == d.owner.baseName
+	if shouldSwap {
+		d.owner.openCount++
+		shouldSwap = d.owner.openCount == d.owner.triggerAt
+	}
+	d.owner.mu.Unlock()
+	if shouldSwap {
+		return d.owner.openSwapped(d.publicationDir, name, childPath)
+	}
+	child, err := d.publicationDir.OpenDir(name)
+	if err != nil {
+		return nil, err
+	}
+	return &swapBeforeOpenDir{publicationDir: child, owner: d.owner, path: childPath}, nil
+}
+
+func (f *swapBeforeOpenFS) openSwapped(parent publicationDir, name, path string) (publicationDir, error) {
+	saved := path + ".fleetgen-open-saved"
+	if err := os.Rename(path, saved); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(f.replacement, path); err != nil {
+		_ = os.Rename(saved, path)
+		f.mu.Lock()
+		f.swapErr = err
+		f.mu.Unlock()
+		return nil, err
+	}
+	f.mu.Lock()
+	f.swapped = true
+	f.mu.Unlock()
+	opened, openErr := parent.OpenDir(name)
+	restoreErr := errors.Join(os.Rename(path, f.replacement), os.Rename(saved, path))
+	if openErr != nil || restoreErr != nil {
+		if opened != nil {
+			_ = opened.Close()
+		}
+		err := errors.Join(openErr, restoreErr)
+		f.mu.Lock()
+		f.swapErr = err
+		f.mu.Unlock()
+		return nil, err
+	}
+	return &swapBeforeOpenDir{publicationDir: opened, owner: f, path: path}, nil
+}
+
 func (d *swapOnReadDir) OpenDir(name string) (publicationDir, error) {
 	dir, err := d.publicationDir.OpenDir(name)
 	if err != nil {
@@ -553,6 +816,95 @@ func (f *swapOnRenameFS) OpenDir(path string) (publicationDir, error) {
 		return nil, err
 	}
 	return &swapOnRenameDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type swapOpenRestoreFS struct {
+	publicationFS
+	target      string
+	replacement string
+	swapped     bool
+}
+
+func (f *swapOpenRestoreFS) OpenDir(path string) (publicationDir, error) {
+	if path != f.target {
+		return f.publicationFS.OpenDir(path)
+	}
+	f.swapped = true
+	saved := f.target + ".fleetgen-open-saved"
+	if err := os.Rename(f.target, saved); err != nil {
+		return nil, fmt.Errorf("swap target aside: %w", err)
+	}
+	if err := os.Rename(f.replacement, f.target); err != nil {
+		_ = os.Rename(saved, f.target)
+		return nil, fmt.Errorf("swap replacement into target: %w", err)
+	}
+	opened, openErr := f.publicationFS.OpenDir(path)
+	restoreErr := errors.Join(os.Rename(f.target, f.replacement), os.Rename(saved, f.target))
+	if openErr != nil || restoreErr != nil {
+		if opened != nil {
+			_ = opened.Close()
+		}
+		return nil, errors.Join(openErr, restoreErr)
+	}
+	return opened, nil
+}
+
+type swapOpenRestoreFileFS struct {
+	publicationFS
+	target      string
+	replacement string
+	swaps       int
+	swapErr     error
+}
+
+func (f *swapOpenRestoreFileFS) OpenDir(path string) (publicationDir, error) {
+	dir, err := f.publicationFS.OpenDir(path)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOpenRestoreFileDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type swapOpenRestoreFileDir struct {
+	publicationDir
+	owner *swapOpenRestoreFileFS
+	path  string
+}
+
+func (d *swapOpenRestoreFileDir) OpenDir(name string) (publicationDir, error) {
+	child, err := d.publicationDir.OpenDir(name)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOpenRestoreFileDir{publicationDir: child, owner: d.owner, path: filepath.Join(d.path, name)}, nil
+}
+
+func (d *swapOpenRestoreFileDir) OpenFile(name string, flags int, mode os.FileMode) (publicationFile, error) {
+	path := filepath.Join(d.path, name)
+	if path != d.owner.target {
+		return d.publicationDir.OpenFile(name, flags, mode)
+	}
+	saved := path + ".fleetgen-open-saved"
+	if err := os.Rename(path, saved); err != nil {
+		return nil, err
+	}
+	if err := os.Rename(d.owner.replacement, path); err != nil {
+		_ = os.Rename(saved, path)
+		d.owner.swapErr = err
+		return nil, err
+	}
+	d.owner.swaps++
+	opened, openErr := d.publicationDir.OpenFile(name, flags, mode)
+	restoreErr := errors.Join(os.Rename(path, d.owner.replacement), os.Rename(saved, path))
+	if openErr != nil || restoreErr != nil {
+		if opened != nil {
+			_ = opened.Close()
+		}
+		err := errors.Join(openErr, restoreErr)
+		d.owner.swapErr = err
+		return nil, err
+	}
+	return opened, nil
 }
 
 type swapOnRenameDir struct {

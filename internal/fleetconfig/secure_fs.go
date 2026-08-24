@@ -17,6 +17,7 @@ type publicationFile interface {
 // are relative to that handle, so replacing the directory's path cannot make
 // a traversal follow an attacker-controlled symlink.
 type publicationDir interface {
+	Stat() (os.FileInfo, error)
 	ReadDir() ([]os.DirEntry, error)
 	Lstat(name string) (os.FileInfo, error)
 	OpenDir(name string) (publicationDir, error)

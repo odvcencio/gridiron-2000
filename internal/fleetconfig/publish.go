@@ -38,6 +38,10 @@ func (p *Publisher) Publish(bundle Bundle, out string) (result error) {
 	if err != nil {
 		return fmt.Errorf("fleetconfig: open output parent %q: %w", parentPath, err)
 	}
+	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
+		_ = parent.Close()
+		return err
+	}
 	defer func() {
 		if closeErr := parent.Close(); closeErr != nil {
 			result = joinPublicationErrors(result, fmt.Errorf("fleetconfig: close output parent %q: %w", parentPath, closeErr))
@@ -76,10 +80,24 @@ func (p *Publisher) Publish(bundle Bundle, out string) (result error) {
 		return fmt.Errorf("fleetconfig: create private staging directory: %w", err)
 	}
 	stageCreated = true
+	stageInfo, err := parent.Lstat(stageName)
+	if err != nil {
+		cleanupErr := cleanupStage()
+		return joinPublicationErrors(fmt.Errorf("fleetconfig: inspect staging directory: %w", err), cleanupErr)
+	}
+	if stageInfo.Mode()&os.ModeSymlink != 0 || !stageInfo.IsDir() {
+		cleanupErr := cleanupStage()
+		return joinPublicationErrors(errors.New("fleetconfig: staging path is not a directory"), cleanupErr)
+	}
 	stageDir, err := parent.OpenDir(stageName)
 	if err != nil {
 		cleanupErr := cleanupStage()
 		return joinPublicationErrors(fmt.Errorf("fleetconfig: open staging directory: %w", err), cleanupErr)
+	}
+	if err := verifyOpenedDirectory(stagePath, stageInfo, stageDir); err != nil {
+		_ = stageDir.Close()
+		cleanupErr := cleanupStage()
+		return joinPublicationErrors(err, cleanupErr)
 	}
 	writeErr := p.writeStageDir(stageDir, expected)
 	closeStageErr := stageDir.Close()
@@ -213,6 +231,10 @@ func (p *Publisher) Check(bundle Bundle, out string) (drift Drift, result error)
 	if err != nil {
 		return Drift{}, fmt.Errorf("fleetconfig: open output parent %q: %w", parentPath, err)
 	}
+	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
+		_ = parent.Close()
+		return Drift{}, err
+	}
 	defer func() {
 		if closeErr := parent.Close(); closeErr != nil {
 			result = joinPublicationErrors(result, fmt.Errorf("fleetconfig: close output parent %q: %w", parentPath, closeErr))
@@ -325,6 +347,10 @@ func (p *Publisher) writeStageFile(stage publicationDir, path string, data []byt
 		if err != nil {
 			return fmt.Errorf("fleetconfig: open staging parent %q: %w", path, err)
 		}
+		if err := verifyOpenedDirectory(path, info, child); err != nil {
+			_ = child.Close()
+			return err
+		}
 		opened = append(opened, child)
 		current = child
 	}
@@ -384,6 +410,10 @@ func (p *Publisher) removeTree(path string) error {
 	if err != nil {
 		return fmt.Errorf("fleetconfig: open transaction parent %q: %w", parentPath, err)
 	}
+	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
+		_ = parent.Close()
+		return err
+	}
 	if err := p.requireParentStable(parentPath, parentInfo); err != nil {
 		_ = parent.Close()
 		return err
@@ -427,6 +457,10 @@ func (p *Publisher) removeEntry(parent publicationDir, name, display string) err
 	childDir, err := parent.OpenDir(name)
 	if err != nil {
 		return fmt.Errorf("fleetconfig: open transaction directory %q: %w", display, err)
+	}
+	if err := verifyOpenedDirectory(display, info, childDir); err != nil {
+		_ = childDir.Close()
+		return err
 	}
 	removeErr := p.removeDirectory(childDir, display)
 	closeErr := childDir.Close()
@@ -472,6 +506,17 @@ func (p *Publisher) requireParentStable(path string, want os.FileInfo) error {
 	}
 	if current.Mode()&os.ModeSymlink != 0 || !current.IsDir() || !os.SameFile(want, current) {
 		return fmt.Errorf("fleetconfig: output parent %q changed during publication", path)
+	}
+	return nil
+}
+
+func verifyOpenedDirectory(path string, want os.FileInfo, opened publicationDir) error {
+	got, err := opened.Stat()
+	if err != nil {
+		return fmt.Errorf("fleetconfig: inspect opened directory %q: %w", path, err)
+	}
+	if got.Mode()&os.ModeSymlink != 0 || !got.IsDir() || !os.SameFile(want, got) {
+		return fmt.Errorf("fleetconfig: opened directory %q changed during open", path)
 	}
 	return nil
 }

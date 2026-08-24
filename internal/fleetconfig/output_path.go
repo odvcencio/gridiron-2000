@@ -89,9 +89,20 @@ func (p *Publisher) validateRootComponents(root string) error {
 func (p *Publisher) snapshot(root string) (rootSnapshot, error) {
 	parentPath := filepath.Dir(root)
 	name := filepath.Base(root)
+	parentInfo, err := p.fs.Lstat(parentPath)
+	if err != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: inspect output parent %q: %w", parentPath, err)
+	}
+	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: output parent %q is not a directory", parentPath)
+	}
 	parent, err := p.fs.OpenDir(parentPath)
 	if err != nil {
 		return rootSnapshot{}, fmt.Errorf("fleetconfig: open output parent %q: %w", parentPath, err)
+	}
+	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
+		_ = parent.Close()
+		return rootSnapshot{}, err
 	}
 	snapshot, snapshotErr := p.snapshotAt(parent, name, root)
 	closeErr := parent.Close()
@@ -124,6 +135,10 @@ func (p *Publisher) snapshotAt(parent publicationDir, name, display string) (roo
 	dir, err := parent.OpenDir(name)
 	if err != nil {
 		return rootSnapshot{}, fmt.Errorf("fleetconfig: read output directory %q: %w", display, err)
+	}
+	if err := verifyOpenedDirectory(display, info, dir); err != nil {
+		_ = dir.Close()
+		return rootSnapshot{}, err
 	}
 	entries := map[string]publicationEntry{}
 	walkErr := p.walkDirectory(dir, "", entries)
@@ -173,6 +188,10 @@ func (p *Publisher) walkDirectory(dir publicationDir, relative string, entries m
 			if err != nil {
 				return fmt.Errorf("fleetconfig: open output directory %q: %w", rel, err)
 			}
+			if err := verifyOpenedDirectory(rel, info, childDir); err != nil {
+				_ = childDir.Close()
+				return err
+			}
 			walkErr := p.walkDirectory(childDir, rel, entries)
 			closeErr := childDir.Close()
 			if walkErr != nil {
@@ -198,7 +217,7 @@ func (p *Publisher) walkDirectory(dir publicationDir, relative string, entries m
 		if err != nil {
 			return fmt.Errorf("fleetconfig: open output entry %q: %w", rel, err)
 		}
-		data, err := readOpenedFile(file)
+		data, err := readOpenedFile(file, info)
 		if err != nil {
 			return fmt.Errorf("fleetconfig: read output entry %q: %w", rel, err)
 		}
@@ -214,7 +233,7 @@ func (p *Publisher) walkDirectory(dir publicationDir, relative string, entries m
 	return nil
 }
 
-func readOpenedFile(file publicationFile) ([]byte, error) {
+func readOpenedFile(file publicationFile, expected os.FileInfo) ([]byte, error) {
 	info, statErr := file.Stat()
 	if statErr != nil {
 		_ = file.Close()
@@ -223,6 +242,10 @@ func readOpenedFile(file publicationFile) ([]byte, error) {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		_ = file.Close()
 		return nil, errors.New("entry is not a regular file")
+	}
+	if expected == nil || !os.SameFile(expected, info) {
+		_ = file.Close()
+		return nil, errors.New("entry changed during open")
 	}
 	data, readErr := io.ReadAll(file)
 	closeErr := file.Close()

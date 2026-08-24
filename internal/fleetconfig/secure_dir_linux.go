@@ -29,6 +29,10 @@ func (d *osPublicationDir) ReadDir() ([]os.DirEntry, error) {
 	return d.file.ReadDir(-1)
 }
 
+func (d *osPublicationDir) Stat() (os.FileInfo, error) {
+	return d.file.Stat()
+}
+
 func (d *osPublicationDir) Lstat(name string) (os.FileInfo, error) {
 	fd, err := unix.Openat(int(d.file.Fd()), name, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
