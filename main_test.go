@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"testing"
+
+	"gridiron-2000/internal/league"
 )
 
 func TestPersistenceHealthMakesPoisonedStorageNotReady(t *testing.T) {
@@ -54,5 +56,24 @@ func TestLivenessPayloadDoesNotDependOnPersistence(t *testing.T) {
 	}
 	if _, exists := payload["readiness"]; exists {
 		t.Fatal("liveness payload must not imply persistence readiness")
+	}
+}
+
+func TestStateSchemaPayloadExposesOnlyCompatibilityEvidence(t *testing.T) {
+	payload := stateSchemaPayload(league.StateSchemaCompatibility{
+		PersistedVersion:         9,
+		SupportedVersion:         8,
+		PersistedDatabaseVersion: 7,
+		SupportedDatabaseVersion: 6,
+		Compatible:               false,
+	})
+	if payload["persistedVersion"] != 9 || payload["supportedVersion"] != 8 || payload["compatible"] != false {
+		t.Fatalf("state schema payload = %#v", payload)
+	}
+	if payload["persistedDatabaseVersion"] != 7 || payload["supportedDatabaseVersion"] != 6 {
+		t.Fatalf("state database schema payload = %#v", payload)
+	}
+	if len(payload) != 5 {
+		t.Fatalf("state schema payload exposed unexpected fields: %#v", payload)
 	}
 }

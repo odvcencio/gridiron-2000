@@ -65,6 +65,7 @@ func (s *Store) openLocked() error {
 		return err
 	}
 	s.db = db
+	s.capturePersistedSchemaVersion(db)
 
 	// This check must precede pending SQLite migrations. A database can have
 	// a lower PRAGMA user_version while its logical state marker was written
@@ -76,6 +77,7 @@ func (s *Store) openLocked() error {
 	if err := migrateDB(db); err != nil {
 		return s.abandonLocked(fresh, err)
 	}
+	s.capturePersistedSchemaVersion(db)
 	authority, err := readPersistenceAuthority(db)
 	if err != nil {
 		return s.abandonLocked(fresh, err)
@@ -134,11 +136,13 @@ func (s *Store) openLocked() error {
 		if err := s.writeDirtyLocked(); err != nil {
 			return s.abandonLocked(fresh, err)
 		}
+		s.capturePersistedSchemaVersion(db)
 	}
 	state, err := loadStateFromDB(db)
 	if err != nil {
 		return s.abandonLocked(fresh, err)
 	}
+	s.capturePersistedSchemaVersion(db)
 	s.state = state
 	if err := s.rebuildShadowLocked(); err != nil {
 		return s.abandonLocked(fresh, err)
@@ -449,6 +453,12 @@ func (s *Store) importJSONLocked() (bool, error) {
 	var decoded PersistedState
 	if err := json.Unmarshal(raw, &decoded); err != nil {
 		return false, fmt.Errorf("import %s: %w", s.filePath, err)
+	}
+	// Preserve a rejected future marker for health/release diagnostics even
+	// though the temporary migration database is removed on abort.
+	if decoded.SchemaVersion > currentSchemaVersion {
+		s.persistedSchemaVersion = decoded.SchemaVersion
+		s.persistedSchemaKnown = true
 	}
 	if err := validateAndNormalizePersistedState(&decoded); err != nil {
 		return false, err

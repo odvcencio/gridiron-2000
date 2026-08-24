@@ -304,6 +304,16 @@ func (s *Service) PersistenceError() error {
 	return s.store.PersistenceError()
 }
 
+// StateSchemaCompatibility exposes the store's actual persisted schema
+// marker and this binary's supported upper bound without exposing league
+// state or any operator-only storage details.
+func (s *Service) StateSchemaCompatibility() StateSchemaCompatibility {
+	if s == nil || s.store == nil {
+		return StateSchemaCompatibility{SupportedVersion: currentSchemaVersion}
+	}
+	return s.store.StateSchemaCompatibility()
+}
+
 // StartupError is the constructor/runtime gate retained for callers that
 // need the historical name. Health callers should use PersistenceError so
 // the method's post-start write-failure semantics remain explicit.

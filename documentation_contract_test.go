@@ -233,3 +233,39 @@ func TestReleaseChecklistRequiresAuthenticatedPromotionGates(t *testing.T) {
 		previous = at
 	}
 }
+
+func TestReleaseChecklistRequiresSchemaAwareRollbackAdjudication(t *testing.T) {
+	launch := readDocumentationFile(t, filepath.Join("docs", "launch-checklist.md"))
+	deploy := readDocumentationFile(t, filepath.Join("deploy", "README.md"))
+	season := readDocumentationFile(t, filepath.Join("docs", "season-operations.md"))
+	normalized := strings.Join(strings.Fields(launch), " ")
+	for _, required := range []string{
+		"stateSchema",
+		"persistedVersion",
+		"supportedVersion",
+		"persistedDatabaseVersion",
+		"supportedDatabaseVersion",
+		"schema-aware adjudication",
+		"both persisted versions",
+		"separately tested, schema-compatible fallback digest",
+		"Do not run `kubectl rollout undo` to an incompatible binary",
+	} {
+		if !strings.Contains(normalized, required) {
+			t.Errorf("release checklist omitted schema rollback contract %q", required)
+		}
+	}
+	for _, body := range []struct {
+		name string
+		text string
+	}{
+		{name: "deploy README", text: deploy},
+		{name: "season operations", text: season},
+	} {
+		if !strings.Contains(body.text, "stateSchema") {
+			t.Errorf("%s omitted state schema release evidence", body.name)
+		}
+	}
+	if !strings.Contains(deploy, "does not require off-node backups") {
+		t.Error("deploy README omitted the no-off-node-backup boundary")
+	}
+}

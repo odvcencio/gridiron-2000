@@ -33,12 +33,25 @@ type Instance struct {
 	Season    int    `json:"season"`
 }
 
+// StateSchema is the PII-free persistence compatibility evidence carried in
+// release metadata. It is intentionally separate from the federation
+// protocol's own Summary.SchemaVersion: this describes the league state a
+// candidate binary must be able to read before a rollout or rollback.
+type StateSchema struct {
+	PersistedVersion         int  `json:"persistedVersion"`
+	SupportedVersion         int  `json:"supportedVersion"`
+	PersistedDatabaseVersion int  `json:"persistedDatabaseVersion"`
+	SupportedDatabaseVersion int  `json:"supportedDatabaseVersion"`
+	Compatible               bool `json:"compatible"`
+}
+
 type Runtime struct {
-	Ready            bool   `json:"ready"`
-	AppVersion       string `json:"appVersion"`
-	FrameworkVersion string `json:"frameworkVersion"`
-	GitSHA           string `json:"gitSHA"`
-	Build            string `json:"build"`
+	Ready            bool        `json:"ready"`
+	AppVersion       string      `json:"appVersion"`
+	FrameworkVersion string      `json:"frameworkVersion"`
+	GitSHA           string      `json:"gitSHA"`
+	Build            string      `json:"build"`
+	StateSchema      StateSchema `json:"stateSchema"`
 }
 
 type SeatLedgerEntry struct {

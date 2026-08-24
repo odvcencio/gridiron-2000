@@ -1056,6 +1056,14 @@ func (s *Store) writeDirtyLocked() error {
 			return persistFailure(hookErr, disposition)
 		}
 	}
+	// Read the marker after commit so the release projection reports the
+	// schema actually persisted, rather than the normalized in-memory state.
+	// A read failure does not turn a successful mutation into a write failure;
+	// the last known marker remains the truthful evidence available to health.
+	if version, known, readErr := logicalSchemaVersion(s.db); readErr == nil && known {
+		s.persistedSchemaVersion = version
+		s.persistedSchemaKnown = true
+	}
 
 	for _, c := range changes {
 		if c.delete {
@@ -1783,31 +1791,45 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 	return state, nil
 }
 
-// checkLogicalSchemaVersion is deliberately read-only. A database may carry
-// a supported SQLite migration number while its logical state schema was
-// written by a newer binary; that case must be rejected before repair or any
-// other startup action that could change durable rows.
-func checkLogicalSchemaVersion(db *sql.DB) error {
+// logicalSchemaVersion is deliberately read-only. It distinguishes a
+// missing marker on a pre-migration database from a real persisted marker so
+// callers can report unknown evidence without inventing a version.
+func logicalSchemaVersion(db *sql.DB) (version int, known bool, err error) {
 	if db == nil {
-		return errors.New("logical schema version requires an open database")
+		return 0, false, errors.New("logical schema version requires an open database")
 	}
 	var raw string
-	err := db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvSchemaVersion).Scan(&raw)
+	err = db.QueryRow(`SELECT "value" FROM kv WHERE "key" = ?`, kvSchemaVersion).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return 0, false, nil
 	}
 	// A database at PRAGMA user_version=0 has no tables yet. This is the
 	// normal pre-migration state for a newly-created file, and is not a
 	// logical schema claim that needs to be rejected.
 	if err != nil && strings.Contains(err.Error(), "no such table") {
-		return nil
+		return 0, false, nil
 	}
+	if err != nil {
+		return 0, false, err
+	}
+	version, err = strconv.Atoi(raw)
+	if err != nil {
+		return 0, false, fmt.Errorf("kv %s: %w", kvSchemaVersion, err)
+	}
+	return version, true, nil
+}
+
+// checkLogicalSchemaVersion is deliberately read-only. A database may carry
+// a supported SQLite migration number while its logical state schema was
+// written by a newer binary; that case must be rejected before repair or any
+// other startup action that could change durable rows.
+func checkLogicalSchemaVersion(db *sql.DB) error {
+	version, known, err := logicalSchemaVersion(db)
 	if err != nil {
 		return err
 	}
-	version, err := strconv.Atoi(raw)
-	if err != nil {
-		return fmt.Errorf("kv %s: %w", kvSchemaVersion, err)
+	if !known {
+		return nil
 	}
 	if version > currentSchemaVersion {
 		return fmt.Errorf("%w: stored state is version %d, this binary supports up to %d",
