@@ -7,9 +7,120 @@ import (
 	"os"
 	"strings"
 	"testing"
-
-	"gridiron-2000/internal/league"
 )
+
+func draftFragmentFixture() map[string]any {
+	return map[string]any{
+		"draft": map[string]any{
+			"date":            "TEST DRAFT",
+			"long_date":       "Test draft date",
+			"format":          "Snake draft",
+			"status_note":     "Test draft is live.",
+			"at":              "",
+			"countdown_label": "",
+			"started":         true,
+			"complete":        false,
+		},
+		"clock": map[string]any{
+			"paused":             false,
+			"armed":              false,
+			"effective_deadline": "",
+			"remaining_label":    "",
+			"reason":             "waiting for the next pick",
+		},
+		"viewer": map[string]any{
+			"team_id":         "team-test",
+			"has_seat":        true,
+			"is_commissioner": false,
+		},
+		"public_entry": map[string]any{
+			"can_claim":    false,
+			"detail":       "The test viewer already has a seat.",
+			"state_label":  "SEAT ASSIGNED",
+			"action_href":  "/draft",
+			"action_label": "Return to draft",
+			"admitted":     true,
+			"league_full":  false,
+		},
+		"pool_status": map[string]any{
+			"has_notice":            false,
+			"label":                 "",
+			"detail":                "",
+			"has_last_success":      false,
+			"last_success":          "",
+			"last_success_relative": "",
+		},
+		"on_clock": map[string]any{
+			"abbreviation": "TST",
+		},
+		"on_clock_id":          "team-test",
+		"pick_number":          1,
+		"ready_count":          0,
+		"manager_count":        0,
+		"round":                1,
+		"order_randomized":     false,
+		"demo_mode":            false,
+		"viewer_ready":         false,
+		"viewer_autopick":      false,
+		"has_matchup_source":   false,
+		"matchup_source_label": "",
+		"teams":                []map[string]any{},
+		"picks":                []map[string]any{},
+		"board":                []map[string]any{},
+		"available": []map[string]any{
+			{
+				"id":                "player-test",
+				"name":              "Test Player",
+				"position":          "QB",
+				"nfl_team":          "TST",
+				"projection":        "0.0",
+				"rank":              "001",
+				"detail":            "QB · TST",
+				"headshot":          "",
+				"has_headshot":      false,
+				"jersey":            "1",
+				"has_breakdown":     false,
+				"breakdown":         []map[string]any{},
+				"breakdown_total":   "",
+				"has_hist":          false,
+				"hist":              "",
+				"search":            "test player qb tst",
+				"has_draft_capital": false,
+				"draft_capital":     "",
+				"has_opponent":      false,
+				"opponent":          "",
+				"has_matchup":       false,
+				"matchup_tier":      "",
+				"matchup_chip":      "",
+				"matchup_detail":    "",
+				"draft_eligible":    true,
+			},
+		},
+		"draft_complete":     false,
+		"can_pick":           true,
+		"pool_count":         1,
+		"pool_position":      "",
+		"pool_query":         "",
+		"pool_page":          1,
+		"pool_total":         1,
+		"pool_page_start":    1,
+		"pool_page_end":      1,
+		"pool_has_previous":  false,
+		"pool_has_next":      false,
+		"pool_previous_href": "",
+		"pool_next_href":     "",
+		"pool_all_href":      "/draft/fragment/workspace",
+		"pool_rb_href":       "/draft/fragment/workspace?pos=RB",
+		"pool_wr_href":       "/draft/fragment/workspace?pos=WR",
+		"pool_qb_href":       "/draft/fragment/workspace?pos=QB",
+		"pool_te_href":       "/draft/fragment/workspace?pos=TE",
+		"pool_k_href":        "/draft/fragment/workspace?pos=K",
+		"pool_dst_href":      "/draft/fragment/workspace?pos=DST",
+		"pool_p_href":        "/draft/fragment/workspace?pos=P",
+		"board_count":        0,
+		"picks_empty":        true,
+	}
+}
 
 func TestDraftFragmentRejectsMethodAndUnauthorizedBeforeLoading(t *testing.T) {
 	tests := []struct {
@@ -46,8 +157,8 @@ func TestDraftFragmentRejectsMethodAndUnauthorizedBeforeLoading(t *testing.T) {
 }
 
 func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
-	load := func(request *http.Request) map[string]any {
-		return league.Default().DraftDataReadOnly(request)
+	load := func(*http.Request) map[string]any {
+		return draftFragmentFixture()
 	}
 	tests := []struct {
 		region string
@@ -105,6 +216,23 @@ func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
 				t.Fatalf("conditional response = %d with %d bytes, want bodyless 304", second.Code, second.Body.Len())
 			}
 		})
+	}
+}
+
+func TestDraftFragmentFixtureIsFreshForEachRender(t *testing.T) {
+	prepared := draftFragmentFixture()
+	prepareDraftData(prepared)
+
+	fresh := draftFragmentFixture()
+	available, ok := fresh["available"].([]map[string]any)
+	if !ok || len(available) != 1 {
+		t.Fatalf("fresh fixture available = %#v, want one raw player map", fresh["available"])
+	}
+	if got := stringField(available[0], "name"); got != "Test Player" {
+		t.Fatalf("fresh fixture player name = %q, want Test Player", got)
+	}
+	if _, ok := prepared["available"].([]draftPlayerCardView); !ok {
+		t.Fatalf("prepared fixture available = %T, want prepared player cards", prepared["available"])
 	}
 }
 
