@@ -6,6 +6,7 @@ package fleetconfig
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -84,9 +85,10 @@ type publicationEntry struct {
 }
 
 type rootSnapshot struct {
-	exists  bool
-	owned   bool
-	entries map[string]publicationEntry
+	exists   bool
+	owned    bool
+	identity os.FileInfo
+	entries  map[string]publicationEntry
 }
 
 func expectedFiles(bundle Bundle) ([]File, error) {

@@ -87,32 +87,69 @@ func (p *Publisher) validateRootComponents(root string) error {
 }
 
 func (p *Publisher) snapshot(root string) (rootSnapshot, error) {
-	info, err := p.fs.Lstat(root)
+	parentPath := filepath.Dir(root)
+	name := filepath.Base(root)
+	parent, err := p.fs.OpenDir(parentPath)
+	if err != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: open output parent %q: %w", parentPath, err)
+	}
+	snapshot, snapshotErr := p.snapshotAt(parent, name, root)
+	closeErr := parent.Close()
+	if snapshotErr != nil {
+		return rootSnapshot{}, snapshotErr
+	}
+	if closeErr != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: close output parent %q: %w", parentPath, closeErr)
+	}
+	return snapshot, nil
+}
+
+// snapshotAt inspects a root relative to an already-open parent directory.
+// Holding the parent handle prevents a concurrent replacement of the parent
+// path from redirecting the walk through a different tree.
+func (p *Publisher) snapshotAt(parent publicationDir, name, display string) (rootSnapshot, error) {
+	info, err := parent.Lstat(name)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return rootSnapshot{entries: map[string]publicationEntry{}}, nil
 		}
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: inspect output %q: %w", root, err)
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: inspect output %q: %w", display, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: output %q is a symlink", root)
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: output %q is a symlink", display)
 	}
 	if !info.IsDir() {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: output %q is not a directory", root)
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: output %q is not a directory", display)
+	}
+	dir, err := parent.OpenDir(name)
+	if err != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: read output directory %q: %w", display, err)
 	}
 	entries := map[string]publicationEntry{}
-	if err := p.walkTree(root, "", entries); err != nil {
-		return rootSnapshot{}, err
+	walkErr := p.walkDirectory(dir, "", entries)
+	closeErr := dir.Close()
+	if walkErr != nil {
+		return rootSnapshot{}, walkErr
+	}
+	if closeErr != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: close output directory %q: %w", display, closeErr)
+	}
+	current, err := parent.Lstat(name)
+	if err != nil {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: inspect output %q after walk: %w", display, err)
+	}
+	if !os.SameFile(info, current) {
+		return rootSnapshot{}, fmt.Errorf("fleetconfig: output %q changed during walk", display)
 	}
 	marker, ok := entries[OwnershipMarkerPath]
 	owned := ok && marker.kind == entryFile && equalBytes(marker.data, []byte(OwnershipMarker))
-	return rootSnapshot{exists: true, owned: owned, entries: entries}, nil
+	return rootSnapshot{exists: true, owned: owned, identity: info, entries: entries}, nil
 }
 
-func (p *Publisher) walkTree(directory, relative string, entries map[string]publicationEntry) error {
-	children, err := p.fs.ReadDir(directory)
+func (p *Publisher) walkDirectory(dir publicationDir, relative string, entries map[string]publicationEntry) error {
+	children, err := dir.ReadDir()
 	if err != nil {
-		return fmt.Errorf("fleetconfig: read output directory %q: %w", directory, err)
+		return fmt.Errorf("fleetconfig: read output directory %q: %w", relative, err)
 	}
 	sort.Slice(children, func(i, j int) bool { return children[i].Name() < children[j].Name() })
 	for _, child := range children {
@@ -120,12 +157,11 @@ func (p *Publisher) walkTree(directory, relative string, entries map[string]publ
 		if name == "" || name == "." || name == ".." || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 			return fmt.Errorf("fleetconfig: output contains an unsafe entry name %q", name)
 		}
-		path := filepath.Join(directory, name)
 		rel := name
 		if relative != "" {
 			rel = filepath.ToSlash(filepath.Join(relative, name))
 		}
-		info, err := p.fs.Lstat(path)
+		info, err := dir.Lstat(name)
 		if err != nil {
 			return fmt.Errorf("fleetconfig: inspect output entry %q: %w", rel, err)
 		}
@@ -133,29 +169,52 @@ func (p *Publisher) walkTree(directory, relative string, entries map[string]publ
 			return fmt.Errorf("fleetconfig: output entry %q is a symlink", rel)
 		}
 		if info.IsDir() {
-			entries[rel] = publicationEntry{kind: entryDirectory}
-			if err := p.walkTree(path, rel, entries); err != nil {
-				return err
+			childDir, err := dir.OpenDir(name)
+			if err != nil {
+				return fmt.Errorf("fleetconfig: open output directory %q: %w", rel, err)
 			}
+			walkErr := p.walkDirectory(childDir, rel, entries)
+			closeErr := childDir.Close()
+			if walkErr != nil {
+				return walkErr
+			}
+			if closeErr != nil {
+				return fmt.Errorf("fleetconfig: close output directory %q: %w", rel, closeErr)
+			}
+			current, err := dir.Lstat(name)
+			if err != nil {
+				return fmt.Errorf("fleetconfig: inspect output entry %q after walk: %w", rel, err)
+			}
+			if !os.SameFile(info, current) {
+				return fmt.Errorf("fleetconfig: output entry %q changed during walk", rel)
+			}
+			entries[rel] = publicationEntry{kind: entryDirectory}
 			continue
 		}
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("fleetconfig: output entry %q is not a regular file or directory", rel)
 		}
-		data, err := p.readFile(path)
+		file, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return fmt.Errorf("fleetconfig: open output entry %q: %w", rel, err)
+		}
+		data, err := readOpenedFile(file)
 		if err != nil {
 			return fmt.Errorf("fleetconfig: read output entry %q: %w", rel, err)
+		}
+		current, err := dir.Lstat(name)
+		if err != nil {
+			return fmt.Errorf("fleetconfig: inspect output entry %q after read: %w", rel, err)
+		}
+		if !os.SameFile(info, current) {
+			return fmt.Errorf("fleetconfig: output entry %q changed during read", rel)
 		}
 		entries[rel] = publicationEntry{kind: entryFile, data: data}
 	}
 	return nil
 }
 
-func (p *Publisher) readFile(path string) ([]byte, error) {
-	file, err := p.fs.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, err
-	}
+func readOpenedFile(file publicationFile) ([]byte, error) {
 	info, statErr := file.Stat()
 	if statErr != nil {
 		_ = file.Close()

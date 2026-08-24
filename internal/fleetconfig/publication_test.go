@@ -7,8 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -304,6 +306,116 @@ func TestPublicationCleanupFailureIsCommittedAndLeavesArtifactForInspection(t *t
 	}
 }
 
+func TestPublicationCleanupSwapCannotEscapeBackupDirectory(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux openat2 directory handles")
+	}
+	parent := t.TempDir()
+	out := filepath.Join(parent, "bundle")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("must-survive\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldBundle := publicationTestBundle(
+		File{Path: "old.txt", Data: []byte("old\n")},
+		File{Path: "nested/old.txt", Data: []byte("nested-old\n")},
+	)
+	newBundle := publicationTestBundle(File{Path: "new.txt", Data: []byte("new\n")})
+	if err := Publish(oldBundle, out); err != nil {
+		t.Fatal(err)
+	}
+	fault := &swapOnReadFS{
+		publicationFS: osPublicationFS{},
+		baseName:      "nested",
+		triggerAt:     3, // initial snapshot, recheck, then backup cleanup
+		target:        outside,
+	}
+	publisher := &Publisher{fs: fault, nonce: func() string { return "escape" }}
+	err := publisher.Publish(newBundle, out)
+	var committed *CommittedPublicationError
+	if !errors.As(err, &committed) {
+		t.Fatalf("backup swap error = %v, want committed publication error", err)
+	}
+	got, err := os.ReadFile(sentinel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "must-survive\n" {
+		t.Fatalf("backup cleanup escaped into symlink target: %q", got)
+	}
+	if fault.swapErr != nil {
+		t.Fatalf("injected backup swap failed: %v", fault.swapErr)
+	}
+	if _, err := os.Lstat(committed.Artifact); err != nil {
+		t.Fatalf("backup artifact disappeared: %v", err)
+	}
+	if err := os.Remove(fault.swappedPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(fault.savedPath, fault.swappedPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPublicationParentSwapCannotRedirectOwnedOutput(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires Linux openat2 directory handles")
+	}
+	anchor := t.TempDir()
+	parent := filepath.Join(anchor, "parent")
+	outside := filepath.Join(anchor, "outside")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(outside, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(parent, "bundle")
+	outOutside := filepath.Join(outside, "bundle")
+	bundle := publicationTestBundle(File{Path: "old.txt", Data: []byte("old\n")})
+	outsideBundle := publicationTestBundle(File{Path: "outside.txt", Data: []byte("outside\n")})
+	if err := Publish(bundle, out); err != nil {
+		t.Fatal(err)
+	}
+	if err := Publish(outsideBundle, outOutside); err != nil {
+		t.Fatal(err)
+	}
+	beforeOutside := snapshotTree(t, outOutside)
+	fault := &swapOnRenameFS{
+		publicationFS: osPublicationFS{},
+		parentPath:    parent,
+		target:        outside,
+	}
+	publisher := &Publisher{fs: fault, nonce: func() string { return "parent-swap" }}
+	if err := publisher.Publish(bundle, out); err == nil {
+		t.Fatal("parent swap publication unexpectedly succeeded")
+	}
+	if fault.swapErr != nil {
+		t.Fatalf("injected parent swap failed: %v", fault.swapErr)
+	}
+	afterOutside := snapshotTree(t, outOutside)
+	if !reflect.DeepEqual(beforeOutside, afterOutside) {
+		t.Fatalf("parent swap redirected mutation to outside tree:\nbefore=%#v\nafter=%#v", beforeOutside, afterOutside)
+	}
+	parentInfo, err := os.Lstat(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parentInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("parent swap did not leave a symlink at %q", parent)
+	}
+	if err := os.Remove(parent); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(fault.savedPath, parent); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublicationRefusesInterruptedTransactionArtifacts(t *testing.T) {
 	parent := t.TempDir()
 	out := filepath.Join(parent, "bundle")
@@ -325,20 +437,157 @@ type renameFaultFS struct {
 	removeCount  int
 }
 
-func (f *renameFaultFS) Rename(oldPath, newPath string) error {
+func (f *renameFaultFS) OpenDir(path string) (publicationDir, error) {
+	dir, err := f.publicationFS.OpenDir(path)
+	if err != nil {
+		return nil, err
+	}
+	return &renameFaultDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type renameFaultDir struct {
+	publicationDir
+	owner *renameFaultFS
+	path  string
+}
+
+func (d *renameFaultDir) OpenDir(name string) (publicationDir, error) {
+	dir, err := d.publicationDir.OpenDir(name)
+	if err != nil {
+		return nil, err
+	}
+	return &renameFaultDir{publicationDir: dir, owner: d.owner, path: filepath.Join(d.path, name)}, nil
+}
+
+func (d *renameFaultDir) Rename(oldPath, newPath string) error {
+	f := d.owner
 	f.count++
 	if f.count == f.failAt {
 		return fmt.Errorf("injected rename failure")
 	}
-	return f.publicationFS.Rename(oldPath, newPath)
+	return d.publicationDir.Rename(oldPath, newPath)
 }
 
-func (f *renameFaultFS) Remove(path string) error {
+func (d *renameFaultDir) Remove(path string, directory bool) error {
+	f := d.owner
 	f.removeCount++
 	if f.failRemoveAt > 0 && f.removeCount == f.failRemoveAt {
 		return fmt.Errorf("injected remove failure")
 	}
-	return f.publicationFS.Remove(path)
+	return d.publicationDir.Remove(path, directory)
+}
+
+type swapOnReadFS struct {
+	publicationFS
+	baseName    string
+	triggerAt   int
+	target      string
+	readCount   int
+	swapErr     error
+	swappedPath string
+	savedPath   string
+	mu          sync.Mutex
+}
+
+func (f *swapOnReadFS) OpenDir(path string) (publicationDir, error) {
+	dir, err := f.publicationFS.OpenDir(path)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOnReadDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type swapOnReadDir struct {
+	publicationDir
+	owner *swapOnReadFS
+	path  string
+}
+
+func (d *swapOnReadDir) OpenDir(name string) (publicationDir, error) {
+	dir, err := d.publicationDir.OpenDir(name)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOnReadDir{publicationDir: dir, owner: d.owner, path: filepath.Join(d.path, name)}, nil
+}
+
+func (d *swapOnReadDir) ReadDir() ([]os.DirEntry, error) {
+	f := d.owner
+	f.mu.Lock()
+	shouldSwap := filepath.Base(d.path) == f.baseName
+	if shouldSwap {
+		f.readCount++
+		shouldSwap = f.readCount == f.triggerAt
+	}
+	if shouldSwap {
+		f.swappedPath = d.path
+		f.savedPath = d.path + ".fleetgen-saved"
+		if err := os.Rename(f.swappedPath, f.savedPath); err != nil {
+			f.swapErr = err
+		} else if err := os.Symlink(f.target, f.swappedPath); err != nil {
+			f.swapErr = err
+			_ = os.Rename(f.savedPath, f.swappedPath)
+		}
+	}
+	swapErr := f.swapErr
+	f.mu.Unlock()
+	if swapErr != nil {
+		return nil, swapErr
+	}
+	return d.publicationDir.ReadDir()
+}
+
+type swapOnRenameFS struct {
+	publicationFS
+	parentPath string
+	target     string
+	savedPath  string
+	swapErr    error
+	swapped    bool
+	mu         sync.Mutex
+}
+
+func (f *swapOnRenameFS) OpenDir(path string) (publicationDir, error) {
+	dir, err := f.publicationFS.OpenDir(path)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOnRenameDir{publicationDir: dir, owner: f, path: path}, nil
+}
+
+type swapOnRenameDir struct {
+	publicationDir
+	owner *swapOnRenameFS
+	path  string
+}
+
+func (d *swapOnRenameDir) OpenDir(name string) (publicationDir, error) {
+	dir, err := d.publicationDir.OpenDir(name)
+	if err != nil {
+		return nil, err
+	}
+	return &swapOnRenameDir{publicationDir: dir, owner: d.owner, path: filepath.Join(d.path, name)}, nil
+}
+
+func (d *swapOnRenameDir) Rename(oldName, newName string) error {
+	f := d.owner
+	f.mu.Lock()
+	if d.path == f.parentPath && !f.swapped {
+		f.swapped = true
+		f.savedPath = f.parentPath + ".fleetgen-saved"
+		if err := os.Rename(f.parentPath, f.savedPath); err != nil {
+			f.swapErr = err
+		} else if err := os.Symlink(f.target, f.parentPath); err != nil {
+			f.swapErr = err
+			_ = os.Rename(f.savedPath, f.parentPath)
+		}
+	}
+	swapErr := f.swapErr
+	f.mu.Unlock()
+	if swapErr != nil {
+		return swapErr
+	}
+	return d.publicationDir.Rename(oldName, newName)
 }
 
 type treeSnapshotEntry struct {
