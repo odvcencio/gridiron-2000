@@ -150,18 +150,23 @@ func validateImage(image string) error {
 			}
 			continue
 		}
-		if index == 0 && strings.Contains(component, ".") && !validRegistryHost(component) {
+		if index == 0 && len(components) > 1 && strings.Contains(component, ".") && !validRegistryHost(component) {
 			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 		}
 		if !imageComponentPattern.MatchString(component) {
 			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 		}
 	}
+	registryHost := isUnambiguousRegistryHost(components)
 	pathComponents := components
-	if isUnambiguousRegistryHost(components[0]) {
+	if registryHost {
 		pathComponents = components[1:]
 	}
-	if len(strings.Join(pathComponents, "/")) > 255 {
+	repositoryPath := strings.Join(pathComponents, "/")
+	if !registryHost && len(components) == 1 {
+		repositoryPath = "library/" + repositoryPath
+	}
+	if len(repositoryPath) > 255 {
 		return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 	}
 	return nil
@@ -315,7 +320,11 @@ func validRegistryHost(host string) bool {
 	return validateDNSHostname(host) == nil
 }
 
-func isUnambiguousRegistryHost(component string) bool {
+func isUnambiguousRegistryHost(components []string) bool {
+	if len(components) < 2 {
+		return false
+	}
+	component := components[0]
 	return component == "localhost" || strings.ContainsAny(component, ".:")
 }
 

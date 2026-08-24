@@ -257,6 +257,15 @@ func TestImageRegistryPathAndLengthContracts(t *testing.T) {
 	if err := validateImage("harbor.example:5000/gridiron@" + digest); err != nil {
 		t.Fatalf("canonical Harbor image rejected: %v", err)
 	}
+	if err := validateImage(strings.Repeat("a", 247) + "@" + digest); err != nil {
+		t.Fatalf("247-character default-library repository rejected: %v", err)
+	}
+	if err := validateImage(strings.Repeat("a", 248) + "@" + digest); err == nil {
+		t.Fatal("248-character default-library repository accepted")
+	}
+	if err := validateImage(strings.Repeat("a", 64) + ".example@" + digest); err != nil {
+		t.Fatalf("dotted single-component default repository rejected: %v", err)
+	}
 	if err := validateImage("harbor:5000@" + digest); err == nil {
 		t.Fatal("registry port without repository path accepted")
 	}
