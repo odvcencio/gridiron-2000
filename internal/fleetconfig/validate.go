@@ -137,7 +137,7 @@ func validateImage(image string) error {
 		}
 		if strings.Contains(component, ":") {
 			// Only the first component may be a registry with a numeric port.
-			if index != 0 || strings.Count(component, ":") != 1 {
+			if index != 0 || strings.Count(component, ":") != 1 || len(components) < 2 {
 				return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 			}
 			host, port, _ := strings.Cut(component, ":")
@@ -150,9 +150,19 @@ func validateImage(image string) error {
 			}
 			continue
 		}
+		if index == 0 && strings.Contains(component, ".") && !validRegistryHost(component) {
+			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+		}
 		if !imageComponentPattern.MatchString(component) {
 			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 		}
+	}
+	pathComponents := components
+	if isUnambiguousRegistryHost(components[0]) {
+		pathComponents = components[1:]
+	}
+	if len(strings.Join(pathComponents, "/")) > 255 {
+		return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 	}
 	return nil
 }
@@ -267,7 +277,7 @@ func validateOrigin(raw string, public bool) (string, *url.URL, error) {
 }
 
 func validatePublicHostname(hostname string) error {
-	if net.ParseIP(hostname) != nil {
+	if net.ParseIP(hostname) != nil || looksLikeDottedIPv4(hostname) {
 		return fmt.Errorf("public HTTPS origin host must be a DNS-1123 subdomain, not an IP address")
 	}
 	if err := validateDNSHostname(hostname); err != nil {
@@ -303,4 +313,26 @@ func validRegistryHost(host string) bool {
 		return true
 	}
 	return validateDNSHostname(host) == nil
+}
+
+func isUnambiguousRegistryHost(component string) bool {
+	return component == "localhost" || strings.ContainsAny(component, ".:")
+}
+
+func looksLikeDottedIPv4(hostname string) bool {
+	parts := strings.Split(hostname, ".")
+	if len(parts) != 4 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, r := range part {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }

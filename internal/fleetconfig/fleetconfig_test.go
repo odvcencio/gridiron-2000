@@ -225,6 +225,52 @@ func TestNarrowPVCQuantityGrammarAcceptsOnlyPositiveMiOrGi(t *testing.T) {
 	}
 }
 
+func TestPublicOriginRejectsLegacyDottedIPv4ButAcceptsNumericDNS(t *testing.T) {
+	for _, hostname := range []string{"127.000.000.001", "192.168.001.001", "001.002.003.004"} {
+		t.Run("reject-"+hostname, func(t *testing.T) {
+			dir := t.TempDir()
+			writeLeague(t, dir, "league.json")
+			fleet := testFleet()
+			fleet.Instances[0].PublicOrigin = "https://" + hostname
+			path := writeFleet(t, dir, fleet)
+			if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "IP address") {
+				t.Fatalf("Load error = %v, want legacy IPv4 rejection", err)
+			}
+		})
+	}
+	for _, hostname := range []string{"alpha1.example.test", "123.example.test", "1.2.example.test"} {
+		t.Run("accept-"+hostname, func(t *testing.T) {
+			dir := t.TempDir()
+			writeLeague(t, dir, "league.json")
+			fleet := testFleet()
+			fleet.Instances[0].PublicOrigin = "https://" + hostname
+			path := writeFleet(t, dir, fleet)
+			if _, _, err := Load(path); err != nil {
+				t.Fatalf("Load error = %v, want valid numeric-containing DNS name", err)
+			}
+		})
+	}
+}
+
+func TestImageRegistryPathAndLengthContracts(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("0", 64)
+	if err := validateImage("harbor.example:5000/gridiron@" + digest); err != nil {
+		t.Fatalf("canonical Harbor image rejected: %v", err)
+	}
+	if err := validateImage("harbor:5000@" + digest); err == nil {
+		t.Fatal("registry port without repository path accepted")
+	}
+	if err := validateImage("harbor.example/" + strings.Repeat("a", 255) + "@" + digest); err != nil {
+		t.Fatalf("255-character repository path rejected: %v", err)
+	}
+	if err := validateImage("harbor.example/" + strings.Repeat("a", 256) + "@" + digest); err == nil {
+		t.Fatal("256-character repository path accepted")
+	}
+	if err := validateImage(strings.Repeat("a", 64) + ".example/gridiron@" + digest); err == nil {
+		t.Fatal("overlong dotted registry label accepted")
+	}
+}
+
 func TestLoadPreflightsAllLeaguesAndAttributesWarnings(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "good.json")
