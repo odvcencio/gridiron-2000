@@ -341,17 +341,20 @@ func main() {
 		return league.Default().StateFingerprint(poolVersion)
 	})
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
-	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragment
-	// renders the same wire-event/empty-state markup the page itself shows
-	// on first load, over the same signalMap data (see FeedFragment's own
-	// doc comment for why it cannot call the .gsx page's own SignalCard /
-	// WireEmptyState component functions directly). It is a plain HTML
-	// fragment, not a JSON API, so it lives next to the page it serves
-	// rather than under mountOwnedDataAPI's external data contract.
+	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragmentWithError
+	// loads that page program once and renders its typed SignalCard /
+	// WireEmptyState components, the same components the initial page uses.
+	// It is a plain HTML fragment, not a JSON API, so it lives next to the page
+	// it serves rather than under mountOwnedDataAPI's external data contract.
 	app.Mount("GET /wire/fragment", requireLeagueAccess(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(writer, gosx.RenderHTML(wirepage.FeedFragment(request, signalFeed)))
+		node, err := wirepage.FeedFragmentWithError(request, signalFeed)
+		if err != nil {
+			http.Error(writer, "wire fragment unavailable", http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(writer, gosx.RenderHTML(node))
 	})))
 	app.API("GET /api/wire/pulse", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()

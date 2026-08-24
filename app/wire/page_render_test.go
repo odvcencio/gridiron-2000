@@ -91,6 +91,22 @@ func TestWirePageRendersSignalCardsWithRealData(t *testing.T) {
 	if !strings.Contains(body, "DEGRADED") {
 		t.Fatalf("expected never-checked default feeds to render as DEGRADED: %s", body)
 	}
+	recent := signals.Recent(50, "")
+	if len(recent) != 1 {
+		t.Fatalf("seeded wire has %d recent signals, want exactly one for parity", len(recent))
+	}
+	card := wireSignalCard(recent[0], signals.Status(), time.Now().UTC())
+	wantCard := renderWireComponent(t, "SignalCard", card)
+	if !strings.Contains(body, wantCard) {
+		t.Fatalf("full page did not contain the exact typed SignalCard render %q: %s", wantCard, body)
+	}
+	fragment, err := FeedFragmentWithError(httptest.NewRequest(http.MethodGet, "/wire/fragment", nil), signals)
+	if err != nil {
+		t.Fatalf("FeedFragmentWithError: %v", err)
+	}
+	if got := gosx.RenderHTML(fragment); got != wantCard {
+		t.Fatalf("live fragment = %q, want byte-identical typed SignalCard %q", got, wantCard)
+	}
 	for _, token := range []string{
 		signalwire.ModeAwaitingSources,
 		signalwire.ModeSyndicationReady,
@@ -202,7 +218,7 @@ func TestWirePresentationMarksPartialFeedOutageAndRetainsSignals(t *testing.T) {
 		t.Fatalf("healthy Bluesky signal was incorrectly marked retained: %+v", streaming)
 	}
 
-	html := gosx.RenderHTML(signalCardNode(retained))
+	html := renderWireComponent(t, "SignalCard", retained)
 	if !strings.Contains(html, "RETAINED · AS OF") {
 		t.Fatalf("retained signal did not render its as-of label: %s", html)
 	}
@@ -339,11 +355,11 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 		}
 	}
 
-	cardHTML := gosx.RenderHTML(signalCardNode(WireSignalCard{
+	cardHTML := renderWireComponent(t, "SignalCard", WireSignalCard{
 		ID: "copy-contract", Category: "news", Label: "NEWS", Text: "A signal",
 		Source: "Publisher", Evidence: "REPORT", Trust: "VERIFIED", Confidence: "80",
 		Time: "NOW", URL: "https://example.test/report", HasURL: true,
-	}))
+	})
 	if !strings.Contains(cardHTML, reportLink) {
 		t.Fatalf("feed-fragment SignalCard copy = %q, want %q", cardHTML, reportLink)
 	}
@@ -361,7 +377,10 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 		{name: "configured", configured: true, want: configuredCopy, unwanted: oldUnconfigured},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			html := gosx.RenderHTML(wireEmptyStateNode(test.configured, "Wire is not configured."))
+			html := renderWireComponent(t, "WireEmptyState", WireEmptyView{
+				WireConfigured: test.configured,
+				WireIssue:      "Wire is not configured.",
+			})
 			if !strings.Contains(html, test.want) {
 				t.Fatalf("feed-fragment WireEmptyState copy = %q, want %q", html, test.want)
 			}
@@ -370,4 +389,17 @@ func TestWireCopyContractsMatchFirstRenderAndFeedFragment(t *testing.T) {
 			}
 		})
 	}
+}
+
+func renderWireComponent(t *testing.T, component string, props any) string {
+	t.Helper()
+	program, err := route.LoadFileProgramHere("page.gsx")
+	if err != nil {
+		t.Fatalf("LoadFileProgramHere(page.gsx): %v", err)
+	}
+	node, err := route.RenderProgramComponentNode(program, component, route.ProgramRenderEnv{Props: props})
+	if err != nil {
+		t.Fatalf("RenderProgramComponentNode(%s): %v", component, err)
+	}
+	return gosx.RenderHTML(node)
 }
