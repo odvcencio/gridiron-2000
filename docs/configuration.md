@@ -227,9 +227,34 @@ repository@sha256:<64 lowercase hex> form, a relay statrelay_origin, an
 ingress_class, a certificate_issuer, and one or more instances. Every instance
 supplies a lowercase id, Kubernetes namespace and resource_prefix, an HTTPS
 public_origin, a fleet-relative league_config_path, a positive pvc_storage
-quantity, and an explicit hq_participant boolean. A fleet definition has no
-credentials, Secret values, email addresses, member identities, DNS records, or
-OAuth client material.
+quantity, and a required `commissioner_hq` value. `commissioner_hq: null` is a
+nonparticipant; an object is a participant and supplies the explicit
+`league_id`, nonnegative `order`, safe-token `accent`, safe-token `key_id`, and
+boolean `host` fields. Participant `league_id`, `order`, and `key_id` values are
+unique across the fleet. If any participant exists exactly one is `host: true`;
+with no participants there are no hosts. A fleet definition has no credentials,
+Secret values, email addresses, member identities, DNS records, or OAuth client
+material.
+
+The participant set is the Commissioner HQ v1 registry. Fleetgen orders registry
+connections by their declared order and uses the instance ID as the registry
+connection key. The single host is the only browser consumer: it receives the
+read-only registry ConfigMap at `/etc/gridiron-hq/registry.json` and the
+`COMMISSIONER_HQ_V1_REGISTRY_FILE` setting. Participants receive a private
+named 8091 provider port, a dedicated ClusterIP Service, and a NetworkPolicy
+that allows provider traffic only from the host namespace label and pod `app`
+label. Public Services keep port 80 targeting the named application port 8080,
+and public Ingresses route only to that Service port.
+
+Each participant Secret example owns its
+`COMMISSIONER_HQ_PROVIDER_SECRET`. The host client Secret example has one
+distinct `COMMISSIONER_HQ_V1_SECRET_<INSTANCE>` placeholder per registry
+connection; fill each with exactly the corresponding provider Secret value.
+These are read-only/scoped HMAC pairs, not legacy bearer tokens, Tank01 keys,
+sessions, OAuth credentials, or browser identities. Rotate a provider/client
+pair deliberately. The generated registry contains only origins, canonical
+capabilities and links, key IDs, and `secret_env` references—never secret
+values or provider credentials.
 
 Use fleetgen render --file <fleet.json> --out <directory> only after the
 document and every league source validate. The publisher writes a complete

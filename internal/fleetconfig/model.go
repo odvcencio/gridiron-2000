@@ -15,7 +15,9 @@ import (
 )
 
 // SchemaVersion is the only fleet document schema this compiler accepts.
-const SchemaVersion = 1
+// Version 2 replaces the legacy peer mesh with an explicit commissioner_hq
+// topology object on each participant.
+const SchemaVersion = 2
 
 // FleetSchemaVersion is retained as a descriptive alias for callers that
 // prefer the longer constant name.
@@ -48,16 +50,28 @@ type FleetDocument = Fleet
 // terminology for the input document.
 type Config = Fleet
 
-// Instance is one ordered fleet member. All string fields are required by
-// the wire schema, including hq_participant (whose false value is meaningful).
+// Instance is one ordered fleet member. commissioner_hq is required in the
+// wire document and may be null for a nonparticipant.
 type Instance struct {
-	ID               string `json:"id"`
-	Namespace        string `json:"namespace"`
-	ResourcePrefix   string `json:"resource_prefix"`
-	PublicOrigin     string `json:"public_origin"`
-	LeagueConfigPath string `json:"league_config_path"`
-	PVCStorage       string `json:"pvc_storage"`
-	HQParticipant    bool   `json:"hq_participant"`
+	ID               string          `json:"id"`
+	Namespace        string          `json:"namespace"`
+	ResourcePrefix   string          `json:"resource_prefix"`
+	PublicOrigin     string          `json:"public_origin"`
+	LeagueConfigPath string          `json:"league_config_path"`
+	PVCStorage       string          `json:"pvc_storage"`
+	CommissionerHQ   *CommissionerHQ `json:"commissioner_hq"`
+}
+
+// CommissionerHQ declares the private Commissioner HQ v1 topology for one
+// participant. A nil value on Instance means that instance is not in the
+// registry. All fields are explicit so operator-authored order, credential
+// identity, and browser host selection cannot be inferred from input order.
+type CommissionerHQ struct {
+	LeagueID string `json:"league_id"`
+	Order    int    `json:"order"`
+	Accent   string `json:"accent"`
+	KeyID    string `json:"key_id"`
+	Host     bool   `json:"host"`
 }
 
 // FleetInstance is a descriptive alias for Instance.
@@ -89,26 +103,21 @@ type ResolvedInstance struct {
 	Warnings   []string
 }
 
-// Peer is one deterministic commissioner-HQ peer.
-type Peer struct {
-	ID            string
-	ServiceOrigin string
-	PublicOrigin  string
-}
-
 // DerivedInstance contains all values shared by generated resources and is
 // exposed for tests and operators that want to inspect topology before YAML.
 type DerivedInstance struct {
 	Spec               Instance
 	Image              string
+	ImageDigest        string
 	IngressClass       string
 	CertificateIssuer  string
 	PublicHost         string
 	ServiceOrigin      string
 	OAuthCallback      string
 	Tank01BaseURL      string
-	HQPeers            []Peer
-	HQPeersValue       string
+	HQProviderOrigin   string
+	HQRegistryFile     string
+	HQRegistryJSON     string
 	SecurityHeaders    string
 	RedirectMiddleware string
 	TLSSecret          string
@@ -117,6 +126,10 @@ type DerivedInstance struct {
 	PVC                string
 	LeagueConfigMap    string
 	Secret             string
+	ProviderService    string
+	RegistryConfigMap  string
+	ClientSecret       string
+	NetworkPolicy      string
 	HTTPSIngress       string
 	HTTPIngress        string
 }

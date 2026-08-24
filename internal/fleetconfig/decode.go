@@ -216,10 +216,27 @@ func requireInstanceKeys(raw []byte, index int) error {
 	if err := json.Unmarshal(values[index], &instance); err != nil {
 		return fmt.Errorf("instances[%d] must be an object", index)
 	}
-	for _, key := range []string{"id", "namespace", "resource_prefix", "public_origin", "league_config_path", "pvc_storage", "hq_participant"} {
+	for _, key := range []string{"id", "namespace", "resource_prefix", "public_origin", "league_config_path", "pvc_storage", "commissioner_hq"} {
 		value, ok := instance[key]
 		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			if key == "commissioner_hq" && ok {
+				continue
+			}
 			return fmt.Errorf("instances[%d].%s is required", index, key)
+		}
+	}
+	hqRaw := instance["commissioner_hq"]
+	if bytes.Equal(bytes.TrimSpace(hqRaw), []byte("null")) {
+		return nil
+	}
+	var hq map[string]json.RawMessage
+	if err := json.Unmarshal(hqRaw, &hq); err != nil {
+		return fmt.Errorf("instances[%d].commissioner_hq must be an object or null", index)
+	}
+	for _, key := range []string{"league_id", "order", "accent", "key_id", "host"} {
+		value, ok := hq[key]
+		if !ok || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return fmt.Errorf("instances[%d].commissioner_hq.%s is required", index, key)
 		}
 	}
 	return nil

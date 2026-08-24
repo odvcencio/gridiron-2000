@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "image": "registry.example.test/gridiron/example@sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "statrelay_origin": "http://statrelay.example.test",
   "ingress_class": "traefik",
@@ -12,7 +12,13 @@
       "public_origin": "https://example.test",
       "league_config_path": "league.json.example",
       "pvc_storage": "1Gi",
-      "hq_participant": false
+      "commissioner_hq": {
+        "league_id": "example-league",
+        "order": 0,
+        "accent": "cyan",
+        "key_id": "example-hq-v1",
+        "host": true
+      }
     }
   ]
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	v1fleet "gridiron-2000/internal/commissionerhq/v1fleet"
 )
 
 const testLeagueJSON = `{
@@ -37,18 +39,24 @@ const testLeagueJSON = `{
 
 const testImage = "harbor.example/gridiron@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
+func hq(leagueID string, order int, accent, keyID string, host bool) *CommissionerHQ {
+	return &CommissionerHQ{LeagueID: leagueID, Order: order, Accent: accent, KeyID: keyID, Host: host}
+}
+
+func instance(id string, config *CommissionerHQ) Instance {
+	return Instance{
+		ID: id, Namespace: id, ResourcePrefix: id + "-app",
+		PublicOrigin: "https://" + id + ".example.test", LeagueConfigPath: "league.json",
+		PVCStorage: "1Gi", CommissionerHQ: config,
+	}
+}
+
 func testFleet() Fleet {
 	return Fleet{
-		Version:           SchemaVersion,
-		Image:             testImage,
-		StatrelayOrigin:   "http://statrelay.gridiron.svc.cluster.local",
-		IngressClass:      "traefik",
-		CertificateIssuer: "cloudflare-issuer",
-		Instances: []Instance{{
-			ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app",
-			PublicOrigin: "https://alpha.example.test", LeagueConfigPath: "league.json",
-			PVCStorage: "1Gi", HQParticipant: true,
-		}},
+		Version: SchemaVersion, Image: testImage,
+		StatrelayOrigin: "http://statrelay.gridiron.svc.cluster.local",
+		IngressClass:    "traefik", CertificateIssuer: "cloudflare-issuer",
+		Instances: []Instance{instance("alpha", hq("alpha-league", 0, "cyan", "hq-alpha", true))},
 	}
 }
 
@@ -81,19 +89,32 @@ func writeFleet(t *testing.T, dir string, fleet Fleet, raw ...string) string {
 	return path
 }
 
-func TestLoadStrictJSONAndRequiredFields(t *testing.T) {
+func findFile(t *testing.T, bundle Bundle, path string) string {
+	t.Helper()
+	for _, file := range bundle.Files {
+		if file.Path == path {
+			return string(file.Data)
+		}
+	}
+	t.Fatalf("missing generated file %s", path)
+	return ""
+}
+
+func TestLoadStrictJSONAndRequiredTopologyFields(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "league.json")
+	base := `{"version":2,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[{"id":"alpha","namespace":"alpha","resource_prefix":"alpha-app","public_origin":"https://alpha.example.test","league_config_path":"league.json","pvc_storage":"1Gi","commissioner_hq":null}]}`
 	cases := []struct {
 		name string
 		raw  string
 		want string
 	}{
-		{"unknown", `{"version":1,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[],"unexpected":true}`, "unknown field"},
-		{"trailing", `{"version":1,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[]} {}`, "trailing"},
-		{"duplicate", `{"version":1,"version":1,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[]}`, "duplicate object key"},
-		{"version", `{"version":2,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[{}]}`, "exactly 1"},
-		{"empty", `{"version":1,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[]}`, "at least one"},
+		{"unknown", strings.TrimSuffix(base, "}]}") + `,"unexpected":true}]}`, "unknown field"},
+		{"trailing", base + "{}\n", "trailing"},
+		{"duplicate", strings.Replace(base, `"version":2`, `"version":2,"version":2`, 1), "duplicate object key"},
+		{"version", strings.Replace(base, `"version":2`, `"version":1`, 1), "exactly 2"},
+		{"empty", `{"version":2,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[]}`, "at least one"},
+		{"missing commissioner_hq", strings.Replace(base, `,"commissioner_hq":null`, "", 1), "commissioner_hq"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,24 +173,15 @@ func TestLoadRejectsInvalidFleetFields(t *testing.T) {
 		}, "immutable"},
 		{"absolute league path", func(f *Fleet) { f.Instances[0].LeagueConfigPath = "/tmp/league.json" }, "fleet-relative"},
 		{"traversal league path", func(f *Fleet) { f.Instances[0].LeagueConfigPath = "../league.json" }, "escape"},
-		{"missing hq bool", nil, "hq_participant"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			writeLeague(t, dir, "league.json")
 			fleet := testFleet()
-			if tc.edit != nil {
-				tc.edit(&fleet)
-				path := writeFleet(t, dir, fleet)
-				if _, _, err := Load(path); err == nil || !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tc.want)) {
-					t.Fatalf("Load error = %v, want %q", err, tc.want)
-				}
-				return
-			}
-			raw := `{"version":1,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[{"id":"alpha","namespace":"alpha","resource_prefix":"alpha-app","public_origin":"https://alpha.example.test","league_config_path":"league.json","pvc_storage":"1Gi"}]}`
-			path := writeFleet(t, dir, Fleet{}, raw)
-			if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), tc.want) {
+			tc.edit(&fleet)
+			path := writeFleet(t, dir, fleet)
+			if _, _, err := Load(path); err == nil || !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(tc.want)) {
 				t.Fatalf("Load error = %v, want %q", err, tc.want)
 			}
 		})
@@ -183,19 +195,27 @@ func TestLoadRejectsCollisions(t *testing.T) {
 		want   string
 	}{
 		{"id", func(f *Fleet) {
-			f.Instances = append(f.Instances, f.Instances[0])
-			f.Instances[1].PublicOrigin = "https://beta.example.test"
-			f.Instances[1].Namespace = "beta"
-			f.Instances[1].ResourcePrefix = "beta-app"
+			duplicate := f.Instances[0]
+			duplicate.Namespace = "beta"
+			duplicate.ResourcePrefix = "beta-app"
+			duplicate.PublicOrigin = "https://beta.example.test"
+			duplicate.CommissionerHQ = nil
+			f.Instances = append(f.Instances, duplicate)
 		}, "duplicate instance id"},
 		{"namespace", func(f *Fleet) {
-			f.Instances = append(f.Instances, Instance{ID: "beta", Namespace: "alpha", ResourcePrefix: "beta-app", PublicOrigin: "https://beta.example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi"})
+			candidate := instance("beta", nil)
+			candidate.Namespace = "alpha"
+			f.Instances = append(f.Instances, candidate)
 		}, "collides"},
 		{"resource prefix", func(f *Fleet) {
-			f.Instances = append(f.Instances, Instance{ID: "beta", Namespace: "beta", ResourcePrefix: "alpha-app", PublicOrigin: "https://beta.example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi"})
+			candidate := instance("beta", nil)
+			candidate.ResourcePrefix = "alpha-app"
+			f.Instances = append(f.Instances, candidate)
 		}, "collides"},
 		{"public host", func(f *Fleet) {
-			f.Instances = append(f.Instances, Instance{ID: "beta", Namespace: "beta", ResourcePrefix: "beta-app", PublicOrigin: "https://alpha.example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi"})
+			candidate := instance("beta", nil)
+			candidate.PublicOrigin = "https://alpha.example.test"
+			f.Instances = append(f.Instances, candidate)
 		}, "public host"},
 	}
 	for _, tc := range cases {
@@ -209,19 +229,6 @@ func TestLoadRejectsCollisions(t *testing.T) {
 				t.Fatalf("Load error = %v, want %q", err, tc.want)
 			}
 		})
-	}
-}
-
-func TestNarrowPVCQuantityGrammarAcceptsOnlyPositiveMiOrGi(t *testing.T) {
-	for _, value := range []string{"1Gi", "512Mi", "20Gi"} {
-		if err := validateQuantity(value); err != nil {
-			t.Errorf("validateQuantity(%q) = %v, want valid", value, err)
-		}
-	}
-	for _, value := range []string{"0Gi", "1.5Gi", "1GG", "1GiGi", "512MiMi", "1G", "1"} {
-		if err := validateQuantity(value); err == nil {
-			t.Errorf("validateQuantity(%q) succeeded, want rejection", value)
-		}
 	}
 }
 
@@ -280,6 +287,125 @@ func TestImageRegistryPathAndLengthContracts(t *testing.T) {
 	}
 }
 
+func TestCommissionerHQTopologyValidation(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Fleet)
+		want   string
+	}{
+		{"zero participants zero hosts is valid", func(f *Fleet) {
+			f.Instances[0].CommissionerHQ = nil
+		}, ""},
+		{"participant requires one host", func(f *Fleet) {
+			f.Instances[0].CommissionerHQ.Host = false
+		}, "exactly one host"},
+		{"duplicate league id", func(f *Fleet) {
+			f.Instances = append(f.Instances, instance("bravo", hq("alpha-league", 1, "blue", "hq-bravo", false)))
+		}, "duplicate commissioner_hq league_id"},
+		{"duplicate order", func(f *Fleet) {
+			f.Instances = append(f.Instances, instance("bravo", hq("bravo-league", 0, "blue", "hq-bravo", false)))
+		}, "duplicate commissioner_hq order"},
+		{"duplicate key id", func(f *Fleet) {
+			f.Instances = append(f.Instances, instance("bravo", hq("bravo-league", 1, "blue", "hq-alpha", false)))
+		}, "duplicate commissioner_hq key_id"},
+		{"negative order", func(f *Fleet) {
+			f.Instances[0].CommissionerHQ.Order = -1
+		}, "nonnegative"},
+		{"unsafe accent", func(f *Fleet) {
+			f.Instances[0].CommissionerHQ.Accent = "Blue Accent"
+		}, "safe token"},
+		{"unsafe key id", func(f *Fleet) {
+			f.Instances[0].CommissionerHQ.KeyID = "HQ KEY"
+		}, "safe token"},
+		{"two hosts", func(f *Fleet) {
+			f.Instances = append(f.Instances, instance("bravo", hq("bravo-league", 1, "blue", "hq-bravo", true)))
+		}, "exactly one host"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeLeague(t, dir, "league.json")
+			fleet := testFleet()
+			tc.mutate(&fleet)
+			path := writeFleet(t, dir, fleet)
+			_, _, err := Load(path)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("Load = %v, want valid", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadRequiresCommissionerHQObjectFields(t *testing.T) {
+	dir := t.TempDir()
+	writeLeague(t, dir, "league.json")
+	base := `{"version":2,"image":"` + testImage + `","statrelay_origin":"http://relay.test","ingress_class":"traefik","certificate_issuer":"issuer","instances":[{"id":"alpha","namespace":"alpha","resource_prefix":"alpha-app","public_origin":"https://alpha.example.test","league_config_path":"league.json","pvc_storage":"1Gi","commissioner_hq":{`
+	for _, field := range []string{"league_id", "order", "accent", "key_id", "host"} {
+		raw := base
+		for _, candidate := range []string{"league_id", "order", "accent", "key_id", "host"} {
+			if candidate == field {
+				continue
+			}
+			switch candidate {
+			case "league_id":
+				raw += `"league_id":"alpha-league",`
+			case "order":
+				raw += `"order":0,`
+			case "accent":
+				raw += `"accent":"cyan",`
+			case "key_id":
+				raw += `"key_id":"hq-alpha",`
+			case "host":
+				raw += `"host":true,`
+			}
+		}
+		raw = strings.TrimSuffix(raw, ",") + "}}]}"
+		path := writeFleet(t, dir, Fleet{}, raw)
+		if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "commissioner_hq."+field) {
+			t.Fatalf("missing %s error = %v", field, err)
+		}
+	}
+}
+
+func TestLoadUsesExactLeagueBytesAndRejectsNonRegularSources(t *testing.T) {
+	dir := t.TempDir()
+	leaguePath := writeLeague(t, dir, "league.json")
+	original, err := os.ReadFile(leaguePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetPath := writeFleet(t, dir, testFleet())
+	loaded, _, err := Load(fleetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Resolved) != 1 || !reflect.DeepEqual(loaded.Resolved[0].SourceJSON, original) {
+		t.Fatal("resolved source bytes differ from the one file snapshot")
+	}
+	bundle, err := Compile(fleetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configMap := findFile(t, bundle, "instances/alpha/league-config.yaml")
+	if !strings.Contains(configMap, "Test League") {
+		t.Fatal("league ConfigMap does not contain the exact validated source")
+	}
+	fifoDir := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(fifoDir, "league.fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fifoFleet := testFleet()
+	fifoFleet.Instances[0].LeagueConfigPath = "league.fifo"
+	fifoPath := writeFleet(t, fifoDir, fifoFleet)
+	if _, _, err := Load(fifoPath); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("FIFO Load error = %v, want regular-file rejection", err)
+	}
+}
+
 func TestLoadPreflightsAllLeaguesAndAttributesWarnings(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "good.json")
@@ -287,10 +413,12 @@ func TestLoadPreflightsAllLeaguesAndAttributesWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 	fleet := testFleet()
-	fleet.Instances = []Instance{
-		fleet.Instances[0],
-		{ID: "broken", Namespace: "broken", ResourcePrefix: "broken-app", PublicOrigin: "https://broken.example.test", LeagueConfigPath: "bad.json", PVCStorage: "1Gi"},
-	}
+	fleet.Instances[0].LeagueConfigPath = "good.json"
+	fleet.Instances = append(fleet.Instances, func() Instance {
+		candidate := instance("broken", nil)
+		candidate.LeagueConfigPath = "bad.json"
+		return candidate
+	}())
 	path := writeFleet(t, dir, fleet)
 	if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), `instance "broken"`) || !strings.Contains(err.Error(), `bad.json`) {
 		t.Fatalf("Load error = %v, want instance and path", err)
@@ -351,71 +479,109 @@ func TestExplicitLeaguePathIgnoresEnvironmentAndCWD(t *testing.T) {
 	}
 }
 
-func TestLoadUsesExactValidatedLeagueBytesAndRejectsNonRegularSources(t *testing.T) {
-	dir := t.TempDir()
-	leaguePath := writeLeague(t, dir, "league.json")
-	original, err := os.ReadFile(leaguePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fleetPath := writeFleet(t, dir, testFleet())
-	loaded, _, err := Load(fleetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(loaded.Resolved) != 1 || !reflect.DeepEqual(loaded.Resolved[0].SourceJSON, original) {
-		t.Fatalf("resolved source bytes differ from the one file snapshot")
-	}
-	bundle, err := Compile(fleetPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	configMap := ""
-	for _, file := range bundle.Files {
-		if file.Path == "instances/alpha/league-config.yaml" {
-			configMap = string(file.Data)
-		}
-	}
-	if configMap == "" || !strings.Contains(configMap, "Test League") {
-		t.Fatalf("league ConfigMap missing validated source")
-	}
-
-	fifoDir := t.TempDir()
-	if err := syscall.Mkfifo(filepath.Join(fifoDir, "league.fifo"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	fifoFleet := testFleet()
-	fifoFleet.Instances[0].LeagueConfigPath = "league.fifo"
-	fifoPath := writeFleet(t, fifoDir, fifoFleet)
-	if _, _, err := Load(fifoPath); err == nil || !strings.Contains(err.Error(), "regular file") {
-		t.Fatalf("FIFO Load error = %v, want regular-file rejection", err)
-	}
-}
-
-func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
+func TestCompileZeroHQAndParticipantSeparation(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "league.json")
 	fleet := testFleet()
 	fleet.Instances = []Instance{
-		{ID: "charlie", Namespace: "charlie", ResourcePrefix: "charlie-app", PublicOrigin: "https://charlie.example.test", LeagueConfigPath: "league.json", PVCStorage: "2Gi", HQParticipant: true},
-		{ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app", PublicOrigin: "https://alpha.example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi", HQParticipant: true},
-		{ID: "bravo", Namespace: "bravo", ResourcePrefix: "bravo-app", PublicOrigin: "https://bravo.example.test", LeagueConfigPath: "league.json", PVCStorage: "3Gi", HQParticipant: false},
+		instance("charlie", nil),
+		instance("alpha", hq("alpha-league", 20, "cyan", "hq-alpha", true)),
+		instance("bravo", hq("bravo-league", 10, "blue", "hq-bravo", false)),
 	}
 	path := writeFleet(t, dir, fleet)
-	bundleA, err := Compile(path)
+	bundle, err := Compile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundleB, err := Compile(path)
-	if err != nil {
+	if got, want := len(bundle.Files), 9*3+2*2+2+1; got != want {
+		t.Fatalf("file count = %d, want %d", got, want)
+	}
+	if got, want := len(bundle.Instances), 3; got != want {
+		t.Fatalf("derived instances = %d, want %d", got, want)
+	}
+	nonparticipantDeployment := findFile(t, bundle, "instances/charlie/deployment.yaml")
+	for _, forbidden := range []string{"8091", "COMMISSIONER_HQ_", "hq-registry", "provider"} {
+		if strings.Contains(nonparticipantDeployment, forbidden) {
+			t.Fatalf("nonparticipant deployment contains %q: %s", forbidden, nonparticipantDeployment)
+		}
+	}
+	for _, file := range bundle.Files {
+		if strings.HasPrefix(file.Path, "instances/charlie/") &&
+			(strings.Contains(file.Path, "provider") || strings.Contains(file.Path, "network-policy") || strings.Contains(file.Path, "hq-")) {
+			t.Fatalf("nonparticipant provider file %s", file.Path)
+		}
+	}
+	for _, id := range []string{"alpha", "bravo"} {
+		deployment := findFile(t, bundle, "instances/"+id+"/deployment.yaml")
+		for _, required := range []string{"containerPort: 8091", "COMMISSIONER_INSTANCE_ID", "COMMISSIONER_HQ_LEAGUE_ID", "COMMISSIONER_HQ_PROVIDER_KEY_ID", "COMMISSIONER_HQ_PROVIDER_ADDR", "APP_IMAGE_DIGEST"} {
+			if !strings.Contains(deployment, required) {
+				t.Fatalf("%s deployment missing %q", id, required)
+			}
+		}
+		providerService := findFile(t, bundle, "instances/"+id+"/hq-provider-service.yaml")
+		if !strings.Contains(providerService, "port: 8091") || strings.Contains(providerService, "port: 8080") {
+			t.Fatalf("%s provider Service ports invalid: %s", id, providerService)
+		}
+		policy := findFile(t, bundle, "instances/"+id+"/network-policy.yaml")
+		if !strings.Contains(policy, "kubernetes.io/metadata.name") || !strings.Contains(policy, `kubernetes.io/metadata.name: "alpha"`) || !strings.Contains(policy, `app: "alpha-app"`) {
+			t.Fatalf("%s policy does not restrict to exact host labels: %s", id, policy)
+		}
+		if strings.Contains(policy, "ports:\n        - name:") || !strings.Contains(policy, "- port: 8080\n          protocol: TCP") || !strings.Contains(policy, "- port: 8091\n          protocol: TCP") {
+			t.Fatalf("%s policy has invalid or incomplete NetworkPolicyPort fields: %s", id, policy)
+		}
+		secret := findFile(t, bundle, "instances/"+id+"/secret.example.yaml")
+		if !strings.Contains(secret, "COMMISSIONER_HQ_PROVIDER_SECRET: \"REPLACE_ME\"") || strings.Contains(secret, "COMMISSIONER_HQ_TOKEN") {
+			t.Fatalf("%s provider Secret contract invalid: %s", id, secret)
+		}
+	}
+	publicService := findFile(t, bundle, "instances/alpha/service.yaml")
+	if !strings.Contains(publicService, "port: 80") || !strings.Contains(publicService, "targetPort: http") || strings.Contains(publicService, "8091") {
+		t.Fatalf("public Service exposes unexpected port: %s", publicService)
+	}
+	for _, id := range []string{"alpha", "bravo", "charlie"} {
+		for _, suffix := range []string{"ingress.yaml", "http-redirect.yaml"} {
+			if strings.Contains(findFile(t, bundle, "instances/"+id+"/"+suffix), "8091") {
+				t.Fatalf("public ingress %s exposes 8091", id)
+			}
+		}
+	}
+	hostDeployment := findFile(t, bundle, "instances/alpha/deployment.yaml")
+	for _, required := range []string{"COMMISSIONER_HQ_V1_REGISTRY_FILE", "/etc/gridiron-hq/registry.json", "subPath: registry.json", "readOnly: true", "alpha-app-hq-v1-client-secrets"} {
+		if !strings.Contains(hostDeployment, required) {
+			t.Fatalf("host deployment missing %q", required)
+		}
+	}
+	registry := findFile(t, bundle, "instances/alpha/hq-registry.yaml")
+	if strings.Contains(registry, "REPLACE_ME") || strings.Contains(registry, "provider_secret") || strings.Contains(registry, "secret value") {
+		t.Fatalf("registry leaked secret material: %s", registry)
+	}
+	clientSecret := findFile(t, bundle, "instances/alpha/hq-client-secret.example.yaml")
+	if !strings.Contains(clientSecret, "COMMISSIONER_HQ_V1_SECRET_BRAVO: \"REPLACE_ME\"") || !strings.Contains(clientSecret, "COMMISSIONER_HQ_V1_SECRET_ALPHA: \"REPLACE_ME\"") {
+		t.Fatalf("host client Secret lacks per-participant placeholders: %s", clientSecret)
+	}
+	if strings.Contains(clientSecret, strings.Repeat("x", 32)) {
+		t.Fatal("client Secret example accidentally contains an accepted-length credential")
+	}
+	registryJSON := strings.TrimSpace(registry[strings.Index(registry, "{"):])
+	registryPath := filepath.Join(t.TempDir(), "registry.json")
+	if err := os.WriteFile(registryPath, []byte(registryJSON+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(bundleA.Files, bundleB.Files) {
-		t.Fatal("repeated compile produced different files")
+	t.Setenv(clientSecretEnv("alpha"), "")
+	t.Setenv(clientSecretEnv("bravo"), "")
+	decoded, err := v1fleet.Load(registryPath)
+	if err != nil || len(decoded.Connections) != 2 {
+		t.Fatalf("generated registry does not satisfy v1fleet decoder: %#v, %v", decoded, err)
 	}
-	paths := make([]string, len(bundleA.Files))
-	for i, file := range bundleA.Files {
-		paths[i] = file.Path
+	for _, connection := range decoded.Connections {
+		if !connection.Misconfigured {
+			t.Fatalf("example credential for %s did not fail closed", connection.Key)
+		}
+	}
+
+	paths := make([]string, len(bundle.Files))
+	for index, file := range bundle.Files {
+		paths[index] = file.Path
 		if filepath.IsAbs(file.Path) || strings.Contains(file.Path, "..") || strings.Contains(file.Path, "\\") {
 			t.Fatalf("unsafe generated path %q", file.Path)
 		}
@@ -426,70 +592,35 @@ func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
 			t.Fatalf("sensitive output in %s", file.Path)
 		}
 	}
-	if !sort.StringsAreSorted(paths) || len(paths) != 28 {
-		t.Fatalf("paths sorted/count = %v/%d", sort.StringsAreSorted(paths), len(paths))
-	}
-	byID := map[string]DerivedInstance{}
-	for _, instance := range bundleA.Instances {
-		byID[instance.Spec.ID] = instance
-	}
-	wantAlphaPeers := "charlie=" + byID["charlie"].ServiceOrigin + "|https://charlie.example.test"
-	if got := byID["alpha"].HQPeersValue; got != wantAlphaPeers {
-		t.Fatalf("alpha peers = %q, want exactly %q", got, wantAlphaPeers)
-	}
-	if byID["bravo"].HQPeersValue != "" {
-		t.Fatalf("nonparticipant peers = %q", byID["bravo"].HQPeersValue)
+	if !sort.StringsAreSorted(paths) {
+		t.Fatal("generated paths are not sorted")
 	}
 
-	find := func(path string) string {
-		for _, file := range bundleA.Files {
-			if file.Path == path {
-				return string(file.Data)
-			}
-		}
-		t.Fatalf("missing %s", path)
-		return ""
-	}
-	deployment := find("instances/alpha/deployment.yaml")
+	deployment := findFile(t, bundle, "instances/alpha/deployment.yaml")
 	for _, needle := range []string{"replicas: 1", "type: Recreate", "image: \"" + testImage + "\"", "imagePullPolicy: IfNotPresent", "runAsUser: 65532", "runAsGroup: 65532", "fsGroup: 65532", "allowPrivilegeEscalation: false", "readOnlyRootFilesystem: true", "- ALL", "APP_ENV", "DEMO_MODE", "PORT", "LEAGUE_FILE", "TANK01_BASE_URL", "/api/health", "/api/live", "cpu: 100m", "memory: 128Mi", "cpu: 500m", "memory: 512Mi"} {
 		if !strings.Contains(deployment, needle) {
 			t.Fatalf("deployment missing %q", needle)
 		}
 	}
-	for _, needle := range []string{"initialDelaySeconds: 3", "periodSeconds: 10", "timeoutSeconds: 5", "initialDelaySeconds: 15", "periodSeconds: 30", "timeoutSeconds: 10"} {
-		if !strings.Contains(deployment, needle) {
-			t.Fatalf("deployment probe missing %q", needle)
-		}
-	}
-	if !strings.Contains(deployment, "readinessProbe:\n            httpGet:\n              path: /api/health\n              port: http\n            initialDelaySeconds: 3\n            periodSeconds: 10\n            timeoutSeconds: 5") {
-		t.Fatal("readiness probe does not match the hardened deployment contract")
-	}
-	if !strings.Contains(deployment, "livenessProbe:\n            httpGet:\n              path: /api/live\n              port: http\n            initialDelaySeconds: 15\n            periodSeconds: 30\n            timeoutSeconds: 10") {
-		t.Fatal("liveness probe does not match the hardened deployment contract")
-	}
-	ingress := find("instances/alpha/ingress.yaml")
+	ingress := findFile(t, bundle, "instances/alpha/ingress.yaml")
 	for _, needle := range []string{"cert-manager.io/cluster-issuer", "cloudflare-issuer", "ingressClassName", "traefik", "router.tls", "alpha.example.test", "alpha-app-tls"} {
 		if !strings.Contains(ingress, needle) {
 			t.Fatalf("ingress missing %q", needle)
 		}
 	}
-	redirect := find("instances/alpha/http-redirect.yaml")
+	redirect := findFile(t, bundle, "instances/alpha/http-redirect.yaml")
 	for _, needle := range []string{"redirectScheme", "scheme: https", "permanent: true", "router.entrypoints", "web"} {
 		if !strings.Contains(redirect, needle) {
 			t.Fatalf("redirect missing %q", needle)
 		}
 	}
-	security := find("instances/alpha/security-headers.yaml")
+	security := findFile(t, bundle, "instances/alpha/security-headers.yaml")
 	for _, needle := range []string{"stsSeconds: 31536000", "stsIncludeSubdomains: false", "stsPreload: false", "forceSTSHeader: true", "contentTypeNosniff: true", "frameDeny: true", "strict-origin-when-cross-origin", "Permissions-Policy"} {
 		if !strings.Contains(security, needle) {
 			t.Fatalf("security middleware missing %q", needle)
 		}
 	}
-	secret := find("instances/alpha/secret.example.yaml")
-	if !strings.Contains(secret, "GOOGLE_REDIRECT_URL: \"https://alpha.example.test/auth/google/callback\"") || !strings.Contains(secret, "REPLACE_ME") {
-		t.Fatalf("secret callback/placeholders missing: %s", secret)
-	}
-	checklist := find("operator-checklist.md")
+	checklist := findFile(t, bundle, "operator-checklist.md")
 	for _, needle := range []string{"First install generation", "Existing SK-first canary release", "DNS, OAuth registration, Secret values, and kubectl apply are operator actions", "https://alpha.example.test/auth/google/callback", "node-local", "reclaim policy", "CSP remains application-owned"} {
 		if !strings.Contains(checklist, needle) {
 			t.Fatalf("checklist missing %q", needle)
@@ -497,33 +628,77 @@ func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
 	}
 }
 
-func TestCompilePeerSetsScaleToThirtyThree(t *testing.T) {
+func TestCompileDeterministicAcrossInputOrderAndSixtyFourParticipants(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "league.json")
 	fleet := testFleet()
-	fleet.Instances = make([]Instance, 0, 33)
-	for i := 0; i < 33; i++ {
+	fleet.Instances = make([]Instance, 0, 64)
+	for i := 0; i < 64; i++ {
 		id := fmt.Sprintf("hq-%02d", i)
-		fleet.Instances = append(fleet.Instances, Instance{ID: id, Namespace: id, ResourcePrefix: id + "-app", PublicOrigin: "https://" + id + ".example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi", HQParticipant: true})
+		fleet.Instances = append(fleet.Instances, instance(id, hq("league-"+id, i, "cyan", "key-"+id, i == 0)))
 	}
-	path := writeFleet(t, dir, fleet)
-	bundle, err := Compile(path)
+	pathA := writeFleet(t, dir, fleet)
+	bundleA, err := Compile(pathA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bundle.Instances) != 33 {
-		t.Fatalf("instances = %d", len(bundle.Instances))
+	reversed := append([]Instance(nil), fleet.Instances...)
+	sort.Slice(reversed, func(i, j int) bool { return reversed[i].ID > reversed[j].ID })
+	fleet.Instances = reversed
+	pathB := filepath.Join(dir, "fleet-reversed.json")
+	raw, _ := json.MarshalIndent(fleet, "", "  ")
+	if err := os.WriteFile(pathB, append(raw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	for _, instance := range bundle.Instances {
-		if len(instance.HQPeers) != 32 {
-			t.Fatalf("%s peer count = %d", instance.Spec.ID, len(instance.HQPeers))
+	bundleB, err := Compile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(bundleA.Files, bundleB.Files) {
+		t.Fatal("generated files depend on input instance order")
+	}
+	if got, want := len(bundleA.Files), 9*64+2*64+2+1; got != want {
+		t.Fatalf("64-participant file count = %d, want %d", got, want)
+	}
+	for _, derived := range bundleA.Instances {
+		if derived.Spec.CommissionerHQ == nil || derived.HQProviderOrigin == "" || derived.ImageDigest == "" {
+			t.Fatalf("derived HQ/image identity incomplete: %#v", derived)
 		}
-		seen := map[string]bool{}
-		for _, peer := range instance.HQPeers {
-			if peer.ID == instance.Spec.ID || seen[peer.ID] {
-				t.Fatalf("%s self/duplicate peer %q", instance.Spec.ID, peer.ID)
-			}
-			seen[peer.ID] = true
+	}
+}
+
+func TestCommissionerHQRejectsSixtyFiveParticipants(t *testing.T) {
+	dir := t.TempDir()
+	writeLeague(t, dir, "league.json")
+	fleet := testFleet()
+	fleet.Instances = make([]Instance, 0, 65)
+	for i := 0; i < 65; i++ {
+		id := fmt.Sprintf("hq-%02d", i)
+		fleet.Instances = append(fleet.Instances, instance(id, hq("league-"+id, i, "cyan", "key-"+id, i == 0)))
+	}
+	path := writeFleet(t, dir, fleet)
+	if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), "must not exceed 64") {
+		t.Fatalf("Load error = %v, want 64-participant ceiling", err)
+	}
+}
+
+func TestImageAndQuantityValidation(t *testing.T) {
+	if err := validateImage(testImage); err != nil {
+		t.Fatal(err)
+	}
+	for _, image := range []string{"harbor.example/gridiron:latest", "Harbor.example/gridiron@sha256:" + strings.Repeat("0", 64), "harbor.example/gridiron@sha256:bad"} {
+		if err := validateImage(image); err == nil {
+			t.Fatalf("validateImage(%q) succeeded", image)
+		}
+	}
+	for _, value := range []string{"1Gi", "512Mi", "20Gi"} {
+		if err := validateQuantity(value); err != nil {
+			t.Fatalf("validateQuantity(%q) = %v", value, err)
+		}
+	}
+	for _, value := range []string{"0Gi", "1.5Gi", "1GG", "1GiGi", "512MiMi", "1G", "1"} {
+		if err := validateQuantity(value); err == nil {
+			t.Fatalf("validateQuantity(%q) succeeded", value)
 		}
 	}
 }

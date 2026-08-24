@@ -5,9 +5,12 @@ import (
 	"net"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+var hqTokenPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func validateLoadedFleet(fleet Fleet) error {
 	if err := validateFleet(fleet, nil); err != nil {
@@ -50,6 +53,11 @@ func validateFleet(fleet Fleet, raw []byte) error {
 	seenIDs := map[string]struct{}{}
 	seenHosts := map[string]string{}
 	seenCallbacks := map[string]string{}
+	seenHQLeagueIDs := map[string]string{}
+	seenHQOrders := map[int]string{}
+	seenHQKeyIDs := map[string]string{}
+	participantCount := 0
+	hostCount := 0
 	for index, instance := range fleet.Instances {
 		if raw != nil {
 			if err := requireInstanceKeys(raw, index); err != nil {
@@ -77,6 +85,31 @@ func validateFleet(fleet Fleet, raw []byte) error {
 		}
 		if err := validateQuantity(instance.PVCStorage); err != nil {
 			return fmt.Errorf("instance %q pvc_storage: %w", instance.ID, err)
+		}
+		if instance.CommissionerHQ != nil {
+			participantCount++
+			if participantCount > 64 {
+				return fmt.Errorf("Commissioner HQ participants must not exceed 64")
+			}
+			if err := validateCommissionerHQ(instance.CommissionerHQ); err != nil {
+				return fmt.Errorf("instance %q commissioner_hq: %w", instance.ID, err)
+			}
+			hq := instance.CommissionerHQ
+			if previous, ok := seenHQLeagueIDs[hq.LeagueID]; ok {
+				return fmt.Errorf("instances %q and %q have duplicate commissioner_hq league_id %q", previous, instance.ID, hq.LeagueID)
+			}
+			seenHQLeagueIDs[hq.LeagueID] = instance.ID
+			if previous, ok := seenHQOrders[hq.Order]; ok {
+				return fmt.Errorf("instances %q and %q have duplicate commissioner_hq order %d", previous, instance.ID, hq.Order)
+			}
+			seenHQOrders[hq.Order] = instance.ID
+			if previous, ok := seenHQKeyIDs[hq.KeyID]; ok {
+				return fmt.Errorf("instances %q and %q have duplicate commissioner_hq key_id %q", previous, instance.ID, hq.KeyID)
+			}
+			seenHQKeyIDs[hq.KeyID] = instance.ID
+			if hq.Host {
+				hostCount++
+			}
 		}
 		publicOrigin, parsed, err := validateOrigin(instance.PublicOrigin, true)
 		if err != nil {
@@ -112,12 +145,41 @@ func validateFleet(fleet Fleet, raw []byte) error {
 			{kind: "redirect middleware", name: instance.ResourcePrefix + "-redirect-https"},
 			{kind: "security middleware", name: instance.ResourcePrefix + "-security-headers"},
 			{kind: "tls secret", name: instance.ResourcePrefix + "-tls"},
+			{kind: "HQ provider service", name: instance.ResourcePrefix + "-hq-v1"},
+			{kind: "HQ network policy", name: instance.ResourcePrefix + "-hq-v1-network-policy"},
+			{kind: "HQ registry configmap", name: instance.ResourcePrefix + "-hq-v1-registry"},
+			{kind: "HQ client secret", name: instance.ResourcePrefix + "-hq-v1-client-secrets"},
 		} {
 			if previous, ok := seenNames[named.name]; ok && previous != instance.ID {
 				return fmt.Errorf("instance %q %s name %q collides with %s", instance.ID, named.kind, named.name, previous)
 			}
 			seenNames[named.name] = instance.ID
 		}
+	}
+	if participantCount == 0 && hostCount != 0 {
+		return fmt.Errorf("zero commissioner_hq participants requires zero hosts")
+	}
+	if participantCount > 0 && hostCount != 1 {
+		return fmt.Errorf("commissioner_hq participants require exactly one host (got %d)", hostCount)
+	}
+	return nil
+}
+
+func validateCommissionerHQ(value *CommissionerHQ) error {
+	if value == nil {
+		return nil
+	}
+	if !hqTokenPattern.MatchString(value.LeagueID) {
+		return fmt.Errorf("league_id must be a lowercase safe token")
+	}
+	if value.Order < 0 {
+		return fmt.Errorf("order must be nonnegative")
+	}
+	if !hqTokenPattern.MatchString(value.Accent) {
+		return fmt.Errorf("accent must be a lowercase safe token")
+	}
+	if !hqTokenPattern.MatchString(value.KeyID) {
+		return fmt.Errorf("key_id must be a lowercase safe token")
 	}
 	return nil
 }
@@ -195,7 +257,7 @@ func validateK8sQualifiedName(field, value string) error {
 }
 
 func validateResourceNames(prefix string) error {
-	for _, suffix := range []string{"", "-data", "-league-config", "-secrets", "-http", "-redirect-https", "-security-headers", "-tls"} {
+	for _, suffix := range []string{"", "-data", "-league-config", "-secrets", "-http", "-redirect-https", "-security-headers", "-tls", "-hq-v1", "-hq-v1-network-policy", "-hq-v1-registry", "-hq-v1-client-secrets"} {
 		name := prefix + suffix
 		if len(name) > 63 || !k8sNamePattern.MatchString(name) {
 			return fmt.Errorf("resource prefix %q produces unsafe %q (Kubernetes names must be <=63 characters)", prefix, name)
