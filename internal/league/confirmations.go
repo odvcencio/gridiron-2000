@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +41,28 @@ func seatReleaseConfirmation(teamID, teamName string) string {
 		parts = append(parts, name)
 	}
 	return strings.Join(parts, " ")
+}
+
+// seatReleaseToken binds a rendered destructive confirmation to one durable
+// seat generation and its exact current occupants. It is deliberately opaque
+// and non-secret: its job is compare-and-set freshness, not authorization.
+func seatReleaseToken(state PersistedState, teamID, teamName string) string {
+	occupants := make([]string, 0, 3)
+	for email, member := range state.Members {
+		if member.TeamID == teamID {
+			occupants = append(occupants, "member:"+email+":"+member.Role)
+		}
+	}
+	for email, pendingTeamID := range state.CoInvites {
+		if pendingTeamID == teamID {
+			occupants = append(occupants, "pending:"+email)
+		}
+	}
+	sort.Strings(occupants)
+	payload := strings.Join([]string{teamID, strings.TrimSpace(teamName),
+		strconv.FormatUint(state.SeatRevisions[teamID], 10), strings.Join(occupants, "\x00")}, "\x01")
+	digest := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(digest[:])
 }
 
 // seatTrimConfirmation makes the number being removed part of the deliberate

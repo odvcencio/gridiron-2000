@@ -694,7 +694,7 @@ func TestBackfillPickemEnteredAtPersistsOnceFromEarliestValidLegacyPick(t *testi
 	}
 }
 
-func TestJSONV6MigratesToV7WithWaiverCollections(t *testing.T) {
+func TestJSONV6MigratesToV8WithWaiverCollections(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy-v6.json")
 	legacy := PersistedState{
 		SchemaVersion: 6,
@@ -719,8 +719,8 @@ func TestJSONV6MigratesToV7WithWaiverCollections(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := store.Snapshot()
-	if got.SchemaVersion != 7 {
-		t.Fatalf("schema version = %d, want 7", got.SchemaVersion)
+	if got.SchemaVersion != 8 {
+		t.Fatalf("schema version = %d, want 8", got.SchemaVersion)
 	}
 	if len(got.WaiverReceipts) != 0 {
 		t.Fatalf("v6 migration invented waiver receipts: %#v", got.WaiverReceipts)
@@ -971,11 +971,138 @@ func TestPauseResumeExtendRoundTrip(t *testing.T) {
 	}
 }
 
+func TestClockTransitionsCompareAndSetUnderStoreLock(t *testing.T) {
+	now := time.Date(2026, 8, 23, 19, 0, 0, 0, time.UTC)
+
+	t.Run("duplicate pause and resume reject", func(t *testing.T) {
+		store := newTestStore(t)
+		if started, err := store.StartDraft(now, 90*time.Second); err != nil || !started {
+			t.Fatalf("StartDraft = %v, %v", started, err)
+		}
+		if err := store.PauseClock(now.Add(10 * time.Second)); err != nil {
+			t.Fatalf("first pause: %v", err)
+		}
+		if err := store.PauseClock(now.Add(11 * time.Second)); err == nil {
+			t.Fatal("duplicate pause unexpectedly succeeded")
+		}
+		if err := store.ResumeClock(now.Add(12*time.Second), 90*time.Second); err != nil {
+			t.Fatalf("first resume: %v", err)
+		}
+		if err := store.ResumeClock(now.Add(13*time.Second), 90*time.Second); err == nil {
+			t.Fatal("duplicate resume unexpectedly succeeded")
+		}
+	})
+
+	t.Run("final pick cannot be rearmed", func(t *testing.T) {
+		store := newTestStore(t)
+		if started, err := store.StartDraft(now, 90*time.Second); err != nil || !started {
+			t.Fatalf("StartDraft = %v, %v", started, err)
+		}
+		total := len(defaultTeams()) * CurrentDraftRounds()
+		store.mu.Lock()
+		store.state.Picks = make([]DraftPick, total-1)
+		for i := range store.state.Picks {
+			store.state.Picks[i] = DraftPick{
+				Number: i + 1, TeamID: teamOnClock(nil, i+1),
+				PlayerID: fmt.Sprintf("clock-cas-%03d", i+1), MadeAt: now,
+			}
+		}
+		store.state.ClockPaused = true
+		store.state.ClockDeadline = time.Time{}
+		store.state.ClockRemainingSec = 15
+		store.mu.Unlock()
+		finalTeam := teamOnClock(nil, total)
+		if _, err := store.MakePick(finalTeam, "clock-cas-final", "manager", now, time.Time{}); err != nil {
+			t.Fatalf("final pick: %v", err)
+		}
+		if err := store.ResumeClock(now.Add(time.Second), 90*time.Second); err == nil {
+			t.Fatal("resume after final pick unexpectedly succeeded")
+		}
+		state := store.Snapshot()
+		if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
+			t.Fatalf("completed draft was rearmed: %+v", state)
+		}
+	})
+
+	t.Run("pause persist failure restores every clock field", func(t *testing.T) {
+		store := newTestStore(t)
+		if started, err := store.StartDraft(now, 90*time.Second); err != nil || !started {
+			t.Fatalf("StartDraft = %v, %v", started, err)
+		}
+		before := store.Snapshot()
+		failThisStorePersist(store)
+		if err := store.PauseClock(now.Add(10 * time.Second)); !errors.Is(err, errInjectedPersist) {
+			t.Fatalf("PauseClock failure = %v, want injected failure", err)
+		}
+		after := store.Snapshot()
+		if after.ClockDeadline != before.ClockDeadline || after.ClockPaused != before.ClockPaused ||
+			after.ClockRemainingSec != before.ClockRemainingSec || after.ClockDurationSec != before.ClockDurationSec {
+			t.Fatalf("failed pause changed clock: before=%+v after=%+v", before, after)
+		}
+	})
+
+	t.Run("resume persist failure restores every clock field", func(t *testing.T) {
+		store := newTestStore(t)
+		if started, err := store.StartDraft(now, 90*time.Second); err != nil || !started {
+			t.Fatalf("StartDraft = %v, %v", started, err)
+		}
+		if err := store.PauseClock(now.Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		before := store.Snapshot()
+		failThisStorePersist(store)
+		if err := store.ResumeClock(now.Add(20*time.Second), 90*time.Second); !errors.Is(err, errInjectedPersist) {
+			t.Fatalf("ResumeClock failure = %v, want injected failure", err)
+		}
+		after := store.Snapshot()
+		if after.ClockDeadline != before.ClockDeadline || after.ClockPaused != before.ClockPaused ||
+			after.ClockRemainingSec != before.ClockRemainingSec || after.ClockDurationSec != before.ClockDurationSec {
+			t.Fatalf("failed resume changed clock: before=%+v after=%+v", before, after)
+		}
+	})
+}
+
 // TestClockFieldsDecodeFromOldStateFile loads a pre-clock-era state file (no
 // clock keys, no autopick map, a pick with no madeBy) and checks it decodes
 // to an unarmed, unpaused clock with an empty Autopick map, and that
 // pickMaps normalizes the pick's empty MadeBy to "manager" without touching
 // the stored value.
+func TestSeatReleaseRevisionPersistsAndRejectsReplayAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+	first, _, err := store.AssignMember("first@example.com", "First")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := defaultTeams()[0]
+	before := store.Snapshot()
+	token := seatReleaseToken(before, first.TeamID, team.Name)
+	confirmation := seatReleaseConfirmation(first.TeamID, team.Name)
+	if err := store.ReleaseSeatConfirmed(first.TeamID, confirmation, token); err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := store.AssignMember("second@example.com", "Second")
+	if err != nil || second.TeamID != first.TeamID {
+		t.Fatalf("second claim = %+v, %v; want %s", second, err, first.TeamID)
+	}
+	revision := store.Snapshot().SeatRevisions[first.TeamID]
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded := NewStore(path)
+	t.Cleanup(func() { _ = reloaded.Close() })
+	if got := reloaded.Snapshot().SeatRevisions[first.TeamID]; got != revision {
+		t.Fatalf("reloaded seat revision = %d, want %d", got, revision)
+	}
+	if err := reloaded.ReleaseSeatConfirmed(first.TeamID, confirmation, token); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("pre-restart replay = %v, want stale-action rejection", err)
+	}
+	if got, ok := reloaded.MemberByEmail(second.Email); !ok || got.TeamID != first.TeamID {
+		t.Fatalf("stale replay evicted current occupant: %+v, %v", got, ok)
+	}
+}
+
 func TestClockFieldsDecodeFromOldStateFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	oldJSON := `{

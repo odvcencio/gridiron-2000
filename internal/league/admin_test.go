@@ -1,8 +1,10 @@
 package league
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -782,9 +784,10 @@ func TestAdminReleaseSeatRequiresCurrentTargetConfirmation(t *testing.T) {
 	}
 	team := service.Teams()[0]
 	expected := seatReleaseConfirmation(team.ID, team.Name)
+	token := seatReleaseToken(service.store.Snapshot(), team.ID, team.Name)
 	for _, confirmation := range []string{"", "RELEASE TEAM-2 WRONG"} {
 		before := service.store.Snapshot()
-		if _, err := service.AdminReleaseSeat(request, team.ID, confirmation); err == nil || err.Error() != "this action requires explicit confirmation" {
+		if _, err := service.AdminReleaseSeat(request, team.ID, confirmation, token); err == nil || err.Error() != "this action requires explicit confirmation" {
 			t.Fatalf("confirmation %q error = %v, want explicit confirmation rejection", confirmation, err)
 		}
 		after := service.store.Snapshot()
@@ -792,21 +795,108 @@ func TestAdminReleaseSeatRequiresCurrentTargetConfirmation(t *testing.T) {
 			t.Fatalf("rejected release changed member binding: before=%+v after=%+v", before.Members, after.Members)
 		}
 	}
+	if _, err := service.AdminReleaseSeat(request, team.ID, expected, ""); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("missing seat token error = %v, want stale-action rejection", err)
+	}
 	if _, err := service.AdminRenameTeam(request, team.ID, "Renamed Franchise"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.AdminReleaseSeat(request, team.ID, expected); err == nil || err.Error() != "this action requires explicit confirmation" {
-		t.Fatalf("stale label confirmation error = %v, want explicit confirmation rejection", err)
+	if _, err := service.AdminReleaseSeat(request, team.ID, expected, token); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("stale label confirmation error = %v, want stale-action rejection", err)
 	}
 	if got := service.store.Snapshot().Members[member.Email].TeamID; got != team.ID {
 		t.Fatalf("stale release changed member binding to %q", got)
 	}
 	current := seatReleaseConfirmation(team.ID, "Renamed Franchise")
-	if _, err := service.AdminReleaseSeat(request, team.ID, current); err != nil {
+	currentToken := seatReleaseToken(service.store.Snapshot(), team.ID, "Renamed Franchise")
+	if _, err := service.AdminReleaseSeat(request, team.ID, current, currentToken); err != nil {
 		t.Fatalf("current target confirmation: %v", err)
 	}
 	if got := service.store.Snapshot().Members[member.Email].TeamID; got != "" {
 		t.Fatalf("confirmed release left member binding %q", got)
+	}
+	if _, err := service.AdminReleaseSeat(request, team.ID, current, currentToken); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("duplicate release error = %v, want consumed-token rejection", err)
+	}
+
+	second, _, err := service.store.AssignMember("second@example.com", "Second")
+	if err != nil || second.TeamID != team.ID {
+		t.Fatalf("second claim = %+v, %v; want %s", second, err, team.ID)
+	}
+	if _, err := service.AdminReleaseSeat(request, team.ID, current, currentToken); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("first occupant replay error = %v, want stale-action rejection", err)
+	}
+	if got := service.store.Snapshot().Members[second.Email].TeamID; got != team.ID {
+		t.Fatalf("stale first-occupant replay evicted second occupant: %q", got)
+	}
+
+	secondToken := seatReleaseToken(service.store.Snapshot(), team.ID, "Renamed Franchise")
+	if _, err := service.AdminReleaseSeat(request, team.ID, current, secondToken); err != nil {
+		t.Fatalf("release second occupant: %v", err)
+	}
+	reclaimed, _, err := service.store.AssignMember(second.Email, second.Name)
+	if err != nil || reclaimed.TeamID != team.ID {
+		t.Fatalf("same-occupant reclaim = %+v, %v; want %s", reclaimed, err, team.ID)
+	}
+	if _, err := service.AdminReleaseSeat(request, team.ID, current, secondToken); !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("same-occupant replay error = %v, want stale-action rejection", err)
+	}
+	if got := service.store.Snapshot().Members[second.Email].TeamID; got != team.ID {
+		t.Fatalf("stale same-occupant replay evicted reclaimed seat: %q", got)
+	}
+}
+
+func TestAdminReleaseSeatRequiresCommissioner(t *testing.T) {
+	service := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	member, _, err := service.store.AssignMember("manager@example.com", "Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := service.teamByID(member.TeamID)
+	state := service.store.Snapshot()
+	token := seatReleaseToken(state, team.ID, team.Name)
+	if _, err := service.AdminReleaseSeat(request, team.ID, seatReleaseConfirmation(team.ID, team.Name), token); err == nil || err.Error() != "commissioner access is required" {
+		t.Fatalf("non-commissioner release error = %v, want role rejection", err)
+	}
+	if got := service.store.Snapshot().Members[member.Email].TeamID; got != team.ID {
+		t.Fatalf("role-rejected release changed member binding to %q", got)
+	}
+}
+
+func TestAdminReleaseSeatPersistFailureRestoresSeatState(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	member, _, err := service.store.AssignMember("primary-failure@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.InviteCoManager(member.TeamID, "pending-co@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetReady(member.TeamID, true); err != nil {
+		t.Fatal(err)
+	}
+	team := service.teamByID(member.TeamID)
+	before := service.store.Snapshot()
+	token := seatReleaseToken(before, team.ID, team.Name)
+	failThisStorePersist(service.store)
+	if _, err := service.AdminReleaseSeat(request, team.ID, seatReleaseConfirmation(team.ID, team.Name), token); !errors.Is(err, errInjectedPersist) {
+		t.Fatalf("release persist failure = %v, want injected failure", err)
+	}
+	after := service.store.Snapshot()
+	if !reflect.DeepEqual(after.Members, before.Members) ||
+		!reflect.DeepEqual(after.CoInvites, before.CoInvites) ||
+		!reflect.DeepEqual(after.Ready, before.Ready) ||
+		!reflect.DeepEqual(after.SeatRevisions, before.SeatRevisions) {
+		t.Fatalf("failed release published partial seat state:\n before=%+v\n after=%+v", before, after)
+	}
+	durable := reloadStoredState(t, service.store.filePath)
+	if !reflect.DeepEqual(durable.Members, before.Members) ||
+		!reflect.DeepEqual(durable.CoInvites, before.CoInvites) ||
+		!reflect.DeepEqual(durable.Ready, before.Ready) ||
+		!reflect.DeepEqual(durable.SeatRevisions, before.SeatRevisions) {
+		t.Fatalf("failed release changed durable seat state:\n before=%+v\n durable=%+v", before, durable)
 	}
 }
 

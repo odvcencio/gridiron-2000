@@ -437,7 +437,9 @@ func TestAdminGuardsAndControls(t *testing.T) {
 	if _, _, err := demo.store.AssignMember("x@example.com", "X"); err != nil {
 		t.Fatal(err)
 	}
-	team, err := demo.AdminReleaseSeat(request, "team-1", seatReleaseConfirmation("team-1", demo.Teams()[0].Name))
+	releaseState := demo.store.Snapshot()
+	releaseToken := seatReleaseToken(releaseState, "team-1", demo.Teams()[0].Name)
+	team, err := demo.AdminReleaseSeat(request, "team-1", seatReleaseConfirmation("team-1", demo.Teams()[0].Name), releaseToken)
 	if err != nil {
 		t.Fatal(err)
 	}

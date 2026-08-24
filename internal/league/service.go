@@ -70,10 +70,10 @@ type Service struct {
 	// and the fingerprint's presence digest. nil means time.Now(); see
 	// clock().
 	now func() time.Time
-	// topologyMutationHook is a test-only checkpoint between a persisted
-	// roster/seat topology mutation and its runtime publication. It makes the
-	// linearization boundary deterministic without adding production timing
-	// behavior; nil in every live Service.
+	// topologyMutationHook is a test-only checkpoint within the shared
+	// topology-serialization boundary, immediately before a candidate store
+	// write or between a trim/reset commit and runtime publication. It makes
+	// interleavings deterministic; nil in every live Service.
 	topologyMutationHook func(string)
 	// presence tracks per-viewer last-seen instants, in memory only. The
 	// zero value is ready to use (see presenceTracker's doc comment).
@@ -378,9 +378,9 @@ func (s *Service) setTeams(teams []Team) {
 }
 
 // topologyMutationCheckpoint is a test-only seam used to hold one topology
-// mutation after its Store commit. The service-level mutex in admin.go remains
-// the actual correctness mechanism; this callback only makes ordering tests
-// able to exercise the publication boundary deterministically.
+// mutation at a named point. The service-level mutex in admin.go remains the
+// actual correctness mechanism; this callback only makes ordering tests able
+// to exercise its read/write/publication boundary deterministically.
 func (s *Service) topologyMutationCheckpoint(operation string) {
 	if s.topologyMutationHook != nil {
 		s.topologyMutationHook(operation)
@@ -1141,6 +1141,9 @@ func (s *Service) AssignManager(email, name string) (Member, error) {
 // HQ task).
 func (s *Service) assignMember(email, name string) (Member, error) {
 	email = s.identityResolver.Resolve(email)
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
+	s.topologyMutationCheckpoint("assign-member-before-store")
 	member, created, err := s.store.AssignMember(email, name)
 	if err != nil {
 		return Member{}, err

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -392,4 +393,190 @@ func TestTrimUnclaimedSeatsRejectsScheduleRace(t *testing.T) {
 	if current.Schedule == nil || !reflect.DeepEqual(*current.Schedule, changed) {
 		t.Fatalf("stale trim discarded changed schedule: %#v", current.Schedule)
 	}
+}
+func pauseTrimAfterStore(t *testing.T, svc *Service, request *http.Request) (chan struct{}, <-chan error) {
+	t.Helper()
+	data := svc.AdminData(request)
+	count := data["unclaimed_seat_count"].(int)
+	token := data["unclaimed_seat_token"].(string)
+	paused := make(chan struct{})
+	release := make(chan struct{})
+	svc.topologyMutationHook = func(operation string) {
+		if operation == "trim-after-store" {
+			close(paused)
+			<-release
+		}
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := svc.TrimUnclaimedSeats(request, seatTrimConfirmation(count), token)
+		done <- err
+	}()
+	select {
+	case <-paused:
+	case <-time.After(2 * time.Second):
+		t.Fatal("seat trim did not reach its post-store publication checkpoint")
+	}
+	return release, done
+}
+
+func assertTopologyWriterBlocked(t *testing.T, done <-chan error, release chan struct{}) {
+	t.Helper()
+	select {
+	case err := <-done:
+		close(release)
+		t.Fatalf("topology writer completed inside trim publication gap: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func assertNoTrimmedTopologyReferences(t *testing.T, state PersistedState) {
+	t.Helper()
+	trimmed := make(map[string]bool, len(state.TrimmedTeamIDs))
+	for _, teamID := range state.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	for _, member := range state.Members {
+		if trimmed[member.TeamID] {
+			t.Fatalf("trimmed team retained durable member: %+v", member)
+		}
+	}
+	for _, teamID := range state.DraftOrder {
+		if trimmed[teamID] {
+			t.Fatalf("draft order reintroduced trimmed team %q", teamID)
+		}
+	}
+	if state.Schedule != nil {
+		for _, week := range state.Schedule.Weeks {
+			if trimmed[week.ByeTeamID] {
+				t.Fatalf("schedule bye reintroduced trimmed team %q", week.ByeTeamID)
+			}
+			for _, matchup := range week.Matchups {
+				if trimmed[matchup.HomeTeamID] || trimmed[matchup.AwayTeamID] {
+					t.Fatalf("schedule reintroduced trimmed team: %+v", matchup)
+				}
+			}
+		}
+	}
+}
+
+func TestSeatTrimSerializesRuntimeDerivedTopologyWriters(t *testing.T) {
+	t.Run("claim waits for trim publication", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("claim-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		claimDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AssignManager("late-service@example.com", "Late")
+			claimDone <- err
+		}()
+		assertTopologyWriterBlocked(t, claimDone, release)
+		if _, _, err := svc.store.AssignMember("late-store@example.com", "Late Store"); !errors.Is(err, ErrLeagueFull) {
+			close(release)
+			t.Fatalf("direct store claim in publication gap = %v, want league full", err)
+		}
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-claimDone; !errors.Is(err, ErrLeagueFull) {
+			t.Fatalf("serialized claim = %v, want league full", err)
+		}
+		assertNoTrimmedTopologyReferences(t, svc.store.Snapshot())
+	})
+
+	t.Run("draft order waits and uses kept teams", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("order-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		orderDone := make(chan error, 1)
+		go func() {
+			_, _, err := svc.AdminRandomizeDraftOrder(request, "")
+			orderDone <- err
+		}()
+		assertTopologyWriterBlocked(t, orderDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-orderDone; err != nil {
+			t.Fatalf("serialized draft order: %v", err)
+		}
+		state := svc.store.Snapshot()
+		if len(state.DraftOrder) != minTeams {
+			t.Fatalf("draft order has %d teams, want %d", len(state.DraftOrder), minTeams)
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
+
+	t.Run("schedule generation waits and uses kept teams", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("schedule-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		scheduleDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AdminGenerateSchedule(request, 2, 1, 991)
+			scheduleDone <- err
+		}()
+		assertTopologyWriterBlocked(t, scheduleDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-scheduleDone; err != nil {
+			t.Fatalf("serialized schedule generation: %v", err)
+		}
+		state := svc.store.Snapshot()
+		if state.Schedule == nil {
+			t.Fatal("kept-team schedule was not persisted")
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
+
+	t.Run("schedule regeneration cannot resurrect cleared topology", func(t *testing.T) {
+		clearSeatTrim()
+		t.Cleanup(clearSeatTrim)
+		svc := newTestService(t, true)
+		request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 2, 1, 992); err != nil {
+			t.Fatalf("initial schedule: %v", err)
+		}
+		for i := 0; i < minTeams; i++ {
+			claimSeat(t, svc, fmt.Sprintf("regenerate-gap-%d@example.com", i))
+		}
+		release, trimDone := pauseTrimAfterStore(t, svc, request)
+		regenerateDone := make(chan error, 1)
+		go func() {
+			_, err := svc.AdminRegenerateSchedule(request, 0, 0)
+			regenerateDone <- err
+		}()
+		assertTopologyWriterBlocked(t, regenerateDone, release)
+		close(release)
+		if err := <-trimDone; err != nil {
+			t.Fatalf("trim: %v", err)
+		}
+		if err := <-regenerateDone; err == nil || !strings.Contains(err.Error(), "no schedule exists") {
+			t.Fatalf("serialized regeneration = %v, want cleared-schedule rejection", err)
+		}
+		state := svc.store.Snapshot()
+		if state.Schedule != nil {
+			t.Fatalf("regeneration resurrected trimmed schedule: %+v", state.Schedule)
+		}
+		assertNoTrimmedTopologyReferences(t, state)
+	})
 }

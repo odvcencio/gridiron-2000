@@ -62,6 +62,7 @@ func SeatRow(props SeatRowProps) Node {
 				<form method="post" action={props.ReleaseAction} data-gosx-managed="true" class="seat-release-form">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
+					<input type="hidden" name="seat_token" value={props.seat.release_token}></input>
 					<label for={"seat-release-confirm-" + props.seat.id}>Type <span class="mono">{props.seat.release_confirmation}</span> to confirm.</label>
 					<input id={"seat-release-confirm-" + props.seat.id} type="text" name="confirm" autocomplete="off" placeholder={props.seat.release_confirmation} required="required"></input>
 					<p class="scoring-note">This releases the primary manager, co-manager, pending co-invite, and ready state for this seat.</p>

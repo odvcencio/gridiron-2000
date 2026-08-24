@@ -41,7 +41,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 7
+const currentSchemaVersion = 8
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -172,6 +172,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			TradeOffers:     []TradeOffer{},
 			RosterZones:     map[string]map[string]ZoneAssignment{},
 			CoInvites:       map[string]string{},
+			SeatRevisions:   map[string]uint64{},
 			TrimmedTeamIDs:  []string{},
 		},
 	}
@@ -351,6 +352,11 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 		s.state.ClockDeadline = time.Time{}
 		s.state.ClockPaused = false
 		s.state.ClockRemainingSec = 0
+	} else if s.state.ClockPaused {
+		// A pick may race a pause after its caller computed nextDeadline.
+		// The lock's current paused state wins: the new on-clock seat resumes
+		// later with a fresh duration, never PAUSED plus a live deadline.
+		s.state.ClockDeadline = time.Time{}
 	} else {
 		s.state.ClockDeadline = nextDeadline
 	}
@@ -478,6 +484,9 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 		s.state.ClockDeadline = time.Time{}
 		s.state.ClockPaused = false
 		s.state.ClockRemainingSec = 0
+	} else if s.state.ClockPaused {
+		s.state.ClockDeadline = time.Time{}
+		s.state.ClockRemainingSec = 0
 	} else {
 		s.state.ClockDeadline = nextDeadline
 	}
@@ -558,32 +567,46 @@ func (s *Store) SetDraftAtOverride(at time.Time) error {
 	return nil
 }
 
-// PauseClock stops the running deadline, storing the remaining seconds
-// (floored at zero) so a resume can restore it. Persisted, so a restart
-// stays paused. Pauses an unarmed clock harmlessly (remaining stays 0).
+// PauseClock stops one running, incomplete draft deadline and stores its
+// remaining seconds. Lifecycle and transition checks live under the same lock
+// as the write, so duplicate or racing actions cannot publish an impossible
+// paused/running state.
 func (s *Store) PauseClock(now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	remaining := 0
-	if !s.state.ClockDeadline.IsZero() {
-		remaining = int(s.state.ClockDeadline.Sub(now).Seconds())
-		if remaining < 0 {
-			remaining = 0
-		}
+	if !s.state.DraftStarted && !s.draftLifecycleBypass {
+		return fmt.Errorf("start the draft before pausing its clock")
+	}
+	if draftComplete(s.state) {
+		return fmt.Errorf("the draft is complete; the clock cannot pause")
+	}
+	if s.state.ClockPaused || s.state.ClockDeadline.IsZero() || s.state.ClockRemainingSec != 0 {
+		return fmt.Errorf("the clock is not running")
+	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
+	remaining := int(s.state.ClockDeadline.Sub(now).Seconds())
+	if remaining < 0 {
+		remaining = 0
 	}
 	s.state.ClockRemainingSec = remaining
 	s.state.ClockDeadline = time.Time{}
 	s.state.ClockPaused = true
-	return s.persistLocked(colScalars)
+	if err := s.persistLocked(colScalars); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
-// ResumeClock restores the deadline from the stored remaining seconds, or
-// grants the full duration when nothing was captured (an unarmed clock, or
-// a fresh on-clock team after a manual pick during a pause). In demo mode
-// this doubles as "start the clock."
+// ResumeClock restores one paused deadline from the stored remainder, or
+// starts a deliberately unarmed live draft with the full duration. The
+// compare-and-set checks reject duplicate resumes, inconsistent clock fields,
+// and any attempt to re-arm a completed draft.
 func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -593,6 +616,20 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	if !s.state.DraftStarted && !s.draftLifecycleBypass {
 		return fmt.Errorf("start the draft before resuming its clock")
 	}
+	if draftComplete(s.state) {
+		return fmt.Errorf("the draft is complete; the clock cannot resume")
+	}
+	if !s.state.ClockDeadline.IsZero() {
+		if !s.state.ClockPaused {
+			return fmt.Errorf("the clock is already running")
+		}
+		return fmt.Errorf("the stored clock state is invalid; reload before retrying")
+	}
+	if !s.state.ClockPaused && s.state.ClockRemainingSec != 0 {
+		return fmt.Errorf("the stored clock state is invalid; reload before retrying")
+	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	remaining := time.Duration(s.state.ClockRemainingSec) * time.Second
 	if remaining <= 0 {
 		remaining = duration
@@ -600,7 +637,12 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 	s.state.ClockDeadline = now.Add(remaining)
 	s.state.ClockPaused = false
 	s.state.ClockRemainingSec = 0
-	return s.persistLocked(colScalars)
+	if err := s.persistLocked(colScalars); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
 // ExtendClock adds delta to the running deadline, clamped to
@@ -720,17 +762,35 @@ func (s *Store) AssignMember(email, name string) (member Member, created bool, e
 	for _, member := range s.state.Members {
 		used[member.TeamID] = true
 	}
-	for _, team := range defaultTeams() {
-		if used[team.ID] {
+	trimmed := make(map[string]bool, len(s.state.TrimmedTeamIDs))
+	for _, teamID := range s.state.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	for _, team := range activeTeams {
+		if used[team.ID] || trimmed[team.ID] {
 			continue
 		}
 		if name == "" {
 			name = team.Manager
 		}
+		previousMember, hadMember := s.state.Members[email]
+		previousRevision, hadRevision := s.state.SeatRevisions[team.ID]
+		previousDirty := s.dirty
 		newMember := Member{TeamID: team.ID, Name: name, Email: email}
 		s.state.Members[email] = newMember
-		if err := s.persistLocked(colMembers); err != nil {
-			delete(s.state.Members, email)
+		s.state.SeatRevisions[team.ID] = previousRevision + 1
+		if err := s.persistLocked(colMembers, colScalars); err != nil {
+			if hadMember {
+				s.state.Members[email] = previousMember
+			} else {
+				delete(s.state.Members, email)
+			}
+			if hadRevision {
+				s.state.SeatRevisions[team.ID] = previousRevision
+			} else {
+				delete(s.state.SeatRevisions, team.ID)
+			}
+			s.dirty = previousDirty
 			return Member{}, false, err
 		}
 		return newMember, true, nil
@@ -843,18 +903,18 @@ func (s *Store) Invited(email string) bool {
 // orphaned invite that would silently re-bind a future sign-in to a seat
 // that has since moved on.
 func (s *Store) ReleaseSeat(teamID string) error {
-	return s.releaseSeat(teamID, "", false)
+	return s.releaseSeat(teamID, "", "", false)
 }
 
 // ReleaseSeatConfirmed performs the same atomic seat release after checking
-// the exact target phrase against the current seat label. The label check is
-// inside the store lock, so a rename or seat reset cannot turn a stale render
-// into a release of a different current target.
-func (s *Store) ReleaseSeatConfirmed(teamID, confirmation string) error {
-	return s.releaseSeat(teamID, confirmation, true)
+// the exact target phrase and opaque seat generation token against the current
+// claimed seat. Every check and the mutation share one store lock, so replay,
+// rename, release/reclaim, and concurrent occupant changes fail closed.
+func (s *Store) ReleaseSeatConfirmed(teamID, confirmation, token string) error {
+	return s.releaseSeat(teamID, confirmation, token, true)
 }
 
-func (s *Store) releaseSeat(teamID, confirmation string, confirmed bool) error {
+func (s *Store) releaseSeat(teamID, confirmation, token string, confirmed bool) error {
 	if confirmed && strings.TrimSpace(confirmation) == "" {
 		return requireMutationConfirmation("RELEASE SEAT", confirmation)
 	}
@@ -869,33 +929,56 @@ func (s *Store) releaseSeat(teamID, confirmation string, confirmed bool) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	if confirmed {
-		name := ""
-		for _, team := range activeTeams {
-			if team.ID == teamID {
-				name = team.Name
-				break
-			}
+	name := ""
+	for _, team := range activeTeams {
+		if team.ID == teamID {
+			name = team.Name
+			break
 		}
-		if override := strings.TrimSpace(s.state.TeamNames[teamID]); override != "" {
-			name = override
+	}
+	if override := strings.TrimSpace(s.state.TeamNames[teamID]); override != "" {
+		name = override
+	}
+	if confirmed {
+		if memberForTeam(s.state.Members, teamID).Email == "" {
+			return errAdminActionStale
+		}
+		if strings.TrimSpace(token) == "" || token != seatReleaseToken(s.state, teamID, name) {
+			return errAdminActionStale
 		}
 		if err := requireMutationConfirmation(seatReleaseConfirmation(teamID, name), confirmation); err != nil {
 			return err
 		}
 	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
+	changed := false
 	for email, member := range s.state.Members {
 		if member.TeamID == teamID {
 			delete(s.state.Members, email)
+			changed = true
 		}
 	}
 	for email, pendingTeamID := range s.state.CoInvites {
 		if pendingTeamID == teamID {
 			delete(s.state.CoInvites, email)
+			changed = true
 		}
 	}
-	delete(s.state.Ready, teamID)
-	return s.persistLocked(colMembers, colCoInvites, colReady)
+	if _, ok := s.state.Ready[teamID]; ok {
+		delete(s.state.Ready, teamID)
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	s.state.SeatRevisions[teamID]++
+	if err := s.persistLocked(colMembers, colCoInvites, colReady, colScalars); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
 // errCoManagerLimit is the co-manager registration wave's exact-message
@@ -1134,6 +1217,9 @@ func (s *Store) ResetLeague() error {
 	}
 	previous := cloneState(s.state)
 	previousDirty := s.dirty
+	for _, team := range activeTeams {
+		s.state.SeatRevisions[team.ID]++
+	}
 	s.state.Picks = []DraftPick{}
 	s.state.Ready = map[string]bool{}
 	s.state.Members = map[string]Member{}
@@ -1288,31 +1374,50 @@ func (s *Store) SetTeamName(teamID, name string) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	current, hasCurrent := s.state.TeamNames[teamID]
+	if (name == "" && !hasCurrent) || (name != "" && current == name) {
+		return s.persistLocked(colTeamNames, colScalars)
+	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	if name == "" {
 		delete(s.state.TeamNames, teamID)
 	} else {
 		s.state.TeamNames[teamID] = name
 	}
-	return s.persistLocked(colTeamNames)
+	s.state.SeatRevisions[teamID]++
+	if err := s.persistLocked(colTeamNames, colScalars); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
 // SetDraftOrder stores a commissioner-drawn draft order. The order must name
 // every default team exactly once, and no pick may exist yet; reset the
 // draft first to redraw the order after picks start.
 func (s *Store) SetDraftOrder(order []string) error {
-	if err := validateDraftOrder(order); err != nil {
-		return err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	if err := validateDraftOrderForState(order, s.state); err != nil {
+		return err
+	}
 	if s.state.DraftStarted {
 		return fmt.Errorf("reset the draft before changing the order")
 	}
+	previous := append([]string(nil), s.state.DraftOrder...)
+	previousDirty := s.dirty
 	s.state.DraftOrder = append([]string(nil), order...)
-	return s.persistLocked(colDraftOrder)
+	if err := s.persistLocked(colDraftOrder); err != nil {
+		s.state.DraftOrder = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
 // DrawDraftOrder publishes one commissioner draw and, when the league does not
@@ -1323,13 +1428,18 @@ func (s *Store) SetDraftOrder(order []string) error {
 // An existing schedule is preserved; this lets a commissioner-authored plan
 // survive an emergency order redraw.
 func (s *Store) DrawDraftOrder(order []string, expectedToken string, schedule *SeasonSchedule) (bool, error) {
-	if err := validateDraftOrder(order); err != nil {
-		return false, err
-	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return false, err
+	}
+	if err := validateDraftOrderForState(order, s.state); err != nil {
+		return false, err
+	}
+	if schedule != nil {
+		if err := validateScheduleForState(*schedule, s.state); err != nil {
+			return false, err
+		}
 	}
 	if s.state.DraftStarted {
 		return false, fmt.Errorf("reset the draft before changing the order")
@@ -1341,12 +1451,23 @@ func (s *Store) DrawDraftOrder(order []string, expectedToken string, schedule *S
 	if expectedToken != currentToken {
 		return false, fmt.Errorf("the draft order changed in another tab; reload before drawing again")
 	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	s.state.DraftOrder = append([]string(nil), order...)
-	if s.state.Schedule == nil && schedule != nil {
+	created := s.state.Schedule == nil && schedule != nil
+	if created {
 		s.state.Schedule = cloneSchedule(schedule)
-		return true, s.persistLocked(colDraftOrder, colSchedule, colScalars)
 	}
-	return false, s.persistLocked(colDraftOrder)
+	cols := []collectionID{colDraftOrder}
+	if created {
+		cols = append(cols, colSchedule, colScalars)
+	}
+	if err := s.persistLocked(cols...); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return false, err
+	}
+	return created, nil
 }
 
 // validateDraftOrder rejects anything that is not an exact permutation of
@@ -1365,6 +1486,62 @@ func validateDraftOrder(order []string) error {
 			return fmt.Errorf("team %q appears more than once in the order", teamID)
 		}
 		seen[teamID] = true
+	}
+	return nil
+}
+
+// validateDraftOrderForState rechecks the generated order against the durable
+// trim while the Store lock is held. Runtime team publication can lag a trim's
+// SQLite commit for a few instructions; the persisted topology wins.
+func validateDraftOrderForState(order []string, state PersistedState) error {
+	trimmed := make(map[string]bool, len(state.TrimmedTeamIDs))
+	for _, teamID := range state.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	allowed := make(map[string]bool, len(activeTeams))
+	for _, team := range activeTeams {
+		if !trimmed[team.ID] {
+			allowed[team.ID] = true
+		}
+	}
+	if len(order) != len(allowed) {
+		return fmt.Errorf("the draft order must name all %d teams exactly once", len(allowed))
+	}
+	seen := make(map[string]bool, len(order))
+	for _, teamID := range order {
+		if trimmed[teamID] {
+			return errAdminActionStale
+		}
+		if !allowed[teamID] {
+			return fmt.Errorf("unknown team %q", teamID)
+		}
+		if seen[teamID] {
+			return fmt.Errorf("team %q appears more than once in the order", teamID)
+		}
+		seen[teamID] = true
+	}
+	return nil
+}
+
+// validateScheduleForState prevents a candidate built from a stale runtime
+// team list from reintroducing any durably trimmed franchise.
+func validateScheduleForState(schedule SeasonSchedule, state PersistedState) error {
+	if len(state.TrimmedTeamIDs) == 0 {
+		return nil
+	}
+	trimmed := make(map[string]bool, len(state.TrimmedTeamIDs))
+	for _, teamID := range state.TrimmedTeamIDs {
+		trimmed[teamID] = true
+	}
+	for _, week := range schedule.Weeks {
+		if trimmed[week.ByeTeamID] {
+			return errAdminActionStale
+		}
+		for _, matchup := range week.Matchups {
+			if trimmed[matchup.HomeTeamID] || trimmed[matchup.AwayTeamID] {
+				return errAdminActionStale
+			}
+		}
 	}
 	return nil
 }
@@ -1844,8 +2021,18 @@ func (s *Store) SetSchedule(sch SeasonSchedule) error {
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	if err := validateScheduleForState(sch, s.state); err != nil {
+		return err
+	}
+	previous := cloneSchedule(s.state.Schedule)
+	previousDirty := s.dirty
 	s.state.Schedule = cloneSchedule(&sch)
-	return s.persistLocked(colSchedule, colScalars)
+	if err := s.persistLocked(colSchedule, colScalars); err != nil {
+		s.state.Schedule = previous
+		s.dirty = previousDirty
+		return err
+	}
+	return nil
 }
 
 // SetScheduleWeek replaces one week's data (matchups, scores, bye) in the
@@ -3233,6 +3420,7 @@ func cloneState(in PersistedState) PersistedState {
 		TradeOffers:             make([]TradeOffer, len(in.TradeOffers)),
 		RosterZones:             make(map[string]map[string]ZoneAssignment, len(in.RosterZones)),
 		CoInvites:               make(map[string]string, len(in.CoInvites)),
+		SeatRevisions:           make(map[string]uint64, len(in.SeatRevisions)),
 		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
 	}
 	for key, value := range in.Ready {
@@ -3358,6 +3546,9 @@ func cloneState(in PersistedState) PersistedState {
 	}
 	for email, teamID := range in.CoInvites {
 		out.CoInvites[email] = teamID
+	}
+	for teamID, revision := range in.SeatRevisions {
+		out.SeatRevisions[teamID] = revision
 	}
 	sort.Slice(out.Picks, func(i, j int) bool { return out.Picks[i].Number < out.Picks[j].Number })
 	return out

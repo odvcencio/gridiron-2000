@@ -397,6 +397,10 @@ func TestPauseResumeDuringConcurrentPickingPreservesOrder(t *testing.T) {
 
 	now := time.Date(2026, 8, 22, 16, 0, 0, 0, time.UTC)
 	nextDeadline := now.Add(90 * time.Second)
+	started, err := store.StartDraft(now, 90*time.Second)
+	if err != nil || !started {
+		t.Fatalf("StartDraft = %v, %v", started, err)
+	}
 
 	var commissionerWG sync.WaitGroup
 	var pickWG sync.WaitGroup
@@ -418,10 +422,16 @@ func TestPauseResumeDuringConcurrentPickingPreservesOrder(t *testing.T) {
 			default:
 			}
 			if err := store.PauseClock(now); err != nil {
+				if draftComplete(store.Snapshot()) {
+					return
+				}
 				t.Errorf("PauseClock: %v", err)
 				return
 			}
 			if err := store.ResumeClock(now, 90*time.Second); err != nil {
+				if draftComplete(store.Snapshot()) {
+					return
+				}
 				t.Errorf("ResumeClock: %v", err)
 				return
 			}

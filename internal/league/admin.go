@@ -48,6 +48,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		member := memberForTeam(state.Members, team.ID)
 		item := s.teamMap(s.teamView(state, team.ID))
 		item["release_confirmation"] = seatReleaseConfirmation(team.ID, item["name"].(string))
+		item["release_token"] = seatReleaseToken(state, team.ID, item["name"].(string))
 		item["email"] = member.Email
 		item["ready"] = state.Ready[team.ID]
 		// co_email (registration wave, build item 4): the admin seats grid
@@ -833,11 +834,11 @@ func (s *Service) AdminRemoveInvite(r *http.Request, email string) error {
 }
 
 // AdminReleaseSeat unbinds whoever holds the team seat.
-func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation string) (Team, error) {
+func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation, token string) (Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return Team{}, err
 	}
-	if err := s.store.ReleaseSeatConfirmed(teamID, confirmation); err != nil {
+	if err := s.store.ReleaseSeatConfirmed(teamID, confirmation, token); err != nil {
 		return Team{}, err
 	}
 	return s.teamView(s.store.Snapshot(), teamID), nil
@@ -953,6 +954,8 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string
 	if err := s.requireCommissioner(r); err != nil {
 		return false, NotificationReceipt{}, err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	previous := s.store.Snapshot().DraftOrder
 	order := defaultTeamIDs()
 	for range draftOrderShufflePasses {
@@ -974,6 +977,7 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string
 	if err != nil {
 		return false, NotificationReceipt{}, err
 	}
+	s.topologyMutationCheckpoint("draft-order-before-store")
 	scheduleCreated, err := s.store.DrawDraftOrder(order, strings.TrimSpace(expectedToken), &schedule)
 	if err != nil {
 		return false, NotificationReceipt{}, err
@@ -1209,11 +1213,13 @@ func (s *Service) AdminGenerateSchedule(r *http.Request, weeks, startWeek int, s
 	if err := s.requireCommissioner(r); err != nil {
 		return SeasonSchedule{}, err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	state := s.store.Snapshot()
 	if state.Schedule != nil {
 		return SeasonSchedule{}, fmt.Errorf("a schedule already exists; regenerate it instead")
 	}
-	return s.buildAndStoreSchedule(weeks, startWeek, seed)
+	return s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-generate-before-store")
 }
 
 // AdminRegenerateSchedule redraws the schedule with a fresh seed. The
@@ -1225,6 +1231,8 @@ func (s *Service) AdminRegenerateSchedule(r *http.Request, weeks, startWeek int)
 	if err := s.requireCommissioner(r); err != nil {
 		return SeasonSchedule{}, err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	if !s.clock().Before(seasonStartAt()) {
 		return SeasonSchedule{}, fmt.Errorf("the schedule is locked once the season starts")
 	}
@@ -1245,18 +1253,19 @@ func (s *Service) AdminRegenerateSchedule(r *http.Request, weeks, startWeek int)
 	if err != nil {
 		return SeasonSchedule{}, err
 	}
-	return s.buildAndStoreSchedule(weeks, startWeek, seed)
+	return s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-regenerate-before-store")
 }
 
 // buildAndStoreSchedule runs the pure GenerateSchedule against the
 // league's current team list and divisions, stamps GeneratedAt from the
 // service clock (GenerateSchedule itself never touches the clock), and
 // persists the result.
-func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64) (SeasonSchedule, error) {
+func (s *Service) buildAndStoreSchedule(weeks, startWeek int, seed int64, checkpoint string) (SeasonSchedule, error) {
 	sched, err := s.buildSchedule(weeks, startWeek, seed)
 	if err != nil {
 		return SeasonSchedule{}, err
 	}
+	s.topologyMutationCheckpoint(checkpoint)
 	if err := s.store.SetSchedule(sched); err != nil {
 		return SeasonSchedule{}, err
 	}

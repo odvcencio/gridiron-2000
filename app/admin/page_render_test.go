@@ -423,11 +423,19 @@ func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 	for _, want := range []string{
 		`seat-release-disclosure`,
 		`seat-release-confirm-`,
+		`name="seat_token"`,
 		`primary manager, co-manager, pending co-invite`,
 		`props.seat.release_confirmation`,
 	} {
 		if !strings.Contains(markup, want) {
 			t.Errorf("seat release source contract missing %q", want)
 		}
+	}
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(serverSource), `ctx.FormData["seat_token"]`) {
+		t.Error("seat release action boundary does not forward the opaque current-seat token")
 	}
 }
