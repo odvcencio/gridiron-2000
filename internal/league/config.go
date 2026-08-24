@@ -304,12 +304,34 @@ func LoadConfig() (Config, error) {
 // or one of the runtime's seven supported field overrides. Warnings are
 // returned to the caller rather than logged.
 func LoadConfigFile(path string) (Config, []string, error) {
-	cfg, err := loadConfigFile(path)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("league config: %s: %w", path, err)
+	}
+	cfg, err := loadConfigBytes(path, raw)
 	if err != nil {
 		return Config{}, nil, err
 	}
 	cfg.Source = "file:" + path
 	return finishConfigLoad(cfg, false)
+}
+
+// LoadConfigBytes reads no files and consults no process environment. It
+// decodes, resolves, and validates exactly raw as an explicit league config;
+// callers that obtained the bytes from a regular file can therefore validate
+// and publish one immutable snapshot without a second read.
+func LoadConfigBytes(path string, raw []byte) (Config, []string, error) {
+	cfg, err := loadConfigBytes(path, raw)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	cfg.Source = "file:" + path
+	return finishConfigLoad(cfg, false)
+}
+
+// LoadConfigFileBytes is a descriptive alias for LoadConfigBytes.
+func LoadConfigFileBytes(path string, raw []byte) (Config, []string, error) {
+	return LoadConfigBytes(path, raw)
 }
 
 // LoadConfigFileWithEnvOverrides reads exactly path and applies the same
@@ -400,6 +422,10 @@ func loadConfigFile(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("league config: %s: %w", path, err)
 	}
+	return loadConfigBytes(path, raw)
+}
+
+func loadConfigBytes(path string, raw []byte) (Config, error) {
 	var file configFile
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()

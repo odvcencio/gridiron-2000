@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -125,8 +126,30 @@ func TestLoadRejectsInvalidFleetFields(t *testing.T) {
 		{"public credentials", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://u:p@alpha.example.test" }, "credentials"},
 		{"public query", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://alpha.example.test?q=1" }, "query"},
 		{"public port", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://alpha.example.test:8443" }, "port"},
+		{"bad host underscore", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://bad_host.example.test" }, "DNS-1123"},
+		{"bad host leading hyphen", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://-bad.example.test" }, "DNS-1123"},
+		{"bad host trailing hyphen", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://bad-.example.test" }, "DNS-1123"},
+		{"bad host empty label", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://bad..example.test" }, "DNS-1123"},
+		{"bad host overlong label", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://" + strings.Repeat("a", 64) + ".example.test" }, "DNS-1123"},
+		{"public IPv4", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://127.0.0.1" }, "IP address"},
+		{"public IPv6", func(f *Fleet) { f.Instances[0].PublicOrigin = "https://[::1]" }, "IP address"},
 		{"bad pvc", func(f *Fleet) { f.Instances[0].PVCStorage = "../../etc" }, "quantity"},
-		{"zero pvc", func(f *Fleet) { f.Instances[0].PVCStorage = "0Gi" }, "positive"},
+		{"zero pvc", func(f *Fleet) { f.Instances[0].PVCStorage = "0Gi" }, "positive integer"},
+		{"decimal pvc", func(f *Fleet) { f.Instances[0].PVCStorage = "1.5Gi" }, "positive integer"},
+		{"arbitrary pvc unit", func(f *Fleet) { f.Instances[0].PVCStorage = "1GG" }, "positive integer"},
+		{"repeated pvc unit", func(f *Fleet) { f.Instances[0].PVCStorage = "1GiGi" }, "positive integer"},
+		{"uppercase repository", func(f *Fleet) {
+			f.Image = "Harbor.example/gridiron@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}, "immutable"},
+		{"double slash repository", func(f *Fleet) {
+			f.Image = "harbor.example//gridiron@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}, "immutable"},
+		{"tagged repository", func(f *Fleet) {
+			f.Image = "harbor.example/gridiron:latest@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}, "immutable"},
+		{"bad registry port", func(f *Fleet) {
+			f.Image = "harbor.example:latest/gridiron@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+		}, "immutable"},
 		{"absolute league path", func(f *Fleet) { f.Instances[0].LeagueConfigPath = "/tmp/league.json" }, "fleet-relative"},
 		{"traversal league path", func(f *Fleet) { f.Instances[0].LeagueConfigPath = "../league.json" }, "escape"},
 		{"missing hq bool", nil, "hq_participant"},
@@ -189,6 +212,19 @@ func TestLoadRejectsCollisions(t *testing.T) {
 	}
 }
 
+func TestNarrowPVCQuantityGrammarAcceptsOnlyPositiveMiOrGi(t *testing.T) {
+	for _, value := range []string{"1Gi", "512Mi", "20Gi"} {
+		if err := validateQuantity(value); err != nil {
+			t.Errorf("validateQuantity(%q) = %v, want valid", value, err)
+		}
+	}
+	for _, value := range []string{"0Gi", "1.5Gi", "1GG", "1GiGi", "512MiMi", "1G", "1"} {
+		if err := validateQuantity(value); err == nil {
+			t.Errorf("validateQuantity(%q) succeeded, want rejection", value)
+		}
+	}
+}
+
 func TestLoadPreflightsAllLeaguesAndAttributesWarnings(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "good.json")
@@ -203,9 +239,6 @@ func TestLoadPreflightsAllLeaguesAndAttributesWarnings(t *testing.T) {
 	path := writeFleet(t, dir, fleet)
 	if _, _, err := Load(path); err == nil || !strings.Contains(err.Error(), `instance "broken"`) || !strings.Contains(err.Error(), `bad.json`) {
 		t.Fatalf("Load error = %v, want instance and path", err)
-	}
-	if strings.Contains(strings.ToLower(fmt.Sprint(path)), "name") && false {
-		t.Fatal("unreachable")
 	}
 
 	var object map[string]any
@@ -263,6 +296,47 @@ func TestExplicitLeaguePathIgnoresEnvironmentAndCWD(t *testing.T) {
 	}
 }
 
+func TestLoadUsesExactValidatedLeagueBytesAndRejectsNonRegularSources(t *testing.T) {
+	dir := t.TempDir()
+	leaguePath := writeLeague(t, dir, "league.json")
+	original, err := os.ReadFile(leaguePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetPath := writeFleet(t, dir, testFleet())
+	loaded, _, err := Load(fleetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Resolved) != 1 || !reflect.DeepEqual(loaded.Resolved[0].SourceJSON, original) {
+		t.Fatalf("resolved source bytes differ from the one file snapshot")
+	}
+	bundle, err := Compile(fleetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configMap := ""
+	for _, file := range bundle.Files {
+		if file.Path == "instances/alpha/league-config.yaml" {
+			configMap = string(file.Data)
+		}
+	}
+	if configMap == "" || !strings.Contains(configMap, "Test League") {
+		t.Fatalf("league ConfigMap missing validated source")
+	}
+
+	fifoDir := t.TempDir()
+	if err := syscall.Mkfifo(filepath.Join(fifoDir, "league.fifo"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fifoFleet := testFleet()
+	fifoFleet.Instances[0].LeagueConfigPath = "league.fifo"
+	fifoPath := writeFleet(t, fifoDir, fifoFleet)
+	if _, _, err := Load(fifoPath); err == nil || !strings.Contains(err.Error(), "regular file") {
+		t.Fatalf("FIFO Load error = %v, want regular-file rejection", err)
+	}
+}
+
 func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
 	dir := t.TempDir()
 	writeLeague(t, dir, "league.json")
@@ -304,10 +378,9 @@ func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
 	for _, instance := range bundleA.Instances {
 		byID[instance.Spec.ID] = instance
 	}
-	if got := byID["alpha"].HQPeersValue; got != "bravo="+byID["bravo"].ServiceOrigin+"|https://bravo.example.test" && got != "charlie="+byID["charlie"].ServiceOrigin+"|https://charlie.example.test" {
-		// alpha's peers should contain only the other HQ participant. The
-		// branch keeps the assertion readable if the fixture is edited.
-		t.Fatalf("alpha peers = %q", got)
+	wantAlphaPeers := "charlie=" + byID["charlie"].ServiceOrigin + "|https://charlie.example.test"
+	if got := byID["alpha"].HQPeersValue; got != wantAlphaPeers {
+		t.Fatalf("alpha peers = %q, want exactly %q", got, wantAlphaPeers)
 	}
 	if byID["bravo"].HQPeersValue != "" {
 		t.Fatalf("nonparticipant peers = %q", byID["bravo"].HQPeersValue)
@@ -327,6 +400,17 @@ func TestCompilePeersDeterministicBundleAndHardening(t *testing.T) {
 		if !strings.Contains(deployment, needle) {
 			t.Fatalf("deployment missing %q", needle)
 		}
+	}
+	for _, needle := range []string{"initialDelaySeconds: 3", "periodSeconds: 10", "timeoutSeconds: 5", "initialDelaySeconds: 15", "periodSeconds: 30", "timeoutSeconds: 10"} {
+		if !strings.Contains(deployment, needle) {
+			t.Fatalf("deployment probe missing %q", needle)
+		}
+	}
+	if !strings.Contains(deployment, "readinessProbe:\n            httpGet:\n              path: /api/health\n              port: http\n            initialDelaySeconds: 3\n            periodSeconds: 10\n            timeoutSeconds: 5") {
+		t.Fatal("readiness probe does not match the hardened deployment contract")
+	}
+	if !strings.Contains(deployment, "livenessProbe:\n            httpGet:\n              path: /api/live\n              port: http\n            initialDelaySeconds: 15\n            periodSeconds: 30\n            timeoutSeconds: 10") {
+		t.Fatal("liveness probe does not match the hardened deployment contract")
 	}
 	ingress := find("instances/alpha/ingress.yaml")
 	for _, needle := range []string{"cert-manager.io/cluster-issuer", "cloudflare-issuer", "ingressClassName", "traefik", "router.tls", "alpha.example.test", "alpha-app-tls"} {

@@ -123,11 +123,36 @@ func validateFleet(fleet Fleet, raw []byte) error {
 }
 
 func validateImage(image string) error {
-	if strings.TrimSpace(image) != image || image == "" {
+	if strings.TrimSpace(image) != image || image == "" || strings.Count(image, "@") != 1 {
 		return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
 	}
-	if !imagePattern.MatchString(image) {
+	repository, digest, _ := strings.Cut(image, "@")
+	if !imageDigestPattern.MatchString(digest) || strings.ToLower(repository) != repository || strings.Contains(repository, "//") {
 		return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+	}
+	components := strings.Split(repository, "/")
+	for index, component := range components {
+		if component == "" {
+			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+		}
+		if strings.Contains(component, ":") {
+			// Only the first component may be a registry with a numeric port.
+			if index != 0 || strings.Count(component, ":") != 1 {
+				return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+			}
+			host, port, _ := strings.Cut(component, ":")
+			if host == "" || port == "" || !validRegistryHost(host) {
+				return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+			}
+			portNumber, err := strconv.Atoi(port)
+			if err != nil || portNumber < 1 || portNumber > 65535 {
+				return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+			}
+			continue
+		}
+		if !imageComponentPattern.MatchString(component) {
+			return fmt.Errorf("must be an immutable repository@sha256:<64 lowercase hex> image")
+		}
 	}
 	return nil
 }
@@ -185,16 +210,7 @@ func validateLeaguePathValue(value string) error {
 
 func validateQuantity(value string) error {
 	if strings.TrimSpace(value) != value || value == "" || !quantityPattern.MatchString(value) {
-		return fmt.Errorf("must be a positive Kubernetes storage quantity")
-	}
-	// A quantity made only of zeroes is syntactically valid but cannot be a
-	// useful PVC request. Strip unit/exponent punctuation and inspect digits.
-	digits := strings.TrimRight(value, "mnumkKMGTPiE")
-	if i := strings.IndexAny(digits, "eE"); i >= 0 {
-		digits = digits[:i]
-	}
-	if strings.Trim(digits, "0.") == "" {
-		return fmt.Errorf("must be a positive Kubernetes storage quantity")
+		return fmt.Errorf("must be a positive integer storage quantity in Mi or Gi")
 	}
 	return nil
 }
@@ -224,6 +240,13 @@ func validateOrigin(raw string, public bool) (string, *url.URL, error) {
 	if strings.ToLower(hostname) != hostname {
 		return "", nil, fmt.Errorf("host must be lowercase")
 	}
+	if public {
+		if err := validatePublicHostname(hostname); err != nil {
+			return "", nil, err
+		}
+	} else if err := validateRelayHostname(hostname); err != nil {
+		return "", nil, err
+	}
 	if strings.HasSuffix(parsed.Host, ":") {
 		return "", nil, fmt.Errorf("port is invalid")
 	}
@@ -233,14 +256,51 @@ func validateOrigin(raw string, public bool) (string, *url.URL, error) {
 			return "", nil, fmt.Errorf("port is invalid")
 		}
 	}
-	if strings.Contains(hostname, ":") {
-		if net.ParseIP(hostname) == nil {
-			return "", nil, fmt.Errorf("host is invalid")
-		}
+	if strings.Contains(hostname, ":") && net.ParseIP(hostname) == nil {
+		return "", nil, fmt.Errorf("host is invalid")
 	}
 	// Public ingress hostnames cannot carry a port. A relay may use a port.
 	if public && parsed.Port() != "" {
 		return "", nil, fmt.Errorf("public HTTPS origin must not include a port")
 	}
 	return raw, parsed, nil
+}
+
+func validatePublicHostname(hostname string) error {
+	if net.ParseIP(hostname) != nil {
+		return fmt.Errorf("public HTTPS origin host must be a DNS-1123 subdomain, not an IP address")
+	}
+	if err := validateDNSHostname(hostname); err != nil {
+		return fmt.Errorf("public HTTPS origin host: %w", err)
+	}
+	return nil
+}
+
+func validateRelayHostname(hostname string) error {
+	if net.ParseIP(hostname) != nil {
+		return nil
+	}
+	if err := validateDNSHostname(hostname); err != nil {
+		return fmt.Errorf("relay origin host: %w", err)
+	}
+	return nil
+}
+
+func validateDNSHostname(hostname string) error {
+	if len(hostname) == 0 || len(hostname) > 253 {
+		return fmt.Errorf("must be a lowercase DNS-1123 subdomain")
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 || !k8sNamePattern.MatchString(label) {
+			return fmt.Errorf("must be a lowercase DNS-1123 subdomain")
+		}
+	}
+	return nil
+}
+
+func validRegistryHost(host string) bool {
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	return validateDNSHostname(host) == nil
 }

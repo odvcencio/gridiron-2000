@@ -80,7 +80,14 @@ func leagueConfigYAML(instance DerivedInstance, source []byte) string {
 	b.WriteString("\n  labels:\n    app: ")
 	b.WriteString(yamlQuote(instance.Spec.ResourcePrefix))
 	b.WriteString("\ndata:\n  league.json: |-\n")
-	for _, line := range strings.Split(strings.TrimRight(string(source), "\n"), "\n") {
+	text := string(source)
+	for len(text) > 0 {
+		line := text
+		if newline := strings.IndexByte(text, '\n'); newline >= 0 {
+			line, text = text[:newline], text[newline+1:]
+		} else {
+			text = ""
+		}
 		b.WriteString("    ")
 		b.WriteString(line)
 		b.WriteByte('\n')
@@ -157,7 +164,7 @@ func deploymentYAML(instance DerivedInstance) string {
 		quotedEnv("COMMISSIONER_INSTANCE_ID", instance.Spec.ID)
 		quotedEnv("COMMISSIONER_HQ_PEERS", instance.HQPeersValue)
 	}
-	b.WriteString("          volumeMounts:\n            - name: data\n              mountPath: /app/data\n            - name: league-config\n              mountPath: /etc/gridiron\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /api/health\n              port: http\n          livenessProbe:\n            httpGet:\n              path: /api/live\n              port: http\n          resources:\n            requests:\n              cpu: 100m\n              memory: 128Mi\n            limits:\n              cpu: 500m\n              memory: 512Mi\n          securityContext:\n            allowPrivilegeEscalation: false\n            readOnlyRootFilesystem: true\n            capabilities:\n              drop:\n                - ALL\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: ")
+	b.WriteString("          volumeMounts:\n            - name: data\n              mountPath: /app/data\n            - name: league-config\n              mountPath: /etc/gridiron\n              readOnly: true\n          readinessProbe:\n            httpGet:\n              path: /api/health\n              port: http\n            initialDelaySeconds: 3\n            periodSeconds: 10\n            timeoutSeconds: 5\n          livenessProbe:\n            httpGet:\n              path: /api/live\n              port: http\n            initialDelaySeconds: 15\n            periodSeconds: 30\n            timeoutSeconds: 10\n          resources:\n            requests:\n              cpu: 100m\n              memory: 128Mi\n            limits:\n              cpu: 500m\n              memory: 512Mi\n          securityContext:\n            allowPrivilegeEscalation: false\n            readOnlyRootFilesystem: true\n            capabilities:\n              drop:\n                - ALL\n      volumes:\n        - name: data\n          persistentVolumeClaim:\n            claimName: ")
 	b.WriteString(yamlQuote(instance.PVC))
 	b.WriteString("\n        - name: league-config\n          configMap:\n            name: ")
 	b.WriteString(yamlQuote(instance.LeagueConfigMap))

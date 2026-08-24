@@ -141,7 +141,8 @@ type Bundle struct {
 }
 
 var (
-	k8sNamePattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
-	imagePattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
-	quantityPattern = regexp.MustCompile(`^(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+|[numkKMGTPiE]*)$`)
+	k8sNamePattern        = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
+	imageDigestPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	imageComponentPattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
+	quantityPattern       = regexp.MustCompile(`^[1-9][0-9]*(Mi|Gi)$`)
 )

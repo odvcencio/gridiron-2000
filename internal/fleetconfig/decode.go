@@ -61,21 +61,20 @@ func load(path string) (Fleet, []Warning, error) {
 			failures = append(failures, fmt.Sprintf("instance %q league path %q: %v", instance.ID, instance.LeagueConfigPath, err))
 			continue
 		}
-		cfg, leagueWarnings, err := league.LoadConfigFile(resolvedPath)
+		source, err := os.ReadFile(resolvedPath)
+		if err != nil {
+			failures = append(failures, fmt.Sprintf("instance %q league config %q: read validated source: %v", instance.ID, instance.LeagueConfigPath, err))
+			continue
+		}
+		cfg, leagueWarnings, err := league.LoadConfigBytes(resolvedPath, source)
 		if err != nil {
 			// The canonical loader's errors contain validation context and the
 			// path, but never source bytes. Do not wrap or print file contents.
 			failures = append(failures, fmt.Sprintf("instance %q league config %q: %v", instance.ID, instance.LeagueConfigPath, err))
 			continue
 		}
-		source, err := os.ReadFile(resolvedPath)
-		if err != nil {
-			failures = append(failures, fmt.Sprintf("instance %q league config %q: read validated source: %v", instance.ID, instance.LeagueConfigPath, err))
-			continue
-		}
-		source = normalizeSourceJSON(source)
 		resolved := ResolvedInstance{
-			Spec: instance, Path: resolvedPath, SourceJSON: source,
+			Spec: instance, Path: resolvedPath, SourceJSON: append([]byte(nil), source...),
 			Config: cfg, Warnings: append([]string(nil), leagueWarnings...),
 		}
 		fleet.Resolved = append(fleet.Resolved, resolved)
@@ -115,15 +114,10 @@ func resolveLeaguePath(fleetPath, relative string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("stat path: %w", err)
 	}
-	if info.IsDir() {
-		return "", fmt.Errorf("path is a directory")
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("path must be a regular file")
 	}
 	return targetReal, nil
-}
-
-func normalizeSourceJSON(raw []byte) []byte {
-	trimmed := bytes.TrimSpace(bytes.ReplaceAll(raw, []byte("\r\n"), []byte("\n")))
-	return append(append([]byte(nil), trimmed...), '\n')
 }
 
 // rejectDuplicateJSONKeys walks JSON tokens before decoding into the strict

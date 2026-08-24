@@ -212,6 +212,21 @@ func TestLoadConfigFileIsExplicitAndIgnoresAmbientEnvironment(t *testing.T) {
 	}
 }
 
+func TestLoadConfigBytesValidatesExactlyProvidedBytesWithoutFilesystemOrEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "does-not-exist.json")
+	raw := []byte(minimalValidConfigJSON)
+	t.Setenv("LEAGUE_FILE", filepath.Join(t.TempDir(), "hostile.json"))
+	t.Setenv("APP_NAME", "Hostile Ambient League")
+	t.Setenv("DRAFT_TZ", "Not/AZone")
+	cfg, warnings, err := LoadConfigBytes(path, raw)
+	if err != nil {
+		t.Fatalf("LoadConfigBytes() error = %v", err)
+	}
+	if cfg.Name != "Test League" || len(warnings) != 0 || cfg.Source != "file:"+path {
+		t.Fatalf("cfg=%+v warnings=%v, want explicit bytes and source", cfg, warnings)
+	}
+}
+
 func warningConfigJSON(t *testing.T) string {
 	t.Helper()
 	var file map[string]any
