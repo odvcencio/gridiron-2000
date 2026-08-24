@@ -70,6 +70,11 @@ type Service struct {
 	// and the fingerprint's presence digest. nil means time.Now(); see
 	// clock().
 	now func() time.Time
+	// topologyMutationHook is a test-only checkpoint between a persisted
+	// roster/seat topology mutation and its runtime publication. It makes the
+	// linearization boundary deterministic without adding production timing
+	// behavior; nil in every live Service.
+	topologyMutationHook func(string)
 	// presence tracks per-viewer last-seen instants, in memory only. The
 	// zero value is ready to use (see presenceTracker's doc comment).
 	presence presenceTracker
@@ -370,6 +375,16 @@ func (s *Service) setTeams(teams []Team) {
 	s.teamsMu.Lock()
 	s.teams = teams
 	s.teamsMu.Unlock()
+}
+
+// topologyMutationCheckpoint is a test-only seam used to hold one topology
+// mutation after its Store commit. The service-level mutex in admin.go remains
+// the actual correctness mechanism; this callback only makes ordering tests
+// able to exercise the publication boundary deterministically.
+func (s *Service) topologyMutationCheckpoint(operation string) {
+	if s.topologyMutationHook != nil {
+		s.topologyMutationHook(operation)
+	}
 }
 
 // TeamCount returns the active league's team count.

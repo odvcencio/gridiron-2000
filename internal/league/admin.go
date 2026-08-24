@@ -13,10 +13,18 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"gridiron-2000/internal/mailer"
 )
+
+// topologyMutationMu is the publication boundary for persisted roster/seat
+// topology. ResetLeague must not clear runtime accessors after a concurrent
+// roster-shape or seat-trim mutation has already committed; all three service
+// operations therefore serialize their store write and runtime publication as
+// one linearizable operation.
+var topologyMutationMu sync.Mutex
 
 // AdminData assembles the commissioner console: seat claims, invites, and
 // league state counters. The page itself renders a restricted notice for
@@ -461,9 +469,12 @@ func (s *Service) AdminSetRosterShape(r *http.Request, o RosterOverride) (Roster
 	if err := s.requireCommissioner(r); err != nil {
 		return RosterPreset{}, err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	if err := s.store.SetRosterOverride(o); err != nil {
 		return RosterPreset{}, err
 	}
+	s.topologyMutationCheckpoint("roster-shape-after-store")
 	preset := rosterOverridePreset(o)
 	setRosterShape(preset)
 	return preset, nil
@@ -476,9 +487,12 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	if err := s.store.ClearRosterOverride(); err != nil {
 		return err
 	}
+	s.topologyMutationCheckpoint("roster-shape-reset-after-store")
 	clearRosterShape()
 	return nil
 }
@@ -496,10 +510,13 @@ func (s *Service) TrimUnclaimedSeats(r *http.Request) (kept []Team, removed []st
 	if err := s.requireCommissioner(r); err != nil {
 		return nil, nil, err
 	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
 	kept, removed, err = s.store.TrimUnclaimedSeats()
 	if err != nil {
 		return nil, nil, err
 	}
+	s.topologyMutationCheckpoint("trim-after-store")
 	// Two writes, deliberately: applySeatTrim updates the package-level
 	// override every non-Service call site reads (store.go, roster.go's
 	// draftComplete, draftclock.go), and setTeams updates this Service
@@ -812,9 +829,14 @@ func (s *Service) AdminReleaseSeat(r *http.Request, teamID string) (Team, error)
 	return s.teamView(s.store.Snapshot(), teamID), nil
 }
 
-// AdminResetDraft clears picks and ready flags. Seats and boards survive.
-func (s *Service) AdminResetDraft(r *http.Request) error {
+// AdminResetDraft clears the draft-scoped state after an exact confirmation.
+// Seats, boards, league configuration, and the persisted season topology
+// survive; see Store.ResetDraft for the complete collection contract.
+func (s *Service) AdminResetDraft(r *http.Request, confirmation string) error {
 	if err := s.requireCommissioner(r); err != nil {
+		return err
+	}
+	if err := requireMutationConfirmation(ResetDraftConfirmation, confirmation); err != nil {
 		return err
 	}
 	return s.store.ResetDraft()
@@ -845,12 +867,27 @@ func (s *Service) AdminRescheduleDraft(r *http.Request, raw string) error {
 	return s.store.SetDraftAtOverride(at)
 }
 
-// AdminResetLeague clears picks, seats, ready flags, and boards.
-func (s *Service) AdminResetLeague(r *http.Request) error {
+// AdminResetLeague clears competitive-season state and seat-bound identity
+// state after an exact confirmation. It also restores the runtime roster and
+// team topology to the league config defaults; see Store.ResetLeague for the
+// complete collection contract.
+func (s *Service) AdminResetLeague(r *http.Request, confirmation string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.ResetLeague()
+	if err := requireMutationConfirmation(ResetLeagueConfirmation, confirmation); err != nil {
+		return err
+	}
+	topologyMutationMu.Lock()
+	defer topologyMutationMu.Unlock()
+	if err := s.store.ResetLeague(); err != nil {
+		return err
+	}
+	s.topologyMutationCheckpoint("league-reset-after-store")
+	clearRosterShape()
+	clearSeatTrim()
+	s.setTeams(activeTeams)
+	return nil
 }
 
 // AdminRenameTeam overrides a team's display name. An empty name restores

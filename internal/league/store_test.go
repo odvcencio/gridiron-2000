@@ -733,7 +733,7 @@ func TestJSONV6MigratesToV7WithWaiverCollections(t *testing.T) {
 	}
 }
 
-func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
+func TestResetDraftKeepsDraftOrderAndResetLeagueClearsSeasonTopology(t *testing.T) {
 	store := newTestStore(t)
 	custom := []string{"team-2", "team-1", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}
 	if err := store.SetDraftOrder(custom); err != nil {
@@ -758,8 +758,8 @@ func TestResetsKeepDraftOrderAndScoring(t *testing.T) {
 		t.Fatal(err)
 	}
 	state = store.Snapshot()
-	if !reflect.DeepEqual(state.DraftOrder, custom) {
-		t.Fatalf("league reset must keep the draft order: %v", state.DraftOrder)
+	if len(state.DraftOrder) != 0 {
+		t.Fatalf("league reset must clear the draft order: %v", state.DraftOrder)
 	}
 	if state.Scoring["passTD"] != 5 {
 		t.Fatal("league reset must keep scoring overrides")
@@ -1377,7 +1377,8 @@ func TestPruneSentLogAgeCutoff(t *testing.T) {
 }
 
 // TestResetDraftPrunesExactPrefixList checks that ResetDraft prunes
-// exactly onclock:, autopick:, and draftdone: keys, and that draftrem:
+// exactly onclock:, autopick:, draftdone:, tradefailed:, and irheal: keys,
+// and that draftrem:
 // survives (spec section 9, test 8; spec section 6.2).
 func TestResetDraftPrunesExactPrefixList(t *testing.T) {
 	store := newTestStore(t)
@@ -1386,6 +1387,8 @@ func TestResetDraftPrunesExactPrefixList(t *testing.T) {
 		"onclock:team-1:100:a@example.com",
 		"autopick:team-1:100:a@example.com",
 		"draftdone:abcd1234:a@example.com",
+		"tradefailed:offer-1:a@example.com",
+		"irheal:2026-w1:p-1:a@example.com",
 		"draftrem:24:2026-08-22T16:00:00Z:a@example.com",
 		"order:abcd1234:a@example.com",
 		"seat:team-1:a@example.com",
@@ -1400,8 +1403,8 @@ func TestResetDraftPrunesExactPrefixList(t *testing.T) {
 	}
 
 	snapshot := store.Snapshot()
-	pruned := []string{seedKeys[0], seedKeys[1], seedKeys[2]}
-	survives := []string{seedKeys[3], seedKeys[4], seedKeys[5], seedKeys[6]}
+	pruned := []string{seedKeys[0], seedKeys[1], seedKeys[2], seedKeys[3], seedKeys[4]}
+	survives := []string{seedKeys[5], seedKeys[6], seedKeys[7], seedKeys[8]}
 	for _, key := range pruned {
 		if _, ok := snapshot.SentLog[key]; ok {
 			t.Errorf("ResetDraft must prune %q", key)
