@@ -32,7 +32,7 @@ spec:
         - name: gridiron-2000
           # release-2026.08.23-3d72967-lifecycle-ready; built from
           # 3d729676c9576e7dbc4e859d8b104780cc6a34f8 at 2026-08-23T06:25:47Z.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:8aaa20795217423f7017a6a62b9e93f871b36a069e16f2b6d6acac0ba76fb84b
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:ee2ed6d0959b9dd0dce51a6d486982b0adb60dd8a8d9017fb55feec80d14170e
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
