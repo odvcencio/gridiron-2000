@@ -1783,6 +1783,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
 		return map[string]any{
 			"viewer":               viewer,
+			"public_entry":         publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
 			"has_seat":             false,
 			"predraft_visible":     false,
 			"predraft_has_board":   false,
@@ -1890,9 +1891,10 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 	}
 
 	data := map[string]any{
-		"viewer":   viewer,
-		"has_seat": true,
-		"team":     teamMap,
+		"viewer":       viewer,
+		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"has_seat":     true,
+		"team":         teamMap,
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),

@@ -66,7 +66,11 @@ func boardPageLinks(position, query string, pages, current int) []map[string]any
 func (s *Service) BoardData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	state := s.store.Snapshot()
-	key := boardKeyForViewer(state, s.viewerKey(r))
+	// A board is a seat-tied draft control. Keep the existing action
+	// ownership boundary intact, but do not render an unseated identity's
+	// private scratch board as if it were a live team board. PublicEntryView
+	// is the shared admission/seat truth used for the next-step copy below.
+	key := boardViewKeyForViewer(state, viewer, s.viewerKey(r))
 	pool := s.pool()
 	position := BoardPositionFilter(r.URL.Query().Get("pos"))
 	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -120,11 +124,12 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 	pagedPlayers := matchingPlayers[pagination.Start:pagination.End]
 	paged := playerMapsWithScoring(pagedPlayers, scoringValues, matchup)
 	return map[string]any{
-		"viewer":      viewer,
-		"can_edit":    key != "",
-		"board":       entries,
-		"board_count": len(entries),
-		"available":   paged,
+		"viewer":       viewer,
+		"public_entry": publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+		"can_edit":     key != "",
+		"board":        entries,
+		"board_count":  len(entries),
+		"available":    paged,
 		// available_count/available_total are deliberately the unfiltered
 		// available pool. matching_count/pool_total describe the current
 		// server-side filter, so the UI can tell "all available" from
@@ -158,6 +163,19 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 	}
+}
+
+// boardViewKeyForViewer limits the board shown by the read projection to an
+// actual franchise seat. The action handlers retain their existing service
+// authority and continue to re-check ownership independently; this helper
+// prevents a seatless request from receiving a private board or edit affordance
+// in the page surface.
+func boardViewKeyForViewer(state PersistedState, viewer map[string]any, viewerKey string) string {
+	hasSeat, _ := viewer["has_seat"].(bool)
+	if !hasSeat {
+		return ""
+	}
+	return boardKeyForViewer(state, viewerKey)
 }
 
 func pageRangeStart(pagination poolPagination) int {

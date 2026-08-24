@@ -111,8 +111,9 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>SIGN IN REQUIRED:</strong>
-					use League access to build a board tied to your seat.
+					<strong>{data.public_entry.state_label}:</strong>
+					{data.public_entry.detail}
+					<a class="filter-button" href={data.public_entry.action_href} data-gosx-link>{data.public_entry.action_label}</a>
 				</p>
 			</If>
 			<If cond={data.pool_status.has_notice}>

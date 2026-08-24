@@ -169,17 +169,11 @@ func Page() Node {
 					MANAGER TERMINAL // NO FRANCHISE
 				</div>
 				<h1>NO TEAM YET.</h1>
-				<If cond={data.fantasy_card.league_full == false}>
-					<p>
-						{data.fantasy_card.open_seats}
-						seat(s) are still open. Claim one and build your roster.
-					</p>
-					<a href="/join" data-gosx-link class="button button--primary">Claim a team →</a>
-				</If>
-				<If cond={data.fantasy_card.league_full}>
-					<p>Every manager seat is claimed. Pick'em is always open — no seat required.</p>
-				</If>
-				<a href="/pickem" data-gosx-link class="button button--ghost">Open Pick'em HQ →</a>
+				<p>
+					<strong>{data.public_entry.state_label}:</strong>
+					{data.public_entry.detail}
+				</p>
+				<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
 			</section>
 		</If>
 		<If cond={data.has_seat}>

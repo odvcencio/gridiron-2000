@@ -919,7 +919,10 @@ func (s *Service) blitzLeaderboard(state PersistedState, slate string, slateGame
 func (s *Service) BlitzData(r *http.Request) map[string]any {
 	now := s.clock()
 	state := s.store.Snapshot()
+	viewer := s.Viewer(r)
+	publicEntry := publicEntryData(s.publicEntryViewForViewerState(r, viewer, state))
 	viewerKey := s.viewerKey(r)
+	hasSeat, _ := viewer["has_seat"].(bool)
 	pool := s.pool()
 	scoringValues := s.currentScoringValues()
 	snapshot, attached := s.blitzSnapshot()
@@ -961,12 +964,18 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	liveStats := snapshot.Stats[slate]
 
 	entry := state.BlitzEntries[viewerKey][slate]
+	if !hasSeat {
+		// Keep an unseated identity from seeing or editing a seat-tied entry
+		// surface. The mutation handlers still enforce their own existing
+		// authority checks; this is a read projection boundary.
+		entry = BlitzEntry{}
+	}
 	slots := s.blitzSlotMaps(entry, slateGames, liveStats, scoringValues, pool, now)
 	// entryOpen gates the slate as a whole (sign-in, sunset, every game
 	// final). Each eligible row then gates itself on its own game's
 	// kickoff, so a slate that is still open never offers an Add button
 	// for a player whose game has started.
-	entryOpen := viewerKey != "" && !archived && !closed
+	entryOpen := viewerKey != "" && hasSeat && !archived && !closed
 	eligible := []map[string]any{}
 	lockedEligible := 0
 	if !archived && !closed {
@@ -1016,7 +1025,8 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 	leaderboard := s.blitzLeaderboard(state, slate, slateGames, liveStats, scoringValues, pool, now)
 
 	data := map[string]any{
-		"viewer":                s.Viewer(r),
+		"viewer":                viewer,
+		"public_entry":          publicEntry,
 		"feed_offline":          snapshot.Health.State == BlitzStateDisabled || !attached,
 		"blitz_health":          blitzHealthMap(snapshot.Health),
 		"blitz_state":           selectedState,
@@ -1037,7 +1047,7 @@ func (s *Service) BlitzData(r *http.Request) map[string]any {
 		"slate_label":           blitzSlateLabel(slate),
 		"other_slate":           other,
 		"other_slate_label":     blitzSlateLabel(other),
-		"can_enter":             viewerKey != "" && !archived,
+		"can_enter":             viewerKey != "" && hasSeat && !archived,
 		// entry_open gates the slate; each eligible row's own can_add
 		// gates the player (see entryOpen above). The template reads
 		// can_add for the Add button, never entry_open, so a started
