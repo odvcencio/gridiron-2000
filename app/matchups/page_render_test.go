@@ -105,7 +105,7 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 		"SEASON SCHEDULE // WEEK 2",
 		"WEEK 2 VIEW",
 		"Status pending",
-		"Past week",
+		"Static schedule snapshot",
 		"href=\"/matchups\"",
 	} {
 		if !strings.Contains(body, want) {
@@ -117,6 +117,7 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 		"Checks every",
 		"Retrying every",
 		"Scores update on their own",
+		"Browser poll",
 	} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("non-current week retained auto-refresh claim %q: %s", forbidden, body)
@@ -225,5 +226,59 @@ func TestMatchupsPageRendersWithRealScheduleData(t *testing.T) {
 	}
 	if strings.Contains(body, "NO MATCHUPS YET") {
 		t.Fatalf("expected real seeded matchups, got the empty state: %s", body)
+	}
+	for _, want := range []string{
+		"Starter scoring ledger · both teams",
+		"Configured starters only. Bench, reserve, and IR are excluded.",
+		`data-gosx-live-bind="starterPoints.`,
+		"Browser checked",
+		"Stats ledger updated",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("real schedule render missing matchup truth surface %q: %s", want, body)
+		}
+	}
+}
+
+func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		"<details class=\"matchup-ledger\">",
+		"data-gosx-live-bind={\"starterPoints.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterPlayerName.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterPosition.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterNFLTeam.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterProvenance.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterJoinState.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterDetail.\" + row.live_key}",
+		"Configured starters only. Bench, reserve, and IR are excluded.",
+		"{data.live.checked_label}",
+		"{data.live.stats_updated_label}",
+		"<span>Browser poll</span>",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("matchup page lost native disclosure/freshness contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"<span>{row.player_name}</span>",
+		"<small>{row.position}<If cond={row.has_nfl_team}>",
+		"<span>{row.provenance} · {row.join_state}</span>",
+		"<small class=\"matchup-ledger__detail\">{row.detail}</small>",
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Fatalf("starter ledger field lost live binding: %q", forbidden)
+		}
+	}
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(styles), ".matchup-ledger__row") {
+		t.Fatal("matchup starter-ledger styles are missing")
 	}
 }

@@ -1657,6 +1657,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		selectedWeek = live.Week
 	}
 	isCurrentWeek := selectedWeek == currentWeek
+	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
 	return map[string]any{
 		"viewer":             viewer,
@@ -1677,7 +1678,8 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"current_week_href":  currentWeekHref,
 		"week_notice":        weekNotice,
 		"has_week_notice":    weekNotice != "",
-		"live_interval":      map[bool]string{true: "1m", false: ""}[isCurrentWeek],
+		"live_interval":      map[bool]string{true: "1m", false: ""}[livePoll],
+		"live_poll":          livePoll,
 		"next_matchup":       s.nextManagerMatchup(state, viewer, state.Schedule, currentWeek, publicEntry),
 		"public_entry":       publicEntryData(publicEntry),
 	}
@@ -2437,19 +2439,45 @@ func (s *Service) LiveScores(ctx context.Context) LiveSnapshot {
 // the polled JSON — never through an array — so the per-team score and
 // per-matchup status/clock this used to read out of the "matchups" array
 // live in their own flat, ID-keyed objects instead ("scores", per team ID;
-// "matchupStatus" and "matchupClock", per matchup ID). liveStatus and
-// liveUpdated are the same "source · timestamp[, FALLBACK]" label and bare
-// timestamp the old score-sync JS composed client-side in applySnapshot.
+// "matchupStatus" and "matchupClock", per matchup ID). The view exposes
+// checked/polled and mirrored-ledger freshness separately so those clocks
+// cannot be conflated by the browser.
 func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	live := s.LiveScores(ctx)
 	presentation := matchupPresentation(live.State)
 	scores := make(map[string]string, len(live.Matchups)*2)
+	starterPoints := make(map[string]string)
+	starterPlayerName := make(map[string]string)
+	starterPosition := make(map[string]string)
+	starterNFLTeam := make(map[string]string)
+	starterProvenance := make(map[string]string)
+	starterJoinState := make(map[string]string)
+	starterDetail := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
+	addStarterRow := func(row StarterLedgerRow) {
+		// Keep every visible starter field in a stable, one-level map keyed by
+		// the slot. The page binds all of these fields to the same live key so
+		// a poll cannot pair a new points value with the prior identity or join
+		// explanation when a lineup/stat join changes.
+		starterPoints[row.LiveKey] = row.PointsText
+		starterPlayerName[row.LiveKey] = row.PlayerName
+		starterPosition[row.LiveKey] = row.Position
+		starterNFLTeam[row.LiveKey] = row.NFLTeam
+		starterProvenance[row.LiveKey] = row.Provenance
+		starterJoinState[row.LiveKey] = row.JoinState
+		starterDetail[row.LiveKey] = row.Detail
+	}
 	for _, matchup := range live.Matchups {
-		scores[matchup.Away.ID] = fmt.Sprintf("%.1f", matchup.Away.Score)
-		scores[matchup.Home.ID] = fmt.Sprintf("%.1f", matchup.Home.Score)
+		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
+		scores[matchup.Home.ID] = matchupScoreText(matchup.Home)
+		for _, row := range matchup.Away.StarterLedger {
+			addStarterRow(row)
+		}
+		for _, row := range matchup.Home.StarterLedger {
+			addStarterRow(row)
+		}
 		status := matchup.Status
 		if status == "" {
 			status = "SCORES POSTED"
@@ -2458,32 +2486,48 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
 	}
-	timestamp := s.formatMatchupUpdate(live.LastUpdated)
-	liveStatus := presentation["sync_label"] + " · " + timestamp
+	checkedAt := live.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = live.LastUpdated
+	}
+	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
+	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
+	liveStatus := presentation["sync_label"] + " · Checked " + checked + " · Ledger " + statsUpdated
 	if live.Warning != "" {
 		liveStatus += " · BACKUP SCORES"
 	}
 	return map[string]any{
-		"ok":               live.OK,
-		"source":           live.Source,
-		"sourceLabel":      live.SourceLabel,
-		"week":             live.Week,
-		"weekLabel":        live.WeekLabel,
-		"state":            live.State,
-		"status":           live.Status,
-		"warning":          live.Warning,
-		"scores":           scores,
-		"matchupStatus":    matchupStatus,
-		"matchupClock":     matchupClock,
-		"matchupIndicator": matchupIndicator,
-		"liveStatus":       liveStatus,
-		"liveUpdated":      timestamp,
-		"liveIndicator":    liveIndicatorToken(live.State),
-		"headlineTop":      presentation["headline_top"],
-		"headlineBottom":   presentation["headline_bottom"],
-		"refreshLabel":     presentation["refresh_label"],
-		"noteTitle":        presentation["note_title"],
-		"noteBody":         presentation["note_body"],
+		"ok":                live.OK,
+		"source":            live.Source,
+		"sourceLabel":       live.SourceLabel,
+		"week":              live.Week,
+		"weekLabel":         live.WeekLabel,
+		"state":             live.State,
+		"status":            live.Status,
+		"warning":           live.Warning,
+		"scores":            scores,
+		"matchupStatus":     matchupStatus,
+		"matchupClock":      matchupClock,
+		"matchupIndicator":  matchupIndicator,
+		"starterPoints":     starterPoints,
+		"starterPlayerName": starterPlayerName,
+		"starterPosition":   starterPosition,
+		"starterNFLTeam":    starterNFLTeam,
+		"starterProvenance": starterProvenance,
+		"starterJoinState":  starterJoinState,
+		"starterDetail":     starterDetail,
+		"liveStatus":        liveStatus,
+		"liveUpdated":       checked,
+		"lastUpdated":       statsUpdated,
+		"checkedAt":         checked,
+		"statsUpdatedAt":    statsUpdated,
+		"liveStatsUpdated":  statsUpdated,
+		"liveIndicator":     liveIndicatorToken(live.State),
+		"headlineTop":       presentation["headline_top"],
+		"headlineBottom":    presentation["headline_bottom"],
+		"refreshLabel":      presentation["refresh_label"],
+		"noteTitle":         presentation["note_title"],
+		"noteBody":          presentation["note_body"],
 	}
 }
 
@@ -3229,6 +3273,11 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	if live.State == MatchupStatePreseason {
 		presentation["refresh_label"] = fmt.Sprintf("Before NFL week %d", s.seasonStartWeek())
 	}
+	checkedAt := live.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = live.LastUpdated
+	}
+	statsUpdatedAt := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
 	return map[string]any{
 		"source":              live.Source,
 		"source_label":        live.SourceLabel,
@@ -3236,7 +3285,11 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"week_label":          live.WeekLabel,
 		"state":               live.State,
 		"status":              live.Status,
-		"last_updated":        s.formatMatchupUpdate(live.LastUpdated),
+		"last_updated":        statsUpdatedAt,
+		"checked_at":          s.formatMatchupUpdateOrUnavailable(checkedAt),
+		"stats_updated_at":    statsUpdatedAt,
+		"checked_label":       "Browser checked",
+		"stats_updated_label": "Stats ledger updated",
 		"warning":             live.Warning,
 		"headline_top":        presentation["headline_top"],
 		"headline_bottom":     presentation["headline_bottom"],
@@ -3312,6 +3365,20 @@ func (s *Service) formatMatchupUpdate(value time.Time) string {
 	return value.In(s.matchupLocation()).Format("Mon Jan 2 · 3:04:05 PM MST")
 }
 
+func (s *Service) formatMatchupUpdateOrUnavailable(value time.Time) string {
+	if value.IsZero() {
+		return "Unavailable"
+	}
+	return s.formatMatchupUpdate(value)
+}
+
+func matchupScoreText(team ScoreTeam) string {
+	if team.ScoreText != "" {
+		return team.ScoreText
+	}
+	return fmt.Sprintf("%.1f", team.Score)
+}
+
 func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []map[string]any {
 	out := make([]map[string]any, 0, len(matchups))
 	for _, matchup := range matchups {
@@ -3331,16 +3398,29 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
 				"id": matchup.Away.ID, "name": matchup.Away.Name, "abbreviation": matchup.Away.Abbreviation,
-				"score": fmt.Sprintf("%.1f", matchup.Away.Score), "tone": away.Tone, "manager": away.Manager,
+				"score": matchupScoreText(matchup.Away), "score_known": matchup.Away.ScoreKnown, "ledger_total": matchup.Away.LedgerTotalText, "ledger_known": matchup.Away.LedgerKnown, "score_basis": matchup.Away.ScoreBasis, "score_note": matchup.Away.ScoreNote, "starters": starterLedgerMaps(matchup.Away.StarterLedger), "tone": away.Tone, "manager": away.Manager,
 				"has_avatar": awayHasAvatar, "has_avatar_image": awayHasImage, "avatar_image_url": awayAvatarURL,
 			},
 			"home": map[string]any{
 				"id": matchup.Home.ID, "name": matchup.Home.Name, "abbreviation": matchup.Home.Abbreviation,
-				"score": fmt.Sprintf("%.1f", matchup.Home.Score), "tone": home.Tone, "manager": home.Manager,
+				"score": matchupScoreText(matchup.Home), "score_known": matchup.Home.ScoreKnown, "ledger_total": matchup.Home.LedgerTotalText, "ledger_known": matchup.Home.LedgerKnown, "score_basis": matchup.Home.ScoreBasis, "score_note": matchup.Home.ScoreNote, "starters": starterLedgerMaps(matchup.Home.StarterLedger), "tone": home.Tone, "manager": home.Manager,
 				"has_avatar": homeHasAvatar, "has_avatar_image": homeHasImage, "avatar_image_url": homeAvatarURL,
 			},
 			"status": matchup.Status,
 			"clock":  matchupClockLabel(matchup.Clock),
+		})
+	}
+	return out
+}
+
+func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, map[string]any{
+			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
+			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
+			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
+			"detail": row.Detail,
 		})
 	}
 	return out

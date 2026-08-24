@@ -48,6 +48,14 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 		snapshot.Warning = "Live scoring is down. The backup scoreboard is showing."
 	}
 	snapshot.OK = true
+	if snapshot.CheckedAt.IsZero() {
+		snapshot.CheckedAt = now.UTC()
+	}
+	if snapshot.LastUpdated.IsZero() {
+		// Keep the legacy field populated for clients that have not migrated to
+		// the explicit checked/ledger freshness fields yet.
+		snapshot.LastUpdated = snapshot.CheckedAt
+	}
 	snapshot.RefreshAfterSeconds = int(DefaultRefreshPeriod.Seconds())
 	f.cached = snapshot
 	f.cachedAt = now
@@ -96,10 +104,15 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 	if !ok {
 		return LiveSnapshot{}, fmt.Errorf("week %d is not in the persisted season schedule", week)
 	}
-	scorer := p.svc.matchupScorer(nil)
 	stateLabel, statusLabel, clockLabel := p.weekState(week, wk.Matchups, now)
+	// One page render must use one authoritative weekly stat slice. Taking the
+	// snapshot before walking matchups keeps both ledgers, their aggregate
+	// scores, and every matchup on the page on the same source read/timestamp.
+	weeklyStats := p.svc.matchupStatsSnapshot(week)
 	matchups := make([]ScoreMatchup, 0, len(wk.Matchups))
 	for _, m := range wk.Matchups {
+		homeLedger := p.svc.teamWeekLedgerFromSnapshot(state, m.HomeTeamID, week, weeklyStats)
+		awayLedger := p.svc.teamWeekLedgerFromSnapshot(state, m.AwayTeamID, week, weeklyStats)
 		homeScore, awayScore := m.HomeScore, m.AwayScore
 		matchupState := MatchupStateFinal
 		status := "Final"
@@ -109,34 +122,60 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 			status = matchupStateCardLabel(stateLabel)
 			clock = clockLabel
 			if stateLabel == MatchupStateInProgress || stateLabel == MatchupStateDegraded {
-				if s, _, err := scorer.TeamWeekScore(m.HomeTeamID, week); err == nil {
-					homeScore = s
-				}
-				if s, _, err := scorer.TeamWeekScore(m.AwayTeamID, week); err == nil {
-					awayScore = s
-				}
+				homeScore = homeLedger.Total
+				awayScore = awayLedger.Total
 			}
 		}
 		home := p.svc.teamByID(m.HomeTeamID)
 		away := p.svc.teamByID(m.AwayTeamID)
+		homeScoreTeam := scoreTeamFromLedger(home, homeLedger)
+		awayScoreTeam := scoreTeamFromLedger(away, awayLedger)
+		// A closed week always keeps its persisted posted total authoritative.
+		// The current starter ledger remains visible below it; if a later source
+		// correction differs, applyPostedFinalScore labels that delta explicitly.
+		if m.Final {
+			homeScoreTeam.applyPostedFinalScore(homeScore)
+			awayScoreTeam.applyPostedFinalScore(awayScore)
+		}
+		if !m.Final && !homeLedger.Known {
+			homeScoreTeam.Score = homeScore
+		}
+		if !m.Final && !awayLedger.Known {
+			awayScoreTeam.Score = awayScore
+		}
 		matchups = append(matchups, ScoreMatchup{
 			ID:     m.ID,
-			Home:   ScoreTeam{ID: home.ID, Name: home.Name, Abbreviation: home.Abbreviation, Score: homeScore},
-			Away:   ScoreTeam{ID: away.ID, Name: away.Name, Abbreviation: away.Abbreviation, Score: awayScore},
+			Home:   homeScoreTeam,
+			Away:   awayScoreTeam,
 			State:  matchupState,
 			Status: status,
 			Clock:  clock,
 		})
 	}
+	statsUpdatedAt := p.svc.statsUpdatedAt()
+	lastUpdated := statsUpdatedAt
+	if lastUpdated.IsZero() {
+		// A missing freshness source cannot be invented. Keep the legacy field
+		// useful as a checked instant while the explicit StatsUpdatedAt field
+		// remains zero and the UI says "Unavailable".
+		lastUpdated = now.UTC()
+	}
+	warning := ""
+	if stateLabel == MatchupStateInProgress && p.svc.weekStatsSource() == nil {
+		warning = "Player-stat source is unavailable; live totals are not authoritative."
+	}
 	return LiveSnapshot{
-		Source:      "league-schedule",
-		SourceLabel: "League matchups",
-		Week:        week,
-		WeekLabel:   fmt.Sprintf("Week %d", week),
-		State:       stateLabel,
-		Status:      statusLabel,
-		LastUpdated: now.UTC(),
-		Matchups:    matchups,
+		Source:         "league-schedule",
+		SourceLabel:    "League matchups",
+		Week:           week,
+		WeekLabel:      fmt.Sprintf("Week %d", week),
+		State:          stateLabel,
+		Status:         statusLabel,
+		LastUpdated:    lastUpdated.UTC(),
+		CheckedAt:      now.UTC(),
+		StatsUpdatedAt: statsUpdatedAt.UTC(),
+		Matchups:       matchups,
+		Warning:        warning,
 	}, nil
 }
 
@@ -257,6 +296,7 @@ func (p demoProvider) Snapshot(_ context.Context, now time.Time) (LiveSnapshot, 
 		State:       MatchupStatePreseason,
 		Status:      "League matchups begin when the season starts",
 		LastUpdated: now.UTC(),
+		CheckedAt:   now.UTC(),
 		Matchups:    []ScoreMatchup{},
 	}, nil
 }

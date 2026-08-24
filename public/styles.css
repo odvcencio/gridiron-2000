@@ -2253,6 +2253,13 @@ button.badge-option:hover {
   font-size: var(--type-2xl);
 }
 
+.matchup-score-note {
+  grid-column: 1 / -1;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.35;
+}
+
 .matchup-rule {
   position: relative;
   display: grid;
@@ -2278,6 +2285,105 @@ button.badge-option:hover {
 
 .matchup-rule::after {
   right: var(--space-md);
+}
+
+/* Matchup starter-ledger disclosure: scoped to the matchup card so the
+   shared player-detail surface can evolve independently. */
+.matchup-card__details {
+  display: grid;
+  gap: var(--space-xs);
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+.matchup-ledger {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+}
+
+.matchup-ledger summary {
+  cursor: pointer;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+}
+
+.matchup-ledger summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.matchup-ledger__body {
+  padding: 0 var(--space-md) var(--space-sm);
+}
+
+.matchup-ledger__hint {
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  line-height: 1.4;
+}
+
+.matchup-ledger__list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.matchup-ledger__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 var(--space-sm);
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+}
+
+.matchup-ledger__slot,
+.matchup-ledger__score {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.matchup-ledger__slot strong,
+.matchup-ledger__score b {
+  color: var(--color-text-primary);
+}
+
+.matchup-ledger__slot span,
+.matchup-ledger__slot small,
+.matchup-ledger__score span,
+.matchup-ledger__detail {
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  line-height: 1.35;
+}
+
+.matchup-ledger__score {
+  justify-items: end;
+  text-align: right;
+}
+
+.matchup-ledger__detail {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  color: var(--color-text-muted);
+}
+
+@media (max-width: 700px) {
+  .matchup-card__details {
+    padding-right: var(--space-sm);
+    padding-left: var(--space-sm);
+  }
+
+  .matchup-ledger__body {
+    padding-right: var(--space-sm);
+    padding-left: var(--space-sm);
+  }
 }
 
 .leader-rail,

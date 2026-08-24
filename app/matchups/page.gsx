@@ -8,7 +8,7 @@ type TeamMarkProps struct {
 	AvatarImageURL string
 }
 
-component TeamMark(props: TeamMarkProps) {
+func TeamMark(props TeamMarkProps) Node {
 	return <span class={"team-mark team-mark--large tone-" + props.Tone} aria-hidden="true">
 		<If cond={props.HasAvatarImage}>
 			<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.Name} loading="lazy" />
@@ -26,25 +26,23 @@ component TeamMark(props: TeamMarkProps) {
 // matchups-page twin of the StandingRow bug fixed on app/page.gsx: a
 // non-strict component's spread call site always flattens its source to
 // map[string]any first, and a map can never satisfy a strict spread
-// boundary afterward). A strict `component` declaration keeps props a
-// genuine struct; TeamMark is still called with explicit attributes,
-// not a spread, because a spread into a strict callee from inside
-// another strict component's body is not provable at transpile time —
-// only a legacy (non-strict) caller's spread is proven, at the file
-// renderer's own top-level call sites (see MatchupCard below and
-// app/page.gsx's StandingRow).
+// boundary afterward). These small render helpers use typed legacy functions
+// so the card can carry its dynamic disclosure rows while retaining a typed
+// prop contract; the page route itself still crosses one checked data shape.
 type ScoreTeamProps struct {
 	ID             string
 	Name           string
 	Manager        string
 	Score          string
+	ScoreKnown     bool
+	ScoreNote      string
 	Tone           string
 	Abbreviation   string
 	HasAvatarImage bool
 	AvatarImageURL string
 }
 
-component ScoreTeam(props: ScoreTeamProps) {
+func ScoreTeam(props ScoreTeamProps) Node {
 	return <div class="score-team">
 		<TeamMark
 			Tone={props.Tone}
@@ -58,33 +56,27 @@ component ScoreTeam(props: ScoreTeamProps) {
 			<small>{props.Manager}</small>
 		</div>
 		<b class="score score--large" data-score-team={props.ID} data-gosx-live-bind={"scores." + props.ID} data-gosx-live-flash-class="score-flash">{props.Score}</b>
+		<If cond={props.ScoreNote != ""}>
+			<small class="matchup-score-note">{props.ScoreNote}</small>
+		</If>
 	</div>
 }
 
 // MatchupCardProps mirrors page.server.go's MatchupCardData converter
 // type field for field — flat (AwayID, AwayName, ... HomeID, HomeName,
 // ...), not nested Away/Home sub-structs, on purpose: Page() below is a
-// legacy (non-strict) caller, so it must reach this strict component
-// through exactly one {...matchup} spread (a legacy caller cannot pass
-// named attributes to a strict callee — proven only at the file
-// renderer's boundary). That boundary proves the spread source
-// structurally covers MatchupCardProps at the top level, but nested
-// struct-typed fields inside the source are checked by exact type
-// identity, not structural coverage; keeping every field a plain scalar
-// here sidesteps that entirely, and it is what lets this props struct's
-// fields (all strings and one bool) resolve without needing any
-// sibling-file struct type declared "beside the component" (gosx's
-// strict-component check requires that for any struct type a strict
-// component's body reaches through field access).
+// legacy caller that reaches the card through exactly one {...matchup}
+// spread. MatchupCard remains a typed legacy function because GoSX strict
+// components intentionally reject dynamic row slices at a direct call site;
+// the route still converts the outer page data into MatchupCardData before
+// rendering.
 //
 // It is not named MatchupCard (matching this strict component's own
 // name) because a strict `component` compiles to a package-level Go
 // declaration named after the component; page.server.go's converter
 // type is named MatchupCardData instead, precisely to leave this
 // component free to keep the name MatchupCard, matching the template
-// tag Page() already calls it by. ScoreTeam below is still called with
-// explicit attributes, not a spread, for the same "not provable from a
-// strict body" reason TeamMark is above.
+// tag Page() already calls it by.
 type MatchupCardProps struct {
 	ID                 string
 	State              string
@@ -96,21 +88,26 @@ type MatchupCardProps struct {
 	AwayName           string
 	AwayManager        string
 	AwayScore          string
+	AwayScoreKnown     bool
+	AwayScoreNote      string
 	AwayTone           string
 	AwayAbbreviation   string
 	AwayHasAvatarImage bool
 	AwayAvatarImageURL string
+	LedgerRows         []map[string]any
 	HomeID             string
 	HomeName           string
 	HomeManager        string
 	HomeScore          string
+	HomeScoreKnown     bool
+	HomeScoreNote      string
 	HomeTone           string
 	HomeAbbreviation   string
 	HomeHasAvatarImage bool
 	HomeAvatarImageURL string
 }
 
-component MatchupCard(props: MatchupCardProps) {
+func MatchupCard(props MatchupCardProps) Node {
 	return <article class="matchup-card" data-live-matchup={props.ID}>
 		<header>
 			<span>
@@ -124,6 +121,8 @@ component MatchupCard(props: MatchupCardProps) {
 			Name={props.AwayName}
 			Manager={props.AwayManager}
 			Score={props.AwayScore}
+			ScoreKnown={props.AwayScoreKnown}
+			ScoreNote={props.AwayScoreNote}
 			Tone={props.AwayTone}
 			Abbreviation={props.AwayAbbreviation}
 			HasAvatarImage={props.AwayHasAvatarImage}
@@ -137,11 +136,37 @@ component MatchupCard(props: MatchupCardProps) {
 			Name={props.HomeName}
 			Manager={props.HomeManager}
 			Score={props.HomeScore}
+			ScoreKnown={props.HomeScoreKnown}
+			ScoreNote={props.HomeScoreNote}
 			Tone={props.HomeTone}
 			Abbreviation={props.HomeAbbreviation}
 			HasAvatarImage={props.HomeHasAvatarImage}
 			AvatarImageURL={props.HomeAvatarImageURL}
 		></ScoreTeam>
+		<div class="matchup-card__details">
+			<details class="matchup-ledger">
+				<summary>Starter scoring ledger · both teams</summary>
+				<div class="matchup-ledger__body">
+					<p class="matchup-ledger__hint">Configured starters only. Bench, reserve, and IR are excluded.</p>
+					<ul class="matchup-ledger__list">
+						<Each of={props.LedgerRows} as="row">
+							<li class="matchup-ledger__row">
+								<div class="matchup-ledger__slot">
+									<strong>{row.team_name} · {row.slot}</strong>
+									<span data-gosx-live-bind={"starterPlayerName." + row.live_key}>{row.player_name}</span>
+									<small><span data-gosx-live-bind={"starterPosition." + row.live_key}>{row.position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + row.live_key}>{row.nfl_team}</span></small>
+								</div>
+								<div class="matchup-ledger__score">
+									<b class="mono" data-gosx-live-bind={"starterPoints." + row.live_key}>{row.points}</b>
+									<span><span data-gosx-live-bind={"starterProvenance." + row.live_key}>{row.provenance}</span> · <span data-gosx-live-bind={"starterJoinState." + row.live_key}>{row.join_state}</span></span>
+								</div>
+								<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + row.live_key}>{row.detail}</small>
+							</li>
+						</Each>
+					</ul>
+				</div>
+			</details>
+		</div>
 	</article>
 }
 
@@ -166,13 +191,26 @@ func Page() Node {
 					<strong data-gosx-live-bind="sourceLabel">{data.live.source_label}</strong>
 				</div>
 				<div>
-					<span>Last update</span>
-					<strong class="mono" data-live-updated data-gosx-live-bind="liveUpdated">{data.live.last_updated}</strong>
+					<span>{data.live.checked_label}</span>
+					<strong class="mono" data-live-updated data-gosx-live-bind="checkedAt">{data.live.checked_at}</strong>
 				</div>
 				<div>
-					<span>Updates</span>
-					<strong class="mono" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</strong>
+					<span>{data.live.stats_updated_label}</span>
+					<strong class="mono" data-gosx-live-bind="statsUpdatedAt">{data.live.stats_updated_at}</strong>
 				</div>
+				<If cond={data.live_poll}>
+					<div>
+						<span>Browser poll</span>
+						<strong class="mono" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</strong>
+					</div>
+				</If>
+				<If cond={data.live_poll == false}>
+					<div>
+						<span>View mode</span>
+						<span class="sr-only" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
+						<strong class="mono">Static schedule snapshot</strong>
+					</div>
+				</If>
 			</div>
 		</header>
 		<section class="matchup-week-controls" aria-label="Season matchup week">
