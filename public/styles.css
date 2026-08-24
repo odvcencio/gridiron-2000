@@ -4055,27 +4055,6 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-/* Native details/summary owns the open state, so mouse, keyboard, touch, and
-   assistive technology all receive the same disclosure instead of a hover
-   tooltip. Keep the panel row-anchored at wide widths; the narrow clamp
-   keeps it inside a 390px viewport without script. */
-@media (max-width: 38rem) {
-  .stat-tip__summary {
-    min-height: 2.75rem;
-  }
-
-  .stat-tip__panel {
-    left: var(--space-xs);
-    right: var(--space-xs);
-    max-width: calc(100vw - 2 * var(--space-md));
-    max-height: min(65vh, 22rem);
-  }
-
-  .blitz-chip-row .stat-tip__panel {
-    min-width: min(17rem, calc(100vw - 2 * var(--space-md)));
-  }
-}
-
 .board-workspace,
 .admin-grid {
   display: grid;
@@ -5804,6 +5783,21 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 38rem) {
+  .stat-tip__summary {
+    min-height: 2.75rem;
+  }
+
+  .stat-tip__panel {
+    left: var(--space-xs);
+    right: var(--space-xs);
+    max-width: calc(100vw - 2 * var(--space-md));
+    max-height: min(65vh, 22rem);
+  }
+
+  .blitz-chip-row .stat-tip__panel {
+    min-width: min(17rem, calc(100vw - 2 * var(--space-md)));
+  }
+
   .minimal-bar {
     width: calc(100% - var(--space-md));
     gap: var(--space-sm);
