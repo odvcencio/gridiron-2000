@@ -276,15 +276,29 @@ textarea:focus-visible {
   text-transform: uppercase;
 }
 
-.access-light,
-.live-dot,
-.status-pin {
+.live-dot {
   width: 0.48rem;
   aspect-ratio: 1;
   flex: 0 0 auto;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
   box-shadow: 0 0 0.9rem var(--color-accent);
+}
+
+.signal-mark {
+  width: 0.65rem;
+  height: 0.16rem;
+  flex: 0 0 auto;
+  border-radius: 0;
+  background: var(--color-accent);
+}
+
+.signal-mark--cyan {
+  background: var(--color-accent-cyan);
+}
+
+.signal-mark--hot {
+  background: var(--color-accent-hot);
 }
 
 .access-link:hover {
@@ -2631,12 +2645,6 @@ button.badge-option:hover {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
-}
-
-.status-pin {
-  width: 0.38rem;
-  background: var(--color-accent-hot);
-  box-shadow: 0 0 0.7rem var(--color-accent-hot);
 }
 
 .player-number {
@@ -5344,16 +5352,6 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
-}
-
-.status-pin--cyan {
-  background: var(--color-accent-cyan);
-  box-shadow: 0 0 0.7rem var(--color-accent-cyan);
-}
-
-.status-pin--hot {
-  background: var(--color-accent-hot);
-  box-shadow: 0 0 0.7rem var(--color-accent-hot);
 }
 
 .wire-license {

@@ -17,7 +17,7 @@ func Page() Node {
 		<section class="hero-command">
 			<div class="hero-command__copy">
 				<div class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					FANTASY SIGNUP
 				</div>
 				<p class="hero-kicker">{data.league.hero_kicker}</p>

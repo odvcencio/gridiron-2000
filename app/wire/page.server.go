@@ -266,6 +266,16 @@ func wireHealthLabel(status signalwire.Status, now time.Time) string {
 	}
 }
 
+// wireLiveIndicator is the only wire status allowed to render the glowing live
+// lamp. Every non-live state remains visible in the adjacent text label without
+// suggesting that the feed is currently streaming.
+func wireLiveIndicator(status signalwire.Status, now time.Time) string {
+	if wirePresentationLabel(status, now) == "LIVE" {
+		return "LIVE"
+	}
+	return ""
+}
+
 // dataStateLabels turns the open-data dataset/feed state constants (shared
 // by openstats.DatasetStatus.State and signalwire's per-feed State) into
 // plain football labels. The default case is a safe neutral word, never
@@ -365,6 +375,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 		"fragment_url":      wireFragmentURL(category),
 		"wire_mode":         wirePresentationLabel(wireStatus, now),
 		"wire_health":       wireHealthLabel(wireStatus, now),
+		"wire_indicator":    wireLiveIndicator(wireStatus, now),
 		"wire_configured":   wireStatus.Configured,
 		"wire_issue":        wireStatus.ConfigurationIssue,
 		"wire_source_issue": wireStatus.SourceIssue,
@@ -470,6 +481,7 @@ func PulseData(signals *signalwire.Service) map[string]any {
 		"count":        count,
 		"status":       status,
 		"health":       health,
+		"indicator":    wireLiveIndicator(wireStatus, now),
 		"source_issue": wireStatus.SourceIssue,
 	}
 }

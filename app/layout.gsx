@@ -137,7 +137,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="user-name">Rehearsal seat</span>
 				</div>
 				<a href="/login" data-gosx-link class="access-link" aria-label="League access">
-					<span class="access-light" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					League access
 				</a>
 			</If>
@@ -273,7 +273,7 @@ func Layout() Node {
 				<nav class="minimal-actions" aria-label="Public navigation">
 					<a href="/guide" data-gosx-link class="access-link access-link--guide">Manager guide</a>
 					<a href="/login" data-gosx-link class="access-link" aria-label="League access">
-						<span class="access-light" aria-hidden="true"></span>
+						<span class="signal-mark" aria-hidden="true"></span>
 						League access
 					</a>
 				</nav>

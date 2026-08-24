@@ -5,7 +5,7 @@ func Page() Node {
 		<section class="login-stage">
 			<div class="login-poster">
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					PRIVATE LEAGUE NETWORK
 				</span>
 				<p class="page-kicker">{data.public_entry.state_label}</p>

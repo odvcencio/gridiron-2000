@@ -3,7 +3,7 @@ package terms
 func Page() Node {
 	return <main class="legal-page" id="main-content">
 		<span class="signal-label">
-			<span class="live-dot" aria-hidden="true"></span>
+			<span class="signal-mark" aria-hidden="true"></span>
 			DOCUMENT // LEAGUE TERMS
 		</span>
 		<p class="page-kicker">Commissioner edition · {data.league.season} season</p>

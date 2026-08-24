@@ -3,7 +3,7 @@ package privacy
 func Page() Node {
 	return <main class="legal-page" id="main-content">
 		<span class="signal-label">
-			<span class="live-dot" aria-hidden="true"></span>
+			<span class="signal-mark" aria-hidden="true"></span>
 			DOCUMENT // PRIVACY
 		</span>
 		<p class="page-kicker">Last updated August 8, 2026</p>

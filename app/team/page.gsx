@@ -140,7 +140,7 @@ component RosterRow(props: RosterRowProps) {
 			</div>
 		</div>
 		<div class="game-state">
-			<span class="status-pin" aria-hidden="true"></span>
+			<span class="signal-mark" aria-hidden="true"></span>
 			{props.Status}
 		</div>
 		<div class="player-number mono">
@@ -165,7 +165,7 @@ func Page() Node {
 		<If cond={data.has_seat == false}>
 			<section class="no-franchise tone-lime">
 				<div class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					MANAGER TERMINAL // NO FRANCHISE
 				</div>
 				<h1>NO TEAM YET.</h1>
@@ -442,7 +442,7 @@ func Page() Node {
 						</h2>
 					</div>
 					<span class="lineup-lock">
-						<span class="status-pin" aria-hidden="true"></span>
+						<span class="signal-mark" aria-hidden="true"></span>
 						<b class="mono">{data.starters_filled}</b>
 						/
 						{data.starters_total}

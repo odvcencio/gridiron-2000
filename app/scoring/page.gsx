@@ -48,7 +48,7 @@ func Page() Node {
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					RULES &amp; SCORING //
 					{data.league_mode}
 				</span>

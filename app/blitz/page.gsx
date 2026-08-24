@@ -33,13 +33,13 @@ func BlitzSlotRow(props BlitzSlotRowProps) Node {
 							</div>
 						</Each>
 						<div class="stat-tip__total">
-							<span>Live score</span>
+							<span>Recorded score</span>
 							<b class="mono">{props.Slot.breakdown_total}</b>
 						</div>
 					</div>
 				</If>
 				<If cond={props.Slot.has_breakdown == false}>
-					<p class="stat-tip__empty">No live stats yet — this player has not kicked off.</p>
+					<p class="stat-tip__empty">No recorded scoring stats yet.</p>
 				</If>
 			</div>
 		</div>
@@ -197,7 +197,7 @@ func BlitzLeaderRow(props BlitzLeaderRowProps) Node {
 									</div>
 								</Each>
 								<div class="stat-tip__total">
-									<span>Live score</span>
+									<span>Recorded score</span>
 									<b class="mono">{chip.breakdown_total}</b>
 								</div>
 							</div>
@@ -232,7 +232,7 @@ func Page() Node {
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
-					<span class="live-dot" aria-hidden="true"></span>
+					<span class="signal-mark" aria-hidden="true"></span>
 					PRESEASON BLITZ //
 					{data.slate_label}
 				</span>
