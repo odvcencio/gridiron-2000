@@ -23,6 +23,7 @@ import (
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	pickempage "gridiron-2000/app/pickem"
 	playerspage "gridiron-2000/app/players"
 	teampage "gridiron-2000/app/team"
 	wirepage "gridiron-2000/app/wire"
@@ -396,6 +397,10 @@ func main() {
 	app.Mount("GET /players/fragment/waivers", playerspage.PlayersWaiverFragmentHandler(league.Default()))
 	app.Mount("GET /activity/fragment", activitypage.ActivityFragmentHandler(league.Default()))
 	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
+	// Pick'em's selected-week region polls the authoritative per-game lock,
+	// market, result, and sheet-scoring projection. Managed picks signal an
+	// immediate refresh; the native POST-redirect-GET fallback remains intact.
+	app.Mount("GET /pickem/fragment", pickempage.PickemFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 

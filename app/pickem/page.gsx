@@ -118,7 +118,7 @@ component PickemRow(props: PickemRowProps) {
 			</If>
 			<If cond={props.Game.MarketUnavailable == false}>
 			<If cond={props.Game.Locked == false}>
-				<form method="post" action={props.Action} data-gosx-managed="true">
+				<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$pickem.state.refresh">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="week" value={props.Game.Week}></input>
@@ -130,7 +130,7 @@ component PickemRow(props: PickemRowProps) {
 				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
 			</If>
 			<If cond={props.Game.Locked == false}>
-				<form method="post" action={props.Action} data-gosx-managed="true">
+				<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$pickem.state.refresh">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="game_id" value={props.Game.ID}></input>
 					<input type="hidden" name="week" value={props.Game.Week}></input>
@@ -208,6 +208,30 @@ component LeaderboardRow(props: PickemLeaderboardEntry) {
 
 func Page() Node {
 	return <main class="page pickem-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+		<div
+			id="pickem-live-region"
+			data-gosx-region
+			data-gosx-region-url={data.pickem_fragment_url}
+			data-gosx-region-interval={data.pickem_fragment_interval}
+			data-gosx-region-signal="$pickem.state.refresh"
+			aria-label="Authoritative Pick'em slate and scoring"
+		>
+			<PickemLiveRegion></PickemLiveRegion>
+		</div>
+		<p class="scoring-note pickem-live-note" role="status" aria-live="polite">
+			Pick'em state refreshes automatically while games are live and settles to a slower check once the displayed slate is final.
+			If a refresh fails, use
+			<button type="button" class="board-button" data-gosx-set="$pickem.state.refresh" data-gosx-set-value="manual">Refresh Pick'em now</button>.
+		</p>
+	</main>
+}
+
+// PickemLiveRegion is the single authoritative render shared by the initial
+// page and /pickem/fragment. Keeping the masthead counters, per-game rows,
+// lock/result state, records, and leaderboards together means a fragment swap
+// never leaves the sheet scoring summary out of sync with a game transition.
+func PickemLiveRegion() Node {
+	return <div class="pickem-live-region-content">
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -402,5 +426,5 @@ func Page() Node {
 				</div>
 			</section>
 		</div>
-	</main>
+	</div>
 }
