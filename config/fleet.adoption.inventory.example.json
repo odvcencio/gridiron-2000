@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "mode": "existing",
+  "instances": [
+    {
+      "id": "g2k",
+      "namespace": "gridiron",
+      "resource_prefix": "gridiron-2000",
+      "public_origin": "https://gridiron.draco.quest",
+      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:bac69c8935a666e4b674f80d671b20cea9adea09e1e7288101d1757b70cd8b28",
+      "resources": {
+        "deployment": "gridiron-2000",
+        "service": "gridiron-2000",
+        "pvc": "gridiron-2000-data",
+        "league_config": "gridiron-2000-league-config",
+        "secret": "gridiron-2000-secrets"
+      },
+      "legacy": {
+        "peer_mesh_configured": true,
+        "hq_v1_configured": false
+      },
+      "preserve": {
+        "pvc": true,
+        "league_config": true,
+        "secret": true
+      }
+    },
+    {
+      "id": "skl",
+      "namespace": "stablekernel",
+      "resource_prefix": "gridiron-2000-sk",
+      "public_origin": "https://sk.gridiron.draco.quest",
+      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:bac69c8935a666e4b674f80d671b20cea9adea09e1e7288101d1757b70cd8b28",
+      "resources": {
+        "deployment": "gridiron-2000-sk",
+        "service": "gridiron-2000-sk",
+        "pvc": "gridiron-2000-sk-data",
+        "league_config": "gridiron-2000-sk-league-config",
+        "secret": "gridiron-2000-sk-secrets"
+      },
+      "legacy": {
+        "peer_mesh_configured": true,
+        "hq_v1_configured": false
+      },
+      "preserve": {
+        "pvc": true,
+        "league_config": true,
+        "secret": true
+      }
+    }
+  ]
+}

@@ -116,6 +116,127 @@ func TestPrivacySafeFleetExampleCompiles(t *testing.T) {
 	}
 }
 
+func TestAdoptProducesReadOnlyDeterministicPlan(t *testing.T) {
+	dir := t.TempDir()
+	leaguePath := filepath.Join(dir, "league.json")
+	if err := os.WriteFile(leaguePath, []byte(testCLiLeague+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fleet := fleetconfig.Fleet{
+		Version:           fleetconfig.SchemaVersion,
+		Image:             "registry.example.test/gridiron/app@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		StatrelayOrigin:   "http://statrelay.example.test",
+		IngressClass:      "traefik",
+		CertificateIssuer: "example-issuer",
+		Instances: []fleetconfig.Instance{{
+			ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app",
+			PublicOrigin: "https://alpha.example.test", LeagueConfigPath: "league.json",
+			PVCStorage: "1Gi", CommissionerHQ: &fleetconfig.CommissionerHQ{
+				LeagueID: "alpha-league", Order: 0, Accent: "cyan", KeyID: "hq-alpha", Host: true,
+			},
+		}},
+	}
+	fleetRaw, err := json.MarshalIndent(fleet, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetPath := filepath.Join(dir, "fleet.json")
+	if err := os.WriteFile(fleetPath, append(fleetRaw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trueValue, falseValue := true, false
+	inventory := fleetconfig.AdoptionInventory{
+		Version: fleetconfig.AdoptionSchemaVersion, Mode: "existing",
+		Instances: []fleetconfig.AdoptionInstance{{
+			ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app",
+			PublicOrigin: "https://alpha.example.test", Image: fleet.Image,
+			Resources: fleetconfig.AdoptionResources{
+				Deployment: "alpha-app", Service: "alpha-app", PVC: "alpha-app-data",
+				LeagueConfig: "alpha-app-league-config", Secret: "alpha-app-secrets",
+			},
+			Legacy:   fleetconfig.AdoptionLegacyState{PeerMeshConfigured: &trueValue, HQV1Configured: &falseValue},
+			Preserve: fleetconfig.AdoptionPreservationState{PVC: &trueValue, LeagueConfig: &trueValue, Secret: &trueValue},
+		}},
+	}
+	inventoryRaw, err := json.MarshalIndent(inventory, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryPath := filepath.Join(dir, "inventory.json")
+	if err := os.WriteFile(inventoryPath, append(inventoryRaw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"adopt", "--file", fleetPath, "--inventory", inventoryPath}, &stdout, &stderr); got != 0 {
+		t.Fatalf("adopt exit = %d, stdout=%q stderr=%q", got, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "ready") || !strings.Contains(stdout.String(), "read-only") {
+		t.Fatalf("adoption output = %q", stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bundle")); !os.IsNotExist(err) {
+		t.Fatalf("adopt unexpectedly created bundle: %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if got := run([]string{"preflight", "--file", fleetPath, "--inventory", inventoryPath, "--format", "json"}, &stdout, &stderr); got != 0 {
+		t.Fatalf("preflight exit = %d, stdout=%q stderr=%q", got, stdout.String(), stderr.String())
+	}
+	var plan fleetconfig.AdoptionPlan
+	if err := json.Unmarshal(stdout.Bytes(), &plan); err != nil {
+		t.Fatalf("plan JSON: %v; output=%q", err, stdout.String())
+	}
+	if !plan.Ready || plan.SecretValuesRead || plan.PIIRead {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestAdoptReturnsOneForIdentityDrift(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "league.json"), []byte(testCLiLeague+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fleet := fleetconfig.Fleet{
+		Version: fleetconfig.SchemaVersion, Image: "registry.example.test/gridiron/app@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		StatrelayOrigin: "http://statrelay.example.test", IngressClass: "traefik", CertificateIssuer: "example-issuer",
+		Instances: []fleetconfig.Instance{{ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app", PublicOrigin: "https://alpha.example.test", LeagueConfigPath: "league.json", PVCStorage: "1Gi"}},
+	}
+	fleetRaw, err := json.MarshalIndent(fleet, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fleetPath := filepath.Join(dir, "fleet.json")
+	if err := os.WriteFile(fleetPath, append(fleetRaw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trueValue := true
+	inventory := fleetconfig.AdoptionInventory{
+		Version: fleetconfig.AdoptionSchemaVersion, Mode: "existing",
+		Instances: []fleetconfig.AdoptionInstance{{
+			ID: "alpha", Namespace: "alpha", ResourcePrefix: "alpha-app", PublicOrigin: "https://alpha.example.test", Image: "registry.example.test/gridiron/app@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+			Resources: fleetconfig.AdoptionResources{Deployment: "alpha-app", Service: "alpha-app", PVC: "alpha-app-data", LeagueConfig: "alpha-app-league-config", Secret: "alpha-app-secrets"},
+			Legacy:    fleetconfig.AdoptionLegacyState{PeerMeshConfigured: &trueValue, HQV1Configured: &trueValue},
+			Preserve:  fleetconfig.AdoptionPreservationState{PVC: &trueValue, LeagueConfig: &trueValue, Secret: &trueValue},
+		}},
+	}
+	inventoryRaw, err := json.MarshalIndent(inventory, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventoryPath := filepath.Join(dir, "inventory.json")
+	if err := os.WriteFile(inventoryPath, append(inventoryRaw, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if got := run([]string{"adopt", "--file", fleetPath, "--inventory", inventoryPath}, &stdout, &stderr); got != 1 {
+		t.Fatalf("adopt drift exit = %d, stdout=%q stderr=%q", got, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "blocked") || !strings.Contains(stdout.String(), "image differs") {
+		t.Fatalf("adopt drift output = %q", stdout.String())
+	}
+}
+
 const testCLiLeague = `{
   "version": 1,
   "league": {"name":"Example","short_code":"EX","tagline":"","mode_label":"DYNASTY","url":"http://localhost:8080","timezone":"America/New_York","season":2026},

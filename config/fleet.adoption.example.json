@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:bac69c8935a666e4b674f80d671b20cea9adea09e1e7288101d1757b70cd8b28",
+  "statrelay_origin": "http://statrelay.gridiron.svc.cluster.local",
+  "ingress_class": "traefik",
+  "certificate_issuer": "cloudflare-issuer",
+  "instances": [
+    {
+      "id": "g2k",
+      "namespace": "gridiron",
+      "resource_prefix": "gridiron-2000",
+      "public_origin": "https://gridiron.draco.quest",
+      "league_config_path": "league.json.example",
+      "pvc_storage": "1Gi",
+      "commissioner_hq": {
+        "league_id": "g2k",
+        "order": 0,
+        "accent": "cyan",
+        "key_id": "g2k-hq-v1",
+        "host": true
+      }
+    },
+    {
+      "id": "skl",
+      "namespace": "stablekernel",
+      "resource_prefix": "gridiron-2000-sk",
+      "public_origin": "https://sk.gridiron.draco.quest",
+      "league_config_path": "league.json.example",
+      "pvc_storage": "1Gi",
+      "commissioner_hq": {
+        "league_id": "skl",
+        "order": 1,
+        "accent": "violet",
+        "key_id": "skl-hq-v1",
+        "host": false
+      }
+    }
+  ]
+}
