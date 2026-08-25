@@ -175,6 +175,46 @@ func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) 
 	return out
 }
 
+// teamLineupFragmentURL carries only the allow-listed view selectors to the
+// read-only region endpoint. A commissioner may inspect another claimed
+// franchise; ordinary managers stay scoped to their own seat by omitting team.
+func teamLineupFragmentURL(data map[string]any) string {
+	values := url.Values{}
+	if week := strings.TrimSpace(stringField(data, "week")); week != "" {
+		values.Set("week", week)
+	}
+	if boolField(data, "lineup_intervention") {
+		if teamID := strings.TrimSpace(stringField(data, "lineup_target_id")); teamID != "" {
+			values.Set("team", teamID)
+		}
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/team/fragment?" + encoded
+	}
+	return "/team/fragment"
+}
+
+// prepareTeamData applies the strict-component conversions shared by the full
+// Team page and the HTML lineup fragment. Keeping one preparation path makes
+// the initial render and a later authoritative swap structurally identical.
+func prepareTeamData(data map[string]any, request *http.Request) map[string]any {
+	if bench, ok := data["bench"].([]map[string]any); ok {
+		data["bench"] = rosterRowProps(bench)
+	}
+	if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
+		// Seatless viewers still receive an explicit empty badge_grid
+		// alongside identity_available=false. There is no team map in that
+		// view, so do not assert one merely because the field is present.
+		if team, ok := data["team"].(map[string]any); ok {
+			teamID := stringField(team, "id")
+			data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(request), teamID, "/team?identity=edit#team-identity")
+		}
+	}
+	data["lineup_fragment_interval"] = teamLineupFragmentInterval
+	data["lineup_fragment_url"] = teamLineupFragmentURL(data)
+	return data
+}
+
 func teamLineupTarget(ctx *action.Context) string {
 	week := ""
 	target := ""
@@ -201,6 +241,17 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 		result.Result.Redirect = teamLineupTarget(ctx)
 	}
 	return result
+}
+
+// lineupMutationSuccess keeps managed mutations on the current document so
+// the TeamLineupRegion can converge from the authoritative fragment. Native
+// forms retain the existing POST-redirect-GET fallback, including its notice.
+func lineupMutationSuccess(ctx *action.Context, message string) error {
+	if action.WantsJSON(ctx.Request) {
+		return ctx.Success(message, nil)
+	}
+	actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
+	return nil
 }
 
 // applyTeamIdentityActionState overlays only failed identity submissions onto the
@@ -262,20 +313,10 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			data := league.Default().TeamData(ctx.Request)
-			if bench, ok := data["bench"].([]map[string]any); ok {
-				data["bench"] = rosterRowProps(bench)
-			}
-			if badgeGrid, ok := data["badge_grid"].([]map[string]any); ok {
-				// Seatless viewers still receive an explicit empty badge_grid
-				// alongside identity_available=false. There is no team map in
-				// that view, so do not assert one merely because the field is
-				// present.
-				if team, ok := data["team"].(map[string]any); ok {
-					teamID := stringField(team, "id")
-					data["badge_grid"] = badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team?identity=edit#team-identity")
-				}
-			}
+			// The Team lineup region's interval/signal refresh is inert unless
+			// the page opts into GoSX's bootstrap runtime.
+			ctx.Runtime().EnableBootstrap()
+			data := prepareTeamData(league.Default().TeamData(ctx.Request), ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			applyTeamIdentityActionState(data, ctx.ActionStates())
@@ -350,8 +391,7 @@ func init() {
 				if err != nil {
 					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 			// co-invite lets a seat's primary manager invite a co-manager by
 			// email (registration wave, build item 4). league.Service
@@ -384,8 +424,7 @@ func init() {
 				if err != nil {
 					return lineupValidation(ctx, "week", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 			// reserve-place/reserve-activate and ir-place/ir-activate
 			// apply the roster-ops SK spec's zone actions: place moves a
@@ -398,32 +437,28 @@ func init() {
 				if err != nil {
 					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 			"reserve-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromReserve(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
 					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 			"ir-place": func(ctx *action.Context) error {
 				message, err := league.Default().PlaceInIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
 					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 			"ir-activate": func(ctx *action.Context) error {
 				message, err := league.Default().ActivateFromIR(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["drop_id"])
 				if err != nil {
 					return lineupValidation(ctx, "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
-				return nil
+				return lineupMutationSuccess(ctx, message)
 			},
 		},
 	}); err != nil {

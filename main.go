@@ -22,6 +22,7 @@ import (
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	teampage "gridiron-2000/app/team"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/commissionerhq/v1provider"
@@ -385,6 +386,7 @@ func main() {
 	app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
+	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 
