@@ -36,6 +36,11 @@ type playerPool struct {
 	label   string
 	players []Player
 	byID    map[string]Player
+	// unavailable is set when an explicitly wired production source has no
+	// authoritative rows. It keeps the embedded resolution players out of
+	// the lookup map as well as the ordered pool, so a stale player ID cannot
+	// turn a source outage into an actionable roster mutation.
+	unavailable bool
 }
 
 // Service owns the starter's application state and view-model assembly.
@@ -1070,12 +1075,47 @@ func (s *Service) pool() playerPool {
 	}
 	players, version, label := s.poolSource()
 	if len(players) == 0 {
-		players, version, label = s.players, 0, "demo"
+		// DEMO_MODE is the only intentional embedded-pool path. Once a
+		// production source has been attached, an empty result is an
+		// unavailable source—not permission to silently resurrect the demo
+		// player list and its IDs.
+		if s.demoMode {
+			players, version, label = s.players, 0, "demo"
+		} else {
+			s.poolCache = playerPool{
+				version:     version,
+				label:       "unavailable",
+				byID:        make(map[string]Player),
+				unavailable: true,
+			}
+			return s.poolCache
+		}
+	}
+	// A source may report an explicit unavailable state even while a stale
+	// conversion still has rows in memory. In production, do not let those
+	// rows authorize roster actions; the commissioner-facing source state is
+	// authoritative for whether the pool may be used.
+	if !s.demoMode && normalizePlayerPoolState("", label, len(players)) == "unavailable" {
+		s.poolCache = playerPool{
+			version:     version,
+			label:       "unavailable",
+			byID:        make(map[string]Player),
+			unavailable: true,
+		}
+		return s.poolCache
 	}
 	if s.poolCache.byID == nil || s.poolCache.version != version || s.poolCache.label != label {
 		s.poolCache = s.buildPool(players, version, label)
 	}
 	return s.poolCache
+}
+
+// playerPoolIsUnavailable identifies the fail-closed source state shared by
+// manager-facing pool pages and roster/waiver mutation authority. A source
+// status of unavailable wins even if a stale adapter accidentally returns
+// rows; only an explicit DEMO_MODE source may use the embedded fixtures.
+func playerPoolIsUnavailable(pool playerPool) bool {
+	return pool.unavailable || normalizePlayerPoolState("", pool.label, len(pool.players)) == "unavailable"
 }
 
 // HistoricalSource supplies one player's legible previous-season line by

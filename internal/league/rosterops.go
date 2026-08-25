@@ -201,6 +201,13 @@ func (s *Service) evalWaiverRun(now time.Time) {
 
 	games := s.schedule()
 	pool := s.pool()
+	if playerPoolIsUnavailable(pool) {
+		// Do not resolve or advance waiver state against an empty source. A
+		// missing player lookup is a data outage, not an authoritative failed
+		// claim; leave the run due so the next healthy tick can retry it.
+		log.Printf("roster ops: waiver run deferred because player data is unavailable")
+		return
+	}
 	rosterCap := CurrentRoster().Total()
 	results, err := s.store.ProcessWaivers(nextRun, cfg, games, pool.byID, rosterCap)
 	if err != nil {

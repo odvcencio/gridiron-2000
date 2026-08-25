@@ -19,22 +19,25 @@ func Page() Node {
 			</div>
 			<div class="draft-clock-panel">
 				<span>Your roster spots</span>
-				<If cond={data.can_edit}>
+				<If cond={data.pool_unavailable}>
+					<strong class="mono">DATA PAUSED</strong>
+				</If>
+				<If cond={data.pool_unavailable == false && data.can_edit}>
 					<strong class="mono">
 						{data.roster_size}
 						/
 						{data.roster_cap}
 					</strong>
 				</If>
-				<If cond={data.can_edit == false}>
+				<If cond={data.pool_unavailable == false && data.can_edit == false}>
 					<strong class="mono">NO TEAM</strong>
 				</If>
 				<div class="draft-clock-meta">
 					<a href="/activity" data-gosx-link>Transaction feed →</a>
-					<If cond={data.can_edit}>
+					<If cond={data.pool_unavailable == false && data.can_edit}>
 						<a href="/team" data-gosx-link>Team terminal →</a>
 					</If>
-					<If cond={data.can_edit == false}>
+					<If cond={data.pool_unavailable == false && data.can_edit == false}>
 						<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
 							<a href={data.public_entry.action_href} data-gosx-link>
 								{data.public_entry.action_label}
@@ -54,7 +57,7 @@ func Page() Node {
 			<If cond={data.has_players_error}>
 				<p class="error-message">{data.players_error}</p>
 			</If>
-			<If cond={data.can_edit == false}>
+			<If cond={data.pool_unavailable == false && data.can_edit == false}>
 				<p class="demo-message">
 					<strong>{data.public_entry.state_label}:</strong>
 					{data.public_entry.detail}
@@ -68,7 +71,7 @@ func Page() Node {
 					</If>
 				</p>
 			</If>
-			<If cond={data.free_agency_open == false}>
+			<If cond={data.pool_unavailable == false && data.free_agency_open == false}>
 				<p class="demo-message">
 					<strong>FREE AGENCY OPENS AFTER THE DRAFT:</strong>
 					every undrafted player becomes a free agent the moment the draft completes.
@@ -115,13 +118,21 @@ func Page() Node {
 				<If cond={data.pool_total > 0}>
 					Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} players · page {data.pool_page} of {data.pool_pages}
 				</If>
-				<If cond={data.pool_total == 0}>No players match this search.</If>
+				<If cond={data.pool_total == 0 && data.pool_unavailable == false}>No players match this search.</If>
 			</p>
-			<If cond={data.players_empty}>
+			<If cond={data.players_empty && data.pool_unavailable == false}>
 				<div class="empty-tape">
 					<strong>NO PLAYERS MATCH</strong>
 					<p>
 						Try a different position filter or clear your search.
+					</p>
+				</div>
+			</If>
+			<If cond={data.pool_unavailable}>
+				<div class="empty-tape">
+					<strong>PLAYER DATA UNAVAILABLE</strong>
+					<p>
+						The authoritative player list is temporarily unavailable. Browsing and roster/waiver actions resume after the source recovers.
 					</p>
 				</div>
 			</If>
@@ -313,10 +324,13 @@ func Page() Node {
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">02 // WAIVER DESK</span>
-					<If cond={data.can_edit}>
+					<If cond={data.pool_unavailable}>
+						<h2>Player data unavailable</h2>
+					</If>
+					<If cond={data.pool_unavailable == false && data.can_edit}>
 						<h2>My claims</h2>
 					</If>
-					<If cond={data.can_edit == false}>
+					<If cond={data.pool_unavailable == false && data.can_edit == false}>
 						<h2>Waiver access</h2>
 					</If>
 				</div>
@@ -329,7 +343,13 @@ func Page() Node {
 					</If>
 				</If>
 			</div>
-			<If cond={data.can_edit == false}>
+			<If cond={data.pool_unavailable}>
+				<div class="empty-tape">
+					<strong>WAIVER ACTIONS PAUSED</strong>
+					<p>Claims and roster changes are blocked until the authoritative player list is available again.</p>
+				</div>
+			</If>
+			<If cond={data.pool_unavailable == false && data.can_edit == false}>
 				<div class="empty-tape">
 					<strong>{data.public_entry.state_label}</strong>
 					<p>

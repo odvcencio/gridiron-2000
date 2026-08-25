@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -442,6 +443,123 @@ func TestPlayersDataSignedInWithoutSeatCanBrowseButNotManage(t *testing.T) {
 	}
 	if receipts, _ := data["my_waiver_receipts"].([]map[string]any); len(receipts) != 0 {
 		t.Fatalf("seatless viewer leaked team-private receipts: %+v", receipts)
+	}
+}
+
+// TestPlayersDataUnavailablePoolFailsClosed ensures an explicitly wired
+// production source with no rows cannot fall through to the embedded demo
+// player list or advertise roster/waiver controls to a seated manager.
+func TestPlayersDataUnavailablePoolFailsClosed(t *testing.T) {
+	svc := newTestService(t, false)
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return nil, 7, "live" })
+	const email = "pool-outage-manager@example.com"
+	if _, err := svc.AssignManager(email, "Pool Outage Manager"); err != nil {
+		t.Fatalf("AssignManager: %v", err)
+	}
+
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: "Pool Outage Manager"}, true
+		}),
+	})
+	var data map[string]any
+	handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data = svc.PlayersData(r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/players", nil))
+
+	if data["pool_unavailable"] != true {
+		t.Fatalf("pool_unavailable = %v, want true", data["pool_unavailable"])
+	}
+	if data["can_edit"] != false {
+		t.Fatalf("can_edit = %v, want false while the source is unavailable", data["can_edit"])
+	}
+	rows, _ := data["players"].([]map[string]any)
+	if len(rows) != 0 {
+		t.Fatalf("unavailable source exposed %d player rows, want none", len(rows))
+	}
+	status, _ := data["pool_status"].(map[string]any)
+	if status["state"] != "unavailable" || status["label"] != "PLAYER DATA UNAVAILABLE" {
+		t.Fatalf("pool status = %+v, want unavailable", status)
+	}
+}
+
+// TestAddPlayerUnavailablePoolIsRejected pins the mutation boundary: a
+// zero-row production source must reject adds before any roster transaction
+// can be written, even when the caller has a valid franchise seat.
+func TestAddPlayerUnavailablePoolIsRejected(t *testing.T) {
+	const email = "pool-outage-manager@example.com"
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: "Pool Outage Manager"}, true
+		}),
+	})
+
+	tests := []struct {
+		name string
+		call func(*Service, *http.Request) error
+	}{
+		{name: "add", call: func(svc *Service, r *http.Request) error {
+			_, err := svc.AddPlayer(r, "team-1", "fa-open", "", "")
+			return err
+		}},
+		{name: "drop", call: func(svc *Service, r *http.Request) error {
+			_, err := svc.DropPlayer(r, "team-1", "rb-open", playerDropConfirmation)
+			return err
+		}},
+		{name: "claim", call: func(svc *Service, r *http.Request) error {
+			_, err := svc.FileClaim(r, "team-1", "fa-open", "", 0)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newTestService(t, false)
+			svc.SetPlayerSource(func() ([]Player, int64, string) { return nil, 7, "live" })
+			if _, err := svc.AssignManager(email, "Pool Outage Manager"); err != nil {
+				t.Fatalf("AssignManager: %v", err)
+			}
+			before := svc.store.Snapshot()
+			var actionErr error
+			handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actionErr = tt.call(svc, r)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/players", nil))
+			if actionErr == nil || !strings.Contains(actionErr.Error(), "player data is unavailable") {
+				t.Fatalf("error = %v, want player-data-unavailable rejection", actionErr)
+			}
+			after := svc.store.Snapshot()
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("unavailable %s changed persisted state\nbefore: %+v\nafter: %+v", tt.name, before, after)
+			}
+		})
+	}
+}
+
+// TestWaiverRunUnavailablePoolLeavesStateUntouched ensures the background
+// processor fails closed too: an outage must defer a due run, not turn a
+// missing player lookup into a failed claim or advance the retry cursor.
+func TestWaiverRunUnavailablePoolLeavesStateUntouched(t *testing.T) {
+	svc := newTestService(t, false)
+	now := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return nil, 7, "live" })
+	svc.cfg.Timezone = "UTC"
+	if err := svc.store.FileClaim(WaiverClaim{
+		ID: "unavailable-claim", TeamID: "team-1", AddID: "missing-player", FiledAt: now.Add(-time.Hour),
+	}); err != nil {
+		t.Fatalf("FileClaim: %v", err)
+	}
+	svc.store.mu.Lock()
+	svc.store.state.WaiversProcessedThrough = now.Add(-24 * time.Hour)
+	svc.store.mu.Unlock()
+	before := svc.store.Snapshot()
+	svc.rosterOpsTick(now)
+	after := svc.store.Snapshot()
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("unavailable waiver run changed persisted state\nbefore: %+v\nafter: %+v", before, after)
 	}
 }
 

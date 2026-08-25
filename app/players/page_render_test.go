@@ -47,6 +47,7 @@ func TestWaiverDeskManagedFormsAndPrivateReceiptCopyContract(t *testing.T) {
 		`Higher FAAB bids run first`,
 		`drop_locked`, `RESOLVES`, `RESOLUTION OVERDUE`,
 		`RESOLUTION DEGRADED`, `RESOLUTION UNKNOWN`,
+		`pool_unavailable`, `PLAYER DATA UNAVAILABLE`, `WAIVER ACTIONS PAUSED`,
 	} {
 		if !strings.Contains(pageText, want) {
 			t.Errorf("page.gsx missing waiver desk contract %q", want)
