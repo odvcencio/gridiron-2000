@@ -82,7 +82,7 @@ func TestClaimFantasySeatRejectsUnrecordedSignedInIdentityWithoutMutation(t *tes
 		_, claimErr = service.ClaimFantasySeat(r, "Unrecorded Team", "wolf")
 	})
 	if claimErr == nil || !strings.Contains(strings.ToLower(claimErr.Error()), "admission") ||
-		!strings.Contains(strings.ToLower(claimErr.Error()), "sign in again") {
+		!strings.Contains(strings.ToLower(claimErr.Error()), "ask the commissioner") {
 		t.Fatalf("unrecorded claim error = %v", claimErr)
 	}
 	if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {

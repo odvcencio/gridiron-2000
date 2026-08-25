@@ -3,8 +3,6 @@ package league
 import (
 	"net/http"
 	"strings"
-
-	"gridiron-2000/internal/navigation"
 )
 
 // PublicEntryState is the finite admission/seat state exposed by the public
@@ -102,7 +100,7 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 	view.State = PublicEntryAuthenticatedPending
 	view.StateLabel = "SIGNED IN · MEMBERSHIP NOT RECORDED"
 	view.Headline = "COMPLETE LEAGUE ADMISSION."
-	view.Detail = "This Google account is authenticated, but the league has no persisted membership for it. Ask the commissioner to verify the admitted identity, then sign in again."
+	view.Detail = "This Google account is authenticated, but the league has no persisted membership for it. Ask the commissioner to verify or add this exact identity, then refresh this page."
 	view.ActionLabel = "Review admission guidance"
 	view.ActionHref = "/guide#identity"
 
@@ -111,9 +109,9 @@ func (s *Service) publicEntryViewForViewerState(r *http.Request, viewer map[stri
 		view.StateLabel = "ADMITTED · CO-MANAGER INVITE"
 		view.Headline = "COMPLETE YOUR SHARED SEAT."
 		view.TeamName = s.TeamLabel(pendingTeamID)
-		view.Detail = "You are invited to co-manage " + view.TeamName + ". Complete Google sign-in again to bind this identity to the shared franchise; if that does not finish, ask the primary manager or commissioner to resend the invite."
-		view.ActionLabel = "Complete co-manager sign-in →"
-		view.ActionHref = navigation.OAuthStartPath("/team")
+		view.Detail = "You are invited to co-manage " + view.TeamName + ". Finish the pending co-manager invitation for this signed-in identity; if the invite is stale, ask the primary manager or commissioner to resend it."
+		view.ActionLabel = "Complete co-manager invitation →"
+		view.ActionHref = "/guide#identity"
 		view.Admitted = true
 		view.RoleLabel = "CO-MANAGER INVITED"
 		view.CanClaim = false

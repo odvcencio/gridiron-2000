@@ -491,15 +491,56 @@ func pickemResultLabel(grade pickemGrade, locked, marketUnavailable, picked bool
 	return ""
 }
 
+// pickemViewerKeyForState returns a Pick'em owner only for an admitted
+// identity. The demo guest is the one deliberate synthetic exception; a
+// signed-in identity must have a persisted Member before Pick'em data or
+// controls are exposed. Seatless members, primaries, co-managers, and a
+// commissioner overlay all remain eligible because admission is membership,
+// not seat ownership or commissioner status.
+func (s *Service) pickemViewerKeyForState(r *http.Request, state PersistedState) (string, bool) {
+	if user, ok := s.CurrentUser(r); ok {
+		email := s.identityResolver.Resolve(user.Email)
+		if email == "" {
+			return "", false
+		}
+		if _, exists := memberByEmail(state.Members, email); !exists {
+			return "", false
+		}
+		return email, true
+	}
+	if s.demoMode {
+		return "demo-guest", true
+	}
+	return "", false
+}
+
+// pickemOwner enforces the Pick'em admission boundary using the
+// admitted person's durable individual email. It performs no store write, so a denied submission can return with the complete state unchanged.
+func (s *Service) pickemOwner(r *http.Request) (string, error) {
+	state := s.store.Snapshot()
+	viewerKey, admitted := s.pickemViewerKeyForState(r, state)
+	if !admitted {
+		if user, signedIn := s.CurrentUser(r); signedIn {
+			email := s.identityResolver.Resolve(user.Email)
+			if pendingTeamID, pending := state.CoInvites[email]; pending {
+				return "", fmt.Errorf("complete the pending co-manager invitation for %s before entering Pick'em", s.TeamLabel(pendingTeamID))
+			}
+			return "", fmt.Errorf("league admission is not recorded for this Google account; ask the commissioner to verify this identity before entering Pick'em")
+		}
+		return "", fmt.Errorf("Google sign-in is required for Pick'em")
+	}
+	return viewerKey, nil
+}
+
 func (s *Service) PickemData(r *http.Request) map[string]any {
 	now := s.clock()
-	viewerKey := s.viewerKey(r)
 	allGames := s.schedule()
 	// A page load is also an immediate reconciliation opportunity. The
 	// lifecycle ticker remains authoritative when nobody has the page open.
 	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
 	_ = s.store.BackfillPickemEnteredAt(allGames)
 	state := s.store.Snapshot()
+	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	currentWeek := s.pickemWeek(allGames, now)
 	weeks := pickemWeeks(allGames)
 	hasWeeks := len(weeks) > 0
@@ -760,14 +801,11 @@ func (s *Service) teamAbbreviation(teamID string) string {
 // PickemSet stores the viewer's pick for one real game after validating the
 // game exists, the team is one of the two sides, the durable market is
 // available, and the game has not kicked off yet. It records only a pick,
-// never a team seat: boardOwner
-// resolves the acting email alone, and Store.SetPickem writes under that
-// email with no Members-map read or write at all (seatless-membership
-// audit, gridiron-2000 pick'em HQ task — this is the path the task asked
-// "does submitting a pick auto-assign a seat" about; it does not, and nor
-// does anything it calls).
+// never a team seat: pickemOwner verifies persisted admission, then
+// Store.SetPickem writes under the admitted person's individual email.
+// Neither the admission check nor this path creates a Member record.
 func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, error) {
-	owner, err := s.boardOwner(r)
+	owner, err := s.pickemOwner(r)
 	if err != nil {
 		return GameInfo{}, err
 	}
@@ -825,7 +863,7 @@ func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now t
 }
 
 func (s *Service) pickemHomeSummaryFromSnapshot(r *http.Request, state PersistedState, now time.Time) map[string]any {
-	viewerKey := s.viewerKey(r)
+	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	allGames := s.schedule()
 	week := s.pickemWeek(allGames, now)
 	weekGames := gamesInWeek(allGames, week)
