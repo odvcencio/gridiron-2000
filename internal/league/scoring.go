@@ -404,16 +404,21 @@ func (s *Service) rulesLineupsMap() map[string]any {
 // lifecycle phase (season.go's SeasonPhase). Never invents a schedule or
 // bracket that has not been built.
 func (s *Service) rulesSeasonMap(state PersistedState, now time.Time) map[string]any {
+	truth := s.playoffTruthMap(state, now, false)
 	out := map[string]any{
 		"schedule_generated": state.Schedule != nil,
-		"playoffs_seeded":    state.Playoffs != nil,
-		"phase":              s.SeasonPhase(now),
+		"playoffs_seeded":    truth["has_bracket"],
+		"phase":              truth["season_phase"],
+		"playoff_truth":      truth,
+		"playoff_status":     truth["status_label"],
+		"playoff_note":       truth["detail"],
+		"playoff_recovery":   truth["recovery"],
 	}
 	if state.Schedule != nil {
 		out["weeks"] = len(state.Schedule.Weeks)
 		out["start_week"] = state.Schedule.StartWeek
 	}
-	if state.Playoffs != nil {
+	if truth["has_bracket"] == true && state.Playoffs != nil {
 		cfg := state.Playoffs.Config
 		out["playoff_teams"] = cfg.TeamCount
 		out["playoff_start_week"] = cfg.StartWeek

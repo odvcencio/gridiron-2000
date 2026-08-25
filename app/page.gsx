@@ -370,6 +370,19 @@ func Page() Node {
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
+		<section class="score-command playoff-truth-card" aria-labelledby="home-playoff-truth-heading">
+			<header class="section-heading section-heading--split">
+				<div><span class="section-index">POSTSEASON // SHARED TRUTH</span><h2 id="home-playoff-truth-heading">{data.playoff_truth.headline}</h2></div>
+				<span class="position-chip">{data.playoff_truth.status_label}</span>
+			</header>
+			<p>{data.playoff_truth.detail}</p>
+			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+			<If cond={data.playoff_truth.has_matchups}>
+				<div class="pool-stats"><div class="pool-stat"><span>Round</span><b class="mono">{data.playoff_truth.current_round}</b></div><div class="pool-stat"><span>Next matchups</span><b class="mono">{data.playoff_truth.next_matchup_count}</b></div><div class="pool-stat"><span>Final week</span><b class="mono">{data.playoff_truth.final_week}</b></div></div>
+			</If>
+			<a href="/matchups" data-gosx-link class="access-link">Open Matchups and bracket truth →</a>
+			<If cond={data.viewer.is_commissioner}><a href="/admin?section=playoffs#admin-playoffs" data-gosx-link class="access-link">Open commissioner controls →</a></If>
+		</section>
 		<If cond={data.viewer.signed_in && data.has_seat}>
 		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
 			<header class="section-heading section-heading--split">

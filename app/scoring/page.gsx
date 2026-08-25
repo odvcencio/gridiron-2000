@@ -287,6 +287,10 @@ func Page() Node {
 					<b class="mono">{data.season_rules.phase}</b>
 				</div>
 			</div>
+			<p class="scoring-note"><strong>PLAYOFF TRUTH:</strong> {data.season_rules.playoff_status} · {data.season_rules.playoff_note}</p>
+			<If cond={data.season_rules.playoff_recovery != ""}>
+				<p class="demo-message"><strong>RECOVERY:</strong> {data.season_rules.playoff_recovery}</p>
+			</If>
 			<If cond={data.season_rules.schedule_generated}>
 				<p class="scoring-note">
 					{data.season_rules.weeks}

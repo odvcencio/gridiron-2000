@@ -241,12 +241,24 @@ func commissionerBlitzHealth(value BlitzDependencyHealth) commissionerhq.BlitzHe
 
 func commissionerSeason(s *Service, state PersistedState, now time.Time) (commissionerhq.Schedule, commissionerhq.Season) {
 	schedule := commissionerhq.Schedule{Season: s.cfg.Season}
+	truth := s.playoffTruthMap(state, now, true)
+	playoffs := commissionerhq.Playoffs{
+		Seeded:         state.Playoffs != nil,
+		Available:      truth["published"] == true,
+		Status:         playoffStringValue(truth["status"]),
+		StatusLabel:    playoffStringValue(truth["status_label"]),
+		Source:         playoffStringValue(truth["source"]),
+		SourceState:    playoffStringValue(truth["source_state"]),
+		Authoritative:  truth["authoritative"] == true,
+		FinalWeek:      playoffIntValue(truth["final_week"]),
+		CurrentRound:   playoffIntValue(truth["current_round"]),
+		NextMatchups:   playoffIntValue(truth["next_matchup_count"]),
+		ChampionTeamID: playoffStringValue(truth["champion_team_id"]),
+		Note:           playoffStringValue(truth["detail"]),
+	}
 	season := commissionerhq.Season{
 		Season: s.cfg.Season, Phase: s.SeasonPhase(now), Schedule: schedule,
-		Playoffs: commissionerhq.Playoffs{
-			Seeded: state.Playoffs != nil, Available: false,
-			Note: "Year one: playoff seeding is not available yet.",
-		},
+		Playoffs: playoffs,
 	}
 	if state.Schedule == nil {
 		season.WeekClose = commissionerWeekClose(s, 1, now)
@@ -312,6 +324,16 @@ func safeWeekCloseReason(reason string) string {
 	default:
 		return "week close readiness is pending"
 	}
+}
+
+func playoffStringValue(value any) string {
+	text, _ := value.(string)
+	return text
+}
+
+func playoffIntValue(value any) int {
+	number, _ := value.(int)
+	return number
 }
 
 func seasonOpenData(values []commissionerhq.OpenData) commissionerhq.OpenData {

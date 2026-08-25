@@ -1623,6 +1623,74 @@ func (s *Service) buildMatchupRecap(state PersistedState, member Member, week Sc
 	}
 }
 
+// notifyPlayoffUpdate reuses the existing league-news preference category and
+// at-most-once notification ledger for persisted postseason transitions. The
+// message is emitted only after the Store mutation succeeds, and its key is
+// the bracket revision, so publish/advance/correction retries cannot send a
+// second copy. Preview remains commissioner-only and never notifies managers.
+func (s *Service) notifyPlayoffUpdate(state PersistedState, truth PlayoffState, action string, now time.Time) NotificationReceipt {
+	receipt := s.notificationTransportReceipt()
+	for _, recipient := range notificationMemberEntries(state) {
+		key := fmt.Sprintf("playoff:%s:r%d:%s", strings.ToLower(strings.TrimSpace(action)), truth.Revision, recipient.email)
+		receipt.merge(s.recordAndSend(state, recipient.email, categoryLeagueNews, key, now, func() renderedNotification {
+			return s.buildPlayoffUpdate(state, truth, action, recipient.member)
+		}))
+	}
+	return receipt
+}
+
+func (s *Service) buildPlayoffUpdate(state PersistedState, truth PlayoffState, action string, member Member) renderedNotification {
+	action = strings.ToLower(strings.TrimSpace(action))
+	verb := "changed"
+	subjectVerb := "UPDATE"
+	switch action {
+	case "published":
+		verb, subjectVerb = "published", "PUBLISHED"
+	case "advanced":
+		verb, subjectVerb = "advanced", "ADVANCED"
+	case "corrected":
+		verb, subjectVerb = "corrected", "CORRECTED"
+	}
+	memberTeam := s.teamView(state, member.TeamID).Name
+	if strings.TrimSpace(memberTeam) == "" {
+		memberTeam = "your team"
+	}
+	rows := make([][]string, 0, 3)
+	for _, matchup := range truth.Matchups {
+		if matchup.HomeTeamID != member.TeamID && matchup.AwayTeamID != member.TeamID {
+			continue
+		}
+		homeName, awayName := "BYE", "BYE"
+		if matchup.HomeTeamID != "" {
+			homeName = s.teamView(state, matchup.HomeTeamID).Name
+		}
+		if matchup.AwayTeamID != "" {
+			awayName = s.teamView(state, matchup.AwayTeamID).Name
+		}
+		rows = append(rows, []string{
+			fmt.Sprintf("ROUND %d · WEEK %d", matchup.Round, matchup.Week),
+			fmt.Sprintf("%s %.1f — %s %.1f", homeName, matchup.HomeScore, awayName, matchup.AwayScore),
+			map[bool]string{true: "FINAL", false: "WAITING"}[matchup.Final],
+		})
+		if len(rows) == 3 {
+			break
+		}
+	}
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: "PLAYOFF TRUTH " + subjectVerb + ".", Lede: fmt.Sprintf("The commissioner %s the persisted bracket. %s remains the one shared bracket truth; your team is %s.", verb, memberTeam, memberTeam)},
+	}
+	if len(rows) > 0 {
+		blocks = append(blocks, emailkit.StatTable{Title: "YOUR BRACKET", Header: []string{"ROUND", "MATCHUP", "STATE"}, Rows: rows})
+	}
+	blocks = append(blocks, emailkit.CTA{Label: "REVIEW PLAYOFF TRUTH →", URL: s.leaguePathURL("matchups")})
+	shell := s.shellFor(categoryLeagueNews, "POSTSEASON // PLAYOFF TRUTH")
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: fmt.Sprintf("playoff:%s:r%d:%s", action, truth.Revision, normalizeEmail(member.Email)), Category: categoryLeagueNews,
+		To: member.Email, Subject: "PLAYOFF BRACKET " + subjectVerb, Text: text, HTML: html,
+	}
+}
+
 // ---------------------------------------------------------------------
 // N11 — commissioner-broadcast (league announcements)
 // ---------------------------------------------------------------------

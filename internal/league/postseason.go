@@ -580,7 +580,12 @@ func (s *Store) AdvancePublishedPlayoffRound(results []PlayoffRoundResult) (Play
 	audit.Reason = "authoritative final results"
 	next.Audit = append(append([]PlayoffAuditEntry(nil), s.state.Playoffs.Audit...), audit)
 	s.state.Playoffs = &next
-	if err := s.persistLocked(colPlayoffs); err != nil {
+	collections := []collectionID{colPlayoffs}
+	if next.ChampionTeamID != "" && s.state.Phase != PhaseSeasonComplete {
+		s.state.Phase = PhaseSeasonComplete
+		collections = append(collections, colScalars)
+	}
+	if err := s.persistLocked(collections...); err != nil {
 		if persistDispositionOf(err) == persistNotCommitted {
 			s.state = previous
 			s.dirty = previousDirty
@@ -629,13 +634,18 @@ func (s *Store) CorrectPublishedPlayoff(correction PlayoffCorrection) (PlayoffSt
 	if correction.WinnerTeamID != matchup.HomeTeamID && correction.WinnerTeamID != matchup.AwayTeamID {
 		return PlayoffState{}, fmt.Errorf("playoff correction winner must be a matchup team")
 	}
-	if matchup.Bracket == "championship" && matchup.Round < bracketTotalRounds(s.state.Playoffs, "championship") {
+	if matchup.Round < bracketTotalRounds(s.state.Playoffs, matchup.Bracket) {
 		return PlayoffState{}, fmt.Errorf("earlier-round correction requires a new playoff preview")
 	}
 	if matchup.Bracket != "championship" && matchup.Bracket != "toilet" {
 		return PlayoffState{}, fmt.Errorf("playoff correction is not supported for bracket %q", matchup.Bracket)
 	}
-	if matchup.WinnerTeamID == correction.WinnerTeamID {
+	if correction.ScoresProvided {
+		if math.IsNaN(correction.HomeScore) || math.IsNaN(correction.AwayScore) || math.IsInf(correction.HomeScore, 0) || math.IsInf(correction.AwayScore, 0) || correction.HomeScore < 0 || correction.AwayScore < 0 {
+			return PlayoffState{}, fmt.Errorf("playoff correction has an invalid score")
+		}
+	}
+	if matchup.WinnerTeamID == correction.WinnerTeamID && (!correction.ScoresProvided || (matchup.HomeScore == correction.HomeScore && matchup.AwayScore == correction.AwayScore)) {
 		return *clonePlayoffState(s.state.Playoffs), nil
 	}
 	previous := cloneState(s.state)
@@ -645,17 +655,14 @@ func (s *Store) CorrectPublishedPlayoff(correction PlayoffCorrection) (PlayoffSt
 	previousWinner := target.WinnerTeamID
 	target.WinnerTeamID = correction.WinnerTeamID
 	if correction.ScoresProvided {
-		if math.IsNaN(correction.HomeScore) || math.IsNaN(correction.AwayScore) || math.IsInf(correction.HomeScore, 0) || math.IsInf(correction.AwayScore, 0) {
-			return PlayoffState{}, fmt.Errorf("playoff correction has a non-finite score")
-		}
 		target.HomeScore = correction.HomeScore
 		target.AwayScore = correction.AwayScore
-		target.ResultProvenance = &PlayoffResultProvenance{
-			Source:        "commissioner-correction",
-			SourceState:   "final",
-			ObservedAt:    playoffNow(correction.At),
-			Authoritative: true,
-		}
+	}
+	target.ResultProvenance = &PlayoffResultProvenance{
+		Source:        "commissioner-correction",
+		SourceState:   "final",
+		ObservedAt:    playoffNow(correction.At),
+		Authoritative: true,
 	}
 	target.TieBreakExplanation = "manual correction: " + strings.TrimSpace(correction.Reason)
 	if matchup.Bracket == "championship" {
@@ -691,8 +698,8 @@ func (s *Store) CorrectPublishedPlayoff(correction PlayoffCorrection) (PlayoffSt
 }
 
 // AdminPreviewPlayoffs derives one final standings snapshot from the persisted
-// closed schedule, then stores the commissioner preview. It is intentionally a
-// service seam without a route in this slice; UI consumers can use PlayoffTruth.
+// closed schedule, then stores the commissioner preview. The commissioner
+// console owns the action; every read consumer uses PlayoffTruth.
 func (s *Service) AdminPreviewPlayoffs(r *http.Request, at time.Time) (PlayoffState, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return PlayoffState{}, err
@@ -747,14 +754,24 @@ func (s *Service) AdminPublishPlayoffs(r *http.Request, previewID, confirmation 
 	if err := s.requireCommissioner(r); err != nil {
 		return PlayoffState{}, err
 	}
-	return s.store.PublishPlayoffPreview(previewID, confirmation, "commissioner", at)
+	published, err := s.store.PublishPlayoffPreview(previewID, confirmation, "commissioner", at)
+	if err != nil {
+		return PlayoffState{}, err
+	}
+	s.notifyPlayoffUpdate(s.store.Snapshot(), published, "published", at)
+	return published, nil
 }
 
 func (s *Service) AdminAdvancePlayoffs(r *http.Request, results []PlayoffRoundResult) (PlayoffState, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return PlayoffState{}, err
 	}
-	return s.store.AdvancePublishedPlayoffRound(results)
+	advanced, err := s.store.AdvancePublishedPlayoffRound(results)
+	if err != nil {
+		return PlayoffState{}, err
+	}
+	s.notifyPlayoffUpdate(s.store.Snapshot(), advanced, "advanced", s.clock())
+	return advanced, nil
 }
 
 func (s *Service) AdminCorrectPlayoff(r *http.Request, correction PlayoffCorrection) (PlayoffState, error) {
@@ -762,5 +779,10 @@ func (s *Service) AdminCorrectPlayoff(r *http.Request, correction PlayoffCorrect
 		return PlayoffState{}, err
 	}
 	correction.Actor = "commissioner"
-	return s.store.CorrectPublishedPlayoff(correction)
+	corrected, err := s.store.CorrectPublishedPlayoff(correction)
+	if err != nil {
+		return PlayoffState{}, err
+	}
+	s.notifyPlayoffUpdate(s.store.Snapshot(), corrected, "corrected", correction.At)
+	return corrected, nil
 }

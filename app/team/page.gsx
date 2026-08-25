@@ -283,6 +283,13 @@ func Page() Node {
 					</small>
 				</div>
 			</section>
+			<section class="score-command playoff-truth-card" aria-labelledby="team-playoff-truth-heading">
+				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // TEAM VIEW</span><h2 id="team-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+				<p>{data.playoff_truth.detail}</p>
+				<If cond={data.playoff_truth.has_bracket}><p class="scoring-note">Your team appears in the persisted bracket only when published; tie explanations and bye states remain attached to the matchup.</p></If>
+				<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+				<a href="/matchups" data-gosx-link class="access-link">Open bracket truth →</a>
+			</section>
 			<If cond={data.lineup_intervention == false}>
 			<details class="team-identity-settings" id="team-identity" open={data.identity_expanded}>
 				<summary>

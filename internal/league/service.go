@@ -1554,6 +1554,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	return map[string]any{
 		"viewer":                viewer,
 		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
+		"playoff_truth":         s.playoffTruthMap(state, now, s.IsCommissioner(r)),
 		"has_seat":              hasSeat,
 		"draft":                 s.draftSummary(now),
 		"live":                  s.liveMap(live),
@@ -1716,6 +1717,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	return map[string]any{
 		"viewer":             viewer,
 		"live":               s.liveMapForWeek(live, isCurrentWeek),
+		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 		"matchups":           matchups,
 		"matchups_empty":     len(matchups) == 0,
 		"leaders":            s.leaderMaps(),
@@ -1878,6 +1880,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		return map[string]any{
 			"viewer":               viewer,
 			"public_entry":         publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
+			"playoff_truth":        s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 			"has_seat":             false,
 			"predraft_visible":     false,
 			"predraft_has_board":   false,
@@ -2003,6 +2006,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 
 	data := map[string]any{
 		"viewer":                        viewer,
+		"playoff_truth":                 s.playoffTruthMap(state, now, s.IsCommissioner(r)),
 		"lineup_target_options":         s.lineupTargetOptions(state, lineupTarget.TeamID, week),
 		"lineup_intervention_exit_href": "/team?week=" + strconv.Itoa(week) + "#lineup",
 		"public_entry":                  publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),

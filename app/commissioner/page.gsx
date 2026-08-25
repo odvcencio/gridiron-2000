@@ -152,8 +152,10 @@ func FleetReadout(props FleetReadoutProps) Node {
 									</ul>
 								</section>
 								<section class="commissioner-hq__detail">
-									<h3>YEAR ONE PLAYOFFS</h3>
-									<p><If cond={card.playoff_available}>AVAILABLE</If><If cond={card.playoff_available == false}>NOT AVAILABLE</If> · {card.playoff_note}</p>
+									<h3>PLAYOFF TRUTH · YEAR ONE PLAYOFFS</h3>
+									<p><strong>{card.playoff_status_label}</strong> · <If cond={card.playoff_available}>PUBLISHED</If><If cond={card.playoff_available == false}>NOT PUBLISHED</If></p>
+									<p>{card.playoff_note}</p>
+									<If cond={card.playoff_source != ""}><p class="mono">SOURCE {card.playoff_source} · NEXT {card.playoff_next_matchups}</p></If>
 								</section>
 							</div>
 							<If cond={card.has_attention}>
