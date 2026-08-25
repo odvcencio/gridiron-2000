@@ -26,7 +26,7 @@ func Page() Node {
 					<br></br>
 					<span>FRANCHISE.</span>
 				</h1>
-				<If cond={data.league_full == false}>
+				<If cond={data.public_entry.can_claim}>
 					<p class="hero-deck">
 						Open seats remaining:
 						<strong>{data.open_seats}</strong>.
@@ -84,21 +84,24 @@ func Page() Node {
 						<p class="error-message" role="status">{data.identity_error}</p>
 					</If>
 				</If>
-				<If cond={data.league_full}>
+				<If cond={data.public_entry.can_claim == false}>
 					<p class="hero-deck">
-						Every manager seat is claimed — this league is full. Pick'em is still open to everyone, no seat required.
+						<strong>{data.public_entry.state_label}</strong>
+						<br></br>
+						{data.public_entry.detail}
 					</p>
-					<div class="hero-actions">
-						<a href="/pickem" data-gosx-link class="button button--primary">
-							Open Pick'em HQ
-							<span aria-hidden="true">→</span>
-						</a>
-					</div>
+					<If cond={data.public_entry.action_href != "/join"}>
+						<div class="hero-actions">
+							<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">
+								{data.public_entry.action_label}
+								<span aria-hidden="true">→</span>
+							</a>
+						</div>
+					</If>
 				</If>
-				<If cond={data.has_seat}>
-					<p class="hero-deck">You already hold a team seat.</p>
+				<If cond={data.public_entry.is_commissioner}>
 					<div class="hero-actions">
-						<a href="/team" data-gosx-link class="button button--primary">Open your team →</a>
+						<a href={data.public_entry.commissioner_href} data-gosx-link class="button button--secondary">{data.public_entry.commissioner_label}</a>
 					</div>
 				</If>
 			</div>

@@ -1176,6 +1176,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	canCompose := canEdit && !deadlinePassed
 	isCommissioner := s.IsCommissioner(r)
 	state := s.store.Snapshot()
+	publicEntry := s.publicEntryDataForViewerState(r, viewer, state)
 	pool := s.pool()
 	rosters := currentRosters(state)
 	threshold := tradeVetoThreshold(len(defaultTeamIDs()))
@@ -1247,6 +1248,7 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	history := s.tradeHistoryRows(state, pool, teamID, isCommissioner, threshold)
 	return map[string]any{
 		"viewer":                    viewer,
+		"public_entry":              publicEntry,
 		"league":                    s.leagueMap(),
 		"can_edit":                  canEdit,
 		"can_compose":               canCompose,

@@ -1,6 +1,7 @@
 package league
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -849,4 +850,157 @@ func deadlineTestGET(path string) *http.Request {
 func deadlineTestPOST(path string) *http.Request {
 	request, _ := http.NewRequest(http.MethodPost, path, nil)
 	return request
+}
+
+func TestPlayersDataPublicEntryMatrixAndPrivacy(t *testing.T) {
+	type stateCase struct {
+		name         string
+		email        string
+		wantState    PublicEntryState
+		wantClaim    bool
+		wantAction   string
+		commissioner bool
+		setup        func(*testing.T, *Service, string)
+	}
+	cases := []stateCase{
+		{
+			name:       "anonymous",
+			wantState:  PublicEntryAnonymous,
+			wantAction: "/login",
+		},
+		{
+			name:       "authenticated pending",
+			email:      "pending-surface@example.com",
+			wantState:  PublicEntryAuthenticatedPending,
+			wantAction: "/guide#identity",
+		},
+		{
+			name:       "admitted seatless open",
+			email:      "open-surface@example.com",
+			wantState:  PublicEntryAdmittedSeatlessOpen,
+			wantClaim:  true,
+			wantAction: "/join",
+			setup: func(t *testing.T, service *Service, email string) {
+				if _, err := service.EnsureMember(email, "Open Surface"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "co-manager pending",
+			email:      "pending-co-surface@example.com",
+			wantState:  PublicEntryCoManagerPending,
+			wantAction: "/auth/google/start?next=%2Fteam",
+			setup: func(t *testing.T, service *Service, email string) {
+				primary, _, err := service.store.AssignMember("surface-primary@example.com", "Surface Primary")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.InviteCoManager(primary.TeamID, email); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "admitted seatless full",
+			email:      "full-surface@example.com",
+			wantState:  PublicEntryAdmittedSeatlessFull,
+			wantAction: "/pickem",
+			setup: func(t *testing.T, service *Service, email string) {
+				for _, team := range service.Teams() {
+					if _, _, err := service.store.AssignMember(team.ID+"@surface.example.com", team.Name); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := service.EnsureMember(email, "Full Surface"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "primary",
+			email:      "primary-surface@example.com",
+			wantState:  PublicEntryPrimary,
+			wantAction: "/team",
+			setup: func(t *testing.T, service *Service, email string) {
+				if _, _, err := service.store.AssignMember(email, "Primary Surface"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name:       "co-manager",
+			email:      "co-surface@example.com",
+			wantState:  PublicEntryCoManager,
+			wantAction: "/team",
+			setup: func(t *testing.T, service *Service, email string) {
+				primary, _, err := service.store.AssignMember("co-primary-surface@example.com", "Co Primary Surface")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.InviteCoManager(primary.TeamID, email); err != nil {
+					t.Fatal(err)
+				}
+				if _, bound, err := service.BindCoManagerOnSignIn(email, "Co Surface"); err != nil || !bound {
+					t.Fatalf("bind co-manager = bound %v, err %v", bound, err)
+				}
+			},
+		},
+		{
+			name:         "commissioner overlay",
+			email:        "commissioner-surface@example.com",
+			wantState:    PublicEntryAdmittedSeatlessOpen,
+			wantClaim:    true,
+			wantAction:   "/join",
+			commissioner: true,
+			setup: func(t *testing.T, service *Service, email string) {
+				if _, err := service.EnsureMember(email, "Commissioner Surface"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			service := newTestService(t, false)
+			if tt.commissioner {
+				t.Setenv("COMMISSIONER_EMAILS", tt.email)
+			}
+			if tt.setup != nil {
+				tt.setup(t, service, tt.email)
+			}
+			check := func(r *http.Request) {
+				data := service.PlayersData(r)
+				entry, ok := data["public_entry"].(map[string]any)
+				if !ok {
+					t.Fatalf("public_entry = %#v, want map", data["public_entry"])
+				}
+				if entry["state"] != string(tt.wantState) || entry["can_claim"] != tt.wantClaim || entry["action_href"] != tt.wantAction {
+					t.Fatalf("public entry = %#v, want state=%s claim=%v action=%s", entry, tt.wantState, tt.wantClaim, tt.wantAction)
+				}
+				if entry["is_commissioner"] != tt.commissioner {
+					t.Fatalf("commissioner overlay = %v, want %v", entry["is_commissioner"], tt.commissioner)
+				}
+				canonical := service.publicEntryDataForViewerState(r, service.Viewer(r), service.store.Snapshot())
+				if got, want := entry["detail"], canonical["detail"]; got != want {
+					t.Fatalf("detail = %v, want canonical %v", got, want)
+				}
+				encoded, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, secret := range []string{"pending-surface@example.com", "commissioner-surface@example.com", "surface-primary@example.com"} {
+					if strings.Contains(string(encoded), secret) {
+						t.Fatalf("public_entry leaked private identity %q: %s", secret, encoded)
+					}
+				}
+			}
+			if tt.email == "" {
+				check(httptest.NewRequest(http.MethodGet, "/players", nil))
+				return
+			}
+			withPublicEntryRequest(t, service, tt.email, check)
+		})
+	}
 }

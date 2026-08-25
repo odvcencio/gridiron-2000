@@ -35,7 +35,14 @@ func Page() Node {
 						<a href="/team" data-gosx-link>Team terminal →</a>
 					</If>
 					<If cond={data.can_edit == false}>
-						<a href="/join" data-gosx-link>Claim a team →</a>
+						<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+							<a href={data.public_entry.action_href} data-gosx-link>
+								{data.public_entry.action_label}
+							</a>
+						</If>
+					</If>
+					<If cond={data.public_entry.is_commissioner}>
+						<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
 					</If>
 				</div>
 			</div>
@@ -49,8 +56,16 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>TEAM SEAT REQUIRED:</strong>
-					browsing is open, but signing, dropping, and claiming players requires a franchise. <a href="/join" data-gosx-link>Claim a team →</a>
+					<strong>{data.public_entry.state_label}:</strong>
+					{data.public_entry.detail}
+					<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+						<a href={data.public_entry.action_href} data-gosx-link>
+							{data.public_entry.action_label}
+						</a>
+					</If>
+					<If cond={data.public_entry.is_commissioner}>
+						<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
+					</If>
 				</p>
 			</If>
 			<If cond={data.free_agency_open == false}>
@@ -316,11 +331,15 @@ func Page() Node {
 			</div>
 			<If cond={data.can_edit == false}>
 				<div class="empty-tape">
-					<strong>CLAIM A TEAM TO USE WAIVERS</strong>
+					<strong>{data.public_entry.state_label}</strong>
 					<p>
-						You can inspect every player and the league order now. Claim an available franchise to file and manage your own claims.
+						{data.public_entry.detail}
 					</p>
-					<a class="draft-button" href="/join" data-gosx-link>Choose a team</a>
+					<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+						<a class="draft-button" href={data.public_entry.action_href} data-gosx-link>
+							{data.public_entry.action_label}
+						</a>
+					</If>
 				</div>
 			</If>
 			<If cond={data.can_edit}>
