@@ -48,6 +48,8 @@ func TestWaiverDeskManagedFormsAndPrivateReceiptCopyContract(t *testing.T) {
 		`drop_locked`, `RESOLVES`, `RESOLUTION OVERDUE`,
 		`RESOLUTION DEGRADED`, `RESOLUTION UNKNOWN`,
 		`pool_unavailable`, `PLAYER DATA UNAVAILABLE`, `WAIVER ACTIONS PAUSED`,
+		`roster-capacity-breakdown`, `GENERAL`, `RESERVE`, `IR · OUTSIDE CAP`,
+		`Reserve counts toward draftable capacity`,
 	} {
 		if !strings.Contains(pageText, want) {
 			t.Errorf("page.gsx missing waiver desk contract %q", want)

@@ -100,6 +100,25 @@ func playerMatchesQuery(player Player, query string) bool {
 	return strings.Contains(playerSearchText(player), query)
 }
 
+// playerRosterZoneCounts reports the owned roster's presentation buckets for
+// the Player Pool capacity summary. General and reserve occupants consume the
+// draftable roster capacity; IR occupants are owned, but intentionally sit
+// outside that cap. Count only currently owned IDs so a stale zone overlay
+// cannot manufacture occupancy for a player who has already left the roster.
+func playerRosterZoneCounts(state PersistedState, teamID string) (general, reserve, ir int) {
+	for _, playerID := range currentRosters(state)[teamID] {
+		switch zoneOfPlayer(state, teamID, playerID) {
+		case zoneReserve:
+			reserve++
+		case zoneIR:
+			ir++
+		default:
+			general++
+		}
+	}
+	return general, reserve, ir
+}
+
 // PlayersData assembles the /players pool browser (roster-ops spec
 // section 8.2): every pool player's availability — ROSTERED with the
 // owning team's abbreviation, ON WAIVERS with a claim form, or FREE AGENT
@@ -136,10 +155,14 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	query := strings.ToLower(rawQuery)
 
 	myRoster := currentRosters(state)[teamID]
-	rosterCap := CurrentRoster().Total()
+	preset := CurrentRoster()
+	rosterCap := preset.Total()
+	generalRosterCap := preset.Starters() + preset.Bench
+	generalRosterSize, reserveRosterSize, irRosterSize := playerRosterZoneCounts(state, teamID)
 	// atCap reads the effective (IR-excluding) size, so a team stashing an
 	// injured player on IR correctly sees the spot it frees (SK spec).
-	atCap := effectiveRosterSize(state, teamID) >= rosterCap
+	effectiveSize := effectiveRosterSize(state, teamID)
+	atCap := effectiveSize >= rosterCap
 
 	rows := make([]map[string]any, 0, len(pool.players))
 	for _, player := range pool.players {
@@ -181,7 +204,16 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		dropLocked := rostered && ownerID == teamID && playerLockedForRosterMutation(state, games, lineupWeek, player, now)
 		dropLockReason := ""
 		if dropLocked {
-			dropLockReason = fmt.Sprintf("DROP LOCKED: %s", lineupLockedMessage(player.Name, lineupWeek, player.NFLTeam))
+			// lineupWeek is an action/display selector and may already be W2
+			// while this player's W1 game is kicked but the persisted W1
+			// schedule is not final. Prefer the durable historical lock week
+			// so the explanation names the scoring week that is actually
+			// protected, not the later selector week.
+			lockWeek := lineupWeek
+			if historicalWeek, historicalLocked := playerLockedByUnfinalizedWeek(state, games, player.NFLTeam, now); historicalLocked {
+				lockWeek = historicalWeek
+			}
+			dropLockReason = fmt.Sprintf("DROP LOCKED: %s", lineupLockedMessage(player.Name, lockWeek, player.NFLTeam))
 		}
 		row["drop_locked"] = dropLocked
 		row["drop_lock_reason"] = dropLockReason
@@ -306,31 +338,46 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	}
 
 	return map[string]any{
-		"viewer":               viewer,
-		"public_entry":         publicEntry,
-		"league":               s.leagueMap(),
-		"can_edit":             canEdit,
-		"pool_unavailable":     poolUnavailable,
-		"free_agency_open":     open,
-		"pos":                  pos,
-		"positions":            positionFilterTabs(pos, rawQuery),
-		"query":                rawQuery,
-		"players":              rows,
-		"players_empty":        pagination.Total == 0,
-		"pool_total":           pagination.Total,
-		"pool_page":            pagination.Page,
-		"pool_pages":           pagination.Pages,
-		"pool_page_size":       pagination.PageSize,
-		"pool_page_start":      pagination.Start + 1,
-		"pool_page_end":        pagination.End,
-		"pool_has_previous":    pagination.HasPrevious,
-		"pool_has_next":        pagination.HasNext,
-		"pool_previous_href":   poolPageHref("/players", pos, rawQuery, pagination.Page-1),
-		"pool_next_href":       poolPageHref("/players", pos, rawQuery, pagination.Page+1),
-		"pool_status":          s.poolFreshnessMap(pool),
-		"at_cap":               atCap,
-		"roster_size":          len(myRoster),
-		"roster_cap":           rosterCap,
+		"viewer":             viewer,
+		"public_entry":       publicEntry,
+		"league":             s.leagueMap(),
+		"can_edit":           canEdit,
+		"pool_unavailable":   poolUnavailable,
+		"free_agency_open":   open,
+		"pos":                pos,
+		"positions":          positionFilterTabs(pos, rawQuery),
+		"query":              rawQuery,
+		"players":            rows,
+		"players_empty":      pagination.Total == 0,
+		"pool_total":         pagination.Total,
+		"pool_page":          pagination.Page,
+		"pool_pages":         pagination.Pages,
+		"pool_page_size":     pagination.PageSize,
+		"pool_page_start":    pagination.Start + 1,
+		"pool_page_end":      pagination.End,
+		"pool_has_previous":  pagination.HasPrevious,
+		"pool_has_next":      pagination.HasNext,
+		"pool_previous_href": poolPageHref("/players", pos, rawQuery, pagination.Page-1),
+		"pool_next_href":     poolPageHref("/players", pos, rawQuery, pagination.Page+1),
+		"pool_status":        s.poolFreshnessMap(pool),
+		"at_cap":             atCap,
+		// roster_size is the effective draftable count (general + reserve),
+		// not raw owned IDs. An IR occupant is owned but sits outside the
+		// cap, so this remains honest at e.g. 17 / 17 plus IR 1 / 2.
+		"roster_size":         effectiveSize,
+		"roster_cap":          rosterCap,
+		"roster_general_size": generalRosterSize,
+		"roster_general_cap":  generalRosterCap,
+		"roster_reserve_size": reserveRosterSize,
+		"roster_reserve_cap":  preset.ReserveTotal(),
+		"roster_ir_size":      irRosterSize,
+		"roster_ir_cap":       preset.IR,
+		"roster_capacity_summary": fmt.Sprintf(
+			"GENERAL %d / %d · RESERVE %d / %d · IR %d / %d",
+			generalRosterSize, generalRosterCap,
+			reserveRosterSize, preset.ReserveTotal(),
+			irRosterSize, preset.IR,
+		),
 		"drop_options":         dropOptions,
 		"drop_options_empty":   len(dropOptions) == 0,
 		"waivers_faab":         faab,

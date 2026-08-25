@@ -18,7 +18,7 @@ func Page() Node {
 				</p>
 			</div>
 			<div class="draft-clock-panel">
-				<span>Your roster spots</span>
+				<span>Draftable roster capacity</span>
 				<If cond={data.pool_unavailable}>
 					<strong class="mono">DATA PAUSED</strong>
 				</If>
@@ -28,6 +28,21 @@ func Page() Node {
 						/
 						{data.roster_cap}
 					</strong>
+					<div class="roster-capacity-breakdown" aria-label="Roster capacity breakdown">
+						<span>
+							<b>GENERAL</b>
+							<strong class="mono">{data.roster_general_size} / {data.roster_general_cap}</strong>
+						</span>
+						<span>
+							<b>RESERVE</b>
+							<strong class="mono">{data.roster_reserve_size} / {data.roster_reserve_cap}</strong>
+						</span>
+						<span>
+							<b>IR · OUTSIDE CAP</b>
+							<strong class="mono">{data.roster_ir_size} / {data.roster_ir_cap}</strong>
+						</span>
+					</div>
+					<p class="roster-capacity-note">Reserve counts toward draftable capacity. IR is owned roster space outside that cap.</p>
 				</If>
 				<If cond={data.pool_unavailable == false && data.can_edit == false}>
 					<strong class="mono">NO TEAM</strong>
