@@ -1974,7 +1974,7 @@ func (s *Service) TeamData(r *http.Request) map[string]any {
 
 	placeOptions := make([]map[string]any, 0, len(general))
 	for _, p := range general {
-		if playerLocked(games, weekSelection.CurrentWeek, p.NFLTeam, now) {
+		if playerLockedForRosterMutation(state, games, weekSelection.CurrentWeek, p, now) {
 			continue
 		}
 		placeOptions = append(placeOptions, map[string]any{

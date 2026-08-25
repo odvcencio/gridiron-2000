@@ -208,7 +208,7 @@ func cleanTradePlayerIDs(ids []string) []string {
 
 // validateTradeAsset applies T5 (ownership) and T6 (no locked players) to
 // one player ID against expectedTeamID.
-func validateTradeAsset(games []GameInfo, poolByID map[string]Player, week int, now time.Time, owner map[string]string, playerID, expectedTeamID, teamName string) error {
+func validateTradeAsset(state PersistedState, games []GameInfo, poolByID map[string]Player, week int, now time.Time, owner map[string]string, playerID, expectedTeamID, teamName string) error {
 	player, known := poolByID[playerID]
 	if !known {
 		return fmt.Errorf("player data for %s is unavailable; refresh before trading", playerID)
@@ -217,7 +217,7 @@ func validateTradeAsset(games []GameInfo, poolByID map[string]Player, week int, 
 	if owner[playerID] != expectedTeamID { // T5
 		return fmt.Errorf("%s is not on %s's roster", name, teamName)
 	}
-	if playerLocked(games, week, player.NFLTeam, now) { // T6
+	if playerLockedForRosterMutation(state, games, week, player, now) { // T6
 		return fmt.Errorf("%s is locked until the week closes", name)
 	}
 	return nil
@@ -264,12 +264,12 @@ func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []G
 	fromName := teamNameByID(offer.FromTeamID)
 	toName := teamNameByID(offer.ToTeamID)
 	for _, id := range offer.Give {
-		if err := validateTradeAsset(games, poolByID, week, now, owner, id, offer.FromTeamID, fromName); err != nil {
+		if err := validateTradeAsset(state, games, poolByID, week, now, owner, id, offer.FromTeamID, fromName); err != nil {
 			return err
 		}
 	}
 	for _, id := range offer.Get {
-		if err := validateTradeAsset(games, poolByID, week, now, owner, id, offer.ToTeamID, toName); err != nil {
+		if err := validateTradeAsset(state, games, poolByID, week, now, owner, id, offer.ToTeamID, toName); err != nil {
 			return err
 		}
 	}
