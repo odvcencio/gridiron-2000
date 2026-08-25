@@ -1,6 +1,6 @@
 # League configuration reference
 
-`league.json` is the public, operator-owned description of one Gridiron league. It controls league identity, teams, draft meeting, roster shape, membership posture, waivers, and trades. It does not contain credentials, invitations, commissioner identities, OAuth secrets, or live league state.
+`league.json` is the public, operator-owned description of one Gridiron league. It controls league identity, teams, draft meeting, roster shape, membership posture, waivers, trades, and optional postseason rules. It does not contain credentials, invitations, commissioner identities, OAuth secrets, or live league state.
 
 Start with [`config/league.json.example`](../config/league.json.example). The loader accepts strict JSON only: comments and unknown fields are rejected. Restart the application after changing the file.
 
@@ -41,6 +41,7 @@ If none exists, Gridiron starts with a neutral reference configuration whose dat
 | `roster` | optional object | A named preset or an explicit starter/bench shape, plus optional reserve, IR, and position limits. |
 | `waivers` | optional object | Waiver ordering/budget and processing window. An omitted block uses defaults. |
 | `trades` | optional object | Trade deadline, veto authority, and review window. An omitted block uses defaults. |
+| `postseason` | optional object | Playoff qualification, seeding, byes, round calendar, tie-break order, and consolation behavior. An omitted block leaves postseason disabled. |
 
 ## `league`
 
@@ -129,6 +130,32 @@ These optional fields may accompany either base shape:
 | `deadline` | RFC3339 timestamp or an empty string for no configured deadline. |
 | `veto` | `commissioner`, `vote`, `both`, or `none`. |
 | `review_hours` | 1–72. |
+
+## `postseason`
+
+The postseason block is optional. Its rules are read from config, while the
+actual final week, standings snapshot, source quality, and timestamps remain
+runtime-owned. A bracket is not public merely because these fields are set:
+the commissioner must preview the final standings snapshot and then publish
+that exact preview.
+
+| Field | Rule |
+| --- | --- |
+| `teamCount` | 0 (disabled) or 2–8 and no greater than the configured league size. |
+| `startWeek` | First playoff week; must be after the final regular-season week once the schedule is known. |
+| `roundLengthWeeks` | `1` or `2`; the generated bracket must finish by the final scheduled week. |
+| `qualification` | Empty or `top-record`, or `division-winners-wildcards` when divisions are configured. |
+| `tiebreakOrder` | Optional standings chain. When omitted, the deterministic chain is `record`, `head-to-head`, `points-for`, `pickem`, `seeded-draw`. |
+| `byes` | 0 (derive) or the bracket's required power-of-two padding. Byes are assigned deterministically to the best seeds. |
+| `divisionWinnersFirst` | Reserves the first seeds for the best team from each division. |
+| `reseed` | Re-seeds advancing teams at each round when true; otherwise preserves the fixed bracket. |
+| `consolation` | Creates a consolation bracket from first-round championship losers. |
+| `toiletBowl` | Creates the optional inverse-seeded losers bracket for non-playoff teams. |
+
+Every persisted matchup carries its tie-break explanation and result source
+provenance. Partial, stale, degraded, or unavailable scores cannot advance a
+published bracket. Manual corrections require the explicit confirmation
+phrase, a reason, and an audit entry.
 
 ## Supported environment overrides
 

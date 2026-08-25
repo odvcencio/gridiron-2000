@@ -42,7 +42,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 8
+const currentSchemaVersion = 9
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
