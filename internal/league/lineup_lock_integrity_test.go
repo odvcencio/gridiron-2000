@@ -236,3 +236,142 @@ func TestTeamPlacementOptionsExcludeLockedPlayers(t *testing.T) {
 		t.Fatalf("reserve options = %+v, want unlocked qb-2 to remain available", reserve)
 	}
 }
+
+// TestRosterMutationRejectsKickedPlayerUntilPersistedWeekFinal covers the
+// cross-week authority: the UI/action selector may advance to Week 2, but a
+// Week 1 player remains non-removable until the persisted scoring schedule
+// marks Week 1 final.
+func TestRosterMutationRejectsKickedPlayerUntilPersistedWeekFinal(t *testing.T) {
+	svc, now := newPlayersTestService(t)
+	games := []GameInfo{
+		{ID: "w1-tb", Week: 1, Away: "TB", Home: "ATL", Kickoff: now.Add(-6 * time.Hour)},
+		{ID: "w1-pit", Week: 1, Away: "PIT", Home: "NYJ", Kickoff: now.Add(-6 * time.Hour)},
+		{ID: "w2-pit", Week: 2, Away: "PIT", Home: "CIN", Kickoff: now.Add(2 * time.Hour)},
+	}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	if got := lineupCurrentWeekAt(games, now); got != 2 {
+		t.Fatalf("lineupCurrentWeekAt = %d, want Week 2 after all Week 1 kickoffs", got)
+	}
+	if err := svc.store.SetSchedule(SeasonSchedule{
+		Season: svc.cfg.Season,
+		Weeks: []ScheduleWeek{
+			{Week: 1, Matchups: []LeagueMatchup{{ID: "w1", HomeTeamID: "team-1", AwayTeamID: "team-2"}}},
+			{Week: 2, Matchups: []LeagueMatchup{{ID: "w2", HomeTeamID: "team-1", AwayTeamID: "team-2"}}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.RecordTransactionWithAuthority(Transaction{
+		ID: "direct-drop", TeamID: "team-1", Type: "drop", Week: 2,
+		Drops: []TransactionPlayer{{PlayerID: "rb-locked", Name: "Locked Rusher", NFLTeam: "TB"}}, At: now,
+	}, 99, games, now); err == nil {
+		t.Fatal("Store.RecordTransactionWithAuthority must reject a stale direct drop")
+	}
+	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
+	before := svc.store.Snapshot()
+	if _, err := svc.DropPlayer(request, "team-1", "rb-locked", playerDropConfirmation); err == nil {
+		t.Fatal("DropPlayer must reject a Week 1 player while Week 1 is kicked but not persisted final")
+	} else if got, want := err.Error(), "Locked Rusher is locked and cannot be dropped until the week closes"; got != want {
+		t.Fatalf("DropPlayer error = %q, want %q", got, want)
+	}
+	after := svc.store.Snapshot()
+	if len(after.Transactions) != len(before.Transactions) || rosterOwner(currentRosters(after))["rb-locked"] != "team-1" {
+		t.Fatalf("rejected drop changed roster state: before transactions=%d after=%d owner=%q", len(before.Transactions), len(after.Transactions), rosterOwner(currentRosters(after))["rb-locked"])
+	}
+
+	closed := svc.store.Snapshot().Schedule.Weeks[0]
+	for i := range closed.Matchups {
+		closed.Matchups[i].Final = true
+	}
+	if err := svc.store.SetScheduleWeek(closed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.DropPlayer(request, "team-1", "rb-locked", playerDropConfirmation); err != nil {
+		t.Fatalf("persisted Week 1 final must release the historical lock: %v", err)
+	}
+	if owner := rosterOwner(currentRosters(svc.store.Snapshot()))["rb-locked"]; owner != "" {
+		t.Fatalf("released Week 1 player owner = %q, want dropped", owner)
+	}
+}
+
+// TestClosedWeekRejectsLineupMutationAtCurrentWeek covers both Service and
+// Store entry points. A persisted final week is immutable even when the live
+// schedule still reports that week as the current editable selector.
+func TestClosedWeekRejectsLineupMutationAtCurrentWeek(t *testing.T) {
+	svc, _, now := newLineupTestService(t)
+	games := []GameInfo{{ID: "w1-pit", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	sch := SeasonSchedule{
+		Season: svc.cfg.Season,
+		Weeks:  []ScheduleWeek{{Week: 1, Matchups: []LeagueMatchup{{ID: "w1", HomeTeamID: "team-1", AwayTeamID: "team-2"}}}},
+	}
+	if err := svc.store.SetSchedule(sch); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB1", "rb-open", now); err != nil {
+		t.Fatalf("seed lineup: %v", err)
+	}
+	week := sch.Weeks[0]
+	week.Matchups[0].Final = true
+	if err := svc.store.SetScheduleWeek(week); err != nil {
+		t.Fatalf("force-close week: %v", err)
+	}
+	before := svc.store.Snapshot()
+	if err := svc.store.SetLineupSlot("team-1", 1, "RB1", "rb-locked", now); err == nil {
+		t.Fatal("Store.SetLineupSlot must reject a persisted final week")
+	}
+	if err := svc.store.SetLineupWeek("team-1", 1, map[string]string{"RB1": "rb-locked"}); err == nil {
+		t.Fatal("Store.SetLineupWeek must reject a persisted final week")
+	}
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	if _, err := svc.SetLineup(request, "team-1", 1, "RB1", "rb-locked"); err == nil {
+		t.Fatal("Service.SetLineup must surface the Store final-week guard")
+	}
+	if _, err := svc.LineupAuto(request, "team-1", 1); err == nil {
+		t.Fatal("Service.LineupAuto must surface the Store final-week guard")
+	}
+	after := svc.store.Snapshot()
+	if got := after.Lineups["team-1"][1]["RB1"]; got != "rb-open" {
+		t.Fatalf("closed-week lineup slot = %q, want pinned rb-open", got)
+	}
+	if !weekIsFinalInSchedule(after.Schedule, 1) || !weekIsFinalInSchedule(before.Schedule, 1) {
+		t.Fatal("persisted final schedule must remain final after rejected lineup writes")
+	}
+}
+
+// TestClosedWeekLineupMutationRace verifies the final-week guard and the
+// close write serialize through one Store lock. Regardless of which action
+// wins the race, the final persisted pin is the close's authoritative value.
+func TestClosedWeekLineupMutationRace(t *testing.T) {
+	store := newTestStore(t)
+	sch, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: genTeamIDs(4), StartWeek: 1, Weeks: 1, Seed: 17})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSchedule(sch); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetLineupSlot("team-1", 1, "QB", "before", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	week := sch.Weeks[0]
+	for i := range week.Matchups {
+		week.Matchups[i].Final = true
+	}
+	pins := map[string]map[string]string{"team-1": {"QB": "pinned"}}
+	results := make(chan error, 2)
+	go func() { results <- store.SetScheduleWeekWithLineups(week, pins) }()
+	go func() { results <- store.SetLineupSlot("team-1", 1, "QB", "after", time.Now()) }()
+	for i := 0; i < 2; i++ {
+		if err := <-results; err != nil && err.Error() != lineupWeekClosedMessage(1) {
+			t.Fatalf("concurrent mutation error = %v", err)
+		}
+	}
+	state := store.Snapshot()
+	if !weekIsFinalInSchedule(state.Schedule, 1) {
+		t.Fatal("concurrent close must leave Week 1 final")
+	}
+	if got := state.Lineups["team-1"][1]["QB"]; got != "pinned" {
+		t.Fatalf("concurrent lineup result = %q, want close pin %q", got, "pinned")
+	}
+}

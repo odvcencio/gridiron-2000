@@ -376,6 +376,16 @@ func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
 // teamID's IR and that every dropTxn.Drops player is still owned by
 // teamID.
 func (s *Store) ActivateFromIRWithDrop(teamID, playerID string, dropTxn Transaction) error {
+	return s.activateFromIRWithDropAuthority(teamID, playerID, dropTxn, nil, nil, time.Time{})
+}
+
+// ActivateFromIRWithDropWithAuthority repeats the live kickoff authority
+// under the Store lock for the named drop in an IR activation.
+func (s *Store) ActivateFromIRWithDropWithAuthority(teamID, playerID string, dropTxn Transaction, games []GameInfo, poolByID map[string]Player, now time.Time) error {
+	return s.activateFromIRWithDropAuthority(teamID, playerID, dropTxn, games, poolByID, now)
+}
+
+func (s *Store) activateFromIRWithDropAuthority(teamID, playerID string, dropTxn Transaction, games []GameInfo, poolByID map[string]Player, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -388,6 +398,14 @@ func (s *Store) ActivateFromIRWithDrop(teamID, playerID string, dropTxn Transact
 	for _, drop := range dropTxn.Drops {
 		if owner[drop.PlayerID] != teamID {
 			return fmt.Errorf("%s", lineupNotOnRosterMessage)
+		}
+		if len(games) > 0 {
+			if dropPlayer, ok := poolByID[drop.PlayerID]; ok {
+				week := lineupCurrentWeekAt(games, now)
+				if playerLockedForRosterMutation(s.state, games, week, dropPlayer, now) {
+					return fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
+				}
+			}
 		}
 	}
 	delete(s.state.RosterZones[teamID], playerID)
@@ -610,7 +628,7 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 		if !ok || owner[dropID] != teamID || zoneOfPlayer(state, teamID, dropID) == zoneIR {
 			return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
 		}
-		if playerLocked(games, week, dropPlayer.NFLTeam, now) {
+		if playerLockedForRosterMutation(state, games, week, dropPlayer, now) {
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, []string{dropID}); breach {
@@ -625,7 +643,7 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 			return "", err
 		}
 		txn.ID = id
-		if err := s.store.ActivateFromIRWithDrop(teamID, playerID, txn); err != nil {
+		if err := s.store.ActivateFromIRWithDropWithAuthority(teamID, playerID, txn, games, pool.byID, now); err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("%s activated from IR; %s dropped.", player.Name, dropPlayer.Name), nil

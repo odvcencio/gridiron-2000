@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -2419,6 +2420,12 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 	}
 	for i, wk := range s.state.Schedule.Weeks {
 		if wk.Week == week.Week {
+			if scheduleWeekIsFinal(wk) {
+				if reflect.DeepEqual(wk, week) {
+					return nil
+				}
+				return fmt.Errorf("week %d is final; official scoring and lineup pins are immutable", week.Week)
+			}
 			stored := week
 			stored.Matchups = append([]LeagueMatchup(nil), week.Matchups...)
 			s.state.Schedule.Weeks[i] = stored
@@ -2915,6 +2922,9 @@ func (s *Store) SetLineupSlot(teamID string, week int, slot, playerID string, no
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	if lineupWeekFinalLocked(s.state, week) {
+		return fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	}
 	if s.state.Lineups == nil {
 		s.state.Lineups = map[string]map[int]map[string]string{}
 	}
@@ -2960,6 +2970,9 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
+	if lineupWeekFinalLocked(s.state, week) {
+		return fmt.Errorf("%s", lineupWeekClosedMessage(week))
+	}
 	if s.state.Lineups == nil {
 		s.state.Lineups = map[string]map[int]map[string]string{}
 	}
@@ -2991,6 +3004,18 @@ func (s *Store) SetLineupWeek(teamID string, week int, slots map[string]string) 
 // W-table messages), so this is a defense-in-depth repeat, not the
 // primary validation path.
 func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
+	return s.recordTransactionWithAuthority(txn, rosterCap, nil, time.Time{})
+}
+
+// RecordTransactionWithAuthority is RecordTransaction's live-schedule-aware
+// form. The Service uses it for manager roster changes so the Store repeats
+// the kickoff and persisted-final authority under its write lock, closing the
+// snapshot-to-write race between a request and a concurrent close.
+func (s *Store) RecordTransactionWithAuthority(txn Transaction, rosterCap int, games []GameInfo, now time.Time) error {
+	return s.recordTransactionWithAuthority(txn, rosterCap, games, now)
+}
+
+func (s *Store) recordTransactionWithAuthority(txn Transaction, rosterCap int, games []GameInfo, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -3008,6 +3033,13 @@ func (s *Store) RecordTransaction(txn Transaction, rosterCap int) error {
 	for _, drop := range txn.Drops {
 		if owner[drop.PlayerID] != txn.TeamID {
 			return fmt.Errorf("%s", lineupNotOnRosterMessage)
+		}
+		if len(games) > 0 {
+			week := lineupCurrentWeekAt(games, now)
+			player := Player{Name: drop.Name, NFLTeam: drop.NFLTeam}
+			if playerLockedForRosterMutation(s.state, games, week, player, now) {
+				return fmt.Errorf("%s is locked and cannot be dropped until the week closes", drop.Name)
+			}
 		}
 	}
 	// effectiveRosterSize excludes IR occupants from the cap math (SK
@@ -3058,6 +3090,17 @@ func (s *Store) BaselineWaiversProcessedThrough(now time.Time) error {
 // under the lock, as one past the filing team's current open-claim count,
 // so two near-simultaneous claims by the same team can never collide.
 func (s *Store) FileClaim(claim WaiverClaim) error {
+	return s.fileClaimWithAuthority(claim, nil, nil, time.Time{})
+}
+
+// FileClaimWithAuthority is FileClaim's schedule-aware form. A claim that
+// names a drop is itself a promise to remove that player at resolution, so
+// filing it must observe the same kickoff authority as resolution.
+func (s *Store) FileClaimWithAuthority(claim WaiverClaim, games []GameInfo, poolByID map[string]Player, now time.Time) error {
+	return s.fileClaimWithAuthority(claim, games, poolByID, now)
+}
+
+func (s *Store) fileClaimWithAuthority(claim WaiverClaim, games []GameInfo, poolByID map[string]Player, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -3080,6 +3123,14 @@ func (s *Store) FileClaim(claim WaiverClaim) error {
 	}
 	if claim.DropID != "" && owner[claim.DropID] != claim.TeamID {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
+	}
+	if claim.DropID != "" && len(games) > 0 {
+		if drop, ok := poolByID[claim.DropID]; ok {
+			week := lineupCurrentWeekAt(games, now)
+			if playerLockedForRosterMutation(s.state, games, week, drop, now) {
+				return fmt.Errorf("%s is locked and cannot be dropped until the week closes", drop.Name)
+			}
+		}
 	}
 	previous := cloneState(s.state)
 	claim.FiledAt = claim.FiledAt.UTC()
@@ -3269,7 +3320,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		case next.DropID != "" && owner[next.DropID] != next.TeamID:
 			result.Outcome = "failed"
 			result.Reason = lineupNotOnRosterMessage
-		case next.DropID != "" && playerLocked(games, week, poolByID[next.DropID].NFLTeam, now):
+		case next.DropID != "" && playerLockedForRosterMutation(s.state, games, week, poolByID[next.DropID], now):
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
 		case next.DropID == "" && effectiveRosterSize(s.state, next.TeamID)+1 > rosterCap:

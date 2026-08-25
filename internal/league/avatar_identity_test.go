@@ -134,8 +134,8 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"PruneSentLog", "SetNotifyPref", "SetSchedule", "SetScheduleWeek",
 		"SetScheduleWeekWithLineups", "SetPhase", "SetPlayoffs",
 		"SetRosterOverride", "ClearRosterOverride", "SetLineupSlot",
-		"SetLineupWeek", "RecordTransaction", "BaselineWaiversProcessedThrough",
-		"FileClaim", "CancelClaim", "MoveClaim", "ProcessWaivers", "ProposeTradeOffer",
+		"SetLineupWeek", "recordTransactionWithAuthority", "BaselineWaiversProcessedThrough",
+		"fileClaimWithAuthority", "CancelClaim", "MoveClaim", "ProcessWaivers", "ProposeTradeOffer",
 		"CounterTradeOffer", "DeclineTradeOffer", "WithdrawTradeOffer",
 		"AcceptTradeOffer", "ExecuteTradeOffer", "CommissionerVetoTradeOffer",
 		"FileTradeVetoOffer", "ExpireTradeOffer", "PostAnnouncement",
@@ -146,7 +146,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		expected[persistCallerID{file: "store.go", receiver: "(*Store)", function: name}] = struct{}{}
 	}
 	expected[persistCallerID{file: "pickem_market.go", receiver: "(*Store)", function: "ReconcilePickemMarkets"}] = struct{}{}
-	for _, name := range []string{"PlaceInZone", "ClearZone", "ActivateFromIRWithDrop", "AutoCutHealedIR"} {
+	for _, name := range []string{"PlaceInZone", "ClearZone", "activateFromIRWithDropAuthority", "AutoCutHealedIR"} {
 		expected[persistCallerID{file: "zones.go", receiver: "(*Store)", function: name}] = struct{}{}
 	}
 	return expected

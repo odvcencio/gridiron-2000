@@ -168,7 +168,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["claimed_by_me"] = claimedByMe
 		row["needs_drop"] = atCap
 		row["mine"] = canEdit && rostered && ownerID == teamID
-		dropLocked := rostered && ownerID == teamID && playerLocked(games, lineupWeek, player.NFLTeam, now)
+		dropLocked := rostered && ownerID == teamID && playerLockedForRosterMutation(state, games, lineupWeek, player, now)
 		dropLockReason := ""
 		if dropLocked {
 			dropLockReason = fmt.Sprintf("DROP LOCKED: %s", lineupLockedMessage(player.Name, lineupWeek, player.NFLTeam))
@@ -184,7 +184,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	dropOptions := make([]map[string]any, 0, len(myRoster))
 	for _, id := range myRoster {
 		if player, ok := pool.byID[id]; ok {
-			if playerLocked(games, lineupWeek, player.NFLTeam, now) {
+			if playerLockedForRosterMutation(state, games, lineupWeek, player, now) {
 				continue
 			}
 			dropOptions = append(dropOptions, map[string]any{
@@ -398,7 +398,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 		if !ok || owner[dropID] != teamID { // W7
 			return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
 		}
-		if playerLocked(games, week, dropPlayer.NFLTeam, now) { // W8
+		if playerLockedForRosterMutation(state, games, week, dropPlayer, now) { // W8
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		txn.Drops = []TransactionPlayer{transactionPlayerFromPlayer(dropPlayer)}
@@ -421,7 +421,7 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 		return "", err
 	}
 	txn.ID = id
-	if err := s.store.RecordTransaction(txn, rosterCap); err != nil {
+	if err := s.store.RecordTransactionWithAuthority(txn, rosterCap, games, now); err != nil {
 		return "", err
 	}
 	if len(txn.Drops) > 0 {
@@ -461,7 +461,7 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID, confirmatio
 	now := s.clock()
 	games := s.schedule()
 	week := lineupCurrentWeekAt(games, now)
-	if playerLocked(games, week, dropPlayer.NFLTeam, now) { // W8
+	if playerLockedForRosterMutation(state, games, week, dropPlayer, now) { // W8
 		return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 	}
 
@@ -482,7 +482,7 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID, confirmatio
 		By:     "manager",
 		At:     now,
 	}
-	if err := s.store.RecordTransaction(txn, CurrentRoster().Total()); err != nil {
+	if err := s.store.RecordTransactionWithAuthority(txn, CurrentRoster().Total(), games, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s dropped.", dropPlayer.Name), nil
@@ -534,7 +534,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 		if !ok || owner[dropID] != teamID { // W7
 			return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
 		}
-		if playerLocked(games, week, dropPlayer.NFLTeam, now) { // W8
+		if playerLockedForRosterMutation(state, games, week, dropPlayer, now) { // W8
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		claim.DropID = dropID
@@ -570,7 +570,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 		return "", err
 	}
 	claim.ID = id
-	if err := s.store.FileClaim(claim); err != nil {
+	if err := s.store.FileClaimWithAuthority(claim, games, pool.byID, now); err != nil {
 		return "", err
 	}
 	if claim.DropID != "" {
