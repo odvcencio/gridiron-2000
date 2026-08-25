@@ -22,7 +22,19 @@ func Page() Node {
 				<strong class="mono">{data.veto_mode}</strong>
 				<div class="draft-clock-meta">
 					<a href="/activity" data-gosx-link>Transaction feed →</a>
-					<a href="/team" data-gosx-link>Team terminal →</a>
+					<If cond={data.can_edit}>
+						<a href="/team" data-gosx-link>Team terminal →</a>
+					</If>
+					<If cond={data.can_edit == false}>
+						<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+							<a href={data.public_entry.action_href} data-gosx-link>
+								{data.public_entry.action_label}
+							</a>
+						</If>
+					</If>
+					<If cond={data.public_entry.is_commissioner}>
+						<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
+					</If>
 				</div>
 			</div>
 		</section>
@@ -35,8 +47,13 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>TEAM SEAT REQUIRED:</strong>
-					claim a franchise before proposing or responding to trades.
+					<strong>{data.public_entry.state_label}:</strong>
+					{data.public_entry.detail}
+					<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+						<a href={data.public_entry.action_href} data-gosx-link>
+							{data.public_entry.action_label}
+						</a>
+					</If>
 				</p>
 			</If>
 			<If cond={data.trade_deadline_passed}>
@@ -61,9 +78,15 @@ func Page() Node {
 			</div>
 			<If cond={data.can_edit == false}>
 				<div class="empty-tape">
-					<strong>CLAIM A TEAM TO OPEN THE TRADE DESK</strong>
-					<p>Your manager account is active, but trades require a franchise seat and roster.</p>
-					<a href="/join" data-gosx-link>Choose your franchise →</a>
+					<strong>{data.public_entry.state_label}</strong>
+					<p>
+						{data.public_entry.detail}
+					</p>
+					<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+						<a href={data.public_entry.action_href} data-gosx-link>
+							{data.public_entry.action_label}
+						</a>
+					</If>
 				</div>
 			</If>
 			<If cond={data.can_compose}>

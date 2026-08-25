@@ -1,10 +1,13 @@
 package league
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -67,6 +70,113 @@ func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	staleData := service.TradesData(staleRequest)
 	if staleData["compose_active"] != false || staleData["compose_counterparty_id"] != "" {
 		t.Fatalf("unmanaged counterparty rendered as active: id=%v active=%v", staleData["compose_counterparty_id"], staleData["compose_active"])
+	}
+}
+
+func TestTradesDataPublicEntryMatrixAndPrivacy(t *testing.T) {
+	tests := []struct {
+		name       string
+		email      string
+		wantState  PublicEntryState
+		wantClaim  bool
+		wantAction string
+		setup      func(*testing.T, *Service, string)
+	}{
+		{name: "anonymous", wantState: PublicEntryAnonymous, wantAction: "/login"},
+		{name: "authenticated pending", email: "trade-pending@example.com", wantState: PublicEntryAuthenticatedPending, wantAction: "/guide#identity"},
+		{
+			name: "admitted seatless open", email: "trade-open@example.com", wantState: PublicEntryAdmittedSeatlessOpen, wantClaim: true, wantAction: "/join",
+			setup: func(t *testing.T, service *Service, email string) {
+				if _, err := service.EnsureMember(email, "Trade Open"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "co-manager pending", email: "trade-pending-co@example.com", wantState: PublicEntryCoManagerPending, wantAction: "/auth/google/start?next=%2Fteam",
+			setup: func(t *testing.T, service *Service, email string) {
+				primary, _, err := service.store.AssignMember("trade-primary@example.com", "Trade Primary")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.InviteCoManager(primary.TeamID, email); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "admitted seatless full", email: "trade-full@example.com", wantState: PublicEntryAdmittedSeatlessFull, wantAction: "/pickem",
+			setup: func(t *testing.T, service *Service, email string) {
+				for _, team := range service.Teams() {
+					if _, _, err := service.store.AssignMember(team.ID+"@trade.example.com", team.Name); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if _, err := service.EnsureMember(email, "Trade Full"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "primary", email: "trade-primary-seat@example.com", wantState: PublicEntryPrimary, wantAction: "/team",
+			setup: func(t *testing.T, service *Service, email string) {
+				if _, _, err := service.store.AssignMember(email, "Trade Primary Seat"); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "co-manager", email: "trade-co@example.com", wantState: PublicEntryCoManager, wantAction: "/team",
+			setup: func(t *testing.T, service *Service, email string) {
+				primary, _, err := service.store.AssignMember("trade-co-primary@example.com", "Trade Co Primary")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := service.store.InviteCoManager(primary.TeamID, email); err != nil {
+					t.Fatal(err)
+				}
+				if _, bound, err := service.BindCoManagerOnSignIn(email, "Trade Co"); err != nil || !bound {
+					t.Fatalf("bind co-manager = bound %v, err %v", bound, err)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := newTestService(t, false)
+			if tt.setup != nil {
+				tt.setup(t, service, tt.email)
+			}
+			check := func(r *http.Request) {
+				data := service.TradesData(r)
+				entry, ok := data["public_entry"].(map[string]any)
+				if !ok {
+					t.Fatalf("public_entry = %#v, want map", data["public_entry"])
+				}
+				if entry["state"] != string(tt.wantState) || entry["can_claim"] != tt.wantClaim || entry["action_href"] != tt.wantAction {
+					t.Fatalf("public entry = %#v, want state=%s claim=%v action=%s", entry, tt.wantState, tt.wantClaim, tt.wantAction)
+				}
+				canonical := service.publicEntryDataForViewerState(r, service.Viewer(r), service.store.Snapshot())
+				if entry["detail"] != canonical["detail"] || entry["action_label"] != canonical["action_label"] {
+					t.Fatalf("trade entry diverged from canonical projection: got %#v want %#v", entry, canonical)
+				}
+				encoded, err := json.Marshal(entry)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, secret := range []string{"trade-pending@example.com", "trade-primary@example.com", "trade-co@example.com"} {
+					if strings.Contains(string(encoded), secret) {
+						t.Fatalf("public_entry leaked private identity %q: %s", secret, encoded)
+					}
+				}
+			}
+			if tt.email == "" {
+				check(httptest.NewRequest(http.MethodGet, "/trades", nil))
+				return
+			}
+			withPublicEntryRequest(t, service, tt.email, check)
+		})
 	}
 }
 

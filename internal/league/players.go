@@ -106,6 +106,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	hasSeat, _ := viewer["has_seat"].(bool)
 	canEdit := hasSeat
 	state := s.store.Snapshot()
+	publicEntry := s.publicEntryDataForViewerState(r, viewer, state)
 	pool := s.pool()
 	scoringValues := s.currentScoringValues()
 	owner := rosterOwner(currentRosters(state))
@@ -296,6 +297,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 
 	return map[string]any{
 		"viewer":               viewer,
+		"public_entry":         publicEntry,
 		"league":               s.leagueMap(),
 		"can_edit":             canEdit,
 		"free_agency_open":     open,

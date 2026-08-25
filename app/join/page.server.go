@@ -16,6 +16,13 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().SignupData(ctx.Request)
+			// SignupData owns the badge picker and legacy seat counters; the
+			// public-entry projection owns whether this viewer may actually
+			// claim. Keep the two boundaries together so stale /join renders
+			// never expose a form that ClaimFantasySeat must reject.
+			if _, ok := data["public_entry"]; !ok {
+				data["public_entry"] = league.Default().PublicEntryData(ctx.Request)
+			}
 			data["has_signup_error"] = false
 			data["signup_error"] = ""
 			data["team_name_value"] = ""

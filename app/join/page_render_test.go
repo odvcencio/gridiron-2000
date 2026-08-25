@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
+	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
@@ -20,8 +22,13 @@ import (
 func renderJoinPage(t *testing.T) string {
 	t.Helper()
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
-	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("DEMO_MODE", "false")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
+	service := league.Default()
+	const email = "join-render@example.com"
+	if _, err := service.EnsureMember(email, "Join Render"); err != nil {
+		t.Fatalf("EnsureMember: %v", err)
+	}
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -35,10 +42,16 @@ func renderJoinPage(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("BuildChecked: %v", err)
 	}
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: "Join Render"}, true
+		}),
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("X-Test-User", email)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	authn.Middleware(handler).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET / (join page) = %d, want 200; body: %s", rec.Code, rec.Body.String())

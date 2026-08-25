@@ -103,7 +103,7 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 	currentEmail := seatlessEmail
 	handler := buildPlayersAuthenticatedHandler(t, &currentEmail)
 	seatless := renderPlayersForUser(t, handler, seatlessEmail)
-	for _, want := range []string{"TEAM SEAT REQUIRED", "pool-row", "FREE AGENT"} {
+	for _, want := range []string{"ADMITTED · FRANCHISE OPEN", "pool-row", "FREE AGENT"} {
 		if !strings.Contains(seatless, want) {
 			t.Fatalf("seatless players page missing %q: %s", want, seatless)
 		}
