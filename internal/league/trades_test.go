@@ -7,11 +7,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"gridiron-2000/internal/notify"
+	"m31labs.dev/gosx/auth"
 )
 
 // ---------------------------------------------------------------------
@@ -414,6 +416,36 @@ func TestValidateTradeAssetsExactMessages(t *testing.T) {
 	}
 }
 
+func TestValidateTradeAssetsRejectsUnresolvedLockedAsset(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	state := tradeAssetsFixtureState()
+	pool := tradeAssetsFixturePool()
+	delete(pool, "t1-locked")
+	offer := TradeOffer{
+		FromTeamID: "team-1",
+		ToTeamID:   "team-2",
+		Give:       []string{"t1-locked"},
+		Get:        []string{"t2-a"},
+	}
+
+	err := validateTradeAssets(state, DefaultConfig(), tradeAssetsFixtureGames(now), pool, now, offer, 1, 3)
+	want := "player data for t1-locked is unavailable; refresh before trading"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+}
+
+func TestTransactionPlayersFromIDsRejectsMissingAsset(t *testing.T) {
+	players, err := transactionPlayersFromIDs(tradeAssetsFixturePool(), []string{"t1-a", "missing"})
+	want := "player data for missing is unavailable; trade execution is blocked"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if players != nil {
+		t.Fatalf("players = %#v, want nil after an unresolved asset", players)
+	}
+}
+
 // ---------------------------------------------------------------------
 // Zones/Limits at trade execution (roster-ops SK spec)
 // ---------------------------------------------------------------------
@@ -551,6 +583,29 @@ func newTradesTestService(t *testing.T, skipManagerTeamID string) (svc *Service,
 		}
 	}
 	return svc, now
+}
+
+func tradeActionAs(t *testing.T, email string, action func(*http.Request) error) error {
+	t.Helper()
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: email}, true
+		}),
+	})
+	var actionErr error
+	handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actionErr = action(r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/trades", nil))
+	return actionErr
+}
+
+func setUnavailableTradePool(svc *Service, version int64) {
+	svc.demoMode = false
+	svc.SetPlayerSource(func() ([]Player, int64, string) {
+		return nil, version, "unavailable"
+	})
 }
 
 // ---------------------------------------------------------------------
@@ -842,6 +897,198 @@ func TestTradeTickExecutesAfterReviewWindowAndFiresN16(t *testing.T) {
 		if _, sent := state.SentLog[key]; !sent {
 			t.Fatalf("N16 was not recorded for %s under key %q", email, key)
 		}
+	}
+}
+
+func TestTradeTickUnavailablePoolDefersAndExecutesOnceAfterRecovery(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		recoveryVersion int64
+	}{
+		{name: "same source version", recoveryVersion: 1},
+		{name: "different source version", recoveryVersion: 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, now := newTradesTestService(t, "")
+			svc.cfg.Trades.Veto = "commissioner"
+			svc.cfg.Trades.ReviewHours = 24
+			offerID := proposeFixtureOffer(t, svc)
+			request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+			if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+				t.Fatal(err)
+			}
+
+			healthyPlayers := tradesFixturePoolSlice()
+			available := false
+			version := int64(1)
+			svc.demoMode = false
+			svc.SetPlayerSource(func() ([]Player, int64, string) {
+				if !available {
+					return nil, version, "unavailable"
+				}
+				return healthyPlayers, version, "live"
+			})
+
+			execAt := now.Add(25 * time.Hour)
+			beforeOutageTick := svc.store.Snapshot()
+			svc.evalTradeTick(execAt)
+			afterOutageTick := svc.store.Snapshot()
+			if !reflect.DeepEqual(afterOutageTick, beforeOutageTick) {
+				t.Fatalf("unavailable tick mutated persisted state:\nbefore: %#v\nafter:  %#v", beforeOutageTick, afterOutageTick)
+			}
+			offer, ok := findTradeOffer(afterOutageTick.TradeOffers, offerID)
+			if !ok || offer.Status != TradeStatusAccepted || !offer.AcceptedAt.Equal(now.UTC()) {
+				t.Fatalf("deferred offer = %+v, want the original accepted offer", offer)
+			}
+
+			available = true
+			version = tt.recoveryVersion
+			svc.evalTradeTick(execAt.Add(time.Minute))
+			recovered := svc.store.Snapshot()
+			offer, ok = findTradeOffer(recovered.TradeOffers, offerID)
+			if !ok || offer.Status != TradeStatusExecuted {
+				t.Fatalf("recovered offer = %+v, want executed", offer)
+			}
+			if len(recovered.Transactions) != 1 {
+				t.Fatalf("transactions after recovery = %+v, want exactly one", recovered.Transactions)
+			}
+			txn := recovered.Transactions[0]
+			if txn.Type != "trade" || txn.OfferID != offerID || len(txn.Adds) != 1 || txn.Adds[0].PlayerID != "t2-a" || len(txn.Drops) != 1 || txn.Drops[0].PlayerID != "t1-a" {
+				t.Fatalf("recovered transaction = %+v, want the complete two-sided trade", txn)
+			}
+			rosters := currentRosters(recovered)
+			if !containsID(rosters["team-1"], "t2-a") || containsID(rosters["team-1"], "t1-a") ||
+				!containsID(rosters["team-2"], "t1-a") || containsID(rosters["team-2"], "t2-a") {
+				t.Fatalf("rosters after recovery = %#v, want the assets swapped once", rosters)
+			}
+
+			svc.evalTradeTick(execAt.Add(2 * time.Minute))
+			if got := len(svc.store.Snapshot().Transactions); got != 1 {
+				t.Fatalf("transactions after a repeated tick = %d, want exactly one", got)
+			}
+		})
+	}
+}
+
+func TestTradeMutationEntryPointsRejectUnavailablePool(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*testing.T, *Service) string
+		email string
+		act   func(*Service, *http.Request, string) error
+	}{
+		{
+			name:  "propose",
+			email: "team-1@example.com",
+			act: func(svc *Service, r *http.Request, _ string) error {
+				_, err := svc.ProposeTrade(r, "team-1", "team-2", []string{"t1-a"}, []string{"t2-a"}, nil, "")
+				return err
+			},
+		},
+		{
+			name: "counter",
+			setup: func(t *testing.T, svc *Service) string {
+				return proposeFixtureOffer(t, svc)
+			},
+			email: "team-2@example.com",
+			act: func(svc *Service, r *http.Request, offerID string) error {
+				_, err := svc.CounterTrade(r, "team-2", offerID, []string{"t2-b"}, []string{"t1-b"}, nil, "")
+				return err
+			},
+		},
+		{
+			name: "accept",
+			setup: func(t *testing.T, svc *Service) string {
+				return proposeFixtureOffer(t, svc)
+			},
+			email: "team-2@example.com",
+			act: func(svc *Service, r *http.Request, offerID string) error {
+				_, err := svc.AcceptTrade(r, "team-2", offerID, tradeAcceptConfirmation)
+				return err
+			},
+		},
+		{
+			name: "commissioner approve",
+			setup: func(t *testing.T, svc *Service) string {
+				offerID := proposeFixtureOffer(t, svc)
+				request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+				if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+					t.Fatal(err)
+				}
+				return offerID
+			},
+			email: "commissioner@example.com",
+			act: func(svc *Service, r *http.Request, offerID string) error {
+				_, err := svc.ApproveTrade(r, offerID, tradeApproveConfirmation)
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, _ := newTradesTestService(t, "")
+			offerID := ""
+			if tt.setup != nil {
+				offerID = tt.setup(t, svc)
+			}
+			setUnavailableTradePool(svc, 7)
+			t.Setenv("COMMISSIONER_EMAILS", "commissioner@example.com")
+			before := svc.store.Snapshot()
+			err := tradeActionAs(t, tt.email, func(r *http.Request) error {
+				return tt.act(svc, r, offerID)
+			})
+			if err == nil || err.Error() != playerDataUnavailableMessage {
+				t.Fatalf("err = %v, want %q", err, playerDataUnavailableMessage)
+			}
+			after := svc.store.Snapshot()
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("outage mutation changed persisted state:\nbefore: %#v\nafter:  %#v", before, after)
+			}
+		})
+	}
+}
+
+func TestTradeExecutionRejectsUnknownAssetWithoutEmptyTransaction(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	svc.cfg.Trades.Veto = "commissioner"
+	svc.cfg.Trades.ReviewHours = 24
+	offerID := proposeFixtureOffer(t, svc)
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	before := svc.store.Snapshot()
+	beforeRosters := currentRosters(before)
+	pool := tradeAssetsFixturePool()
+	delete(pool, "t1-a")
+
+	txn, err := svc.store.ExecuteTradeOffer(
+		offerID,
+		svc.cfg,
+		tradeAssetsFixtureGames(now),
+		pool,
+		now.Add(25*time.Hour),
+		1,
+		3,
+	)
+	want := "player data for t1-a is unavailable; refresh before trading"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if txn.ID != "" {
+		t.Fatalf("transaction = %+v, want zero value", txn)
+	}
+	after := svc.store.Snapshot()
+	offer, ok := findTradeOffer(after.TradeOffers, offerID)
+	if !ok || offer.Status != TradeStatusFailed || offer.FailReason != want {
+		t.Fatalf("failed offer = %+v, want fail-closed unresolved-asset reason", offer)
+	}
+	if len(after.Transactions) != len(before.Transactions) {
+		t.Fatalf("transactions grew from %d to %d on unresolved asset", len(before.Transactions), len(after.Transactions))
+	}
+	if !reflect.DeepEqual(currentRosters(after), beforeRosters) {
+		t.Fatalf("rosters changed on unresolved asset:\nbefore: %#v\nafter:  %#v", beforeRosters, currentRosters(after))
 	}
 }
 
@@ -1218,6 +1465,13 @@ func seedTradeOwnership(t *testing.T, store *Store) {
 	}
 }
 
+func storeTradePool() map[string]Player {
+	return map[string]Player{
+		"p-1": {ID: "p-1", Name: "Player 1", Position: "RB"},
+		"p-2": {ID: "p-2", Name: "Player 2", Position: "RB"},
+	}
+}
+
 func TestTradeOffersDecodeFromOldStateFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	oldJSON := `{
@@ -1244,7 +1498,7 @@ func TestTradeOffersDecodeFromOldStateFile(t *testing.T) {
 		ID: "trd-1", FromTeamID: "team-1", ToTeamID: "team-2",
 		Give: []string{"p-1"}, Get: []string{"p-2"}, Status: TradeStatusOpen, CreatedAt: time.Now(),
 	}
-	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, nil, 0, 100); err != nil {
+	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, storeTradePool(), 0, 100); err != nil {
 		t.Fatalf("a trade proposed after loading an old file must succeed: %v", err)
 	}
 }
@@ -1256,7 +1510,7 @@ func TestCloneStateDeepCopiesTradeOffers(t *testing.T) {
 		ID: "trd-1", FromTeamID: "team-1", ToTeamID: "team-2",
 		Give: []string{"p-1"}, Get: []string{"p-2"}, Status: TradeStatusOpen, CreatedAt: time.Now(),
 	}
-	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, nil, 0, 100); err != nil {
+	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, storeTradePool(), 0, 100); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := store.Snapshot()
@@ -1279,7 +1533,7 @@ func TestResetDraftClearsTradeOffersAndPrunesSentLog(t *testing.T) {
 		ID: "trd-1", FromTeamID: "team-1", ToTeamID: "team-2",
 		Give: []string{"p-1"}, Get: []string{"p-2"}, Status: TradeStatusOpen, CreatedAt: time.Now(),
 	}
-	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, nil, 0, 100); err != nil {
+	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, storeTradePool(), 0, 100); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -1312,7 +1566,7 @@ func TestResetLeagueClearsTradeOffers(t *testing.T) {
 		ID: "trd-1", FromTeamID: "team-1", ToTeamID: "team-2",
 		Give: []string{"p-1"}, Get: []string{"p-2"}, Status: TradeStatusOpen, CreatedAt: time.Now(),
 	}
-	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, nil, 0, 100); err != nil {
+	if err := store.ProposeTradeOffer(offer, DefaultConfig(), nil, storeTradePool(), 0, 100); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.ResetLeague(); err != nil {

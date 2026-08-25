@@ -167,6 +167,12 @@ func (s *Service) evalTradeTick(now time.Time) {
 			if now.Before(reviewDeadline) {
 				continue
 			}
+			if playerPoolIsUnavailable(pool) {
+				// The offer remains accepted and due. Recovery retries this same
+				// transition; an outage is not a terminal failed trade.
+				log.Printf("roster ops: ExecuteTradeOffer(%s) deferred because player data is unavailable", offer.ID)
+				continue
+			}
 			txn, err := s.store.ExecuteTradeOffer(offer.ID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
 			if err != nil {
 				s.notifyTradeFailed(offer)

@@ -3493,6 +3493,12 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		return Transaction{}, fmt.Errorf("this trade is no longer under review")
 	}
 	offer := s.state.TradeOffers[index]
+	if len(poolByID) == 0 {
+		// Source outages are retryable. Preserve the accepted offer and its
+		// original review deadline instead of recording a terminal failure
+		// against an empty lookup map.
+		return Transaction{}, fmt.Errorf("%s", playerDataUnavailableMessage)
+	}
 	if err := validateTradeAssetsForExecution(s.state, cfg, games, poolByID, now, offer, starterCount, rosterCap); err != nil {
 		s.state.TradeOffers[index].Status = TradeStatusFailed
 		s.state.TradeOffers[index].FailReason = err.Error()
@@ -3507,6 +3513,14 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 	if err != nil {
 		return Transaction{}, err
 	}
+	adds, err := transactionPlayersFromIDs(poolByID, offer.Get)
+	if err != nil {
+		return Transaction{}, err
+	}
+	drops, err := transactionPlayersFromIDs(poolByID, offer.Give)
+	if err != nil {
+		return Transaction{}, err
+	}
 	txn := Transaction{
 		ID:          id,
 		Season:      cfg.Season,
@@ -3514,8 +3528,8 @@ func (s *Store) ExecuteTradeOffer(offerID string, cfg Config, games []GameInfo, 
 		Type:        "trade",
 		TeamID:      offer.FromTeamID,
 		OtherTeamID: offer.ToTeamID,
-		Adds:        transactionPlayersFromIDs(poolByID, offer.Get),
-		Drops:       transactionPlayersFromIDs(poolByID, offer.Give),
+		Adds:        adds,
+		Drops:       drops,
 		OfferID:     offer.ID,
 		By:          "manager",
 		At:          now.UTC(),
