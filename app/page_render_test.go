@@ -139,7 +139,7 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 		t.Run(fixture.state, func(t *testing.T) {
 			raw := []map[string]any{{
 				"id": "matchup-1", "state": fixture.state,
-				"show_live_indicator": fixture.show, "status": "Status", "clock": "Clock",
+				"show_live_indicator": fixture.show, "live_indicator": map[bool]string{true: "live", false: ""}[fixture.show], "status": "Status", "clock": "Clock",
 				"away": map[string]any{"id": "team-1", "name": "Away", "manager": "A", "score": "0.0", "tone": "cyan", "abbreviation": "AWY"},
 				"home": map[string]any{"id": "team-2", "name": "Home", "manager": "H", "score": "0.0", "tone": "red", "abbreviation": "HME"},
 			}}
@@ -157,9 +157,11 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			hasDot := strings.Contains(html, `class="live-dot"`)
-			if hasDot != fixture.show {
-				t.Fatalf("state %s live-dot presence = %v, want %v: %s", fixture.state, hasDot, fixture.show, html)
+			if !strings.Contains(html, `data-gosx-live-bind="matchupIndicator.matchup-1"`) {
+				t.Fatalf("state %s omitted matchup live indicator binding: %s", fixture.state, html)
+			}
+			if fixture.show && !strings.Contains(html, ">live</span>") {
+				t.Fatalf("state %s omitted initial live indicator token: %s", fixture.state, html)
 			}
 		})
 	}
@@ -168,8 +170,23 @@ func TestHomepageMatchupPreviewOnlyShowsLiveIndicatorsInProgress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(source), `<If cond={data.live.show_live_indicator}>`) {
-		t.Fatal("homepage matchup preview masthead live dot is not gated by live state")
+	for _, want := range []string{
+		`data-gosx-live-src="/api/live/week"`,
+		`data-gosx-live-interval={data.live_interval}`,
+		`data-gosx-live-bind="liveStatus"`,
+		`data-gosx-live-bind="liveIndicator"`,
+		`data-gosx-live-bind={"scores." + props.Away.ID}`,
+		`data-gosx-live-bind={"scores." + props.Home.ID}`,
+		`data-gosx-live-bind={"matchupStatus." + props.ID}`,
+		`data-gosx-live-bind={"matchupClock." + props.ID}`,
+		`data-gosx-live-bind="refreshLabel"`,
+	} {
+		if !strings.Contains(string(source), want) {
+			t.Errorf("homepage omitted targeted live binding %q", want)
+		}
+	}
+	if strings.Contains(string(source), "updates every 60 seconds") {
+		t.Fatal("homepage still promises a fixed live refresh without binding it to live state")
 	}
 }
 

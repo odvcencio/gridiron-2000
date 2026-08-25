@@ -1510,12 +1510,15 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 	standings := s.dashboardStandingState(state)
 	standingsTitle, standingsNote, standingsEmptyTitle := s.dashboardStandingsCopy(state, standings)
 	pickemHome := s.pickemHomeSummaryFromSnapshot(r, state, now)
+	livePoll := live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	return map[string]any{
 		"viewer":                viewer,
 		"public_entry":          s.publicEntryDataForViewerState(r, viewer, state),
 		"has_seat":              hasSeat,
 		"draft":                 s.draftSummary(now),
 		"live":                  s.liveMap(live),
+		"live_interval":         map[bool]string{true: "1m", false: ""}[livePoll],
+		"live_poll":             livePoll,
 		"featured":              featured,
 		"standings":             s.standingsMaps(state),
 		"divisions":             s.divisionMaps(state),
@@ -2533,10 +2536,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	}
 	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
-	liveStatus := presentation["sync_label"] + " · Checked " + checked + " · Ledger " + statsUpdated
-	if live.Warning != "" {
-		liveStatus += " · BACKUP SCORES"
-	}
+	liveStatus := s.liveStatusText(live, presentation)
 	return map[string]any{
 		"ok":                live.OK,
 		"source":            live.Source,
@@ -3318,6 +3318,7 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		checkedAt = live.LastUpdated
 	}
 	statsUpdatedAt := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
+	liveStatus := s.liveStatusText(live, presentation)
 	return map[string]any{
 		"source":              live.Source,
 		"source_label":        live.SourceLabel,
@@ -3328,6 +3329,7 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"last_updated":        statsUpdatedAt,
 		"checked_at":          s.formatMatchupUpdateOrUnavailable(checkedAt),
 		"stats_updated_at":    statsUpdatedAt,
+		"live_status":         liveStatus,
 		"checked_label":       "Browser checked",
 		"stats_updated_label": "Stats ledger updated",
 		"warning":             live.Warning,
@@ -3340,6 +3342,20 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"show_live_indicator": live.State == MatchupStateInProgress,
 		"live_indicator":      liveIndicatorToken(live.State),
 	}
+}
+
+func (s *Service) liveStatusText(live LiveSnapshot, presentation map[string]string) string {
+	checkedAt := live.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = live.LastUpdated
+	}
+	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
+	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
+	status := presentation["sync_label"] + " · Checked " + checked + " · Ledger " + statsUpdated
+	if live.Warning != "" {
+		status += " · BACKUP SCORES"
+	}
+	return status
 }
 
 // liveIndicatorToken gives a text-only live binding a stable way to toggle
