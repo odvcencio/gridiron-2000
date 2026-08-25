@@ -1845,9 +1845,28 @@ func (s *Service) nextManagerMatchup(state PersistedState, viewer map[string]any
 // carry-forward/auto-fill resolution. Invalid, closed, and unpublished
 // weeks normalize back to the same current week used for lock enforcement.
 func (s *Service) TeamData(r *http.Request) map[string]any {
-	viewer := s.Viewer(r)
+	return s.teamData(r, false)
+}
+
+// TeamDataReadOnly assembles the same Team view without the membership
+// provisioning path in Viewer. Fragment polling is observation only: an
+// authenticated but unseated request must not create a Member or otherwise
+// mutate league state merely by asking for current lineup HTML.
+func (s *Service) TeamDataReadOnly(r *http.Request) map[string]any {
+	return s.teamData(r, true)
+}
+
+func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
+	var viewer map[string]any
+	var state PersistedState
+	if readOnly {
+		state = s.store.Snapshot()
+		viewer = s.viewerReadOnly(r, state)
+	} else {
+		viewer = s.Viewer(r)
+		state = s.store.Snapshot()
+	}
 	teamID, _ := viewer["team_id"].(string)
-	state := s.store.Snapshot()
 	lineupTarget := s.lineupViewTargetForRequest(r, state, teamID)
 	identityAvailable, identityError := s.identityView()
 	// A seatless member (no team_id) gets the honest "no franchise" state

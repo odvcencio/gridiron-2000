@@ -22,7 +22,7 @@ func TestIdentityMutationsReturnToExpandedEditor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(serverBytes), `badgeGridProps(badgeGrid, session.Token(ctx.Request), teamID, "/team?identity=edit#team-identity")`) {
+	if !strings.Contains(string(serverBytes), `badgeGridProps(badgeGrid, session.Token(request), teamID, "/team?identity=edit#team-identity")`) {
 		t.Fatal("badge picker claims must return to the expanded identity editor")
 	}
 }

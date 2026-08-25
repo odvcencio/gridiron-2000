@@ -379,470 +379,494 @@ func Page() Node {
 				</div>
 			</details>
 			</If>
-			<div class="team-command-strip">
-			<div>
-				<span>Projected</span>
-				<strong class="mono">{data.projected}</strong>
-			</div>
-			<div>
-				<span>Starters</span>
-				<strong class="mono">
-					{data.starters_filled}
-					/
-					{data.starters_total}
-				</strong>
-			</div>
-			<div>
-				<span>Roster</span>
-				<strong class="mono">{data.team_terminal_roster_count} / {data.team_terminal_roster_capacity}</strong>
-			</div>
-			<div>
-				<span>Division</span>
-				<strong class="mono">{data.team.division}</strong>
-			</div>
-			<div>
-				<span>League</span>
-				<strong class="mono">{data.league_mode}</strong>
-			</div>
-			<If cond={data.lineup_intervention == false}>
-			<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
-			</If>
+		<div
+			class="team-lineup-sync"
+			data-gosx-region
+			data-gosx-region-url={data.lineup_fragment_url}
+			data-gosx-region-interval={data.lineup_fragment_interval}
+			data-gosx-region-signal="$team.lineup.refresh"
+			aria-label="Authoritative team lineup"
+		>
+			<TeamLineupRegion></TeamLineupRegion>
 		</div>
-		<If cond={data.predraft_visible && data.lineup_intervention == false}>
-			<section class="predraft-progress" aria-labelledby="predraft-progress-title">
-				<header class="predraft-progress__header">
-					<div>
-						<span class="section-index">PRE-DRAFT // YOUR SETUP</span>
-						<h2 id="predraft-progress-title">Get this franchise draft-ready</h2>
-					</div>
-					<p>The scheduled time is the room’s meeting point—not an automatic start. The commissioner intentionally starts the draft after managers check in.</p>
-				</header>
-				<div class="checklist predraft-progress__list">
-					<div class="checklist-item">
-						<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
-						<div class="checklist-item__text">
-							<strong>Claim and personalize your franchise</strong>
-							<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
-						</div>
-						<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
-					</div>
-					<div class="checklist-item">
-						<If cond={data.predraft_has_board}>
-							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
-						</If>
-						<If cond={data.predraft_has_board == false}>
-							<span class="checklist-mark mono" aria-hidden="true">02</span>
-						</If>
-						<div class="checklist-item__text">
-							<strong>Rank your draft targets</strong>
-							<If cond={data.predraft_has_board}>
-								<small>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</small>
-							</If>
-							<If cond={data.predraft_has_board == false}>
-								<small>No players ranked yet. Add targets in the order you would want them drafted.</small>
-							</If>
-						</div>
-						<a href="/board" data-gosx-link class="board-button">Open board →</a>
-					</div>
-					<div class="checklist-item">
-						<If cond={data.predraft_ready}>
-							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
-						</If>
-						<If cond={data.predraft_ready == false}>
-							<span class="checklist-mark mono" aria-hidden="true">03</span>
-						</If>
-						<div class="checklist-item__text">
-							<strong>Confirm your room status</strong>
-							<If cond={data.predraft_ready}>
-								<small>You are marked ready. You can change that status any time before the commissioner starts.</small>
-							</If>
-							<If cond={data.predraft_ready == false}>
-								<small>You are not marked ready. Check the room details, then tell the commissioner you are present.</small>
-							</If>
-						</div>
-						<a href="/draft#ready-toggle" data-gosx-link class="board-button">Open draft room →</a>
-					</div>
-				</div>
-			</section>
+		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+			Lineup state refreshes automatically within 4 seconds after a manager saves.
+			If a refresh fails, use
+			<button type="button" class="board-button" data-gosx-set="$team.lineup.refresh" data-gosx-set-value="manual">Refresh lineup now</button>.
+		</p>
 		</If>
-		<div class="team-layout">
-			<section class="roster-panel" id="lineup">
-				<header class="section-heading section-heading--split">
-					<div>
-						<span class="section-index">01 // STARTING LINEUP</span>
-						<h2>
-							Week
-							{data.week}
-							lineup
-						</h2>
-					</div>
-					<span class="lineup-lock">
-						<span class="signal-mark" aria-hidden="true"></span>
-						<b class="mono">{data.starters_filled}</b>
+	</main>
+}
+
+// TeamLineupRegion is the smallest authoritative Team fragment affected by
+// lineup mutations. It intentionally uses the page bindings (data, csrf,
+// actionPath) so the initial page and /team/fragment share the exact same
+// server-rendered controls and native-form fallback.
+func TeamLineupRegion() Node {
+	return <div class="team-lineup-region">
+				<div class="team-command-strip">
+				<div>
+					<span>Projected</span>
+					<strong class="mono">{data.projected}</strong>
+				</div>
+				<div>
+					<span>Starters</span>
+					<strong class="mono">
+						{data.starters_filled}
 						/
 						{data.starters_total}
-						STARTERS
-					</span>
-				</header>
-				<If cond={data.has_week_notice}>
-					<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
+					</strong>
+				</div>
+				<div>
+					<span>Roster</span>
+					<strong class="mono">{data.team_terminal_roster_count} / {data.team_terminal_roster_capacity}</strong>
+				</div>
+				<div>
+					<span>Division</span>
+					<strong class="mono">{data.team.division}</strong>
+				</div>
+				<div>
+					<span>League</span>
+					<strong class="mono">{data.league_mode}</strong>
+				</div>
+				<If cond={data.lineup_intervention == false}>
+				<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
 				</If>
-				<section class="lineup-deadline" aria-live="polite" aria-label="Lineup lock timing">
-					<div class="lineup-deadline__heading">
-						<span class="section-index">WEEK {data.lineup_deadline.week} // LOCK WINDOW</span>
-						<strong>{data.lineup_deadline.headline}</strong>
+			</div>
+			<If cond={data.predraft_visible && data.lineup_intervention == false}>
+				<section class="predraft-progress" aria-labelledby="predraft-progress-title">
+					<header class="predraft-progress__header">
+						<div>
+							<span class="section-index">PRE-DRAFT // YOUR SETUP</span>
+							<h2 id="predraft-progress-title">Get this franchise draft-ready</h2>
+						</div>
+						<p>The scheduled time is the room’s meeting point—not an automatic start. The commissioner intentionally starts the draft after managers check in.</p>
+					</header>
+					<div class="checklist predraft-progress__list">
+						<div class="checklist-item">
+							<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+							<div class="checklist-item__text">
+								<strong>Claim and personalize your franchise</strong>
+								<small>Your seat is secured. Team name, image, badge, and co-manager controls live in Customize your team.</small>
+							</div>
+							<a href="/team?identity=edit#team-identity" data-gosx-link class="board-button">Customize team →</a>
+						</div>
+						<div class="checklist-item">
+							<If cond={data.predraft_has_board}>
+								<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+							</If>
+							<If cond={data.predraft_has_board == false}>
+								<span class="checklist-mark mono" aria-hidden="true">02</span>
+							</If>
+							<div class="checklist-item__text">
+								<strong>Rank your draft targets</strong>
+								<If cond={data.predraft_has_board}>
+									<small>{data.predraft_board_count} players ranked. Keep refining—the board drives your draft-room shortlist and autopick order.</small>
+								</If>
+								<If cond={data.predraft_has_board == false}>
+									<small>No players ranked yet. Add targets in the order you would want them drafted.</small>
+								</If>
+							</div>
+							<a href="/board" data-gosx-link class="board-button">Open board →</a>
+						</div>
+						<div class="checklist-item">
+							<If cond={data.predraft_ready}>
+								<span class="checklist-mark checklist-mark--complete mono" aria-hidden="true">✓</span>
+							</If>
+							<If cond={data.predraft_ready == false}>
+								<span class="checklist-mark mono" aria-hidden="true">03</span>
+							</If>
+							<div class="checklist-item__text">
+								<strong>Confirm your room status</strong>
+								<If cond={data.predraft_ready}>
+									<small>You are marked ready. You can change that status any time before the commissioner starts.</small>
+								</If>
+								<If cond={data.predraft_ready == false}>
+									<small>You are not marked ready. Check the room details, then tell the commissioner you are present.</small>
+								</If>
+							</div>
+							<a href="/draft#ready-toggle" data-gosx-link class="board-button">Open draft room →</a>
+						</div>
 					</div>
-					<If cond={data.lineup_deadline.has_deadline}>
-						<p class="lineup-deadline__exact">
-							<span class="mono">NEXT PLAYER LOCK</span>
-							<b>{data.lineup_deadline.exact}</b>
-						</p>
-						<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
-					</If>
-					<p>{data.lineup_deadline.detail}</p>
-					<If cond={data.lineup_deadline.is_no_schedule}>
-						<p class="mono">Do not treat an unavailable timestamp as an unlocked deadline.</p>
-					</If>
-					<If cond={data.lineup_deadline.is_degraded}>
-						<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
-					</If>
 				</section>
-				<div class="roster-shape" aria-label="League roster shape">
-					<Each of={data.roster_shape} as="slot">
-						<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
-					</Each>
-					<p class="roster-shape__summary mono">{data.shape_summary}</p>
-				</div>
-				<div class="lineup-toolbar">
-					<form method="get" action="/team" class="lineup-week-form">
-						<If cond={data.lineup_intervention}>
-							<input type="hidden" name="team" value={data.lineup_target_id}></input>
-						</If>
-						<select name="week" aria-label="Select week">
-							<Each of={data.week_options} as="wk">
-								<option value={wk.value} selected={wk.selected}>{wk.label}</option>
-							</Each>
-						</select>
-						<button class="board-button" type="submit">Go</button>
-					</form>
-					<If cond={data.team_terminal_roster_complete}>
-						<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name="team_id" value={data.team.id}></input>
-							<input type="hidden" name="week" value={data.week}></input>
-							<button class="button button--compact" type="submit">Set best lineup</button>
-						</form>
-						<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster and Big Board order. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
+			</If>
+			<div class="team-layout">
+				<section class="roster-panel" id="lineup">
+					<header class="section-heading section-heading--split">
+						<div>
+							<span class="section-index">01 // STARTING LINEUP</span>
+							<h2>
+								Week
+								{data.week}
+								lineup
+							</h2>
+						</div>
+						<span class="lineup-lock">
+							<span class="signal-mark" aria-hidden="true"></span>
+							<b class="mono">{data.starters_filled}</b>
+							/
+							{data.starters_total}
+							STARTERS
+						</span>
+					</header>
+					<If cond={data.has_week_notice}>
+						<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
 					</If>
-				</div>
-				<If cond={data.team_terminal_pre_draft && data.lineup_intervention == false}>
-					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
-						<strong>{data.team_terminal_label}</strong>
-						<p>{data.team_terminal_detail}</p>
-						<div class="hero-actions">
-							<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
-							<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+					<section class="lineup-deadline" aria-live="polite" aria-label="Lineup lock timing">
+						<div class="lineup-deadline__heading">
+							<span class="section-index">WEEK {data.lineup_deadline.week} // LOCK WINDOW</span>
+							<strong>{data.lineup_deadline.headline}</strong>
 						</div>
+						<If cond={data.lineup_deadline.has_deadline}>
+							<p class="lineup-deadline__exact">
+								<span class="mono">NEXT PLAYER LOCK</span>
+								<b>{data.lineup_deadline.exact}</b>
+							</p>
+							<p class="lineup-deadline__relative mono">{data.lineup_deadline.relative} · {data.lineup_deadline.timezone}</p>
+						</If>
+						<p>{data.lineup_deadline.detail}</p>
+						<If cond={data.lineup_deadline.is_no_schedule}>
+							<p class="mono">Do not treat an unavailable timestamp as an unlocked deadline.</p>
+						</If>
+						<If cond={data.lineup_deadline.is_degraded}>
+							<p class="mono">Schedule refresh required before this lock window is authoritative.</p>
+						</If>
+					</section>
+					<div class="roster-shape" aria-label="League roster shape">
+						<Each of={data.roster_shape} as="slot">
+							<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
+						</Each>
+						<p class="roster-shape__summary mono">{data.shape_summary}</p>
 					</div>
-				</If>
-				<If cond={data.lineup_intervention && data.team_terminal_pre_draft}>
-					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
-						<strong>ROSTER PREVIEW · DRAFT PENDING</strong>
-						<p>This claimed franchise has no players yet. Starting slots remain empty until the commissioner starts the draft and picks are recorded.</p>
+					<div class="lineup-toolbar">
+						<form method="get" action="/team" class="lineup-week-form">
+							<If cond={data.lineup_intervention}>
+								<input type="hidden" name="team" value={data.lineup_target_id}></input>
+							</If>
+							<select name="week" aria-label="Select week">
+								<Each of={data.week_options} as="wk">
+									<option value={wk.value} selected={wk.selected}>{wk.label}</option>
+								</Each>
+							</select>
+							<button class="board-button" type="submit">Go</button>
+						</form>
+						<If cond={data.team_terminal_roster_complete}>
+							<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.team.id}></input>
+								<input type="hidden" name="week" value={data.week}></input>
+								<button class="button button--compact" type="submit">Set best lineup</button>
+							</form>
+							<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster and Big Board order. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
+						</If>
 					</div>
-				</If>
-				<If cond={data.team_terminal_draft_live && data.lineup_intervention == false}>
-					<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--live">
-						<strong>{data.team_terminal_label}</strong>
-						<p>{data.team_terminal_detail}</p>
-						<div class="hero-actions">
-							<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
-							<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+					<If cond={data.team_terminal_pre_draft && data.lineup_intervention == false}>
+						<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
+							<strong>{data.team_terminal_label}</strong>
+							<p>{data.team_terminal_detail}</p>
+							<div class="hero-actions">
+								<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
+								<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+							</div>
 						</div>
-					</div>
-				</If>
-				<div class="lineup-slot-list">
-						<Each of={data.starters} as="slot">
-							<div class="lineup-slot">
-								<div class="lineup-slot__id mono">{slot.slot_id}</div>
-								<If cond={slot.has_player}>
-									<details class="player-identity stat-tip">
-										<summary class="stat-tip__summary">
-										<If cond={slot.has_headshot}>
-											<img class="player-avatar player-avatar--photo" src={slot.headshot} alt="" loading="lazy" />
-										</If>
-										<If cond={slot.has_headshot == false}>
-											<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
-										</If>
-										<span class="player-identity__text">
-											<strong>{slot.name}</strong>
-											<small>
-												{slot.position}
-												·
-												{slot.nfl_team}
-												<If cond={slot.has_opponent}>
-													·
-													{slot.opponent}
-													<If cond={slot.has_matchup}>
-														·
-														<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
-													</If>
-												</If>
-											</small>
-										</span>
-										</summary>
-										<div class="stat-tip__panel">
-											<div class="stat-tip__head">
+					</If>
+					<If cond={data.lineup_intervention && data.team_terminal_pre_draft}>
+						<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
+							<strong>ROSTER PREVIEW · DRAFT PENDING</strong>
+							<p>This claimed franchise has no players yet. Starting slots remain empty until the commissioner starts the draft and picks are recorded.</p>
+						</div>
+					</If>
+					<If cond={data.team_terminal_draft_live && data.lineup_intervention == false}>
+						<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--live">
+							<strong>{data.team_terminal_label}</strong>
+							<p>{data.team_terminal_detail}</p>
+							<div class="hero-actions">
+								<a href={data.team_terminal_primary_href} data-gosx-link class="button button--primary">{data.team_terminal_primary_label} →</a>
+								<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
+							</div>
+						</div>
+					</If>
+					<div class="lineup-slot-list">
+							<Each of={data.starters} as="slot">
+								<div class="lineup-slot">
+									<div class="lineup-slot__id mono">{slot.slot_id}</div>
+									<If cond={slot.has_player}>
+										<details class="player-identity stat-tip">
+											<summary class="stat-tip__summary">
+											<If cond={slot.has_headshot}>
+												<img class="player-avatar player-avatar--photo" src={slot.headshot} alt="" loading="lazy" />
+											</If>
+											<If cond={slot.has_headshot == false}>
+												<span class="player-avatar" aria-hidden="true">{slot.nfl_team}</span>
+											</If>
+											<span class="player-identity__text">
 												<strong>{slot.name}</strong>
-												<span class="mono">{slot.jersey}</span>
-												<span class="mono stat-tip__team">{slot.nfl_team}</span>
-											</div>
-											<If cond={slot.has_breakdown}>
-												<div class="stat-tip__rows">
-													<Each of={slot.breakdown} as="row">
-														<div class="stat-tip__row" data-scored={row.scored}>
-															<span>{row.label}</span>
-															<span class="mono">{row.calc}</span>
-															<b class="mono">{row.points}</b>
-														</div>
-													</Each>
-													<div class="stat-tip__total">
-														<span>League scoring</span>
-														<b class="mono">{slot.breakdown_total}</b>
-													</div>
+												<small>
+													{slot.position}
+													·
+													{slot.nfl_team}
+													<If cond={slot.has_opponent}>
+														·
+														{slot.opponent}
+														<If cond={slot.has_matchup}>
+															·
+															<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
+														</If>
+													</If>
+												</small>
+											</span>
+											</summary>
+											<div class="stat-tip__panel">
+												<div class="stat-tip__head">
+													<strong>{slot.name}</strong>
+													<span class="mono">{slot.jersey}</span>
+													<span class="mono stat-tip__team">{slot.nfl_team}</span>
 												</div>
-											</If>
-											<If cond={slot.has_breakdown == false}>
-												<p class="stat-tip__empty">No projection detail for this position.</p>
-											</If>
-											<If cond={slot.has_matchup}>
-												<p class="stat-tip__hist mono">{slot.matchup_detail}</p>
-											</If>
-										</div>
-									</details>
-								</If>
-								<If cond={slot.has_player == false}>
-									<If cond={data.team_terminal_roster_complete}>
-										<div class="slot-empty mono">EMPTY</div>
+												<If cond={slot.has_breakdown}>
+													<div class="stat-tip__rows">
+														<Each of={slot.breakdown} as="row">
+															<div class="stat-tip__row" data-scored={row.scored}>
+																<span>{row.label}</span>
+																<span class="mono">{row.calc}</span>
+																<b class="mono">{row.points}</b>
+															</div>
+														</Each>
+														<div class="stat-tip__total">
+															<span>League scoring</span>
+															<b class="mono">{slot.breakdown_total}</b>
+														</div>
+													</div>
+												</If>
+												<If cond={slot.has_breakdown == false}>
+													<p class="stat-tip__empty">No projection detail for this position.</p>
+												</If>
+												<If cond={slot.has_matchup}>
+													<p class="stat-tip__hist mono">{slot.matchup_detail}</p>
+												</If>
+											</div>
+										</details>
 									</If>
-									<If cond={data.team_terminal_roster_complete == false}>
-										<div class="slot-empty mono">AWAITING DRAFT</div>
+									<If cond={slot.has_player == false}>
+										<If cond={data.team_terminal_roster_complete}>
+											<div class="slot-empty mono">EMPTY</div>
+										</If>
+										<If cond={data.team_terminal_roster_complete == false}>
+											<div class="slot-empty mono">AWAITING DRAFT</div>
+										</If>
 									</If>
-								</If>
-								<div class="lineup-slot__chips">
-									<If cond={slot.auto_filled}>
-										<span class="position-chip" title="Filled automatically by SET BEST LINEUP">AUTO</span>
-									</If>
-									<If cond={slot.has_warning}>
-										<span class="position-chip position-chip--warn">{slot.warning_label}</span>
-									</If>
-									<If cond={slot.locked}>
-										<span class="position-chip position-chip--locked">{slot.lock_label}</span>
+									<div class="lineup-slot__chips">
+										<If cond={slot.auto_filled}>
+											<span class="position-chip" title="Filled automatically by SET BEST LINEUP">AUTO</span>
+										</If>
+										<If cond={slot.has_warning}>
+											<span class="position-chip position-chip--warn">{slot.warning_label}</span>
+										</If>
+										<If cond={slot.locked}>
+											<span class="position-chip position-chip--locked">{slot.lock_label}</span>
+										</If>
+									</div>
+									<If cond={data.team_terminal_roster_complete && slot.locked == false}>
+										<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name="team_id" value={data.team.id}></input>
+											<input type="hidden" name="week" value={data.week}></input>
+											<input type="hidden" name="slot" value={slot.slot_id}></input>
+											<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
+												<Each of={slot.options} as="opt">
+													<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+												</Each>
+											</select>
+											<button class="board-button" type="submit">Set</button>
+										</form>
 									</If>
 								</div>
-								<If cond={data.team_terminal_roster_complete && slot.locked == false}>
-									<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">
+							</Each>
+						</div>
+						<h3 class="lineup-bench-title">Bench</h3>
+						<If cond={data.bench_empty}>
+							<If cond={data.team_terminal_roster_complete}>
+								<p class="stat-tip__empty">No bench players.</p>
+							</If>
+							<If cond={data.team_terminal_roster_complete == false}>
+								<p class="stat-tip__empty">Bench capacity: {data.bench_capacity} open until the draft fills it.</p>
+							</If>
+						</If>
+						<If cond={data.bench_empty == false}>
+							<div class="roster-labels mono" aria-hidden="true">
+								<span>POS</span>
+								<span>PLAYER</span>
+								<span>GAME</span>
+								<span>PROJ</span>
+								<span>PTS</span>
+							</div>
+							<div class="roster-list">
+								<Each of={data.bench} as="player">
+									<RosterRow {...player}></RosterRow>
+								</Each>
+							</div>
+							<If cond={data.has_reserve && data.lineup_intervention == false}>
+								<h3 class="lineup-bench-title">
+									Reserve
+									<small class="mono">{data.reserve_capacity}</small>
+								</h3>
+								<If cond={data.reserve_occupants_empty}>
+									<p class="stat-tip__empty">No one is on reserve.</p>
+								</If>
+								<If cond={data.reserve_occupants_empty == false}>
+									<p class="scoring-note zone-action-note">Reserve keeps the player on your roster but removes them from starting and bench eligibility. Activate returns them to the general pool; neither action changes the draft or roster count.</p>
+									<div class="roster-list">
+										<Each of={data.reserve_occupants} as="occ">
+											<div class="roster-row">
+												<div class="position-chip">{occ.position}</div>
+												<div>
+													<strong>{occ.name}</strong>
+													<small>
+														{occ.nfl_team}
+														<If cond={occ.has_opponent}>
+															·
+															{occ.opponent}
+															<If cond={occ.has_matchup}>
+																·
+																<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
+															</If>
+														</If>
+													</small>
+												</div>
+												<form method="post" action={actionPath("reserve-activate")} data-gosx-managed="true">
+													<input type="hidden" name="csrf_token" value={csrf.token}></input>
+													<input type="hidden" name="team_id" value={data.team.id}></input>
+													<input type="hidden" name="week" value={data.week}></input>
+													<input type="hidden" name="player_id" value={occ.id}></input>
+													<button class="button button--compact" type="submit">Activate</button>
+												</form>
+											</div>
+										</Each>
+									</div>
+								</If>
+								<If cond={data.reserve_place_empty == false}>
+									<p class="scoring-note zone-action-note">Place on reserve is reversible: the player leaves the lineup/bench pool until you activate them again. Your roster capacity does not increase.</p>
+									<form method="post" action={actionPath("reserve-place")} data-gosx-managed="true" class="lineup-toolbar">
 										<input type="hidden" name="csrf_token" value={csrf.token}></input>
 										<input type="hidden" name="team_id" value={data.team.id}></input>
 										<input type="hidden" name="week" value={data.week}></input>
-										<input type="hidden" name="slot" value={slot.slot_id}></input>
-										<select name="player_id" aria-label={"Assign a player to " + slot.slot_id}>
-											<Each of={slot.options} as="opt">
-												<option value={opt.id} selected={opt.selected}>{opt.label}</option>
+										<select name="player_id" aria-label="Place a player on reserve">
+											<Each of={data.reserve_place_options} as="opt">
+												<option value={opt.id}>{opt.label}</option>
 											</Each>
 										</select>
-										<button class="board-button" type="submit">Set</button>
+										<button class="board-button" type="submit">Place on reserve</button>
 									</form>
 								</If>
-							</div>
-						</Each>
-					</div>
-					<h3 class="lineup-bench-title">Bench</h3>
-					<If cond={data.bench_empty}>
-						<If cond={data.team_terminal_roster_complete}>
-							<p class="stat-tip__empty">No bench players.</p>
+							</If>
+							<If cond={data.has_ir && data.lineup_intervention == false}>
+								<h3 class="lineup-bench-title">
+									IR
+									<small class="mono">{data.ir_capacity}</small>
+								</h3>
+								<If cond={data.ir_occupants_empty}>
+									<p class="stat-tip__empty">No one is on IR.</p>
+								</If>
+								<If cond={data.ir_occupants_empty == false}>
+									<p class="scoring-note zone-action-note">IR removes an injured player from the counted roster while the designation qualifies. Activate returns them to the roster; if full, choose a drop—the drop is permanent for this transaction and cannot be undone here.</p>
+									<div class="roster-list">
+										<Each of={data.ir_occupants} as="occ">
+											<div class="roster-row">
+												<div class="position-chip">{occ.position}</div>
+												<div>
+													<strong>{occ.name}</strong>
+													<small>
+														{occ.nfl_team}
+														<If cond={occ.has_opponent}>
+															·
+															{occ.opponent}
+															<If cond={occ.has_matchup}>
+																·
+																<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
+															</If>
+														</If>
+													</small>
+													<If cond={occ.healed}>
+														<p class="error-message">
+															Off the injury report — activate before
+															{occ.deadline_label}
+															or the league drops him automatically.
+														</p>
+													</If>
+												</div>
+												<form method="post" action={actionPath("ir-activate")} data-gosx-managed="true">
+													<input type="hidden" name="csrf_token" value={csrf.token}></input>
+													<input type="hidden" name="team_id" value={data.team.id}></input>
+													<input type="hidden" name="week" value={data.week}></input>
+													<input type="hidden" name="player_id" value={occ.id}></input>
+													<select name="drop_id" aria-label="Optional drop to make room">
+														<option value="">— no drop —</option>
+														<Each of={data.ir_drop_options} as="opt">
+															<option value={opt.id}>{opt.label}</option>
+														</Each>
+													</select>
+													<button class="button button--compact" type="submit">Activate</button>
+												</form>
+											</div>
+										</Each>
+									</div>
+								</If>
+								<If cond={data.ir_place_empty == false}>
+									<p class="scoring-note zone-action-note">Place on IR is reversible while the player remains eligible. It frees a roster slot for the season; activate later, or review the injury designation before dropping anyone.</p>
+									<form method="post" action={actionPath("ir-place")} data-gosx-managed="true" class="lineup-toolbar">
+										<input type="hidden" name="csrf_token" value={csrf.token}></input>
+										<input type="hidden" name="team_id" value={data.team.id}></input>
+										<input type="hidden" name="week" value={data.week}></input>
+										<select name="player_id" aria-label="Place a player on IR">
+											<Each of={data.ir_place_options} as="opt">
+												<option value={opt.id}>{opt.label}</option>
+											</Each>
+										</select>
+										<button class="board-button" type="submit">Place on IR</button>
+									</form>
+								</If>
+							</If>
 						</If>
-						<If cond={data.team_terminal_roster_complete == false}>
-							<p class="stat-tip__empty">Bench capacity: {data.bench_capacity} open until the draft fills it.</p>
-						</If>
-					</If>
-					<If cond={data.bench_empty == false}>
-						<div class="roster-labels mono" aria-hidden="true">
-							<span>POS</span>
-							<span>PLAYER</span>
-							<span>GAME</span>
-							<span>PROJ</span>
-							<span>PTS</span>
+				</section>
+				<aside class="scout-panel">
+					<header>
+						<span class="section-index">{data.radar_kicker}</span>
+						<h2>{data.radar_title}</h2>
+					</header>
+					<If cond={data.scouting_empty}>
+						<div class="empty-tape scout-empty-state">
+							<strong>{data.scouting_empty_title}</strong>
+							<p>{data.scouting_empty_detail}</p>
 						</div>
-						<div class="roster-list">
-							<Each of={data.bench} as="player">
-								<RosterRow {...player}></RosterRow>
+					</If>
+					<If cond={data.scouting_empty == false}>
+						<div class="scout-list">
+							<Each of={data.scouting} as="player">
+								<article class="scout-row">
+									<span class="position-chip">{player.position}</span>
+									<div class="scout-row__copy">
+										<strong>{player.name}</strong>
+										<small>{player.team} · {player.signal}</small>
+										<If cond={player.has_resolution}>
+											<small class="mono scout-row__resolution">{player.resolution}</small>
+										</If>
+										<If cond={player.has_link}>
+											<a href={player.href} data-gosx-link class="scout-row__link">{player.link_label} →</a>
+										</If>
+									</div>
+									<b class="mono">{player.status}</b>
+								</article>
 							</Each>
 						</div>
-						<If cond={data.has_reserve && data.lineup_intervention == false}>
-							<h3 class="lineup-bench-title">
-								Reserve
-								<small class="mono">{data.reserve_capacity}</small>
-							</h3>
-							<If cond={data.reserve_occupants_empty}>
-								<p class="stat-tip__empty">No one is on reserve.</p>
-							</If>
-							<If cond={data.reserve_occupants_empty == false}>
-								<p class="scoring-note zone-action-note">Reserve keeps the player on your roster but removes them from starting and bench eligibility. Activate returns them to the general pool; neither action changes the draft or roster count.</p>
-								<div class="roster-list">
-									<Each of={data.reserve_occupants} as="occ">
-										<div class="roster-row">
-											<div class="position-chip">{occ.position}</div>
-											<div>
-												<strong>{occ.name}</strong>
-												<small>
-													{occ.nfl_team}
-													<If cond={occ.has_opponent}>
-														·
-														{occ.opponent}
-														<If cond={occ.has_matchup}>
-															·
-															<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
-														</If>
-													</If>
-												</small>
-											</div>
-											<form method="post" action={actionPath("reserve-activate")} data-gosx-managed="true">
-												<input type="hidden" name="csrf_token" value={csrf.token}></input>
-												<input type="hidden" name="team_id" value={data.team.id}></input>
-												<input type="hidden" name="week" value={data.week}></input>
-												<input type="hidden" name="player_id" value={occ.id}></input>
-												<button class="button button--compact" type="submit">Activate</button>
-											</form>
-										</div>
-									</Each>
-								</div>
-							</If>
-							<If cond={data.reserve_place_empty == false}>
-								<p class="scoring-note zone-action-note">Place on reserve is reversible: the player leaves the lineup/bench pool until you activate them again. Your roster capacity does not increase.</p>
-								<form method="post" action={actionPath("reserve-place")} data-gosx-managed="true" class="lineup-toolbar">
-									<input type="hidden" name="csrf_token" value={csrf.token}></input>
-									<input type="hidden" name="team_id" value={data.team.id}></input>
-									<input type="hidden" name="week" value={data.week}></input>
-									<select name="player_id" aria-label="Place a player on reserve">
-										<Each of={data.reserve_place_options} as="opt">
-											<option value={opt.id}>{opt.label}</option>
-										</Each>
-									</select>
-									<button class="board-button" type="submit">Place on reserve</button>
-								</form>
-							</If>
-						</If>
-						<If cond={data.has_ir && data.lineup_intervention == false}>
-							<h3 class="lineup-bench-title">
-								IR
-								<small class="mono">{data.ir_capacity}</small>
-							</h3>
-							<If cond={data.ir_occupants_empty}>
-								<p class="stat-tip__empty">No one is on IR.</p>
-							</If>
-							<If cond={data.ir_occupants_empty == false}>
-								<p class="scoring-note zone-action-note">IR removes an injured player from the counted roster while the designation qualifies. Activate returns them to the roster; if full, choose a drop—the drop is permanent for this transaction and cannot be undone here.</p>
-								<div class="roster-list">
-									<Each of={data.ir_occupants} as="occ">
-										<div class="roster-row">
-											<div class="position-chip">{occ.position}</div>
-											<div>
-												<strong>{occ.name}</strong>
-												<small>
-													{occ.nfl_team}
-													<If cond={occ.has_opponent}>
-														·
-														{occ.opponent}
-														<If cond={occ.has_matchup}>
-															·
-															<span class="matchup-chip" data-matchup-tier={occ.matchup_tier}>{occ.matchup_chip}</span>
-														</If>
-													</If>
-												</small>
-												<If cond={occ.healed}>
-													<p class="error-message">
-														Off the injury report — activate before
-														{occ.deadline_label}
-														or the league drops him automatically.
-													</p>
-												</If>
-											</div>
-											<form method="post" action={actionPath("ir-activate")} data-gosx-managed="true">
-												<input type="hidden" name="csrf_token" value={csrf.token}></input>
-												<input type="hidden" name="team_id" value={data.team.id}></input>
-												<input type="hidden" name="week" value={data.week}></input>
-												<input type="hidden" name="player_id" value={occ.id}></input>
-												<select name="drop_id" aria-label="Optional drop to make room">
-													<option value="">— no drop —</option>
-													<Each of={data.ir_drop_options} as="opt">
-														<option value={opt.id}>{opt.label}</option>
-													</Each>
-												</select>
-												<button class="button button--compact" type="submit">Activate</button>
-											</form>
-										</div>
-									</Each>
-								</div>
-							</If>
-							<If cond={data.ir_place_empty == false}>
-								<p class="scoring-note zone-action-note">Place on IR is reversible while the player remains eligible. It frees a roster slot for the season; activate later, or review the injury designation before dropping anyone.</p>
-								<form method="post" action={actionPath("ir-place")} data-gosx-managed="true" class="lineup-toolbar">
-									<input type="hidden" name="csrf_token" value={csrf.token}></input>
-									<input type="hidden" name="team_id" value={data.team.id}></input>
-									<input type="hidden" name="week" value={data.week}></input>
-									<select name="player_id" aria-label="Place a player on IR">
-										<Each of={data.ir_place_options} as="opt">
-											<option value={opt.id}>{opt.label}</option>
-										</Each>
-									</select>
-									<button class="board-button" type="submit">Place on IR</button>
-								</form>
-							</If>
-						</If>
 					</If>
-			</section>
-			<aside class="scout-panel">
-				<header>
-					<span class="section-index">{data.radar_kicker}</span>
-					<h2>{data.radar_title}</h2>
-				</header>
-				<If cond={data.scouting_empty}>
-					<div class="empty-tape scout-empty-state">
-						<strong>{data.scouting_empty_title}</strong>
-						<p>{data.scouting_empty_detail}</p>
+					<div class="scout-callout">
+						<span>Radar note</span>
+						<p>{data.radar_description}</p>
+						<a href={data.radar_link_href} data-gosx-link>{data.radar_link_label} →</a>
+						<If cond={data.is_commissioner}>
+							<a href="/admin" data-gosx-link>Commissioner console →</a>
+						</If>
 					</div>
-				</If>
-				<If cond={data.scouting_empty == false}>
-					<div class="scout-list">
-						<Each of={data.scouting} as="player">
-							<article class="scout-row">
-								<span class="position-chip">{player.position}</span>
-								<div class="scout-row__copy">
-									<strong>{player.name}</strong>
-									<small>{player.team} · {player.signal}</small>
-									<If cond={player.has_resolution}>
-										<small class="mono scout-row__resolution">{player.resolution}</small>
-									</If>
-									<If cond={player.has_link}>
-										<a href={player.href} data-gosx-link class="scout-row__link">{player.link_label} →</a>
-									</If>
-								</div>
-								<b class="mono">{player.status}</b>
-							</article>
-						</Each>
-					</div>
-				</If>
-				<div class="scout-callout">
-					<span>Radar note</span>
-					<p>{data.radar_description}</p>
-					<a href={data.radar_link_href} data-gosx-link>{data.radar_link_label} →</a>
-					<If cond={data.is_commissioner}>
-						<a href="/admin" data-gosx-link>Commissioner console →</a>
-					</If>
-				</div>
-			</aside>
-		</div>
-		</If>
-	</main>
+				</aside>
+			</div>
+	</div>
 }
