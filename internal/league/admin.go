@@ -1009,7 +1009,7 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 	if err := s.requireCommissioner(r); err != nil {
 		return ScoringRule{}, err
 	}
-	if s.ScoringLocked(time.Now()) {
+	if s.ScoringLocked(s.clock()) {
 		return ScoringRule{}, fmt.Errorf("scoring is locked for the season")
 	}
 	rule, ok := scoringRuleByKey(key)
@@ -1023,7 +1023,7 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 	if err := validateScoringPoints(points); err != nil {
 		return ScoringRule{}, err
 	}
-	if err := s.store.SetScoringValue(key, points); err != nil {
+	if err := s.store.SetScoringValue(key, points, s.clock()); err != nil {
 		return ScoringRule{}, err
 	}
 	rule.Points = points
@@ -1036,10 +1036,10 @@ func (s *Service) AdminResetScoring(r *http.Request) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	if s.ScoringLocked(time.Now()) {
+	if s.ScoringLocked(s.clock()) {
 		return fmt.Errorf("scoring is locked for the season")
 	}
-	return s.store.ResetScoring()
+	return s.store.ResetScoring(s.clock())
 }
 
 // AdminPauseClock stops the running pick clock. Picks stay allowed; only

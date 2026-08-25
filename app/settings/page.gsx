@@ -139,7 +139,7 @@ func Page() Node {
 				<section class="notification-preference-group" aria-labelledby="weekly-notifications">
 					<div class="notification-preference-group__heading">
 						<h3 id="weekly-notifications">Weekly play</h3>
-						<p>Pick'em, roster movement, lineup deadlines, and IR status.</p>
+						<p>Pick'em, matchup recaps, roster movement, lineup deadlines, and IR status.</p>
 					</div>
 					<div class="notification-preference-list">
 						<Each of={data.weekly_preferences} as="preference">
@@ -150,7 +150,7 @@ func Page() Node {
 				<section class="notification-preference-group" aria-labelledby="league-notifications">
 					<div class="notification-preference-group__heading">
 						<h3 id="league-notifications">League</h3>
-						<p>Access milestones and commissioner announcements.</p>
+						<p>Access milestones, scoring changes, season kickoff, and commissioner announcements.</p>
 					</div>
 					<div class="notification-preference-list">
 						<Each of={data.league_preferences} as="preference">
@@ -161,6 +161,7 @@ func Page() Node {
 			</div>
 		</section>
 
+		<If cond={data.planned_category_count > 0}>
 		<section class="player-pool notification-settings-panel notification-settings-panel--planned" aria-labelledby="planned-notification-heading">
 			<div class="pool-toolbar">
 				<div>
@@ -188,6 +189,7 @@ func Page() Node {
 				</Each>
 			</div>
 		</section>
+		</If>
 
 		<nav class="notification-settings-footer" aria-label="Account settings navigation">
 			<a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a>

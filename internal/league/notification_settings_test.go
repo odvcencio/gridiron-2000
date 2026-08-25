@@ -25,7 +25,7 @@ func TestNotificationSettingsDataExposesCatalogCategoryCounts(t *testing.T) {
 	if liveCount != len(live) || liveCount != len(notificationPreferenceCategories) {
 		t.Fatalf("live category counts = data:%d rows:%d catalog:%d", liveCount, len(live), len(notificationPreferenceCategories))
 	}
-	for key, want := range map[string]int{"draft_preferences": 3, "weekly_preferences": 3, "league_preferences": 2} {
+	for key, want := range map[string]int{"draft_preferences": 3, "weekly_preferences": 4, "league_preferences": 3} {
 		group, ok := data[key].([]NotificationPreference)
 		if !ok || len(group) != want {
 			t.Errorf("%s = %T len %d, want []NotificationPreference len %d", key, data[key], len(group), want)
@@ -47,7 +47,6 @@ func TestNotificationSettingsDataExposesCatalogCategoryCounts(t *testing.T) {
 	if plannedCount != len(planned) {
 		t.Fatalf("planned category counts = data:%d rows:%d", plannedCount, len(planned))
 	}
-	wantPlanned := []string{categoryLeagueNews, categoryWeeklyRecap}
 	gotPlanned := make([]string, 0, len(planned))
 	for _, preference := range planned {
 		gotPlanned = append(gotPlanned, preference.Category)
@@ -55,8 +54,8 @@ func TestNotificationSettingsDataExposesCatalogCategoryCounts(t *testing.T) {
 			t.Errorf("planned preference %q = %+v, want non-editable PLANNED", preference.Category, preference)
 		}
 	}
-	if !reflect.DeepEqual(gotPlanned, wantPlanned) {
-		t.Fatalf("planned categories = %#v, want %#v", gotPlanned, wantPlanned)
+	if !reflect.DeepEqual(gotPlanned, []string{}) {
+		t.Fatalf("planned categories = %#v, want none after NT-1", gotPlanned)
 	}
 	if data["read_only"] != true || data["demo_mode"] != true {
 		t.Fatalf("demo read-only flags = read_only:%v demo_mode:%v", data["read_only"], data["demo_mode"])
@@ -73,7 +72,7 @@ func TestSetNotificationPreferenceRejectsUnsignedUnknownAndNonLiteralInputs(t *t
 	authn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
 		return auth.User{ID: "manager", Email: "manager@example.com"}, true
 	})})
-	for _, category := range []string{"unknown", categoryWeeklyRecap, " " + categoryDraftLive} {
+	for _, category := range []string{"unknown", " " + categoryDraftLive} {
 		var setErr error
 		authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			setErr = service.SetNotificationPreference(r, category, false)
@@ -83,8 +82,22 @@ func TestSetNotificationPreferenceRejectsUnsignedUnknownAndNonLiteralInputs(t *t
 			t.Errorf("category %q unexpectedly succeeded", category)
 		}
 	}
-	if after := service.store.Snapshot(); !reflect.DeepEqual(before, after) {
-		t.Fatalf("rejected preference writes changed state\nbefore: %#v\nafter: %#v", before, after)
+	var setWeeklyErr error
+	authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		setWeeklyErr = service.SetNotificationPreference(r, categoryWeeklyRecap, false)
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/settings", nil))
+	if setWeeklyErr != nil {
+		t.Fatalf("live weekly recap preference rejected: %v", setWeeklyErr)
+	}
+	after := service.store.Snapshot()
+	// The accepted weekly-recap write is the only expected difference;
+	// the rejected categories above must not create any other preference.
+	if got, ok := after.NotifyPrefs["manager@example.com"][categoryWeeklyRecap]; !ok || got {
+		t.Fatalf("weekly recap override = (%v,%v), want stored false", got, ok)
+	}
+	if len(after.NotifyPrefs) != 1 || len(after.NotifyPrefs["manager@example.com"]) != 1 {
+		t.Fatalf("unexpected state after category validation: %#v (before %#v)", after.NotifyPrefs, before.NotifyPrefs)
 	}
 }
 

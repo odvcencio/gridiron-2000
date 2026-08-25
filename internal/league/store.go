@@ -1991,8 +1991,10 @@ func (s *Store) TrimUnclaimedSeatsConfirmed(confirmation, token string) (kept []
 }
 
 // SetScoringValue overrides one scoring rule's point value. Setting the
-// default value clears the override so future default changes apply.
-func (s *Store) SetScoringValue(key string, points float64) error {
+// default value clears the override so future default changes apply. The
+// optional instant is a clock seam for the notifier and tests; callers that
+// omit it use the current UTC time.
+func (s *Store) SetScoringValue(key string, points float64, editedAt ...time.Time) error {
 	rule, ok := scoringRuleByKey(key)
 	if !ok {
 		return fmt.Errorf("unknown scoring key %q", key)
@@ -2007,12 +2009,25 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 	}
 	before := cloneState(s.state)
 	beforeDirty := s.dirty
+	changed := false
+	if current, exists := s.state.Scoring[key]; exists {
+		changed = points == rule.Points || current != points
+	} else {
+		changed = points != rule.Points
+	}
 	if points == rule.Points {
 		delete(s.state.Scoring, key)
 	} else {
 		s.state.Scoring[key] = points
 	}
-	if err := s.persistLocked(colScoring); err != nil {
+	if changed {
+		editAt := time.Now().UTC()
+		if len(editedAt) > 0 && !editedAt[0].IsZero() {
+			editAt = editedAt[0].UTC()
+		}
+		s.state.ScoringChangedAt = editAt
+	}
+	if err := s.persistLocked(colScoring, colScalars); err != nil {
 		// A failed scoring write must not publish a candidate in memory. The
 		// transaction boundary may retain dirty work from another mutator,
 		// so restore that mask alongside the state.
@@ -2024,7 +2039,8 @@ func (s *Store) SetScoringValue(key string, points float64) error {
 }
 
 // ResetScoring clears every scoring override, restoring the default rules.
-func (s *Store) ResetScoring() error {
+// The optional instant follows SetScoringValue's deterministic clock seam.
+func (s *Store) ResetScoring(editedAt ...time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -2032,8 +2048,16 @@ func (s *Store) ResetScoring() error {
 	}
 	before := cloneState(s.state)
 	beforeDirty := s.dirty
+	changed := len(s.state.Scoring) > 0
 	s.state.Scoring = map[string]float64{}
-	if err := s.persistLocked(colScoring); err != nil {
+	if changed {
+		editInstant := time.Now().UTC()
+		if len(editedAt) > 0 && !editedAt[0].IsZero() {
+			editInstant = editedAt[0].UTC()
+		}
+		s.state.ScoringChangedAt = editInstant
+	}
+	if err := s.persistLocked(colScoring, colScalars); err != nil {
 		s.state = before
 		s.dirty = beforeDirty
 		return err
