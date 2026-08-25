@@ -136,6 +136,11 @@ func init() {
 			ctx.NoStore()
 			data := league.Default().AdminData(ctx.Request)
 			isCommissioner, _ := data["is_commissioner"].(bool)
+			if isCommissioner {
+				data["admin_attention"] = adminAttentionReadoutFromData(league.Default().CommissionerAttentionDataReadOnly(ctx.Request))
+			} else {
+				data["admin_attention"] = emptyAdminAttentionReadout()
+			}
 			leagueOptions, hasLeagueSwitcher := adminLeagueSwitcherData(commissionerhq.Default(), isCommissioner)
 			data["league_options"] = leagueOptions
 			data["has_league_switcher"] = hasLeagueSwitcher

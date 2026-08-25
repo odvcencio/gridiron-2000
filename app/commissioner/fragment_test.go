@@ -75,11 +75,25 @@ func TestCommissionerFragmentUsesSharedReadoutAndDegradesWholeFragment(t *testin
 	if fetches != 1 {
 		t.Fatalf("peer reads = %d, want 1", fetches)
 	}
-	if got := response.Header().Get("Cache-Control"); got != "no-store" {
+	if got := response.Header().Get("Cache-Control"); got != "private, no-store" {
 		t.Fatalf("Cache-Control = %q", got)
+	}
+	if got := response.Header().Get("Vary"); got != "Cookie" {
+		t.Fatalf("Vary = %q", got)
 	}
 	if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 		t.Fatalf("Content-Type = %q", got)
+	}
+	etag := response.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("fragment omitted ETag")
+	}
+	unchanged := httptest.NewRecorder()
+	unchangedRequest := httptest.NewRequest(http.MethodGet, "/commissioner/fragment", nil)
+	unchangedRequest.Header.Set("If-None-Match", etag)
+	handler.ServeHTTP(unchanged, unchangedRequest)
+	if unchanged.Code != http.StatusNotModified || unchanged.Body.Len() != 0 {
+		t.Fatalf("unchanged fragment = %d body %q", unchanged.Code, unchanged.Body.String())
 	}
 
 	props := readoutFromView(buildFleetView(entries, fixed), true, true)
@@ -125,7 +139,8 @@ func TestCommissionerRegionContractIsSameOriginReadOnlyAndScoped(t *testing.T) {
 	page := string(pageSource)
 	for _, want := range []string{
 		"data-gosx-region-url=\"/commissioner/fragment\"",
-		"data-gosx-region-interval=\"30s\"",
+		"data-gosx-region-interval=\"15s\"",
+		"data-gosx-region-signal=\"$commissioner.hq.refresh\"",
 		"<FleetReadout {...data.fleet}></FleetReadout>",
 		"aria-live=\"polite\"",
 	} {

@@ -171,8 +171,106 @@ func FleetReadout(props FleetReadoutProps) Node {
 					</section>
 				</Each>
 			</div>
+			<If cond={props.HQV1Enabled}>
+				<HQV1Portfolio {...props.HQV1}></HQV1Portfolio>
+			</If>
 		</If>
 	</div>
+}
+
+func HQV1Portfolio(props hqV1PortfolioProps) Node {
+	return <section class="commissioner-hq__v1" aria-labelledby="commissioner-hq-v1-heading">
+		<div class="commissioner-hq__subhead">
+			<span class="signal-label">PRIVATE HQ V1 · READ ONLY</span>
+			<h2 id="commissioner-hq-v1-heading">Operations across the fleet</h2>
+			<p>Provider snapshots remain isolated by league. This surface never provisions seats, changes boards, or executes league actions.</p>
+			<button type="button" class="board-button" data-gosx-set="$commissioner.hq.refresh" data-gosx-set-value="manual">Refresh operations</button>
+		</div>
+		<div class="commissioner-hq__v1-summary">
+			<span class="mono">{props.Total} LEAGUES · {props.Live} LIVE · {props.Stale} STALE · {props.Warnings} NEED REVIEW</span>
+			<span class="mono">GENERATED {props.GeneratedAt}</span>
+		</div>
+		<If cond={props.Total == 0}>
+			<p class="commissioner-hq__empty">No HQ v1 connections are configured on this host.</p>
+		</If>
+		<div class="commissioner-hq__v1-rows">
+			<Each of={props.Rows} as="row">
+				<article class="commissioner-hq__v1-row" data-freshness={row.Freshness} data-connection={row.ConnectionResult}>
+					<div class="pool-toolbar commissioner-hq__card-header">
+						<div>
+							<span class="section-index">{row.ShortCode} · {row.LeagueID}</span>
+							<h3>{row.Name}</h3>
+						</div>
+						<span class="position-chip">{row.Freshness} · {row.ConnectionResult}</span>
+					</div>
+					<If cond={row.Available == false}>
+						<p class="error-message">This league snapshot is unavailable ({row.Diagnostic}).</p>
+						<p class="scoring-note">Other league rows remain independently readable.</p>
+						<a href={row.PublicURL}>Open league directly →</a>
+					</If>
+					<If cond={row.Available}>
+						<div class="commissioner-hq__v1-grid">
+							<section class="commissioner-hq__detail">
+								<h4>PHASE / DEADLINE</h4>
+								<p><strong>{row.Phase}</strong></p>
+								<If cond={row.HasDeadline}>
+									<p>{row.Deadline} · <span class="mono">{row.DeadlineAt}</span></p>
+									<If cond={row.DeadlineHref != ""}><a href={row.DeadlineHref}>Open owning control →</a></If>
+								</If>
+								<If cond={row.HasDeadline == false}><p class="scoring-note">No upcoming deadline reported.</p></If>
+							</section>
+							<section class="commissioner-hq__detail">
+								<h4>SEATS / READINESS</h4>
+								<p><strong>{row.ClaimedSeats} / {row.Seats}</strong> claimed · {row.OpenSeats} open · {row.PendingInvites} pending invites</p>
+								<p>{row.ReadyTeams} ready · {row.BoardGaps} board gaps</p>
+								<p class="scoring-note">{row.Readiness}</p>
+							</section>
+							<section class="commissioner-hq__detail">
+								<h4>LINEUP / WAIVERS</h4>
+								<p><strong>{row.LineupIssues}</strong> lineup issues · next lock <span class="mono">{row.LineupLock}</span></p>
+								<p>{row.WaiverMode} · {row.OpenClaims} open claims · next run <span class="mono">{row.WaiverRun}</span></p>
+							</section>
+							<section class="commissioner-hq__detail">
+								<h4>TRADES / PICK'EM</h4>
+								<p>{row.TradePending} pending trades · {row.TradeDecisions} commissioner decisions</p>
+								<p>WEEK {row.PickemWeek} · {row.PickemUnpicked} unpicked · deadline <span class="mono">{row.PickemDeadline}</span></p>
+							</section>
+							<section class="commissioner-hq__detail">
+								<h4>RELEASE / HEALTH</h4>
+								<p class="mono">{row.ReleaseSHA} · {row.ReleaseBuiltAt}</p>
+								<p>{row.Quality} · {row.SourceState} · as of <span class="mono">{row.DataAsOf}</span></p>
+								<p>Last successful collection <span class="mono">{row.LastSuccess}</span></p>
+								<p>Last attempt <span class="mono">{row.LastAttempt}</span> · provider produced <span class="mono">{row.ProviderProduced}</span></p>
+							</section>
+						</div>
+						<nav class="commissioner-hq__links" aria-label="HQ v1 league links">
+							<If cond={row.LeagueURL != ""}><a href={row.LeagueURL}>Open league →</a></If>
+							<If cond={row.CommissionerURL != ""}><a href={row.CommissionerURL}>Commissioner controls →</a></If>
+						</nav>
+					</If>
+				</article>
+			</Each>
+		</div>
+		<section class="commissioner-hq__queue" aria-labelledby="commissioner-hq-v1-attention-heading">
+			<div class="commissioner-hq__subhead"><h3 id="commissioner-hq-v1-attention-heading">Fleet attention</h3></div>
+			<Each of={props.Attention} as="item">
+				<article class="commissioner-hq__attention" data-severity={item.Severity}>
+					<div class="commissioner-hq__attention-copy"><span class="section-index">{item.Severity} · {item.League}</span><strong>{item.Title}</strong><span>{item.Summary}</span><span class="mono">due {item.Due}</span></div>
+					<If cond={item.HasHref}><a href={item.Href}>Open owning league →</a></If>
+				</article>
+			</Each>
+		</section>
+		<section class="commissioner-hq__queue" aria-labelledby="commissioner-hq-v1-deadlines-heading">
+			<div class="commissioner-hq__subhead"><h3 id="commissioner-hq-v1-deadlines-heading">Upcoming deadlines</h3></div>
+			<Each of={props.Deadlines} as="item">
+				<article class="commissioner-hq__attention"><div class="commissioner-hq__attention-copy"><span class="section-index">{item.Category} · {item.League}</span><strong>{item.Title}</strong><span class="mono">{item.When} · {item.Relative}</span></div><If cond={item.HasHref}><a href={item.Href}>Open →</a></If></article>
+			</Each>
+		</section>
+		<section class="commissioner-hq__queue" aria-labelledby="commissioner-hq-v1-activity-heading">
+			<div class="commissioner-hq__subhead"><h3 id="commissioner-hq-v1-activity-heading">Recent activity</h3></div>
+			<Each of={props.Activity} as="item"><article class="commissioner-hq__attention"><div class="commissioner-hq__attention-copy"><span class="section-index">{item.Category} · {item.League}</span><strong>{item.Summary}</strong><span class="mono">{item.When}</span></div><If cond={item.HasHref}><a href={item.Href}>Open →</a></If></article></Each>
+		</section>
+	</section>
 }
 
 func Page() Node {
@@ -181,7 +279,7 @@ func Page() Node {
 			<FleetReadout {...data.fleet}></FleetReadout>
 		</If>
 		<If cond={data.is_commissioner}>
-			<div class="commissioner-hq__fleet-region" data-gosx-region data-gosx-region-url="/commissioner/fragment" data-gosx-region-interval="30s">
+			<div class="commissioner-hq__fleet-region" data-gosx-region data-gosx-region-url="/commissioner/fragment" data-gosx-region-interval="15s" data-gosx-region-signal="$commissioner.hq.refresh">
 				<FleetReadout {...data.fleet}></FleetReadout>
 			</div>
 		</If>

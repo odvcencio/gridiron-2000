@@ -163,6 +163,44 @@ func AdminTaskLink(props AdminTaskLinkProps) Node {
 	</li>
 }
 
+func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
+	return <section class="admin-attention-readout" aria-labelledby="admin-attention-heading">
+		<div class="pool-toolbar">
+			<div>
+				<span class="section-index">COMMISSIONER // LIVE OPERATIONS</span>
+				<h2 id="admin-attention-heading">Attention and readiness</h2>
+			</div>
+			<button type="button" class="board-button" data-gosx-set="$admin.attention.refresh" data-gosx-set-value="manual">Refresh status</button>
+		</div>
+		<div class="admin-task-nav__readout" aria-live="polite">
+			<strong class="mono">{props.Phase} · {props.DraftStatus}</strong>
+			<span>Draft deadline <span class="mono">{props.DraftAt}</span> · schedule {props.ScheduleStatus}</span>
+			<If cond={props.ScheduleReady}><span>Week {props.ScheduleWeek} is ready to close.</span></If>
+			<If cond={props.ScheduleReady == false}><span>{props.ScheduleReason}</span></If>
+		</div>
+		<div class="commissioner-hq__provenance">
+			<span><strong>SEATS</strong><span class="mono">{props.ClaimedCount} / {props.SeatCount} CLAIMED</span></span>
+			<span><strong>READY</strong><span class="mono">{props.ReadyCount} / {props.SeatCount}</span></span>
+			<span><strong>INVITES</strong><span class="mono">{props.InviteCount} PENDING</span></span>
+			<span><strong>BOARD GAPS</strong><span class="mono">{props.BoardGapCount}</span></span>
+			<span><strong>PRESENCE</strong><span class="mono">{props.PresenceHere} HERE · {props.PresenceIdle} IDLE · {props.PresenceAway} AWAY · {props.PresenceNotSeen} NOT SEEN · {props.PresenceUnclaimed} OPEN</span></span>
+			<span><strong>READ AT</strong><time class="mono">{props.GeneratedAt}</time></span>
+		</div>
+		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
+			<Each of={props.Seats} as="seat">
+				<div class="commissioner-hq__attention" data-presence={seat.Presence}>
+					<div class="commissioner-hq__attention-copy">
+						<span class="section-index">{seat.Abbreviation} · {seat.Name}</span>
+						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
+						<span>{seat.Presence} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
+					</div>
+					<If cond={seat.BoardGap}><span class="position-chip">BOARD GAP</span></If>
+				</div>
+			</Each>
+		</div>
+	</section>
+}
+
 func Page() Node {
 	return <main
 		class="page admin-page"
@@ -251,6 +289,11 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
+		<If cond={data.is_commissioner}>
+			<div class="admin-attention-region" data-gosx-region data-gosx-region-url="/admin/fragment" data-gosx-region-interval="4s" data-gosx-region-signal="$admin.attention.refresh">
+				<AdminAttentionReadout {...data.admin_attention}></AdminAttentionReadout>
+			</div>
+		</If>
 		<If cond={data.is_commissioner == false}>
 			<section class="player-pool">
 				<div class="empty-tape">

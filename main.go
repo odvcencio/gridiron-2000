@@ -29,6 +29,7 @@ import (
 	tradespage "gridiron-2000/app/trades"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/commissionerhq/v1fleet"
 	"gridiron-2000/internal/commissionerhq/v1provider"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
@@ -184,6 +185,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	hqV1FleetConfig, err := v1fleet.ConfigFromEnv()
+	if err != nil {
+		log.Fatal(err)
+	}
+	hqV1Fleet, err := v1fleet.New(hqV1FleetConfig, v1fleet.Options{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	commissionerpage.SetHQV1Fleet(hqV1Fleet)
 	port := getenv("PORT", "8080")
 	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
 	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
@@ -388,6 +398,7 @@ func main() {
 	})
 	app.Mount("GET /commissioner/fragment", commissionerpage.FragmentHandler(hqService))
 	app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))
+	app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.

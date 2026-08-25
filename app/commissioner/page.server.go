@@ -2,10 +2,14 @@ package commissioner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/commissionerhq/v1fleet"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -43,13 +47,24 @@ type fleetReadoutProps struct {
 	WarningCount      int
 	GeneratedAt       string
 	GeneratedAtISO    string
+	HQV1Enabled       bool
+	HQV1              hqV1PortfolioProps
 }
+
+var hqV1Service *v1fleet.Service
+
+// SetHQV1Fleet installs the process-local, read-only HQ v1 collector. The
+// main package calls this once during startup; keeping the setter here keeps
+// route rendering independent from process wiring and makes disabled hosting
+// an explicit, harmless state.
+func SetHQV1Fleet(service *v1fleet.Service) { hqV1Service = service }
 
 func emptyFleetReadout(isCommissioner, federationEnabled bool) fleetReadoutProps {
 	return fleetReadoutProps{
 		IsCommissioner: isCommissioner, FederationEnabled: federationEnabled,
 		Cards: []map[string]any{}, AttentionQueue: []map[string]any{},
 		GeneratedAt: "—",
+		HQV1:        emptyHQV1Portfolio(),
 	}
 }
 
@@ -64,7 +79,18 @@ func readoutFromView(view fleetPageView, isCommissioner, federationEnabled bool)
 		AttentionCount: view.AttentionCount, CriticalCount: view.CriticalCount,
 		WarningCount: view.WarningCount, GeneratedAt: displayTime(view.GeneratedAt),
 		GeneratedAtISO: isoTime(view.GeneratedAt),
+		HQV1:           emptyHQV1Portfolio(),
 	}
+}
+
+func withHQV1Portfolio(request *http.Request, readout fleetReadoutProps, isCommissioner bool) fleetReadoutProps {
+	readout.HQV1 = emptyHQV1Portfolio()
+	if !isCommissioner || hqV1Service == nil || !hqV1Service.Enabled() {
+		return readout
+	}
+	readout.HQV1Enabled = true
+	readout.HQV1 = hqV1PortfolioView(hqV1Service.Collect(request.Context()), timeNow())
+	return readout
 }
 
 func commissionerPageData(request *http.Request) map[string]any {
@@ -81,6 +107,7 @@ func commissionerPageDataWithReader(request *http.Request, isCommissioner bool, 
 	if isCommissioner && reader != nil {
 		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
 	}
+	readout = withHQV1Portfolio(request, readout, isCommissioner)
 	return map[string]any{
 		"viewer": league.Default().Viewer(request), "is_commissioner": isCommissioner,
 		"fleet": readout,
@@ -117,6 +144,7 @@ func fragmentHandler(
 	federationEnabled bool,
 ) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		setCommissionerFragmentPrivacyHeaders(writer)
 		if request.Method != http.MethodGet {
 			writer.Header().Set("Allow", http.MethodGet)
 			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusMethodNotAllowed)
@@ -131,6 +159,7 @@ func fragmentHandler(
 		if reader != nil {
 			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
 		}
+		readout = withHQV1Portfolio(request, readout, true)
 		program, err := route.LoadFileProgramHere("page.gsx")
 		if err != nil {
 			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusInternalServerError)
@@ -143,11 +172,36 @@ func fragmentHandler(
 			http.Error(writer, "The league readout is unavailable. Reload the page.", http.StatusInternalServerError)
 			return
 		}
-		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		etag := commissionerFragmentETag(html)
+		writer.Header().Set("ETag", etag)
+		if commissionerETagMatches(request.Header.Get("If-None-Match"), etag) {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write([]byte(html))
 	})
+}
+
+func setCommissionerFragmentPrivacyHeaders(writer http.ResponseWriter) {
+	writer.Header().Set("Cache-Control", "private, no-store")
+	writer.Header().Set("Vary", "Cookie")
+}
+
+func commissionerFragmentETag(html string) string {
+	digest := sha256.Sum256([]byte(html))
+	return `"` + hex.EncodeToString(digest[:]) + `"`
+}
+
+func commissionerETagMatches(header, current string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(candidate), "W/"))
+		if candidate == "*" || candidate == current {
+			return true
+		}
+	}
+	return false
 }
 
 // timeNow is a seam for render tests and keeps the view model request-local.
