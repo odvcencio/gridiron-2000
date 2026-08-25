@@ -163,6 +163,32 @@ func TestNoKeyServesOfflinePool(t *testing.T) {
 	}
 }
 
+func TestCacheRefreshDelayUsesRemainingFreshnessTTL(t *testing.T) {
+	started := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	interval := 6 * time.Hour
+
+	if got := cacheRefreshDelay("cache", started.Add(-5*time.Hour), started, interval); got != time.Hour {
+		t.Fatalf("old cache refresh delay = %v, want 1h", got)
+	}
+	if got := cacheRefreshDelay("cache", started.Add(-7*time.Hour), started, interval); got != 0 {
+		t.Fatalf("expired cache refresh delay = %v, want immediate", got)
+	}
+	if got := cacheRefreshDelay("cache", started, started, interval); got != interval {
+		t.Fatalf("fresh cache refresh delay = %v, want %v", got, interval)
+	}
+	if got := cacheRefreshDelay("live", started.Add(-5*time.Hour), started, interval); got != 0 {
+		t.Fatalf("live pool refresh delay = %v, want immediate", got)
+	}
+}
+
+func TestCacheRefreshDelayClampsFutureTimestamp(t *testing.T) {
+	started := time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)
+	interval := 6 * time.Hour
+	if got := cacheRefreshDelay("cache", started.Add(time.Hour), started, interval); got != interval {
+		t.Fatalf("future cache refresh delay = %v, want %v", got, interval)
+	}
+}
+
 // TestEnabledWithBaseURLAndNoKey checks the relay-topology deviation
 // (service.go's Enabled): a service with BaseURL set but no APIKey (a
 // league instance pointed at a shared statrelay, which holds the real

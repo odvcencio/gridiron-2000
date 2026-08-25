@@ -28,14 +28,12 @@ import (
 // Adding a deadline to this product means adding a term here. The list is
 // currently: the shared NFL schedule (kickoff and final, which gate
 // Pick'em, the lineup, and waiver availability), the draft start, the
-// trade deadline, and the Preseason Blitz slate locks.
-//
-// Known gap: a waiver clear instant (clearsAt / deferredClearsAt,
-// waivers.go) is not a term here. Its common case — a player locked by
-// their own kickoff — already rides the schedule term; only the drop-clear
-// half is still poll-blind.
+// trade deadline, the waiver clear window, and the Preseason Blitz slate
+// locks.
 func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
-	parts := make([]string, 0, 4)
+	parts := make([]string, 0, 5)
+	state := s.store.Snapshot()
+	games := s.schedule()
 
 	// Kickoff gates Pick'em picks (pickem.go), lineup edits (lineup.go),
 	// and waiver availability (waivers.go); Final gates Pick'em's
@@ -43,7 +41,7 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	// count changes on exactly the crossings that matter and stays a few
 	// bytes across a 272-game season.
 	started, final := 0, 0
-	for _, game := range s.schedule() {
+	for _, game := range games {
 		if !now.Before(game.Kickoff) {
 			started++
 		}
@@ -56,7 +54,7 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	// The draft-start crossing flips canPick and the draft page's
 	// "started" flag (service.go). The announced meeting can be moved before
 	// the lifecycle starts, so resolve it from the same persisted snapshot.
-	draftAt := s.EffectiveDraftAt(s.store.Snapshot())
+	draftAt := s.EffectiveDraftAt(state)
 	parts = append(parts, "draft:"+boundaryFlag(!now.Before(draftAt)))
 
 	// The trade deadline (T8, trades.go) lives in configuration, so no
@@ -64,6 +62,13 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	if deadline, ok := parseTradeDeadline(s.cfg); ok {
 		parts = append(parts, "trade:"+boundaryFlag(!now.Before(deadline)))
 	}
+
+	// A manager drop and an IR auto-drop become free agents at a daily
+	// processor boundary, even though no state write occurs at that instant.
+	// The schedule term above already covers a player's own kickoff lock; this
+	// term covers only the drop-clear half so an open Players/Team page learns
+	// that an add is available without waiting for another mutation.
+	parts = append(parts, waiverClearBoundaryDigest(state, s.cfg, games, now))
 
 	// Preseason Blitz slate locks. The caller passes the games it already
 	// pulled from the source, so one fingerprint never copies the Blitz
@@ -73,6 +78,43 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 	}
 
 	return strings.Join(parts, "|")
+}
+
+// waiverClearBoundaryDigest counts the latest clear boundary crossed by each
+// currently unrostered dropped player. Counting crossings (rather than
+// embedding IDs or timestamps) keeps the shared fingerprint quiet between
+// real availability changes. A player re-rostered after a drop is excluded;
+// the roster mutation itself already changes the persisted-state digest.
+func waiverClearBoundaryDigest(state PersistedState, cfg Config, games []GameInfo, now time.Time) string {
+	owner := rosterOwner(currentRosters(state))
+	droppedPlayers := make(map[string]struct{})
+	for _, txn := range state.Transactions {
+		if txn.Type != "drop" && txn.Type != "auto-drop" {
+			continue
+		}
+		for _, drop := range txn.Drops {
+			if drop.PlayerID == "" || owner[drop.PlayerID] != "" {
+				continue
+			}
+			droppedPlayers[drop.PlayerID] = struct{}{}
+		}
+	}
+
+	crossed := 0
+	for playerID := range droppedPlayers {
+		droppedAt, origin, ok := lastDropInstant(state, playerID)
+		if !ok {
+			continue
+		}
+		clears := clearsAt(cfg, droppedAt)
+		if origin == "auto-drop" {
+			clears = deferredClearsAt(cfg, games, droppedAt)
+		}
+		if !now.Before(clears) {
+			crossed++
+		}
+	}
+	return fmt.Sprintf("waiver:%d", crossed)
 }
 
 // boundaryFlag renders a crossed/not-crossed bit compactly.

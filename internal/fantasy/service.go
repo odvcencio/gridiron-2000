@@ -114,17 +114,32 @@ func (s *Service) Start(ctx context.Context) {
 
 func (s *Service) syncLoop(ctx context.Context) {
 	s.mu.RLock()
-	fresh := s.mode == "cache" && s.now().Sub(s.lastSync) < s.config.SyncInterval
+	mode, lastSync := s.mode, s.lastSync
 	s.mu.RUnlock()
-	if !fresh {
-		if err := s.SyncNow(ctx); err != nil {
-			// The retry below covers startup races; the last good cache keeps serving.
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(2 * time.Minute):
-				_ = s.SyncNow(ctx)
+
+	// A cache that is five hours old on a six-hour interval is fresh for only
+	// one more hour. Waiting a full interval here would let it age to eleven
+	// hours after a restart, so schedule the first refresh at the remaining
+	// freshness TTL. An already-old or non-cache service keeps the historical
+	// immediate-sync behavior.
+	if delay := cacheRefreshDelay(mode, lastSync, s.now(), s.config.SyncInterval); delay > 0 {
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
 			}
+			return
+		case <-timer.C:
+		}
+	}
+	if err := s.SyncNow(ctx); err != nil {
+		// The retry below covers startup races; the last good cache keeps serving.
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Minute):
+			_ = s.SyncNow(ctx)
 		}
 	}
 	ticker := time.NewTicker(s.config.SyncInterval)
@@ -137,6 +152,24 @@ func (s *Service) syncLoop(ctx context.Context) {
 			_ = s.SyncNow(ctx)
 		}
 	}
+}
+
+// cacheRefreshDelay returns the remaining freshness TTL for a cache loaded at
+// startup. A zero result means the first sync should happen immediately. A
+// future-dated cache timestamp is treated conservatively as age zero, so clock
+// skew cannot postpone the first refresh beyond one normal interval.
+func cacheRefreshDelay(mode string, lastSync, now time.Time, interval time.Duration) time.Duration {
+	if mode != "cache" || lastSync.IsZero() || interval <= 0 {
+		return 0
+	}
+	age := now.Sub(lastSync)
+	if age < 0 {
+		age = 0
+	}
+	if age >= interval {
+		return 0
+	}
+	return interval - age
 }
 
 // SyncNow fetches the player list, ADP, projections, news, and byes, merges
