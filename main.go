@@ -25,6 +25,7 @@ import (
 	draftpage "gridiron-2000/app/draft"
 	playerspage "gridiron-2000/app/players"
 	teampage "gridiron-2000/app/team"
+	tradespage "gridiron-2000/app/trades"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/commissionerhq/v1provider"
@@ -396,6 +397,7 @@ func main() {
 	app.Mount("GET /players/fragment/waivers", playerspage.PlayersWaiverFragmentHandler(league.Default()))
 	app.Mount("GET /activity/fragment", activitypage.ActivityFragmentHandler(league.Default()))
 	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
+	app.Mount("GET /trades/fragment", tradespage.TradeDeskFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
 

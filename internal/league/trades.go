@@ -1174,7 +1174,26 @@ func (s *Service) tradeHistoryRows(state PersistedState, pool playerPool, teamID
 // (commissioner approve/veto, commissioner or both mode), and VOTE (non-
 // party managers, vote or both mode).
 func (s *Service) TradesData(r *http.Request) map[string]any {
-	viewer := s.Viewer(r)
+	return s.tradesData(r, false)
+}
+
+// TradesDataReadOnly is the polling projection for /trades/fragment. It
+// resolves the viewer from one state snapshot and never admits an identity
+// into persisted membership merely because a browser asked for fresh HTML.
+func (s *Service) TradesDataReadOnly(r *http.Request) map[string]any {
+	return s.tradesData(r, true)
+}
+
+func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
+	var viewer map[string]any
+	var state PersistedState
+	if readOnly {
+		state = s.store.Snapshot()
+		viewer = s.viewerReadOnly(r, state)
+	} else {
+		viewer = s.Viewer(r)
+		state = s.store.Snapshot()
+	}
 	teamID, _ := viewer["team_id"].(string)
 	hasSeat, _ := viewer["has_seat"].(bool)
 	canEdit := hasSeat
@@ -1191,7 +1210,6 @@ func (s *Service) TradesData(r *http.Request) map[string]any {
 	}
 	canCompose := canEdit && !deadlinePassed
 	isCommissioner := s.IsCommissioner(r)
-	state := s.store.Snapshot()
 	publicEntry := s.publicEntryDataForViewerState(r, viewer, state)
 	pool := s.pool()
 	rosters := currentRosters(state)

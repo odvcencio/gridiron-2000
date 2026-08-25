@@ -85,4 +85,11 @@ func TestTradesPageRendersWithRealData(t *testing.T) {
 	if !strings.Contains(body, "NO INCOMING OFFERS") || !strings.Contains(body, "NO OPEN OR PENDING OFFERS") {
 		t.Fatalf("expected the honest empty inbox/outbox state on a fresh league, got: %s", body)
 	}
+	fragment, err := tradesFragmentRender(league.Default().TradesDataReadOnly(req), req)
+	if err != nil {
+		t.Fatalf("render Trade Desk fragment: %v", err)
+	}
+	if !strings.Contains(fragment, "trade-composer") || !strings.Contains(fragment, "NO INCOMING OFFERS") || strings.Contains(fragment, "<main") {
+		t.Fatalf("Trade Desk fragment diverged from its scoped region: %s", fragment)
+	}
 }
