@@ -317,3 +317,29 @@ func TestCommissionerSummaryWeekCloseAttentionTracksActionability(t *testing.T) 
 		t.Fatalf("final week retained close attention: %+v", final.Attention)
 	}
 }
+
+func TestCommissionerSummaryPreservesKickoffTimingReason(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(service.teams), StartWeek: 1, Weeks: 1, Seed: 7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	week := schedule.Weeks[0].Week
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Final: true}}
+	})
+	service.SetStatsUpdatedSource(func() time.Time { return now })
+
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{Mode: "live", Actual: 300, Target: 300})
+	close := summary.Season.WeekClose
+	if close.Ready || close.StatsFresh || close.Reason != weekCloseKickoffUnavailableReason {
+		t.Fatalf("commissioner summary fabricated week-close readiness: %+v", close)
+	}
+}

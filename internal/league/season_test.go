@@ -31,6 +31,17 @@ func TestWeekCloseReady(t *testing.T) {
 	if WeekCloseReady(games, 2, lastKickoff.Add(48*time.Hour), lastKickoff.Add(49*time.Hour)) != false {
 		t.Error("expected not ready: no games at all for the requested week")
 	}
+	missingKickoff := []GameInfo{{ID: "g1", Week: 1, Final: true}}
+	if WeekCloseReady(missingKickoff, 1, lastKickoff.Add(48*time.Hour), lastKickoff.Add(49*time.Hour)) {
+		t.Error("expected not ready: final game has no authoritative kickoff")
+	}
+	mixedKickoffs := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: kickoff, Final: true},
+		{ID: "g2", Week: 1, Final: true},
+	}
+	if WeekCloseReady(mixedKickoffs, 1, lastKickoff.Add(48*time.Hour), lastKickoff.Add(49*time.Hour)) {
+		t.Error("expected not ready: one final game has no authoritative kickoff")
+	}
 }
 
 func schedulerTestService(t *testing.T) *Service {
@@ -178,6 +189,53 @@ func TestAdminWeekCloseInfoSeparatesReadinessFromOverride(t *testing.T) {
 	info = svc.AdminWeekCloseInfo(week, now)
 	if !info.Ready || !info.StatsFresh || info.GamesFinal != 1 {
 		t.Fatalf("ready snapshot = %+v", info)
+	}
+}
+
+func TestAdminWeekCloseInfoFailsClosedWhenKickoffTimingIsUnavailable(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	now := time.Date(2026, 9, 16, 14, 0, 0, 0, time.UTC)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Final: true}}
+	})
+	svc.SetStatsUpdatedSource(func() time.Time { return now })
+
+	info := svc.AdminWeekCloseInfo(week, now)
+	if info.GamesFinal != 1 || info.GamesTotal != 1 {
+		t.Fatalf("final game counts = %+v, want one final game", info)
+	}
+	if info.StatsFresh || info.Ready {
+		t.Fatalf("missing kickoff timing manufactured readiness: %+v", info)
+	}
+	if info.Reason != weekCloseKickoffUnavailableReason {
+		t.Fatalf("missing kickoff reason = %q, want %q", info.Reason, weekCloseKickoffUnavailableReason)
+	}
+}
+
+func TestAdminCloseWeekRemainsForceOverrideWhenKickoffTimingIsUnavailable(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	now := time.Date(2026, 9, 16, 14, 0, 0, 0, time.UTC)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Final: true}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+	svc.SetStatsUpdatedSource(func() time.Time { return now })
+	info := svc.AdminWeekCloseInfo(week, now)
+	if info.Ready || info.StatsFresh || info.Reason != weekCloseKickoffUnavailableReason {
+		t.Fatalf("force-close fixture unexpectedly ready: %+v", info)
+	}
+
+	request, _ := http.NewRequest(http.MethodPost, "/admin/close-week", nil)
+	updated, _, err := svc.AdminCloseWeek(request, week)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scheduleWeekIsFinal(updated) {
+		t.Fatalf("forced close did not finalize the week: %+v", updated)
 	}
 }
 

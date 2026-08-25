@@ -33,13 +33,12 @@ func (s *Service) SeasonPhase(now time.Time) string {
 	return PhaseRegularSeason
 }
 
-// WeekCloseReady reports whether week's two auto-close conditions hold
-// (section 2.5): every real NFL game for that week is final, and the
-// player-stats dataset last updated after the week's last game day plus 24
-// hours. It is advisory only in this work package (open question 3: manual
-// AdminCloseWeek is enough for year one) — nothing calls it automatically
-// yet.
-func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now time.Time) bool {
+const weekCloseKickoffUnavailableReason = "kickoff timing unavailable"
+
+// weekCloseLastKickoff returns the latest authoritative kickoff for week.
+// A schedule row without a kickoff is degraded timing data, not an early
+// kickoff; callers must fail closed until the feed supplies the timestamp.
+func weekCloseLastKickoff(games []GameInfo, week int) (time.Time, bool, bool) {
 	var lastKickoff time.Time
 	found := false
 	for _, g := range games {
@@ -47,15 +46,34 @@ func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now ti
 			continue
 		}
 		found = true
-		if !g.Final {
-			return false
+		if g.Kickoff.IsZero() {
+			return time.Time{}, true, false
 		}
 		if g.Kickoff.After(lastKickoff) {
 			lastKickoff = g.Kickoff
 		}
 	}
-	if !found || statsUpdatedAt.IsZero() {
+	return lastKickoff, found, true
+}
+
+// WeekCloseReady reports whether week's two auto-close conditions hold
+// (section 2.5): every real NFL game for that week is final, and the
+// player-stats dataset last updated after the week's last game day plus 24
+// hours. It is advisory only in this work package (open question 3: manual
+// AdminCloseWeek is enough for year one) — nothing calls it automatically
+// yet.
+func WeekCloseReady(games []GameInfo, week int, statsUpdatedAt time.Time, now time.Time) bool {
+	lastKickoff, found, kickoffOK := weekCloseLastKickoff(games, week)
+	if !found || !kickoffOK || statsUpdatedAt.IsZero() {
 		return false
+	}
+	for _, g := range games {
+		if g.Week != week {
+			continue
+		}
+		if !g.Final {
+			return false
+		}
 	}
 	_ = now // reserved for a future staleness ceiling; unused today.
 	return !statsUpdatedAt.Before(lastKickoff.Add(24 * time.Hour))
@@ -97,13 +115,8 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 		}
 	}
 	info.StatsUpdatedAt = s.statsUpdatedAt()
-	if info.GamesKnown {
-		var lastKickoff time.Time
-		for _, game := range games {
-			if game.Kickoff.After(lastKickoff) {
-				lastKickoff = game.Kickoff
-			}
-		}
+	lastKickoff, _, kickoffOK := weekCloseLastKickoff(games, week)
+	if info.GamesKnown && kickoffOK {
 		info.StatsFresh = !info.StatsUpdatedAt.IsZero() && !info.StatsUpdatedAt.Before(lastKickoff.Add(24*time.Hour))
 	}
 	info.Ready = WeekCloseReady(games, week, info.StatsUpdatedAt, now)
@@ -112,6 +125,8 @@ func (s *Service) AdminWeekCloseInfo(week int, now time.Time) WeekCloseInfo {
 		info.Reason = "Waiting for the NFL schedule."
 	case info.GamesFinal < info.GamesTotal:
 		info.Reason = fmt.Sprintf("waiting for %d of %d games to go final", info.GamesTotal-info.GamesFinal, info.GamesTotal)
+	case !kickoffOK:
+		info.Reason = weekCloseKickoffUnavailableReason
 	case info.StatsUpdatedAt.IsZero():
 		info.Reason = "Waiting for this week's player stats."
 	case !info.StatsFresh:
