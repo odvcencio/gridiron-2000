@@ -3212,6 +3212,15 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 	pending := append([]WaiverClaim(nil), s.state.WaiverClaims...)
 	var due, notYetDue []WaiverClaim
 	for _, c := range pending {
+		// A catch-up run may use a historical process instant while claims
+		// filed during the downtime already exist in the open list. They
+		// cannot resolve before their filing instant: doing so would create
+		// a receipt whose ResolvedAt precedes FiledAt. Keep them open for
+		// the first cycle at or after FiledAt.
+		if c.FiledAt.After(now) {
+			notYetDue = append(notYetDue, c)
+			continue
+		}
 		player := poolByID[c.AddID]
 		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
 		if status.State == AvailabilityOnWaivers {

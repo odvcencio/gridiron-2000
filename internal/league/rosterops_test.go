@@ -102,6 +102,42 @@ func TestRosterOpsTickRunsExactlyOnceAcrossRestarts(t *testing.T) {
 	}
 }
 
+func TestRosterOpsTickDefersFutureFiledClaimPastHistoricalCatchUp(t *testing.T) {
+	start := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+	svc, _ := newRosterOpsTestService(t, start)
+	svc.rosterOpsTick(start)
+
+	filedAt := time.Date(2026, 9, 18, 10, 0, 0, 0, time.UTC)
+	if err := svc.store.FileClaim(WaiverClaim{ID: "clm-future", TeamID: "team-7", AddID: "wv-1", FiledAt: filedAt}); err != nil {
+		t.Fatal(err)
+	}
+
+	// The service is catching up the missed 09:00 run, which is before
+	// this claim was filed. The claim must remain open for the next cycle.
+	svc.rosterOpsTick(time.Date(2026, 9, 18, 12, 0, 0, 0, time.UTC))
+	state := svc.store.Snapshot()
+	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-future" {
+		t.Fatalf("WaiverClaims after historical catch-up = %+v, want clm-future still open", state.WaiverClaims)
+	}
+	if len(state.Transactions) != 0 || len(state.WaiverReceipts) != 0 {
+		t.Fatalf("historical catch-up created transactions/receipts = %d/%d, want 0/0", len(state.Transactions), len(state.WaiverReceipts))
+	}
+	if want := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC); !state.WaiversProcessedThrough.Equal(want) {
+		t.Fatalf("WaiversProcessedThrough = %v, want historical run %v", state.WaiversProcessedThrough, want)
+	}
+
+	// The next daily run is the first eligible cycle at or after FiledAt.
+	svc.rosterOpsTick(time.Date(2026, 9, 19, 10, 0, 0, 0, time.UTC))
+	state = svc.store.Snapshot()
+	if len(state.WaiverClaims) != 0 || len(state.Transactions) != 1 || len(state.WaiverReceipts) != 1 {
+		t.Fatalf("state after first eligible cycle = claims %d, transactions %d, receipts %d; want 0/1/1", len(state.WaiverClaims), len(state.Transactions), len(state.WaiverReceipts))
+	}
+	receipt := state.WaiverReceipts[0]
+	if receipt.FiledAt.After(receipt.ResolvedAt) {
+		t.Fatalf("receipt has ResolvedAt before FiledAt: filed=%v resolved=%v", receipt.FiledAt, receipt.ResolvedAt)
+	}
+}
+
 func TestRosterOpsTickFiresN14OnWin(t *testing.T) {
 	start := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
 	svc, _ := newRosterOpsTestService(t, start)
