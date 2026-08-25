@@ -1005,6 +1005,49 @@ func TestProcessWaiversNotYetDueClaimStaysOpen(t *testing.T) {
 	}
 }
 
+func TestProcessWaiversFutureFiledClaimStaysOpenDuringHistoricalCatchUp(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	runAt := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	filedAt := runAt.Add(time.Hour)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-future", TeamID: "team-7", AddID: "wv-1", FiledAt: filedAt}); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := store.ProcessWaivers(runAt, processWaiversCfg(), nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("results = %+v, want none for a claim filed after the historical run", results)
+	}
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-future" {
+		t.Fatalf("WaiverClaims after historical catch-up = %+v, want clm-future still open", state.WaiverClaims)
+	}
+	if len(state.Transactions) != 0 || len(state.WaiverReceipts) != 0 {
+		t.Fatalf("historical catch-up created transactions/receipts = %d/%d, want 0/0", len(state.Transactions), len(state.WaiverReceipts))
+	}
+	if !state.WaiversProcessedThrough.Equal(runAt) {
+		t.Fatalf("WaiversProcessedThrough = %v, want %v", state.WaiversProcessedThrough, runAt)
+	}
+
+	firstEligible := time.Date(2026, 9, 19, 9, 0, 0, 0, time.UTC)
+	results, err = store.ProcessWaivers(firstEligible, processWaiversCfg(), nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != "won" {
+		t.Fatalf("results at first eligible cycle = %+v, want one win", results)
+	}
+	state = store.Snapshot()
+	if len(state.WaiverClaims) != 0 || len(state.Transactions) != 1 || len(state.WaiverReceipts) != 1 {
+		t.Fatalf("state after first eligible cycle = claims %d, transactions %d, receipts %d; want 0/1/1", len(state.WaiverClaims), len(state.Transactions), len(state.WaiverReceipts))
+	}
+	if got := state.WaiverReceipts[0]; got.FiledAt.After(got.ResolvedAt) {
+		t.Fatalf("receipt has ResolvedAt before FiledAt: filed=%v resolved=%v", got.FiledAt, got.ResolvedAt)
+	}
+}
+
 func TestProcessWaiversFAABModeBidDescendingWithTieBreak(t *testing.T) {
 	store := processWaiversFixtureStore(t)
 	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
