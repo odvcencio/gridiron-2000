@@ -27,6 +27,14 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
+		<div
+			id="activity-feed-region"
+			data-gosx-region
+			data-gosx-region-url={data.activity_fragment_url}
+			data-gosx-region-interval={data.activity_fragment_interval}
+			data-gosx-region-signal="$players.state.refresh"
+			aria-label="Authoritative transaction Activity"
+		>
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
@@ -93,5 +101,34 @@ func Page() Node {
 				</If>
 			</nav>
 		</section>
+		</div>
+		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+			Activity refreshes automatically within 4 seconds after a recorded add/drop result.
+			If a refresh fails, use
+			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh Activity now</button>.
+		</p>
 	</main>
+}
+
+// ActivityRegion is the server-rendered body of the Activity feed region.
+// Filter, query, and page values arrive in the fragment URL, so convergence
+// never resets a manager's current browse state or active input.
+func ActivityRegion() Node {
+	return <section class="player-pool">
+		<div class="pool-toolbar"><div><span class="section-index">01 // LEAGUE WIRE</span><h2>Every transaction</h2></div></div>
+		<form method="get" action="/activity" class="pool-search-bar">
+			<label class="mono" for="activity-sync-team">TEAM //</label>
+			<select id="activity-sync-team" name="team"><option value="">All teams</option><Each of={data.teams} as="team"><option value={team} selected={team == data.team}>{team}</option></Each></select>
+			<label class="mono" for="activity-sync-search">SEARCH //</label>
+			<input id="activity-sync-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
+			<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
+			<button class="filter-button" type="submit">Filter</button>
+			<If cond={data.has_filters}><a class="filter-button" href="/activity" data-gosx-link>Clear</a></If>
+		</form>
+		<If cond={data.filtered_count > 0}><p class="scoring-note" aria-live="polite">Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall</p></If>
+		<If cond={data.has_transactions == false}><div class="empty-tape"><strong>NO TRANSACTIONS YET</strong><p>Draft picks and roster moves appear here as they happen.</p></div></If>
+		<If cond={data.has_transactions && data.transactions_empty}><div class="empty-tape"><strong>NO MOVES MATCH</strong><p>Try another team or query, or clear the filters.</p><a class="filter-button" href="/activity" data-gosx-link>Clear filters</a></div></If>
+		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item"><time class="mono">{move.Time}</time><p><strong>{move.Team}</strong>{move.Action}<b>{move.Player}</b></p></div></Each></div>
+		<nav class="pool-pagination" aria-label="Transaction feed pages"><If cond={data.has_previous}><a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a></If><span class="mono">Page {data.page} / {data.pages}</span><If cond={data.has_next}><a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a></If></nav>
+	</section>
 }

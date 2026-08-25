@@ -76,6 +76,13 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	}
 }
 
+// ActivityDataReadOnly names the polling boundary explicitly. ActivityData
+// reads a store snapshot and applies request-local filters/pagination; this
+// projection must remain safe for repeated cross-client fragment GETs.
+func (s *Service) ActivityDataReadOnly(r *http.Request) map[string]any {
+	return s.ActivityData(r)
+}
+
 func activityText(value any) string {
 	text, _ := value.(string)
 	return text

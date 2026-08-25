@@ -394,6 +394,14 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	}
 }
 
+// PlayersDataReadOnly is the fragment projection contract. It intentionally
+// delegates to the existing snapshot-only PlayersData assembly: the caller
+// may poll it from another client, but this boundary does not provision a
+// member, claim a seat, process waivers, or write persisted league state.
+func (s *Service) PlayersDataReadOnly(r *http.Request) map[string]any {
+	return s.PlayersData(r)
+}
+
 // AddPlayer applies the roster-ops spec section 5.3 player-add action: an
 // instant free-agent signing, with an optional simultaneous drop (W6:
 // required once the roster is full). Validates, in order: W1 (signed-in

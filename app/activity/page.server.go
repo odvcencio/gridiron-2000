@@ -2,11 +2,36 @@ package activity
 
 import (
 	"log"
+	"net/http"
+	"net/url"
+	"strconv"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+func activityFragmentURL(request *http.Request) string {
+	values := url.Values{}
+	if request != nil && request.URL != nil {
+		query := request.URL.Query()
+		if team := query.Get("team"); team != "" {
+			values.Set("team", team)
+		}
+		if search := query.Get("q"); search != "" {
+			values.Set("q", search)
+		}
+		if page := query.Get("page"); page != "" {
+			if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
+				values.Set("page", strconv.Itoa(parsed))
+			}
+		}
+	}
+	if encoded := values.Encode(); encoded != "" {
+		return "/activity/fragment?" + encoded
+	}
+	return "/activity/fragment"
+}
 
 // ActivityRow is one transaction-feed entry as Page() reads it. A real
 // struct, not a map: ActivityData's "transactions" value shares its
@@ -42,7 +67,10 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			data := league.Default().ActivityData(ctx.Request)
+			ctx.Runtime().EnableBootstrap()
+			data := league.Default().ActivityDataReadOnly(ctx.Request)
+			data["activity_fragment_url"] = activityFragmentURL(ctx.Request)
+			data["activity_fragment_interval"] = activityRegionInterval
 			if transactions, ok := data["transactions"].([]map[string]any); ok {
 				data["transactions"] = activityRows(transactions)
 			}
