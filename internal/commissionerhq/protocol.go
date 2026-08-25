@@ -110,9 +110,18 @@ type WeekClose struct {
 }
 
 type Playoffs struct {
-	Seeded    bool   `json:"seeded"`
-	Available bool   `json:"available"`
-	Note      string `json:"note"`
+	Seeded         bool   `json:"seeded"`
+	Available      bool   `json:"available"`
+	Status         string `json:"status,omitempty"`
+	StatusLabel    string `json:"statusLabel,omitempty"`
+	Source         string `json:"source,omitempty"`
+	SourceState    string `json:"sourceState,omitempty"`
+	Authoritative  bool   `json:"authoritative"`
+	FinalWeek      int    `json:"finalWeek,omitempty"`
+	CurrentRound   int    `json:"currentRound,omitempty"`
+	NextMatchups   int    `json:"nextMatchups,omitempty"`
+	ChampionTeamID string `json:"championTeamId,omitempty"`
+	Note           string `json:"note"`
 }
 
 type Season struct {

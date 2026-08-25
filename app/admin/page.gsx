@@ -343,10 +343,11 @@ func Page() Node {
 							<If cond={data.schedule.has_schedule}>
 								<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="CHECK READINESS" />
 							</If>
-							<If cond={data.schedule.has_schedule == false}>
-								<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
-							</If>
-						</ul>
+									<If cond={data.schedule.has_schedule == false}>
+										<AdminTaskLink Label="Close a scoring week" Href="/admin?section=week-close#admin-week-close" Current={data.admin_section == "week-close"} Status="NO SCHEDULE" />
+									</If>
+									<AdminTaskLink Label="Operate playoff truth" Href="/admin?section=playoffs#admin-playoffs" Current={data.admin_section == "playoffs"} Status={data.playoff_truth.status_label} />
+								</ul>
 					</div>
 					<div class="admin-task-nav__group">
 						<h3>People and access</h3>
@@ -589,7 +590,64 @@ func Page() Node {
 							</form>
 						</If>
 					</If>
-					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> seed the bracket only after the final regular-season week closes and standings are final. The bracket engine exists, but commissioner seeding automation is not wired into this release yet.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger. The prior release note that commissioner seeding automation is not wired into this release yet is retired; use PLAYOFF TRUTH below.</p>
+				</section>
+				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">SEASON // PLAYOFF TRUTH</span>
+							<h2 id="admin-playoffs-heading">Preview, publish, and advance</h2>
+							<p class="scoring-note">One persisted bracket is shared everywhere. A preview is commissioner-only; publication is explicit and idempotent. Scores are never accepted from this browser.</p>
+						</div>
+						<span class="position-chip">{data.playoff_truth.status_label}</span>
+					</div>
+					<div class="pool-stats">
+						<div class="pool-stat"><span>Phase</span><b class="mono">{data.playoff_truth.season_phase_label}</b></div>
+						<div class="pool-stat"><span>Source</span><b class="mono">{data.playoff_truth.source}</b></div>
+						<div class="pool-stat"><span>Final week</span><b class="mono">{data.playoff_truth.final_week}</b></div>
+						<div class="pool-stat"><span>Revision</span><b class="mono">{data.playoff_truth.revision}</b></div>
+					</div>
+					<p class="scoring-note"><strong>STATUS:</strong> {data.playoff_truth.detail}</p>
+					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+					<form method="post" action={actionPath("playoff-preview")} data-gosx-managed="true" class="clock-controls">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<button class="button button--primary" type="submit">Build commissioner preview</button>
+					</form>
+					<If cond={data.playoff_truth.is_preview}>
+						<form method="post" action={actionPath("playoff-publish")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<label class="mono" for="admin-playoff-preview-id">PREVIEW ID //</label>
+							<input id="admin-playoff-preview-id" class="scoring-input" name="preview_id" value={data.playoff_truth.preview_id} required="required"></input>
+							<label class="mono" for="admin-playoff-publish-confirm">TYPE PUBLISH PLAYOFF BRACKET //</label>
+							<input id="admin-playoff-publish-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="PUBLISH PLAYOFF BRACKET" required="required"></input>
+							<button class="button button--primary" type="submit">Publish this preview</button>
+						</form>
+					</If>
+					<If cond={data.playoff_truth.is_published}>
+						<form method="post" action={actionPath("playoff-advance")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button button--primary" type="submit">Apply final scoring ledger</button>
+						</form>
+						<p class="scoring-note">Advancement waits until every active matchup week is final, complete, available, and authoritative. A retry is safe.</p>
+						<form method="post" action={actionPath("playoff-correct")} data-gosx-managed="true" class="season-control-form">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<div class="roster-shape-form-grid">
+								<label class="roster-shape-field"><span class="mono">MATCHUP ID</span><input class="scoring-input" name="matchup_id" required="required"></input></label>
+								<label class="roster-shape-field"><span class="mono">WINNER TEAM ID</span><input class="scoring-input" name="winner_team_id" required="required"></input></label>
+								<label class="roster-shape-field"><span class="mono">HOME SCORE (OPTIONAL)</span><input class="scoring-input" name="home_score" inputmode="decimal"></input></label>
+								<label class="roster-shape-field"><span class="mono">AWAY SCORE (OPTIONAL)</span><input class="scoring-input" name="away_score" inputmode="decimal"></input></label>
+								<label class="roster-shape-field"><span class="mono">AUDIT REASON</span><input class="scoring-input" name="reason" required="required"></input></label>
+								<label class="roster-shape-field"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input" name="confirm" autocomplete="off" placeholder="CORRECT PLAYOFF BRACKET" required="required"></input></label>
+							</div>
+							<button class="button button--ghost" type="submit">Record confirmed correction</button>
+						</form>
+						<p class="demo-message"><strong>CONSEQUENCE:</strong> terminal corrections are audited. Earlier-round corrections are refused here because downstream participants would otherwise be stale; build a fresh preview instead.</p>
+					</If>
+					<If cond={data.playoff_truth.has_matchups}>
+						<div class="activity-feed" aria-label="Persisted playoff matchups">
+							<Each of={data.playoff_truth.matchups} as="matchup"><div class="activity-item"><p><strong>{matchup.bracket} R{matchup.round} · WEEK {matchup.week}</strong> {matchup.home_team_name} {matchup.home_score_text} — {matchup.away_team_name} {matchup.away_score_text}<b>{matchup.tie_break_explanation}</b></p></div></Each>
+						</div>
+					</If>
 				</section>
 				<section id="admin-seats" aria-labelledby="admin-seats-heading" tabindex="-1" data-admin-section="seats" class={"player-pool" + data.section_class_seats}>
 					<div class="pool-toolbar">

@@ -27,6 +27,12 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
+		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
+			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+			<p>{data.playoff_truth.detail}</p>
+			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+			<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
+		</section>
 		<div
 			id="activity-feed-region"
 			data-gosx-region

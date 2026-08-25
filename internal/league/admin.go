@@ -122,6 +122,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
 	return map[string]any{
 		"viewer":                 s.Viewer(r),
+		"playoff_truth":          s.playoffTruthMap(state, now, true),
 		"identity_available":     identityAvailable,
 		"identity_error":         identityError,
 		"is_commissioner":        s.IsCommissioner(r),
@@ -229,8 +230,14 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 		"regenerate_lock_reason": "generate a schedule first",
 		"playoffs_seeded":        state.Playoffs != nil,
 		"playoffs_available":     false,
-		"playoffs_note":          "Year one: playoff seeding is not available yet.",
+		"playoffs_note":          "",
 	}
+	truth := s.playoffTruthMap(state, now, true)
+	base["playoff_truth"] = truth
+	base["playoffs_available"] = truth["has_bracket"]
+	base["playoffs_note"] = truth["detail"]
+	base["playoffs_status"] = truth["status_label"]
+	base["playoffs_recovery"] = truth["recovery"]
 	if state.Schedule == nil {
 		base["close"] = adminWeekCloseMap(s.AdminWeekCloseInfo(1, now), s.matchupLocation())
 		return base

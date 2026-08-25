@@ -56,6 +56,7 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 		"timezone":           timezone,
 		"viewer":             s.Viewer(r),
 		"league":             s.leagueMap(),
+		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 		"transactions":       filtered,
 		"transactions_empty": pagination.Total == 0,
 		"has_transactions":   len(entries) > 0,

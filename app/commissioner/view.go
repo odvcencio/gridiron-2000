@@ -99,6 +99,10 @@ type fleetCardView struct {
 	WeekCloseWaiting       bool
 	WeekCloseWaitingReason string
 	PlayoffAvailable       bool
+	PlayoffStatus          string
+	PlayoffStatusLabel     string
+	PlayoffSource          string
+	PlayoffNextMatchups    int
 	PlayoffNote            string
 
 	PoolMode           string
@@ -241,8 +245,13 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		WeekCloseStatsAt: displayTime(summary.Season.WeekClose.StatsUpdatedAt),
 		WeekCloseBadge:   weekCloseBadge(summary.Season.WeekClose), WeekCloseWaiting: !summary.Season.WeekClose.Final && !summary.Season.WeekClose.Ready,
 		WeekCloseWaitingReason: weekCloseWaitingReason(summary.Season.WeekClose),
-		PlayoffAvailable:       summary.Season.Playoffs.Available, PlayoffNote: summary.Season.Playoffs.Note,
-		PoolMode: poolModeLabel(summary.Pool.Mode), PoolActual: summary.Pool.Actual,
+		PlayoffAvailable:       summary.Season.Playoffs.Available,
+		PlayoffStatus:          summary.Season.Playoffs.Status,
+		PlayoffStatusLabel:     summary.Season.Playoffs.StatusLabel,
+		PlayoffSource:          summary.Season.Playoffs.Source,
+		PlayoffNextMatchups:    summary.Season.Playoffs.NextMatchups,
+		PlayoffNote:            summary.Season.Playoffs.Note,
+		PoolMode:               poolModeLabel(summary.Pool.Mode), PoolActual: summary.Pool.Actual,
 		PoolRosterCapacity: summary.Pool.RosterCapacity, PoolTarget: summary.Pool.Target,
 		PoolCushion: summary.Pool.Cushion, PoolShortfall: summary.Pool.Shortfall,
 		PoolActualCoverage: ratio(summary.Pool.ActualCoverage), PoolTargetCoverage: ratio(summary.Pool.TargetCoverage),
@@ -356,7 +365,9 @@ func (card fleetCardView) toMap() map[string]any {
 		"week_close_final": card.WeekCloseFinal, "week_close_stats": card.WeekCloseStats,
 		"week_close_stats_at": card.WeekCloseStatsAt, "week_close_badge": card.WeekCloseBadge,
 		"week_close_waiting": card.WeekCloseWaiting, "week_close_waiting_reason": card.WeekCloseWaitingReason,
-		"playoff_available": card.PlayoffAvailable, "playoff_note": card.PlayoffNote,
+		"playoff_available": card.PlayoffAvailable, "playoff_status": card.PlayoffStatus,
+		"playoff_status_label": card.PlayoffStatusLabel, "playoff_source": card.PlayoffSource,
+		"playoff_next_matchups": card.PlayoffNextMatchups, "playoff_note": card.PlayoffNote,
 		"pool_mode": card.PoolMode, "pool_actual": card.PoolActual, "pool_roster_capacity": card.PoolRosterCapacity,
 		"pool_target": card.PoolTarget, "pool_cushion": card.PoolCushion, "pool_shortfall": card.PoolShortfall,
 		"pool_actual_coverage": card.PoolActualCoverage, "pool_target_coverage": card.PoolTargetCoverage,

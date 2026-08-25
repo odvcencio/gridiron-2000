@@ -20,7 +20,7 @@ import (
 
 var adminSectionKeys = []string{
 	"draft-control", "schedule", "week-close", "seats", "invites",
-	"draft-order", "data", "clock", "roster", "announcements", "danger",
+	"draft-order", "data", "clock", "roster", "playoffs", "announcements", "danger",
 }
 
 func adminSection(request *http.Request) string {
@@ -145,6 +145,14 @@ func init() {
 					selectedSection = "draft-order"
 				} else if _, ok := ctx.ActionState("announcement-post"); ok {
 					selectedSection = "announcements"
+				} else if _, ok := ctx.ActionState("playoff-preview"); ok {
+					selectedSection = "playoffs"
+				} else if _, ok := ctx.ActionState("playoff-publish"); ok {
+					selectedSection = "playoffs"
+				} else if _, ok := ctx.ActionState("playoff-advance"); ok {
+					selectedSection = "playoffs"
+				} else if _, ok := ctx.ActionState("playoff-correct"); ok {
+					selectedSection = "playoffs"
 				}
 			}
 			data["admin_section"] = selectedSection
@@ -199,7 +207,7 @@ func init() {
 					}
 				}
 			}
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force"} {
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -316,6 +324,65 @@ func init() {
 					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
 				}
 				return adminCloseWeek(ctx, week, info.Final)
+			},
+			"playoff-preview": func(ctx *action.Context) error {
+				preview, err := league.Default().AdminPreviewPlayoffs(ctx.Request, time.Now())
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				adminPlayoffRedirect(ctx, fmt.Sprintf("Playoff preview %s is ready for commissioner review; it is not published.", preview.PreviewID))
+				return nil
+			},
+			"playoff-publish": func(ctx *action.Context) error {
+				previewID := strings.TrimSpace(ctx.FormData["preview_id"])
+				if previewID == "" {
+					message := "preview ID is required"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				if strings.TrimSpace(ctx.FormData["confirm"]) != league.PlayoffPublishConfirmation {
+					message := "type " + league.PlayoffPublishConfirmation + " to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				published, err := league.Default().AdminPublishPlayoffs(ctx.Request, previewID, ctx.FormData["confirm"], time.Now())
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				adminPlayoffRedirect(ctx, fmt.Sprintf("Playoff bracket %s is published as the one authoritative bracket truth.", published.PreviewID))
+				return nil
+			},
+			"playoff-advance": func(ctx *action.Context) error {
+				advanced, err := league.Default().AdminAdvancePlayoffsFromLedger(ctx.Request, time.Now())
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				adminPlayoffRedirect(ctx, fmt.Sprintf("Authoritative playoff ledger applied at bracket revision %d; no browser-supplied scores were accepted.", advanced.Revision))
+				return nil
+			},
+			"playoff-correct": func(ctx *action.Context) error {
+				matchupID := strings.TrimSpace(ctx.FormData["matchup_id"])
+				winnerID := strings.TrimSpace(ctx.FormData["winner_team_id"])
+				reason := strings.TrimSpace(ctx.FormData["reason"])
+				if matchupID == "" || winnerID == "" || reason == "" {
+					message := "matchup, winner, and an audit reason are required"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				if strings.TrimSpace(ctx.FormData["confirm"]) != league.PlayoffCorrectionConfirmation {
+					message := "type " + league.PlayoffCorrectionConfirmation + " to confirm"
+					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
+				}
+				homeScore, awayScore, scoresProvided, err := adminPlayoffScores(ctx.FormData["home_score"], ctx.FormData["away_score"])
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				corrected, err := league.Default().AdminCorrectPlayoff(ctx.Request, league.PlayoffCorrection{
+					MatchupID: matchupID, WinnerTeamID: winnerID, HomeScore: homeScore, AwayScore: awayScore,
+					ScoresProvided: scoresProvided, Reason: reason, Confirmation: ctx.FormData["confirm"], At: time.Now(),
+				})
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				adminPlayoffRedirect(ctx, fmt.Sprintf("Playoff correction recorded at bracket revision %d; earlier-round corrections remain gated behind a fresh preview.", corrected.Revision))
+				return nil
 			},
 			"draft-start": func(ctx *action.Context) error {
 				if strings.TrimSpace(ctx.FormData["confirm"]) != "START" {
@@ -625,6 +692,31 @@ func adminPositiveInt(raw, label string) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive whole number", label)
 	}
 	return n, nil
+}
+
+func adminPlayoffRedirect(ctx *action.Context, message string) {
+	adminPlayoffNotice(ctx, adminSectionTarget("playoffs"), message)
+}
+
+var adminPlayoffNotice = actionui.RedirectWithNotice
+
+func adminPlayoffScores(homeRaw, awayRaw string) (float64, float64, bool, error) {
+	homeRaw, awayRaw = strings.TrimSpace(homeRaw), strings.TrimSpace(awayRaw)
+	if homeRaw == "" && awayRaw == "" {
+		return 0, 0, false, nil
+	}
+	if homeRaw == "" || awayRaw == "" {
+		return 0, 0, false, fmt.Errorf("provide both playoff scores or leave both blank")
+	}
+	home, err := strconv.ParseFloat(homeRaw, 64)
+	if err != nil || home < 0 {
+		return 0, 0, false, fmt.Errorf("home score must be a non-negative number")
+	}
+	away, err := strconv.ParseFloat(awayRaw, 64)
+	if err != nil || away < 0 {
+		return 0, 0, false, fmt.Errorf("away score must be a non-negative number")
+	}
+	return home, away, true, nil
 }
 
 func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
