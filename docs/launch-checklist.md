@@ -32,6 +32,19 @@ Every release gets a human-readable date plus the source commit's short SHA.
 The deployment is then pinned to the image digest; the tag is only a lookup
 handle and `latest` is never used by the manifests.
 
+Run this source-integrity preflight from the checkout that will produce the
+image. It requires a clean local `main` whose commit is exactly the fetched
+`origin/main`; a feature branch, detached checkout, dirty tree, or locally
+generated artifact must stop the release before any image is built or pushed.
+
+```bash
+set -euo pipefail
+test "$(git branch --show-current)" = "main"
+test -z "$(git status --porcelain=v1 --untracked-files=all)"
+git fetch --quiet origin main
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+```
+
 ```bash
 RELEASE="release-$(date -u +%Y.%m.%d)-$(git rev-parse --short=7 HEAD)"
 GIT_SHA="$(git rev-parse HEAD)"
