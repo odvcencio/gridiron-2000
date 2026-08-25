@@ -41,25 +41,44 @@ func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 	}
 }
 
-// TestInviteEmailTemplateCarryoverLineMatchesMode proves the "rosters
-// carry over" claim only appears for a DYNASTY-mode league (SK launch-prep
-// finding: the invite text asserted this unconditionally, which was false
-// for a REDRAFT-labeled league).
-func TestInviteEmailTemplateCarryoverLineMatchesMode(t *testing.T) {
+// TestInviteEmailTemplateStatesDynastySeasonBoundary keeps both invite
+// representations honest: DYNASTY remains the long-term format intent, but
+// this release does not promise automated multi-season roster rollover.
+func TestInviteEmailTemplateStatesDynastySeasonBoundary(t *testing.T) {
 	service := newTestService(t, true)
 	service.cfg.ModeLabel = "DYNASTY"
-	_, dynastyText, _ := service.InviteEmailTemplate("manager@example.com")
-	if !strings.Contains(dynastyText, "Rosters carry over") {
-		t.Errorf("DYNASTY mode: text missing the carryover line:\n%s", dynastyText)
+	_, dynastyText, dynastyHTML := service.InviteEmailTemplate("manager@example.com")
+	for _, body := range []string{dynastyText, dynastyHTML} {
+		if strings.Contains(strings.ToLower(body), "rosters carry over") {
+			t.Errorf("DYNASTY invite must not promise automatic carryover:\n%s", body)
+		}
+	}
+	for _, want := range []string{
+		"dynasty format", "fresh draft", "not automated yet",
+		"commissioner", "carryover",
+	} {
+		if !strings.Contains(strings.ToLower(dynastyText), strings.ToLower(want)) {
+			t.Errorf("DYNASTY text missing explicit season boundary %q:\n%s", want, dynastyText)
+		}
+	}
+	if !strings.Contains(dynastyHTML, "Dynasty format is the long-term league intent") ||
+		!strings.Contains(dynastyHTML, "commissioner-managed until automation ships") {
+		t.Errorf("DYNASTY HTML missing explicit season boundary:\n%s", dynastyHTML)
 	}
 
 	service.cfg.ModeLabel = "REDRAFT"
-	_, redraftText, _ := service.InviteEmailTemplate("manager@example.com")
-	if strings.Contains(redraftText, "Rosters carry over") {
-		t.Errorf("REDRAFT mode: text must not claim rosters carry over:\n%s", redraftText)
+	_, redraftText, redraftHTML := service.InviteEmailTemplate("manager@example.com")
+	for _, body := range []string{redraftText, redraftHTML} {
+		if strings.Contains(strings.ToLower(body), "rosters carry over") ||
+			strings.Contains(strings.ToLower(body), "roster rollover") {
+			t.Errorf("REDRAFT invite must not carry dynasty rollover language:\n%s", body)
+		}
 	}
 	if !strings.Contains(redraftText, "— The Commissioner") {
 		t.Errorf("REDRAFT mode: text missing its sign-off:\n%s", redraftText)
+	}
+	if !strings.Contains(redraftHTML, "This is a fresh-season league") {
+		t.Errorf("REDRAFT HTML missing fresh-season posture:\n%s", redraftHTML)
 	}
 }
 

@@ -150,10 +150,16 @@ func TestGuidePageRendersDynastyVariantWithoutDomain(t *testing.T) {
 		"8 teams · DYNASTY",
 		"OPEN AFTER SIGN-IN",
 		"Any authenticated Google account may enter while league setup is open.",
+		"Dynasty format // year-one boundary:",
+		"Automated roster rollover is not available yet",
+		"commissioner must announce and manage any keepers or carryover manually",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("dynasty guide omitted %q", want)
 		}
+	}
+	if strings.Contains(strings.ToLower(body), "rosters carry over") {
+		t.Errorf("dynasty guide must not promise automatic roster carryover: %s", body)
 	}
 	for _, wrong := range []string{"Stable Kernel League", "@stablekernel.com", "INVITES / ALLOWLIST", "Access comes from an individual invite"} {
 		if strings.Contains(body, wrong) {

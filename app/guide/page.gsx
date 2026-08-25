@@ -63,6 +63,9 @@ func Page() Node {
 				<li><strong>Start the draft yourself.</strong><span>The scheduled window is a reminder. The draft stays closed until the commissioner types <code>START</code>.</span></li>
 			</ol>
 			<aside class="guide-callout guide-callout--alert" role="note"><strong>Opening rule:</strong> draft readiness and draft start are commissioner-controlled. A calendar clock never starts pick one by itself.</aside>
+			<If cond={data.mode_label == "DYNASTY"}>
+				<aside class="guide-callout guide-callout--alert" id="dynasty-boundary" role="note"><strong>Dynasty format // year-one boundary:</strong> Dynasty describes the league's long-term format intent. This season starts with a fresh draft. Automated roster rollover is not available yet; before a future season, the commissioner must announce and manage any keepers or carryover manually.</aside>
+			</If>
 		</section>
 
 		<section class="guide-section" id="different" aria-labelledby="different-heading">

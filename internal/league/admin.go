@@ -611,6 +611,18 @@ func (s *Service) inviteBlurb() string {
 	return blurb
 }
 
+// inviteSeasonPosture keeps the invitation honest about what the configured
+// format means today. DYNASTY is the league's long-term format intent, but
+// automated multi-season roster rollover is not shipped yet; the commissioner
+// must record and manage any future keepers or carryovers manually.
+func inviteSeasonPosture(mode string) (plain, htmlCopy string) {
+	if strings.EqualFold(strings.TrimSpace(mode), "DYNASTY") {
+		return "\n\nDYNASTY FORMAT: This first season starts with a fresh draft. Future roster rollover is not automated yet; the commissioner will publish and manage any keeper or carryover decisions manually.",
+			"Dynasty format is the long-term league intent. This first season starts with a fresh draft; future roster rollover is commissioner-managed until automation ships."
+	}
+	return "", "This is a fresh-season league. The commissioner publishes each season's roster and rules."
+}
+
 // InviteEmailTemplate builds the subject, plain-text body, and HTML body of
 // the invite email sent to one manager. It draws the draft date and time
 // from the live draft summary, so the copy always matches the console, and
@@ -633,19 +645,7 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	if venue := strings.TrimSpace(s.cfg.Copy.VenueLine); venue != "" {
 		venueClause = " " + venue
 	}
-	// carryoverLine asserted "rosters carry over season to season"
-	// unconditionally until this fix — true for the flagship's own
-	// dynasty format, false for any other mode.ModeLabel (SK's "REDRAFT",
-	// or a future keeper/dynasty-hybrid league): this platform now runs
-	// more than one format, so the invite copy must not assume the
-	// flagship's own. Any label other than exactly "DYNASTY" omits the
-	// claim entirely rather than guess at what a redraft or keeper league
-	// wants said instead — the same "omit rather than invent" rule
-	// copy.venue_line's empty-string case already follows.
-	carryoverLine := ""
-	if strings.EqualFold(s.cfg.ModeLabel, "DYNASTY") {
-		carryoverLine = "\n\nRosters carry over season to season, so draft like it matters."
-	}
+	seasonText, _ := inviteSeasonPosture(s.cfg.ModeLabel)
 
 	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
 	text = fmt.Sprintf(`Hi there,
@@ -662,7 +662,7 @@ Here's what to do before then:
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, carryoverLine)
+— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, seasonText)
 	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
@@ -683,6 +683,7 @@ func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email
 	if footerLine != "" {
 		footerJoke += " " + emDash + " " + footerLine
 	}
+	_, seasonPosture := inviteSeasonPosture(s.cfg.ModeLabel)
 	return fmt.Sprintf(inviteEmailHTMLTemplate,
 		html.EscapeString(s.cfg.Name),
 		html.EscapeString(s.cfg.ShortCode),
@@ -690,6 +691,7 @@ func (s *Service) inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email
 		html.EscapeString(s.cfg.Tagline),
 		html.EscapeString(shortDate),
 		html.EscapeString(blurb),
+		html.EscapeString(seasonPosture),
 		html.EscapeString(longDate),
 		html.EscapeString(draftTime),
 		venueRow,
@@ -720,7 +722,7 @@ const inviteEmailVenueRowTemplate = `<tr>
 // client forcing light mode. %s placeholders fill, in order: the page
 // title (name), the short-code badge, the wordmark, the tagline, the short
 // draft date ("SAT · AUG 22" style) for the signal line, the invite blurb,
-// the short draft date again (DRAFT row), the long draft date, the draft
+// the mode-specific season posture, the long draft date, the draft
 // time, the optional VENUE row (empty string when copy.venue_line is
 // unset), the invited email, the league URL (CTA href), and the footer
 // joke ("{name} — {footer_line}", or just "{name}" when footer_line is
@@ -760,7 +762,7 @@ const inviteEmailHTMLTemplate = `<!DOCTYPE html>
 <tr>
 <td style="padding:14px 32px 0 32px;">
 <div style="color:#F7F4EA; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:32px; font-weight:800; letter-spacing:-0.03em; text-transform:uppercase; line-height:1.08;">YOU'RE IN.</div>
-<div style="color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; margin-top:12px;">A seat is holding for you in %s. Rosters carry over. Receipts are forever.</div>
+<div style="color:#C2CAE1; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; font-size:15px; line-height:1.6; margin-top:12px;">A seat is holding for you in %s. %s Receipts are forever.</div>
 </td>
 </tr>
 <tr>
