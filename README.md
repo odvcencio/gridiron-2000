@@ -112,17 +112,17 @@ adoption preflight compares a secret/PII-free inventory to the generated v2
 bundle before any operator applies a resource:
 
     go run ./cmd/fleetgen adopt \
-      --file config/fleet.json \
-      --inventory config/fleet.adoption.inventory.json
+      --file /secure/private/gridiron-fleet.json \
+      --inventory /secure/private/gridiron-fleet-adoption-inventory.json
 
 The inventory contains only stable resource names, immutable image references,
 public origins, legacy/v1 configuration booleans, and explicit state-preserve
 acknowledgements. It must never contain league JSON, member identities, OAuth
 values, or Secret values. Use `config/fleet.adoption.example.json` and
 `config/fleet.adoption.inventory.example.json` as public-shape examples, then
-copy them to private operator files and replace the neutral league-config
-paths with each instance's offline, validated source. `--format json` emits a
-stable CI/receipt artifact. A ready plan also lists the exact
+copy them to private files outside the repository and replace the neutral
+league-config paths with each instance's offline, validated source.
+`--format json` emits a stable CI/receipt artifact. A ready plan also lists the exact
 `COMMISSIONER_HQ_PROVIDER_SECRET` and host
 `COMMISSIONER_HQ_V1_SECRET_<INSTANCE>` keys with `REPLACE_ME` markers; these
 are placeholders only and must be provisioned without display. A ready plan

@@ -77,8 +77,8 @@ their legacy peer/token wiring into a generated schema-v2 bundle.
 Before changing an existing hand-authored instance, create a private copy of
 the public examples:
 
-    cp config/fleet.adoption.example.json config/fleet.json
-    cp config/fleet.adoption.inventory.example.json config/fleet.adoption.inventory.json
+    cp config/fleet.adoption.example.json /secure/private/gridiron-fleet.json
+    cp config/fleet.adoption.inventory.example.json /secure/private/gridiron-fleet-adoption-inventory.json
 
 Replace the neutral `league_config_path` values with offline, validated league
 source files for the matching instance. Keep the inventory free of league
@@ -88,8 +88,8 @@ legacy/v1 wiring booleans, and explicit PVC/ConfigMap/Secret preservation
 acknowledgements. Generate and inspect the plan without contacting the cluster:
 
     go run ./cmd/fleetgen adopt \
-      --file config/fleet.json \
-      --inventory config/fleet.adoption.inventory.json \
+      --file /secure/private/gridiron-fleet.json \
+      --inventory /secure/private/gridiron-fleet-adoption-inventory.json \
       --format json > /secure/private/gridiron-fleet-adoption-plan.json
 
 The command fails closed on missing/extra instances, namespace/resource/image
