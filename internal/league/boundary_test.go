@@ -65,6 +65,65 @@ func TestBoundaryDigestMovesWhenGameGoesFinal(t *testing.T) {
 	}
 }
 
+// TestBoundaryDigestMovesWhenDroppedPlayerClears verifies the clock-only
+// waiver boundary. The processor is deliberately not invoked here: a page
+// open across clearsAt must converge from /api/league/version even when the
+// process is waiting for the next roster-ops tick.
+func TestBoundaryDigestMovesWhenDroppedPlayerClears(t *testing.T) {
+	start := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service, clock := newPresenceTestService(t, false, start)
+	service.cfg.Timezone = "UTC"
+	service.store.mu.Lock()
+	service.store.state.Transactions = []Transaction{{
+		ID:     "txn-waiver-boundary",
+		Type:   "drop",
+		TeamID: "team-1",
+		Drops:  []TransactionPlayer{{PlayerID: "waiver-boundary-player"}},
+		At:     start,
+	}}
+	service.store.mu.Unlock()
+
+	clears := clearsAt(service.cfg, start)
+	*clock = clears.Add(-time.Second)
+	before := service.StateFingerprint(1)
+	*clock = clears
+	after := service.StateFingerprint(1)
+	if after == before {
+		t.Fatalf("fingerprint did not move at waiver clear instant %s", clears)
+	}
+	*clock = clears.Add(time.Minute)
+	if quiet := service.StateFingerprint(1); quiet != after {
+		t.Fatalf("fingerprint churned after waiver clear: %q then %q", after, quiet)
+	}
+}
+
+// TestBoundaryDigestMovesWhenAutoDroppedPlayerClears covers the deferred IR
+// auto-drop schedule, which has a different clear instant from a manager
+// drop but must use the same shared convergence mechanism.
+func TestBoundaryDigestMovesWhenAutoDroppedPlayerClears(t *testing.T) {
+	start := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service, clock := newPresenceTestService(t, false, start)
+	service.cfg.Timezone = "UTC"
+	service.store.mu.Lock()
+	service.store.state.Transactions = []Transaction{{
+		ID:     "txn-auto-drop-boundary",
+		Type:   "auto-drop",
+		TeamID: "team-1",
+		Drops:  []TransactionPlayer{{PlayerID: "auto-drop-boundary-player"}},
+		At:     start,
+	}}
+	service.store.mu.Unlock()
+
+	clears := deferredClearsAt(service.cfg, nil, start)
+	*clock = clears.Add(-time.Second)
+	before := service.StateFingerprint(1)
+	*clock = clears
+	after := service.StateFingerprint(1)
+	if after == before {
+		t.Fatalf("fingerprint did not move at deferred waiver clear instant %s", clears)
+	}
+}
+
 // TestBoundaryDigestMovesAtDraftStart covers the draft-start crossing:
 // canPick and the draft page's "started" flag both read now against
 // draftAt (service.go), and no state write marks the instant.
