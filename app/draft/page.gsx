@@ -238,6 +238,8 @@ type DraftTeamProps struct {
 	Division       string
 	Ready          bool
 	Autopick       bool
+	BoardCount     int
+	BoardGap       bool
 }
 
 type DraftSeatControlProps struct {
@@ -249,6 +251,8 @@ type DraftSeatControlProps struct {
 	OnClock         bool
 	Ready           bool
 	Autopick        bool
+	BoardCount      int
+	BoardGap        bool
 	Action          string
 	ReadyAction     string
 	CSRF            string
@@ -282,6 +286,10 @@ component DraftTeam(props: DraftTeamProps) {
 		<If cond={props.Autopick}>
 			<b class="autopick-badge mono">AUTO</b>
 		</If>
+		<small class="mono draft-board-summary">BOARD {props.BoardCount} TARGETS</small>
+		<If cond={props.BoardGap}>
+			<b class="ready-state">BOARD GAP</b>
+		</If>
 	</div>
 }
 
@@ -304,6 +312,8 @@ component DraftSeatControl(props: DraftSeatControlProps) {
 			<If cond={props.Ready == false}><span class="mono">READY: NO</span></If>
 			<If cond={props.Autopick}><span class="autopick-badge mono">AUTO ON</span></If>
 			<If cond={props.Autopick == false}><span class="ready-state">MANUAL</span></If>
+			<span class="mono">BOARD: {props.BoardCount} TARGETS</span>
+			<If cond={props.BoardGap}><span class="ready-state">BOARD GAP</span></If>
 		</div>
 		<form method="post" action={props.Action} data-gosx-managed="true">
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -683,6 +693,7 @@ func DraftRoom(props DraftRoomProps) Node {
 					</form>
 					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
 						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
@@ -691,10 +702,17 @@ func DraftRoom(props DraftRoomProps) Node {
 						<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
 						<button class="button button--compact" type="submit">Set duration</button>
 					</form>
-					<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<button class="button button--compact button--ghost" type="submit">Pick now from on-clock seat's Big Board</button>
-					</form>
+					<details class="draft-destructive-control">
+						<summary class="button button--compact button--ghost">Force current pick now</summary>
+						<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
+							<p>This immediately consumes the on-clock seat's Big Board target, or the best available player when its board is empty. It advances the draft even if the clock is paused.</p>
+							<label class="mono" for="draft-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
+							<input id="draft-force-current-pick-confirm" class="scoring-input" type="text" name="confirm" value={props.Data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
+							<button class="button button--compact button--ghost" type="submit">Confirm force current pick</button>
+						</form>
+					</details>
 				</div>
 				</If>
 			</section>

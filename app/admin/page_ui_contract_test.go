@@ -325,7 +325,9 @@ func TestAdminTaskBoardDraftPhaseFixtureProcess(t *testing.T) {
 			t.Fatalf("draft_required_players = %#v", data["draft_required_players"])
 		}
 		for pick := 1; pick <= required; pick++ {
-			if _, _, _, err := service.AdminForceAutopick(request); err != nil {
+			data = service.AdminData(request)
+			token, _ := data["current_pick_token"].(string)
+			if _, _, _, err := service.AdminForceAutopick(request, league.ForceCurrentPickConfirmation, token); err != nil {
 				t.Fatalf("complete fixture pick %d/%d: %v", pick, required, err)
 			}
 		}

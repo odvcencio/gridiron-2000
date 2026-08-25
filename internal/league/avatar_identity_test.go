@@ -57,6 +57,7 @@ func TestStorePersistMutatorsHaveEarlyWriteGate(t *testing.T) {
 	fileSet := token.NewFileSet()
 
 	expected := expectedStorePersistMutators()
+	lockedExpected := expectedStoreLockedPersistMutators()
 	special := persistCallerID{file: "store.go", receiver: "(*Store)", function: "mutateAvatarIdentity"}
 	var sites []persistCallSite
 
@@ -98,6 +99,8 @@ func TestStorePersistMutatorsHaveEarlyWriteGate(t *testing.T) {
 			validateMutateAvatarIdentityPersistCaller(t, callerSites[0].fn, callerSites)
 		case hasPersistCaller(expected, id):
 			validateOrdinaryPersistCaller(t, callerSites[0].fn, callerSites)
+		case hasPersistCaller(lockedExpected, id):
+			validateLockedPersistCaller(t, callerSites[0].fn, callerSites)
 		default:
 			t.Errorf("unexpected persistLocked caller %s", formatPersistCaller(id))
 		}
@@ -107,6 +110,11 @@ func TestStorePersistMutatorsHaveEarlyWriteGate(t *testing.T) {
 			t.Errorf("expected persistLocked caller %s was not discovered", formatPersistCaller(id))
 		}
 	}
+	for id := range lockedExpected {
+		if _, ok := byCaller[id]; !ok {
+			t.Errorf("expected locked persistLocked caller %s was not discovered", formatPersistCaller(id))
+		}
+	}
 	if got := len(byCaller[special]); got != 1 {
 		t.Errorf("special persistLocked caller %s discovered %d times, want exactly once", formatPersistCaller(special), got)
 	}
@@ -114,9 +122,9 @@ func TestStorePersistMutatorsHaveEarlyWriteGate(t *testing.T) {
 
 func expectedStorePersistMutators() map[persistCallerID]struct{} {
 	names := []string{
-		"ToggleReady", "SetReady", "MakePick", "UndoLastPick", "AutoPick",
-		"ArmClock", "StartDraft", "PauseClock", "ResumeClock", "ExtendClock",
-		"SetClockDuration", "ClearClock", "SetAutopick",
+		"ToggleReady", "SetReady", "MakePick",
+		"ArmClock", "StartDraft", "PauseClock", "ResumeClock", "extendClock",
+		"SetClockDuration", "ClearClock", "SetAutopick", "SetAutopickIfClaimed",
 		"AssignMember", "EnsureMember", "AddInvite", "RemoveInvite",
 		"releaseSeat", "InviteCoManager", "BindCoManager", "DetachCoManager",
 		"ResetDraft", "ResetLeague", "SetDraftAtOverride", "SetTeamName", "SetDraftOrder", "DrawDraftOrder",
@@ -142,6 +150,14 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		expected[persistCallerID{file: "zones.go", receiver: "(*Store)", function: name}] = struct{}{}
 	}
 	return expected
+}
+
+func expectedStoreLockedPersistMutators() map[persistCallerID]struct{} {
+	locked := make(map[persistCallerID]struct{}, 2)
+	for _, name := range []string{"undoLastPickLocked", "autoPickLocked"} {
+		locked[persistCallerID{file: "store.go", receiver: "(*Store)", function: name}] = struct{}{}
+	}
+	return locked
 }
 
 func hasPersistCaller(callers map[persistCallerID]struct{}, id persistCallerID) bool {
@@ -209,6 +225,42 @@ func validateOrdinaryPersistCaller(t *testing.T, fn *ast.FuncDecl, sites []persi
 		t.Errorf("%s gate must check the s.writeErrorLocked call", name)
 	}
 	if firstStatePos := firstStoreStatePos(fn); firstStatePos != 0 && gateCall != nil && gateCall.Pos() > firstStatePos {
+		t.Errorf("%s accesses s.state before its checked write gate", name)
+	}
+}
+
+// validateLockedPersistCaller covers helpers whose caller owns s.mu. They
+// still need the same checked write gate before touching state or persisting;
+// the lock itself is asserted by each public wrapper that enters them.
+func validateLockedPersistCaller(t *testing.T, fn *ast.FuncDecl, sites []persistCallSite) {
+	t.Helper()
+	name := fn.Name.Name
+	if fn.Recv == nil || funcReceiverID(fn) != "(*Store)" || len(fn.Recv.List) != 1 || len(fn.Recv.List[0].Names) != 1 || fn.Recv.List[0].Names[0].Name != "s" {
+		t.Errorf("%s must be an exact (*Store) method with receiver s", name)
+	}
+	for _, site := range sites {
+		if !isSMethodCall(site.call, "persistLocked") {
+			t.Errorf("%s calls persistLocked through a receiver other than s", name)
+		}
+	}
+	validatePersistErrors(t, fn, name)
+	writeErrors := writeErrorCalls(fn)
+	if len(writeErrors) != 1 {
+		t.Errorf("%s has %d s.writeErrorLocked calls; want exactly one checked gate", name, len(writeErrors))
+	}
+	if len(fn.Body.List) == 0 {
+		t.Errorf("%s has no body for its checked write gate", name)
+		return
+	}
+	gateCall, ok := checkedWriteErrorGate(fn, fn.Body.List[0], false)
+	if !ok {
+		t.Errorf("%s must immediately check writeErrorLocked before touching state", name)
+		return
+	}
+	if gateCall == nil || !containsCall(writeErrors, gateCall) {
+		t.Errorf("%s gate must check the s.writeErrorLocked call", name)
+	}
+	if firstStatePos := firstStoreStatePos(fn); firstStatePos != 0 && gateCall.Pos() > firstStatePos {
 		t.Errorf("%s accesses s.state before its checked write gate", name)
 	}
 }

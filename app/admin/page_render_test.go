@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -87,6 +88,183 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 		strings.Contains(leagueCard[preserved:], "TrimmedTeamIDs") {
 		t.Fatal("full reset card still presents roster shape or seat trim as preserved")
 	}
+}
+
+func TestAdminPageRendersDraftControlFreshnessAndConsequenceContracts(t *testing.T) {
+	body := renderAdminPage(t)
+	for _, want := range []string{
+		`name="current_pick_token"`,
+		`name="previous_pick_token"`,
+		`TYPE FORCE CURRENT PICK`,
+		"This immediately consumes the on-clock seat",
+		"Big Board target",
+		"reload if another browser acts first",
+		"AUTO unavailable until a manager claims this seat.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("rendered admin draft-control contract missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Force auto-pick now") {
+		t.Fatal("rendered admin page retained the unconfirmed force-pick label")
+	}
+}
+
+func TestAdminDraftControlsActionPathFreshnessFixture(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminDraftControlsActionPathFreshnessFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_DRAFT_CONTROLS_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin draft controls fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAdminDraftControlsActionPathFreshnessFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_DRAFT_CONTROLS_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	handler := adminTestHandler(t)
+
+	get := func(cookie *http.Cookie) (*http.Cookie, string) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("GET admin = %d: %s", res.Code, res.Body.String())
+		}
+		next := cookie
+		if cookies := res.Result().Cookies(); len(cookies) > 0 {
+			next = cookies[0]
+		}
+		return next, res.Body.String()
+	}
+
+	post := func(cookie *http.Cookie, body string, actionName string, form url.Values) (*http.Cookie, string) {
+		form.Set("csrf_token", adminCSRFToken(t, body))
+		req := httptest.NewRequest(http.MethodPost, "/__actions/"+actionName, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusSeeOther {
+			t.Fatalf("POST %s = %d: %s", actionName, res.Code, res.Body.String())
+		}
+		if cookies := res.Result().Cookies(); len(cookies) > 0 {
+			cookie = cookies[0]
+		}
+		return get(cookie)
+	}
+
+	cookie, body := get(nil)
+	cookie, body = post(cookie, body, "draft-start", url.Values{"confirm": {"START"}})
+	currentToken := adminHiddenValue(t, body, "current_pick_token")
+	if currentToken == "" {
+		t.Fatal("draft-start render omitted current pick token")
+	}
+
+	cookie, body = post(cookie, body, "clock-force-autopick", url.Values{
+		"confirm":            {"WRONG"},
+		"current_pick_token": {currentToken},
+	})
+	if !strings.Contains(body, "this action requires explicit confirmation") || !strings.Contains(body, `name="confirm" value="WRONG"`) {
+		t.Fatalf("wrong force confirmation was not validated and retained: %s", body)
+	}
+	if got := adminHiddenValue(t, body, "current_pick_token"); got != currentToken {
+		t.Fatalf("wrong confirmation changed current token from %q to %q", currentToken, got)
+	}
+
+	cookie, body = post(cookie, body, "clock-force-autopick", url.Values{
+		"confirm": {league.ForceCurrentPickConfirmation},
+	})
+	if !strings.Contains(body, "this commissioner action is stale") {
+		t.Fatalf("missing force token was not rejected: %s", body)
+	}
+
+	cookie, body = post(cookie, body, "clock-force-autopick", url.Values{
+		"confirm":            {league.ForceCurrentPickConfirmation},
+		"current_pick_token": {currentToken},
+	})
+	currentAfterForce := adminHiddenValue(t, body, "current_pick_token")
+	if currentAfterForce == "" || currentAfterForce == currentToken {
+		t.Fatalf("fresh force did not advance current token: before=%q after=%q body=%s", currentToken, currentAfterForce, body)
+	}
+
+	cookie, body = post(cookie, body, "clock-extend", url.Values{
+		"seconds":            {"30"},
+		"current_pick_token": {currentAfterForce},
+	})
+	currentAfterExtend := adminHiddenValue(t, body, "current_pick_token")
+	if currentAfterExtend == "" || currentAfterExtend == currentAfterForce {
+		t.Fatalf("fresh extension did not advance current token: before=%q after=%q", currentAfterForce, currentAfterExtend)
+	}
+
+	previousToken := adminHiddenValue(t, body, "previous_pick_token")
+	if previousToken == "" {
+		t.Fatal("force render omitted previous-pick token")
+	}
+	cookie, body = post(cookie, body, "draft-undo", url.Values{
+		"confirm":             {"UNDO"},
+		"previous_pick_token": {previousToken},
+	})
+	previousAfterUndo := adminHiddenValue(t, body, "previous_pick_token")
+	if previousAfterUndo == previousToken {
+		t.Fatalf("fresh undo did not advance previous token: before=%q after=%q", previousToken, previousAfterUndo)
+	}
+
+	adminStateToken := func(name string) string {
+		data := service.AdminData(httptest.NewRequest(http.MethodGet, "/admin", nil))
+		token, _ := data[name].(string)
+		return token
+	}
+	currentAfterUndo := adminStateToken("current_pick_token")
+	previousAfterUndoState := adminStateToken("previous_pick_token")
+
+	cookie, body = post(cookie, body, "clock-force-autopick", url.Values{
+		"confirm":            {league.ForceCurrentPickConfirmation},
+		"current_pick_token": {currentToken},
+	})
+	if got := adminHiddenValue(t, body, "current_pick_token"); !strings.Contains(body, "this commissioner action is stale") || got != currentToken || adminStateToken("current_pick_token") != currentAfterUndo {
+		t.Fatalf("replayed force was not rejected without mutation: state token %q body token %q", currentAfterUndo, got)
+	}
+
+	cookie, body = post(cookie, body, "clock-extend", url.Values{
+		"seconds":            {"30"},
+		"current_pick_token": {currentAfterForce},
+	})
+	if got := adminHiddenValue(t, body, "current_pick_token"); !strings.Contains(body, "this commissioner action is stale") || got != currentAfterForce || adminStateToken("current_pick_token") != currentAfterUndo {
+		t.Fatalf("replayed extension was not rejected without mutation: state token %q body token %q", currentAfterUndo, got)
+	}
+
+	cookie, body = post(cookie, body, "draft-undo", url.Values{
+		"confirm":             {"UNDO"},
+		"previous_pick_token": {previousToken},
+	})
+	if got := adminHiddenValue(t, body, "previous_pick_token"); !strings.Contains(body, "this commissioner action is stale") || got != previousToken || adminStateToken("previous_pick_token") != previousAfterUndoState {
+		t.Fatalf("replayed undo was not rejected without mutation: state token %q body token %q", previousAfterUndoState, got)
+	}
+}
+
+func adminHiddenValue(t *testing.T, body, name string) string {
+	t.Helper()
+	re := regexp.MustCompile(`name="` + regexp.QuoteMeta(name) + `" value="([^"]*)"`)
+	match := re.FindStringSubmatch(body)
+	if len(match) != 2 {
+		t.Fatalf("rendered admin page omitted hidden %s: %s", name, body)
+	}
+	return match[1]
 }
 
 // TestAdminPageOffersSeatTrimBeforeTheDraft guards the control the league

@@ -42,13 +42,18 @@ func SeatRow(props SeatRowProps) Node {
 				</If>
 				<If cond={props.seat.claimed == false}>Awaiting a manager</If>
 			</small>
-			<If cond={props.seat.has_co}>
-				<small>
-					co-manager:
-					{props.seat.co_email}
-				</small>
-			</If>
-			<span class="position-chip">{props.seat.division}</span>
+		<If cond={props.seat.has_co}>
+			<small>
+				co-manager:
+				{props.seat.co_email}
+			</small>
+		</If>
+		<small class="mono">{props.seat.presence_label} · {props.seat.presence_detail}</small>
+		<small class="mono">BOARD: {props.seat.board_count} TARGETS</small>
+		<If cond={props.seat.board_gap}>
+			<b class="ready-state">BOARD GAP</b>
+		</If>
+		<span class="position-chip">{props.seat.division}</span>
 		</div>
 		<If cond={props.seat.ready}>
 			<b class="ready-state is-ready">Ready</b>
@@ -83,21 +88,26 @@ func SeatRow(props SeatRowProps) Node {
 			<input type="text" name="name" placeholder="Rename team" maxlength="40"></input>
 			<button class="board-button" type="submit">Set</button>
 		</form>
-		<If cond={props.seat.autopick}>
-			<form method="post" action={props.AutopickAction} data-gosx-managed="true">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="team_id" value={props.seat.id}></input>
-				<input type="hidden" name="on" value="false"></input>
-				<button class="board-button autopick-toggle is-on" type="submit">AUTO: ON</button>
-			</form>
+		<If cond={props.seat.claimed}>
+			<If cond={props.seat.autopick}>
+				<form method="post" action={props.AutopickAction} data-gosx-managed="true">
+					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+					<input type="hidden" name="team_id" value={props.seat.id}></input>
+					<input type="hidden" name="on" value="false"></input>
+					<button class="board-button autopick-toggle is-on" type="submit">AUTO: ON</button>
+				</form>
+			</If>
+			<If cond={props.seat.autopick == false}>
+				<form method="post" action={props.AutopickAction} data-gosx-managed="true">
+					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+					<input type="hidden" name="team_id" value={props.seat.id}></input>
+					<input type="hidden" name="on" value="true"></input>
+					<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
+				</form>
+			</If>
 		</If>
-		<If cond={props.seat.autopick == false}>
-			<form method="post" action={props.AutopickAction} data-gosx-managed="true">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<input type="hidden" name="team_id" value={props.seat.id}></input>
-				<input type="hidden" name="on" value="true"></input>
-				<button class="board-button autopick-toggle" type="submit">AUTO: OFF</button>
-			</form>
+		<If cond={props.seat.claimed == false}>
+			<small class="scoring-note">AUTO unavailable until a manager claims this seat.</small>
 		</If>
 		<If cond={props.seat.identity_available}>
 		<form
@@ -905,6 +915,7 @@ func Page() Node {
 						<If cond={data.clock.can_extend}>
 							<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
 								<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 								<button class="button" type="submit">Extend running pick</button>
 							</form>
@@ -917,10 +928,17 @@ func Page() Node {
 							<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
 							<button class="button" type="submit">Set duration</button>
 						</form>
-						<form method="post" action={actionPath("clock-force-autopick")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<button class="button button--ghost" type="submit">Force auto-pick now</button>
-						</form>
+						<details class="draft-destructive-control">
+							<summary class="button button--ghost">Force current pick now</summary>
+							<form method="post" action={actionPath("clock-force-autopick")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
+								<p>This immediately consumes the on-clock seat's Big Board target, or best available if its board is empty. It advances the draft even when the clock is paused.</p>
+								<label class="mono" for="admin-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
+								<input id="admin-force-current-pick-confirm" class="scoring-input" type="text" name="confirm" value={data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
+								<button class="button button--ghost" type="submit">Confirm force current pick</button>
+							</form>
+						</details>
 					</div>
 					<p class="scoring-note">
 						Extend adds seconds to the current pick. Set duration applies from the next arm; it does not change the running deadline.
@@ -1098,9 +1116,10 @@ func Page() Node {
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="previous_pick_token" value={data.previous_pick_token}></input>
 							<strong>Undo last pick</strong>
 							<p>
-								Removes the most recent pick and re-arms the clock for that slot.
+								Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first.
 							</p>
 							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
 							<button class="button" type="submit">Undo last pick</button>
