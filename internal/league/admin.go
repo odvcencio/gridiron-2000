@@ -46,11 +46,22 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	seats := make([]map[string]any, 0, len(s.Teams()))
 	for _, team := range s.Teams() {
 		member := memberForTeam(state.Members, team.ID)
+		claimed := strings.TrimSpace(member.Email) != ""
 		item := s.teamMap(s.teamView(state, team.ID))
 		item["release_confirmation"] = seatReleaseConfirmation(team.ID, item["name"].(string))
 		item["release_token"] = seatReleaseToken(state, team.ID, item["name"].(string))
 		item["email"] = member.Email
+		item["managed"] = claimed
 		item["ready"] = state.Ready[team.ID]
+		item["autopick"] = claimed && state.Autopick[team.ID]
+		presence, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, s.clock())
+		item["presence"] = presence
+		item["presence_label"] = strings.ToUpper(strings.ReplaceAll(presence, "_", " "))
+		item["presence_detail"] = presenceDetail
+		item["presence_seen_at"] = formatClockInstant(presenceSeenAt)
+		item["operator_count"] = len(s.presenceKeysForTeam(state, team.ID))
+		item["board_count"] = len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)])
+		item["board_gap"] = claimed && len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)]) == 0
 		// co_email (registration wave, build item 4): the admin seats grid
 		// shows both managers, not just the primary — teamMembers returns
 		// primary first, then the co-manager if one is bound.
@@ -163,6 +174,8 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// button whose only outcome is an error.
 		"draft_started":          state.DraftStarted,
 		"draft_required_players": len(s.Teams()) * CurrentDraftRounds(),
+		"current_pick_token":     draftCurrentPickToken(state),
+		"previous_pick_token":    draftPreviousPickToken(state),
 		"pool":                   s.poolStatusMap(),
 		"mail_enabled":           mailer.FromEnv().Enabled(),
 		"invite_preview":         map[string]any{"subject": previewSubject, "body": previewText, "html": previewHTML},
@@ -1106,23 +1119,31 @@ func draftStartReadiness(pool playerPool, demo bool, required int) error {
 // re-arm while the clock is paused, so this always passes a computed
 // deadline; it is simply unused in that case (see AdminResumeClock for
 // the same "state, then one store call" shape).
-func (s *Service) AdminUndoPick(r *http.Request) error {
+func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
 	now := s.clock()
 	state := s.store.Snapshot()
-	return s.store.UndoLastPick(now.Add(s.pickClock(state)))
+	token := strings.TrimSpace(expectedToken)
+	if token == "" || token != draftPreviousPickToken(state) {
+		return errAdminActionStale
+	}
+	return s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token)
 }
 
 // AdminExtendClock adds secs to the running deadline, clamped to
 // [now+MinPickClock, now+MaxPickClock]. It is current-pick mercy only: a
 // paused or unarmed clock has no running deadline to extend.
-func (s *Service) AdminExtendClock(r *http.Request, secs int) error {
+func (s *Service) AdminExtendClock(r *http.Request, secs int, expectedToken string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.ExtendClock(s.clock(), time.Duration(secs)*time.Second)
+	token := strings.TrimSpace(expectedToken)
+	if token == "" || token != draftCurrentPickToken(s.store.Snapshot()) {
+		return errAdminActionStale
+	}
+	return s.store.ExtendClockIfCurrent(s.clock(), time.Duration(secs)*time.Second, token)
 }
 
 // AdminSetClockSeconds overrides the persisted pick-clock duration,
@@ -1142,7 +1163,7 @@ func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) erro
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.SetAutopick(teamID, on)
+	return s.store.SetAutopickIfClaimed(strings.TrimSpace(teamID), on)
 }
 
 // AdminSetReady assigns any seat's Ready flag on the commissioner's
@@ -1162,15 +1183,25 @@ func (s *Service) AdminSetReady(r *http.Request, teamID string, on bool) error {
 // is the whole point: the commissioner is the human confirming a pick
 // should happen right now) and is rejected before the draft is live or
 // once every roster slot is filled.
-func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, error) {
+func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToken string) (DraftPick, Player, Team, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return DraftPick{}, Player{}, Team{}, err
+	}
+	if err := requireMutationConfirmation(ForceCurrentPickConfirmation, confirmation); err != nil {
+		return DraftPick{}, Player{}, Team{}, err
+	}
+	token := strings.TrimSpace(expectedToken)
+	if token == "" {
+		return DraftPick{}, Player{}, Team{}, errAdminActionStale
 	}
 	now := s.clock()
 	if !s.draftIsLive(now) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft room is not open yet")
 	}
 	state := s.store.Snapshot()
+	if token != draftCurrentPickToken(state) {
+		return DraftPick{}, Player{}, Team{}, errAdminActionStale
+	}
 	totalPicks := len(s.Teams()) * CurrentDraftRounds()
 	number := len(state.Picks) + 1
 	if number > totalPicks {
@@ -1181,11 +1212,9 @@ func (s *Service) AdminForceAutopick(r *http.Request) (DraftPick, Player, Team, 
 	if !ok {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("no undrafted player is available to auto-pick")
 	}
-	nextDeadline := time.Time{}
-	if !state.ClockPaused && number < totalPicks {
-		nextDeadline = now.Add(s.pickClock(state))
-	}
-	pick, err := s.store.AutoPick(teamID, playerID, "commissioner", number, state.ClockDeadline, now, nextDeadline)
+	var pick DraftPick
+	var err error
+	pick, err = s.store.AutoPickIfCurrent(teamID, playerID, "commissioner", number, state.ClockDeadline, now, s.pickClock(state), token)
 	if err != nil {
 		return DraftPick{}, Player{}, Team{}, err
 	}

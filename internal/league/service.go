@@ -2343,6 +2343,8 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"league_mode":          s.cfg.ModeLabel,
 		"season_start_week":    s.seasonStartWeek(),
 		"clock":                s.clockView(state, now),
+		"current_pick_token":   draftCurrentPickToken(state),
+		"previous_pick_token":  draftPreviousPickToken(state),
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
@@ -2398,6 +2400,12 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"remaining_label":    countdownMMSSLabel(remaining),
 		"duration_seconds":   int(s.pickClock(state).Seconds()),
 		"server_now":         now.UTC().Format(time.RFC3339),
+		// These opaque values are form contracts, not authorization
+		// credentials. current_pick_token covers the on-clock seat and
+		// deadline; previous_pick_token covers the exact last pick for undo.
+		"current_pick_token":  draftCurrentPickToken(state),
+		"action_token":        draftCurrentPickToken(state),
+		"previous_pick_token": draftPreviousPickToken(state),
 	}
 }
 
@@ -3206,6 +3214,7 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 			item["manager"] = "REHEARSAL SEAT"
 			item["claimed"] = true
 		}
+		claimed, _ := item["claimed"].(bool)
 		item["ready"] = state.Ready[team.ID]
 		item["on_clock"] = team.ID == onClockID
 		presenceLabel, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, now)
@@ -3214,7 +3223,10 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 		item["presence_detail"] = presenceDetail
 		item["presence_seen_at"] = formatClockInstant(presenceSeenAt)
 		item["operator_count"] = len(s.presenceKeysForTeam(state, team.ID))
-		item["autopick"] = state.Autopick[team.ID]
+		item["autopick"] = claimed && state.Autopick[team.ID]
+		boardCount := len(state.Boards[commissionerV1BoardOwnerKey(state, team.ID)])
+		item["board_count"] = boardCount
+		item["board_gap"] = claimed && boardCount == 0
 		out = append(out, item)
 	}
 	return out

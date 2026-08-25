@@ -176,6 +176,29 @@ func init() {
 			}
 			data["has_admin_error"] = false
 			data["admin_error"] = ""
+			data["force_current_pick_confirm"] = ""
+			for _, name := range []string{"clock-force-autopick", "clock-extend"} {
+				if view, ok := ctx.ActionState(name); ok {
+					if view.Error("admin") == "" {
+						continue
+					}
+					if submitted := strings.TrimSpace(view.Value("current_pick_token")); submitted != "" {
+						// Keep the submitted token bound to the failed render;
+						// a fresh token here could authorize a stale form.
+						data["current_pick_token"] = submitted
+					}
+					if name == "clock-force-autopick" {
+						data["force_current_pick_confirm"] = view.Value("confirm")
+					}
+				}
+			}
+			if view, ok := ctx.ActionState("draft-undo"); ok {
+				if view.Error("admin") != "" {
+					if submitted := strings.TrimSpace(view.Value("previous_pick_token")); submitted != "" {
+						data["previous_pick_token"] = submitted
+					}
+				}
+			}
 			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
@@ -389,7 +412,7 @@ func init() {
 					message := "type UNDO to confirm"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				if err := league.Default().AdminUndoPick(ctx.Request); err != nil {
+				if err := league.Default().AdminUndoPick(ctx.Request, ctx.FormData["previous_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", "Last pick undone; the slot is open again.")
@@ -460,7 +483,7 @@ func init() {
 				return nil
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
-				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request)
+				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request, ctx.FormData["confirm"], ctx.FormData["current_pick_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
@@ -473,7 +496,7 @@ func init() {
 					message := "enter seconds as a whole number"
 					return action.Validation(message, map[string]string{"admin": message}, ctx.FormData)
 				}
-				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
+				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Clock extended by %d seconds.", secs))

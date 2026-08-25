@@ -405,7 +405,7 @@ func TestCommissionerAutopickCompletesStartableRosters(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodPost, "/draft", nil)
 	total := len(defaultTeams()) * CurrentDraftRounds()
 	for number := 1; number <= total; number++ {
-		if _, _, _, err := service.AdminForceAutopick(request); err != nil {
+		if _, _, _, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot())); err != nil {
 			t.Fatalf("commissioner autopick %d: %v", number, err)
 		}
 	}

@@ -41,6 +41,8 @@ type DraftTeamCard struct {
 	Division       string
 	Ready          bool
 	Autopick       bool
+	BoardCount     int
+	BoardGap       bool
 }
 
 type DraftSeatControlCard struct {
@@ -52,6 +54,8 @@ type DraftSeatControlCard struct {
 	OnClock        bool
 	Ready          bool
 	Autopick       bool
+	BoardCount     int
+	BoardGap       bool
 	Action         string
 	ReadyAction    string
 	CSRF           string
@@ -241,6 +245,8 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 			Division:       stringField(team, "division"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
+			BoardCount:     intField(team, "board_count"),
+			BoardGap:       boolField(team, "board_gap"),
 		})
 	}
 	return out
@@ -264,6 +270,8 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 			OnClock:        boolField(team, "on_clock"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
+			BoardCount:     intField(team, "board_count"),
+			BoardGap:       boolField(team, "board_gap"),
 			Action:         draftActionPath("seat-autopick"),
 			ReadyAction:    draftActionPath("seat-ready"),
 		})
@@ -369,7 +377,29 @@ func init() {
 			}
 			data["has_pick_error"] = false
 			data["pick_error"] = ""
-			for _, name := range []string{"make-pick", "draft-start"} {
+			data["force_current_pick_confirm"] = ""
+			// Keep the submitted optimistic token in the validation render.
+			// Recomputing a fresh token here would turn a stale form into a
+			// newly-authorized form if another browser changed the draft while
+			// the first submission was being corrected.
+			for _, name := range []string{"clock-force-autopick", "clock-extend"} {
+				if view, ok := ctx.ActionState(name); ok {
+					if view.Error("player_id") == "" {
+						continue
+					}
+					if name == "clock-force-autopick" {
+						data["force_current_pick_confirm"] = view.Value("confirm")
+					}
+					if submitted := strings.TrimSpace(view.Value("current_pick_token")); submitted != "" {
+						data["current_pick_token"] = submitted
+						if clock, ok := data["clock"].(map[string]any); ok {
+							clock["current_pick_token"] = submitted
+							clock["action_token"] = submitted
+						}
+					}
+				}
+			}
+			for _, name := range []string{"make-pick", "draft-start", "clock-force-autopick", "clock-extend"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("player_id"); message != "" {
 						data["has_pick_error"] = true
@@ -424,7 +454,7 @@ func init() {
 				return nil
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
-				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request)
+				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request, ctx.FormData["confirm"], ctx.FormData["current_pick_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
@@ -437,7 +467,7 @@ func init() {
 					message := "enter seconds as a whole number"
 					return action.Validation(message, map[string]string{"player_id": message}, ctx.FormData)
 				}
-				if err := league.Default().AdminExtendClock(ctx.Request, secs); err != nil {
+				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))

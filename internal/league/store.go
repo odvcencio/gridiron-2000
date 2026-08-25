@@ -481,10 +481,39 @@ func (s *Store) MakePick(teamID, playerID, madeBy string, now time.Time, nextDea
 // ClockRemainingSec untouched: pause freezes the timer, not the draft, so
 // an undo during a pause must not silently resume it.
 func (s *Store) UndoLastPick(nextDeadline time.Time) error {
+	return s.undoLastPick(nextDeadline, "", false)
+}
+
+func (s *Store) undoLastPick(nextDeadline time.Time, expectedToken string, requireToken bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.undoLastPickLocked(nextDeadline, expectedToken, requireToken)
+}
+
+// UndoLastPickIfCurrent applies the undo transaction only when the rendered
+// previous-pick token still describes the current state. The token check,
+// duration resolution, and removal share the Store lock, so a commissioner
+// action cannot validate one duration and re-arm the reopened slot with
+// another duration after a concurrent commissioner setting change.
+func (s *Store) UndoLastPickIfCurrent(now time.Time, fallbackDuration time.Duration, expectedToken string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
+	}
+	if strings.TrimSpace(expectedToken) == "" || expectedToken != draftPreviousPickToken(s.state) {
+		return errAdminActionStale
+	}
+	nextDeadline := now.Add(s.clockDurationLocked(fallbackDuration))
+	return s.undoLastPickLocked(nextDeadline, expectedToken, true)
+}
+
+func (s *Store) undoLastPickLocked(nextDeadline time.Time, expectedToken string, requireToken bool) error {
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if requireToken && (strings.TrimSpace(expectedToken) == "" || expectedToken != draftPreviousPickToken(s.state)) {
+		return errAdminActionStale
 	}
 	if len(s.state.Picks) == 0 {
 		return errors.New("no picks to undo")
@@ -528,10 +557,32 @@ func (s *Store) UndoLastPick(nextDeadline time.Time) error {
 // Any mismatch returns errStaleAutoPick; the caller drops it and the next
 // tick (or admin retry) re-evaluates from a fresh snapshot.
 func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, nextDeadline time.Time) (DraftPick, error) {
+	return s.autoPick(teamID, playerID, madeBy, expectedNumber, deadlineSeen, now, nextDeadline, "", false)
+}
+
+func (s *Store) autoPick(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, nextDeadline time.Time, expectedToken string, requireToken bool) (DraftPick, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.autoPickLocked(teamID, playerID, madeBy, expectedNumber, deadlineSeen, now, nextDeadline, expectedToken, requireToken, 0)
+}
+
+// AutoPickIfCurrent is the commissioner-facing compare-and-set variant. It
+// retains AutoPick's expected number/deadline checks and additionally binds
+// the write to the opaque current-pick token rendered in the form. The
+// reopened deadline is derived from the state under the same Store lock,
+// using the current persisted duration when one is set.
+func (s *Store) AutoPickIfCurrent(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, fallbackDuration time.Duration, expectedToken string) (DraftPick, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.autoPickLocked(teamID, playerID, madeBy, expectedNumber, deadlineSeen, now, time.Time{}, expectedToken, true, fallbackDuration)
+}
+
+func (s *Store) autoPickLocked(teamID, playerID, madeBy string, expectedNumber int, deadlineSeen time.Time, now time.Time, nextDeadline time.Time, expectedToken string, requireToken bool, fallbackDuration time.Duration) (DraftPick, error) {
 	if err := s.writeErrorLocked(); err != nil {
 		return DraftPick{}, err
+	}
+	if requireToken && (strings.TrimSpace(expectedToken) == "" || expectedToken != draftCurrentPickToken(s.state)) {
+		return DraftPick{}, errAdminActionStale
 	}
 	if !s.state.DraftStarted && !s.draftLifecycleBypass {
 		return DraftPick{}, errStaleAutoPick
@@ -560,6 +611,9 @@ func (s *Store) AutoPick(teamID, playerID, madeBy string, expectedNumber int, de
 		if pick.PlayerID == playerID {
 			return DraftPick{}, errStaleAutoPick
 		}
+	}
+	if requireToken && !s.state.ClockPaused && number < len(defaultTeams())*CurrentDraftRounds() {
+		nextDeadline = now.Add(s.clockDurationLocked(fallbackDuration))
 	}
 	// Best-effort backup: a failure here must not block the auto-pick
 	// itself. AutoPick mutates Picks the same way MakePick does, so it
@@ -746,10 +800,34 @@ func (s *Store) ResumeClock(now time.Time, duration time.Duration) error {
 // [now+MinPickClock, now+MaxPickClock]. A paused or unarmed clock rejects
 // the extend; there is no running deadline to extend.
 func (s *Store) ExtendClock(now time.Time, delta time.Duration) error {
+	return s.extendClock(now, delta, "", false)
+}
+
+// ExtendClockIfCurrent adds time only to the current running pick rendered by
+// the submitted form. The expected token is checked under the same lock as
+// the deadline mutation, making stale/double submissions side-effect free.
+func (s *Store) ExtendClockIfCurrent(now time.Time, delta time.Duration, expectedToken string) error {
+	return s.extendClock(now, delta, expectedToken, true)
+}
+
+// clockDurationLocked resolves the authoritative duration for a consequence
+// that is being committed under the Store lock. A persisted commissioner
+// override wins; the fallback is the service's parsed PICK_CLOCK default.
+func (s *Store) clockDurationLocked(fallback time.Duration) time.Duration {
+	if s.state.ClockDurationSec > 0 {
+		return clampPickClock(time.Duration(s.state.ClockDurationSec) * time.Second)
+	}
+	return clampPickClock(fallback)
+}
+
+func (s *Store) extendClock(now time.Time, delta time.Duration, expectedToken string, requireToken bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
+	}
+	if requireToken && (strings.TrimSpace(expectedToken) == "" || expectedToken != draftCurrentPickToken(s.state)) {
+		return errAdminActionStale
 	}
 	if s.state.ClockPaused || s.state.ClockDeadline.IsZero() {
 		return fmt.Errorf("the clock is not running")
@@ -808,6 +886,30 @@ func (s *Store) SetAutopick(teamID string, on bool) error {
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
+	}
+	if on {
+		s.state.Autopick[teamID] = true
+	} else {
+		delete(s.state.Autopick, teamID)
+	}
+	return s.persistLocked(colAutopick)
+}
+
+// SetAutopickIfClaimed toggles a commissioner-delegated AUTO flag only when
+// the target seat is still claimed or managed. The membership check and the
+// flag mutation share one Store lock and one persistence boundary, so a
+// concurrent ReleaseSeat cannot leave an unclaimed seat with AUTO enabled.
+func (s *Store) SetAutopickIfClaimed(teamID string, on bool) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(memberForTeam(s.state.Members, teamID).Email) == "" {
+		return fmt.Errorf("AUTO requires a claimed or managed seat")
 	}
 	if on {
 		s.state.Autopick[teamID] = true
@@ -1168,19 +1270,23 @@ func (s *Store) releaseSeat(teamID, confirmation, token string, confirmed bool) 
 		delete(s.state.Ready, teamID)
 		changed = true
 	}
+	if _, ok := s.state.Autopick[teamID]; ok {
+		delete(s.state.Autopick, teamID)
+		changed = true
+	}
 	if !changed {
 		return nil
 	}
 	s.state.SeatRevisions[teamID]++
 	if boardChanged {
-		if err := s.persistLocked(colMembers, colCoInvites, colReady, colScalars, colBoards); err != nil {
+		if err := s.persistLocked(colMembers, colCoInvites, colReady, colAutopick, colScalars, colBoards); err != nil {
 			s.state = previous
 			s.dirty = previousDirty
 			return err
 		}
 		return nil
 	}
-	if err := s.persistLocked(colMembers, colCoInvites, colReady, colScalars); err != nil {
+	if err := s.persistLocked(colMembers, colCoInvites, colReady, colAutopick, colScalars); err != nil {
 		s.state = previous
 		s.dirty = previousDirty
 		return err

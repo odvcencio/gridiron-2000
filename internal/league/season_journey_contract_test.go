@@ -203,7 +203,7 @@ func TestSeasonJourneyAcceptance(t *testing.T) {
 	}
 	// pool-002 is the next-best ADP fallback. Team two's deliberately lower
 	// pool-014 board entry must win instead, proving seat-scoped Board input.
-	forcedBoardPick, forcedBoardPlayer, forcedBoardTeam, err := service.AdminForceAutopick(commissionerRequest)
+	forcedBoardPick, forcedBoardPlayer, forcedBoardTeam, err := service.AdminForceAutopick(commissionerRequest, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot()))
 	if err != nil || forcedBoardPlayer.ID != "pool-014" || forcedBoardTeam.ID != "team-2" || forcedBoardPick.MadeBy != "commissioner" {
 		t.Fatalf("board AUTO = pick:%+v player:%+v team:%+v err:%v", forcedBoardPick, forcedBoardPlayer, forcedBoardTeam, err)
 	}
@@ -218,7 +218,7 @@ func TestSeasonJourneyAcceptance(t *testing.T) {
 	}
 	// The next unclaimed seat has no board, so forced AUTO separately proves
 	// the pool's best-available branch chooses pool-002 rather than pool-014.
-	fallbackPick, fallbackPlayer, fallbackTeam, err := service.AdminForceAutopick(commissionerRequest)
+	fallbackPick, fallbackPlayer, fallbackTeam, err := service.AdminForceAutopick(commissionerRequest, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot()))
 	if err != nil || fallbackPlayer.ID != "pool-002" || fallbackTeam.ID != "team-3" || fallbackPick.MadeBy != "commissioner" {
 		t.Fatalf("best-available AUTO = pick:%+v player:%+v team:%+v err:%v", fallbackPick, fallbackPlayer, fallbackTeam, err)
 	}
@@ -228,7 +228,7 @@ func TestSeasonJourneyAcceptance(t *testing.T) {
 	// roster capacity coherent at the terminal transition.
 	totalPicks := len(service.Teams()) * CurrentDraftRounds()
 	for len(service.store.Snapshot().Picks) < totalPicks {
-		if _, _, _, err := service.AdminForceAutopick(commissionerRequest); err != nil {
+		if _, _, _, err := service.AdminForceAutopick(commissionerRequest, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot())); err != nil {
 			t.Fatalf("commissioner AUTO at pick %d: %v", len(service.store.Snapshot().Picks)+1, err)
 		}
 	}
@@ -434,7 +434,7 @@ func TestSeasonJourneyCapacitySupportsFourteenConfiguredTeams(t *testing.T) {
 		t.Fatalf("authenticated fourteen-team service start = %v, %v", started, err)
 	}
 	for number := 1; number <= capacity; number++ {
-		pick, _, team, err := service.AdminForceAutopick(commissionerRequest)
+		pick, _, team, err := service.AdminForceAutopick(commissionerRequest, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot()))
 		if err != nil {
 			t.Fatalf("fourteen-team commissioner AUTO %d (%s): %v", number, team.ID, err)
 		}

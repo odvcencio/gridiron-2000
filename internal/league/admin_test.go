@@ -418,7 +418,7 @@ func TestCommissionerForceAutopick(t *testing.T) {
 		service := newTestService(t, false)
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
-		if _, _, _, err := service.AdminForceAutopick(request); err == nil {
+		if _, _, _, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, "stale"); err == nil {
 			t.Fatal("a non-commissioner request must be rejected")
 		}
 	})
@@ -435,7 +435,7 @@ func TestCommissionerForceAutopick(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		pick, player, team, err := service.AdminForceAutopick(request)
+		pick, player, team, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot()))
 		if err != nil {
 			t.Fatalf("force auto-pick while paused: %v", err)
 		}
@@ -463,7 +463,7 @@ func TestCommissionerForceAutopick(t *testing.T) {
 				t.Fatalf("seed pick %d: %v", number, err)
 			}
 		}
-		if _, _, _, err := service.AdminForceAutopick(request); err == nil {
+		if _, _, _, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot())); err == nil {
 			t.Fatal("force auto-pick must be rejected once the draft is complete")
 		}
 	})
@@ -513,7 +513,7 @@ func TestAdminForceAutopickFiresN6Hook(t *testing.T) {
 	// so notifyAutopickMade's CONNECTED skip does not apply here.
 
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-	pick, _, _, err := service.AdminForceAutopick(request)
+	pick, _, _, err := service.AdminForceAutopick(request, ForceCurrentPickConfirmation, draftCurrentPickToken(service.store.Snapshot()))
 	if err != nil {
 		t.Fatalf("AdminForceAutopick: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestAdminUndoPickRequiresCommissioner(t *testing.T) {
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
 
-	if err := service.AdminUndoPick(request); err == nil {
+	if err := service.AdminUndoPick(request, ""); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
 	}
 }
@@ -612,7 +612,7 @@ func TestAdminUndoPickRearmsClockWithInjectedClock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := service.AdminUndoPick(request); err != nil {
+	if err := service.AdminUndoPick(request, draftPreviousPickToken(service.store.Snapshot())); err != nil {
 		t.Fatalf("AdminUndoPick: %v", err)
 	}
 	state := service.store.Snapshot()
@@ -631,12 +631,12 @@ func TestAdminUndoPickEmptyDraft(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 
-	err := service.AdminUndoPick(request)
+	err := service.AdminUndoPick(request, "")
 	if err == nil {
-		t.Fatal("expected an error undoing a pick on an empty draft")
+		t.Fatal("expected a stale-token error when undoing an empty draft")
 	}
-	if !strings.Contains(err.Error(), "no picks to undo") {
-		t.Fatalf("err = %q, want it to contain %q", err.Error(), "no picks to undo")
+	if !errors.Is(err, errAdminActionStale) {
+		t.Fatalf("err = %q, want errAdminActionStale", err.Error())
 	}
 }
 
