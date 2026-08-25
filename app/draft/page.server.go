@@ -39,6 +39,7 @@ type DraftTeamCard struct {
 	OperatorCount  int
 	Manager        string
 	Division       string
+	Claimed        bool
 	Ready          bool
 	Autopick       bool
 	BoardCount     int
@@ -243,6 +244,7 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 			OperatorCount:  intField(team, "operator_count"),
 			Manager:        stringField(team, "manager"),
 			Division:       stringField(team, "division"),
+			Claimed:        boolField(team, "claimed"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
 			BoardCount:     intField(team, "board_count"),

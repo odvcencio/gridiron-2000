@@ -181,6 +181,37 @@ func TestDraftDataSurfacesViewerReadyAndAutopickState(t *testing.T) {
 	}
 }
 
+func TestDraftDataReadinessSummaryCountsClaimedManagers(t *testing.T) {
+	service := newTestService(t, false)
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	initial := service.DraftData(request)
+	if initial["ready_count"] != 0 || initial["manager_count"] != 0 {
+		t.Fatalf("unclaimed readiness summary = ready:%v managers:%v, want 0:0", initial["ready_count"], initial["manager_count"])
+	}
+	member, _, err := service.store.AssignMember("manager@example.com", "Manager")
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimed := service.DraftData(request)
+	if claimed["ready_count"] != 0 || claimed["manager_count"] != 1 {
+		t.Fatalf("claimed readiness summary = ready:%v managers:%v, want 0:1", claimed["ready_count"], claimed["manager_count"])
+	}
+	if err := service.store.SetReady(member.TeamID, true); err != nil {
+		t.Fatal(err)
+	}
+	ready := service.DraftData(request)
+	if ready["ready_count"] != 1 || ready["manager_count"] != 1 {
+		t.Fatalf("ready summary = ready:%v managers:%v, want 1:1", ready["ready_count"], ready["manager_count"])
+	}
+
+	demo := newTestService(t, true)
+	demoData := demo.DraftData(request)
+	if demoData["ready_count"] != 0 || demoData["manager_count"] != 1 {
+		t.Fatalf("demo readiness summary = ready:%v managers:%v, want 0:1", demoData["ready_count"], demoData["manager_count"])
+	}
+}
+
 // TestToggleReadyStillOnlyAffectsOwnSeat pins that the manager's own
 // ToggleReady path (compare AdminSetReady, the commissioner's path) stays
 // unchanged: it flips only the acting team's own flag, leaving every

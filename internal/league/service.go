@@ -2358,6 +2358,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	for index, player := range pagedAvailable {
 		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
 	}
+	readyManagerCount, managerCount := s.draftSeatCounts(state)
 	return map[string]any{
 		"viewer":               viewer,
 		"public_entry":         publicEntryData(publicEntry),
@@ -2398,8 +2399,8 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"can_pick":             canPick,
 		"draft_complete":       complete,
 		"demo_mode":            s.demoMode,
-		"ready_count":          readyCount(state.Ready),
-		"manager_count":        len(s.Teams()),
+		"ready_count":          readyManagerCount,
+		"manager_count":        managerCount,
 		"viewer_ready":         viewerTeam != "" && state.Ready[viewerTeam],
 		"viewer_autopick":      viewerTeam != "" && state.Autopick[viewerTeam],
 		"order_randomized":     len(state.DraftOrder) > 0,
@@ -3952,6 +3953,29 @@ func readyCount(ready map[string]bool) int {
 		}
 	}
 	return count
+}
+
+// draftSeatCounts is the readiness summary shown in the Draft Room. The
+// configured team list describes the league topology, not the set of people
+// who can check in: an open franchise must not make the UI claim a manager is
+// "not ready" or inflate the readiness denominator. Demo mode's synthetic
+// rehearsal seat is included as a claimed seat so its summary matches the
+// visible REHEARSAL SEAT card.
+func (s *Service) draftSeatCounts(state PersistedState) (ready, managers int) {
+	claimed := claimedSeatIDs(state.Members)
+	if s.demoMode && len(s.Teams()) > 0 {
+		claimed[s.Teams()[0].ID] = true
+	}
+	for _, team := range s.Teams() {
+		if !claimed[team.ID] {
+			continue
+		}
+		managers++
+		if state.Ready[team.ID] {
+			ready++
+		}
+	}
+	return ready, managers
 }
 
 func initials(name string) string {

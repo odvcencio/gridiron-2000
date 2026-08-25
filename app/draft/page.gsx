@@ -236,6 +236,7 @@ type DraftTeamProps struct {
 	OperatorCount  int
 	Manager        string
 	Division       string
+	Claimed        bool
 	Ready          bool
 	Autopick       bool
 	BoardCount     int
@@ -277,11 +278,16 @@ component DraftTeam(props: DraftTeamProps) {
 			<small class="mono presence-label">{props.PresenceLabel}</small>
 			<small class="mono division-tag">{props.Division}</small>
 		</div>
-		<If cond={props.Ready}>
-			<b class="ready-state is-ready">Ready</b>
+		<If cond={props.Claimed == false}>
+			<b class="ready-state">OPEN SEAT</b>
 		</If>
-		<If cond={props.Ready == false}>
-			<b class="ready-state">Not ready</b>
+		<If cond={props.Claimed}>
+			<If cond={props.Ready}>
+				<b class="ready-state is-ready">Ready</b>
+			</If>
+			<If cond={props.Ready == false}>
+				<b class="ready-state">Not ready</b>
+			</If>
 		</If>
 		<If cond={props.Autopick}>
 			<b class="autopick-badge mono">AUTO</b>
