@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log"
@@ -18,14 +19,58 @@ import (
 // the uploaded file part into memory. It is deliberately generous versus
 // league.AvatarMaxBytes (the real, exact-message business rule enforced
 // inside league.Service.UploadAvatar): this is a coarse safety backstop,
-// not the "image must be 2MB or smaller" check itself.
+// not the "image must be 10MB or smaller" check itself.
 const avatarReadLimit = league.AvatarMaxBytes + 64*1024
 
 // avatarMultipartEnvelopeMaxBytes caps the complete multipart request — all
 // boundaries, headers, fields, and the avatar file together. It deliberately
 // leaves bounded room above AvatarMaxBytes for the form envelope while
-// keeping unrelated fields from turning a 2 MB upload into an unbounded body.
+// keeping unrelated fields from turning a 10 MB upload into an unbounded body.
 const avatarMultipartEnvelopeMaxBytes = league.AvatarMaxBytes + 256*1024
+
+// avatarUploadAdmissionConcurrency bounds complete multipart bodies retained
+// by the native upload middleware before the downstream parser and handler
+// finish. Each admitted request may retain a 10.25 MiB envelope, a 10 MiB
+// multipart-parser copy, and the handler's 10 MiB file slice. The league gate
+// admits one worst-case 4096x4096 16-bit image decode at roughly 128 MiB, and
+// Catmull-Rom scaling to 512x512 may add roughly 64 MiB of scratch. The
+// conservative modeled peak is therefore 4*(10.25+10+10)+128+64 = 313 MiB,
+// leaving roughly 199 MiB of a 512 MiB pod for PNG decoder/output overhead,
+// the Go runtime, database, and ordinary application traffic.
+const avatarUploadAdmissionConcurrency = 4
+
+// avatarUploadAdmissionGate is a context-aware counting semaphore. A request
+// that is waiting for a slot must be able to leave when its client goes away;
+// in particular, it must never reach the downstream session parser after its
+// context is canceled.
+type avatarUploadAdmissionGate chan struct{}
+
+func newAvatarUploadAdmissionGate(capacity int) avatarUploadAdmissionGate {
+	if capacity < 1 {
+		panic("avatar upload admission capacity must be positive")
+	}
+	return make(avatarUploadAdmissionGate, capacity)
+}
+
+func (gate avatarUploadAdmissionGate) acquire(ctx context.Context) (func(), bool) {
+	if err := ctx.Err(); err != nil {
+		return nil, false
+	}
+	select {
+	case gate <- struct{}{}:
+		// If cancellation raced with admission, release the slot and keep the
+		// request out of the downstream parser and handler.
+		if err := ctx.Err(); err != nil {
+			<-gate
+			return nil, false
+		}
+		return func() { <-gate }, true
+	case <-ctx.Done():
+		return nil, false
+	}
+}
+
+var avatarUploadAdmission = newAvatarUploadAdmissionGate(avatarUploadAdmissionConcurrency)
 
 // avatarMultipartEnvelopeLimit is the path-specific outer middleware for the
 // native multipart upload. It must run before the session/CSRF middleware's
@@ -40,6 +85,10 @@ const avatarMultipartEnvelopeMaxBytes = league.AvatarMaxBytes + 256*1024
 // cap, while malformed-but-small multipart input still reaches the ordinary
 // parser and its normal validation path.
 func avatarMultipartEnvelopeLimit(next http.Handler) http.Handler {
+	return avatarMultipartEnvelopeLimitWithGate(next, avatarUploadAdmission)
+}
+
+func avatarMultipartEnvelopeLimitWithGate(next http.Handler, admission avatarUploadAdmissionGate) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/avatar/upload" || r.Body == nil {
 			next.ServeHTTP(w, r)
@@ -47,9 +96,14 @@ func avatarMultipartEnvelopeLimit(next http.Handler) http.Handler {
 		}
 		if r.ContentLength > avatarMultipartEnvelopeMaxBytes {
 			_ = r.Body.Close()
-			http.Error(w, "That image is too large. Choose an image of 2 MB or less.", http.StatusRequestEntityTooLarge)
+			http.Error(w, "That image is too large. Choose an image of 10 MB or less.", http.StatusRequestEntityTooLarge)
 			return
 		}
+		release, admitted := admission.acquire(r.Context())
+		if !admitted {
+			return
+		}
+		defer release()
 		body, err := io.ReadAll(io.LimitReader(r.Body, avatarMultipartEnvelopeMaxBytes+1))
 		_ = r.Body.Close()
 		if err != nil {
@@ -57,7 +111,7 @@ func avatarMultipartEnvelopeLimit(next http.Handler) http.Handler {
 			return
 		}
 		if int64(len(body)) > avatarMultipartEnvelopeMaxBytes {
-			http.Error(w, "That image is too large. Choose an image of 2 MB or less.", http.StatusRequestEntityTooLarge)
+			http.Error(w, "That image is too large. Choose an image of 10 MB or less.", http.StatusRequestEntityTooLarge)
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))

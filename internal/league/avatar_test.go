@@ -112,6 +112,17 @@ func TestProcessAvatarImageRejectsTooLarge(t *testing.T) {
 	}
 }
 
+func TestProcessAvatarImageAcceptsExactMaxBytes(t *testing.T) {
+	data := solidPNG(t, AvatarMinDimension, AvatarMinDimension, color.RGBA{R: 10, G: 20, B: 30, A: 255})
+	data = append(data, bytes.Repeat([]byte{0x5a}, AvatarMaxBytes-len(data))...)
+	if len(data) != AvatarMaxBytes {
+		t.Fatalf("fixture length = %d, want %d", len(data), AvatarMaxBytes)
+	}
+	if _, err := processAvatarImage(data); err != nil {
+		t.Fatalf("exact-limit upload rejected: %v", err)
+	}
+}
+
 func TestProcessAvatarImageRejectsTooSmallDimensions(t *testing.T) {
 	data := fakePNGHeader(63, 63)
 	_, err := processAvatarImage(data)
@@ -180,6 +191,41 @@ func TestProcessAvatarImageReencodesAsPNGRegardlessOfInputFormat(t *testing.T) {
 	}
 }
 
+func TestProcessAvatarImageStripsMetadataAndPreservesAlpha(t *testing.T) {
+	img := image.NewNRGBA(image.Rect(0, 0, 96, 64))
+	for y := 0; y < img.Bounds().Dy(); y++ {
+		for x := 0; x < img.Bounds().Dx(); x++ {
+			img.SetNRGBA(x, y, color.NRGBA{R: 20, G: 40, B: 60, A: 128})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, img); err != nil {
+		t.Fatalf("encode alpha fixture: %v", err)
+	}
+	metadata := pngChunk("tEXt", []byte("Comment\x00private metadata"))
+	insertAt := len(encoded.Bytes()) - 12 // immediately before the IEND chunk
+	data := append([]byte{}, encoded.Bytes()[:insertAt]...)
+	data = append(data, metadata...)
+	data = append(data, encoded.Bytes()[insertAt:]...)
+
+	out, err := processAvatarImage(data)
+	if err != nil {
+		t.Fatalf("metadata-bearing alpha upload rejected: %v", err)
+	}
+	assertPNGSize(t, out, AvatarOutputSize, AvatarOutputSize)
+	if bytes.Contains(out, []byte("tEXt")) || bytes.Contains(out, []byte("private metadata")) {
+		t.Fatal("normalized PNG retained input metadata")
+	}
+	decoded, err := png.Decode(bytes.NewReader(out))
+	if err != nil {
+		t.Fatalf("decode normalized alpha PNG: %v", err)
+	}
+	_, _, _, alpha := decoded.At(AvatarOutputSize/2, AvatarOutputSize/2).RGBA()
+	if alpha != uint32(128)*257 {
+		t.Fatalf("normalized alpha = %d, want %d", alpha, uint32(128)*257)
+	}
+}
+
 func assertPNGSize(t *testing.T, data []byte, wantWidth, wantHeight int) {
 	t.Helper()
 	img, err := png.Decode(bytes.NewReader(data))
@@ -231,6 +277,51 @@ func TestCenterSquareAndScaleCropsToCenter(t *testing.T) {
 		if r != wantR || g != wantG || b != wantB {
 			t.Fatalf("pixel (%d,%d) = %v, want the middle band's color %v", point.x, point.y, got, middle)
 		}
+	}
+}
+
+func TestCenterSquareAndScaleUsesHighQualityInterpolation(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			value := uint8(0)
+			if x >= 32 {
+				value = 255
+			}
+			img.SetRGBA(x, y, color.RGBA{R: value, G: value, B: value, A: 255})
+		}
+	}
+	out := centerSquareAndScale(img, AvatarOutputSize)
+	r, _, _, _ := out.At(AvatarOutputSize/2-1, AvatarOutputSize/2).RGBA()
+	if r == 0 || r == 0xffff {
+		t.Fatalf("edge pixel = %d, want an interpolated value between black and white", r)
+	}
+}
+
+func TestAvatarDecodeGateBlocksAboveConfiguredConcurrency(t *testing.T) {
+	gate := newAvatarDecodeGate(avatarDecodeConcurrency)
+	releases := make([]func(), 0, avatarDecodeConcurrency)
+	for range avatarDecodeConcurrency {
+		releases = append(releases, gate.acquire())
+	}
+	acquired := make(chan struct{})
+	go func() {
+		release := gate.acquire()
+		close(acquired)
+		release()
+	}()
+	select {
+	case <-acquired:
+		t.Fatal("decode gate admitted more than its configured concurrency")
+	case <-time.After(20 * time.Millisecond):
+	}
+	for _, release := range releases {
+		release()
+	}
+	select {
+	case <-acquired:
+	case <-time.After(time.Second):
+		t.Fatal("decode gate did not release a waiting decoder")
 	}
 }
 

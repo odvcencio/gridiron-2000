@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/image/draw"
 )
 
 // Avatar dimension and size limits (design decision 1). AvatarOutputSize is
@@ -23,13 +25,19 @@ import (
 const (
 	AvatarMinDimension = 64
 	AvatarMaxDimension = 4096
-	AvatarOutputSize   = 256
+	AvatarOutputSize   = 512
 	// AvatarMaxBytes is the uploaded file's own size ceiling. This is
 	// checked on the decoded upload body itself, independent of whatever
 	// envelope (multipart boundaries, other fields) the HTTP request wraps
 	// it in — see avatarUploadHandler in the main package for the request
 	// side of this limit.
-	AvatarMaxBytes = 2 * 1024 * 1024
+	AvatarMaxBytes = 10 * 1024 * 1024
+
+	// avatarDecodeConcurrency bounds the number of uploads that may hold a
+	// fully decoded source image and Catmull-Rom scratch at once. A 4096x4096
+	// 16-bit PNG decode can occupy roughly 128 MiB and scaling to 512x512 may
+	// add roughly 64 MiB, so one slot preserves headroom in a 512 MiB pod.
+	avatarDecodeConcurrency = 1
 )
 
 // Exact validation messages (brief's security/validation matrix). Every
@@ -37,10 +45,29 @@ const (
 // these strings are the contract, not the Go error variable names.
 var (
 	ErrAvatarWrongType     = errors.New("upload a PNG or JPEG image")
-	ErrAvatarTooLarge      = errors.New("image must be 2MB or smaller")
+	ErrAvatarTooLarge      = errors.New("image must be 10MB or smaller")
 	ErrAvatarBadDimensions = errors.New("image must be between 64x64 and 4096x4096")
 	ErrAvatarForbidden     = errors.New("only the seat's manager or the commissioner can set this avatar")
 )
+
+// avatarDecodeGate is a small counting semaphore kept local to the upload
+// pipeline. Keeping it as a type makes the capacity contract directly
+// testable without replacing the process-wide gate used by production.
+type avatarDecodeGate chan struct{}
+
+func newAvatarDecodeGate(capacity int) avatarDecodeGate {
+	if capacity < 1 {
+		panic("avatar decode gate capacity must be positive")
+	}
+	return make(avatarDecodeGate, capacity)
+}
+
+func (gate avatarDecodeGate) acquire() func() {
+	gate <- struct{}{}
+	return func() { <-gate }
+}
+
+var avatarDecodeSlots = newAvatarDecodeGate(avatarDecodeConcurrency)
 
 // AvatarUploadResult describes the durable identity transition completed by
 // UploadAvatar. Ref is the immutable content address used by the serving
@@ -485,14 +512,15 @@ func (s *Service) ResetAvatar(r *http.Request, teamID string) error {
 }
 
 // processAvatarImage validates raw upload bytes and normalizes them into a
-// fresh 256x256 PNG thumbnail (design decision 1). image.DecodeConfig reads
+// fresh 512x512 PNG thumbnail (design decision 1). image.DecodeConfig reads
 // only the format header — never the pixel grid — so the dimension check
 // below runs (and can reject) before any full decode is attempted; that
-// ordering is the decode-bomb guard the brief calls for. Re-encoding as PNG
-// from a freshly decoded image.Image (rather than ever writing the
-// caller's original bytes to disk) also strips any embedded metadata and
-// means whatever malformed trailing bytes a hostile file carried never
-// reach disk.
+// ordering is the decode-bomb guard the brief calls for. The decode gate
+// bounds the number of expensive pixel-grid allocations in a 512 MiB pod.
+// Re-encoding as PNG from a freshly decoded image.Image (rather than ever
+// writing the caller's original bytes to disk) also strips any embedded
+// metadata and means whatever malformed trailing bytes a hostile file
+// carried never reach disk.
 func processAvatarImage(data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, ErrAvatarWrongType
@@ -512,6 +540,8 @@ func processAvatarImage(data []byte) ([]byte, error) {
 	if _, err := reader.Seek(0, io.SeekStart); err != nil {
 		return nil, err
 	}
+	release := avatarDecodeSlots.acquire()
+	defer release()
 	img, _, err := image.Decode(reader)
 	if err != nil {
 		return nil, ErrAvatarWrongType
@@ -525,11 +555,11 @@ func processAvatarImage(data []byte) ([]byte, error) {
 }
 
 // centerSquareAndScale crops src to its largest centered square, then
-// nearest-neighbor scales that square to an outSize x outSize image. Source
+// high-quality scales that square to an outSize x outSize image. Source
 // images smaller than outSize are scaled up, not just cropped — the
-// smallest accepted upload (64x64) is well below the 256x256 output, and
+// smallest accepted upload (64x64) is well below the 512x512 output, and
 // this is the one step that reconciles that (design decision 1:
-// "downscale/center-crop to 256x256" covers both directions in practice).
+// "downscale/center-crop to 512x512" covers both directions in practice).
 func centerSquareAndScale(src image.Image, outSize int) *image.RGBA {
 	bounds := src.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
@@ -543,13 +573,7 @@ func centerSquareAndScale(src image.Image, outSize int) *image.RGBA {
 	offsetX := bounds.Min.X + (width-side)/2
 	offsetY := bounds.Min.Y + (height-side)/2
 	dst := image.NewRGBA(image.Rect(0, 0, outSize, outSize))
-	for y := 0; y < outSize; y++ {
-		srcY := offsetY + (y*side)/outSize
-		for x := 0; x < outSize; x++ {
-			srcX := offsetX + (x*side)/outSize
-			dst.Set(x, y, src.At(srcX, srcY))
-		}
-	}
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, image.Rect(offsetX, offsetY, offsetX+side, offsetY+side), draw.Src, nil)
 	return dst
 }
 

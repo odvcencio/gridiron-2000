@@ -63,10 +63,14 @@ func TestTeamIdentityEditorUsesProgressiveDisclosureAtWideViewports(t *testing.T
 		".team-hero__identity > div {\n  min-width: 0;\n  width: min(100%, 48rem);",
 		".team-identity-settings__body {\n  padding: var(--space-lg);\n  display: grid;\n  grid-template-columns: minmax(16rem, 0.72fr) minmax(22rem, 1.28fr);",
 		".team-identity-settings .badge-picker {\n  max-width: none;",
+		".team-monogram {\n  width: clamp(9rem, 18vw, 12rem);",
 	} {
 		if !strings.Contains(styles, want) {
 			t.Errorf("team layout stylesheet missing regression contract %q", want)
 		}
+	}
+	if !strings.Contains(styles, "  .team-monogram {\n    width: 7rem;") {
+		t.Fatal("mobile team hero monogram must remain a compact 7rem mark")
 	}
 }
 

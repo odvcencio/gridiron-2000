@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -107,6 +109,147 @@ func avatarMultipartRequestWithCSRF(t *testing.T, csrfToken string, avatar []byt
 	request := httptest.NewRequest(http.MethodPost, "http://localhost/avatar/upload", &body)
 	request.Header.Set("Content-Type", writer.FormDataContentType())
 	return request
+}
+
+type observedAdmissionContext struct {
+	context.Context
+	done        chan struct{}
+	waitStarted chan struct{}
+	once        sync.Once
+}
+
+func (c *observedAdmissionContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.waitStarted) })
+	return c.done
+}
+
+func (c *observedAdmissionContext) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+func TestAvatarMultipartAdmissionHoldsSlotThroughDownstream(t *testing.T) {
+	gate := newAvatarUploadAdmissionGate(1)
+	firstEntered := make(chan struct{})
+	secondEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	downstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Header.Get("X-Test-Admission") {
+		case "first":
+			close(firstEntered)
+			<-releaseFirst
+		case "second":
+			close(secondEntered)
+		default:
+			t.Errorf("downstream request omitted admission marker")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	wrapped := avatarMultipartEnvelopeLimitWithGate(downstream, gate)
+
+	first := avatarMultipartRequestWithParts(t, []byte("first body"), "", nil)
+	first.Header.Set("X-Test-Admission", "first")
+	firstDone := make(chan struct{})
+	go func() {
+		wrapped.ServeHTTP(httptest.NewRecorder(), first)
+		close(firstDone)
+	}()
+	select {
+	case <-firstEntered:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not reach downstream")
+	}
+
+	second := avatarMultipartRequestWithParts(t, []byte("second body"), "", nil)
+	second.Header.Set("X-Test-Admission", "second")
+	secondDone := make(chan struct{})
+	go func() {
+		wrapped.ServeHTTP(httptest.NewRecorder(), second)
+		close(secondDone)
+	}()
+	select {
+	case <-secondEntered:
+		t.Fatal("second request reached downstream while first still held the only slot")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseFirst)
+	select {
+	case <-firstDone:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not release admission after downstream returned")
+	}
+	select {
+	case <-secondEntered:
+	case <-time.After(time.Second):
+		t.Fatal("second request did not enter after first downstream returned")
+	}
+	select {
+	case <-secondDone:
+	case <-time.After(time.Second):
+		t.Fatal("second request did not finish")
+	}
+}
+
+func TestAvatarMultipartAdmissionRejectsOversizedContentLengthBeforeAdmission(t *testing.T) {
+	gate := newAvatarUploadAdmissionGate(1)
+	held, ok := gate.acquire(context.Background())
+	if !ok {
+		t.Fatal("failed to occupy admission gate")
+	}
+	defer held()
+	downstreamCalled := false
+	downstream := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { downstreamCalled = true })
+	request := avatarMultipartRequestWithParts(t, []byte("tiny body"), "", nil)
+	request.ContentLength = avatarMultipartEnvelopeMaxBytes + 1
+	response := httptest.NewRecorder()
+	avatarMultipartEnvelopeLimitWithGate(downstream, gate).ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", response.Code)
+	}
+	if downstreamCalled {
+		t.Fatal("oversized content length reached downstream")
+	}
+}
+
+func TestAvatarMultipartAdmissionCanceledWaitSkipsDownstream(t *testing.T) {
+	gate := newAvatarUploadAdmissionGate(1)
+	held, ok := gate.acquire(context.Background())
+	if !ok {
+		t.Fatal("failed to occupy admission gate")
+	}
+	defer held()
+	ctx := &observedAdmissionContext{
+		Context:     context.Background(),
+		done:        make(chan struct{}),
+		waitStarted: make(chan struct{}),
+	}
+	request := avatarMultipartRequestWithParts(t, []byte("must not be read"), "", nil).WithContext(ctx)
+	downstreamCalled := false
+	downstream := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { downstreamCalled = true })
+	done := make(chan struct{})
+	go func() {
+		avatarMultipartEnvelopeLimitWithGate(downstream, gate).ServeHTTP(httptest.NewRecorder(), request)
+		close(done)
+	}()
+	select {
+	case <-ctx.waitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request did not begin waiting for admission")
+	}
+	close(ctx.done)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("canceled admission wait did not return")
+	}
+	if downstreamCalled {
+		t.Fatal("canceled admission wait reached downstream")
+	}
 }
 
 func TestAvatarMultipartEnvelopeLimitRunsBeforeFormValueAndAllowsBoundedFile(t *testing.T) {

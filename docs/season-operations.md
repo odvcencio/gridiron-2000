@@ -51,7 +51,7 @@ For a multi-instance Kubernetes topology, every league can use the shared `statr
 5. Build a ranked, deep Big Board at `/board`. Primary and co-manager share the seat-level board; the lifecycle, legacy migration, and rollback contract is [Decision 0001](decisions/0001-seat-scoped-big-board.md).
 6. Open `/draft`, choose the truthful ready and autopick states, and leave the room available on draft night.
 
-A custom PNG or JPEG becomes the franchise identity and releases any claimed stock badge so another team may claim it.
+A custom PNG or JPEG up to 10 MB becomes the franchise identity. The image is center-cropped and resized to a 512×512 PNG with metadata removed, and any claimed stock badge is released so another team may claim it.
 
 ## Draft-night runbook
 

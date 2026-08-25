@@ -346,7 +346,7 @@ func Page() Node {
 								></input>
 								<button class="button button--compact" type="submit">Upload image</button>
 							</form>
-							<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. Uploading a custom image releases this seat’s claimed badge so another team can use it.</p>
+							<p class="scoring-note" id="team-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. Uploading a custom image releases this seat’s claimed badge so another team can use it.</p>
 						</If>
 					</section>
 					<section class="team-identity-settings__panel" aria-labelledby="team-badge-settings-title">

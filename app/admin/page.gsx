@@ -596,7 +596,7 @@ func Page() Node {
 						<div>
 							<span class="section-index">01 // SEATS</span>
 							<h2 id="admin-seats-heading">Franchise claims</h2>
-							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 2 MB maximum, from 64×64 through 4096×4096 pixels. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
+							<p class="scoring-note" id="admin-avatar-upload-help">PNG or JPEG, 10 MB maximum, from 64×64 through 4096×4096 pixels. Images are center-cropped and resized to a 512×512 PNG with metadata removed. If this seat has a claimed badge, uploading a custom image releases it so another team can use it.</p>
 						</div>
 					</div>
 					<If cond={data.identity_available == false}>

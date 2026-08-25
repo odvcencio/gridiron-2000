@@ -2482,7 +2482,7 @@ button.badge-option:hover {
 }
 
 .team-monogram {
-  width: 8rem;
+  width: clamp(9rem, 18vw, 12rem);
   font-size: var(--type-xl);
   box-shadow: var(--shadow-signal);
 }
@@ -6079,7 +6079,7 @@ body.is-on-clock .draft-clock-panel {
   }
 
   .team-monogram {
-    width: 5rem;
+    width: 7rem;
   }
 
   .team-command-strip {
