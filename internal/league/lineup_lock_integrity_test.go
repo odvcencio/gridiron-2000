@@ -2,6 +2,7 @@ package league
 
 import (
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -373,5 +374,262 @@ func TestClosedWeekLineupMutationRace(t *testing.T) {
 	}
 	if got := state.Lineups["team-1"][1]["QB"]; got != "pinned" {
 		t.Fatalf("concurrent lineup result = %q, want close pin %q", got, "pinned")
+	}
+}
+
+// zoneAuthoritySchedule seeds the durable schedule used by the zone
+// authority tests. The live mirror is intentionally a separate input: Week
+// 1 has fully kicked games, while the selector advances to future Week 2.
+func zoneAuthoritySchedule(t *testing.T, svc *Service, games []GameInfo) {
+	t.Helper()
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	if err := svc.store.SetSchedule(SeasonSchedule{
+		Season: svc.cfg.Season,
+		Weeks: []ScheduleWeek{
+			{Week: 1, Matchups: []LeagueMatchup{{ID: "w1", HomeTeamID: "team-1", AwayTeamID: "team-2"}}},
+			{Week: 2, Matchups: []LeagueMatchup{{ID: "w2", HomeTeamID: "team-1", AwayTeamID: "team-2"}}},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func zoneAuthorityGames(now time.Time) []GameInfo {
+	return []GameInfo{
+		{ID: "w1-pit", Week: 1, Away: "PIT", Home: "NYJ", Kickoff: now.Add(-6 * time.Hour)},
+		{ID: "w1-tb", Week: 1, Away: "TB", Home: "ATL", Kickoff: now.Add(-6 * time.Hour)},
+		{ID: "w2-pit", Week: 2, Away: "PIT", Home: "CIN", Kickoff: now.Add(2 * time.Hour)},
+	}
+}
+
+func assertZoneStateUnchanged(t *testing.T, before, after PersistedState) {
+	t.Helper()
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("rejected zone mutation changed persisted state")
+	}
+}
+
+func TestZoneMutationsRejectKickedPlayerUntilPersistedWeekFinal(t *testing.T) {
+	t.Run("place reserve", func(t *testing.T) {
+		svc, now := newZonesTestService(t)
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		if got := lineupCurrentWeekAt(games, now); got != 2 {
+			t.Fatalf("selector week = %d, want Week 2", got)
+		}
+		before := svc.store.Snapshot()
+		_, err := svc.PlaceInReserve(zonesRequest(), "team-1", "qb-1")
+		if err == nil || err.Error() != "Reserve QB One is locked and cannot be moved until the week closes" {
+			t.Fatalf("err = %v, want historical reserve lock", err)
+		}
+		assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+	})
+
+	t.Run("place IR", func(t *testing.T) {
+		svc, now := newZonesTestServiceWithInjuryAtCap(t)
+		svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) {
+			return "Out", true
+		})
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		before := svc.store.Snapshot()
+		_, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1")
+		if err == nil || err.Error() != "Injured Rusher is locked and cannot be moved until the week closes" {
+			t.Fatalf("err = %v, want historical IR lock", err)
+		}
+		assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+	})
+
+	t.Run("activate reserve", func(t *testing.T) {
+		svc, now := newZonesTestService(t)
+		if err := svc.store.PlaceInZone("team-1", "qb-1", zoneReserve, "QB", now); err != nil {
+			t.Fatal(err)
+		}
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		before := svc.store.Snapshot()
+		_, err := svc.ActivateFromReserve(zonesRequest(), "team-1", "qb-1")
+		if err == nil || err.Error() != "Reserve QB One is locked and cannot be activated until the week closes" {
+			t.Fatalf("err = %v, want historical reserve activation lock", err)
+		}
+		assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+	})
+
+	t.Run("activate IR without drop", func(t *testing.T) {
+		svc, now := newZonesTestServiceWithInjuryAtCap(t)
+		svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) {
+			return "Out", true
+		})
+		if _, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1"); err != nil {
+			t.Fatal(err)
+		}
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		before := svc.store.Snapshot()
+		_, err := svc.ActivateFromIR(zonesRequest(), "team-1", "inj-1", "")
+		if err == nil || err.Error() != "Injured Rusher is locked and cannot be activated until the week closes" {
+			t.Fatalf("err = %v, want historical IR activation lock", err)
+		}
+		assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+	})
+
+	t.Run("activate IR with drop", func(t *testing.T) {
+		svc, now := newZonesTestServiceWithInjuryAtCap(t)
+		svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) {
+			return "Out", true
+		})
+		pool := append([]Player(nil), zonesFixturePlayers()...)
+		for i := range pool {
+			if pool[i].ID == "wr-1" {
+				pool[i].NFLTeam = "DAL"
+			}
+		}
+		svc.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "test" })
+		if _, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1"); err != nil {
+			t.Fatal(err)
+		}
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		before := svc.store.Snapshot()
+		_, err := svc.ActivateFromIR(zonesRequest(), "team-1", "inj-1", "wr-1")
+		if err == nil || err.Error() != "Injured Rusher is locked and cannot be activated until the week closes" {
+			t.Fatalf("err = %v, want historical active-player lock", err)
+		}
+		assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+	})
+
+	t.Run("direct Store guards", func(t *testing.T) {
+		t.Run("place", func(t *testing.T) {
+			svc, now := newZonesTestService(t)
+			games := zoneAuthorityGames(now)
+			zoneAuthoritySchedule(t, svc, games)
+			pool := svc.pool()
+			before := svc.store.Snapshot()
+			err := svc.store.PlaceInZoneWithAuthority("team-1", "qb-1", zoneReserve, "QB", pool.byID["qb-1"], games, now)
+			if err == nil {
+				t.Fatal("Store.PlaceInZoneWithAuthority must reject historical lock")
+			}
+			assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+		})
+		t.Run("clear", func(t *testing.T) {
+			svc, now := newZonesTestService(t)
+			if err := svc.store.PlaceInZone("team-1", "qb-1", zoneReserve, "QB", now); err != nil {
+				t.Fatal(err)
+			}
+			games := zoneAuthorityGames(now)
+			zoneAuthoritySchedule(t, svc, games)
+			pool := svc.pool()
+			before := svc.store.Snapshot()
+			err := svc.store.ClearZoneWithAuthority("team-1", "qb-1", zoneReserve, pool.byID["qb-1"], games, now)
+			if err == nil {
+				t.Fatal("Store.ClearZoneWithAuthority must reject historical lock")
+			}
+			assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+		})
+		t.Run("IR activation", func(t *testing.T) {
+			svc, now := newZonesTestServiceWithInjuryAtCap(t)
+			svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) {
+				return "Out", true
+			})
+			if _, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1"); err != nil {
+				t.Fatal(err)
+			}
+			games := zoneAuthorityGames(now)
+			zoneAuthoritySchedule(t, svc, games)
+			pool := svc.pool()
+			before := svc.store.Snapshot()
+			dropTxn := Transaction{ID: "direct-ir-activation", TeamID: "team-1", Type: "drop", Drops: nil, At: now}
+			if err := svc.store.ActivateFromIRWithDropWithAuthority("team-1", "inj-1", dropTxn, games, pool.byID, now); err == nil {
+				t.Fatal("Store IR activation must reject historical lock")
+			}
+			assertZoneStateUnchanged(t, before, svc.store.Snapshot())
+		})
+	})
+}
+
+func TestZoneMutationReleasesAfterPersistedWeekFinal(t *testing.T) {
+	t.Run("placement", func(t *testing.T) {
+		svc, now := newZonesTestService(t)
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		week := svc.store.Snapshot().Schedule.Weeks[0]
+		for i := range week.Matchups {
+			week.Matchups[i].Final = true
+		}
+		if err := svc.store.SetScheduleWeek(week); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.PlaceInReserve(zonesRequest(), "team-1", "qb-1"); err != nil {
+			t.Fatalf("finalized Week 1 should release placement: %v", err)
+		}
+	})
+
+	t.Run("activation", func(t *testing.T) {
+		svc, now := newZonesTestService(t)
+		if err := svc.store.PlaceInZone("team-1", "qb-1", zoneReserve, "QB", now); err != nil {
+			t.Fatal(err)
+		}
+		games := zoneAuthorityGames(now)
+		zoneAuthoritySchedule(t, svc, games)
+		week := svc.store.Snapshot().Schedule.Weeks[0]
+		for i := range week.Matchups {
+			week.Matchups[i].Final = true
+		}
+		if err := svc.store.SetScheduleWeek(week); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := svc.ActivateFromReserve(zonesRequest(), "team-1", "qb-1"); err != nil {
+			t.Fatalf("finalized Week 1 should release activation: %v", err)
+		}
+	})
+}
+
+func TestClosedWeekZoneMutationRace(t *testing.T) {
+	svc, now := newZonesTestService(t)
+	games := zoneAuthorityGames(now)
+	zoneAuthoritySchedule(t, svc, games)
+	pool := svc.pool()
+	week := svc.store.Snapshot().Schedule.Weeks[0]
+	for i := range week.Matchups {
+		week.Matchups[i].Final = true
+	}
+	pins := map[string]map[string]string{"team-1": {"QB": "qb-1"}}
+	results := make(chan struct {
+		kind string
+		err  error
+	}, 2)
+	go func() {
+		results <- struct {
+			kind string
+			err  error
+		}{"zone", svc.store.PlaceInZoneWithAuthority("team-1", "qb-1", zoneReserve, "QB", pool.byID["qb-1"], games, now)}
+	}()
+	go func() {
+		results <- struct {
+			kind string
+			err  error
+		}{"close", svc.store.SetScheduleWeekWithLineups(week, pins)}
+	}()
+	var zoneErr, closeErr error
+	for i := 0; i < 2; i++ {
+		result := <-results
+		if result.kind == "zone" {
+			zoneErr = result.err
+		} else {
+			closeErr = result.err
+		}
+	}
+	if closeErr != nil {
+		t.Fatalf("close lost race: %v", closeErr)
+	}
+	if zoneErr != nil && zoneErr.Error() != "Reserve QB One is locked and cannot be moved until the week closes" {
+		t.Fatalf("zone race error = %v", zoneErr)
+	}
+	state := svc.store.Snapshot()
+	if !weekIsFinalInSchedule(state.Schedule, 1) {
+		t.Fatal("zone race must leave Week 1 final")
+	}
+	if got := state.Lineups["team-1"][1]["QB"]; got != "qb-1" {
+		t.Fatalf("zone race pin = %q, want qb-1", got)
 	}
 }

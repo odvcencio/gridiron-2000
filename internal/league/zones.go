@@ -328,6 +328,15 @@ func nextKickoffForTeam(games []GameInfo, nflTeam string, now time.Time) (time.T
 // FileClaim/Service.FileClaim split: Store stays generic, defense in
 // depth only.
 func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Time) error {
+	return s.placeInZoneWithAuthority(teamID, playerID, zone, position, Player{}, nil, now)
+}
+
+// PlaceInZoneWithAuthority repeats kickoff/final authority under Store.mu.
+func (s *Store) PlaceInZoneWithAuthority(teamID, playerID, zone, position string, player Player, games []GameInfo, now time.Time) error {
+	return s.placeInZoneWithAuthority(teamID, playerID, zone, position, player, games, now)
+}
+
+func (s *Store) placeInZoneWithAuthority(teamID, playerID, zone, position string, player Player, games []GameInfo, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -339,6 +348,9 @@ func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Ti
 	}
 	if _, already := s.state.RosterZones[teamID][playerID]; already {
 		return fmt.Errorf("that player already sits in a roster zone")
+	}
+	if len(games) > 0 && playerLockedForRosterMutation(s.state, games, lineupCurrentWeekAt(games, now), player, now) {
+		return fmt.Errorf("%s is locked and cannot be moved until the week closes", player.Name)
 	}
 	if s.state.RosterZones == nil {
 		s.state.RosterZones = map[string]map[string]ZoneAssignment{}
@@ -356,6 +368,15 @@ func (s *Store) PlaceInZone(teamID, playerID, zone, position string, now time.Ti
 // rejected rather than silently no-op, matching the SetLineupSlot/
 // SetRosterOverride discipline of failing closed on a state mismatch.
 func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
+	return s.clearZoneWithAuthority(teamID, playerID, expectZone, Player{}, nil, time.Time{})
+}
+
+// ClearZoneWithAuthority repeats kickoff/final authority under Store.mu.
+func (s *Store) ClearZoneWithAuthority(teamID, playerID, expectZone string, player Player, games []GameInfo, now time.Time) error {
+	return s.clearZoneWithAuthority(teamID, playerID, expectZone, player, games, now)
+}
+
+func (s *Store) clearZoneWithAuthority(teamID, playerID, expectZone string, player Player, games []GameInfo, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
@@ -364,6 +385,9 @@ func (s *Store) ClearZone(teamID, playerID, expectZone string) error {
 	za, ok := s.state.RosterZones[teamID][playerID]
 	if !ok || za.Zone != expectZone {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
+	}
+	if len(games) > 0 && playerLockedForRosterMutation(s.state, games, lineupCurrentWeekAt(games, now), player, now) {
+		return fmt.Errorf("%s is locked and cannot be activated until the week closes", player.Name)
 	}
 	delete(s.state.RosterZones[teamID], playerID)
 	return s.persistLocked(colRosterZones)
@@ -393,6 +417,11 @@ func (s *Store) activateFromIRWithDropAuthority(teamID, playerID string, dropTxn
 	}
 	if za, ok := s.state.RosterZones[teamID][playerID]; !ok || za.Zone != zoneIR {
 		return fmt.Errorf("%s", lineupNotOnRosterMessage)
+	}
+	if len(games) > 0 {
+		if active, ok := poolByID[playerID]; ok && playerLockedForRosterMutation(s.state, games, lineupCurrentWeekAt(games, now), active, now) {
+			return fmt.Errorf("%s is locked and cannot be activated until the week closes", active.Name)
+		}
 	}
 	owner := rosterOwner(currentRosters(s.state))
 	for _, drop := range dropTxn.Drops {
@@ -503,7 +532,7 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 	now := s.clock()
 	games := s.schedule()
 	week := lineupCurrentWeekAt(games, now)
-	if playerLocked(games, week, player.NFLTeam, now) {
+	if playerLockedForRosterMutation(state, games, week, player, now) {
 		return "", fmt.Errorf("%s is locked and cannot be moved until the week closes", player.Name)
 	}
 	preset := CurrentRoster()
@@ -514,7 +543,7 @@ func (s *Service) PlaceInReserve(r *http.Request, requestedTeam, playerID string
 	if reserveOccupantCount(state, teamID, player.Position) >= capacity {
 		return "", fmt.Errorf("the reserve zone is full for %s", player.Position)
 	}
-	if err := s.store.PlaceInZone(teamID, playerID, zoneReserve, player.Position, now); err != nil {
+	if err := s.store.PlaceInZoneWithAuthority(teamID, playerID, zoneReserve, player.Position, player, games, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s moved to reserve.", player.Name), nil
@@ -549,7 +578,7 @@ func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (st
 	now := s.clock()
 	games := s.schedule()
 	week := lineupCurrentWeekAt(games, now)
-	if playerLocked(games, week, player.NFLTeam, now) {
+	if playerLockedForRosterMutation(state, games, week, player, now) {
 		return "", fmt.Errorf("%s is locked and cannot be moved until the week closes", player.Name)
 	}
 	preset := CurrentRoster()
@@ -562,7 +591,7 @@ func (s *Service) PlaceInIR(r *http.Request, requestedTeam, playerID string) (st
 	if !irEligible(s.injuryDesignationSource(), player) {
 		return "", fmt.Errorf("%s does not carry a qualifying injury designation", player.Name)
 	}
-	if err := s.store.PlaceInZone(teamID, playerID, zoneIR, player.Position, now); err != nil {
+	if err := s.store.PlaceInZoneWithAuthority(teamID, playerID, zoneIR, player.Position, player, games, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s moved to IR.", player.Name), nil
@@ -586,7 +615,9 @@ func (s *Service) ActivateFromReserve(r *http.Request, requestedTeam, playerID s
 	if zoneOfPlayer(state, teamID, playerID) != zoneReserve {
 		return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
 	}
-	if err := s.store.ClearZone(teamID, playerID, zoneReserve); err != nil {
+	now := s.clock()
+	games := s.schedule()
+	if err := s.store.ClearZoneWithAuthority(teamID, playerID, zoneReserve, player, games, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s activated from reserve.", player.Name), nil
@@ -655,7 +686,7 @@ func (s *Service) ActivateFromIR(r *http.Request, requestedTeam, playerID, dropI
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil); breach {
 		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
-	if err := s.store.ClearZone(teamID, playerID, zoneIR); err != nil {
+	if err := s.store.ClearZoneWithAuthority(teamID, playerID, zoneIR, player, games, now); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("%s activated from IR.", player.Name), nil
