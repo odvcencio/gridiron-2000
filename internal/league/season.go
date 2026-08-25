@@ -230,12 +230,14 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		return ScheduleWeek{}, nil, err
 	}
 
-	// TODO(WP-E5): enqueue the N13 matchup-recap notification here, gated
-	// on s.notifyReady() like every other hook. notifications.go's
-	// keyMatchupRecap(season, week, email) already reserves the
-	// idempotency key; only its template builder is missing (WP-E5). This
-	// close-week call site is the natural hook point (competition-formats
-	// spec section 2.5 / awards-performance-spec notification catalog).
+	// The close transaction is the authoritative event for N13. The helper
+	// re-snapshots the committed schedule before rendering, and
+	// recordAndSend's transport gate means an unconfigured queue neither
+	// builds a message nor writes a ledger entry; a later healthy ticker can
+	// still deliver the fresh recap.
+	if s.notifyReady() {
+		s.notifyMatchupRecap(s.store.Snapshot(), updated, now)
+	}
 
 	return updated, misses, nil
 }

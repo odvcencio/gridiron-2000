@@ -24,8 +24,7 @@ type NotificationPreference struct {
 
 // notificationPreferenceCopy is the product's current delivery inventory.
 // Keep this table adjacent to the settings view so a new category cannot be
-// presented as live without an explicit copy decision. Pick'em is marked
-// partial because reminders (N8) are live while results (N9) are not.
+// presented as live without an explicit copy decision.
 var notificationPreferenceCopy = map[string]struct {
 	label       string
 	description string
@@ -53,8 +52,18 @@ var notificationPreferenceCopy = map[string]struct {
 	},
 	categoryPickem: {
 		label:       "Pick'em",
-		description: "Pick'em reminders activate after your first pick or when you explicitly choose On here. Pick'em results are planned and are not sent yet.",
-		delivery:    "Reminders after activation; results planned",
+		description: "Pick'em reminders activate after your first pick or when you explicitly choose On here. Completed slates send a results recap.",
+		delivery:    "Reminders after activation and slate results",
+	},
+	categoryWeeklyRecap: {
+		label:       "Weekly recap",
+		description: "A recap of your league matchups after a scheduled week is final.",
+		delivery:    "Final matchup recap",
+	},
+	categoryLeagueNews: {
+		label:       "League news",
+		description: "Scoring-rule changes settle into one coalesced notice, and the season kickoff gets a timely league update.",
+		delivery:    "Scoring changes and season kickoff",
 	},
 	categoryBroadcast: {
 		label:       "Commissioner broadcasts",
@@ -73,23 +82,6 @@ var notificationPreferenceCopy = map[string]struct {
 	},
 }
 
-var plannedNotificationPreferenceCopy = map[string]struct {
-	label       string
-	description string
-	delivery    string
-}{
-	categoryLeagueNews: {
-		label:       "League news",
-		description: "Scoring-change and season-kickoff notices are planned; this setting is not active yet.",
-		delivery:    "Planned — no active delivery",
-	},
-	categoryWeeklyRecap: {
-		label:       "Weekly recap",
-		description: "Weekly matchup recaps are planned; this setting is not active yet.",
-		delivery:    "Planned — no active delivery",
-	},
-}
-
 func notificationPreferenceView(category string, enabled, canEdit bool) NotificationPreference {
 	copy := notificationPreferenceCopy[category]
 	return NotificationPreference{
@@ -100,20 +92,6 @@ func notificationPreferenceView(category string, enabled, canEdit bool) Notifica
 		State:       notificationStateLabel(enabled),
 		Enabled:     enabled,
 		CanEdit:     canEdit,
-	}
-}
-
-func plannedNotificationPreferenceView(category string) NotificationPreference {
-	copy := plannedNotificationPreferenceCopy[category]
-	return NotificationPreference{
-		Category:    category,
-		Label:       copy.label,
-		Description: copy.description,
-		Delivery:    copy.delivery,
-		State:       "PLANNED",
-		Enabled:     false,
-		CanEdit:     false,
-		Planned:     true,
 	}
 }
 
@@ -154,14 +132,13 @@ func (s *Service) NotificationSettingsData(r *http.Request) map[string]any {
 	readOnly := s.demoMode || !hasIdentity
 	draftPreferences := notificationPreferenceViews([]string{categoryDraftReminders, categoryDraftLive, categoryDraftRecap}, prefs, !readOnly)
 	weeklyPreferences := notificationPreferenceViews([]string{categoryPickem, categoryTransactions, categoryLineups}, prefs, !readOnly)
-	leaguePreferences := notificationPreferenceViews([]string{categoryOnboarding, categoryBroadcast}, prefs, !readOnly)
+	weeklyPreferences = append(weeklyPreferences, notificationPreferenceViews([]string{categoryWeeklyRecap}, prefs, !readOnly)...)
+	leaguePreferences := notificationPreferenceViews([]string{categoryOnboarding, categoryBroadcast, categoryLeagueNews}, prefs, !readOnly)
 	preferences := append(append(append([]NotificationPreference{}, draftPreferences...), weeklyPreferences...), leaguePreferences...)
-	planned := make([]NotificationPreference, 0, len(plannedNotificationPreferenceCopy))
-	// Keep this order stable for the page and for tests; map iteration order
-	// would make the settings IA shift between requests.
-	for _, category := range []string{categoryLeagueNews, categoryWeeklyRecap} {
-		planned = append(planned, plannedNotificationPreferenceView(category))
-	}
+	// Keep the future-compatible field in the response contract. NT-1 moves
+	// the former planned categories into the live groups above, so it is empty
+	// for the current catalog.
+	planned := []NotificationPreference{}
 	readOnlyReason := ""
 	liveCategoryCount := len(preferences)
 	plannedCategoryCount := len(planned)

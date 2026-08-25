@@ -3,12 +3,9 @@
 // sections 3, 6.4, 7.1). The catalog registers all 19 entries (N1-N19,
 // roster-ops spec section 9's N14-N18 additions plus the SK IR spec's
 // N19) so the default matrix stays total (spec section 9, test 18;
-// roster-ops spec section 12 test 25); N9-N13 register catalog metadata
-// and a key builder only — their evaluation and templates land in later
-// work packages, N14 in waivers.go, N15-N17 in trades.go, N18 below, and
-// N19 fires from the roster-ops ticker (rosterops.go's evalHealedIR, the
-// N14 precedent) rather than the notifier ticker (see notifierTick's TODO
-// markers for N9-N13).
+// roster-ops spec section 12 test 25). N9-N13 are evaluated by this file's
+// notifier ticker; N14 lives in waivers.go, N15-N17 in trades.go, N18 below,
+// and N19 fires from the roster-ops ticker (rosterops.go's evalHealedIR).
 package league
 
 import (
@@ -17,6 +14,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -54,14 +53,13 @@ var notificationCategories = []string{
 }
 
 // notificationPreferenceCategories is the allowlist for manager-owned
-// settings writes. The catalog intentionally contains league_news and
-// weekly_recap rows for delivery metadata, but those two categories do not
-// have a live delivery implementation yet. Keeping them out of the write
-// allowlist prevents a settings page or a forged POST from creating a
-// preference that the product cannot currently honor.
+// settings writes. Every category with a live catalog evaluator belongs here;
+// keeping this list beside the catalog prevents a settings page or forged
+// POST from creating a preference the delivery path cannot honor.
 var notificationPreferenceCategories = []string{
 	categoryOnboarding, categoryDraftReminders, categoryDraftLive, categoryDraftRecap,
-	categoryPickem, categoryBroadcast, categoryTransactions, categoryLineups,
+	categoryPickem, categoryWeeklyRecap, categoryLeagueNews, categoryBroadcast,
+	categoryTransactions, categoryLineups,
 }
 
 func notificationPreferenceCategoryAllowed(category string) bool {
@@ -159,10 +157,9 @@ type catalogEntry struct {
 
 // catalogEntries is the full 19-entry registry (spec section 3's summary
 // matrix, extended by roster-ops spec section 9's N14-N18, the pick'em
-// HQ task's N8, and the SK IR spec's N19). N9-N13 register catalog
-// metadata and a key builder only,
-// so the pref precedence, ledger, and admin-matrix machinery are total
-// from day one; their template builders land in later work packages.
+// HQ task's N8, and the SK IR spec's N19). N9-N13 carry their complete
+// catalog metadata, key builders, evaluators, and templates here; the
+// remaining roster-operation entries keep their existing event hooks.
 var catalogEntries = buildCatalog()
 
 func buildCatalog() []catalogEntry {
@@ -286,9 +283,8 @@ func keyDraftComplete(orderHash8, email string) string {
 }
 
 // keyPickemRemind, keyPickemResults, keyScoringChange, keyBroadcast,
-// keyKickoff, and keyMatchupRecap back N8-N13's catalog entries. Their
-// evaluation and template builders are later work packages (WP-E4, WP-E5);
-// the key shapes land now so the catalog matrix is total.
+// keyKickoff, and keyMatchupRecap back N8-N13's catalog entries. The shapes
+// are stable event identities shared by every evaluator and restart.
 func keyPickemRemind(season string, week int, email string) string {
 	return fmt.Sprintf("pickem-remind:%s-w%d:%s", season, week, normalizeEmail(email))
 }
@@ -1236,6 +1232,393 @@ func (s *Service) buildPickemReminder(member Member, week int, due []GameInfo) r
 	}
 }
 
+// notificationMemberEntries returns one deterministic recipient list for the
+// derived notification evaluators. State map keys are normally canonical
+// emails, but old JSON imports can carry the identity only in Member.Email;
+// normalize both and suppress an accidental duplicate before rendering.
+type notificationMemberEntry struct {
+	email  string
+	member Member
+}
+
+func notificationMemberEntries(state PersistedState) []notificationMemberEntry {
+	byEmail := make(map[string]Member, len(state.Members))
+	for owner, member := range state.Members {
+		email := normalizeEmail(member.Email)
+		if email == "" {
+			email = normalizeEmail(owner)
+		}
+		if email == "" {
+			continue
+		}
+		if _, exists := byEmail[email]; !exists {
+			member.Email = email
+			byEmail[email] = member
+		}
+	}
+	out := make([]notificationMemberEntry, 0, len(byEmail))
+	for email, member := range byEmail {
+		out = append(out, notificationMemberEntry{email: email, member: member})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].email < out[j].email })
+	return out
+}
+
+// notificationWeekURL keeps all derived links on the configured league host
+// and writes the integer week through url.Values. No recipient- or feed-owned
+// string is ever interpreted as a route.
+func (s *Service) notificationWeekURL(route string, week int) string {
+	base := s.leaguePathURL(route)
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return base + "?week=" + strconv.Itoa(week)
+	}
+	query := parsed.Query()
+	query.Set("week", strconv.Itoa(week))
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// pickemGameTerminal is stricter than gradePickemAt's display fallback. A
+// result recap waits for an authoritative final score and a frozen market,
+// except for a durable void, so a transient feed gap can never be presented
+// as a completed contest.
+func pickemGameTerminal(game GameInfo, market PickemMarket, now time.Time) bool {
+	if game.Kickoff.IsZero() || now.Before(game.Kickoff) {
+		return false
+	}
+	if market.Void {
+		return true
+	}
+	return game.Final && game.ScoresPresent && market.Frozen && market.LinePresent
+}
+
+func pickemWeekAnchor(games []GameInfo) time.Time {
+	var latest time.Time
+	for _, game := range games {
+		if game.Kickoff.After(latest) {
+			latest = game.Kickoff
+		}
+	}
+	return latest
+}
+
+func pickemOutcomeLabel(outcome PickemOutcome) string {
+	switch outcome {
+	case pickemWin:
+		return "WIN"
+	case pickemLoss:
+		return "LOSS"
+	case pickemMissedLoss:
+		return "MISSED — LOSS"
+	case pickemPush:
+		return "PUSH"
+	case pickemVoid:
+		return "VOID"
+	default:
+		return "PENDING"
+	}
+}
+
+// evalPickemResults derives N9 for every completed schedule week, not just
+// the currently selected HQ week. That makes a restart after a feed outage
+// safe: each participant receives at most one canonical season/week result,
+// and a recap outside the seven-day freshness window is ledger-recorded
+// without being sent.
+func (s *Service) evalPickemResults(state PersistedState, now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	games := s.schedule()
+	season := strconv.Itoa(s.cfg.Season)
+	for _, week := range pickemWeeks(games) {
+		weekGames := gamesInWeek(games, week)
+		if len(weekGames) == 0 {
+			continue
+		}
+		terminal := true
+		for _, game := range weekGames {
+			if !pickemGameTerminal(game, state.PickemMarkets[game.ID], now) {
+				terminal = false
+				break
+			}
+		}
+		if !terminal {
+			continue
+		}
+		anchor := pickemWeekAnchor(weekGames)
+		fresh := !anchor.IsZero() && !now.After(anchor.Add(7*24*time.Hour))
+		for _, recipient := range notificationMemberEntries(state) {
+			picks := state.Pickems[recipient.email]
+			enteredAt := effectivePickemEnteredAt(state, recipient.email, weekGames)
+			if !pickemEntryAppliesToAnyGame(weekGames, enteredAt) {
+				continue
+			}
+			key := keyPickemResults(season, week, recipient.email)
+			if !fresh {
+				s.recordOnly(key, now)
+				continue
+			}
+			s.recordAndSend(state, recipient.email, categoryPickem, key, now, func() renderedNotification {
+				return s.buildPickemResults(recipient.member, week, weekGames, state.PickemMarkets, picks, enteredAt, now)
+			})
+		}
+	}
+}
+
+func (s *Service) buildPickemResults(member Member, week int, games []GameInfo, markets map[string]PickemMarket, picks map[string]string, enteredAt, now time.Time) renderedNotification {
+	sortedGames := append([]GameInfo(nil), games...)
+	sortGamesByKickoff(sortedGames)
+	record := tallyPicks(sortedGames, markets, picks, enteredAt, now)
+	rows := make([][]string, 0, len(sortedGames))
+	for _, game := range sortedGames {
+		grade := gradePickemAt(game, markets[game.ID], picks[game.ID], enteredAt, now)
+		pick := picks[game.ID]
+		if pick == "" {
+			pick = "No pick"
+		}
+		rows = append(rows, []string{game.Away + " @ " + game.Home, pick, pickemOutcomeLabel(grade.Outcome)})
+	}
+	subject := fmt.Sprintf("PICK'EM RESULTS — week %d is in the books (%d-%d-%d)", week, record.Wins, record.Losses, record.Pushes)
+	shell := s.shellFor(categoryPickem, fmt.Sprintf("WEEK %d // PICK'EM RESULTS", week))
+	blocks := []emailkit.Block{
+		emailkit.Headline{
+			Title: "THE SLATE IS SETTLED.",
+			Lede:  fmt.Sprintf("Your week-%d against-the-spread record: %d wins, %d losses, %d pushes.", week, record.Wins, record.Losses, record.Pushes),
+		},
+		emailkit.StatTable{Title: "YOUR RESULTS", Header: []string{"MATCHUP", "PICK", "RESULT"}, Rows: rows},
+		emailkit.CTA{Label: "REVIEW PICK'EM →", URL: s.notificationWeekURL("pickem", week)},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyPickemResults(strconv.Itoa(s.cfg.Season), week, member.Email), Category: categoryPickem,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+func scoringValuesForState(state PersistedState) map[string]float64 {
+	values := breakdownDefaultValues()
+	for key, points := range state.Scoring {
+		if _, known := values[key]; known && finiteScoringPoints(points) {
+			values[key] = points
+		}
+	}
+	return values
+}
+
+// scoringHash8 is a canonical hash of the complete effective ruleset. Map
+// iteration order never changes an event key, and the key therefore denotes
+// the rules the recipient will actually see rather than one map mutation.
+func scoringHash8(values map[string]float64) string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var canonical strings.Builder
+	for _, key := range keys {
+		canonical.WriteString(key)
+		canonical.WriteByte('=')
+		canonical.WriteString(strconv.FormatFloat(values[key], 'g', -1, 64))
+		canonical.WriteByte('\n')
+	}
+	sum := sha256.Sum256([]byte(canonical.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+func scoringChangeRows(values map[string]float64) [][]string {
+	rows := make([][]string, 0)
+	for _, rule := range defaultScoringRules() {
+		if points := values[rule.Key]; points != rule.Points {
+			rows = append(rows, []string{rule.Label, strconv.FormatFloat(points, 'g', -1, 64), strconv.FormatFloat(rule.Points, 'g', -1, 64)})
+		}
+	}
+	return rows
+}
+
+// evalScoringChanges waits for the 15-minute quiet period recorded by the
+// Store scoring mutators, then emits one N10 key per member. The timestamp is
+// intentionally retained: FirstSend keeps the event idempotent while a
+// preference or transport that was unavailable on the first eligible tick
+// can still receive the same coalesced event later.
+func (s *Service) evalScoringChanges(state PersistedState, now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	if state.ScoringChangedAt.IsZero() || now.Before(state.ScoringChangedAt.Add(15*time.Minute)) {
+		return
+	}
+	values := scoringValuesForState(state)
+	hash := scoringHash8(values)
+	rows := scoringChangeRows(values)
+	for _, recipient := range notificationMemberEntries(state) {
+		key := keyScoringChange(hash, recipient.email)
+		s.recordAndSend(state, recipient.email, categoryLeagueNews, key, now, func() renderedNotification {
+			return s.buildScoringChange(recipient.member, hash, rows)
+		})
+	}
+}
+
+func (s *Service) buildScoringChange(member Member, hash string, rows [][]string) renderedNotification {
+	lede := "The league's scoring rules were updated after a quiet period. Review the current values before the next slate."
+	if len(rows) == 0 {
+		lede = "The commissioner restored the league's default scoring rules. Review the current values before the next slate."
+	}
+	subject := "SCORING UPDATE — the league rules are settled"
+	shell := s.shellFor(categoryLeagueNews, "LEAGUE NEWS // SCORING")
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: "THE RULES MOVED.", Lede: lede},
+	}
+	if len(rows) > 0 {
+		blocks = append(blocks, emailkit.StatTable{Title: "UPDATED VALUES", Header: []string{"RULE", "NOW", "DEFAULT"}, Rows: rows})
+	}
+	blocks = append(blocks,
+		emailkit.CTA{Label: "REVIEW SCORING →", URL: s.leaguePathURL("scoring")},
+		emailkit.Note{Text: "This notice is keyed to the complete effective ruleset, so repeated edits that settle on the same values stay deduplicated."},
+	)
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyScoringChange(hash, member.Email), Category: categoryLeagueNews,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+func (s *Service) evalSeasonKickoff(state PersistedState, now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	if state.Schedule == nil {
+		return
+	}
+	start := seasonStartAt()
+	if start.IsZero() || now.Before(start.Add(-48*time.Hour)) {
+		return
+	}
+	season := strconv.Itoa(s.cfg.Season)
+	for _, recipient := range notificationMemberEntries(state) {
+		key := keyKickoff(season, recipient.email)
+		if !now.Before(start) {
+			s.recordOnly(key, now)
+			continue
+		}
+		s.recordAndSend(state, recipient.email, categoryLeagueNews, key, now, func() renderedNotification {
+			return s.buildSeasonKickoff(recipient.member, start)
+		})
+	}
+}
+
+func (s *Service) buildSeasonKickoff(member Member, start time.Time) renderedNotification {
+	location := s.draftTZ
+	if location == nil {
+		location, _ = time.LoadLocation(DefaultDraftTZ)
+	}
+	subject := "SEASON KICKOFF — the league is about to open"
+	shell := s.shellFor(categoryLeagueNews, "LEAGUE NEWS // SEASON KICKOFF")
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: "THE SEASON IS NEAR.", Lede: fmt.Sprintf("The %d season opens %s.", s.cfg.Season, start.In(location).Format("Monday, January 2 at 3:04 PM MST"))},
+		emailkit.CTA{Label: "OPEN MATCHUPS →", URL: s.leaguePathURL("matchups")},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyKickoff(strconv.Itoa(s.cfg.Season), member.Email), Category: categoryLeagueNews,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
+func matchupRecapAnchor(s *Service, state PersistedState, week ScheduleWeek, now time.Time) time.Time {
+	games := gamesInWeek(s.schedule(), week.Week)
+	if anchor := pickemWeekAnchor(games); !anchor.IsZero() {
+		return anchor
+	}
+	if state.Schedule != nil && !state.Schedule.GeneratedAt.IsZero() {
+		return state.Schedule.GeneratedAt
+	}
+	// A manually closed schedule can predate any attached game feed. The
+	// close transaction is the authoritative event in that degraded mode, so
+	// use this evaluation instant rather than inventing an old timestamp.
+	return now
+}
+
+func (s *Service) evalMatchupRecaps(state PersistedState, now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
+	if state.Schedule == nil {
+		return
+	}
+	for _, week := range state.Schedule.Weeks {
+		if !scheduleWeekIsFinal(week) {
+			continue
+		}
+		anchor := matchupRecapAnchor(s, state, week, now)
+		if now.After(anchor.Add(7 * 24 * time.Hour)) {
+			for _, recipient := range notificationMemberEntries(state) {
+				s.recordOnly(keyMatchupRecap(strconv.Itoa(s.cfg.Season), week.Week, recipient.email), now)
+			}
+			continue
+		}
+		s.notifyMatchupRecap(state, week, now)
+	}
+}
+
+func (s *Service) notifyMatchupRecap(state PersistedState, week ScheduleWeek, now time.Time) {
+	season := strconv.Itoa(s.cfg.Season)
+	for _, recipient := range notificationMemberEntries(state) {
+		key := keyMatchupRecap(season, week.Week, recipient.email)
+		s.recordAndSend(state, recipient.email, categoryWeeklyRecap, key, now, func() renderedNotification {
+			return s.buildMatchupRecap(state, recipient.member, week)
+		})
+	}
+}
+
+func (s *Service) buildMatchupRecap(state PersistedState, member Member, week ScheduleWeek) renderedNotification {
+	rows := make([][]string, 0, len(week.Matchups))
+	memberResult := "BYE"
+	for _, matchup := range week.Matchups {
+		home := s.teamView(state, matchup.HomeTeamID).Name
+		away := s.teamView(state, matchup.AwayTeamID).Name
+		if home == "" {
+			home = matchup.HomeTeamID
+		}
+		if away == "" {
+			away = matchup.AwayTeamID
+		}
+		result := "FINAL"
+		if member.TeamID == matchup.HomeTeamID {
+			memberResult = fmt.Sprintf("%s %.1f — %.1f", home, matchup.HomeScore, matchup.AwayScore)
+			if matchup.HomeScore > matchup.AwayScore {
+				result = "WIN"
+			} else if matchup.HomeScore < matchup.AwayScore {
+				result = "LOSS"
+			} else {
+				result = "TIE"
+			}
+		} else if member.TeamID == matchup.AwayTeamID {
+			memberResult = fmt.Sprintf("%s %.1f — %.1f", away, matchup.AwayScore, matchup.HomeScore)
+			if matchup.AwayScore > matchup.HomeScore {
+				result = "WIN"
+			} else if matchup.AwayScore < matchup.HomeScore {
+				result = "LOSS"
+			} else {
+				result = "TIE"
+			}
+		}
+		rows = append(rows, []string{away + " @ " + home, fmt.Sprintf("%.1f — %.1f", matchup.AwayScore, matchup.HomeScore), result})
+	}
+	subject := fmt.Sprintf("WEEK %d RECAP — final scores are in", week.Week)
+	shell := s.shellFor(categoryWeeklyRecap, fmt.Sprintf("WEEK %d // MATCHUP RECAP", week.Week))
+	blocks := []emailkit.Block{
+		emailkit.Headline{Title: "THE WEEK IS FINAL.", Lede: fmt.Sprintf("Your week-%d result: %s. The full league slate is below.", week.Week, memberResult)},
+		emailkit.StatTable{Title: "FINAL MATCHUPS", Header: []string{"MATCHUP", "SCORE", "STATUS"}, Rows: rows},
+		emailkit.CTA{Label: "REVIEW MATCHUPS →", URL: s.notificationWeekURL("matchups", week.Week)},
+	}
+	text, html := emailkit.Render(shell, blocks)
+	return renderedNotification{
+		Key: keyMatchupRecap(strconv.Itoa(s.cfg.Season), week.Week, member.Email), Category: categoryWeeklyRecap,
+		To: member.Email, Subject: subject, Text: text, HTML: html,
+	}
+}
+
 // ---------------------------------------------------------------------
 // N11 — commissioner-broadcast (league announcements)
 // ---------------------------------------------------------------------
@@ -1639,26 +2022,22 @@ func (s *Service) StartNotifier(ctx context.Context) {
 }
 
 // notifierTick is the whole time-driven and derived trigger evaluation for
-// one instant (spec section 6.4), in the spec's exact order: N2/N3
-// reminder windows, then N7's draft-complete derivation, then N8's
-// pick'em-reminder window, then the entries N9-N13 own (their evaluation
-// lands in later work packages — see the TODO markers), then N18's
-// lineup-warning window (roster-ops spec section 9, WP-R2 — it is pure
-// notification evaluation, so it belongs beside the N2/N3/N7/N8 checks,
-// not in season.go's closeWeek), then the daily SentLog prune.
+// one instant (spec section 6.4), in catalog order: reminder windows, draft
+// recap, pick'em reminder/results, coalesced league news, kickoff, weekly
+// recap, lineup warnings, then the daily SentLog prune.
 func (s *Service) notifierTick(now time.Time) {
+	if !s.notifyReady() {
+		return
+	}
 	state := s.store.Snapshot()
 
 	s.evalDraftReminders(state, now)  // N2, N3
 	s.evalDraftComplete(state, now)   // N7
 	s.evalPickemReminders(state, now) // N8
-
-	// TODO(WP-E4): N9 pickem-results derivation.
-	// TODO(WP-E4): N10 scoring-change coalescing.
-	// TODO(WP-E5): N12 season-kickoff window evaluation (gated on
-	// state.Schedule != nil, once competition-formats WP2 lands).
-	// TODO(WP-E5): N13 weekly matchup-recap derivation (the ticker-derived
-	// half; week-close's direct-enqueue half is a separate hook).
+	s.evalPickemResults(state, now)   // N9
+	s.evalScoringChanges(state, now)  // N10
+	s.evalSeasonKickoff(state, now)   // N12
+	s.evalMatchupRecaps(state, now)   // N13
 
 	s.evalLineupWarnings(state, now) // N18
 
