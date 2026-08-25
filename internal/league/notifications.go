@@ -1550,15 +1550,19 @@ func (s *Service) evalMatchupRecaps(state PersistedState, now time.Time) {
 		if !scheduleWeekIsFinal(week) {
 			continue
 		}
-		anchor := matchupRecapAnchor(s, state, week, now)
-		if now.After(anchor.Add(7 * 24 * time.Hour)) {
-			for _, recipient := range notificationMemberEntries(state) {
-				s.recordOnly(keyMatchupRecap(strconv.Itoa(s.cfg.Season), week.Week, recipient.email), now)
-			}
-			continue
-		}
-		s.notifyMatchupRecap(state, week, now)
+		s.emitMatchupRecap(state, week, now)
 	}
+}
+
+func (s *Service) emitMatchupRecap(state PersistedState, week ScheduleWeek, now time.Time) {
+	anchor := matchupRecapAnchor(s, state, week, now)
+	if now.After(anchor.Add(7 * 24 * time.Hour)) {
+		for _, recipient := range notificationMemberEntries(state) {
+			s.recordOnly(keyMatchupRecap(strconv.Itoa(s.cfg.Season), week.Week, recipient.email), now)
+		}
+		return
+	}
+	s.notifyMatchupRecap(state, week, now)
 }
 
 func (s *Service) notifyMatchupRecap(state PersistedState, week ScheduleWeek, now time.Time) {

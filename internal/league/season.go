@@ -236,7 +236,7 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 	// builds a message nor writes a ledger entry; a later healthy ticker can
 	// still deliver the fresh recap.
 	if s.notifyReady() {
-		s.notifyMatchupRecap(s.store.Snapshot(), updated, now)
+		s.emitMatchupRecap(s.store.Snapshot(), updated, now)
 	}
 
 	return updated, misses, nil
