@@ -975,6 +975,26 @@ func (s *Store) writeDirtyLocked() error {
 	// successful persist and falsely clear a retryable persistence health
 	// error on the caller's next check.
 	s.lastPersistRows = 0
+	// The logical schema marker is part of every durable state transition, not
+	// only scalar mutators. Collection-only writes (for example, a persisted
+	// playoff preview) can contain fields introduced by this binary; leaving
+	// kv.schema_version behind would let an older binary open and overwrite
+	// those fields on rollback. Include the marker in this same transaction so
+	// a committed collection write and its schema claim are inseparable. A
+	// failed transaction leaves the dirty bit set for the retry path.
+	advanceSchemaMarker := !s.persistedSchemaKnown || s.persistedSchemaVersion != currentSchemaVersion
+	s.state.SchemaVersion = currentSchemaVersion
+	s.dirty |= 1 << uint(colScalars)
+	// A load normalizes the in-memory state to the current schema before
+	// rebuilding the shadow. Remove the marker from that normalized shadow so
+	// the persisted value is always upserted when this transaction claims the
+	// current logical schema. This closes the old-marker/new-collection gap
+	// without making callers remember to dirty colScalars themselves.
+	if advanceSchemaMarker {
+		if table := s.shadow["kv"]; table != nil {
+			delete(table, rowKeyString([]any{kvSchemaVersion}))
+		}
+	}
 	type change struct {
 		table  string
 		key    string
@@ -1824,6 +1844,14 @@ func logicalSchemaVersion(db *sql.DB) (version int, known bool, err error) {
 // written by a newer binary; that case must be rejected before repair or any
 // other startup action that could change durable rows.
 func checkLogicalSchemaVersion(db *sql.DB) error {
+	return checkLogicalSchemaVersionAt(db, currentSchemaVersion)
+}
+
+// checkLogicalSchemaVersionAt is the same read-only compatibility check with
+// an explicit upper bound. Production always uses currentSchemaVersion; the
+// explicit bound lets migration tests model an older deployed binary and
+// prove that a collection-only v9 write is refused by a v8 reader.
+func checkLogicalSchemaVersionAt(db *sql.DB, supportedVersion int) error {
 	version, known, err := logicalSchemaVersion(db)
 	if err != nil {
 		return err
@@ -1831,9 +1859,9 @@ func checkLogicalSchemaVersion(db *sql.DB) error {
 	if !known {
 		return nil
 	}
-	if version > currentSchemaVersion {
+	if version > supportedVersion {
 		return fmt.Errorf("%w: stored state is version %d, this binary supports up to %d",
-			errSchemaTooNew, version, currentSchemaVersion)
+			errSchemaTooNew, version, supportedVersion)
 	}
 	return nil
 }
