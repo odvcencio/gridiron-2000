@@ -179,8 +179,8 @@ func TestHomepagePendingCoManagerInviteRendersTruthfully(t *testing.T) {
 		"ADMITTED · CO-MANAGER INVITE",
 		"COMPLETE YOUR SHARED SEAT.",
 		"You are invited to co-manage East 1.",
-		"Complete co-manager sign-in",
-		"/auth/google/start?next=%2Fteam",
+		"Complete co-manager invitation",
+		"/guide#identity",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("pending co-manager homepage missing %q: %s", want, body)
@@ -191,6 +191,9 @@ func TestHomepagePendingCoManagerInviteRendersTruthfully(t *testing.T) {
 	}
 	if strings.Contains(body, `href="/auth/google/start?next=%2Fteam" data-gosx-link`) {
 		t.Fatalf("pending co-manager OAuth recovery must use native navigation: %s", body)
+	}
+	if strings.Contains(body, "Complete co-manager sign-in") || strings.Contains(body, `/auth/google/start?next=%2Fteam`) {
+		t.Fatalf("pending co-manager rendered a stale reauthentication CTA: %s", body)
 	}
 }
 

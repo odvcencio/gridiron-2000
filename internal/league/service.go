@@ -1145,10 +1145,9 @@ func (s *Service) AssignManager(email, name string) (Member, error) {
 // Google sign-in calls it through AssignManager, and nothing else does.
 // created == true fires the N1 seat-claimed hook exactly once per real
 // seat claim (spec section 3, N1). Any code that merely needs "a member
-// record exists for this signed-in email" — a page view, an FF action's
-// acting-team resolver — must call ensureMember instead: it never grabs a
-// seat as a side effect (seatless-membership audit, gridiron-2000 pick'em
-// HQ task).
+// record exists for this signed-in email" must resolve the persisted member
+// directly; a read or action authorization check must never admit an
+// identity as a side effect.
 func (s *Service) assignMember(email, name string) (Member, error) {
 	email = s.identityResolver.Resolve(email)
 	topologyMutationMu.Lock()
@@ -1175,8 +1174,9 @@ func (s *Service) EnsureMember(email, name string) (Member, error) {
 }
 
 // ensureMember is the membership-only counterpart to assignMember. It records
-// email only at deliberate admission/action boundaries, never from a read
-// model such as Viewer, never assigns a team seat, and never fires N1.
+// an email only at a deliberate admission boundary, never from a read model
+// or an action authorization check, never assigns a team seat, and never
+// fires N1.
 func (s *Service) ensureMember(email, name string) (Member, error) {
 	email = s.identityResolver.Resolve(email)
 	member, _, err := s.store.EnsureMember(email, name)
@@ -1336,6 +1336,7 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 		"badge_grid":         badgeGrid,
 		"identity_available": identityAvailable,
 		"identity_error":     identityError,
+		"public_entry":       publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
 		"league":             s.leagueMap(),
 		"league_mode":        s.cfg.ModeLabel,
 	}
@@ -1382,13 +1383,13 @@ func (s *Service) claimFantasySeat(email, name, teamName, motif string) (Team, e
 	state := s.store.Snapshot()
 	if pendingTeamID, pending := state.CoInvites[email]; pending {
 		return Team{}, fmt.Errorf(
-			"complete your pending co-manager sign-in for %s before claiming another franchise",
+			"complete your pending co-manager invitation for %s before claiming another franchise",
 			s.TeamLabel(pendingTeamID),
 		)
 	}
 	member, admitted := state.Members[email]
 	if !admitted {
-		return Team{}, errors.New("league admission is not recorded for this Google account; sign in again or ask the commissioner to verify your identity")
+		return Team{}, errors.New("league admission is not recorded for this Google account; ask the commissioner to verify this identity before claiming a franchise")
 	}
 	if member.TeamID != "" {
 		return Team{}, errors.New("you already hold a team seat")
@@ -2709,15 +2710,10 @@ func (s *Service) requestSeatAuthorityForState(r *http.Request, state PersistedS
 
 func (s *Service) actingTeam(r *http.Request, requested string) (string, error) {
 	if user, ok := s.CurrentUser(r); ok {
-		member, exists := s.store.MemberByEmail(user.Email)
-		if !exists {
-			var err error
-			member, err = s.ensureMember(user.Email, user.Name)
-			if err != nil {
-				return "", err
-			}
-		}
-		if member.TeamID == "" {
+		state := s.store.Snapshot()
+		canonicalEmail := s.identityResolver.Resolve(user.Email)
+		member, exists := memberByEmail(state.Members, canonicalEmail)
+		if !exists || strings.TrimSpace(member.TeamID) == "" {
 			return "", fmt.Errorf("claim a team seat before taking this action")
 		}
 		return member.TeamID, nil

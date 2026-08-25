@@ -3,6 +3,7 @@ package join
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -162,5 +163,26 @@ func TestJoinPageExplainsThePathAfterClaim(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("join page missing onboarding guidance %q; body: %s", want, body)
 		}
+	}
+}
+
+func TestJoinPageNonClaimableEntryUsesCanonicalProjection(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(source)
+	for _, want := range []string{
+		"data.public_entry.state_label",
+		"data.public_entry.detail",
+		"data.public_entry.action_label",
+		"data.public_entry.action_href",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("join page does not render canonical non-claimable field %q", want)
+		}
+	}
+	if strings.Contains(page, "/auth/google/start?next=%2Fteam") || strings.Contains(page, "Complete co-manager sign-in") {
+		t.Fatalf("join page hardcodes stale co-manager reauthentication instead of canonical public_entry: %s", page)
 	}
 }

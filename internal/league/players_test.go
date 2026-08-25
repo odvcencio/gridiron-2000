@@ -890,7 +890,7 @@ func TestPlayersDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 			name:       "co-manager pending",
 			email:      "pending-co-surface@example.com",
 			wantState:  PublicEntryCoManagerPending,
-			wantAction: "/auth/google/start?next=%2Fteam",
+			wantAction: "/guide#identity",
 			setup: func(t *testing.T, service *Service, email string) {
 				primary, _, err := service.store.AssignMember("surface-primary@example.com", "Surface Primary")
 				if err != nil {
@@ -989,6 +989,14 @@ func TestPlayersDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 				encoded, err := json.Marshal(entry)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if tt.wantState == PublicEntryCoManagerPending {
+					if got := entry["action_label"]; got != "Complete co-manager invitation →" {
+						t.Fatalf("pending co-manager action label = %v, want invitation guidance", got)
+					}
+					if strings.Contains(string(encoded), "/auth/google/start?next=%2Fteam") {
+						t.Fatalf("pending co-manager player entry exposed stale reauthentication: %s", encoded)
+					}
 				}
 				for _, secret := range []string{"pending-surface@example.com", "commissioner-surface@example.com", "surface-primary@example.com"} {
 					if strings.Contains(string(encoded), secret) {

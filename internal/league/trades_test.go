@@ -93,7 +93,7 @@ func TestTradesDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 			},
 		},
 		{
-			name: "co-manager pending", email: "trade-pending-co@example.com", wantState: PublicEntryCoManagerPending, wantAction: "/auth/google/start?next=%2Fteam",
+			name: "co-manager pending", email: "trade-pending-co@example.com", wantState: PublicEntryCoManagerPending, wantAction: "/guide#identity",
 			setup: func(t *testing.T, service *Service, email string) {
 				primary, _, err := service.store.AssignMember("trade-primary@example.com", "Trade Primary")
 				if err != nil {
@@ -164,6 +164,14 @@ func TestTradesDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 				encoded, err := json.Marshal(entry)
 				if err != nil {
 					t.Fatal(err)
+				}
+				if tt.wantState == PublicEntryCoManagerPending {
+					if got := entry["action_label"]; got != "Complete co-manager invitation →" {
+						t.Fatalf("pending co-manager action label = %v, want invitation guidance", got)
+					}
+					if strings.Contains(string(encoded), "/auth/google/start?next=%2Fteam") {
+						t.Fatalf("pending co-manager trade entry exposed stale reauthentication: %s", encoded)
+					}
 				}
 				for _, secret := range []string{"trade-pending@example.com", "trade-primary@example.com", "trade-co@example.com"} {
 					if strings.Contains(string(encoded), secret) {

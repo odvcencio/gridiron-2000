@@ -260,7 +260,7 @@ func TestPublicEntryPendingCoManagerInviteTransitionsWithoutClaimingASeat(t *tes
 	if view.TeamName != service.TeamLabel(primary.TeamID) || !strings.Contains(view.Detail, view.TeamName) {
 		t.Fatalf("pending entry did not name invited team: %+v", view)
 	}
-	if view.ActionHref != "/auth/google/start?next=%2Fteam" || !strings.Contains(strings.ToLower(view.ActionLabel), "complete") {
+	if view.ActionHref != "/guide#identity" || !strings.Contains(strings.ToLower(view.ActionLabel), "complete") {
 		t.Fatalf("pending entry omitted completion action: %+v", view)
 	}
 
@@ -390,7 +390,7 @@ func TestPublicEntryRoleMatrixFeedsDraftMatchupsAndPickem(t *testing.T) {
 			setup:      func(_ *testing.T, _ *Service) {},
 			wantState:  PublicEntryAuthenticatedPending,
 			wantAction: "/guide#identity",
-			wantPickem: true,
+			wantPickem: false,
 		},
 		{
 			name:  "seated primary manager",
