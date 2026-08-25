@@ -3,6 +3,7 @@ package fleetconfig
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,5 +162,77 @@ func TestAdoptionPlanJSONIsDeterministic(t *testing.T) {
 	}
 	if !bytes.Equal(left, right) {
 		t.Fatalf("plans differ:\n%s\n%s", left, right)
+	}
+}
+
+func TestAdoptionChecklistExercisesTwoThreeAndThirtyThreeInstances(t *testing.T) {
+	for _, count := range []int{2, 3, 33} {
+		t.Run(fmt.Sprintf("%d instances", count), func(t *testing.T) {
+			dir := t.TempDir()
+			writeLeague(t, dir, "league.json")
+			fleet := testFleet()
+			fleet.Instances = make([]Instance, count)
+			for index := range fleet.Instances {
+				id := fmt.Sprintf("league-%02d", index)
+				fleet.Instances[index] = instance(id, hq("league-id-"+id, index, "cyan", "key-"+id, index == 0))
+			}
+			path := writeFleet(t, dir, fleet)
+			bundle, err := Compile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inventory := adoptionInventoryFor(bundle)
+			plan, err := PlanExistingAdoption(bundle, inventory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !plan.Ready || len(plan.Checklist) != count || len(plan.Instances) != count {
+				t.Fatalf("plan = %#v", plan)
+			}
+			for index, item := range plan.Checklist {
+				id := fmt.Sprintf("league-%02d", index)
+				if item.InstanceID != id || item.OAuthCallback != "https://"+id+".example.test/auth/google/callback" {
+					t.Fatalf("checklist[%d] = %#v", index, item)
+				}
+				for _, marker := range []string{"node-local", "ReadWriteOnce", "deleting/recreating", "reclaim policy"} {
+					if !strings.Contains(item.Storage, marker) {
+						t.Fatalf("checklist[%d] storage omits %q: %q", index, marker, item.Storage)
+					}
+				}
+				if item.HQ == nil || item.HQ.ProviderService == "" || item.HQ.NetworkPolicy == "" || item.HQ.ProviderSecretEnvironment != "COMMISSIONER_HQ_PROVIDER_SECRET" {
+					t.Fatalf("checklist[%d] HQ contract = %#v", index, item.HQ)
+				}
+				if index == 0 && (item.HQ.RegistryConfigMap == "" || item.HQ.RegistryFile != "/etc/gridiron-hq/registry.json" || item.HQ.ClientSecretEnvironment == "") {
+					t.Fatalf("host checklist[%d] = %#v", index, item.HQ)
+				}
+				if index != 0 && item.HQ.RegistryConfigMap != "" {
+					t.Fatalf("non-host checklist[%d] unexpectedly owns registry material: %#v", index, item.HQ)
+				}
+			}
+			text := plan.Text()
+			for _, marker := range []string{"OAuth/HQ/storage", "register OAuth callback", "private port 8091", "node-local", "reclaim policy"} {
+				if !strings.Contains(text, marker) {
+					t.Fatalf("adoption text omits %q: %s", marker, text)
+				}
+			}
+			first, err := plan.JSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			secondPlan, err := PlanExistingAdoption(bundle, inventory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := secondPlan.JSON()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(first, second) {
+				t.Fatal("adoption checklist plan is not deterministic")
+			}
+			if bytes.Contains(first, []byte("@example.com")) || bytes.Contains(first, []byte("REPLACE_ME_WITH")) {
+				t.Fatalf("adoption checklist leaked PII or credential placeholders: %s", first)
+			}
+		})
 	}
 }
