@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"net/http"
 	"net/url"
 	"strconv"
 
@@ -38,11 +39,39 @@ func waiverRedirectTarget(pos, query, page string) string {
 	return redirectTarget(pos, query, page) + "#waivers"
 }
 
+func playersFragmentURL(request *http.Request, kind string) string {
+	values := url.Values{}
+	if request != nil && request.URL != nil {
+		query := request.URL.Query()
+		if pos := query.Get("pos"); pos != "" {
+			values.Set("pos", pos)
+		}
+		if search := query.Get("q"); search != "" {
+			values.Set("q", search)
+		}
+		if page := query.Get("page"); page != "" {
+			if parsed, err := strconv.Atoi(page); err == nil && parsed > 1 {
+				values.Set("page", strconv.Itoa(parsed))
+			}
+		}
+	}
+	target := "/players/fragment/" + kind
+	if encoded := values.Encode(); encoded != "" {
+		return target + "?" + encoded
+	}
+	return target
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
+			ctx.Runtime().EnableBootstrap()
 			data := league.Default().PlayersData(ctx.Request)
+			data["pool_fragment_url"] = playersFragmentURL(ctx.Request, "pool")
+			data["pool_fragment_interval"] = playersRegionInterval
+			data["waiver_fragment_url"] = playersFragmentURL(ctx.Request, "waivers")
+			data["waiver_fragment_interval"] = playersRegionInterval
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -88,6 +117,9 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
+				if action.WantsJSON(ctx.Request) {
+					return ctx.Success(message, map[string]any{"value": "refresh"})
+				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
@@ -96,6 +128,9 @@ func init() {
 				message, err := league.Default().DropPlayer(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
+				}
+				if action.WantsJSON(ctx.Request) {
+					return ctx.Success(message, map[string]any{"value": "refresh"})
 				}
 				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
@@ -110,6 +145,9 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
+				if action.WantsJSON(ctx.Request) {
+					return ctx.Success(message, map[string]any{"value": "refresh"})
+				}
 				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
@@ -120,6 +158,9 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
+				if action.WantsJSON(ctx.Request) {
+					return ctx.Success(message, map[string]any{"value": "refresh"})
+				}
 				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil
 			},
@@ -129,6 +170,9 @@ func init() {
 				message, err := league.Default().MoveClaim(ctx.Request, ctx.FormData["team_id"], ctx.FormData["claim_id"], ctx.FormData["direction"])
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
+				}
+				if action.WantsJSON(ctx.Request) {
+					return ctx.Success(message, map[string]any{"value": "refresh"})
 				}
 				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 				return nil

@@ -19,9 +19,11 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	activitypage "gridiron-2000/app/activity"
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	playerspage "gridiron-2000/app/players"
 	teampage "gridiron-2000/app/team"
 	wirepage "gridiron-2000/app/wire"
 	"gridiron-2000/internal/commissionerhq"
@@ -386,6 +388,13 @@ func main() {
 	app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
+	// Player-pool/waiver and transaction regions are read-only projections.
+	// Their shared 4-second interval is the declared cross-client convergence
+	// bound; managed player mutations signal the same regions immediately while
+	// native forms continue through their existing POST-redirect-GET paths.
+	app.Mount("GET /players/fragment/pool", playerspage.PlayersPoolFragmentHandler(league.Default()))
+	app.Mount("GET /players/fragment/waivers", playerspage.PlayersWaiverFragmentHandler(league.Default()))
+	app.Mount("GET /activity/fragment", activitypage.ActivityFragmentHandler(league.Default()))
 	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
 	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
 	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))

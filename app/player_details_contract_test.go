@@ -17,7 +17,10 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 		{name: "draft", path: filepath.Join("draft", "page.gsx"), detailTags: 1},
 		{name: "big board", path: filepath.Join("board", "page.gsx"), detailTags: 2},
 		{name: "blitz", path: filepath.Join("blitz", "page.gsx"), detailTags: 3},
-		{name: "player pool", path: filepath.Join("players", "page.gsx"), detailTags: 1},
+		// The player pool keeps one native disclosure in the initial page and
+		// one in the authoritative fragment component; both remain keyboard- and
+		// touch-operable after a live region swap.
+		{name: "player pool", path: filepath.Join("players", "page.gsx"), detailTags: 2},
 	}
 
 	for _, tt := range tests {
