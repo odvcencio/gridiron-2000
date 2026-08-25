@@ -862,6 +862,99 @@ func TestPlayersDataLockedDropExplainsAvailability(t *testing.T) {
 	t.Fatal("rb-locked row not found")
 }
 
+// TestPlayersDataLockedDropNamesHistoricalWeek keeps the Player Pool's
+// explanation tied to the kicked-but-unfinalized scoring week even after the
+// action selector advances to the next NFL week.
+func TestPlayersDataLockedDropNamesHistoricalWeek(t *testing.T) {
+	svc, now := newPlayersTestService(t)
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{
+			{ID: "w1-pit", Week: 1, Kickoff: now.Add(-6 * time.Hour), Away: "PIT", Home: "NYJ"},
+			{ID: "w1-tb", Week: 1, Kickoff: now.Add(-6 * time.Hour), Away: "TB", Home: "ATL"},
+			{ID: "w2-tb", Week: 2, Kickoff: now.Add(2 * time.Hour), Away: "TB", Home: "CIN"},
+		}
+	})
+	data := svc.PlayersData(deadlineTestGET("/players"))
+	rows, _ := data["players"].([]map[string]any)
+	for _, row := range rows {
+		if row["id"] != "rb-locked" {
+			continue
+		}
+		if locked, _ := row["drop_locked"].(bool); !locked {
+			t.Fatal("historically kicked player must remain drop locked")
+		}
+		reason, _ := row["drop_lock_reason"].(string)
+		if !strings.Contains(reason, "week 1") {
+			t.Fatalf("historical drop lock reason = %q, want actual Week 1", reason)
+		}
+		if strings.Contains(reason, "week 2") {
+			t.Fatalf("historical drop lock reason used later selector week: %q", reason)
+		}
+		return
+	}
+	t.Fatal("rb-locked row not found")
+}
+
+// TestPlayersDataCapacityBreakdownSeparatesGeneralReserveAndIR keeps the
+// effective cap and each roster zone visible when an IR stash makes raw
+// ownership exceed the draftable cap.
+func TestPlayersDataCapacityBreakdownSeparatesGeneralReserveAndIR(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	setRosterShape(RosterPreset{
+		Name:    "tiny-zones",
+		Slots:   map[string]int{"RB": 1, "WR": 1},
+		Bench:   0,
+		Reserve: map[string]int{"RB": 1},
+		IR:      2,
+	})
+	state := svc.store.Snapshot()
+	svc.store.mu.Lock()
+	svc.store.state.Picks = append(svc.store.state.Picks, DraftPick{
+		Number: len(state.Picks) + 1, TeamID: "team-1", PlayerID: "fa-two",
+	})
+	svc.store.state.RosterZones["team-1"] = map[string]ZoneAssignment{
+		"rb-open":   {Zone: zoneReserve, Position: "RB"},
+		"rb-locked": {Zone: zoneIR, Position: "RB"},
+	}
+	svc.store.mu.Unlock()
+
+	data := svc.PlayersData(deadlineTestGET("/players"))
+	for key, want := range map[string]int{
+		"roster_size":         3,
+		"roster_cap":          3,
+		"roster_general_size": 2,
+		"roster_general_cap":  2,
+		"roster_reserve_size": 1,
+		"roster_reserve_cap":  1,
+		"roster_ir_size":      1,
+		"roster_ir_cap":       2,
+	} {
+		if got, _ := data[key].(int); got != want {
+			t.Errorf("%s = %v, want %d", key, data[key], want)
+		}
+	}
+	if atCap, _ := data["at_cap"].(bool); !atCap {
+		t.Fatal("effective general+reserve roster must be at cap")
+	}
+	if got, _ := data["roster_capacity_summary"].(string); got != "GENERAL 2 / 2 · RESERVE 1 / 1 · IR 1 / 2" {
+		t.Fatalf("roster_capacity_summary = %q, want explicit zone breakdown", got)
+	}
+	rows, _ := data["players"].([]map[string]any)
+	for _, row := range rows {
+		if row["id"] != "fa-open" {
+			continue
+		}
+		if needsDrop, _ := row["needs_drop"].(bool); !needsDrop {
+			t.Fatal("full effective roster must require a drop for fa-open")
+		}
+		if canAdd, _ := row["can_add"].(bool); !canAdd {
+			t.Fatal("full effective roster should retain add-and-drop eligibility")
+		}
+		return
+	}
+	t.Fatal("fa-open row not found")
+}
+
 func TestPlayersDataClaimResolutionStates(t *testing.T) {
 	claimRow := func(svc *Service) map[string]any {
 		data := svc.PlayersData(deadlineTestGET("/players"))

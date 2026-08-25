@@ -2959,6 +2959,41 @@ button.badge-option:hover {
   font-size: var(--type-xl);
 }
 
+.roster-capacity-breakdown {
+  display: grid;
+  gap: var(--space-xs);
+  padding-block: var(--space-sm);
+  border-block: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font: 600 var(--type-xs)/1.25 var(--font-mono);
+  text-transform: uppercase;
+}
+
+.roster-capacity-breakdown > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.roster-capacity-breakdown b {
+  color: var(--color-text-muted);
+  font: inherit;
+}
+
+.roster-capacity-breakdown strong {
+  color: var(--color-accent-cyan);
+  font: inherit;
+  white-space: nowrap;
+}
+
+.roster-capacity-note {
+  max-width: 24rem;
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  line-height: 1.35;
+}
 .admin-league-switcher {
   display: grid;
   gap: var(--space-xs);
