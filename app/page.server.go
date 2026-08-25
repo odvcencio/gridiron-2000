@@ -31,6 +31,7 @@ type MatchupCard struct {
 	ID                string
 	State             string
 	ShowLiveIndicator bool
+	LiveIndicator     string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -90,6 +91,7 @@ func dashboardMatchupCards(raw []map[string]any) []MatchupCard {
 			ID:                stringField(entry, "id"),
 			State:             stringField(entry, "state"),
 			ShowLiveIndicator: boolField(entry, "show_live_indicator"),
+			LiveIndicator:     stringField(entry, "live_indicator"),
 			Status:            stringField(entry, "status"),
 			Clock:             stringField(entry, "clock"),
 			Away:              matchupTeamCardFromMap(away),

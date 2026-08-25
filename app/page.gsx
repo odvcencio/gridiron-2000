@@ -22,6 +22,7 @@ component TeamMark(props: TeamMarkProps) {
 type MiniMatchupProps struct {
 	ID                string
 	ShowLiveIndicator bool
+	LiveIndicator     string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -32,12 +33,10 @@ func MiniMatchup(props MiniMatchupProps) Node {
 	return <article class="mini-matchup" data-live-matchup={props.ID}>
 		<div class="mini-matchup__meta">
 			<span>
-				<If cond={props.ShowLiveIndicator}>
-					<span class="live-dot" aria-hidden="true"></span>
-				</If>
-				<span data-matchup-status>{props.Status}</span>
+				<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span>
+				<span data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			</span>
-			<span class="mono" data-matchup-clock>{props.Clock}</span>
+			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</div>
 		<div class="mini-team">
 			<TeamMark {...props.Away}></TeamMark>
@@ -45,7 +44,7 @@ func MiniMatchup(props MiniMatchupProps) Node {
 				<strong>{props.Away.Name}</strong>
 				<small>{props.Away.Manager}</small>
 			</div>
-			<b class="score" data-score-team={props.Away.ID}>{props.Away.Score}</b>
+			<b class="score" data-score-team={props.Away.ID} data-gosx-live-bind={"scores." + props.Away.ID} data-gosx-live-flash-class="score-flash">{props.Away.Score}</b>
 		</div>
 		<div class="mini-team">
 			<TeamMark {...props.Home}></TeamMark>
@@ -53,7 +52,7 @@ func MiniMatchup(props MiniMatchupProps) Node {
 				<strong>{props.Home.Name}</strong>
 				<small>{props.Home.Manager}</small>
 			</div>
-			<b class="score" data-score-team={props.Home.ID}>{props.Home.Score}</b>
+			<b class="score" data-score-team={props.Home.ID} data-gosx-live-bind={"scores." + props.Home.ID} data-gosx-live-flash-class="score-flash">{props.Home.Score}</b>
 		</div>
 	</article>
 }
@@ -372,21 +371,15 @@ func Page() Node {
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
 		<If cond={data.viewer.signed_in && data.has_seat}>
-		<section class="score-command" data-live-root>
+		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
 			<header class="section-heading section-heading--split">
 				<div>
 					<span class="section-index">01 // MATCHUP PREVIEW</span>
 					<h2>League simulator</h2>
 				</div>
 				<div class="sync-state" role="status" aria-live="polite">
-					<If cond={data.live.show_live_indicator}>
-						<span class="live-dot" aria-hidden="true"></span>
-					</If>
-					<span data-live-status>
-						{data.live.source_label}
-						·
-						{data.live.last_updated}
-					</span>
+					<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span>
+					<span data-live-status data-gosx-live-bind="liveStatus">{data.live.live_status}</span>
 				</div>
 			</header>
 			<If cond={data.featured_empty}>
@@ -406,10 +399,11 @@ func Page() Node {
 			<div class="score-ticker" aria-label="Matchup preview status">
 				<span>PREVIEW</span>
 				<p>
-					{data.live.week_label}
+					<span data-gosx-live-bind="weekLabel">{data.live.week_label}</span>
 					//
-					{data.live.status}
-					// updates every 60 seconds
+					<span data-gosx-live-bind="status">{data.live.status}</span>
+					//
+					<span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
 				</p>
 				<a href="/matchups" data-gosx-link>All matchups →</a>
 			</div>
