@@ -59,13 +59,102 @@ The scheduled time never starts the draft.
 
 ### Commissioner
 
-1. About an hour before the meeting, resolve unclaimed seats. If the league will contract, drop those seats before randomizing the order.
-2. Confirm the player pool covers `teams × draft rounds`. Treat target coverage as planning headroom; roster capacity is the hard draft requirement.
-3. Draw or confirm the draft order. The initial draw runs six shuffle passes, publishes only the final result plus the regular-season schedule, and sends one manager notification batch. Starting the draft locks the order.
-4. Review claimed and ready counts. A manager may be present but intentionally leave autopick off; ready and autopick are separate controls.
-5. At the meeting time, confirm the room verbally. Type `START` in `/admin` or `/draft` only when pick one should begin immediately.
-6. Use pause, resume, extend, or forced autopick when the room needs intervention. These controls change persisted draft-clock state.
-7. If the most recent pick was a mistake, use the typed `UNDO` control. It reopens that draft slot and re-arms its clock.
+Follow this sequence from the owning league's `/admin` or `/draft` page. Do not
+operate one league from another league's Commissioner HQ card.
+
+1. **Verify the meeting, not just the calendar invite.** Read the rendered draft
+   date, local time, timezone, mode, round count, and pick duration. Ask one
+   manager to confirm that `/draft` shows the same meeting. A scheduled meeting
+   is inert: reaching or passing that timestamp does not start or arm the draft.
+2. **Resolve the seat map.** About an hour before the meeting, resolve every
+   unclaimed seat. If the league will contract, drop those seats before the
+   order is randomized. Commissioner-delegated `AUTO` is available only for a
+   claimed seat; an unclaimed franchise is not a substitute manager.
+3. **Classify each claimed seat without collapsing three different facts.**
+   `HERE`/`IDLE`/`AWAY`/`NOT SEEN` is live presence, `READY` is the manager's
+   deliberate check-in, and `AUTO` is persisted pick authority. Presence never
+   silently enables AUTO, and READY never starts the room. For a manager known
+   to be absent, confirm the manager's intent, turn on commissioner-delegated
+   AUTO for that claimed seat, and tell the room that its first available Big
+   Board player will be used before best available.
+4. **Clear every Board gap.** The commissioner sees each claimed team's Board
+   count and whether it is empty, never its private ranking order. Ask the
+   primary or co-manager to add targets. A deliberate empty Board is allowed
+   only when the league accepts authoritative best-available ranking as that
+   seat's complete fallback.
+5. **Verify provider capacity and truth.** The player pool must contain at least
+   `teams × draft rounds` distinct eligible players. `LIVE` is preferred. A
+   labeled last-good cache may be accepted when its player count covers that
+   capacity and its age/error are understood. `OFFLINE`, `UNAVAILABLE`, an
+   unexplained provider error, or an undersized pool blocks a real draft.
+6. **Verify order and schedule together.** The published order must contain each
+   active team exactly once. Confirm round one top-to-bottom and round two in
+   reverse for the snake. The initial draw publishes the regular-season
+   schedule in the same operation; inspect the first-week pairings, team count,
+   configured span, and any odd-team bye before proceeding. Starting the draft
+   locks the order. Do not redraw merely because a manager dislikes a result.
+7. **Read the readiness row aloud.** Name every claimed seat that is not ready,
+   not present, on AUTO, or has a Board gap. Resolve or explicitly accept each
+   exception. This is the final reversible checkpoint.
+8. **Start intentionally.** Only when pick one should begin immediately, type
+   `START` into the rendered start control and submit once. The scheduled time,
+   manager readiness, browser presence, and AUTO settings cannot perform this
+   mutation.
+9. **Require one exclusive clock state.** The room must show exactly one of:
+   `NOT RUNNING` before explicit start or after terminal completion; `PAUSED`
+   with persisted remaining seconds; or `RUNNING` with one authoritative
+   deadline. Conflicting labels are a stop condition: refresh before acting.
+10. **Pause before resolving a room dispute.** Pause freezes the remaining
+    seconds and survives refresh/restart. It does not erase the on-clock seat or
+    prohibit an intentional manual/forced selection. Resume once; it arms a new
+    deadline from the persisted remaining duration. Do not press resume twice.
+11. **Extend only the running pick currently shown.** Extension is unavailable
+    when paused, unarmed, or complete. It adds the entered seconds to the current
+    deadline within the product's clock bounds. The form is bound to the exact
+    pick and deadline on screen; if another client acts first, the submission is
+    stale and must make no change.
+12. **Force the current pick only as an explicit ruling.** Open the destructive
+    control, read the named consequence, type `FORCE CURRENT PICK`, and submit
+    once. This immediately selects the first still-available player on that
+    seat's Big Board, otherwise authoritative best available, and advances the
+    draft even while paused. Missing, mistyped, stale, or repeated submissions
+    must fail without consuming a player.
+13. **Undo only the exact last pick displayed.** Type `UNDO` after explaining the
+    correction to the room. Undo returns that player to availability, reopens the
+    same draft slot, and re-arms its clock when running. During a pause, the room
+    remains paused. A stale or repeated undo must not remove an earlier pick.
+14. **Verify terminal completion.** After the final configured slot, confirm the
+    pick count equals `teams × draft rounds`, the clock reads `NOT RUNNING`, no
+    deadline or on-clock action remains, and every team's `/team` roster contains
+    the expected slot count. Then check the pick tape and transaction/activity
+    record before dismissing managers.
+
+#### Draft refresh and restart recovery
+
+Use this recovery sequence; never repair draft state by editing SQLite.
+
+1. **After a browser refresh:** read the pick number, on-clock team, exclusive
+   clock state, deadline/remaining time, and latest pick again before submitting.
+   A managed action may update only its page region; a native form may redirect
+   through a full page. Both must render the same persisted result.
+2. **After a stale or double response:** stop. The server rejects the old
+   current-pick/previous-pick token before mutation. Do not change the typed value
+   and resubmit the same page. Reload, explain what another client changed, and
+   decide again from the newly rendered state.
+3. **After a process restart with a paused clock:** `PAUSED` and its persisted
+   remaining seconds stay unchanged. Presence may temporarily read `NOT SEEN`;
+   wait for manager heartbeats instead of converting that observation into AUTO.
+4. **After a process restart with a future running deadline:** the stored future
+   deadline remains authoritative. The restart does not add time.
+5. **After a process restart past an expired running deadline:** Gridiron grants
+   one bounded `RestartGrace` deadline—30 seconds or the configured pick duration,
+   whichever is smaller—rather than immediately punishing the on-clock manager.
+   Confirm that new deadline, then pause if the room still needs reconciliation.
+   A restart never starts a draft that was not explicitly started.
+6. **After any restart:** allow the two-minute boot presence guard to receive
+   heartbeats before interpreting `NOT SEEN`; it prevents a restart from
+   shortening every manager's clock at once. Verify pool health and the latest
+   pick again, then resume normal operation from the persisted state.
 
 ### Manager
 
@@ -147,7 +236,10 @@ Use the least destructive response that preserves an honest league record.
 
 ## Corrections and recovery
 
-- Draft mistake: use the typed last-pick undo before proceeding. Do not edit SQLite by hand.
+- Draft mistake, stale action, browser refresh, or process restart: follow the
+  exact [draft refresh and restart recovery](#draft-refresh-and-restart-recovery)
+  sequence. Use typed last-pick undo for the exact latest pick; do not edit
+  SQLite by hand.
 - Wrong team claim: the commissioner releases the seat; the manager then claims the correct open seat.
 - Wrong invited identity: correct the invitation or configured alias. Do not create an alias merely to bypass admission policy.
 - Incorrect open week lineup: change only players whose games have not locked.
@@ -166,7 +258,9 @@ Before calling a league season-ready, verify:
 - [ ] The live `/scoring` page matches the intended format and roster.
 - [ ] Every manager can authenticate, and every intended franchise is claimed.
 - [ ] Draft order, readiness, and player-pool capacity are visible.
+- [ ] Every claimed seat exposes separate presence, readiness, AUTO, and Board-gap truth; unclaimed seats cannot receive commissioner AUTO.
 - [ ] The commissioner can start only through explicit `START` confirmation.
+- [ ] Pause, resume, extend, force-current-pick, undo, refresh, stale/double submission, restart grace, and terminal completion have been rehearsed on disposable state.
 - [ ] The regular-season schedule is generated and its seed is recorded.
 - [ ] Managers understand per-player lineup locks, waiver mode, and trade review.
 - [ ] The normal week-close gate explains unfinished or stale inputs.
