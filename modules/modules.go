@@ -10,6 +10,8 @@ import (
 	_ "gridiron-2000/app/commissioner"
 	_ "gridiron-2000/app/draft"
 	_ "gridiron-2000/app/guide"
+	_ "gridiron-2000/app/help"
+	_ "gridiron-2000/app/help/_topic_id"
 	_ "gridiron-2000/app/join"
 	_ "gridiron-2000/app/login"
 	_ "gridiron-2000/app/matchups"

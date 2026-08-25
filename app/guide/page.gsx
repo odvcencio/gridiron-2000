@@ -10,6 +10,7 @@ func Page() Node {
 				<p class="guide-lede">{data.league_name} is a private league room, not a second account at your old provider. Bring your football knowledge; the commissioner sets this league's rules, membership, and draft start. This guide gets you from invite to game day in one pass.</p>
 				<nav class="guide-actions" aria-label="Guide actions">
 					<a href="#quickstart" class="button button--primary">Jump to the 5-minute start ↓</a>
+					<a href="/help" data-gosx-link class="button button--ghost">Open help center →</a>
 					<a href="/login" data-gosx-link class="button button--ghost">Get league access →</a>
 				</nav>
 			</div>
@@ -172,7 +173,7 @@ func Page() Node {
 
 		<footer class="guide-next">
 			<div><span class="section-index">NEXT TRANSMISSION</span><h2>Make the live rules your source of truth.</h2><p>When a guide sentence and the configured league disagree, the current league page wins. Ask the commissioner before a deadline if the state is unclear.</p></div>
-			<div class="guide-actions"><a href="/scoring" data-gosx-link class="button button--primary">Open rules + scoring →</a><a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a></div>
+			<div class="guide-actions"><a href="/scoring" data-gosx-link class="button button--primary">Open rules + scoring →</a><a href="/help" data-gosx-link class="button button--ghost">Open help center →</a><a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a></div>
 		</footer>
 	</main>
 }

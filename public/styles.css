@@ -79,6 +79,148 @@
   --mobile-bar-height: 3.75rem;
 }
 
+/* PX-1 help center: the corpus is intentionally dense, so keep the first
+   read scannable while preserving full workflow copy at narrow widths. */
+.help-search {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block: var(--space-lg);
+  padding: var(--space-md);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-white-faint);
+}
+
+.help-search__row {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: end;
+}
+
+.help-search__field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.help-search__results,
+.help-category__topics,
+.help-migration,
+.help-glossary-grid,
+.help-state-grid {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.help-result,
+.help-topic-card,
+.help-mapping-row,
+.help-glossary-entry,
+.help-state-card {
+  min-width: 0;
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-white-faint);
+}
+
+.help-result {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.help-result__meta,
+.help-topic-card__meta,
+.help-state-card__meta {
+  color: var(--color-text-muted);
+  font-size: .8rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.help-category {
+  display: grid;
+  gap: var(--space-sm);
+  margin-block: var(--space-xl);
+}
+
+.help-category__topics,
+.help-glossary-grid,
+.help-state-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.help-topic-card h3,
+.help-glossary-entry h3,
+.help-state-card h3 {
+  margin-block: var(--space-xs);
+}
+
+.help-topic-card p,
+.help-glossary-entry p,
+.help-state-card p {
+  margin-block: var(--space-xs) 0;
+}
+
+.help-migration {
+  overflow-x: auto;
+}
+
+.help-mapping-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, 1fr) minmax(10rem, 1fr) minmax(14rem, 2fr);
+  align-items: start;
+}
+
+.help-mapping-row--head {
+  color: var(--color-text-muted);
+  font-size: .8rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.help-mapping-row > * {
+  min-width: 0;
+}
+
+.help-topic-page .guide-steps,
+.help-topic-page .guide-card-grid,
+.help-topic-page .guide-compare {
+  min-width: 0;
+}
+
+@media (max-width: 48rem) {
+  .help-search__row {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .help-category__topics,
+  .help-glossary-grid,
+  .help-state-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .help-mapping-row,
+  .help-mapping-row--head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-xs);
+  }
+
+  .help-mapping-row--head {
+    display: none;
+  }
+
+  .help-mapping-row > *::before {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: .72rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+  }
+
+  .help-mapping-row > :nth-child(1)::before { content: "Canonical concept"; }
+  .help-mapping-row > :nth-child(2)::before { content: "Incoming alias"; }
+  .help-mapping-row > :nth-child(3)::before { content: "Difference + next"; }
+}
+
 * {
   box-sizing: border-box;
 }

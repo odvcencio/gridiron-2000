@@ -102,16 +102,20 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="navigation-link__index mono">13</span>
 					Manager guide
 				</Link>
+				<Link href="/help" class="navigation-link navigation-link--guide">
+					<span class="navigation-link__index mono">14</span>
+					Help center
+				</Link>
 			</div>
 			<If cond={props.Commissioner}>
 				<div class="navigation-group" data-navigation-group="commissioner">
 					<p class="navigation-group__label mono">COMMISSIONER</p>
 					<Link href="/commissioner" class="navigation-link">
-						<span class="navigation-link__index mono">14</span>
+						<span class="navigation-link__index mono">15</span>
 						All leagues
 					</Link>
 					<Link href="/admin" class="navigation-link">
-						<span class="navigation-link__index mono">15</span>
+						<span class="navigation-link__index mono">16</span>
 						League settings
 					</Link>
 				</div>
