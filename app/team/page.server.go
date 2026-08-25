@@ -229,6 +229,11 @@ func teamLineupTarget(ctx *action.Context) string {
 	return "/team?week=" + week + "#lineup"
 }
 
+const (
+	teamIdentityReturnTargetField = action.ReturnTargetField
+	teamIdentityReturnTarget      = "/team?identity=edit#team-identity"
+)
+
 // lineupValidation keeps native forms anchored to the selected lineup while
 // retaining GoSX's managed JSON field errors. The action framework's
 // progressive fallback will flash the values and errors before redirecting
@@ -317,6 +322,13 @@ func init() {
 			// the page opts into GoSX's bootstrap runtime.
 			ctx.Runtime().EnableBootstrap()
 			data := prepareTeamData(league.Default().TeamData(ctx.Request), ctx.Request)
+			// Identity mutations stay on the open editor after a native
+			// POST-redirect-GET and after a managed success. GoSX removes the
+			// reserved field before action handlers see it and rejects hostile
+			// targets in RedirectBackWithNotice, so the submitted target is
+			// continuity state rather than an open redirect.
+			data["team_return_target_field"] = teamIdentityReturnTargetField
+			data["team_return_target"] = teamIdentityReturnTarget
 			data["has_notice"] = false
 			data["notice"] = ""
 			applyTeamIdentityActionState(data, ctx.ActionStates())
@@ -373,7 +385,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "team", "name", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", fmt.Sprintf("Team renamed to %s.", team.Name))
+				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, fmt.Sprintf("Team renamed to %s.", team.Name))
 				return nil
 			},
 			// lineup-set applies one roster-ops spec section 4.4
@@ -401,7 +413,7 @@ func init() {
 				if err := league.Default().InviteCoManager(ctx.Request, ctx.FormData["team_id"], ctx.FormData["email"]); err != nil {
 					return actionui.Validation(ctx, "team", "email", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", "Co-manager invited: "+ctx.FormData["email"]+".")
+				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, "Co-manager invited: "+ctx.FormData["email"]+".")
 				return nil
 			},
 			// co-detach lets the seat's primary manager or the commissioner
@@ -410,7 +422,7 @@ func init() {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return actionui.Validation(ctx, "team", "team_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/team", "Co-manager detached.")
+				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, "Co-manager detached.")
 				return nil
 			},
 			// lineup-auto applies the section 4.7 SET BEST LINEUP action.

@@ -5,6 +5,8 @@ type BlitzSlotRowProps struct {
 	RemoveAction string
 	CSRF         string
 	Slate        string
+	ReturnTargetField string
+	ReturnTarget      string
 }
 
 func BlitzSlotRow(props BlitzSlotRowProps) Node {
@@ -56,6 +58,7 @@ func BlitzSlotRow(props BlitzSlotRowProps) Node {
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<input type="hidden" name="slate" value={props.Slate}></input>
 					<input type="hidden" name="player_id" value={props.Slot.id}></input>
+					<input type="hidden" name={props.ReturnTargetField} value={props.ReturnTarget}></input>
 					<button class="board-button board-button--cut" type="submit" aria-label={"Remove " + props.Slot.name}>✕</button>
 				</form>
 			</If>
@@ -69,6 +72,8 @@ type BlitzPoolRowProps struct {
 	CSRF     string
 	Slate    string
 	Open     bool
+	ReturnTargetField string
+	ReturnTarget      string
 }
 
 func BlitzPoolRow(props BlitzPoolRowProps) Node {
@@ -138,6 +143,7 @@ func BlitzPoolRow(props BlitzPoolRowProps) Node {
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="slate" value={props.Slate}></input>
 			<input type="hidden" name="player_id" value={props.Player.id}></input>
+			<input type="hidden" name={props.ReturnTargetField} value={props.ReturnTarget}></input>
 			<If cond={props.Open}>
 				<button class="draft-button" type="submit">Add</button>
 			</If>
@@ -327,7 +333,7 @@ func Page() Node {
 		</div>
 
 		<If cond={data.archived == false}>
-			<section class="player-pool">
+			<section class="player-pool" id="blitz-entry">
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">01 // ENTRY BUILDER</span>
@@ -363,6 +369,8 @@ func Page() Node {
 							RemoveAction={actionPath("blitz-remove")}
 							CSRF={csrf.token}
 							Slate={data.slate}
+							ReturnTargetField={data.blitz_return_target_field}
+							ReturnTarget={data.blitz_return_target}
 						 />
 					</Each>
 				</div>
@@ -407,6 +415,8 @@ func Page() Node {
 							CSRF={csrf.token}
 							Slate={data.slate}
 							Open={player.can_add}
+							ReturnTargetField={data.blitz_return_target_field}
+							ReturnTarget={data.blitz_return_target}
 						 />
 					</Each>
 				</div>

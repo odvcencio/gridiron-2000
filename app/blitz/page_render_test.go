@@ -3,6 +3,7 @@ package blitz
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,5 +43,27 @@ func TestBlitzPageRendersDisabledSourceCopy(t *testing.T) {
 	}
 	if !strings.Contains(body, "PRESEASON SCORES NOT OPEN") {
 		t.Fatalf("disabled-source copy missing: %s", body)
+	}
+}
+
+func TestBlitzRoleStateRenderUsesCanonicalPublicEntry(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, want := range []string{
+		`<If cond={data.can_enter == false}>`,
+		`{data.public_entry.state_label}`,
+		`{data.public_entry.detail}`,
+		`href={data.public_entry.action_href}`,
+		`{data.public_entry.action_label}`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("Blitz role-state render missing canonical public-entry field %q", want)
+		}
+	}
+	if strings.Contains(source, `href="/join"`) {
+		t.Fatal("Blitz role-state render must not offer a hard-coded /join action")
 	}
 }

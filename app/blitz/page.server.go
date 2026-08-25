@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"log"
+	"net/url"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
@@ -12,11 +14,42 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+const (
+	blitzEntryAnchor       = "#blitz-entry"
+	blitzReturnTargetField = action.ReturnTargetField
+)
+
+// blitzRedirectTarget keeps the selected preseason slate and the entry
+// builder in view after a native or managed mutation. The slate is the only
+// user-controlled query value accepted by Blitz; the fixed path and anchor
+// make the submitted GoSX return target same-origin and locally useful.
+func blitzRedirectTarget(rawSlate string) string {
+	slate := strings.ToLower(strings.TrimSpace(rawSlate))
+	if slate != "pre2" && slate != "pre3" {
+		slate = ""
+	}
+	values := url.Values{}
+	if slate != "" {
+		values.Set("slate", slate)
+	}
+	target := "/blitz"
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	return target + blitzEntryAnchor
+}
+
+func blitzReturnTargetForData(data map[string]any) string {
+	return blitzRedirectTarget(fmt.Sprint(data["slate"]))
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().BlitzData(ctx.Request)
+			data["blitz_return_target_field"] = blitzReturnTargetField
+			data["blitz_return_target"] = blitzReturnTargetForData(data)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -49,7 +82,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
+				actionui.RedirectBackWithNotice(ctx, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
 				return nil
 			},
 			"blitz-remove": func(ctx *action.Context) error {
@@ -57,7 +90,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "blitz", "blitz", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/blitz?slate="+ctx.FormData["slate"], "Entry saved.")
+				actionui.RedirectBackWithNotice(ctx, blitzRedirectTarget(ctx.FormData["slate"]), "Entry saved.")
 				return nil
 			},
 		},

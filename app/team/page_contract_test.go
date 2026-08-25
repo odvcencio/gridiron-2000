@@ -31,6 +31,31 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 		if !strings.Contains(form, `name="csrf_token" value={csrf.token}`) {
 			t.Errorf("managed %s form has no csrf.token control", action)
 		}
+		if !strings.Contains(form, `name={data.team_return_target_field} value={data.team_return_target}`) {
+			t.Errorf("managed %s form has no safe identity return target", action)
+		}
+	}
+}
+
+func TestTeamRoleStateRenderUsesCanonicalPublicEntry(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, want := range []string{
+		`<If cond={data.has_seat == false}>`,
+		`{data.public_entry.state_label}`,
+		`{data.public_entry.detail}`,
+		`href={data.public_entry.action_href}`,
+		`{data.public_entry.action_label}`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("Team seatless role-state render missing canonical public-entry field %q", want)
+		}
+	}
+	if strings.Contains(source, `href="/join"`) {
+		t.Fatal("Team role-state render must not offer a hard-coded /join action")
 	}
 }
 
