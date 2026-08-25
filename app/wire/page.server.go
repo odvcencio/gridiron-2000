@@ -44,6 +44,79 @@ var WireFilterOptions = []wireFilterOption{
 	{"community", "Tips"},
 }
 
+const (
+	wireCommunityAnchor   = "#community-input"
+	wireReturnTargetField = action.ReturnTargetField
+)
+
+// wireCategory is the single allowlist boundary for the category query used
+// by the page, feed fragment, and submit form. Unknown or hostile values are
+// dropped rather than copied into a redirect or filter link.
+func wireCategory(category string) string {
+	category = strings.ToLower(strings.TrimSpace(category))
+	for _, option := range WireFilterOptions {
+		if option.Slug == category {
+			return category
+		}
+	}
+	return ""
+}
+
+// wireRedirectTarget builds the canonical same-origin return target for the
+// community form. url.Values performs query escaping; the path and anchor
+// are constants, so form data cannot steer a redirect outside the Wire page.
+func wireRedirectTarget(category string) string {
+	values := neturl.Values{}
+	if category := wireCategory(category); category != "" {
+		values.Set("category", category)
+	}
+	target := "/wire"
+	if encoded := values.Encode(); encoded != "" {
+		target += "?" + encoded
+	}
+	return target + wireCommunityAnchor
+}
+
+// wireRequestWithActionCategory restores the category from a flashed action
+// view before loading a native PRG response. Only the Wire allowlist can
+// affect the query; the action's other submitted values remain local form
+// state.
+func wireRequestWithActionCategory(request *http.Request, view action.View) *http.Request {
+	if request == nil {
+		return request
+	}
+	clone := request.Clone(request.Context())
+	query := clone.URL.Query()
+	if category := wireCategory(view.Value("category")); category != "" {
+		query.Set("category", category)
+	} else {
+		query.Del("category")
+	}
+	clone.URL.RawQuery = query.Encode()
+	return clone
+}
+
+// wireReturnTargetForData mirrors the category-normalized page state in the
+// hidden GoSX return-target control. It is generated server-side so a form
+// rendered after a hostile query still posts a bounded target.
+func wireReturnTargetForData(data map[string]any) string {
+	return wireRedirectTarget(fmt.Sprint(data["category"]))
+}
+
+// wireValidationWithRedirect keeps native POST-redirect-GET validation on the
+// submitted category while leaving managed forms in place for GoSX to project
+// the values and field errors into the current page.
+func wireValidationWithRedirect(ctx *action.Context, redirect string, err error) error {
+	validation := actionui.ValidationFields(ctx, "wire", err, sightingFieldErrors)
+	if action.WantsJSON(ctx.Request) {
+		return validation
+	}
+	if result, ok := validation.(*action.ResultError); ok {
+		result.Result.Redirect = redirect
+	}
+	return validation
+}
+
 // wireFilterMaps renders WireFilterOptions as plain, soft-navigable links
 // (gosx#215 replaced the click-to-refetch JS buttons): each link's href
 // carries the category in the query string, so choosing a filter is a
@@ -72,6 +145,7 @@ func wireFilterMaps(category string) []map[string]any {
 // (gosx#217): /wire/fragment, mirroring the current category filter so a
 // periodic poll never drops back to the unfiltered list.
 func wireFragmentURL(category string) string {
+	category = wireCategory(category)
 	if category == "" {
 		return "/wire/fragment"
 	}
@@ -98,7 +172,13 @@ func init() {
 			if err != nil {
 				return nil, err
 			}
-			data := wirePageData(ctx.Request, signals, stats)
+			request := ctx.Request
+			if view, ok := ctx.ActionState("submit-sighting"); ok {
+				request = wireRequestWithActionCategory(request, view)
+			}
+			data := wirePageData(request, signals, stats)
+			data["wire_return_target_field"] = wireReturnTargetField
+			data["wire_return_target"] = wireReturnTargetForData(data)
 			applySubmissionState(ctx, data)
 			return data, nil
 		},
@@ -127,9 +207,9 @@ func init() {
 					Summary:      ctx.FormData["summary"],
 				})
 				if err != nil {
-					return actionui.ValidationFields(ctx, "wire", err, sightingFieldErrors)
+					return wireValidationWithRedirect(ctx, wireRedirectTarget(ctx.FormData["category"]), err)
 				}
-				actionui.RedirectWithNotice(ctx, "/wire#community-input", fmt.Sprintf("%s added to the provisional wire.", signal.Label))
+				actionui.RedirectBackWithNotice(ctx, wireRedirectTarget(ctx.FormData["category"]), fmt.Sprintf("%s added to the provisional wire.", signal.Label))
 				return nil
 			},
 		},
@@ -316,7 +396,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	openStatus := stats.Status()
 	now := time.Now().UTC()
 	viewer := league.Default().Viewer(request)
-	category := strings.TrimSpace(request.URL.Query().Get("category"))
+	category := wireCategory(request.URL.Query().Get("category"))
 	recent := signals.Recent(50, category)
 	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {

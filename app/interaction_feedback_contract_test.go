@@ -46,8 +46,8 @@ func TestLayoutProvidesAccessibleFloatingManagedActionFeedback(t *testing.T) {
 }
 
 func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
-	const wantRedirects = 67
-	const wantRedirectBacks = 6
+	const wantRedirects = 66
+	const wantRedirectBacks = 7
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

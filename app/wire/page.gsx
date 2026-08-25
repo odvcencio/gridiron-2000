@@ -248,8 +248,10 @@ func Page() Node {
 						<p class="flash-message" role="status">{data.notice}</p>
 					</If>
 					<If cond={data.can_submit}>
-						<form method="post" action={actionPath("submit-sighting")}>
+						<form method="post" action={actionPath("submit-sighting")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="category" value={data.category}></input>
+							<input type="hidden" name={data.wire_return_target_field} value={data.wire_return_target}></input>
 							<label>
 								<span>What kind?</span>
 								<select name="evidence_type" required>
