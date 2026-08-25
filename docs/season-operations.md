@@ -251,6 +251,10 @@ Use the least destructive response that preserves an honest league record.
 
 Gridiron records the regular-season phase and final matchup results. The correct playoff boundary is after the last regular-season week closes and standings are final. The bracket engine exists, but automated commissioner seeding is not wired into the product yet; closing the final week advances the recorded phase without inventing a bracket. The commissioner must communicate the year-one postseason plan outside the unavailable control and avoid copy that implies seeding already occurred.
 
+### Dynasty season boundary
+
+DYNASTY describes the league's long-term format intent; it is not evidence that this release can roll state into a new season. Year one starts with the configured draft and a new season record. Automated multi-season roster rollover is not available yet. Before any future season, the commissioner must announce and manage keepers, carryover rosters, picks, credits, and other exceptions manually, then record the ruling in the league announcement or season record. Managers should not assume that a roster, history, or identity will carry forward automatically.
+
 ## Commissioner acceptance checklist
 
 Before calling a league season-ready, verify:
