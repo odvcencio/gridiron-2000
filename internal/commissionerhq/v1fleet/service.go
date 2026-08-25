@@ -57,6 +57,13 @@ type Service struct {
 func (service *Service) String() string   { return "Commissioner HQ v1 fleet service" }
 func (service *Service) GoString() string { return service.String() }
 
+// Enabled reports whether this process was configured as the browser-facing
+// HQ v1 consumer. A disabled service is still safe to construct so callers
+// can keep startup wiring deterministic without making any provider calls.
+func (service *Service) Enabled() bool {
+	return service != nil && service.config.Enabled
+}
+
 func New(config Config, options Options) (*Service, error) {
 	if len(config.Connections) > maxConnections {
 		return nil, errors.New("Commissioner HQ v1 fleet configuration is invalid")

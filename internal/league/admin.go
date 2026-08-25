@@ -39,6 +39,84 @@ func (s *Service) unclaimedSeatIDs(state PersistedState) []string {
 	return ids
 }
 
+// CommissionerAttentionDataReadOnly is the small commissioner-operations
+// projection used by the live admin region. It reads one persisted snapshot,
+// includes presence/readiness/board-gap facts, and deliberately omits the
+// identity, invite-address, CSRF, release-token, and form fields that the full
+// AdminData page needs. In particular, this path never calls Viewer or any
+// membership-admission helper, so an authenticated polling GET cannot create
+// a member as a side effect of observing the console.
+func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]any {
+	if s == nil || s.store == nil {
+		return map[string]any{
+			"phase": "unavailable", "draft": map[string]any{}, "schedule": map[string]any{},
+			"seats": []map[string]any{}, "invite_count": 0,
+		}
+	}
+	state := s.store.Snapshot()
+	now := s.clock()
+	seats := make([]map[string]any, 0, len(s.Teams()))
+	claimed, ready, boardGaps := 0, 0, 0
+	presenceCounts := map[string]int{"here": 0, "idle": 0, "away": 0, "not_seen": 0, "unclaimed": 0}
+	for _, configured := range s.Teams() {
+		team := s.teamView(state, configured.ID)
+		member := memberForTeam(state.Members, configured.ID)
+		isClaimed := strings.TrimSpace(member.Email) != ""
+		if isClaimed {
+			claimed++
+		}
+		isReady := state.Ready[configured.ID]
+		if isReady {
+			ready++
+		}
+		boardCount := len(state.Boards[commissionerV1BoardOwnerKey(state, configured.ID)])
+		boardGap := isClaimed && boardCount == 0
+		if boardGap {
+			boardGaps++
+		}
+		presence, detail, seenAt := s.teamPresence(state, configured.ID, now)
+		presenceCounts[presence]++
+		seats = append(seats, map[string]any{
+			"id": configured.ID, "name": team.Name, "abbreviation": team.Abbreviation,
+			"claimed": isClaimed, "ready": isReady, "presence": presence,
+			"presence_detail": detail, "presence_seen_at": formatClockInstant(seenAt),
+			"board_count": boardCount, "board_gap": boardGap,
+		})
+	}
+	draft := s.draftSummaryForState(now, state)
+	schedule := s.adminScheduleMap(state, now)
+	close := map[string]any{}
+	if value, ok := schedule["close"].(map[string]any); ok {
+		for _, key := range []string{"week", "ready", "final", "games_known", "games_total", "games_final", "stats_fresh", "reason"} {
+			close[key] = value[key]
+		}
+	}
+	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
+	phase := state.Phase
+	if phase == "" {
+		if state.Schedule == nil || now.Before(seasonStartAt()) {
+			phase = "preseason"
+		} else {
+			phase = PhaseRegularSeason
+		}
+	}
+	return map[string]any{
+		"phase": phase, "draft": map[string]any{
+			"status": draft["status_label"], "at": draft["at"], "started": draft["started"],
+			"complete": draft["complete"], "window_reached": draft["window_reached"],
+		}, "schedule": map[string]any{
+			"status": schedule["status"], "has_schedule": schedule["has_schedule"],
+			"week": schedule["start_week"], "close": close,
+		}, "seats": seats,
+		"seat_count": len(s.Teams()), "claimed_count": claimed, "ready_count": ready,
+		"board_gap_count": boardGaps, "invite_count": len(envEmails) + len(state.Invites) + len(state.CoInvites),
+		"presence_here": presenceCounts["here"], "presence_idle": presenceCounts["idle"],
+		"presence_away": presenceCounts["away"], "presence_not_seen": presenceCounts["not_seen"],
+		"presence_unclaimed": presenceCounts["unclaimed"],
+		"generated_at":       now.UTC().Format(time.RFC3339),
+	}
+}
+
 func (s *Service) AdminData(r *http.Request) map[string]any {
 	state := s.store.Snapshot()
 	unclaimedSeatIDs := s.unclaimedSeatIDs(state)

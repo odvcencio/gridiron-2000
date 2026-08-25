@@ -15,8 +15,9 @@ func TestFragmentReadOnlyProjectionsDoNotProvisionOrMutate(t *testing.T) {
 	before := service.store.Snapshot()
 	players := service.PlayersDataReadOnly(request)
 	activity := service.ActivityDataReadOnly(request)
+	attention := service.CommissionerAttentionDataReadOnly(request)
 	after := service.store.Snapshot()
-	if players == nil || activity == nil {
+	if players == nil || activity == nil || attention == nil {
 		t.Fatal("read-only projections returned nil data")
 	}
 	if !reflect.DeepEqual(before, after) {
@@ -24,5 +25,8 @@ func TestFragmentReadOnlyProjectionsDoNotProvisionOrMutate(t *testing.T) {
 	}
 	if players["pos"] != "RB" || players["query"] != "open" || activity["query"] != "open" {
 		t.Fatalf("fragment projections lost request-local filters: players=%#v activity=%#v", players, activity)
+	}
+	if attention["seat_count"] == nil || attention["seats"] == nil {
+		t.Fatalf("commissioner attention projection omitted safe state: %#v", attention)
 	}
 }
