@@ -532,13 +532,28 @@ func (s *Service) pickemOwner(r *http.Request) (string, error) {
 	return viewerKey, nil
 }
 
+// PickemDataReadOnly assembles the same authoritative Pick'em projection as
+// PickemData without performing the page-load reconciliation/backfill writes.
+// The lifecycle market synchronizer owns those transitions; repeated fragment
+// polling must observe state, never provision a member or mutate durable
+// markets/entry timestamps as a side effect of GET.
+func (s *Service) PickemDataReadOnly(r *http.Request) map[string]any {
+	return s.pickemData(r, false)
+}
+
 func (s *Service) PickemData(r *http.Request) map[string]any {
+	return s.pickemData(r, true)
+}
+
+func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 	now := s.clock()
 	allGames := s.schedule()
-	// A page load is also an immediate reconciliation opportunity. The
-	// lifecycle ticker remains authoritative when nobody has the page open.
-	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
-	_ = s.store.BackfillPickemEnteredAt(allGames)
+	if reconcile {
+		// A page load is also an immediate reconciliation opportunity. The
+		// lifecycle ticker remains authoritative when nobody has the page open.
+		_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
+		_ = s.store.BackfillPickemEnteredAt(allGames)
+	}
 	state := s.store.Snapshot()
 	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	currentWeek := s.pickemWeek(allGames, now)

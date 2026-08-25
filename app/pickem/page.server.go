@@ -5,6 +5,7 @@ import (
 	"gridiron-2000/internal/actionui"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,15 @@ import (
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
+)
+
+// A live Pick'em sheet needs a fast cadence while any displayed game can
+// change lock/result truth. Once every displayed game is final, the region
+// deliberately slows to reduce needless polling while retaining a manual
+// recovery path and ETag protection.
+const (
+	pickemRegionFastInterval  = "4s"
+	pickemRegionFinalInterval = "30s"
 )
 
 // pickemGameRowView is one pick'em game row as PickemRow (page.gsx, a
@@ -64,6 +74,56 @@ func pickemActionPath(base string, week int) string {
 	return base + "?week=" + strconv.Itoa(week)
 }
 
+func pickemFragmentURL(request *http.Request) string {
+	if request == nil || request.URL == nil {
+		return "/pickem/fragment"
+	}
+	if rawWeek := strings.TrimSpace(request.URL.Query().Get("week")); rawWeek != "" {
+		if week, ok := pickemWeekValue(rawWeek); ok {
+			values := url.Values{}
+			values.Set("week", strconv.Itoa(week))
+			return "/pickem/fragment?" + values.Encode()
+		}
+	}
+	return "/pickem/fragment"
+}
+
+func pickemFragmentInterval(data map[string]any) string {
+	games, ok := data["games"].([]league.PickemGameRow)
+	if !ok || len(games) == 0 {
+		return pickemRegionFinalInterval
+	}
+	for _, game := range games {
+		if !game.Final {
+			return pickemRegionFastInterval
+		}
+	}
+	return pickemRegionFinalInterval
+}
+
+// preparePickemData is shared by the full page and the read-only HTML
+// fragment. It only adapts typed game rows for the strict GSX component; the
+// fragment's loader supplies PickemDataReadOnly so polling cannot reconcile
+// markets, backfill entries, provision membership, or otherwise mutate state.
+func preparePickemData(data map[string]any, request *http.Request, actionPath string) map[string]any {
+	data["pickem_fragment_interval"] = pickemFragmentInterval(data)
+	if games, ok := data["games"].([]league.PickemGameRow); ok {
+		if actionPath == "" {
+			actionPath = "/pickem/__actions/pickem-set"
+		}
+		if week, ok := data["week"].(int); ok {
+			actionPath = pickemActionPath(actionPath, week)
+		}
+		data["games"] = pickemGameRowViews(games, actionPath, session.Token(request))
+	}
+	data["pickem_fragment_url"] = pickemFragmentURL(request)
+	data["has_notice"] = false
+	data["notice"] = ""
+	data["has_pickem_error"] = false
+	data["pickem_error"] = ""
+	return data
+}
+
 // pickemValidation keeps native POST-redirect-GET validation on the week the
 // member submitted from. Managed forms stay in place so GoSX can project the
 // validation result into the current page without losing its selected week.
@@ -91,7 +151,11 @@ func pickemSetAction(ctx *action.Context, set func(*http.Request, string, string
 		redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
 		return pickemValidationWithRedirect(ctx, redirect, err)
 	}
-	actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), ctx.FormData["team"]+" picked.")
+	message := ctx.FormData["team"] + " picked."
+	if action.WantsJSON(ctx.Request) {
+		return ctx.Success(message, map[string]any{"value": "refresh"})
+	}
+	actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), message)
 	return nil
 }
 
@@ -99,24 +163,14 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			data := league.Default().PickemData(ctx.Request)
-			if games, ok := data["games"].([]league.PickemGameRow); ok {
-				actionPath := ctx.ActionPath("pickem-set")
-				if week, ok := data["week"].(int); ok {
-					actionPath = pickemActionPath(actionPath, week)
-				}
-				data["games"] = pickemGameRowViews(games, actionPath, session.Token(ctx.Request))
-			}
-			data["has_notice"] = false
-			data["notice"] = ""
+			ctx.Runtime().EnableBootstrap()
+			data := preparePickemData(league.Default().PickemData(ctx.Request), ctx.Request, ctx.ActionPath("pickem-set"))
 			if store := session.Current(ctx.Request); store != nil {
 				if flashes := store.Flashes("notice"); len(flashes) > 0 {
 					data["has_notice"] = true
 					data["notice"] = fmt.Sprint(flashes[0])
 				}
 			}
-			data["has_pickem_error"] = false
-			data["pickem_error"] = ""
 			for _, name := range []string{"pickem-set"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("pickem"); message != "" {
