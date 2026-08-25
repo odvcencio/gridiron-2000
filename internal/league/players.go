@@ -7,6 +7,15 @@ import (
 	"time"
 )
 
+const playerDataUnavailableMessage = "player data is unavailable; roster and waiver actions are temporarily blocked"
+
+func requirePlayerData(pool playerPool) error {
+	if playerPoolIsUnavailable(pool) {
+		return fmt.Errorf("%s", playerDataUnavailableMessage)
+	}
+	return nil
+}
+
 // waiverClaimResolutionView projects the processor-authoritative resolution
 // state for one open private claim. A drop-clear instant may delay the next
 // processor run, but a stale clear instant never substitutes for that run.
@@ -104,10 +113,11 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	viewer := s.Viewer(r)
 	teamID, _ := viewer["team_id"].(string)
 	hasSeat, _ := viewer["has_seat"].(bool)
-	canEdit := hasSeat
 	state := s.store.Snapshot()
 	publicEntry := s.publicEntryDataForViewerState(r, viewer, state)
 	pool := s.pool()
+	poolUnavailable := playerPoolIsUnavailable(pool)
+	canEdit := hasSeat && !poolUnavailable
 	scoringValues := s.currentScoringValues()
 	owner := rosterOwner(currentRosters(state))
 	open := draftComplete(state)
@@ -300,6 +310,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"public_entry":         publicEntry,
 		"league":               s.leagueMap(),
 		"can_edit":             canEdit,
+		"pool_unavailable":     poolUnavailable,
 		"free_agency_open":     open,
 		"pos":                  pos,
 		"positions":            positionFilterTabs(pos, rawQuery),
@@ -355,6 +366,9 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 	addID = strings.TrimSpace(addID)
 	dropID = strings.TrimSpace(dropID)
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	addPlayer, ok := pool.byID[addID]
 	if !ok { // W2
 		return "", fmt.Errorf("choose an available player")
@@ -446,6 +460,9 @@ func (s *Service) DropPlayer(r *http.Request, requestedTeam, dropID, confirmatio
 	}
 	dropID = strings.TrimSpace(dropID)
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	dropPlayer, ok := pool.byID[dropID]
 	if !ok {
 		return "", fmt.Errorf("%s", lineupNotOnRosterMessage)
@@ -506,6 +523,9 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 	addID = strings.TrimSpace(addID)
 	dropID = strings.TrimSpace(dropID)
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	addPlayer, ok := pool.byID[addID]
 	if !ok { // W2
 		return "", fmt.Errorf("choose an available player")

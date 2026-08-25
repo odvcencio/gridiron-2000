@@ -209,15 +209,15 @@ func cleanTradePlayerIDs(ids []string) []string {
 // validateTradeAsset applies T5 (ownership) and T6 (no locked players) to
 // one player ID against expectedTeamID.
 func validateTradeAsset(games []GameInfo, poolByID map[string]Player, week int, now time.Time, owner map[string]string, playerID, expectedTeamID, teamName string) error {
-	name := playerID
 	player, known := poolByID[playerID]
-	if known {
-		name = player.Name
+	if !known {
+		return fmt.Errorf("player data for %s is unavailable; refresh before trading", playerID)
 	}
+	name := player.Name
 	if owner[playerID] != expectedTeamID { // T5
 		return fmt.Errorf("%s is not on %s's roster", name, teamName)
 	}
-	if known && playerLocked(games, week, player.NFLTeam, now) { // T6
+	if playerLocked(games, week, player.NFLTeam, now) { // T6
 		return fmt.Errorf("%s is locked until the week closes", name)
 	}
 	return nil
@@ -249,6 +249,9 @@ func validateTradeAssetsForExecution(state PersistedState, cfg Config, games []G
 // operations enforce T8, execution preserves the accepted-before-deadline
 // review window while still enforcing every live asset rule.
 func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []GameInfo, poolByID map[string]Player, now time.Time, offer TradeOffer, starterCount, rosterCap int, operation tradeValidationOperation) error {
+	if len(poolByID) == 0 {
+		return fmt.Errorf("%s", playerDataUnavailableMessage)
+	}
 	if len(offer.Picks) > 0 { // T12
 		return fmt.Errorf("pick trading opens after the first season rollover")
 	}
@@ -327,18 +330,19 @@ func findTradeOffer(offers []TradeOffer, offerID string) (TradeOffer, bool) {
 }
 
 // transactionPlayersFromIDs snapshots each player ID's display identity
-// (section 7.1's TransactionPlayer); an ID absent from the pool is skipped
-// rather than emitting a blank row — validateTradeAssets's ownership check
-// already guarantees every Give/Get ID resolves against the pool by the
-// time execution reaches this call.
-func transactionPlayersFromIDs(poolByID map[string]Player, ids []string) []TransactionPlayer {
+// (section 7.1's TransactionPlayer). Missing IDs are an invariant failure:
+// an executed trade must serialize every asset on both sides, never silently
+// shrink a transaction after validation.
+func transactionPlayersFromIDs(poolByID map[string]Player, ids []string) ([]TransactionPlayer, error) {
 	out := make([]TransactionPlayer, 0, len(ids))
 	for _, id := range ids {
-		if player, ok := poolByID[id]; ok {
-			out = append(out, transactionPlayerFromPlayer(player))
+		player, ok := poolByID[id]
+		if !ok {
+			return nil, fmt.Errorf("player data for %s is unavailable; trade execution is blocked", id)
 		}
+		out = append(out, transactionPlayerFromPlayer(player))
 	}
-	return out
+	return out, nil
 }
 
 // tradePlayerNames joins each ID's pool display name ("Name, Name"),
@@ -405,6 +409,9 @@ func (s *Service) ProposeTrade(r *http.Request, requestedTeam, toTeamID string, 
 	}
 	games := s.schedule()
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	starterCount, rosterCap := tradeRosterBounds()
 	if err := validateTradeAssets(state, s.cfg, games, pool.byID, now, offer, starterCount, rosterCap); err != nil {
 		return "", err
@@ -451,6 +458,9 @@ func (s *Service) CounterTrade(r *http.Request, requestedTeam, offerID string, g
 	}
 	games := s.schedule()
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	starterCount, rosterCap := tradeRosterBounds()
 	if err := validateTradeAssets(state, s.cfg, games, pool.byID, now, newOffer, starterCount, rosterCap); err != nil {
 		return "", err
@@ -531,6 +541,9 @@ func (s *Service) AcceptTrade(r *http.Request, requestedTeam, offerID, confirmat
 	now := s.clock()
 	games := s.schedule()
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	starterCount, rosterCap := tradeRosterBounds()
 	if err := validateTradeAssets(state, s.cfg, games, pool.byID, now, offer, starterCount, rosterCap); err != nil {
 		return "", err
@@ -583,6 +596,9 @@ func (s *Service) ApproveTrade(r *http.Request, offerID, confirmation string) (s
 	now := s.clock()
 	games := s.schedule()
 	pool := s.pool()
+	if err := requirePlayerData(pool); err != nil {
+		return "", err
+	}
 	starterCount, rosterCap := tradeRosterBounds()
 	txn, err := s.store.ExecuteTradeOffer(offerID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
 	if err != nil {

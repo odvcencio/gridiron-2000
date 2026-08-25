@@ -167,6 +167,12 @@ func (s *Service) evalTradeTick(now time.Time) {
 			if now.Before(reviewDeadline) {
 				continue
 			}
+			if playerPoolIsUnavailable(pool) {
+				// The offer remains accepted and due. Recovery retries this same
+				// transition; an outage is not a terminal failed trade.
+				log.Printf("roster ops: ExecuteTradeOffer(%s) deferred because player data is unavailable", offer.ID)
+				continue
+			}
 			txn, err := s.store.ExecuteTradeOffer(offer.ID, s.cfg, games, pool.byID, now, starterCount, rosterCap)
 			if err != nil {
 				s.notifyTradeFailed(offer)
@@ -201,6 +207,13 @@ func (s *Service) evalWaiverRun(now time.Time) {
 
 	games := s.schedule()
 	pool := s.pool()
+	if playerPoolIsUnavailable(pool) {
+		// Do not resolve or advance waiver state against an empty source. A
+		// missing player lookup is a data outage, not an authoritative failed
+		// claim; leave the run due so the next healthy tick can retry it.
+		log.Printf("roster ops: waiver run deferred because player data is unavailable")
+		return
+	}
 	rosterCap := CurrentRoster().Total()
 	results, err := s.store.ProcessWaivers(nextRun, cfg, games, pool.byID, rosterCap)
 	if err != nil {
