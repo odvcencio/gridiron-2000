@@ -190,6 +190,9 @@ func TestAdoptProducesReadOnlyDeterministicPlan(t *testing.T) {
 	if !plan.Ready || plan.SecretValuesRead || plan.PIIRead {
 		t.Fatalf("plan = %#v", plan)
 	}
+	if len(plan.Checklist) != 1 || plan.Checklist[0].OAuthCallback != "https://alpha.example.test/auth/google/callback" || plan.Checklist[0].HQ == nil {
+		t.Fatalf("adoption checklist = %#v", plan.Checklist)
+	}
 }
 
 func TestAdoptReturnsOneForIdentityDrift(t *testing.T) {

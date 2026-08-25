@@ -105,6 +105,29 @@ type AdoptionInstancePlan struct {
 	Actions    []AdoptionAction `json:"actions"`
 }
 
+// AdoptionHQChecklist is the private, value-free operator contract emitted
+// alongside an adoption plan. It names the resources and environment keys
+// that must be reviewed, but never contains a credential or a Secret value.
+type AdoptionHQChecklist struct {
+	ProviderService           string `json:"provider_service"`
+	NetworkPolicy             string `json:"network_policy"`
+	ProviderSecretEnvironment string `json:"provider_secret_environment"`
+	RegistryConfigMap         string `json:"registry_config_map,omitempty"`
+	RegistryFile              string `json:"registry_file,omitempty"`
+	ClientSecret              string `json:"client_secret,omitempty"`
+	ClientSecretEnvironment   string `json:"client_secret_environment,omitempty"`
+}
+
+// AdoptionChecklist is the per-instance OAuth, storage, and HQ checklist.
+// Storage consequences are intentionally explicit because a generated
+// ReadWriteOnce local-path PVC is not a portable backup or HA boundary.
+type AdoptionChecklist struct {
+	InstanceID    string               `json:"instance_id"`
+	OAuthCallback string               `json:"oauth_callback"`
+	Storage       string               `json:"storage"`
+	HQ            *AdoptionHQChecklist `json:"hq,omitempty"`
+}
+
 // AdoptionPlan is the stable, read-only result of comparing a generated v2
 // bundle to an existing-resource inventory. Ready means the inventory is
 // internally consistent and the operator may review the listed steps; it does
@@ -118,6 +141,7 @@ type AdoptionPlan struct {
 	SecretPlaceholders []AdoptionSecretPlaceholder `json:"secret_placeholders"`
 	Instances          []AdoptionInstancePlan      `json:"instances"`
 	Actions            []AdoptionAction            `json:"actions"`
+	Checklist          []AdoptionChecklist         `json:"checklist"`
 }
 
 // LoadAdoptionInventory reads and strictly validates an adoption inventory.
@@ -242,13 +266,14 @@ func PlanExistingAdoption(bundle Bundle, inventory AdoptionInventory) (AdoptionP
 	for _, instance := range inventory.Instances {
 		byID[instance.ID] = instance
 	}
+	ordered := append([]DerivedInstance(nil), bundle.Instances...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Spec.ID < ordered[j].Spec.ID })
 	plan := AdoptionPlan{
 		Version: AdoptionSchemaVersion, Mode: "existing", Ready: true,
 		SecretValuesRead: false, PIIRead: false,
 		Instances: make([]AdoptionInstancePlan, 0, len(bundle.Instances)),
+		Checklist: adoptionChecklist(ordered),
 	}
-	ordered := append([]DerivedInstance(nil), bundle.Instances...)
-	sort.Slice(ordered, func(i, j int) bool { return ordered[i].Spec.ID < ordered[j].Spec.ID })
 	for _, generated := range ordered {
 		current, exists := byID[generated.Spec.ID]
 		instancePlan := AdoptionInstancePlan{ID: generated.Spec.ID, Ready: exists}
@@ -332,6 +357,34 @@ func adoptionSecretPlaceholders(instance DerivedInstance, all []DerivedInstance)
 		})
 	}
 	return placeholders
+}
+
+const adoptionStorageConsequence = "retain existing node-local ReadWriteOnce PVC; deleting/recreating it may retain or delete the local volume according to the StorageClass reclaim policy and can make state unavailable; back up before maintenance"
+
+func adoptionChecklist(instances []DerivedInstance) []AdoptionChecklist {
+	checklist := make([]AdoptionChecklist, 0, len(instances))
+	for _, instance := range instances {
+		item := AdoptionChecklist{
+			InstanceID:    instance.Spec.ID,
+			OAuthCallback: instance.OAuthCallback,
+			Storage:       adoptionStorageConsequence,
+		}
+		if instance.Spec.CommissionerHQ != nil {
+			item.HQ = &AdoptionHQChecklist{
+				ProviderService:           "Service/" + instance.ProviderService,
+				NetworkPolicy:             "NetworkPolicy/" + instance.NetworkPolicy,
+				ProviderSecretEnvironment: "COMMISSIONER_HQ_PROVIDER_SECRET",
+			}
+			if instance.Spec.CommissionerHQ.Host {
+				item.HQ.RegistryConfigMap = "ConfigMap/" + instance.RegistryConfigMap
+				item.HQ.RegistryFile = instance.HQRegistryFile
+				item.HQ.ClientSecret = "Secret/" + instance.ClientSecret
+				item.HQ.ClientSecretEnvironment = clientSecretEnv(instance.Spec.ID)
+			}
+		}
+		checklist = append(checklist, item)
+	}
+	return checklist
 }
 
 // validateHQV1Bundle proves the generated side of the adoption boundary
@@ -562,6 +615,40 @@ func (plan AdoptionPlan) Text() string {
 		b.WriteString("=")
 		b.WriteString(placeholder.Placeholder)
 		b.WriteString(" (provision without display)\n")
+	}
+	if len(plan.Checklist) > 0 {
+		b.WriteString("operator checklist (OAuth/HQ/storage; review before any apply):\n")
+		for _, item := range plan.Checklist {
+			b.WriteString("  instance ")
+			b.WriteString(item.InstanceID)
+			b.WriteString(": register OAuth callback ")
+			b.WriteString(item.OAuthCallback)
+			b.WriteString("; ")
+			b.WriteString(item.Storage)
+			b.WriteString("\n")
+			if item.HQ == nil {
+				continue
+			}
+			b.WriteString("  HQ ")
+			b.WriteString(item.InstanceID)
+			b.WriteString(": provision ")
+			b.WriteString(item.HQ.ProviderSecretEnvironment)
+			b.WriteString(" for ")
+			b.WriteString(item.HQ.ProviderService)
+			b.WriteString(" on private port 8091; apply ")
+			b.WriteString(item.HQ.NetworkPolicy)
+			if item.HQ.RegistryConfigMap != "" {
+				b.WriteString("; review ")
+				b.WriteString(item.HQ.RegistryConfigMap)
+				b.WriteString(" mounted at ")
+				b.WriteString(item.HQ.RegistryFile)
+				b.WriteString("; provision ")
+				b.WriteString(item.HQ.ClientSecret)
+				b.WriteString(" key ")
+				b.WriteString(item.HQ.ClientSecretEnvironment)
+			}
+			b.WriteString("\n")
+		}
 	}
 	for _, instance := range plan.Instances {
 		b.WriteString("instance ")

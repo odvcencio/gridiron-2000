@@ -102,7 +102,11 @@ client Secret as explicit additions; and legacy peer/token wiring as deferred
 until the v1 pair has passed the canary. The plan is advisory and read-only:
 it emits the exact provider and host-client Secret key names with `REPLACE_ME`
 markers, never credential values; provision those keys without display. It
-does not apply or rewrite `deploy/k8s/**`.
+does not apply or rewrite `deploy/k8s/**`. The plan's per-instance checklist
+also emits the exact OAuth callback, private HQ Service/NetworkPolicy and host
+registry/client-Secret resources, and the node-local PVC delete/recreate
+consequence (including the StorageClass reclaim-policy decision). These are
+value-free operator instructions only.
 
 After a plan is ready, the remaining production actions are an explicit
 operator change window: provision distinct provider/client HMAC values through

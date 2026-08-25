@@ -126,9 +126,13 @@ league-config paths with each instance's offline, validated source.
 `COMMISSIONER_HQ_PROVIDER_SECRET` and host
 `COMMISSIONER_HQ_V1_SECRET_<INSTANCE>` keys with `REPLACE_ME` markers; these
 are placeholders only and must be provisioned without display. A ready plan
-still requires an operator-reviewed SK-first canary; `fleetgen adopt` never
-calls Kubernetes, writes a bundle, or changes the current hand-authored
-manifests.
+also emits a per-instance OAuth callback, private HQ Service/NetworkPolicy and
+host registry/client-Secret checklist, and the node-local PVC
+delete/recreate/reclaim-policy consequence. These are names, URLs, and
+operator instructions only: the plan never contains a Secret value, league
+content, or member identity. A ready plan still requires an operator-reviewed
+SK-first canary; `fleetgen adopt` never calls Kubernetes, writes a bundle, or
+changes the current hand-authored manifests.
 
 ### One person, multiple Google identities
 
