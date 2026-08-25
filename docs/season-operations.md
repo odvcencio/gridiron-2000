@@ -12,6 +12,12 @@ Use these sources of truth in this order:
 
 If this handbook and the live league disagree, the live configured state wins.
 
+For the short, searchable answers use the [Help center](/help). Managers can
+start with the [manager projection](manager-handbook.md); commissioners can
+start with the [commissioner projection](commissioner-handbook.md). The
+interactive topics link back here for restart, correction, and week-close
+recovery detail.
+
 ## State vocabulary
 
 Gridiron exposes state instead of hiding it behind generic success copy.
