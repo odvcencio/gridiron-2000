@@ -48,8 +48,8 @@ func TestLayoutProvidesAccessibleFloatingManagedActionFeedback(t *testing.T) {
 func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// Lineup mutations share one managed-success helper now; native
 	// submissions still call RedirectWithNotice through that helper.
-	const wantRedirects = 61
-	const wantRedirectBacks = 7
+	const wantRedirects = 56
+	const wantRedirectBacks = 12
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
