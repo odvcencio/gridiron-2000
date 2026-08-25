@@ -380,10 +380,15 @@ func (s *Store) ToggleReady(teamID string) (bool, error) {
 	return s.state.Ready[teamID], s.persistLocked(colReady)
 }
 
-// SetReady assigns a team's Ready flag to an explicit value. Unlike
-// ToggleReady's flip, the caller states the outcome directly — the
-// commissioner path (Service.AdminSetReady) needs this so a second call
+// SetReady assigns a claimed or managed seat's Ready flag to an explicit
+// value. Unlike ToggleReady's flip, the caller states the outcome directly —
+// the commissioner path (Service.AdminSetReady) needs this so a second call
 // on an already-ready seat is a no-op, not a race-prone read-then-flip.
+//
+// The membership check and flag mutation share one Store lock and one
+// persistence boundary. That makes this the authority for commissioner
+// readiness: a concurrent ReleaseSeat can never leave an unclaimed seat
+// marked ready. ToggleReady intentionally keeps its manager-owned semantics.
 func (s *Store) SetReady(teamID string, on bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -392,6 +397,9 @@ func (s *Store) SetReady(teamID string, on bool) error {
 	}
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
+	}
+	if strings.TrimSpace(memberForTeam(s.state.Members, teamID).Email) == "" {
+		return fmt.Errorf("READY requires a claimed or managed seat")
 	}
 	s.state.Ready[teamID] = on
 	return s.persistLocked(colReady)

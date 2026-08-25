@@ -54,13 +54,16 @@ func TestParseSeatAutopickIsLiteral(t *testing.T) {
 	}
 }
 
-func TestCommissionerAutopickControlsRequireClaimedSeats(t *testing.T) {
+func TestCommissionerReadyAndAutopickControlsRequireClaimedSeats(t *testing.T) {
 	controls := draftSeatControlProps([]map[string]any{
 		{"id": "team-1", "name": "Claimed", "claimed": true},
 		{"id": "team-2", "name": "Open", "claimed": false},
 	})
 	if len(controls) != 1 || controls[0].TeamID != "team-1" {
 		t.Fatalf("controls = %+v, want only claimed team-1", controls)
+	}
+	if controls[0].ReadyAction != draftActionPath("seat-ready") || controls[0].Action != draftActionPath("seat-autopick") {
+		t.Fatalf("claimed seat actions = ready %q, AUTO %q; want both commissioner controls", controls[0].ReadyAction, controls[0].Action)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -199,6 +200,79 @@ func TestCommissionerAUTOReleaseInterleavingsCannotLeaveOrphanedFlag(t *testing.
 	state := store.Snapshot()
 	if memberForTeam(state.Members, "team-1").Email == "" && state.Autopick["team-1"] {
 		t.Fatalf("concurrent release/AUTO left unclaimed seat with AUTO: members=%+v autopick=%v", state.Members, state.Autopick)
+	}
+}
+
+func TestCommissionerReadyRejectsUnknownAndUnclaimedWithoutMutationOrPersist(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		teamID  string
+		on      bool
+		wantErr string
+	}{
+		{name: "unknown", teamID: "team-not-real", on: true, wantErr: `unknown team "team-not-real"`},
+		{name: "unclaimed set", teamID: "team-2", on: true, wantErr: "READY requires a claimed or managed seat"},
+		{name: "unclaimed clear", teamID: "team-2", on: false, wantErr: "READY requires a claimed or managed seat"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+			store.draftLifecycleBypass = true
+			before := store.Snapshot()
+			persistCalls := 0
+			store.mu.Lock()
+			store.persistHook = func() error {
+				persistCalls++
+				return errInjectedPersist
+			}
+			store.mu.Unlock()
+
+			err := store.SetReady(tc.teamID, tc.on)
+			if err == nil || err.Error() != tc.wantErr {
+				t.Fatalf("SetReady(%q, %v) error = %v, want %q", tc.teamID, tc.on, err, tc.wantErr)
+			}
+			if persistCalls != 0 {
+				t.Fatalf("rejected SetReady persistence calls = %d, want 0", persistCalls)
+			}
+			if after := store.Snapshot(); !reflect.DeepEqual(after, before) {
+				t.Fatalf("rejected SetReady mutated whole state\nbefore: %+v\nafter:  %+v", before, after)
+			}
+		})
+	}
+}
+
+func TestCommissionerReadyReleaseRaceCannotLeaveOrphanedFlag(t *testing.T) {
+	for iteration := 0; iteration < 32; iteration++ {
+		store := NewStore(filepath.Join(t.TempDir(), "state.json"))
+		store.draftLifecycleBypass = true
+		member, created, err := store.AssignMember("owner@example.com", "Owner")
+		if err != nil || !created || member.TeamID != "team-1" {
+			t.Fatalf("iteration %d claim = member %+v, created %v, err %v", iteration, member, created, err)
+		}
+
+		start := make(chan struct{})
+		errs := make(chan error, 2)
+		go func() {
+			<-start
+			errs <- store.SetReady("team-1", true)
+		}()
+		go func() {
+			<-start
+			errs <- store.ReleaseSeat("team-1")
+		}()
+		close(start)
+		for range 2 {
+			if err := <-errs; err != nil && err.Error() != "READY requires a claimed or managed seat" {
+				t.Fatalf("iteration %d concurrent ready/release: %v", iteration, err)
+			}
+		}
+
+		state := store.Snapshot()
+		if manager := memberForTeam(state.Members, "team-1"); manager.Email != "" {
+			t.Fatalf("iteration %d release left manager %+v", iteration, manager)
+		}
+		if ready, recorded := state.Ready["team-1"]; recorded || ready {
+			t.Fatalf("iteration %d release/ready left unclaimed READY state: ready=%v recorded=%v", iteration, ready, recorded)
+		}
 	}
 }
 

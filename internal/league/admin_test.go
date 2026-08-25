@@ -560,14 +560,32 @@ func TestAdminUndoPickRequiresCommissioner(t *testing.T) {
 	}
 }
 
+func claimReadyTestSeats(t *testing.T, service *Service, count int) {
+	t.Helper()
+	for index := 1; index <= count; index++ {
+		member, created, err := service.store.AssignMember(
+			fmt.Sprintf("ready-manager-%d@example.com", index),
+			fmt.Sprintf("Ready Manager %d", index),
+		)
+		if err != nil {
+			t.Fatalf("claim ready test seat %d: %v", index, err)
+		}
+		wantTeamID := fmt.Sprintf("team-%d", index)
+		if !created || member.TeamID != wantTeamID {
+			t.Fatalf("claim ready test seat %d = created %v, team %q; want true, %q", index, created, member.TeamID, wantTeamID)
+		}
+	}
+}
+
 // TestAdminSetReady checks AdminSetReady's authority gate, its explicit
-// (non-toggle) assignment, and that it rejects an unknown team — the
-// commissioner path that sets any seat's Ready flag on the commissioner's
-// own authority, mirroring AdminSetAutopick.
+// (non-toggle) assignment, and that it rejects unknown and unclaimed teams —
+// the commissioner path that sets a claimed seat's Ready flag on the
+// commissioner's own authority, mirroring AdminSetAutopick.
 func TestAdminSetReady(t *testing.T) {
 	t.Run("sets a different seat's ready flag for the commissioner", func(t *testing.T) {
 		service := newTestService(t, true) // demo mode grants commissioner
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		claimReadyTestSeats(t, service, 4)
 
 		if err := service.AdminSetReady(request, "team-4", true); err != nil {
 			t.Fatalf("AdminSetReady: %v", err)
@@ -585,6 +603,7 @@ func TestAdminSetReady(t *testing.T) {
 		service := newTestService(t, false)
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+		claimReadyTestSeats(t, service, 4)
 
 		if err := service.AdminSetReady(request, "team-4", true); err == nil {
 			t.Fatal("a non-commissioner request must be rejected")
@@ -600,9 +619,19 @@ func TestAdminSetReady(t *testing.T) {
 		}
 	})
 
+	t.Run("rejected for an unclaimed seat", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+		if err := service.AdminSetReady(request, "team-2", true); err == nil || err.Error() != "READY requires a claimed or managed seat" {
+			t.Fatalf("unclaimed AdminSetReady error = %v, want membership rejection", err)
+		}
+	})
+
 	t.Run("setting on twice is idempotent, not a toggle", func(t *testing.T) {
 		service := newTestService(t, true) // demo mode grants commissioner
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		claimReadyTestSeats(t, service, 2)
 
 		if err := service.AdminSetReady(request, "team-2", true); err != nil {
 			t.Fatalf("AdminSetReady (first): %v", err)
@@ -612,6 +641,15 @@ func TestAdminSetReady(t *testing.T) {
 		}
 		if !service.store.Snapshot().Ready["team-2"] {
 			t.Fatal("team-2 ready = false after two explicit sets to true, want true (a toggle would flip back to false)")
+		}
+		if err := service.AdminSetReady(request, "team-2", false); err != nil {
+			t.Fatalf("AdminSetReady clear (first): %v", err)
+		}
+		if err := service.AdminSetReady(request, "team-2", false); err != nil {
+			t.Fatalf("AdminSetReady clear (second): %v", err)
+		}
+		if service.store.Snapshot().Ready["team-2"] {
+			t.Fatal("team-2 ready = true after two explicit sets to false, want false")
 		}
 	})
 }
