@@ -67,6 +67,32 @@ func TestCommissionerReadyAndAutopickControlsRequireClaimedSeats(t *testing.T) {
 	}
 }
 
+func TestDraftTeamProjectionKeepsOpenSeatsOutOfReadiness(t *testing.T) {
+	cards := draftTeamProps([]map[string]any{
+		{"id": "team-1", "name": "Claimed", "claimed": true, "ready": false},
+		{"id": "team-2", "name": "Open", "claimed": false, "ready": false},
+	})
+	if len(cards) != 2 || !cards[0].Claimed || cards[1].Claimed {
+		t.Fatalf("team claim projection = %+v, want claimed and open cards", cards)
+	}
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, truth := range []string{
+		"<If cond={props.Claimed == false}>",
+		"OPEN SEAT",
+		"<If cond={props.Claimed}>",
+		"<If cond={props.Ready}>",
+		"<If cond={props.Ready == false}>",
+	} {
+		if !strings.Contains(source, truth) {
+			t.Errorf("draft team readiness contract omits %q", truth)
+		}
+	}
+}
+
 func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
 	sourceBytes, err := os.ReadFile("page.gsx")
 	if err != nil {
