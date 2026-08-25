@@ -163,6 +163,9 @@ type Config struct {
 
 	Waivers WaiversBlock
 	Trades  TradesBlock
+	// Postseason carries the operator's bracket rules. A zero TeamCount keeps
+	// postseason disabled until a deployment opts in explicitly.
+	Postseason PlayoffConfig
 	// Membership is the "membership" config block's resolved form (build
 	// item 5): the domain-gate rule. Absent from the flagship reference
 	// config; a deployment that wants it (for example a company league
@@ -201,6 +204,7 @@ type configFile struct {
 	Roster        RosterBlock     `json:"roster"`
 	Waivers       WaiversBlock    `json:"waivers"`
 	Trades        TradesBlock     `json:"trades"`
+	Postseason    PlayoffConfig   `json:"postseason"`
 	Membership    MembershipBlock `json:"membership"`
 }
 
@@ -459,6 +463,7 @@ func loadConfigBytes(path string, raw []byte) (Config, error) {
 		Copy:          file.Copy,
 		Waivers:       file.Waivers,
 		Trades:        file.Trades,
+		Postseason:    file.Postseason,
 		Membership:    file.Membership,
 	}
 	// Absent waivers/trades blocks resolve to their defaults (roster-ops
@@ -714,6 +719,9 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 		return nil, err
 	}
 	if err := validateTrades(cfg.Trades); err != nil {
+		return nil, err
+	}
+	if err := ValidatePostseasonConfig(cfg.Postseason, n, len(divisionCounts)); err != nil {
 		return nil, err
 	}
 	if err := validateMembership(cfg.Membership); err != nil {

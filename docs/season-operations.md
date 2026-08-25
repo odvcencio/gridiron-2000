@@ -255,7 +255,16 @@ Use the least destructive response that preserves an honest league record.
 
 ## Current year-one boundary
 
-Gridiron records the regular-season phase and final matchup results. The correct playoff boundary is after the last regular-season week closes and standings are final. The bracket engine exists, but automated commissioner seeding is not wired into the product yet; closing the final week advances the recorded phase without inventing a bracket. The commissioner must communicate the year-one postseason plan outside the unavailable control and avoid copy that implies seeding already occurred.
+Gridiron records the regular-season phase and final matchup results. The
+postseason boundary is after the last regular-season week closes and standings
+are final. In the playoffs phase, the commissioner previews the deterministic
+bracket generated from that final standings snapshot, checks the displayed
+qualification/seeding/tie-break explanations, and publishes the exact preview.
+Publish is idempotent for the same preview ID; a retry must not create a second
+bracket. Weekly advancement accepts only final authoritative result records,
+never partial, stale, degraded, or unavailable scores. A correction is a
+separate explicit, confirmed, reasoned, audited operation; do not edit the
+SQLite bracket row by hand.
 
 ### Dynasty season boundary
 

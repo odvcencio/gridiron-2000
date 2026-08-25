@@ -719,8 +719,8 @@ func TestJSONV6MigratesToV8WithWaiverCollections(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := store.Snapshot()
-	if got.SchemaVersion != 8 {
-		t.Fatalf("schema version = %d, want 8", got.SchemaVersion)
+	if got.SchemaVersion != currentSchemaVersion {
+		t.Fatalf("schema version = %d, want %d", got.SchemaVersion, currentSchemaVersion)
 	}
 	if len(got.WaiverReceipts) != 0 {
 		t.Fatalf("v6 migration invented waiver receipts: %#v", got.WaiverReceipts)

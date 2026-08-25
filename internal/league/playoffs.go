@@ -3,53 +3,67 @@ package league
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 // PlayoffConfig configures one league's playoff bracket (section 3.1).
 type PlayoffConfig struct {
-	TeamCount            int  `json:"teamCount"`
-	StartWeek            int  `json:"startWeek"`
-	RoundLengthWeeks     int  `json:"roundLengthWeeks"`
-	DivisionWinnersFirst bool `json:"divisionWinnersFirst"`
-	Reseed               bool `json:"reseed"`
-	Consolation          bool `json:"consolation"`
-	ToiletBowl           bool `json:"toiletBowl"`
+	TeamCount            int      `json:"teamCount"`
+	StartWeek            int      `json:"startWeek"`
+	RoundLengthWeeks     int      `json:"roundLengthWeeks"`
+	Qualification        string   `json:"qualification,omitempty"`
+	TiebreakOrder        []string `json:"tiebreakOrder,omitempty"`
+	Byes                 int      `json:"byes,omitempty"`
+	DivisionWinnersFirst bool     `json:"divisionWinnersFirst"`
+	Reseed               bool     `json:"reseed"`
+	Consolation          bool     `json:"consolation"`
+	ToiletBowl           bool     `json:"toiletBowl"`
 }
 
 // PlayoffSeed is one team's playoff position (section 3.4).
 type PlayoffSeed struct {
-	Seed   int    `json:"seed"`
-	TeamID string `json:"teamId"`
-	Source string `json:"source"` // "division-winner" | "wildcard" | "field"
+	Seed                int    `json:"seed"`
+	TeamID              string `json:"teamId"`
+	Source              string `json:"source"` // "division-winner" | "wildcard" | "field"
+	TieBreakExplanation string `json:"tieBreakExplanation,omitempty"`
 }
 
 // PlayoffMatchup is one bracket slot, in any round, in any of the three
 // brackets (section 3.4).
 type PlayoffMatchup struct {
-	ID           string  `json:"id"`
-	Bracket      string  `json:"bracket"` // "championship" | "consolation" | "toilet"
-	Round        int     `json:"round"`   // 1-based, within its own bracket
-	Week         int     `json:"week"`    // first NFL week of the round
-	HomeSeed     int     `json:"homeSeed"`
-	AwaySeed     int     `json:"awaySeed"` // 0 = bye
-	HomeTeamID   string  `json:"homeTeamId"`
-	AwayTeamID   string  `json:"awayTeamId"` // "" = bye
-	HomeScore    float64 `json:"homeScore"`  // summed across round weeks
-	AwayScore    float64 `json:"awayScore"`
-	WinnerTeamID string  `json:"winnerTeamId"`
-	Final        bool    `json:"final"`
+	ID                  string                   `json:"id"`
+	Bracket             string                   `json:"bracket"` // "championship" | "consolation" | "toilet"
+	Round               int                      `json:"round"`   // 1-based, within its own bracket
+	Week                int                      `json:"week"`    // first NFL week of the round
+	HomeSeed            int                      `json:"homeSeed"`
+	AwaySeed            int                      `json:"awaySeed"` // 0 = bye
+	HomeTeamID          string                   `json:"homeTeamId"`
+	AwayTeamID          string                   `json:"awayTeamId"` // "" = bye
+	HomeScore           float64                  `json:"homeScore"`  // summed across round weeks
+	AwayScore           float64                  `json:"awayScore"`
+	WinnerTeamID        string                   `json:"winnerTeamId"`
+	Final               bool                     `json:"final"`
+	TieBreakExplanation string                   `json:"tieBreakExplanation,omitempty"`
+	ResultProvenance    *PlayoffResultProvenance `json:"resultProvenance,omitempty"`
 }
 
 // PlayoffState is the persisted bracket: config, seeds, every matchup
 // across every bracket and round, and the season's sealed outcomes
 // (section 3.4, 3.5).
 type PlayoffState struct {
-	Config         PlayoffConfig    `json:"config"`
-	Seeds          []PlayoffSeed    `json:"seeds"`
-	Matchups       []PlayoffMatchup `json:"matchups"`
-	ChampionTeamID string           `json:"championTeamId"`
-	RunnerUpTeamID string           `json:"runnerUpTeamId"`
-	ToiletTeamID   string           `json:"toiletTeamId,omitempty"`
+	Config         PlayoffConfig       `json:"config"`
+	Seeds          []PlayoffSeed       `json:"seeds"`
+	Matchups       []PlayoffMatchup    `json:"matchups"`
+	ChampionTeamID string              `json:"championTeamId"`
+	RunnerUpTeamID string              `json:"runnerUpTeamId"`
+	ToiletTeamID   string              `json:"toiletTeamId,omitempty"`
+	Status         string              `json:"status,omitempty"`
+	PreviewID      string              `json:"previewId,omitempty"`
+	Revision       int                 `json:"revision,omitempty"`
+	PreviewedAt    time.Time           `json:"previewedAt,omitempty"`
+	PublishedAt    time.Time           `json:"publishedAt,omitempty"`
+	Provenance     PlayoffProvenance   `json:"provenance,omitempty"`
+	Audit          []PlayoffAuditEntry `json:"audit,omitempty"`
 }
 
 // clonePlayoffState deep-copies state (nil-safe), matching the store's
@@ -61,6 +75,15 @@ func clonePlayoffState(state *PlayoffState) *PlayoffState {
 	out := *state
 	out.Seeds = append([]PlayoffSeed(nil), state.Seeds...)
 	out.Matchups = append([]PlayoffMatchup(nil), state.Matchups...)
+	out.Config.TiebreakOrder = append([]string(nil), state.Config.TiebreakOrder...)
+	out.Provenance = clonePlayoffProvenance(state.Provenance)
+	out.Audit = append([]PlayoffAuditEntry(nil), state.Audit...)
+	for i := range out.Matchups {
+		if state.Matchups[i].ResultProvenance != nil {
+			result := *state.Matchups[i].ResultProvenance
+			out.Matchups[i].ResultProvenance = &result
+		}
+	}
 	return &out
 }
 
@@ -129,7 +152,12 @@ func SeedPlayoffs(standings []Standing, divisions map[string]string, cfg Playoff
 		return nil, fmt.Errorf("playoffs.teamCount (%d) exceeds the league size (%d)", cfg.TeamCount, len(standings))
 	}
 	ordered := append([]Standing(nil), standings...)
-	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].Rank < ordered[j].Rank })
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Rank != ordered[j].Rank {
+			return ordered[i].Rank < ordered[j].Rank
+		}
+		return ordered[i].TeamID < ordered[j].TeamID
+	})
 
 	seeds := make([]PlayoffSeed, 0, cfg.TeamCount)
 	if cfg.DivisionWinnersFirst && len(divisions) > 0 {
@@ -142,7 +170,7 @@ func SeedPlayoffs(standings []Standing, divisions map[string]string, cfg Playoff
 			}
 			seenDivision[div] = true
 			isWinner[st.TeamID] = true
-			seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "division-winner"})
+			seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "division-winner", TieBreakExplanation: standingSeedExplanation(st)})
 			if len(seeds) == cfg.TeamCount {
 				break
 			}
@@ -152,7 +180,7 @@ func SeedPlayoffs(standings []Standing, divisions map[string]string, cfg Playoff
 				if isWinner[st.TeamID] {
 					continue
 				}
-				seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "wildcard"})
+				seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "wildcard", TieBreakExplanation: standingSeedExplanation(st)})
 				if len(seeds) == cfg.TeamCount {
 					break
 				}
@@ -160,7 +188,7 @@ func SeedPlayoffs(standings []Standing, divisions map[string]string, cfg Playoff
 		}
 	} else {
 		for _, st := range ordered {
-			seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "field"})
+			seeds = append(seeds, PlayoffSeed{TeamID: st.TeamID, Source: "field", TieBreakExplanation: standingSeedExplanation(st)})
 			if len(seeds) == cfg.TeamCount {
 				break
 			}
@@ -222,6 +250,7 @@ func pairBracketRound1(seeds []PlayoffSeed, bracket string, week int) ([]Playoff
 		} else {
 			m.Final = true
 			m.WinnerTeamID = home.TeamID
+			m.TieBreakExplanation = fmt.Sprintf("bye: seed %d advances without an opponent", homeNum)
 		}
 		out = append(out, m)
 	}
@@ -277,11 +306,16 @@ func GeneratePlayoffState(standings []Standing, divisions map[string]string, cfg
 // score resolves by the higher single best week within the round, then by
 // seed").
 type PlayoffRoundResult struct {
-	MatchupID    string
-	HomeScore    float64
-	AwayScore    float64
-	HomeBestWeek float64
-	AwayBestWeek float64
+	MatchupID     string
+	HomeScore     float64
+	AwayScore     float64
+	HomeBestWeek  float64
+	AwayBestWeek  float64
+	Final         bool
+	Authoritative bool
+	SourceState   string
+	Source        string
+	ObservedAt    time.Time
 }
 
 // AdvancePlayoffRound applies a round's results to state: marks matchups
@@ -314,6 +348,8 @@ func AdvancePlayoffRound(state PlayoffState, results []PlayoffRoundResult) (Play
 		m.AwayScore = res.AwayScore
 		m.Final = true
 		m.WinnerTeamID = resolvePlayoffWinner(*m, res)
+		m.TieBreakExplanation = playoffWinnerExplanation(*m, res)
+		m.ResultProvenance = playoffResultProvenance(res)
 	}
 	for _, bracket := range presentBrackets(out.Matchups) {
 		advanceBracket(&out, bracket)

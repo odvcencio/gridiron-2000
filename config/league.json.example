@@ -52,5 +52,17 @@
     "deadline": "",
     "veto": "commissioner",
     "review_hours": 24
+  },
+  "postseason": {
+    "teamCount": 4,
+    "startWeek": 15,
+    "roundLengthWeeks": 1,
+    "qualification": "division-winners-wildcards",
+    "tiebreakOrder": ["record", "head-to-head", "points-for", "pickem", "seeded-draw"],
+    "byes": 0,
+    "divisionWinnersFirst": true,
+    "reseed": true,
+    "consolation": false,
+    "toiletBowl": false
   }
 }

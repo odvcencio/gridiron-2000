@@ -190,7 +190,8 @@ type PersistedState struct {
 	// SchemaVersion is the state file's schema generation (section 6.3 of
 	// the competition-formats spec). A missing field decodes as 0 and means
 	// "version 1" (every file written before this field existed). This
-	// spec's additions — Schedule and Playoffs so far — land as version 2.
+	// spec's additions — Schedule, Playoffs, and the persisted PS-1 bracket
+	// lifecycle/provenance fields — are additive and migrate forward here.
 	// Store.load migrates forward only: new fields fill with their zero
 	// value (nil maps and pointers included), exactly the existing
 	// nil-map-guard pattern below, and the version is stamped current on
