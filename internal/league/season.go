@@ -156,7 +156,7 @@ func (s *Service) AdminCloseWeek(r *http.Request, week int) (ScheduleWeek, []Joi
 // Materialize-at-close (roster-ops spec section 4.2, WP-R2): before
 // scoring, closeWeek pins every matchup team's effective lineup for week
 // into PersistedState.Lineups, in the same persist that marks the week's
-// matchups final (Store.SetScheduleWeekWithLineups). lineupScorer's
+// matchups final (Store.CommitScheduleWeekClose). lineupScorer's
 // closed-week short-circuit (scorer.go's pinnedStarters) reads that pin
 // once the week is final, so a later drop, trade, or roster-shape edit can
 // never retroactively change a closed week's score. Idempotent: a week
@@ -181,6 +181,9 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		return ScheduleWeek{}, nil, fmt.Errorf("week %d is not part of the schedule", week)
 	}
 	if scheduleWeekIsFinal(target) {
+		if err := s.store.CommitScheduleWeekClose(target, nil); err != nil {
+			return ScheduleWeek{}, nil, err
+		}
 		return target, nil, nil
 	}
 
@@ -223,7 +226,7 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		m.AwayScore = awayScore
 		m.Final = true
 	}
-	if err := s.store.SetScheduleWeekWithLineups(updated, pins); err != nil {
+	if err := s.store.CommitScheduleWeekClose(updated, pins); err != nil {
 		return ScheduleWeek{}, nil, err
 	}
 
@@ -234,26 +237,29 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 	// close-week call site is the natural hook point (competition-formats
 	// spec section 2.5 / awards-performance-spec notification catalog).
 
-	if allWeeksFinal(state.Schedule, updated) {
-		_ = s.store.SetPhase(PhasePlayoffs)
-	}
 	return updated, misses, nil
 }
 
-// allWeeksFinal reports whether every matchup in sch is final, substituting
-// updated for the week it describes (the just-closed week, not yet visible
-// in the snapshot sch was read from).
-func allWeeksFinal(sch *SeasonSchedule, updated ScheduleWeek) bool {
+// scheduleHasAllFinalWeeks is the Store-close invariant: a playoff phase can
+// only be recorded once every persisted regular-season week has at least one
+// matchup and every matchup is final.
+func scheduleHasAllFinalWeeks(sch *SeasonSchedule) bool {
+	if sch == nil || len(sch.Weeks) == 0 {
+		return false
+	}
 	for _, wk := range sch.Weeks {
-		week := wk
-		if week.Week == updated.Week {
-			week = updated
-		}
-		if !matchupsAllFinal(week.Matchups) {
+		if !matchupsAllFinal(wk.Matchups) {
 			return false
 		}
 	}
 	return true
+}
+
+// phaseNeedsPlayoffRepair deliberately treats only the pre-playoff phases as
+// repairable. A later season-complete marker must never be downgraded by a
+// repeated close request.
+func phaseNeedsPlayoffRepair(phase string) bool {
+	return phase == "" || phase == PhaseRegularSeason
 }
 
 // matchupsAllFinal reports whether every matchup in matchups carries

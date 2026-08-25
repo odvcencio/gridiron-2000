@@ -2453,6 +2453,9 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 // overwrites week.Week's entry in every named team's Lineups map, in full,
 // with pins' contents — that overwrite is what turns a partial live edit
 // into the frozen, complete snapshot the spec calls for.
+// This is the lower-level schedule writer. Service close authority uses
+// CommitScheduleWeekClose, which additionally advances a fully-final regular
+// season to playoffs in the same persistence unit.
 func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -2472,7 +2475,19 @@ func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]ma
 	if index == -1 {
 		return fmt.Errorf("week %d is not part of the schedule", week.Week)
 	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
 	if matchupsAllFinal(s.state.Schedule.Weeks[index].Matchups) {
+		if scheduleHasAllFinalWeeks(s.state.Schedule) && phaseNeedsPlayoffRepair(s.state.Phase) {
+			s.state.Phase = PhasePlayoffs
+			if err := s.persistLocked(colScalars); err != nil {
+				if persistDispositionOf(err) == persistNotCommitted {
+					s.state = previous
+					s.dirty = previousDirty
+				}
+				return err
+			}
+		}
 		return nil // idempotent: this week already closed under the lock.
 	}
 	stored := week
@@ -2494,7 +2509,26 @@ func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]ma
 		}
 		byWeek[week.Week] = copied
 	}
-	return s.persistLocked(colSchedule, colLineups)
+	collections := []collectionID{colSchedule, colLineups}
+	if scheduleHasAllFinalWeeks(s.state.Schedule) && phaseNeedsPlayoffRepair(s.state.Phase) {
+		s.state.Phase = PhasePlayoffs
+		collections = append(collections, colScalars)
+	}
+	if err := s.persistLocked(collections...); err != nil {
+		if persistDispositionOf(err) == persistNotCommitted {
+			s.state = previous
+			s.dirty = previousDirty
+		}
+		return err
+	}
+	return nil
+}
+
+// CommitScheduleWeekClose is the named service close entry point. The
+// schedule/lineup/phase write remains centralized in SetScheduleWeekWithLineups
+// so the Store's persistence-gate contract has one discoverable mutator.
+func (s *Store) CommitScheduleWeekClose(week ScheduleWeek, pins map[string]map[string]string) error {
+	return s.SetScheduleWeekWithLineups(week, pins)
 }
 
 // SetPhase overrides the persisted season phase (section 5.2). season.go
