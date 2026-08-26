@@ -387,3 +387,22 @@ func TestCommissionerLeagueSwitcherMarkupAndRouteContract(t *testing.T) {
 		t.Fatal("commissioner league switch route is not mounted")
 	}
 }
+
+func TestResponsiveConsoleContainmentContract(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	for _, want := range []string{
+		".page-masthead > *,\n.draft-masthead > *,\n.matchup-layout > * {\n  min-width: 0;\n}",
+		".matchup-stage .section-heading--split {\n  align-items: flex-start;\n  flex-wrap: wrap;\n}",
+		".matchup-stage .section-heading--split > * {\n  min-width: 0;\n}",
+		".admin-league-switcher {\n  display: grid;\n  gap: var(--space-xs);\n  margin-block-end: var(--space-sm);\n  padding-block-end: var(--space-md);\n  border-block-end: 1px solid var(--color-border);\n  min-width: 0;\n}",
+		".admin-league-switcher__heading,\n.admin-league-switcher__controls {\n  display: flex;\n  align-items: center;\n  gap: var(--space-sm);\n  min-width: 0;\n}",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("responsive containment contract missing %q", want)
+		}
+	}
+}
