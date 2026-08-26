@@ -1839,6 +1839,14 @@ button.badge-option:hover {
   gap: var(--space-3xl);
 }
 
+/* Grid items otherwise preserve the intrinsic width of dense console
+   controls, allowing a masthead card to push the document past its frame. */
+.page-masthead > *,
+.draft-masthead > *,
+.matchup-layout > * {
+  min-width: 0;
+}
+
 .page-masthead h1,
 .draft-masthead h1,
 .login-poster h1,
@@ -2276,6 +2284,15 @@ button.badge-option:hover {
   font-size: var(--type-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.matchup-stage .section-heading--split {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.matchup-stage .section-heading--split > * {
+  min-width: 0;
 }
 
 .matchup-week-controls .pickem-weeknav {
@@ -3142,6 +3159,7 @@ button.badge-option:hover {
   margin-block-end: var(--space-sm);
   padding-block-end: var(--space-md);
   border-block-end: 1px solid var(--color-border);
+  min-width: 0;
 }
 
 .admin-league-switcher__heading,
@@ -3149,6 +3167,7 @@ button.badge-option:hover {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
+  min-width: 0;
 }
 
 .admin-league-switcher__heading {
