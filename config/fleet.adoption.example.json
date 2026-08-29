@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:244047885023056f5f89d2a39655fa5d77710ef660429d4da5d05c67e2a1c182",
+  "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:8e13456bcf79c59fe6a2c95d2e8cbc5c65fe554e1d3363aa66894c61911b7e42",
   "statrelay_origin": "http://statrelay.gridiron.svc.cluster.local",
   "ingress_class": "traefik",
   "certificate_issuer": "cloudflare-issuer",
