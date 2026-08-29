@@ -72,7 +72,7 @@ func chromePath(t *testing.T) string {
 // never re-registered, and a clock test would report a tick it never had to
 // earn. Build the assets first:
 //
-//	go install m31labs.dev/gosx/cmd/gosx@v0.53.7
+//	go install m31labs.dev/gosx/cmd/gosx@v0.53.9
 //	GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
 func browserAppRoot(t *testing.T) string {
 	t.Helper()
@@ -253,22 +253,18 @@ func TestBrowserDraftRoomRendersForSignedInManager(t *testing.T) {
 	}
 }
 
-// TestBrowserPickClockKeepsTickingAcrossPicks reproduces the production
-// clock freeze: after a pick swaps the draft region, the countdown must
-// keep ticking. GoSX v0.53.7 never re-registers a countdown after a region
-// swap, so the clock stops on the value the swapped fragment carried.
+// TestBrowserPickClockKeepsTickingAcrossPicks guards the production clock
+// freeze: after a pick swaps the draft region, the countdown must keep
+// ticking. GoSX v0.53.7 never re-registered a countdown after a region swap,
+// so the clock stopped on the value the swapped fragment carried. The test
+// passes on GoSX v0.53.9 and later, which re-registers the countdown on the
+// `gosx:region:after` event.
 //
 // Each round first proves the swap by watching the region's own "Pick # N"
 // line advance, so the test cannot pass because nothing happened.
-//
-// The test is gated on GRIDIRON_EXPECT_CLOCK_FIX because it fails on the
-// pinned release by design. Task 15 pins GoSX v0.53.9 and drops the gate.
 func TestBrowserPickClockKeepsTickingAcrossPicks(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
-	}
-	if os.Getenv("GRIDIRON_EXPECT_CLOCK_FIX") == "" {
-		t.Skip("reproduces the production clock freeze; passes once GoSX v0.53.9 is pinned (set GRIDIRON_EXPECT_CLOCK_FIX=1)")
 	}
 	child, league, ctx := startBrowserDraft(t)
 	// The last seat picks late in round one, so the viewer watches another
