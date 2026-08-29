@@ -30,16 +30,24 @@ import (
 	"m31labs.dev/gosx/session"
 )
 
+// isLocalAppEnv reports whether APP_ENV names a local, non-deployed
+// environment. It is an allow-list: every other label, "prod" and "staging"
+// included, is a deployment. The cookie policy and AppConfig.validate share
+// this one answer so the two can never disagree about where the process runs.
+func isLocalAppEnv(appEnv string) bool {
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "", "local", "development", "test":
+		return true
+	}
+	return false
+}
+
 // gridironSessionOptions keeps the cookie policy explicit at the one place
 // where the application decides whether it is serving local plain HTTP or a
 // deployed HTTPS environment. gosx defaults to Secure when AllowInsecure is
 // omitted, so only known local/default environments opt in to plain HTTP.
 func gridironSessionOptions(appEnv string) session.Options {
-	localHTTP := false
-	switch strings.ToLower(strings.TrimSpace(appEnv)) {
-	case "", "local", "development", "test":
-		localHTTP = true
-	}
+	localHTTP := isLocalAppEnv(appEnv)
 	return session.Options{
 		CookieName:    "gridiron_session",
 		Secure:        !localHTTP,

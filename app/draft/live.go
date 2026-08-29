@@ -51,21 +51,14 @@ func newLiveUpdates(fingerprint func() string) *LiveUpdates {
 	return updates
 }
 
-// NewLiveUpdates builds and installs the process-wide draft hub without
-// starting its change detector, so BuildApp can mount the handler before
-// AppRuntime.Start runs the background loops.
+// NewLiveUpdates builds and installs the process-wide draft hub used by page
+// loads. It does not start the change detector, so BuildApp can mount the
+// handler before AppRuntime.Start runs the background loops. Browser tabs run
+// no repeating room or workspace refresh timer of their own; Start owns the
+// one server-side detector.
 func NewLiveUpdates(fingerprint func() string) *LiveUpdates {
 	updates := newLiveUpdates(fingerprint)
 	setDefaultLiveUpdates(updates)
-	return updates
-}
-
-// StartLiveUpdates installs the process-wide draft hub used by page loads and
-// starts one server-side change detector. Browser tabs no longer run their own
-// repeating room/workspace refresh timers.
-func StartLiveUpdates(ctx context.Context, fingerprint func() string) *LiveUpdates {
-	updates := NewLiveUpdates(fingerprint)
-	updates.Start(ctx)
 	return updates
 }
 

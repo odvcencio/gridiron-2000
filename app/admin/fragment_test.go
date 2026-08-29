@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -26,11 +27,7 @@ func TestAdminAttentionRegionContract(t *testing.T) {
 			t.Errorf("admin attention region missing %q", want)
 		}
 	}
-	buildSource, err := os.ReadFile("../../app_build.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(buildSource), `app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))`) {
+	if !strings.Contains(rootPackageSource(t), `app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))`) {
 		t.Fatal("admin attention route is not mounted")
 	}
 }
@@ -115,4 +112,31 @@ func TestAdminAttentionFragmentConcurrentReads(t *testing.T) {
 		}()
 	}
 	wait.Wait()
+}
+
+// rootPackageSource concatenates every non-test Go file of the root package.
+// The mount contract asks where a route is registered, not which file holds
+// it, so a later move inside the root package cannot silently pass.
+func rootPackageSource(t *testing.T) string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join("..", "..", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources strings.Builder
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources.Write(body)
+		sources.WriteByte('\n')
+	}
+	if sources.Len() == 0 {
+		t.Fatal("root package sources not found")
+	}
+	return sources.String()
 }

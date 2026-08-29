@@ -48,8 +48,28 @@ type AppConfig struct {
 	TestPool   string // GRIDIRON_TEST_POOL: "" or "offline-live"
 }
 
+// harnessTestPools lists every accepted GRIDIRON_TEST_POOL value. An empty
+// value keeps the real fantasy pool.
+var harnessTestPools = map[string]bool{"": true, "offline-live": true}
+
+// validate refuses a configuration that arms a harness switch outside a
+// local environment. The rule is an allow-list, not a "production" match:
+// APP_ENV=prod, APP_ENV=staging, and every unknown label are deployments,
+// so a leaked flag cannot open a live league. BuildApp calls this too, so a
+// hand-built AppConfig obeys the same rule as an environment-read one.
+func (cfg AppConfig) validate() error {
+	if !harnessTestPools[cfg.TestPool] {
+		return errors.New("GRIDIRON_TEST_POOL must be empty or offline-live")
+	}
+	if (cfg.TestAuth || cfg.TestPool != "") && !isLocalAppEnv(cfg.AppEnv) {
+		return errors.New("GRIDIRON_TEST_AUTH and GRIDIRON_TEST_POOL are refused outside a local APP_ENV")
+	}
+	return nil
+}
+
 // AppConfigFromEnv reads the process environment. It refuses the harness
-// switches in production so a leaked flag cannot open a live league.
+// switches outside a local environment so a leaked flag cannot open a live
+// league.
 func AppConfigFromEnv() (AppConfig, error) {
 	_, thisFile, _, _ := runtime.Caller(0)
 	cfg := AppConfig{
@@ -60,16 +80,20 @@ func AppConfigFromEnv() (AppConfig, error) {
 		TestPool:   strings.TrimSpace(os.Getenv("GRIDIRON_TEST_POOL")),
 		TestAuth:   os.Getenv("GRIDIRON_TEST_AUTH") == "1",
 	}
-	if (cfg.TestAuth || cfg.TestPool != "") && strings.EqualFold(cfg.AppEnv, "production") {
-		return cfg, errors.New("GRIDIRON_TEST_AUTH and GRIDIRON_TEST_POOL are refused when APP_ENV=production")
+	if err := cfg.validate(); err != nil {
+		return cfg, err
 	}
 	return cfg, nil
 }
 
 // AppRuntime owns the background loops BuildApp wired but did not start,
 // plus the few values main()'s startup logs and shutdown path still need.
+// One process gets one AppRuntime: the loops it owns drive league.Default(),
+// a process singleton, so a second draft clock or roster-ops loop would be a
+// bug, not extra capacity.
 type AppRuntime struct {
 	starters   []func(ctx context.Context)
+	startOnce  sync.Once
 	StopNotify context.CancelFunc
 	Drain      func(timeout time.Duration) int
 	AppName    string
@@ -78,25 +102,56 @@ type AppRuntime struct {
 }
 
 // Start runs every background loop BuildApp registered, in the order main()
-// used to start them.
+// used to start them. A second call does nothing.
 func (r *AppRuntime) Start(ctx context.Context) {
-	for _, start := range r.starters {
-		start(ctx)
-	}
+	r.startOnce.Do(func() {
+		for _, start := range r.starters {
+			start(ctx)
+		}
+	})
 }
 
 // harnessProvider signs in whoever the X-Test-User header names
 // ("email|display name"), registers that identity as a league member on
 // first sight, and otherwise falls back to the normal session sign-in so
 // the Google callback keeps working. A header without an email falls back
-// too: an empty identity must never sign in. Each email reaches
-// EnsureMember once, so a burst of harness requests does not queue on the
-// store write lock. Harness only.
+// too: an empty identity must never sign in. Harness only.
+//
+// Each email carries one sync.Once, so concurrent first requests for the
+// same manager make exactly one EnsureMember call and every one of them
+// waits for it: no request signs in while its own registration is still
+// running. A repeat request takes the map lock only. A failed registration
+// logs one line and drops the email from the map, so the next request tries
+// again.
 func harnessProvider(sessionAuth *auth.Manager, membership interface {
 	EnsureMember(email, name string) (league.Member, error)
 }) auth.Provider {
 	var mu sync.Mutex
-	registered := make(map[string]bool)
+	registrations := make(map[string]*sync.Once)
+	register := func(email, name string) {
+		mu.Lock()
+		once, known := registrations[email]
+		if !known {
+			once = new(sync.Once)
+			registrations[email] = once
+		}
+		mu.Unlock()
+		var failure error
+		once.Do(func() {
+			if _, err := membership.EnsureMember(email, name); err != nil {
+				failure = err
+			}
+		})
+		if failure == nil {
+			return
+		}
+		log.Printf("harness auth: register %s failed: %v", email, failure)
+		mu.Lock()
+		if registrations[email] == once {
+			delete(registrations, email)
+		}
+		mu.Unlock()
+	}
 	return auth.ProviderFunc(func(r *http.Request) (auth.User, bool) {
 		raw := strings.TrimSpace(r.Header.Get("X-Test-User"))
 		if raw == "" {
@@ -110,18 +165,7 @@ func harnessProvider(sessionAuth *auth.Manager, membership interface {
 		if name = strings.TrimSpace(name); name == "" {
 			name = email
 		}
-		mu.Lock()
-		first := !registered[email]
-		registered[email] = true
-		mu.Unlock()
-		if first {
-			// One failed admission is worth one line. The identity still
-			// signs in, exactly as a session sign-in would, so the harness
-			// reports the store fault instead of an unexplained refusal.
-			if _, err := membership.EnsureMember(email, name); err != nil {
-				log.Printf("harness auth: register %s failed: %v", email, err)
-			}
-		}
+		register(email, name)
 		return auth.User{ID: email, Email: email, Name: name}, true
 	})
 }
@@ -159,10 +203,17 @@ func offlinePoolAsLive() league.PlayerSource {
 	}
 }
 
-// BuildApp assembles the HTTP application from cfg. It starts nothing: every
-// background loop lands in the returned AppRuntime, so a caller can mount and
-// serve the same wiring main() runs without also starting its pollers.
+// BuildApp assembles the HTTP application from cfg. It starts no HTTP server
+// and no background loop: every loop lands in the returned AppRuntime, so a
+// caller can mount and serve the same wiring main() runs without also
+// starting its pollers. It does bind one socket, and only one: when the
+// Commissioner HQ v1 provider is configured, its private listener opens
+// here, last, so no earlier failure can leave that port held. Build one app
+// per process; the loops it registers drive the league.Default() singleton.
 func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
+	if err := cfg.validate(); err != nil {
+		return nil, nil, err
+	}
 	rt := &AppRuntime{Port: cfg.Port}
 	root := cfg.Root
 	signalFeed, err := wire.Default()
@@ -231,13 +282,14 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	notifyMailer := mailer.FromEnv()
 	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
 	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())
-	// The notify worker gets its own cancellation, separate from
-	// runtimeContext: on shutdown the HTTP server stops accepting requests
-	// immediately, but the worker keeps draining whatever is already
-	// queued (see notifyQueue.Drain below the server's shutdown branch)
-	// until it finishes or the drain deadline expires. A message the
-	// ledger already marked "sent" must not be silently abandoned
-	// (design spec section 6.3; finding m1).
+	// The notify worker gets its own cancellation, separate from the context
+	// AppRuntime.Start receives: on shutdown the HTTP server stops accepting
+	// requests immediately, but the worker keeps draining whatever is already
+	// queued until it finishes or the drain deadline expires. main() owns
+	// both ends of that window — it calls rt.Drain after the server shuts
+	// down and rt.StopNotify once the drain returns. A message the ledger
+	// already marked "sent" must not be silently abandoned (design spec
+	// section 6.3; finding m1).
 	notifyContext, stopNotify := context.WithCancel(context.Background())
 	rt.StopNotify = stopNotify
 	rt.Drain = notifyQueue.Drain
@@ -291,11 +343,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	hqV1Runtime, err := buildCommissionerHQV1Runtime(hqV1Config, league.Default(), fantasyPool, openStats)
-	if err != nil {
-		return nil, nil, err
-	}
-	rt.HQV1 = hqV1Runtime
+	// The provider runtime binds a TCP listener, so it is created at the end
+	// of this function (see the tail below). The health payload reads it
+	// through this variable, which is nil until then and safe to call nil.
+	var hqV1Runtime *commissionerHQV1Runtime
 	hqV1FleetConfig, err := v1fleet.ConfigFromEnv()
 	if err != nil {
 		return nil, nil, err
@@ -573,5 +624,12 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	} else if !wireStatus.BlueskyConfigured {
 		log.Printf("Free public feed mesh is active; add optional BLUESKY_HANDLES / BLUESKY_DIDS for event-driven social alerts")
 	}
+	// Last: this is the one call in BuildApp that claims an operating-system
+	// resource. Every error above it returns without a bound port.
+	hqV1Runtime, err = buildCommissionerHQV1Runtime(hqV1Config, league.Default(), fantasyPool, openStats)
+	if err != nil {
+		return nil, nil, err
+	}
+	rt.HQV1 = hqV1Runtime
 	return app, rt, nil
 }
