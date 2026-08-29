@@ -54,13 +54,49 @@ func TestSimChildProcess(t *testing.T) {
 	_ = server.Shutdown(shutdown)
 }
 
+// simChildStderrTail is how much of a child's standard error the parent
+// keeps for a failure report.
+const simChildStderrTail = 2 << 10
+
+// tailBuffer keeps only the last limit bytes written to it. The parent
+// mirrors a child's standard error to its own so a failure is visible
+// live, and keeps this bounded copy so Stop can report the tail of it
+// without holding a whole run's log in memory.
+type tailBuffer struct {
+	mu    sync.Mutex
+	limit int
+	data  []byte
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.data = append(b.data, p...)
+	if len(b.data) > b.limit {
+		b.data = append(b.data[:0], b.data[len(b.data)-b.limit:]...)
+	}
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return string(b.data)
+}
+
 // simChild is one running child server owned by the parent test.
 type simChild struct {
 	URL      string
 	DataFile string
+
+	t        *testing.T
 	cmd      *exec.Cmd
 	stdin    *os.File
+	stdout   *os.File // the parent's read end; the scanner goroutine owns it
+	stderr   *tailBuffer
+	scanDone chan struct{}
 	stopOnce sync.Once
+	killed   bool
 }
 
 // simChildEnvKeys lists every variable the child must not inherit from the
@@ -134,30 +170,51 @@ func startSimChild(t *testing.T, dataFile string, extraEnv ...string) *simChild 
 	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestSimChildProcess$")
 	cmd.Env = simChildEnv(dataFile, extraEnv)
-	cmd.Stderr = os.Stderr
-	stdout, err := cmd.StdoutPipe()
+	stderr := &tailBuffer{limit: simChildStderrTail}
+	// Mirrored, not swallowed: a live run still shows the child's log lines
+	// while Stop keeps the tail for a non-zero exit report.
+	cmd.Stderr = io.MultiWriter(os.Stderr, stderr)
+	// Plain os.Pipe ends, not cmd.StdoutPipe/StdinPipe: os/exec closes a
+	// StdoutPipe during Wait, which races the scanner goroutine below, and
+	// a StdinPipe's write end is closed by Wait too. Owning both ends here
+	// keeps Stop's order explicit — signal, then wait, then join.
+	stdoutRead, stdoutWrite, err := os.Pipe()
 	if err != nil {
-		t.Fatalf("sim child stdout: %v", err)
+		t.Fatalf("sim child stdout pipe: %v", err)
 	}
-	// An os.Pipe (not cmd.StdinPipe) keeps the write end usable after Wait
-	// returns and gives Stop one explicit close, so the child's blocking
-	// read always ends.
+	cmd.Stdout = stdoutWrite
 	stdinRead, stdinWrite, err := os.Pipe()
 	if err != nil {
+		stdoutRead.Close()
+		stdoutWrite.Close()
 		t.Fatalf("sim child stdin pipe: %v", err)
 	}
 	cmd.Stdin = stdinRead
 	if err := cmd.Start(); err != nil {
+		stdoutRead.Close()
+		stdoutWrite.Close()
 		stdinRead.Close()
 		stdinWrite.Close()
 		t.Fatalf("start sim child: %v", err)
 	}
-	stdinRead.Close() // the child holds its own copy now
-	child := &simChild{DataFile: dataFile, cmd: cmd, stdin: stdinWrite}
+	// The child holds its own copies now. Closing the parent's write end is
+	// what lets the scanner below reach EOF once the child exits.
+	stdoutWrite.Close()
+	stdinRead.Close()
+	child := &simChild{
+		DataFile: dataFile,
+		t:        t,
+		cmd:      cmd,
+		stdin:    stdinWrite,
+		stdout:   stdoutRead,
+		stderr:   stderr,
+		scanDone: make(chan struct{}),
+	}
 	t.Cleanup(child.Stop)
 	addr := make(chan string, 1)
 	go func() {
-		scanner := bufio.NewScanner(stdout)
+		defer close(child.scanDone)
+		scanner := bufio.NewScanner(stdoutRead)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if value, found := strings.CutPrefix(line, "SIM_ADDR="); found {
@@ -170,7 +227,6 @@ func startSimChild(t *testing.T, dataFile string, extraEnv ...string) *simChild 
 			fmt.Fprintln(os.Stderr, "sim child: "+line)
 		}
 		close(addr)
-		_, _ = io.Copy(io.Discard, stdout)
 	}()
 	select {
 	case value, ok := <-addr:
@@ -185,9 +241,12 @@ func startSimChild(t *testing.T, dataFile string, extraEnv ...string) *simChild 
 }
 
 // Stop ends the child politely, then forcibly. It writes the stop line,
-// closes stdin so a child that is still reading unblocks, and waits up to
-// 8 seconds before it kills the process. Stop never blocks forever and is
-// safe to call more than once.
+// closes stdin so a child that is still reading unblocks, waits up to 8
+// seconds before it kills the process, then joins the scanner goroutine.
+// A child that exited non-zero on its own gets one log line with the tail
+// of its standard error; a child this function killed does not, because
+// that exit status is the parent's own doing. Stop never blocks forever
+// and is safe to call more than once.
 func (c *simChild) Stop() {
 	c.stopOnce.Do(func() {
 		if c.stdin != nil {
@@ -196,11 +255,24 @@ func (c *simChild) Stop() {
 		}
 		done := make(chan error, 1)
 		go func() { done <- c.cmd.Wait() }()
+		var waitErr error
 		select {
-		case <-done:
+		case waitErr = <-done:
 		case <-time.After(8 * time.Second):
+			c.killed = true
 			_ = c.cmd.Process.Kill()
-			<-done
+			waitErr = <-done
+		}
+		// The scanner owns the read end, so join it before closing.
+		select {
+		case <-c.scanDone:
+		case <-time.After(2 * time.Second):
+		}
+		if c.stdout != nil {
+			_ = c.stdout.Close()
+		}
+		if waitErr != nil && !c.killed && c.t != nil {
+			c.t.Logf("sim child exited: %v\nstderr tail:\n%s", waitErr, c.stderr.String())
 		}
 	})
 }

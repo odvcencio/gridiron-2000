@@ -167,7 +167,11 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			// seat: actingTeam (internal/league/service.go) ignores a
 			// submitted team_id form field and derives the acting seat
 			// from the signed-in identity's own membership record.
-			"viewer_team_id":      viewerTeamID,
+			"viewer_team_id": viewerTeamID,
+			// rounds lets a scenario derive the total pick count
+			// (teams x rounds) instead of hardcoding a league shape that a
+			// roster-shape override can change at runtime.
+			"rounds":              league.CurrentDraftRounds(),
 			"clock":               data["clock"],
 			"current_pick_token":  data["current_pick_token"],
 			"previous_pick_token": data["previous_pick_token"],

@@ -265,6 +265,10 @@ type DraftState struct {
 	Complete   bool   `json:"complete"`
 	PickNumber int    `json:"pick_number"`
 	OnClockID  string `json:"on_clock_id"`
+	// Rounds is the league's draft-round count as the server reports it.
+	// A scenario derives the total pick count from len(Teams) * Rounds
+	// rather than hardcoding a shape a roster-shape override can change.
+	Rounds int `json:"rounds"`
 	// ViewerTeamID is the requesting identity's own seat, if any. It is the
 	// only reliable way a scenario learns its seat: the server ignores a
 	// submitted team_id form field on every action and derives the acting
