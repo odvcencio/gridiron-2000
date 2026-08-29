@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gridiron-2000/internal/identity"
@@ -75,6 +76,9 @@ type Service struct {
 	// and the fingerprint's presence digest. nil means time.Now(); see
 	// clock().
 	now func() time.Time
+	// testNow is the simulation harness's clock seam. It wins over now
+	// when set; see SetClockForTest and clock().
+	testNow atomic.Pointer[func() time.Time]
 	// topologyMutationHook is a test-only checkpoint within the shared
 	// topology-serialization boundary, immediately before a candidate store
 	// write or between a trim/reset commit and runtime publication. It makes
@@ -168,6 +172,9 @@ type Service struct {
 // enforcement loop's own ticker wiring reads the instant through here, so
 // tests can drive the whole system with a fake clock.
 func (s *Service) clock() time.Time {
+	if fn := s.testNow.Load(); fn != nil && *fn != nil {
+		return (*fn)()
+	}
 	if s.now != nil {
 		return s.now()
 	}
