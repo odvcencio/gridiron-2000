@@ -16,7 +16,7 @@ func TestSetClockForTestDrivesServiceClock(t *testing.T) {
 		t.Fatalf("ClockForTest() = %v, want %v", got, fixed)
 	}
 	service.SetClockForTest(nil)
-	if got := service.clock(); got.Year() == 2026 && got.Month() == time.September && got.Day() == 6 {
+	if got := service.clock(); got.Equal(fixed) {
 		t.Fatalf("clearing the test clock did not restore the real clock: %v", got)
 	}
 }
