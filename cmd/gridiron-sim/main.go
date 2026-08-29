@@ -73,6 +73,11 @@ const (
 	// preflightTimeout bounds the one request that proves the target is a
 	// harness build.
 	preflightTimeout = 10 * time.Second
+	// pickBackoff is the minimum pause after a pick attempt that failed. It
+	// is independent of --delay on purpose: --delay 0 asks for no think
+	// time, not for a hot loop against a server that keeps rejecting the
+	// same pick.
+	pickBackoff = 500 * time.Millisecond
 )
 
 func main() {
@@ -148,8 +153,16 @@ func runDraft(args []string) error {
 	if len(managers) == 0 {
 		return errors.New("no seat was claimed; the league may already be full of other managers")
 	}
+	ready, err := prepareSeats(commish, managers)
+	if err != nil {
+		return err
+	}
+	if ready < len(managers) {
+		log.Printf("%d of %d claimed seats are ready; the commissioner cannot start the draft until every claimed seat is",
+			ready, len(managers))
+	}
 	log.Printf("%d managers seated and ready; start the draft from the commissioner console (or curl /draft/__actions/draft-start), bots pick every %s",
-		len(managers), *delay)
+		ready, *delay)
 	return drive(ctx, commish, managers, *delay)
 }
 
@@ -178,14 +191,19 @@ func preflight(target string) error {
 	}
 }
 
-// manager is one seated rehearsal bot and the team name it claimed.
+// manager is one seated rehearsal bot, the seat it holds, and the identity
+// it signs in with. team is the name the server reports for that seat, not
+// the name this run asked for: a bot that already held a different seat
+// keeps it, and every log line must name the seat that actually picks.
 type manager struct {
-	bot  *draft.Bot
-	team string
+	bot   *draft.Bot
+	team  string
+	email string
 }
 
-// seat primes the commissioner, then claims one seat per manager and marks
-// each ready.
+// seat primes the commissioner, then claims one seat per manager. It does
+// not mark anything ready; prepareSeats does that, because readiness needs
+// the server's own view of every seat first.
 //
 // The commissioner primes first on purpose. Once the last seat is claimed,
 // /join renders its closed state with no form and therefore no CSRF token,
@@ -215,14 +233,75 @@ func seat(target string, count int) (*draft.Bot, []*manager, error) {
 			}
 			log.Printf("%s already holds seat %s; keeping it", email, bot.TeamID)
 		}
-		if err := bot.ToggleReady(); err != nil {
-			// A seat that is already ready reports an error here; the seat
-			// is still usable, so keep it and say what happened.
-			log.Printf("%s did not toggle ready: %v", email, err)
-		}
-		managers = append(managers, &manager{bot: bot, team: team})
+		managers = append(managers, &manager{bot: bot, team: team, email: email})
 	}
 	return commish, managers, nil
+}
+
+// prepareSeats names every claimed seat from the server's own team grid and
+// marks the seats that are not ready yet. It returns how many of the driven
+// seats the server reports ready afterwards.
+//
+// The read is the whole point. Service.ToggleReady FLIPS the flag
+// (internal/league/service.go), so calling it for every seat would un-ready
+// a league that a previous run already readied — and the "seated and ready"
+// line would then be a lie. Reading first makes a rerun idempotent.
+func prepareSeats(commish *draft.Bot, managers []*manager) (int, error) {
+	before, err := commish.State()
+	if err != nil {
+		return 0, fmt.Errorf("read the seat grid: %w", err)
+	}
+	for _, m := range managers {
+		if name := seatName(before, m.bot.TeamID); name != "" {
+			m.team = name
+		}
+		if seatReady(before, m.bot.TeamID) {
+			continue
+		}
+		if err := m.bot.ToggleReady(); err != nil {
+			log.Printf("%s did not mark seat %q ready: %v", m.email, m.team, err)
+		}
+	}
+	after, err := commish.State()
+	if err != nil {
+		return 0, fmt.Errorf("re-read the seat grid: %w", err)
+	}
+	ready := 0
+	for _, m := range managers {
+		if seatReady(after, m.bot.TeamID) {
+			ready++
+			continue
+		}
+		log.Printf("seat %q (%s) is still not ready", m.team, m.email)
+	}
+	return ready, nil
+}
+
+// seatRow returns the draft-room team grid row for seat id, or nil.
+// draftTeamMaps (internal/league/service.go) builds each row, so "id",
+// "name", and "ready" are the keys this file reads.
+func seatRow(state draft.DraftState, id string) map[string]any {
+	if strings.TrimSpace(id) == "" {
+		return nil
+	}
+	for _, row := range state.Teams {
+		if rowID, _ := row["id"].(string); rowID == id {
+			return row
+		}
+	}
+	return nil
+}
+
+// seatName returns the name the server gives seat id, or an empty string.
+func seatName(state draft.DraftState, id string) string {
+	name, _ := seatRow(state, id)["name"].(string)
+	return strings.TrimSpace(name)
+}
+
+// seatReady reports whether the server has seat id marked ready.
+func seatReady(state draft.DraftState, id string) bool {
+	ready, _ := seatRow(state, id)["ready"].(bool)
+	return ready
 }
 
 // drive runs the rehearsal until the draft completes or the caller stops
@@ -271,31 +350,53 @@ func drive(ctx context.Context, commish *draft.Bot, managers []*manager, delay t
 		if !pause(ctx, delay) { // think time
 			return nil
 		}
-		makePick(state, onClock)
+		// The clock can move while a bot thinks: an expiry auto-pick or a
+		// commissioner force-pick resolves the turn without it. Read again
+		// so the pick number and the player name in the log line describe
+		// the pick the server is actually waiting on.
+		current, err := commish.State()
+		if err != nil {
+			log.Printf("read the draft state: %v", err)
+			if !pause(ctx, pickBackoff) {
+				return nil
+			}
+			continue
+		}
+		if seatHolder(managers, current.OnClockID) != onClock {
+			// Somebody else took the turn. Let the next round read the
+			// board fresh instead of submitting a pick that must fail.
+			heartbeat(managers)
+			continue
+		}
+		if !makePick(current, onClock) {
+			if !pause(ctx, pickBackoff) {
+				return nil
+			}
+		}
 		heartbeat(managers)
 	}
 }
 
-// makePick submits one pick for the seat on the clock. A rejection is
-// logged and never fatal: the clock can expire during a bot's think time,
-// which resolves the pick without it and leaves the next seat on the
-// clock.
-func makePick(state draft.DraftState, onClock *manager) {
+// makePick submits one pick for the seat on the clock and reports whether
+// the server took it. A rejection is logged and never fatal, so the caller
+// backs off and reads the board again rather than stopping the rehearsal.
+func makePick(state draft.DraftState, onClock *manager) bool {
 	playerID, err := onClock.bot.NextPick()
 	if err != nil {
 		log.Printf("pick %d for %s: no eligible player: %v", state.PickNumber, onClock.team, err)
-		return
+		return false
 	}
 	result, err := onClock.bot.MakePick(playerID)
 	if err != nil {
 		log.Printf("pick %d for %s: %v", state.PickNumber, onClock.team, err)
-		return
+		return false
 	}
 	if !result.OK {
 		log.Printf("pick %d for %s rejected %s: %s", state.PickNumber, onClock.team, playerLabel(state, playerID), result.Message)
-		return
+		return false
 	}
 	log.Printf("pick %d: %s takes %s", state.PickNumber, onClock.team, playerLabel(state, playerID))
+	return true
 }
 
 // seatHolder returns the manager that holds seat id, or nil.
