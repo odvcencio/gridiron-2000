@@ -53,13 +53,42 @@ func waitForPicks(t *testing.T, bot *draft.Bot, want int, within time.Duration) 
 	return draft.DraftState{}
 }
 
+// simBestAvailable returns the id of the first available row the server
+// marks draft_eligible for the on-clock seat. The pool page lists players
+// in the same order the auto-pick's best-available pass walks
+// (draftclock.go autopickChoice), so this is the player an empty queue
+// produces.
+func simBestAvailable(t *testing.T, state draft.DraftState) string {
+	t.Helper()
+	for _, row := range state.Available {
+		eligible, _ := row["draft_eligible"].(bool)
+		id, _ := row["id"].(string)
+		if eligible && id != "" {
+			return id
+		}
+	}
+	t.Fatalf("no eligible available player in a page of %d", len(state.Available))
+	return ""
+}
+
 // simQueueCandidate returns an eligible available player that the
-// best-available rule would not reach first. The pool page lists players in
-// the same order the auto-pick's best-available pass walks, so any row past
-// the head proves the queue won. The scan starts at skip and keeps the
-// first row the server marks draft_eligible for the on-clock seat.
+// best-available rule would not reach first. The scan starts at skip and
+// keeps the first row the server marks draft_eligible for the on-clock
+// seat.
+//
+// It first asserts the head of the page is itself eligible. That is the
+// scenario's whole premise: an empty queue takes the head, so a queued pick
+// from past the head proves the board won only while the head was a legal
+// choice.
 func simQueueCandidate(t *testing.T, state draft.DraftState, skip int) string {
 	t.Helper()
+	if len(state.Available) <= skip {
+		t.Fatalf("the pool page holds %d rows, want more than %d", len(state.Available), skip)
+	}
+	if eligible, _ := state.Available[0]["draft_eligible"].(bool); !eligible {
+		t.Fatalf("the head of the pool page (%v) is not draft_eligible, so a pick past it would not prove the board beat best available",
+			state.Available[0]["id"])
+	}
 	for index := skip; index < len(state.Available); index++ {
 		row := state.Available[index]
 		eligible, _ := row["draft_eligible"].(bool)

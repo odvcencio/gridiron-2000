@@ -60,6 +60,13 @@ func TestSimExpiryAutopicksFromQueueThenBestAvailable(t *testing.T) {
 	if nextSeat == "" {
 		t.Fatal("the draft named no seat on the clock after the first auto-pick")
 	}
+	// Read the head of the pool now, while the second seat is on the clock
+	// and the queued player is already off the board. This is the exact
+	// player the best-available pass must take.
+	best := simBestAvailable(t, after)
+	if best == queued {
+		t.Fatalf("the queued player %q is still the head of the pool after it was drafted", queued)
+	}
 	advanceClock(t, child.URL, 31*time.Second)
 	after = waitForPicks(t, l.commish, 2, 10*time.Second)
 	second := after.Picks[1]
@@ -69,7 +76,7 @@ func TestSimExpiryAutopicksFromQueueThenBestAvailable(t *testing.T) {
 	if got := draft.PickTeamID(second); got != nextSeat {
 		t.Fatalf("the second auto-pick landed on seat %q, want %q", got, nextSeat)
 	}
-	if got := draft.PickPlayerID(second); got == "" || got == queued {
-		t.Fatalf("the second auto-pick took %q, want an undrafted best-available player", got)
+	if got := draft.PickPlayerID(second); got != best {
+		t.Fatalf("the empty-queue auto-pick took %q, want the best available %q", got, best)
 	}
 }

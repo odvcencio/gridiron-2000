@@ -10,10 +10,17 @@ import (
 	"gridiron-2000/internal/sim/draft"
 )
 
-// simRestartPicks is how many picks the restart scenario records before it
-// stops the server, and therefore how many the reopened league must still
-// report.
-const simRestartPicks = 5
+const (
+	// simRestartPicks is how many picks the restart scenario records before
+	// it stops the server, and therefore how many the reopened league must
+	// still report.
+	simRestartPicks = 5
+
+	// simRestartRewind is how far the restart scenario rewinds the harness
+	// clock before its last pick. See that scenario for why a rewind, and
+	// not an advance, is what leaves a dead deadline on disk.
+	simRestartRewind = 5 * time.Minute
+)
 
 // TestSimReconnectReceivesRepairEventWithLiveFingerprint proves the draft
 // hub repairs a client that missed a pick. A socket that reconnects with a
@@ -47,17 +54,22 @@ func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 	// The draft moves while the socket is down, so the token above no
 	// longer describes the server's state.
 	l.pickOnClock(t)
+
+	// Read the live fingerprint and dial in the same breath. The
+	// fingerprint folds in a presence digest (StateFingerprint,
+	// internal/league/service.go), and a presence bucket flips from HERE to
+	// IDLE at 12 seconds, so any delay between this read and the hub's own
+	// recomputation at join time could move the value the repair carries.
 	current, err := bot.Fingerprint()
 	if err != nil {
 		t.Fatalf("read fingerprint after the pick: %v", err)
 	}
-	if current == stale {
-		t.Fatal("the pick left the league fingerprint unchanged; nothing would need repair")
-	}
-
 	conn, err = bot.Socket(stale)
 	if err != nil {
 		t.Fatalf("reopen the socket: %v", err)
+	}
+	if current == stale {
+		t.Fatal("the pick left the league fingerprint unchanged; nothing would need repair")
 	}
 	defer conn.Close()
 	if event := simReadEvent(t, conn, simEventWait, "the reconnect __welcome"); event.Event != "__welcome" {
@@ -100,26 +112,31 @@ func TestSimConcurrentDuplicateSubmitsMakeOnePick(t *testing.T) {
 	const submits = 4
 	results := make([]draft.ActionResult, submits)
 	errs := make([]error, submits)
-	var group sync.WaitGroup
-	// A single barrier releases all four requests together, so they reach
-	// the store's lock as one burst rather than in sequence.
+	// Two barriers, not one: ready proves every goroutine is already parked
+	// on release before the burst starts, so closing release is what makes
+	// the four requests simultaneous by construction rather than by luck.
+	var parked, group sync.WaitGroup
+	parked.Add(submits)
+	group.Add(submits)
 	release := make(chan struct{})
 	for index := range submits {
-		group.Add(1)
 		go func() {
 			defer group.Done()
+			parked.Done()
 			<-release
 			results[index], errs[index] = bot.MakePick(playerID)
 		}()
 	}
+	parked.Wait()
 	close(release)
 	group.Wait()
 
 	accepted := 0
 	for index := range submits {
+		// A transport error means the request never reached a verdict, so
+		// the burst proved nothing about the store's lock.
 		if errs[index] != nil {
-			t.Logf("submit %d failed to complete: %v", index, errs[index])
-			continue
+			t.Fatalf("duplicate submit %d never completed: %v", index, errs[index])
 		}
 		if results[index].OK {
 			accepted++
@@ -234,9 +251,22 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 	if err := l.commish.StartDraft(); err != nil {
 		t.Fatalf("start draft: %v", err)
 	}
-	for range simRestartPicks {
+	for range simRestartPicks - 1 {
 		l.pickOnClock(t)
 	}
+
+	// Rewind, do not advance. The harness clock offset lives in the child
+	// process, so the reopened server reads plain wall time; only a
+	// deadline that is already behind wall time reaches bootRecoverClock.
+	// An advance cannot produce one: it would push the running process past
+	// its own live deadline, and the enforcement tick would auto-pick
+	// before the stop. A rewind instead arms the last pick's deadline at
+	// (wall - 5m) + 30s, which is minutes behind wall time yet still a full
+	// pick clock ahead of the rewound process, so nothing fires while the
+	// scenario stops the server.
+	advanceClock(t, child.URL, -simRestartRewind)
+	l.pickOnClock(t)
+
 	before, err := l.commish.State()
 	if err != nil {
 		t.Fatalf("read draft state before the restart: %v", err)
@@ -269,8 +299,33 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 	}
 
 	// bootRecoverClock grants a bounded restart grace (RestartGrace, 30
-	// seconds, clamped to the pick clock), so the next manager still has a
-	// full window to act. One live pick proves the reopened room works.
+	// seconds, clamped to the pick clock) instead of auto-picking at once
+	// for a deadline the outage left behind.
+	if armed, _ := after.Clock["armed"].(bool); !armed {
+		t.Fatalf("the reopened clock is not armed (clock %v)", after.Clock)
+	}
+	if paused, _ := after.Clock["paused"].(bool); paused {
+		t.Fatalf("the reopened clock is paused (clock %v)", after.Clock)
+	}
+	remaining, ok := after.Clock["remaining_seconds"].(float64)
+	if !ok {
+		t.Fatalf("the reopened clock payload carries no remaining_seconds (%v)", after.Clock)
+	}
+	// Zero would mean the dead deadline survived the boot untouched, which
+	// is the exact punishment restart grace exists to prevent. More than 30
+	// would mean something other than the grace re-armed it.
+	if remaining <= 0 || remaining > 30 {
+		t.Fatalf("the reopened clock holds %.0f seconds, want restart grace inside (0, 30] (clock %v)",
+			remaining, after.Clock)
+	}
+	// clockReasonLabels (internal/league/service.go) has no restart-grace
+	// entry: recovery re-arms an ordinary running clock, so the chip keeps
+	// the plain running label.
+	if reason, _ := after.Clock["reason"].(string); reason != "ON THE CLOCK" {
+		t.Fatalf("the reopened clock reason reads %q, want the running label (clock %v)", reason, after.Clock)
+	}
+
+	// One live pick proves the reopened room still works.
 	l.pickOnClock(t)
 	resumed := waitForPicks(t, l.commish, simRestartPicks+1, 10*time.Second)
 	if got := resumed.Picks[simRestartPicks]["made_by"]; got != "manager" {
