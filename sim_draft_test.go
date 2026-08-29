@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,12 +39,16 @@ const (
 	simEventSettle = 250 * time.Millisecond
 	// simEventReads caps how many events one wait examines.
 	simEventReads = 4
+	// simSocketReadWait is the reader goroutine's own deadline. It is long
+	// on purpose: gorilla/websocket keeps the first read error forever, so
+	// a deadline that expires would break the socket for the rest of the
+	// run. The scenario's real bound is simEventWait.
+	simSocketReadWait = 5 * time.Minute
 )
 
 // simLeague is one seated league on one child server: the commissioner
 // (seatless, named by COMMISSIONER_EMAILS) plus one bot per seat.
 type simLeague struct {
-	child   *simChild
 	commish *draft.Bot
 	bots    []*draft.Bot
 }
@@ -53,6 +58,9 @@ type simLeague struct {
 // state, with no form and therefore no csrf_token, so a commissioner who
 // primed later would never get a token. Each manager marks itself ready,
 // and reports presence when presence is true.
+//
+// presence is a parameter, not a constant: a NOT SEEN scenario needs seats
+// that never sent one heartbeat, which is what presence=false produces.
 func seatLeagueWith(t *testing.T, child *simChild, presence bool) *simLeague {
 	t.Helper()
 	commish := draft.New(child.URL, "commish@sim.test", "Commissioner")
@@ -85,7 +93,7 @@ func seatLeagueWith(t *testing.T, child *simChild, presence bool) *simLeague {
 		}
 		bots = append(bots, bot)
 	}
-	return &simLeague{child: child, commish: commish, bots: bots}
+	return &simLeague{commish: commish, bots: bots}
 }
 
 func seatLeague(t *testing.T, child *simChild) *simLeague {
@@ -105,7 +113,9 @@ func (l *simLeague) byTeam(id string) *draft.Bot {
 
 // pickOnClock makes one eligible pick for whichever seat is on the clock.
 // It returns the state it read before the pick and the instant the pick
-// request went out, which is the start of every latency sample.
+// request went out, which is the start of every latency sample. The
+// pre-pick state is returned, not discarded, because a token scenario needs
+// the current and previous pick tokens as they stood before the pick.
 func (l *simLeague) pickOnClock(t *testing.T) (draft.DraftState, time.Time) {
 	t.Helper()
 	state, err := l.commish.State()
@@ -145,26 +155,68 @@ type simSocket struct {
 	email  string
 	conn   *websocket.Conn
 	events chan draft.HubEvent
+	done   chan struct{}
+
+	stopOnce sync.Once
+	mu       sync.Mutex
+	readErr  error
 }
 
 // newSimSocket starts the reader. It stamps each event's arrival instant
 // as the event is received, not as a scenario consumes it, so a latency
 // sample measures the hub and not the scenario's own loop.
 func newSimSocket(email string, conn *websocket.Conn) *simSocket {
-	socket := &simSocket{email: email, conn: conn, events: make(chan draft.HubEvent, 256)}
+	socket := &simSocket{
+		email:  email,
+		conn:   conn,
+		events: make(chan draft.HubEvent, 256),
+		done:   make(chan struct{}),
+	}
 	go func() {
 		defer close(socket.events)
 		for {
 			// The deadline is long enough that only a real stall reaches
 			// it; the scenario's own bound is simEventWait below.
-			event, err := draft.ReadEvent(conn, 5*time.Minute)
+			event, err := draft.ReadEvent(conn, simSocketReadWait)
 			if err != nil {
+				socket.setReadErr(err)
 				return
 			}
-			socket.events <- event
+			// A t.Fatalf stops the consumer where it stands, so a plain
+			// send would leave this goroutine blocked on a full channel for
+			// the rest of the run. done is the exit the reader always has.
+			select {
+			case socket.events <- event:
+			case <-socket.done:
+				return
+			}
 		}
 	}()
 	return socket
+}
+
+// stop releases the reader: closing the connection ends a blocked read, and
+// closing done ends a blocked send. Safe to call more than once.
+func (s *simSocket) stop() {
+	s.stopOnce.Do(func() {
+		close(s.done)
+		_ = s.conn.Close()
+	})
+}
+
+func (s *simSocket) setReadErr(err error) {
+	s.mu.Lock()
+	s.readErr = err
+	s.mu.Unlock()
+}
+
+// lastReadErr reports why the reader stopped, or nil while it still runs.
+// A failure message quotes it so a dead socket reads differently from a
+// hub that simply sent nothing.
+func (s *simSocket) lastReadErr() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.readErr
 }
 
 // next returns the socket's next event, or false on a timeout or a closed
@@ -196,11 +248,11 @@ func openSockets(t *testing.T, l *simLeague) []*simSocket {
 		if err != nil {
 			t.Fatalf("socket %s: %v", bot.Email, err)
 		}
-		t.Cleanup(func() { _ = conn.Close() })
 		socket := newSimSocket(bot.Email, conn)
+		t.Cleanup(socket.stop)
 		event, ok := socket.next(simEventWait)
 		if !ok {
-			t.Fatalf("no welcome event for %s", bot.Email)
+			t.Fatalf("no welcome event for %s (reader stopped: %v)", bot.Email, socket.lastReadErr())
 		}
 		if event.Event != "__welcome" {
 			t.Fatalf("first event for %s = %q, want __welcome", bot.Email, event.Event)
@@ -222,17 +274,23 @@ func simEventFingerprint(t *testing.T, event draft.HubEvent) string {
 	return payload.Fingerprint
 }
 
-// awaitChange waits for the event the pick just made. want is the
-// fingerprint read straight after the pick returned, and an event carrying
-// it is the exact match this returns at once. The detector polls twice a
-// second, so one tick can instead publish a later generation that folds a
-// presence change over the pick; such an event is kept and returned only
-// after a short look for a better one. An event carrying the pre-pick
-// fingerprint is stale and never accepted.
-func awaitChange(t *testing.T, socket *simSocket, before, want string) draft.HubEvent {
+// awaitChange waits for the event the pick just made and reports how many
+// events it discarded as older than the pick. sent is the instant the pick
+// request went out: an event that arrived before it was queued by an
+// earlier generation and cannot report this pick, so it is dropped rather
+// than timed, which is what keeps a latency sample from going negative.
+//
+// want is the fingerprint read straight after the pick returned, and an
+// event carrying it is the exact match this returns at once. The detector
+// polls twice a second, so one tick can instead publish a later generation
+// that folds a presence change over the pick; such an event is kept and
+// returned only after a short look for a better one. An event carrying the
+// pre-pick fingerprint is stale and never accepted.
+func awaitChange(t *testing.T, socket *simSocket, sent time.Time, before, want string) (draft.HubEvent, int) {
 	t.Helper()
 	var coalesced draft.HubEvent
 	found := false
+	dropped := 0
 	for read := 1; read <= simEventReads; read++ {
 		timeout := simEventWait
 		if found {
@@ -241,28 +299,33 @@ func awaitChange(t *testing.T, socket *simSocket, before, want string) draft.Hub
 		event, ok := socket.next(timeout)
 		if !ok {
 			if found {
-				return coalesced
+				return coalesced, dropped
 			}
-			t.Fatalf("%s saw no %s within %s", socket.email, simDraftChangedEvent, timeout)
+			t.Fatalf("%s saw no %s within %s (reader stopped: %v)",
+				socket.email, simDraftChangedEvent, timeout, socket.lastReadErr())
 		}
 		if event.Event != simDraftChangedEvent {
 			continue
+		}
+		if event.At.Before(sent) {
+			dropped++
+			continue // queued before this pick went out
 		}
 		fingerprint := simEventFingerprint(t, event)
 		if fingerprint == before {
 			continue // a stale generation from before this pick
 		}
 		if fingerprint == want {
-			return event
+			return event, dropped
 		}
 		coalesced, found = event, true
 	}
 	if found {
-		return coalesced
+		return coalesced, dropped
 	}
-	t.Fatalf("%s saw no %s carrying a new fingerprint within %d events",
-		socket.email, simDraftChangedEvent, simEventReads)
-	return draft.HubEvent{}
+	t.Fatalf("%s saw no %s carrying a new fingerprint within %d events (reader stopped: %v)",
+		socket.email, simDraftChangedEvent, simEventReads, socket.lastReadErr())
+	return draft.HubEvent{}, dropped
 }
 
 // simSnakeTeamIndex returns the seat index that owns pick number, counting
@@ -336,8 +399,10 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 	picks := 0
 	// coalesced counts the events that carried a generation later than the
 	// pick's own, which is what one detector tick folding a presence change
-	// over the pick looks like from here.
+	// over the pick looks like from here. dropped counts the events that
+	// arrived before their pick went out, which awaitChange discards.
 	coalesced := 0
+	dropped := 0
 	for {
 		state, err := league.commish.State()
 		if err != nil {
@@ -362,14 +427,17 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 			t.Fatalf("read fingerprint after pick %d: %v", picks, err)
 		}
 		for _, socket := range sockets {
-			event := awaitChange(t, socket, before, want)
+			event, skipped := awaitChange(t, socket, sent, before, want)
+			dropped += skipped
 			if simEventFingerprint(t, event) != want {
 				coalesced++
 			}
 			latencies = append(latencies, event.At.Sub(sent))
 		}
-		if picks > 400 {
-			t.Fatal("the draft did not complete within 400 picks")
+		// The league's own shape sets the cap; the margin only keeps a
+		// runaway loop from running to the test timeout.
+		if maxPicks := len(state.Teams)*state.Rounds + 40; picks > maxPicks {
+			t.Fatalf("the draft did not complete within %d picks", maxPicks)
 		}
 	}
 
@@ -377,13 +445,18 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read final draft state: %v", err)
 	}
+	// The server's own completion rule is the truth; the arithmetic below
+	// is the cross-check that it agrees with the league's shape.
+	if !final.Complete {
+		t.Fatal("the loop ended but the draft does not report itself complete")
+	}
 	if final.Rounds < 1 {
 		t.Fatalf("the draft state reported %d rounds", final.Rounds)
 	}
 	if len(final.Teams) != len(simTeamNames) {
 		t.Fatalf("the league holds %d seats, want %d", len(final.Teams), len(simTeamNames))
 	}
-	wantPicks := len(final.Teams) * final.Rounds
+	wantPicks := final.Rounds * len(final.Teams)
 	if len(final.Picks) != wantPicks {
 		t.Fatalf("the draft recorded %d picks, want %d", len(final.Picks), wantPicks)
 	}
@@ -393,11 +466,16 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 	assertSnakeOrder(t, final)
 
 	sort.Slice(latencies, func(a, b int) bool { return latencies[a] < latencies[b] })
+	// A negative sample would mean an event that predates its own pick was
+	// timed as that pick's, which awaitChange's sent filter exists to stop.
+	if len(latencies) > 0 && latencies[0] < 0 {
+		t.Fatalf("a hub latency sample is negative (%s); an event older than its pick was timed", latencies[0])
+	}
 	p50 := simPercentile(latencies, 0.50)
 	p99 := simPercentile(latencies, 0.99)
 	wall := time.Since(startedAt)
-	t.Logf("picks=%d rounds=%d observations=%d coalesced=%d p50=%s p99=%s wall=%s",
-		picks, final.Rounds, len(latencies), coalesced, p50, p99, wall)
+	t.Logf("picks=%d rounds=%d observations=%d coalesced=%d dropped=%d p50=%s p99=%s wall=%s",
+		picks, final.Rounds, len(latencies), coalesced, dropped, p50, p99, wall)
 	if p99 > time.Second {
 		t.Fatalf("hub p99 = %s, want <= 1s", p99)
 	}

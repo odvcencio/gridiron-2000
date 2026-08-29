@@ -86,7 +86,10 @@ func (b *tailBuffer) String() string {
 
 // simChild is one running child server owned by the parent test.
 type simChild struct {
-	URL      string
+	URL string
+	// DataFile is the child's league-state path. A restart scenario reopens
+	// the same league by passing it back to startSimChild, so this field is
+	// read by callers, not only written here.
 	DataFile string
 
 	t        *testing.T
@@ -97,25 +100,6 @@ type simChild struct {
 	scanDone chan struct{}
 	stopOnce sync.Once
 	killed   bool
-}
-
-// simChildEnvKeys lists every variable the child must not inherit from the
-// developer's shell. hermeticEnv clears the same set for an in-process
-// build; a child process needs the same guarantee, so an exported
-// TANK01_API_KEY cannot start a poller or a provider listener here either.
-var simChildEnvKeys = []string{
-	"TANK01_API_KEY",
-	"TANK01_BASE_URL",
-	"RESEND_API_KEY",
-	"SMTP_HOST",
-	"COMMISSIONER_HQ_LEAGUE_ID",
-	"COMMISSIONER_HQ_PROVIDER_KEY_ID",
-	"COMMISSIONER_HQ_PROVIDER_SECRET",
-	"COMMISSIONER_HQ_PROVIDER_SECRET_FILE",
-	"COMMISSIONER_HQ_PROVIDER_ADDR",
-	"COMMISSIONER_HQ_V1_REGISTRY_FILE",
-	"COMMISSIONER_HQ_PEERS",
-	"COMMISSIONER_HQ_TOKEN",
 }
 
 // simChildBaseEnv is the child's complete harness configuration: harness
@@ -140,11 +124,14 @@ func simChildBaseEnv(dataFile string) []string {
 }
 
 // simChildEnv builds the child environment: the parent's environment minus
-// every key simChildEnvKeys names, then the harness settings, then the
-// caller's extra "KEY=value" overrides last so a scenario can change one.
+// every key harnessSensitiveEnv names (sim_env_test.go, shared with
+// hermeticEnv), then the harness settings, then the caller's extra
+// "KEY=value" overrides last so a scenario can change one. The child does
+// not clear GRIDIRON_TEST_AUTH or GRIDIRON_TEST_POOL: simChildBaseEnv sets
+// both on purpose.
 func simChildEnv(dataFile string, extraEnv []string) []string {
-	drop := make(map[string]bool, len(simChildEnvKeys))
-	for _, key := range simChildEnvKeys {
+	drop := make(map[string]bool, len(harnessSensitiveEnv))
+	for _, key := range harnessSensitiveEnv {
 		drop[key] = true
 	}
 	env := make([]string, 0, len(os.Environ())+16)
@@ -162,7 +149,9 @@ func simChildEnv(dataFile string, extraEnv []string) []string {
 // startSimChild re-executes this test binary as a server process and waits
 // for the address it prints. dataFile may be empty, which gives the child a
 // fresh state file under the test's own temporary directory; a restart
-// scenario passes the same path twice to reopen one league.
+// scenario passes the same path twice to reopen one league. extraEnv is how
+// a scenario changes one setting — a shorter PICK_CLOCK, for example —
+// without rewriting simChildBaseEnv.
 func startSimChild(t *testing.T, dataFile string, extraEnv ...string) *simChild {
 	t.Helper()
 	if dataFile == "" {
@@ -256,12 +245,20 @@ func (c *simChild) Stop() {
 		done := make(chan error, 1)
 		go func() { done <- c.cmd.Wait() }()
 		var waitErr error
+		reaped := true
 		select {
 		case waitErr = <-done:
 		case <-time.After(8 * time.Second):
 			c.killed = true
 			_ = c.cmd.Process.Kill()
-			waitErr = <-done
+			// A killed process is normally reaped at once, but this receive
+			// must still be bounded: Stop runs in test cleanup, where an
+			// unreaped child would hang the whole run instead of failing it.
+			select {
+			case waitErr = <-done:
+			case <-time.After(5 * time.Second):
+				reaped = false
+			}
 		}
 		// The scanner owns the read end, so join it before closing.
 		select {
@@ -271,16 +268,26 @@ func (c *simChild) Stop() {
 		if c.stdout != nil {
 			_ = c.stdout.Close()
 		}
-		if waitErr != nil && !c.killed && c.t != nil {
-			c.t.Logf("sim child exited: %v\nstderr tail:\n%s", waitErr, c.stderr.String())
+		if c.t != nil {
+			switch {
+			case !reaped:
+				c.t.Logf("sim child (pid %d) did not exit 5s after a kill", c.cmd.Process.Pid)
+			case waitErr != nil && !c.killed:
+				c.t.Logf("sim child exited: %v\nstderr tail:\n%s", waitErr, c.stderr.String())
+			}
 		}
 	})
 }
 
+// simChildHTTP bounds a parent-side request. http.DefaultClient has no
+// timeout, so a child that accepts a connection and then stalls would hang
+// the parent until the whole test binary timed out.
+var simChildHTTP = &http.Client{Timeout: 10 * time.Second}
+
 // Get performs one loopback GET against the child and returns the status.
 func (c *simChild) Get(t *testing.T, path string) int {
 	t.Helper()
-	response, err := http.Get(c.URL + path)
+	response, err := simChildHTTP.Get(c.URL + path)
 	if err != nil {
 		t.Fatalf("GET %s: %v", path, err)
 	}

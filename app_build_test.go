@@ -32,23 +32,10 @@ func hermeticEnv(t *testing.T) {
 	// mailer, or a provider listener inside a test process. The Commissioner
 	// HQ v1 provider reads presence, not value, so these are removed rather
 	// than blanked: an empty COMMISSIONER_HQ_* variable would opt the build
-	// in and then fail on an incomplete identity.
-	clearEnv(t,
-		"TANK01_API_KEY",
-		"TANK01_BASE_URL",
-		"RESEND_API_KEY",
-		"SMTP_HOST",
-		"GRIDIRON_TEST_AUTH",
-		"GRIDIRON_TEST_POOL",
-		"COMMISSIONER_HQ_LEAGUE_ID",
-		"COMMISSIONER_HQ_PROVIDER_KEY_ID",
-		"COMMISSIONER_HQ_PROVIDER_SECRET",
-		"COMMISSIONER_HQ_PROVIDER_SECRET_FILE",
-		"COMMISSIONER_HQ_PROVIDER_ADDR",
-		"COMMISSIONER_HQ_V1_REGISTRY_FILE",
-		"COMMISSIONER_HQ_PEERS",
-		"COMMISSIONER_HQ_TOKEN",
-	)
+	// in and then fail on an incomplete identity. The shared list lives in
+	// sim_env_test.go; the two harness switches are added here because an
+	// in-process test decides for itself whether that surface exists.
+	clearEnv(t, harnessSensitiveEnvWith("GRIDIRON_TEST_AUTH", "GRIDIRON_TEST_POOL")...)
 }
 
 // clearEnv removes each variable for the length of the test. t.Setenv records
