@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -12,28 +13,68 @@ import (
 	"m31labs.dev/gosx/server"
 )
 
+// testRoutesLoopbackOnly rejects any request whose RemoteAddr is not a
+// loopback address (127.0.0.0/8 or ::1). main.go binds the HTTP server to
+// every interface (":"+rt.Port), so without this guard the /test/* surface
+// would be reachable from any host that can reach the process's port, not
+// just the machine running it. It is applied to every route this file
+// mounts.
+func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = r.RemoteAddr
+		}
+		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+			http.Error(w, "harness routes are loopback-only", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
+}
+
 // mountTestRoutes adds the harness-only surface. BuildApp mounts it only
 // when cfg.TestAuth is true, which AppConfig.validate refuses outside a
-// local environment. Every route is GET so no CSRF token is needed.
-func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager) {
+// local environment. Every route answers GET only, which keeps GET-safe
+// CSRF middleware (session.Protect checks only unsafe methods) out of the
+// harness path entirely — GET is a convenience, not an authorization
+// control. The routes' real guards are GRIDIRON_TEST_AUTH (checked by
+// BuildApp before this is ever called) and testRoutesLoopbackOnly above.
+//
+// It returns a restore func that clears the harness clock override
+// installed below (lazily, on the first /test/clock request — a harness
+// build that never calls /test/clock never touches the process-wide
+// league clock at all). AppRuntime.Close calls the returned func; it is
+// safe to call more than once and safe to call even when /test/clock was
+// never hit.
+func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager) func() {
 	var mu sync.Mutex
 	offset := time.Duration(0)
 	var fixed *time.Time
-	service.SetClockForTest(func() time.Time {
-		mu.Lock()
-		defer mu.Unlock()
-		if fixed != nil {
-			return *fixed
-		}
-		return time.Now().Add(offset)
-	})
+	var installOnce sync.Once
+	installClock := func() {
+		installOnce.Do(func() {
+			service.SetClockForTest(func() time.Time {
+				mu.Lock()
+				defer mu.Unlock()
+				if fixed != nil {
+					return *fixed
+				}
+				return time.Now().Add(offset)
+			})
+		})
+	}
+	restoreClock := func() { service.SetClockForTest(nil) }
+
 	writeJSON := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(v)
 	}
-	app.Mount("GET /test/clock", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	app.Mount("GET /test/clock", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
+		installClock()
 		query := r.URL.Query()
+		resetting := query.Get("reset") == "1"
 		// Parse both parameters before mutating any state. A malformed
 		// advance must not leave a well-formed set applied halfway: the
 		// request is all-or-nothing, so a 400 always means the clock did
@@ -61,6 +102,14 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			advancing = true
 		}
 		mu.Lock()
+		// reset clears first, so "reset=1&advance=10s" composes as "back
+		// to wall time, then 10s ahead of it"; set (if also given) then
+		// overrides reset's clear; advance always applies last, on top of
+		// whichever base the two above left behind.
+		if resetting {
+			fixed = nil
+			offset = 0
+		}
 		if settingFixed {
 			fixed = newFixed
 		}
@@ -75,14 +124,21 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 		mu.Unlock()
 		writeJSON(w, map[string]any{"now": service.ClockForTest().UTC()})
 	}))
-	app.Mount("GET /test/draft", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	app.Mount("GET /test/draft", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
 		data := service.DraftDataReadOnly(r)
 		draft, _ := data["draft"].(map[string]any)
+		viewer, _ := data["viewer"].(map[string]any)
+		viewerTeamID, _ := viewer["team_id"].(string)
 		writeJSON(w, map[string]any{
 			"started":             draft["started"],
 			"complete":            draft["complete"],
 			"pick_number":         data["pick_number"],
 			"on_clock_id":         data["on_clock_id"],
+			// viewer_team_id is the only reliable way a bot learns its own
+			// seat: actingTeam (internal/league/service.go) ignores a
+			// submitted team_id form field and derives the acting seat
+			// from the signed-in identity's own membership record.
+			"viewer_team_id":      viewerTeamID,
 			"clock":               data["clock"],
 			"current_pick_token":  data["current_pick_token"],
 			"previous_pick_token": data["previous_pick_token"],
@@ -94,7 +150,7 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 	// /test/signin lets a browser (which cannot set X-Test-User) become a
 	// manager: it signs the session in through the same path the Google
 	// callback uses, then redirects to `to` (default /draft).
-	app.Mount("GET /test/signin", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	app.Mount("GET /test/signin", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
 		raw := strings.TrimSpace(r.URL.Query().Get("user"))
 		if raw == "" {
 			http.Error(w, "user=email|name is required", http.StatusBadRequest)
@@ -109,22 +165,32 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			http.Error(w, "user=email|name is required", http.StatusBadRequest)
 			return
 		}
-		// Canonicalize through the same identity-alias boundary the Google
-		// callback applies (main.go's googleCallbackHandlerWithMembership,
-		// via league.Service.CanonicalUser) before registering membership or
-		// signing the session in, so a harness principal lands on the exact
-		// email a real sign-in would land on.
+		// Mirror main.go's googleCallbackHandlerWithMembership (~763-816)
+		// exactly, minus its EmailAllowed admission gate: canonicalize the
+		// identity, sign the session in, then bind a pending co-manager
+		// invite if this email has one — falling back to the ordinary
+		// seatless EnsureMember only when it does not, exactly as the
+		// callback's own BindCoManagerOnSignIn/EnsureMember branch does.
+		// EmailAllowed is deliberately NOT checked here: GRIDIRON_TEST_AUTH
+		// (BuildApp's gate on ever mounting this route) and
+		// testRoutesLoopbackOnly above are this route's admission control,
+		// not the league's invite policy.
 		user := service.CanonicalUser(auth.User{ID: email, Email: email, Name: name})
 		if strings.TrimSpace(user.ID) == "" {
 			user.ID = user.Email
 		}
-		if _, err := service.EnsureMember(user.Email, user.Name); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
 		if !authManager.SignIn(r, user) {
 			http.Error(w, "sign-in failed", http.StatusInternalServerError)
 			return
+		}
+		if _, bound, err := service.BindCoManagerOnSignIn(user.Email, user.Name); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if !bound {
+			if _, err := service.EnsureMember(user.Email, user.Name); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		to := r.URL.Query().Get("to")
 		// Reject anything that is not a same-origin absolute path: an empty
@@ -136,4 +202,5 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 		}
 		http.Redirect(w, r, to, http.StatusSeeOther)
 	}))
+	return restoreClock
 }

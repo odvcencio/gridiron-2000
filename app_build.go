@@ -92,13 +92,15 @@ func AppConfigFromEnv() (AppConfig, error) {
 // a process singleton, so a second draft clock or roster-ops loop would be a
 // bug, not extra capacity.
 type AppRuntime struct {
-	starters   []func(ctx context.Context)
-	startOnce  sync.Once
-	StopNotify context.CancelFunc
-	Drain      func(timeout time.Duration) int
-	AppName    string
-	Port       string
-	HQV1       *commissionerHQV1Runtime
+	starters     []func(ctx context.Context)
+	startOnce    sync.Once
+	closeOnce    sync.Once
+	StopNotify   context.CancelFunc
+	Drain        func(timeout time.Duration) int
+	AppName      string
+	Port         string
+	HQV1         *commissionerHQV1Runtime
+	restoreClock func() // nil unless cfg.TestAuth mounted the harness clock override
 }
 
 // Start runs every background loop BuildApp registered, in the order main()
@@ -107,6 +109,25 @@ func (r *AppRuntime) Start(ctx context.Context) {
 	r.startOnce.Do(func() {
 		for _, start := range r.starters {
 			start(ctx)
+		}
+	})
+}
+
+// Close releases the resources BuildApp acquired outside the normal
+// request/response path and outside Start's background loops. Today that
+// is just the harness clock override mountTestRoutes may install: it is
+// lazy (only the first /test/clock request installs it), so a harness
+// build that never exercises /test/clock never touches the process-wide
+// league clock at all, and this call is then a no-op. Safe to call more
+// than once, and safe to call on every AppRuntime, harness or not — a
+// caller does not need to know whether cfg.TestAuth was set to clean up.
+func (r *AppRuntime) Close() {
+	if r == nil {
+		return
+	}
+	r.closeOnce.Do(func() {
+		if r.restoreClock != nil {
+			r.restoreClock()
 		}
 	})
 }
@@ -610,7 +631,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}))
 
 	if cfg.TestAuth {
-		mountTestRoutes(app, league.Default(), authManager)
+		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager)
 	}
 
 	rootHandler, err := router.BuildChecked()

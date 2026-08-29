@@ -3,11 +3,11 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
-	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/sim/draft"
 
 	"m31labs.dev/gosx/server"
@@ -121,16 +121,27 @@ func TestPresenceHeartbeatEndToEndUsesServiceClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, _, err := BuildApp(cfg)
+	app, rt, err := BuildApp(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { league.Default().SetClockForTest(nil) })
+	t.Cleanup(rt.Close)
 	srv := httptest.NewServer(app.Build())
 	defer srv.Close()
 
+	// Fix the clock through the harness route itself (not a direct
+	// league.Default() call): that is what installs mountTestRoutes' lazy
+	// clock override, so rt.Close's cleanup above actually has something
+	// to restore, and it is what a real scenario driver does too.
 	fixed := time.Date(2031, time.March, 4, 10, 0, 0, 0, time.UTC)
-	league.Default().SetClockForTest(func() time.Time { return fixed })
+	res, err := http.Get(srv.URL + "/test/clock?set=" + url.QueryEscape(fixed.Format(time.RFC3339)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("set clock = %d", res.StatusCode)
+	}
 
 	bot := draft.New(srv.URL, "presence-clock@sim.test", "Presence Clock")
 	if err := bot.Join("Presence Clock Squad"); err != nil {

@@ -271,6 +271,7 @@ func buildHarnessApp(t *testing.T, testAuth bool) http.Handler {
 	if rt.StopNotify != nil {
 		t.Cleanup(rt.StopNotify)
 	}
+	t.Cleanup(rt.Close) // restores the harness clock override if /test/clock ever installed one
 	return app.Build()
 }
 

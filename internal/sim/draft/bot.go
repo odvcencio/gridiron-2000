@@ -69,22 +69,31 @@ func firstBytes(body []byte, n int) string {
 }
 
 var (
-	csrfPattern  = regexp.MustCompile(`name="csrf_token"\s+value="([^"]+)"`)
-	motifPattern = regexp.MustCompile(`name="motif"\s+value="([^"]+)"`)
+	// csrfTagPattern and motifTagPattern match the whole <input ...> tag
+	// rather than an anchored "name then value" sequence, so they find
+	// name="csrf_token" (or name="motif") no matter where in the tag it
+	// falls relative to its value attribute — a renderer is free to emit
+	// attributes in either order.
+	csrfTagPattern   = regexp.MustCompile(`<input\b[^>]*\bname="csrf_token"[^>]*>`)
+	motifTagPattern  = regexp.MustCompile(`<input\b[^>]*\bname="motif"[^>]*>`)
+	valueAttrPattern = regexp.MustCompile(`\bvalue="([^"]*)"`)
 )
 
 // csrfTokenFrom pulls the CSRF token out of a rendered page's hidden input.
 func csrfTokenFrom(html string) string {
-	if m := csrfPattern.FindStringSubmatch(html); m != nil {
-		return m[1]
-	}
-	return ""
+	return valueFromTag(csrfTagPattern.FindString(html))
 }
 
 // firstMotifFrom picks the first badge motif radio value on a rendered
 // /join page, so a simulated signup does not have to know the motif catalog.
 func firstMotifFrom(html string) string {
-	if m := motifPattern.FindStringSubmatch(html); m != nil {
+	return valueFromTag(motifTagPattern.FindString(html))
+}
+
+// valueFromTag extracts one <input ...>'s value attribute, wherever it
+// falls within the tag.
+func valueFromTag(tag string) string {
+	if m := valueAttrPattern.FindStringSubmatch(tag); m != nil {
 		return m[1]
 	}
 	return ""
@@ -136,9 +145,10 @@ func (b *Bot) postAction(path string, fields map[string]string) (ActionResult, e
 		return ActionResult{}, err
 	}
 	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
 	var result ActionResult
-	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
-		return ActionResult{}, fmt.Errorf("POST %s: status %d, decode: %w", path, res.StatusCode, err)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return ActionResult{}, fmt.Errorf("POST %s: status %d, decode: %w: %s", path, res.StatusCode, err, firstBytes(body, 200))
 	}
 	return result, nil
 }
@@ -157,7 +167,10 @@ func (b *Bot) simpleAction(path string, fields map[string]string) error {
 	return nil
 }
 
-// Join claims an open seat through the real signup action.
+// Join claims an open seat through the real signup action, then re-reads
+// /test/draft to learn which seat the server actually assigned (see
+// State's doc comment for why the re-read, not the submitted team_id
+// field, is authoritative).
 func (b *Bot) Join(teamName string) error {
 	html, err := b.get("/join")
 	if err != nil {
@@ -166,7 +179,22 @@ func (b *Bot) Join(teamName string) error {
 	if token := csrfTokenFrom(html); token != "" {
 		b.csrf = token
 	}
-	return b.simpleAction("/join/__actions/signup-claim", map[string]string{"team_name": teamName, "motif": firstMotifFrom(html)})
+	if err := b.simpleAction("/join/__actions/signup-claim", map[string]string{"team_name": teamName, "motif": firstMotifFrom(html)}); err != nil {
+		return err
+	}
+	_, err = b.State()
+	return err
+}
+
+// InviteCoManager invites email as the caller's own team's co-manager
+// (POST /team/__actions/co-invite). The caller must already hold a seat
+// (b.TeamID set, normally by Join); the server re-checks that the caller
+// is that seat's primary before touching the store.
+func (b *Bot) InviteCoManager(email string) error {
+	if _, err := b.get("/team"); err != nil { // refresh the session before a /team action
+		return err
+	}
+	return b.simpleAction("/team/__actions/co-invite", map[string]string{"team_id": b.TeamID, "email": email})
 }
 
 // ToggleReady flips the caller's seat between ready and not-ready.
@@ -230,6 +258,12 @@ type DraftState struct {
 	Complete      bool             `json:"complete"`
 	PickNumber    int              `json:"pick_number"`
 	OnClockID     string           `json:"on_clock_id"`
+	// ViewerTeamID is the requesting identity's own seat, if any. It is the
+	// only reliable way a scenario learns its seat: the server ignores a
+	// submitted team_id form field on every action and derives the acting
+	// seat from the signed-in identity instead (actingTeam,
+	// internal/league/service.go).
+	ViewerTeamID  string           `json:"viewer_team_id"`
 	Token         string           `json:"current_pick_token"`
 	PreviousToken string           `json:"previous_pick_token"`
 	Clock         map[string]any   `json:"clock"`
@@ -280,44 +314,99 @@ func (b *Bot) stateFrom(path string) (DraftState, error) {
 	return state, err
 }
 
-// State reads the current draft state from the harness endpoint.
-func (b *Bot) State() (DraftState, error) { return b.stateFrom("/test/draft") }
+// State reads the current draft state from the harness endpoint. If the
+// response names the caller's own seat (ViewerTeamID) and b.TeamID is not
+// already set, State adopts it — the one place besides Join a scenario can
+// learn its seat, for a bot built with New and driven straight to State
+// without ever calling Join (for example a bot re-attaching to a seat an
+// earlier process claimed).
+func (b *Bot) State() (DraftState, error) {
+	state, err := b.stateFrom("/test/draft")
+	if err != nil {
+		return state, err
+	}
+	if state.ViewerTeamID != "" && b.TeamID == "" {
+		b.TeamID = state.ViewerTeamID
+	}
+	return state, nil
+}
 
-// NextPick finds an eligible player: the first page, then K, then DST
-// (the late rounds require a kicker or defense to keep the roster viable).
+// NextPick finds an eligible player for whichever team the server currently
+// has on the clock, scanning the first page, then K, then DST (the late
+// rounds require a kicker or defense to keep the roster viable). Every
+// row's draft_eligible reflects the ON-CLOCK team's roster fit, not the
+// caller's: a scenario must confirm it is actually b.TeamID's turn (compare
+// against State's OnClockID) before treating the returned player as its
+// own legal pick.
 func (b *Bot) NextPick() (string, error) {
-	for _, path := range []string{"/test/draft", "/test/draft?pos=K", "/test/draft?pos=DST"} {
-		state, err := b.stateFrom(path)
+	state, err := b.State()
+	if err != nil {
+		return "", err
+	}
+	if !state.Started || state.OnClockID == "" {
+		return "", errors.New("draft not on the clock")
+	}
+	if id := state.EligiblePick(); id != "" {
+		return id, nil
+	}
+	for _, path := range []string{"/test/draft?pos=K", "/test/draft?pos=DST"} {
+		next, err := b.stateFrom(path)
 		if err != nil {
 			return "", err
 		}
-		if id := state.EligiblePick(); id != "" {
+		if id := next.EligiblePick(); id != "" {
 			return id, nil
 		}
 	}
 	return "", errors.New("no eligible player on any page")
 }
 
+// draftLiveHubPath mirrors app/draft.DraftLiveHubPath. It is kept as a
+// literal rather than an import: pulling in app/draft would drag the page
+// program's own dependency tree (route, hub, and the rest of gosx's page
+// machinery) into every binary that links this bot package.
+const draftLiveHubPath = "/draft/live"
+
 // Socket subscribes to the draft hub. Origin must match the server host and
 // the session cookie must ride along so the auth gate before the upgrade passes.
 func (b *Bot) Socket(since string) (*websocket.Conn, error) {
-	target := "ws" + strings.TrimPrefix(b.BaseURL, "http") + "/draft/live?since=" + url.QueryEscape(since)
-	header := http.Header{"Origin": []string{b.BaseURL}, "X-Test-User": []string{b.identity()}}
-	if u, err := url.Parse(b.BaseURL); err == nil {
-		for _, c := range b.client.Jar.Cookies(u) {
-			header.Add("Cookie", c.String())
-		}
+	base, err := url.Parse(b.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse base URL %q: %w", b.BaseURL, err)
 	}
-	conn, resp, err := websocket.DefaultDialer.Dial(target, header)
+	target := *base
+	switch base.Scheme {
+	case "https":
+		target.Scheme = "wss"
+	default:
+		target.Scheme = "ws"
+	}
+	target.Path = draftLiveHubPath
+	query := url.Values{}
+	query.Set("since", since)
+	target.RawQuery = query.Encode()
+
+	header := http.Header{"Origin": []string{b.BaseURL}, "X-Test-User": []string{b.identity()}}
+	if cookies := b.client.Jar.Cookies(base); len(cookies) > 0 {
+		// A Cookie request header is one line of "; "-joined pairs, not
+		// repeated Cookie headers — send it that way rather than one
+		// header.Add call per cookie.
+		parts := make([]string, 0, len(cookies))
+		for _, c := range cookies {
+			parts = append(parts, c.Name+"="+c.Value)
+		}
+		header.Set("Cookie", strings.Join(parts, "; "))
+	}
+	conn, resp, err := websocket.DefaultDialer.Dial(target.String(), header)
 	if err != nil {
 		// resp is non-nil whenever the server answered but declined the
 		// upgrade, so its status distinguishes 401 (not signed in) from
 		// 404 (Origin mismatch or a wrong path) instead of collapsing
 		// both into gorilla/websocket's generic "bad handshake".
 		if resp != nil {
-			return nil, fmt.Errorf("dial %s: %w (status %s)", target, err, resp.Status)
+			return nil, fmt.Errorf("dial %s: %w (status %s)", target.String(), err, resp.Status)
 		}
-		return nil, fmt.Errorf("dial %s: %w", target, err)
+		return nil, fmt.Errorf("dial %s: %w", target.String(), err)
 	}
 	return conn, nil
 }
