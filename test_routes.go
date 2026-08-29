@@ -13,19 +13,31 @@ import (
 	"m31labs.dev/gosx/server"
 )
 
+// isLoopbackRemote reports whether r's RemoteAddr is a loopback address
+// (127.0.0.0/8 or ::1). Shared by testRoutesLoopbackOnly below and
+// harnessProvider in app_build.go: harnessProvider runs inside
+// authManager.Middleware, which executes before app.Mount's own routing —
+// and therefore before testRoutesLoopbackOnly ever runs — so a non-loopback
+// request carrying X-Test-User would otherwise register a member via
+// EnsureMember before the /test/* route it was headed to ever got a chance
+// to answer 403.
+func isLoopbackRemote(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 // testRoutesLoopbackOnly rejects any request whose RemoteAddr is not a
-// loopback address (127.0.0.0/8 or ::1). main.go binds the HTTP server to
-// every interface (":"+rt.Port), so without this guard the /test/* surface
-// would be reachable from any host that can reach the process's port, not
-// just the machine running it. It is applied to every route this file
-// mounts.
+// loopback address. main.go binds the HTTP server to every interface
+// (":"+rt.Port), so without this guard the /test/* surface would be
+// reachable from any host that can reach the process's port, not just the
+// machine running it. It is applied to every route this file mounts.
 func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			host = r.RemoteAddr
-		}
-		if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		if !isLoopbackRemote(r) {
 			http.Error(w, "harness routes are loopback-only", http.StatusForbidden)
 			return
 		}
@@ -46,25 +58,42 @@ func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 // build that never calls /test/clock never touches the process-wide
 // league clock at all). AppRuntime.Close calls the returned func; it is
 // safe to call more than once and safe to call even when /test/clock was
-// never hit.
+// never hit — it only calls SetClockForTest(nil) when installed is
+// actually true. installed is a plain bool under mu, not a sync.Once,
+// specifically so a /test/clock request after a Close reinstalls the
+// override instead of being permanently disarmed: not installed ->
+// installed -> closed -> installed again.
 func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager) func() {
 	var mu sync.Mutex
 	offset := time.Duration(0)
 	var fixed *time.Time
-	var installOnce sync.Once
+	installed := false
 	installClock := func() {
-		installOnce.Do(func() {
-			service.SetClockForTest(func() time.Time {
-				mu.Lock()
-				defer mu.Unlock()
-				if fixed != nil {
-					return *fixed
-				}
-				return time.Now().Add(offset)
-			})
+		mu.Lock()
+		already := installed
+		installed = true
+		mu.Unlock()
+		if already {
+			return
+		}
+		service.SetClockForTest(func() time.Time {
+			mu.Lock()
+			defer mu.Unlock()
+			if fixed != nil {
+				return *fixed
+			}
+			return time.Now().Add(offset)
 		})
 	}
-	restoreClock := func() { service.SetClockForTest(nil) }
+	restoreClock := func() {
+		mu.Lock()
+		wasInstalled := installed
+		installed = false
+		mu.Unlock()
+		if wasInstalled {
+			service.SetClockForTest(nil)
+		}
+	}
 
 	writeJSON := func(w http.ResponseWriter, v any) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -130,10 +159,10 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 		viewer, _ := data["viewer"].(map[string]any)
 		viewerTeamID, _ := viewer["team_id"].(string)
 		writeJSON(w, map[string]any{
-			"started":             draft["started"],
-			"complete":            draft["complete"],
-			"pick_number":         data["pick_number"],
-			"on_clock_id":         data["on_clock_id"],
+			"started":     draft["started"],
+			"complete":    draft["complete"],
+			"pick_number": data["pick_number"],
+			"on_clock_id": data["on_clock_id"],
 			// viewer_team_id is the only reliable way a bot learns its own
 			// seat: actingTeam (internal/league/service.go) ignores a
 			// submitted team_id form field and derives the acting seat

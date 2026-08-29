@@ -198,6 +198,7 @@ func TestHarnessProviderSignsInFromHeaderAndRegistersMember(t *testing.T) {
 	membership := &fakeMembership{}
 	provider := harnessProvider(auth.New(sessions, auth.Options{LoginPath: "/login"}), membership)
 	request := httptest.NewRequest(http.MethodGet, "/draft", nil)
+	request.RemoteAddr = "127.0.0.1:1234" // httptest.NewRequest defaults to a non-loopback 192.0.2.1
 	request.Header.Set("X-Test-User", "east1@sim.test|East One")
 	user, ok := provider.Current(request)
 	if !ok || user.Email != "east1@sim.test" || user.Name != "East One" {
@@ -217,9 +218,33 @@ func TestHarnessProviderSignsInFromHeaderAndRegistersMember(t *testing.T) {
 		t.Fatal("no header and no session must not sign in")
 	}
 	blank := httptest.NewRequest(http.MethodGet, "/draft", nil)
+	blank.RemoteAddr = "127.0.0.1:1234"
 	blank.Header.Set("X-Test-User", "  |Nobody")
 	if _, ok := provider.Current(blank); ok {
 		t.Fatal("a header without an email must not sign in")
+	}
+}
+
+// TestHarnessProviderIgnoresHeaderFromNonLoopbackRemote guards the
+// network-exposure boundary at the auth layer, not just the /test/* JSON
+// routes: harnessProvider runs inside authManager.Middleware, ahead of any
+// route-level guard, so a non-loopback caller's X-Test-User must never
+// resolve an identity or register a member in the first place.
+func TestHarnessProviderIgnoresHeaderFromNonLoopbackRemote(t *testing.T) {
+	sessions, err := session.New("harness-test-secret-0123456789abcdef0123", gridironSessionOptions("test"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	membership := &fakeMembership{}
+	provider := harnessProvider(auth.New(sessions, auth.Options{LoginPath: "/login"}), membership)
+	request := httptest.NewRequest(http.MethodGet, "/draft", nil)
+	request.RemoteAddr = "10.0.0.5:1234"
+	request.Header.Set("X-Test-User", "remote@sim.test|Remote Attacker")
+	if _, ok := provider.Current(request); ok {
+		t.Fatal("a non-loopback X-Test-User request must not sign in")
+	}
+	if calls := membership.calls(); len(calls) != 0 {
+		t.Fatalf("EnsureMember calls = %v, want 0 for a non-loopback request", calls)
 	}
 }
 
@@ -231,6 +256,7 @@ func TestHarnessProviderRetriesRegistrationAfterFailure(t *testing.T) {
 	membership := &fakeMembership{failures: 1}
 	provider := harnessProvider(auth.New(sessions, auth.Options{LoginPath: "/login"}), membership)
 	request := httptest.NewRequest(http.MethodGet, "/draft", nil)
+	request.RemoteAddr = "127.0.0.1:1234"
 	request.Header.Set("X-Test-User", "east2@sim.test|East Two")
 	for attempt := 1; attempt <= 2; attempt++ {
 		if _, ok := provider.Current(request); !ok {
@@ -278,6 +304,7 @@ func buildHarnessApp(t *testing.T, testAuth bool) http.Handler {
 func harnessDraftResponse(t *testing.T, handler http.Handler) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodGet, "/draft", nil)
+	request.RemoteAddr = "127.0.0.1:1234" // httptest.NewRequest defaults to a non-loopback 192.0.2.1
 	request.Header.Set("X-Test-User", "harness@sim.test|Harness Manager")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)

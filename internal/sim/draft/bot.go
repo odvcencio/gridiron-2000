@@ -30,7 +30,14 @@ type Bot struct {
 
 // New builds a bot pointed at baseURL with the given @sim.test identity.
 func New(baseURL, email, name string) *Bot {
-	jar, _ := cookiejar.New(nil)
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		// cookiejar.New cannot fail with nil Options today — its only error
+		// path is a broken PublicSuffixList — but silently carrying on with
+		// a nil jar would panic confusingly far from here, on the first
+		// cookie read inside Socket. Fail loudly and immediately instead.
+		panic(fmt.Sprintf("draft.New: cookiejar.New(nil): %v", err))
+	}
 	return &Bot{
 		BaseURL: strings.TrimRight(baseURL, "/"),
 		Email:   email,
@@ -254,10 +261,10 @@ func (b *Bot) Presence() error {
 
 // DraftState is the harness JSON from GET /test/draft.
 type DraftState struct {
-	Started       bool             `json:"started"`
-	Complete      bool             `json:"complete"`
-	PickNumber    int              `json:"pick_number"`
-	OnClockID     string           `json:"on_clock_id"`
+	Started    bool   `json:"started"`
+	Complete   bool   `json:"complete"`
+	PickNumber int    `json:"pick_number"`
+	OnClockID  string `json:"on_clock_id"`
 	// ViewerTeamID is the requesting identity's own seat, if any. It is the
 	// only reliable way a scenario learns its seat: the server ignores a
 	// submitted team_id form field on every action and derives the acting

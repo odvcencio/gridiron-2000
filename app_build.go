@@ -175,7 +175,12 @@ func harnessProvider(sessionAuth *auth.Manager, membership interface {
 	}
 	return auth.ProviderFunc(func(r *http.Request) (auth.User, bool) {
 		raw := strings.TrimSpace(r.Header.Get("X-Test-User"))
-		if raw == "" {
+		// isLoopbackRemote (test_routes.go) is the same check every /test/*
+		// route applies. Without it here too, a non-loopback caller's
+		// X-Test-User would already have registered a member by the time a
+		// /test/* route it was headed to got a chance to answer 403 — see
+		// isLoopbackRemote's doc comment.
+		if raw == "" || !isLoopbackRemote(r) {
 			return sessionAuth.Current(r)
 		}
 		email, name, _ := strings.Cut(raw, "|")
