@@ -7,7 +7,7 @@
       "namespace": "gridiron",
       "resource_prefix": "gridiron-2000",
       "public_origin": "https://gridiron.draco.quest",
-      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:244047885023056f5f89d2a39655fa5d77710ef660429d4da5d05c67e2a1c182",
+      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:8e13456bcf79c59fe6a2c95d2e8cbc5c65fe554e1d3363aa66894c61911b7e42",
       "resources": {
         "deployment": "gridiron-2000",
         "service": "gridiron-2000",
@@ -30,7 +30,7 @@
       "namespace": "stablekernel",
       "resource_prefix": "gridiron-2000-sk",
       "public_origin": "https://sk.gridiron.draco.quest",
-      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:244047885023056f5f89d2a39655fa5d77710ef660429d4da5d05c67e2a1c182",
+      "image": "harbor.draco.quest/orchard/gridiron-2000@sha256:8e13456bcf79c59fe6a2c95d2e8cbc5c65fe554e1d3363aa66894c61911b7e42",
       "resources": {
         "deployment": "gridiron-2000-sk",
         "service": "gridiron-2000-sk",
