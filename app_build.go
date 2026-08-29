@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	activitypage "gridiron-2000/app/activity"
@@ -87,10 +88,15 @@ func (r *AppRuntime) Start(ctx context.Context) {
 // harnessProvider signs in whoever the X-Test-User header names
 // ("email|display name"), registers that identity as a league member on
 // first sight, and otherwise falls back to the normal session sign-in so
-// the Google callback keeps working. Harness only.
+// the Google callback keeps working. A header without an email falls back
+// too: an empty identity must never sign in. Each email reaches
+// EnsureMember once, so a burst of harness requests does not queue on the
+// store write lock. Harness only.
 func harnessProvider(sessionAuth *auth.Manager, membership interface {
 	EnsureMember(email, name string) (league.Member, error)
 }) auth.Provider {
+	var mu sync.Mutex
+	registered := make(map[string]bool)
 	return auth.ProviderFunc(func(r *http.Request) (auth.User, bool) {
 		raw := strings.TrimSpace(r.Header.Get("X-Test-User"))
 		if raw == "" {
@@ -98,10 +104,24 @@ func harnessProvider(sessionAuth *auth.Manager, membership interface {
 		}
 		email, name, _ := strings.Cut(raw, "|")
 		email = strings.TrimSpace(email)
+		if email == "" {
+			return sessionAuth.Current(r)
+		}
 		if name = strings.TrimSpace(name); name == "" {
 			name = email
 		}
-		_, _ = membership.EnsureMember(email, name)
+		mu.Lock()
+		first := !registered[email]
+		registered[email] = true
+		mu.Unlock()
+		if first {
+			// One failed admission is worth one line. The identity still
+			// signs in, exactly as a session sign-in would, so the harness
+			// reports the store fault instead of an unexplained refusal.
+			if _, err := membership.EnsureMember(email, name); err != nil {
+				log.Printf("harness auth: register %s failed: %v", email, err)
+			}
+		}
 		return auth.User{ID: email, Email: email, Name: name}, true
 	})
 }
