@@ -819,10 +819,11 @@ func (s *Service) notifyReady() bool {
 }
 
 // StateFingerprint hashes the persisted league state plus the pool version,
-// a bucketed presence digest, and a clock-boundary digest. Clients poll it
-// and soft-refresh the page when it changes, which keeps every open draft
-// room current — including its presence dots and pick-clock deadline, both
-// of which live in or feed this hash — without full reloads.
+// a bucketed presence digest, and a clock-boundary digest. General pages poll
+// it, while the Draft Room's live hub observes the same digest and pushes a
+// scoped refresh event when it changes. This keeps every open draft room
+// current — including its presence dots and pick-clock deadline, both of which
+// live in or feed this hash — without full reloads.
 //
 // The three non-state terms exist because each covers something
 // json.Marshal(state) cannot see: presence lives in memory, avatars live on
@@ -840,7 +841,7 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	// (design spec section 4.4): a poll must not rewrite the state file and
 	// churn every other fingerprint reader. Appending the source's own
 	// version here is what lets a live-stat update reach browsers through
-	// the same 4s revalidation loop everything else uses (F14).
+	// their shared fingerprint synchronization paths (F14).
 	s.poolMu.Lock()
 	blitzSource := s.blitzFn
 	s.poolMu.Unlock()

@@ -117,6 +117,11 @@ func main() {
 	// reason startBlitzPre1 does — see matchup_cache.go.
 	go startMatchupRanks(runtimeContext, openStats, league.Default())
 	league.Default().StartDraftClock(runtimeContext)
+	leagueFingerprint := func() string {
+		_, poolVersion := fantasyPool.Players()
+		return league.Default().StateFingerprint(poolVersion)
+	}
+	draftLiveUpdates := draftpage.StartLiveUpdates(runtimeContext, leagueFingerprint)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends
 	// — only the send step at the end of each tick is itself
@@ -240,8 +245,8 @@ func main() {
 		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
 		// directly on <body>, so no wrapper element is needed. The endpoint is
 		// route-aware because the one body marker must not turn an ordinary
-		// page's version poll into a draft-room attendance claim. Draft's two
-		// fragment regions own live room/version updates; its body heartbeat
+		// page's version poll into a draft-room attendance claim. Draft's live
+		// hub and fragment regions own room/version updates; its body heartbeat
 		// is presence-only. The native route Document contract carries both
 		// through the framework shell and re-reads them after managed navigation.
 		heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path)
@@ -372,10 +377,7 @@ func main() {
 		}, nil
 	})
 	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
-	registerLeagueHeartbeatAPIs(app, league.Default(), func() string {
-		_, poolVersion := fantasyPool.Players()
-		return league.Default().StateFingerprint(poolVersion)
-	})
+	registerLeagueHeartbeatAPIs(app, league.Default(), leagueFingerprint)
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
 	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragmentWithError
 	// loads that page program once and renders its typed SignalCard /
@@ -401,6 +403,7 @@ func main() {
 	app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
+	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence
 	// bound; managed player mutations signal the same regions immediately while

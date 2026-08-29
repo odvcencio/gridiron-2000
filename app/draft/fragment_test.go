@@ -266,7 +266,7 @@ func TestDraftRegionETagIgnoresWallClockTextButTracksLeagueState(t *testing.T) {
 	}
 }
 
-func TestDraftRegionContractIsScopedAndMounted(t *testing.T) {
+func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	page, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
@@ -274,18 +274,40 @@ func TestDraftRegionContractIsScopedAndMounted(t *testing.T) {
 	source := string(page)
 	for _, want := range []string{
 		`data-gosx-region-url="/draft/fragment/room"`,
-		`data-gosx-region-interval="4s"`,
+		`data-gosx-region-signal="$draft.state.refresh"`,
+		`data-gosx-region-on="draft:changed"`,
+		`data-gosx-action-signal="$draft.state.refresh"`,
+		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
+		`data-gosx-countdown-format="mm:ss"`,
 		`<DraftRoom {...data.room}></DraftRoom>`,
 		`<DraftWorkspace {...data.workspace}></DraftWorkspace>`,
 		`aria-live="polite"`,
-		`Reload the room`,
 	} {
 		if !strings.Contains(source, want) {
 			t.Errorf("draft region contract missing %q", want)
 		}
 	}
-	if strings.Contains(source, "data-gosx-revalidate") {
-		t.Fatal("draft page still performs whole-page revalidation")
+	for _, forbidden := range []string{"data-gosx-revalidate", "data-gosx-region-interval", "Reload the room", "Reload the player list"} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("draft page retains refresh-driven behavior %q", forbidden)
+		}
+	}
+	if got, want := strings.Count(source, `data-gosx-action-signal="$draft.state.refresh"`), strings.Count(source, `<form method="post"`); got != want {
+		t.Fatalf("managed action signals = %d, POST forms = %d; every draft mutation must refresh in place", got, want)
+	}
+
+	serverSource, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`BindHub(draftLiveHubName, draftLiveBindingPath(), nil)`,
+		`action.WantsJSON(ctx.Request)`,
+		`ctx.Success(message, map[string]any{"value": "refresh"})`,
+	} {
+		if !strings.Contains(string(serverSource), want) {
+			t.Errorf("draft server synchronization contract missing %q", want)
+		}
 	}
 
 	mainSource, err := os.ReadFile("../../main.go")
@@ -295,6 +317,7 @@ func TestDraftRegionContractIsScopedAndMounted(t *testing.T) {
 	for _, want := range []string{
 		`app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))`,
 		`app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))`,
+		`app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))`,
 	} {
 		if !strings.Contains(string(mainSource), want) {
 			t.Errorf("draft fragment route missing mount %q", want)

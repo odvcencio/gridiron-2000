@@ -7,9 +7,9 @@ import (
 )
 
 // boundaryDigest renders which side of every clock-driven boundary the UI
-// renders `now` currently falls on. StateFingerprint appends it, so a page
-// open across a boundary learns about the crossing on the same 4s
-// /api/league/version poll everything else uses.
+// renders `now` currently falls on. StateFingerprint appends it, so general
+// pages learn about a crossing through /api/league/version and the Draft Room
+// learns through its live hub.
 //
 // It exists because a fingerprint built from persisted state alone cannot
 // see these transitions: a kickoff, a draft start, and a trade deadline
@@ -20,10 +20,10 @@ import (
 // click.
 //
 // Every term is a count or a flag, never a timestamp or a clock bucket.
-// That is the whole design constraint: nine pages poll this endpoint every
-// four seconds, so a term that moved on its own would re-render all of
-// them forever. A term must change exactly when a boundary is crossed and
-// hold still otherwise — see TestBoundaryDigestStableAcrossQuietSeconds.
+// That is the whole design constraint: fingerprint consumers run continuously,
+// so a term that moved on its own would re-render pages forever. A term must
+// change exactly when a boundary is crossed and hold still otherwise — see
+// TestBoundaryDigestStableAcrossQuietSeconds.
 //
 // Adding a deadline to this product means adding a term here. The list is
 // currently: the shared NFL schedule (kickoff and final, which gate

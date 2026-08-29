@@ -1,9 +1,14 @@
 package draft
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
+
+	"m31labs.dev/gosx/action"
 )
 
 func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
@@ -110,6 +115,42 @@ func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
 		if !strings.Contains(source, truth) {
 			t.Errorf("completed-draft contract missing %q", truth)
 		}
+	}
+}
+
+func TestDraftActionSuccessRefreshesManagedRegionsWithoutNavigation(t *testing.T) {
+	managedRequest := httptest.NewRequest(http.MethodPost, "/draft/__actions/test", nil)
+	managedRequest.Header.Set("Accept", "application/json")
+	managed := httptest.NewRecorder()
+	action.ServeHandler(managed, managedRequest, func(ctx *action.Context) error {
+		return draftActionSuccess(ctx, "/draft?pos=RB", "Draft state updated.")
+	})
+	if managed.Code != http.StatusOK || managed.Header().Get("Location") != "" {
+		t.Fatalf("managed action = %d location=%q body=%s", managed.Code, managed.Header().Get("Location"), managed.Body.String())
+	}
+	var result struct {
+		OK      bool            `json:"ok"`
+		Message string          `json:"message"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(managed.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	var data map[string]string
+	if err := json.Unmarshal(result.Data, &data); err != nil {
+		t.Fatal(err)
+	}
+	if !result.OK || result.Message != "Draft state updated." || data["value"] != "refresh" {
+		t.Fatalf("managed result = %+v data=%v", result, data)
+	}
+
+	nativeRequest := httptest.NewRequest(http.MethodPost, "/draft/__actions/test", nil)
+	native := httptest.NewRecorder()
+	action.ServeHandler(native, nativeRequest, func(ctx *action.Context) error {
+		return draftActionSuccess(ctx, "/draft?pos=RB", "Draft state updated.")
+	})
+	if native.Code != http.StatusSeeOther || native.Header().Get("Location") != "/draft?pos=RB" {
+		t.Fatalf("native action = %d location=%q body=%s", native.Code, native.Header().Get("Location"), native.Body.String())
 	}
 }
 
