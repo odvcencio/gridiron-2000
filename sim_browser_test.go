@@ -22,12 +22,12 @@ import (
 // draft starts, so this selector cannot match it.
 const browserPickClockSelector = `[data-gosx-countdown-format="mm:ss"]`
 
-// browserClockTickWindow is the gap between the two clock reads that prove
-// a tick. The countdown repaints once a second, so any window above one
-// second spans at least one repaint. The extra 1.1 seconds absorb a slow
-// repaint on a loaded machine without turning a real freeze into a pass: a
-// frozen clock reads the same text however long the wait.
-const browserClockTickWindow = 2100 * time.Millisecond
+// browserClockTickWait bounds a wait for one countdown repaint. The
+// countdown repaints once a second, so this window spans at least two, and
+// the margin absorbs a slow repaint on a loaded machine. A caller polls,
+// so a live clock costs one poll interval; only a frozen clock waits the
+// whole bound, and waiting longer would not save it.
+const browserClockTickWait = 2500 * time.Millisecond
 
 // browserRegionSwapWait bounds the wait for a pick to swap the draft
 // region. It covers the server-side change detector's tick (500ms), the
@@ -167,25 +167,65 @@ func evalPickClock(t *testing.T, ctx context.Context, read string) string {
 	return strings.TrimSpace(value)
 }
 
-// waitPickClockSwap polls until the pick clock carries a deadline other
-// than before, and returns the new one. Only a region swap rewrites that
-// attribute, so a caller that reaches the return has proof the swap
-// landed. A timeout here is a harness failure, not a countdown failure,
-// and says so.
-func waitPickClockSwap(t *testing.T, ctx context.Context, before string, within time.Duration) string {
+// readDraftPickLabel returns the draft region's own "Pick # N" line, or an
+// empty string when the region rendered none.
+//
+// This label, not the clock's deadline attribute, is what proves a region
+// swap. The server can re-render the next pick with the deadline the
+// previous one carried, and a deadline comparison then reports "no swap"
+// for a swap that plainly happened. The label sits in the same fragment as
+// the clock, so a change to it proves that fragment was replaced.
+func readDraftPickLabel(t *testing.T, ctx context.Context) string {
 	t.Helper()
+	expression := `(function(){var spans=document.querySelectorAll('.draft-clock-meta span');` +
+		`for(var i=0;i<spans.length;i++){var text=(spans[i].textContent||'').trim();` +
+		`if(text.indexOf('Pick #')===0)return text}return ''})()`
+	var label string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &label)); err != nil {
+		t.Fatalf("read the draft pick label: %v", err)
+	}
+	return strings.TrimSpace(label)
+}
+
+// waitDraftRegionSwap polls until the draft region reports a pick other
+// than before, and returns the new label. A caller that reaches the return
+// has proof the swap landed. A timeout is a harness failure, not a
+// countdown failure, and says so.
+func waitDraftRegionSwap(t *testing.T, ctx context.Context, before string, within time.Duration) string {
+	t.Helper()
+	if before == "" {
+		// Without a starting label every later read differs from it, so the
+		// first poll would report a swap that was never proven.
+		t.Fatal("the draft region rendered no pick number before the pick, so no swap can be proven; check that the draft started")
+	}
 	deadline := time.Now().Add(within)
 	last := before
 	for time.Now().Before(deadline) {
-		last = readPickClockDeadline(t, ctx)
-		if last != "" && last != before {
+		if last = readDraftPickLabel(t, ctx); last != "" && last != before {
 			return last
 		}
 		time.Sleep(browserPollInterval)
 	}
-	t.Fatalf("the draft region never swapped within %s: the pick clock still carries deadline %q; the harness, not the countdown, is broken",
+	t.Fatalf("the draft region never swapped within %s: it still reports %q; the harness, not the countdown, is broken",
 		within, last)
 	return ""
+}
+
+// waitPickClockTick polls until the pick clock's text differs from before,
+// and returns the last text it read. It never fails: an unchanged return
+// is the frozen-clock result, and an empty one is a clock that left the
+// page. Both are outcomes the caller reports in its own words.
+func waitPickClockTick(t *testing.T, ctx context.Context, before string, within time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	last := before
+	for time.Now().Before(deadline) {
+		time.Sleep(browserPollInterval)
+		if last = readPickClock(t, ctx); last != before {
+			return last
+		}
+	}
+	return last
 }
 
 // TestBrowserDraftRoomRendersForSignedInManager proves the browser harness
@@ -204,10 +244,12 @@ func TestBrowserDraftRoomRendersForSignedInManager(t *testing.T) {
 	if first == "" {
 		t.Fatal("the pick clock rendered empty text; check /test/signin and the draft region")
 	}
-	time.Sleep(browserClockTickWindow)
-	second := readPickClock(t, ctx)
+	second := waitPickClockTick(t, ctx, first, browserClockTickWait)
+	if second == "" {
+		t.Fatalf("the pick clock left the page while it was read: %q -> gone", first)
+	}
 	if second == first {
-		t.Fatalf("the pick clock did not tick before any pick: %q -> %q over %s", first, second, browserClockTickWindow)
+		t.Fatalf("the pick clock did not tick before any pick: %q -> %q over %s", first, second, browserClockTickWait)
 	}
 }
 
@@ -216,9 +258,8 @@ func TestBrowserDraftRoomRendersForSignedInManager(t *testing.T) {
 // keep ticking. GoSX v0.53.7 never re-registers a countdown after a region
 // swap, so the clock stops on the value the swapped fragment carried.
 //
-// Each round first proves the swap by watching the clock's own deadline
-// attribute change. Only a region swap rewrites that attribute, so the
-// test cannot pass because nothing happened.
+// Each round first proves the swap by watching the region's own "Pick # N"
+// line advance, so the test cannot pass because nothing happened.
 //
 // The test is gated on GRIDIRON_EXPECT_CLOCK_FIX because it fails on the
 // pinned release by design. Task 15 pins GoSX v0.53.9 and drops the gate.
@@ -238,15 +279,20 @@ func TestBrowserPickClockKeepsTickingAcrossPicks(t *testing.T) {
 		t.Fatal("the pick clock rendered empty text; check /test/signin and the draft region")
 	}
 	for pick := 1; pick <= 3; pick++ {
-		before := readPickClockDeadline(t, ctx)
+		before := readDraftPickLabel(t, ctx)
 		league.pickOnClock(t)
-		after := waitPickClockSwap(t, ctx, before, browserRegionSwapWait)
+		after := waitDraftRegionSwap(t, ctx, before, browserRegionSwapWait)
 		first := readPickClock(t, ctx)
-		time.Sleep(browserClockTickWindow)
-		second := readPickClock(t, ctx)
-		if first == "" || first == second {
-			t.Fatalf("after pick %d the clock froze: %q -> %q over %s (deadline %s)",
-				pick, first, second, browserClockTickWindow, after)
+		if first == "" {
+			t.Fatalf("after pick %d the clock vanished after the swap (%s)", pick, after)
+		}
+		second := waitPickClockTick(t, ctx, first, browserClockTickWait)
+		if second == "" {
+			t.Fatalf("after pick %d the clock vanished after the swap: %q -> gone (%s)", pick, first, after)
+		}
+		if second == first {
+			t.Fatalf("after pick %d the clock froze: %q -> %q over %s (%s, deadline %s)",
+				pick, first, second, browserClockTickWait, after, readPickClockDeadline(t, ctx))
 		}
 	}
 }

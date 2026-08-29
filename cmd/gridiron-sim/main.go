@@ -62,7 +62,11 @@ const (
 	defaultManagers = 8
 	// defaultDelay is one bot's think time before it submits a pick.
 	defaultDelay = 3 * time.Second
-	// commissionerEmail must match the target's COMMISSIONER_EMAILS.
+	// commissionerEmail names the identity this command primes to read the
+	// draft state. It performs no commissioner action: it never starts,
+	// pauses, extends, or forces a pick. A primed seatless session is only
+	// the cheapest way to read /test/draft without holding a seat, so the
+	// address needs a session, not the target's COMMISSIONER_EMAILS.
 	commissionerEmail = "commish@sim.test"
 	// waitForStart is the pause between polls while the draft is closed.
 	waitForStart = 2 * time.Second
@@ -124,6 +128,11 @@ func runDraft(args []string) error {
 	managerCount := flags.Int("managers", defaultManagers, "how many seats to claim (1 to 14)")
 	delay := flags.Duration("delay", defaultDelay, "think time before each bot submits its pick")
 	if err := flags.Parse(args); err != nil {
+		// flag.ContinueOnError already printed the usage for -h; asking for
+		// help is not a failure, so exit 0.
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
 		return err
 	}
 	if *managerCount < 1 || *managerCount > len(simTeamNames) {
@@ -156,6 +165,9 @@ func runDraft(args []string) error {
 	ready, err := prepareSeats(commish, managers)
 	if err != nil {
 		return err
+	}
+	if ready == 0 {
+		return errors.New("no seat is ready; nothing to rehearse")
 	}
 	if ready < len(managers) {
 		log.Printf("%d of %d claimed seats are ready; the commissioner cannot start the draft until every claimed seat is",
@@ -191,14 +203,14 @@ func preflight(target string) error {
 	}
 }
 
-// manager is one seated rehearsal bot, the seat it holds, and the identity
-// it signs in with. team is the name the server reports for that seat, not
-// the name this run asked for: a bot that already held a different seat
-// keeps it, and every log line must name the seat that actually picks.
+// manager is one seated rehearsal bot and the seat it holds. team is the
+// name the server reports for that seat, not the name this run asked for:
+// a bot that already held a different seat keeps it, and every log line
+// must name the seat that actually picks. The bot carries the identity, so
+// a log line reads it from bot.Email.
 type manager struct {
-	bot   *draft.Bot
-	team  string
-	email string
+	bot  *draft.Bot
+	team string
 }
 
 // seat primes the commissioner, then claims one seat per manager. It does
@@ -233,7 +245,14 @@ func seat(target string, count int) (*draft.Bot, []*manager, error) {
 			}
 			log.Printf("%s already holds seat %s; keeping it", email, bot.TeamID)
 		}
-		managers = append(managers, &manager{bot: bot, team: team, email: email})
+		// Join reads viewer_team_id back from the server, so an empty seat
+		// here means the claim did not stick. Driving such a bot would post
+		// a blank team_id at every later action.
+		if bot.TeamID == "" {
+			log.Printf("skip %s: the claim on seat %q left no seat id", email, team)
+			continue
+		}
+		managers = append(managers, &manager{bot: bot, team: team})
 	}
 	return commish, managers, nil
 }
@@ -259,7 +278,7 @@ func prepareSeats(commish *draft.Bot, managers []*manager) (int, error) {
 			continue
 		}
 		if err := m.bot.ToggleReady(); err != nil {
-			log.Printf("%s did not mark seat %q ready: %v", m.email, m.team, err)
+			log.Printf("%s did not mark seat %q ready: %v", m.bot.Email, m.team, err)
 		}
 	}
 	after, err := commish.State()
@@ -272,7 +291,7 @@ func prepareSeats(commish *draft.Bot, managers []*manager) (int, error) {
 			ready++
 			continue
 		}
-		log.Printf("seat %q (%s) is still not ready", m.team, m.email)
+		log.Printf("seat %q (%s) is still not ready", m.team, m.bot.Email)
 	}
 	return ready, nil
 }
