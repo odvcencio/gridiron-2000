@@ -310,7 +310,7 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		}
 	}
 
-	mainSource, err := os.ReadFile("../../main.go")
+	buildSource, err := os.ReadFile("../../app_build.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		`app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))`,
 		`app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))`,
 	} {
-		if !strings.Contains(string(mainSource), want) {
+		if !strings.Contains(string(buildSource), want) {
 			t.Errorf("draft fragment route missing mount %q", want)
 		}
 	}

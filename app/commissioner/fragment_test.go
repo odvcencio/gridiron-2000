@@ -157,11 +157,11 @@ func TestCommissionerRegionContractIsSameOriginReadOnlyAndScoped(t *testing.T) {
 		}
 	}
 
-	mainSource, err := os.ReadFile("../../main.go")
+	buildSource, err := os.ReadFile("../../app_build.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mainSource), "app.Mount(\"GET /commissioner/fragment\", commissionerpage.FragmentHandler(hqService))") {
+	if !strings.Contains(string(buildSource), "app.Mount(\"GET /commissioner/fragment\", commissionerpage.FragmentHandler(hqService))") {
 		t.Fatal("same-origin commissioner fragment GET route is not mounted")
 	}
 }

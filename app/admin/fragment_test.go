@@ -26,11 +26,11 @@ func TestAdminAttentionRegionContract(t *testing.T) {
 			t.Errorf("admin attention region missing %q", want)
 		}
 	}
-	mainSource, err := os.ReadFile("../../main.go")
+	buildSource, err := os.ReadFile("../../app_build.go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mainSource), `app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))`) {
+	if !strings.Contains(string(buildSource), `app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))`) {
 		t.Fatal("admin attention route is not mounted")
 	}
 }
