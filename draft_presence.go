@@ -36,10 +36,21 @@ type leaguePresenceRecorder interface {
 // authenticated page except Draft Room uses it for state synchronization,
 // and treating those background requests as attendance would make the draft
 // clock claim managers who are not in the room.
-func registerLeagueHeartbeatAPIs(app *server.App, recorder leaguePresenceRecorder, fingerprint func() string) {
+//
+// now stamps every recorded heartbeat. It must be the league service's own
+// clock (league.Default().ClockForTest, which is time.Now() unless a
+// harness build has overridden it) rather than a bare time.Now(): the draft
+// clock's NOT-SEEN/AWAY/IDLE classification in internal/league/draftclock.go
+// reads presence against that same clock, so a harness run that advances
+// the service clock must advance presence with it, or a bot's own heartbeat
+// reads back as stale the instant the clock moves.
+func registerLeagueHeartbeatAPIs(app *server.App, recorder leaguePresenceRecorder, fingerprint func() string, now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
 	app.API("GET "+leaguePresenceEndpoint, func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
-		recorder.RecordPresence(ctx.Request, time.Now())
+		recorder.RecordPresence(ctx.Request, now())
 		return map[string]any{"ok": true}, nil
 	})
 	app.API("GET "+leagueVersionEndpoint, func(ctx *server.Context) (any, error) {

@@ -54,9 +54,18 @@ func (b *Bot) get(path string) (string, error) {
 	defer res.Body.Close()
 	body, _ := io.ReadAll(res.Body)
 	if res.StatusCode >= 400 {
-		return "", fmt.Errorf("GET %s = %d", path, res.StatusCode)
+		return "", fmt.Errorf("GET %s = %d: %s", path, res.StatusCode, firstBytes(body, 200))
 	}
 	return string(body), nil
+}
+
+// firstBytes returns the first n bytes of body for an error message,
+// marking a truncation so a 401 body is not mistaken for a complete 404 page.
+func firstBytes(body []byte, n int) string {
+	if len(body) <= n {
+		return string(body)
+	}
+	return string(body[:n]) + "..."
 }
 
 var (
@@ -299,8 +308,18 @@ func (b *Bot) Socket(since string) (*websocket.Conn, error) {
 			header.Add("Cookie", c.String())
 		}
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(target, header)
-	return conn, err
+	conn, resp, err := websocket.DefaultDialer.Dial(target, header)
+	if err != nil {
+		// resp is non-nil whenever the server answered but declined the
+		// upgrade, so its status distinguishes 401 (not signed in) from
+		// 404 (Origin mismatch or a wrong path) instead of collapsing
+		// both into gorilla/websocket's generic "bad handshake".
+		if resp != nil {
+			return nil, fmt.Errorf("dial %s: %w (status %s)", target, err, resp.Status)
+		}
+		return nil, fmt.Errorf("dial %s: %w", target, err)
+	}
+	return conn, nil
 }
 
 // HubEvent is the wire envelope the draft live hub sends.

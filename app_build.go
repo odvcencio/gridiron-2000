@@ -539,7 +539,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		}, nil
 	})
 	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
-	registerLeagueHeartbeatAPIs(app, league.Default(), leagueFingerprint)
+	registerLeagueHeartbeatAPIs(app, league.Default(), leagueFingerprint, league.Default().ClockForTest)
 	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
 	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragmentWithError
 	// loads that page program once and renders its typed SignalCard /

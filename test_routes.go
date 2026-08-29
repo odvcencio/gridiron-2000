@@ -34,28 +34,42 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 	}
 	app.Mount("GET /test/clock", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		mu.Lock()
+		// Parse both parameters before mutating any state. A malformed
+		// advance must not leave a well-formed set applied halfway: the
+		// request is all-or-nothing, so a 400 always means the clock did
+		// not move at all.
+		var newFixed *time.Time
+		settingFixed := false
 		if set := query.Get("set"); set != "" {
 			at, err := time.Parse(time.RFC3339, set)
 			if err != nil {
-				mu.Unlock()
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			fixed = &at
+			newFixed = &at
+			settingFixed = true
 		}
+		var advanceBy time.Duration
+		advancing := false
 		if advance := query.Get("advance"); advance != "" {
 			d, err := time.ParseDuration(advance)
 			if err != nil {
-				mu.Unlock()
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+			advanceBy = d
+			advancing = true
+		}
+		mu.Lock()
+		if settingFixed {
+			fixed = newFixed
+		}
+		if advancing {
 			if fixed != nil {
-				moved := fixed.Add(d)
+				moved := fixed.Add(advanceBy)
 				fixed = &moved
 			} else {
-				offset += d
+				offset += advanceBy
 			}
 		}
 		mu.Unlock()
@@ -95,16 +109,29 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			http.Error(w, "user=email|name is required", http.StatusBadRequest)
 			return
 		}
-		if _, err := service.EnsureMember(email, name); err != nil {
+		// Canonicalize through the same identity-alias boundary the Google
+		// callback applies (main.go's googleCallbackHandlerWithMembership,
+		// via league.Service.CanonicalUser) before registering membership or
+		// signing the session in, so a harness principal lands on the exact
+		// email a real sign-in would land on.
+		user := service.CanonicalUser(auth.User{ID: email, Email: email, Name: name})
+		if strings.TrimSpace(user.ID) == "" {
+			user.ID = user.Email
+		}
+		if _, err := service.EnsureMember(user.Email, user.Name); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if !authManager.SignIn(r, auth.User{ID: email, Email: email, Name: name}) {
+		if !authManager.SignIn(r, user) {
 			http.Error(w, "sign-in failed", http.StatusInternalServerError)
 			return
 		}
 		to := r.URL.Query().Get("to")
-		if to == "" || !strings.HasPrefix(to, "/") || strings.HasPrefix(to, "//") {
+		// Reject anything that is not a same-origin absolute path: an empty
+		// value, a scheme-relative "//host" target, and a backslash, which a
+		// browser normalizes to "/" and which therefore turns "/\evil.example"
+		// into the same open redirect as "//evil.example".
+		if to == "" || !strings.HasPrefix(to, "/") || strings.HasPrefix(to, "//") || strings.ContainsRune(to, '\\') {
 			to = "/draft"
 		}
 		http.Redirect(w, r, to, http.StatusSeeOther)
