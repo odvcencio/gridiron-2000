@@ -28,11 +28,7 @@ func TestSimCommissionerClockControls(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child := startSimChild(t, "")
-	l := seatLeague(t, child)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	child, l := startSeatedDraft(t, "", true)
 	if err := l.commish.Pause(); err != nil {
 		t.Fatalf("pause the clock: %v", err)
 	}

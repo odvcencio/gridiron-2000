@@ -11,6 +11,27 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// startSeatedDraft starts a child server, claims every seat, and opens the
+// draft room. Every scenario below begins this way, so it returns both
+// halves a scenario needs afterwards: the child for its URL (the harness
+// clock route) and the league for its bots.
+//
+// presence decides whether each seat sends one heartbeat. A NOT SEEN
+// scenario passes false; every other scenario passes true. dataFile and
+// extraEnv pass straight through to startSimChild, so a restart scenario
+// can name a state file and a clock scenario can override PICK_CLOCK.
+func startSeatedDraft(t *testing.T, dataFile string, presence bool, extraEnv ...string) (*simChild, *simLeague) {
+	t.Helper()
+	child := startSimChild(t, dataFile, extraEnv...)
+	league := seatLeagueWith(t, child, presence)
+	if err := league.commish.StartDraft(); err != nil {
+		// draftStartReadiness (internal/league/admin.go) refuses a pool that
+		// is not labelled live, and refuses one smaller than teams x rounds.
+		t.Fatalf("start draft: %v", err)
+	}
+	return child, league
+}
+
 // advanceClock moves the child's league clock forward by d. The harness
 // route installs the override on its first call, so a scenario that never
 // calls this runs on wall time. The draft clock's own ticker still fires
@@ -53,11 +74,33 @@ func waitForPicks(t *testing.T, bot *draft.Bot, want int, within time.Duration) 
 	return draft.DraftState{}
 }
 
+// simClockDeadline parses the persisted pick deadline out of a clock
+// payload. clockView (internal/league/service.go) renders it as RFC3339
+// UTC under "deadline", or as an empty string when the clock is unarmed.
+func simClockDeadline(t *testing.T, clock map[string]any) time.Time {
+	t.Helper()
+	raw, _ := clock["deadline"].(string)
+	if raw == "" {
+		t.Fatalf("the clock payload carries no deadline (%v)", clock)
+	}
+	at, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		t.Fatalf("parse the clock deadline %q: %v", raw, err)
+	}
+	return at
+}
+
 // simBestAvailable returns the id of the first available row the server
 // marks draft_eligible for the on-clock seat. The pool page lists players
 // in the same order the auto-pick's best-available pass walks
 // (draftclock.go autopickChoice), so this is the player an empty queue
 // produces.
+//
+// The parity is not exact. draft_eligible carries only
+// draftCandidateKeepsRosterViable, while autopickChoice's own fits also
+// calls teamWouldBreachLimit. The harness league configures no Limits, so
+// the two agree today. A league that turns Limits on would break this
+// helper's premise, and the scenario would fail on the player id.
 func simBestAvailable(t *testing.T, state draft.DraftState) string {
 	t.Helper()
 	for _, row := range state.Available {
@@ -79,7 +122,8 @@ func simBestAvailable(t *testing.T, state draft.DraftState) string {
 // It first asserts the head of the page is itself eligible. That is the
 // scenario's whole premise: an empty queue takes the head, so a queued pick
 // from past the head proves the board won only while the head was a legal
-// choice.
+// choice. See simBestAvailable for the one way that premise can drift: a
+// league that turns Limits on.
 func simQueueCandidate(t *testing.T, state draft.DraftState, skip int) string {
 	t.Helper()
 	if len(state.Available) <= skip {

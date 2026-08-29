@@ -16,11 +16,7 @@ func TestSimExpiryAutopicksFromQueueThenBestAvailable(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child := startSimChild(t, "")
-	l := seatLeague(t, child)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	child, l := startSeatedDraft(t, "", true)
 	state, err := l.commish.State()
 	if err != nil {
 		t.Fatalf("read draft state: %v", err)

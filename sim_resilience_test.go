@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,6 +21,13 @@ const (
 	// clock before its last pick. See that scenario for why a rewind, and
 	// not an advance, is what leaves a dead deadline on disk.
 	simRestartRewind = 5 * time.Minute
+
+	// simRestartPickClock is the pick clock the restart scenario runs, in
+	// seconds. It is deliberately longer than RestartGrace (30 seconds), so
+	// the recovered window and a fresh arm report different remainders: a
+	// fresh arm would show about 60 seconds, while grace shows 30 or fewer.
+	// Every other scenario keeps simChildBaseEnv's 30.
+	simRestartPickClock = 60
 )
 
 // TestSimReconnectReceivesRepairEventWithLiveFingerprint proves the draft
@@ -30,11 +38,7 @@ func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child := startSimChild(t, "")
-	l := seatLeague(t, child)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	_, l := startSeatedDraft(t, "", true)
 	bot := l.bots[0]
 	// stale is current at this instant. The pick below is what makes it
 	// stale, and the reconnect then presents it as an out-of-date token.
@@ -46,6 +50,9 @@ func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open the first socket: %v", err)
 	}
+	// Registered straight after the dial, so a t.Fatalf between here and
+	// the explicit close below still releases the connection.
+	t.Cleanup(func() { conn.Close() })
 	if event := simReadEvent(t, conn, simEventWait, "the first __welcome"); event.Event != "__welcome" {
 		t.Fatalf("the first socket opened with %q, want __welcome", event.Event)
 	}
@@ -57,25 +64,27 @@ func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 
 	// Read the live fingerprint and dial in the same breath. The
 	// fingerprint folds in a presence digest (StateFingerprint,
-	// internal/league/service.go), and a presence bucket flips from HERE to
-	// IDLE at 12 seconds, so any delay between this read and the hub's own
-	// recomputation at join time could move the value the repair carries.
+	// internal/league/service.go), and each seat's own heartbeat keeps
+	// ageing toward the 12-second HERE-to-IDLE flip that would move that
+	// digest. The margin here is the milliseconds between this read and the
+	// hub's recomputation at join time, not the seconds a slower sequence
+	// would spend.
 	current, err := bot.Fingerprint()
 	if err != nil {
 		t.Fatalf("read fingerprint after the pick: %v", err)
 	}
-	conn, err = bot.Socket(stale)
+	reconnected, err := bot.Socket(stale)
 	if err != nil {
 		t.Fatalf("reopen the socket: %v", err)
 	}
+	t.Cleanup(func() { reconnected.Close() })
 	if current == stale {
 		t.Fatal("the pick left the league fingerprint unchanged; nothing would need repair")
 	}
-	defer conn.Close()
-	if event := simReadEvent(t, conn, simEventWait, "the reconnect __welcome"); event.Event != "__welcome" {
+	if event := simReadEvent(t, reconnected, simEventWait, "the reconnect __welcome"); event.Event != "__welcome" {
 		t.Fatalf("the reconnected socket opened with %q, want __welcome", event.Event)
 	}
-	repair := simReadEvent(t, conn, simEventWait, "the reconnect repair event")
+	repair := simReadEvent(t, reconnected, simEventWait, "the reconnect repair event")
 	if repair.Event != simDraftChangedEvent {
 		t.Fatalf("the reconnect delivered %q, want %s", repair.Event, simDraftChangedEvent)
 	}
@@ -91,11 +100,7 @@ func TestSimConcurrentDuplicateSubmitsMakeOnePick(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child := startSimChild(t, "")
-	l := seatLeague(t, child)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	_, l := startSeatedDraft(t, "", true)
 	state, err := l.commish.State()
 	if err != nil {
 		t.Fatalf("read draft state: %v", err)
@@ -112,9 +117,10 @@ func TestSimConcurrentDuplicateSubmitsMakeOnePick(t *testing.T) {
 	const submits = 4
 	results := make([]draft.ActionResult, submits)
 	errs := make([]error, submits)
-	// Two barriers, not one: ready proves every goroutine is already parked
-	// on release before the burst starts, so closing release is what makes
-	// the four requests simultaneous by construction rather than by luck.
+	// Two barriers, not one. parked.Wait returns only after every goroutine
+	// has reached the barrier and is about to receive on release, so closing
+	// release is what starts the four requests together, by construction
+	// rather than by luck.
 	var parked, group sync.WaitGroup
 	parked.Add(submits)
 	group.Add(submits)
@@ -142,8 +148,11 @@ func TestSimConcurrentDuplicateSubmitsMakeOnePick(t *testing.T) {
 			accepted++
 		}
 	}
-	if accepted == 0 {
-		t.Fatalf("all %d duplicate submits were rejected; at least one must win (results %+v)", submits, results)
+	// Exactly one, not at least one: the store holds the seat's turn under
+	// its own lock, so the first submit takes the pick and the other three
+	// find the seat already off the clock.
+	if accepted != 1 {
+		t.Fatalf("%d of %d duplicate submits were accepted, want exactly 1 (results %+v)", accepted, submits, results)
 	}
 
 	after, err := l.commish.State()
@@ -151,7 +160,7 @@ func TestSimConcurrentDuplicateSubmitsMakeOnePick(t *testing.T) {
 		t.Fatalf("read draft state after the burst: %v", err)
 	}
 	if len(after.Picks) != 1 {
-		t.Fatalf("%d duplicate submits recorded %d picks, want 1 (%d reported OK)", submits, len(after.Picks), accepted)
+		t.Fatalf("%d duplicate submits recorded %d picks, want 1", submits, len(after.Picks))
 	}
 	if got := draft.PickPlayerID(after.Picks[0]); got != playerID {
 		t.Fatalf("the surviving pick took %q, want %q", got, playerID)
@@ -186,11 +195,7 @@ func TestSimNotSeenSeatGetsSafetyClockAfterBootGrace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child := startSimChild(t, "")
-	l := seatLeagueWith(t, child, false)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	child, l := startSeatedDraft(t, "", false)
 
 	advanceClock(t, child.URL, 3*time.Minute)
 	seated, err := l.commish.State()
@@ -246,11 +251,11 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 		t.Skip("sim scenario: skipped under -short")
 	}
 	dataFile := filepath.Join(t.TempDir(), "league-state.json")
-	child := startSimChild(t, dataFile)
-	l := seatLeague(t, child)
-	if err := l.commish.StartDraft(); err != nil {
-		t.Fatalf("start draft: %v", err)
-	}
+	// A 60-second pick clock, not the harness default of 30. RestartGrace
+	// is 30 seconds and bootRecoverClock clamps it to the pick clock, so a
+	// longer clock is what separates a recovered window (30 seconds or
+	// fewer) from a fresh arm (about 60).
+	child, l := startSeatedDraft(t, dataFile, true, fmt.Sprintf("PICK_CLOCK=%d", simRestartPickClock))
 	for range simRestartPicks - 1 {
 		l.pickOnClock(t)
 	}
@@ -261,9 +266,14 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 	// An advance cannot produce one: it would push the running process past
 	// its own live deadline, and the enforcement tick would auto-pick
 	// before the stop. A rewind instead arms the last pick's deadline at
-	// (wall - 5m) + 30s, which is minutes behind wall time yet still a full
+	// (wall - 5m) + 60s, which is minutes behind wall time yet still a full
 	// pick clock ahead of the rewound process, so nothing fires while the
 	// scenario stops the server.
+	//
+	// The rewind leaves one artifact in the stored league: pick 5 carries a
+	// MadeAt five minutes earlier than pick 4. Nothing this scenario reads
+	// orders picks by time — the store keeps them in pick-number order —
+	// but a future assertion on pick timestamps would meet it.
 	advanceClock(t, child.URL, -simRestartRewind)
 	l.pickOnClock(t)
 
@@ -275,8 +285,18 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 		t.Fatalf("the draft recorded %d picks before the restart, want %d", len(before.Picks), simRestartPicks)
 	}
 
+	// The premise, checked rather than assumed: the deadline the last pick
+	// wrote is already behind wall time when the server goes down, so the
+	// reopened process meets an expired clock and has to recover it.
+	deadline := simClockDeadline(t, before.Clock)
+	stoppedAt := time.Now()
 	child.Stop()
-	child = startSimChild(t, dataFile)
+	if !deadline.Before(stoppedAt) {
+		t.Fatalf("the persisted deadline %s is not behind wall time %s at the stop, so the restart would meet a live clock and never reach bootRecoverClock",
+			deadline.UTC().Format(time.RFC3339), stoppedAt.UTC().Format(time.RFC3339))
+	}
+
+	child = startSimChild(t, dataFile, fmt.Sprintf("PICK_CLOCK=%d", simRestartPickClock))
 	l.repoint(t, child)
 
 	after, err := l.commish.State()
@@ -307,27 +327,45 @@ func TestSimRestartMidDraftRecovers(t *testing.T) {
 	if paused, _ := after.Clock["paused"].(bool); paused {
 		t.Fatalf("the reopened clock is paused (clock %v)", after.Clock)
 	}
+	// The league still runs a 60-second pick clock, so the remainder below
+	// is what tells grace apart from a fresh arm.
+	if duration, _ := after.Clock["duration_seconds"].(float64); int(duration) != simRestartPickClock {
+		t.Fatalf("the reopened clock reports a %.0f second pick clock, want %d (clock %v)",
+			duration, simRestartPickClock, after.Clock)
+	}
 	remaining, ok := after.Clock["remaining_seconds"].(float64)
 	if !ok {
 		t.Fatalf("the reopened clock payload carries no remaining_seconds (%v)", after.Clock)
 	}
 	// Zero would mean the dead deadline survived the boot untouched, which
-	// is the exact punishment restart grace exists to prevent. More than 30
-	// would mean something other than the grace re-armed it.
+	// is the exact punishment restart grace exists to prevent. About 60
+	// would mean an ordinary fresh arm, not recovery. Only the bounded
+	// grace lands inside (0, 30].
 	if remaining <= 0 || remaining > 30 {
-		t.Fatalf("the reopened clock holds %.0f seconds, want restart grace inside (0, 30] (clock %v)",
-			remaining, after.Clock)
+		t.Fatalf("the reopened clock holds %.0f seconds, want restart grace inside (0, 30] of a %d second pick clock (clock %v)",
+			remaining, simRestartPickClock, after.Clock)
 	}
 	// clockReasonLabels (internal/league/service.go) has no restart-grace
 	// entry: recovery re-arms an ordinary running clock, so the chip keeps
-	// the plain running label.
+	// the plain running label. That label is also clockReasonLabel's default
+	// for an unknown reason, so it cannot prove recovery on its own — the
+	// remainder above is what does. This check only pins that recovery does
+	// not surface as PAUSED, NOT RUNNING, or a safety-clock label.
 	if reason, _ := after.Clock["reason"].(string); reason != "ON THE CLOCK" {
 		t.Fatalf("the reopened clock reason reads %q, want the running label (clock %v)", reason, after.Clock)
 	}
 
-	// One live pick proves the reopened room still works.
+	// One live pick proves the reopened room still works. pickOnClock
+	// returns only after the server accepted the pick, so the state read
+	// below needs no polling.
 	l.pickOnClock(t)
-	resumed := waitForPicks(t, l.commish, simRestartPicks+1, 10*time.Second)
+	resumed, err := l.commish.State()
+	if err != nil {
+		t.Fatalf("read draft state after the resumed pick: %v", err)
+	}
+	if len(resumed.Picks) != simRestartPicks+1 {
+		t.Fatalf("the resumed room holds %d picks, want %d", len(resumed.Picks), simRestartPicks+1)
+	}
 	if got := resumed.Picks[simRestartPicks]["made_by"]; got != "manager" {
 		t.Fatalf("the pick after the restart records made_by = %v, want manager", got)
 	}
