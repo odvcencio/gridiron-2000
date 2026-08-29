@@ -609,6 +609,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}))
 
+	if cfg.TestAuth {
+		mountTestRoutes(app, league.Default(), authManager)
+	}
+
 	rootHandler, err := router.BuildChecked()
 	if err != nil {
 		return nil, nil, err
