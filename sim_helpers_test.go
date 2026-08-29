@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"gridiron-2000/internal/sim/draft"
+
+	"github.com/gorilla/websocket"
 )
 
 // advanceClock moves the child's league clock forward by d. The harness
@@ -68,4 +70,29 @@ func simQueueCandidate(t *testing.T, state draft.DraftState, skip int) string {
 	}
 	t.Fatalf("no eligible available player past index %d in a page of %d", skip, len(state.Available))
 	return ""
+}
+
+// repoint aims every bot in the league at a restarted child and primes a
+// fresh session against it. The seat each bot already holds is persisted
+// league state, so TeamID survives the restart untouched; only the base
+// address and the session behind it have to be rebuilt.
+func (l *simLeague) repoint(t *testing.T, child *simChild) {
+	t.Helper()
+	for _, bot := range append([]*draft.Bot{l.commish}, l.bots...) {
+		bot.BaseURL = child.URL
+		if err := bot.Prime(); err != nil {
+			t.Fatalf("re-prime %s against the restarted child: %v", bot.Email, err)
+		}
+	}
+}
+
+// simReadEvent reads one hub event or fails the scenario. what names the
+// event the caller expected, so a timeout reports which step stalled.
+func simReadEvent(t *testing.T, conn *websocket.Conn, timeout time.Duration, what string) draft.HubEvent {
+	t.Helper()
+	event, err := draft.ReadEvent(conn, timeout)
+	if err != nil {
+		t.Fatalf("read %s within %s: %v", what, timeout, err)
+	}
+	return event
 }
