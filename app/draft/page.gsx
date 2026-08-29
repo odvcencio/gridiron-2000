@@ -66,7 +66,7 @@ type DraftQueueProps struct {
 // DraftQueue is deliberately server-first. The previous island rendered the
 // entire live pool into the initial document and then filtered it in-browser.
 // GET filters and bounded pages keep search useful without JavaScript, keep the
-// draft update poll authoritative, and make the first paint usable on a phone.
+// draft update stream authoritative, and make the first paint usable on a phone.
 func DraftQueue(props DraftQueueProps) Node {
 	return <section class="player-pool">
 		<If cond={props.DraftComplete == false}>
@@ -169,7 +169,7 @@ func DraftQueue(props DraftQueueProps) Node {
 					<span class="position-chip">{player.Position}</span>
 					<b class="mono">{player.Projection}</b>
 					<If cond={props.HasSeat}>
-					<form method="post" action={props.Action} data-gosx-managed="true">
+					<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="team_id" value={props.TeamID}></input>
 						<input type="hidden" name="player_id" value={player.ID}></input>
@@ -321,7 +321,7 @@ component DraftSeatControl(props: DraftSeatControlProps) {
 			<span class="mono">BOARD: {props.BoardCount} TARGETS</span>
 			<If cond={props.BoardGap}><span class="ready-state">BOARD GAP</span></If>
 		</div>
-		<form method="post" action={props.Action} data-gosx-managed="true">
+		<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.TeamID}></input>
 			<If cond={props.Autopick}>
@@ -333,7 +333,7 @@ component DraftSeatControl(props: DraftSeatControlProps) {
 				<button class="button button--compact autopick-toggle" type="submit">Set AUTO for remaining turns</button>
 			</If>
 		</form>
-		<form method="post" action={props.ReadyAction} data-gosx-managed="true">
+		<form method="post" action={props.ReadyAction} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.TeamID}></input>
 			<If cond={props.Ready}>
@@ -451,7 +451,7 @@ func DraftRoom(props DraftRoomProps) Node {
 									<small id="ready-checkin-help">Make this your first draft-day action. Check in once your Big Board is set and you are ready for the commissioner to begin.</small>
 								</If>
 							</div>
-							<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
+							<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 								<If cond={props.Data.viewer_ready}>
@@ -474,7 +474,7 @@ func DraftRoom(props DraftRoomProps) Node {
 									<small>Manual control keeps the full pick clock. If it expires, auto-select uses your Big Board first, then the best available player.</small>
 								</If>
 							</div>
-						<form method="post" action={props.Actions.toggle_autopick} data-gosx-managed="true">
+						<form method="post" action={props.Actions.toggle_autopick} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
 							<If cond={props.Data.viewer_autopick}>
@@ -679,7 +679,7 @@ func DraftRoom(props DraftRoomProps) Node {
 					</Each>
 				</div>
 				<If cond={props.Data.draft.started == false}>
-					<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" class="clock-controls">
+					<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh" class="clock-controls">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<label class="mono" for="draft-start-confirm">TYPE START //</label>
 						<input id="draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
@@ -689,28 +689,28 @@ func DraftRoom(props DraftRoomProps) Node {
 				</If>
 				<If cond={props.Data.draft.started}>
 				<div class="clock-controls">
-					<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true">
+					<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<button class="button button--compact" type="submit">Pause clock</button>
 					</form>
-					<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true">
+					<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<button class="button button--compact button--primary" type="submit">Resume clock</button>
 					</form>
-					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true">
+					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
 						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
-					<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true">
+					<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
 						<button class="button button--compact" type="submit">Set duration</button>
 					</form>
 					<details class="draft-destructive-control">
 						<summary class="button button--compact button--ghost">Force current pick now</summary>
-						<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true">
+						<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 							<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
 							<p>This immediately consumes the on-clock seat's Big Board target, or the best available player when its board is empty. It advances the draft even if the clock is paused.</p>
@@ -724,7 +724,6 @@ func DraftRoom(props DraftRoomProps) Node {
 			</section>
 			</If>
 		</If>
-		<p class="draft-manual-refresh mono"><a href="/draft">Reload the room →</a></p>
 	</div>
 }
 
@@ -850,7 +849,6 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 				</div>
 			</aside>
 		</div>
-		<p class="draft-manual-refresh mono"><a href="/draft">Reload the player list →</a></p>
 	</div>
 }
 
@@ -860,10 +858,10 @@ func Page() Node {
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
-		<div class="draft-region" data-gosx-region data-gosx-region-url="/draft/fragment/room" data-gosx-region-interval="4s">
+		<div class="draft-region" data-gosx-region data-gosx-region-url="/draft/fragment/room" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:changed">
 			<DraftRoom {...data.room}></DraftRoom>
 		</div>
-		<div class="draft-region" data-gosx-region data-gosx-region-url={data.workspace_fragment_url} data-gosx-region-interval="4s">
+		<div class="draft-region" data-gosx-region data-gosx-region-url={data.workspace_fragment_url} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:changed">
 			<DraftWorkspace {...data.workspace}></DraftWorkspace>
 		</div>
 	</main>

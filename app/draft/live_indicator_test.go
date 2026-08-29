@@ -51,3 +51,31 @@ func TestDraftPickTapeLabelFollowsLifecycleState(t *testing.T) {
 		})
 	}
 }
+
+func TestDraftPickClockRendersBrowserOwnedCountdown(t *testing.T) {
+	fixture := draftFragmentFixture()
+	clock := fixture["clock"].(map[string]any)
+	clock["armed"] = true
+	clock["effective_deadline"] = "2026-08-29T01:02:03Z"
+	clock["remaining_label"] = "01:23"
+	handler := draftFragmentHandler(draftRoomRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any {
+		return fixture
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/room", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`data-gosx-countdown="2026-08-29T01:02:03Z"`,
+		`data-gosx-countdown-format="mm:ss"`,
+		`data-gosx-countdown-warn="30s:pick-clock--warn"`,
+		`data-gosx-countdown-cue="10s:beep"`,
+		`>01:23</strong>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("live pick clock missing %q: %s", want, body)
+		}
+	}
+}

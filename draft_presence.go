@@ -15,7 +15,7 @@ const (
 // leagueHeartbeatEndpoint keeps the single GoSX body marker honest. The
 // version heartbeat is a global synchronization primitive, while presence is
 // an attendance claim and therefore belongs only to an open Draft Room. The
-// Draft Room's fragment polls continue to carry its live room/workspace state.
+// Draft Room's live hub continues to carry its room/workspace state.
 func leagueHeartbeatEndpoint(requestPath string) string {
 	path := requestPath
 	for len(path) > 1 && path[len(path)-1] == '/' {

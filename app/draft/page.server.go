@@ -126,6 +126,14 @@ func draftRedirectTarget(pos, query, page string) string {
 	return "/draft"
 }
 
+func draftActionSuccess(ctx *action.Context, target, message string) error {
+	if action.WantsJSON(ctx.Request) {
+		return ctx.Success(message, map[string]any{"value": "refresh"})
+	}
+	actionui.RedirectWithNotice(ctx, target, message)
+	return nil
+}
+
 type draftBreakdownRowView struct {
 	Scored bool
 	Label  string
@@ -366,7 +374,9 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			ctx.Runtime().EnableBootstrap()
-			// A page load is a heartbeat too; the 4s poll takes over after boot.
+			ctx.Runtime().BindHub(draftLiveHubName, draftLiveBindingPath(), nil)
+			// The initial page view is an attendance claim. The body heartbeat
+			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
 			data := attachDraftRequestState(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request)
 			data["has_notice"] = false
@@ -431,8 +441,7 @@ func init() {
 				if started {
 					message = "Draft started. Pick one is on the clock."
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", message)
-				return nil
+				return draftActionSuccess(ctx, "/draft", message)
 			},
 			// The commissioner clock controls render on THIS page (the
 			// clock panel in page.gsx) and actionPath resolves against the
@@ -445,23 +454,20 @@ func init() {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock paused.")
-				return nil
+				return draftActionSuccess(ctx, "/draft", "Pick clock paused.")
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", "Pick clock resumed.")
-				return nil
+				return draftActionSuccess(ctx, "/draft", "Pick clock resumed.")
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().AdminForceAutopick(ctx.Request, ctx.FormData["confirm"], ctx.FormData["current_pick_token"])
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 			},
 			"clock-extend": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
@@ -472,8 +478,7 @@ func init() {
 				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Clock extended by %d seconds.", secs))
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
 				secs, err := strconv.Atoi(strings.TrimSpace(ctx.FormData["seconds"]))
@@ -484,8 +489,7 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Pick clock set to %d seconds.", secs))
 			},
 			"toggle-ready": func(ctx *action.Context) error {
 				ready, teamName, err := league.Default().ToggleReady(ctx.Request, ctx.FormData["team_id"])
@@ -496,16 +500,14 @@ func init() {
 				if ready {
 					status = "locked in"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", teamName, status))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", teamName, status))
 			},
 			"make-pick": func(ctx *action.Context) error {
 				pick, player, team, err := league.Default().MakePick(ctx.Request, ctx.FormData["team_id"], ctx.FormData["player_id"])
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				actionui.RedirectWithNotice(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
-				return nil
+				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])
@@ -516,8 +518,7 @@ func init() {
 				if on {
 					status = "on"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("Autopick is %s for %s.", status, teamName))
 			},
 			"seat-autopick": func(ctx *action.Context) error {
 				onRaw := ctx.FormData["on"]
@@ -533,8 +534,7 @@ func init() {
 				if on {
 					status = "AUTO mode enabled"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s for %s.", status, league.Default().TeamLabel(teamID)))
 			},
 			// seat-ready sets a claimed seat's Ready flag on the commissioner's
 			// own authority (compare toggle-ready, the manager's own path).
@@ -554,8 +554,7 @@ func init() {
 				if on {
 					status = "locked in"
 				}
-				actionui.RedirectWithNotice(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
-				return nil
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s is %s for draft night.", league.Default().TeamLabel(teamID), status))
 			},
 		},
 	}); err != nil {

@@ -46,9 +46,9 @@ func TestLayoutProvidesAccessibleFloatingManagedActionFeedback(t *testing.T) {
 }
 
 func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
-	// Lineup mutations share one managed-success helper now; native
-	// submissions still call RedirectWithNotice through that helper.
-	const wantRedirects = 56
+	// Lineup mutations and the live Draft Room share managed-success helpers
+	// now; native submissions still call RedirectWithNotice through them.
+	const wantRedirects = 46
 	const wantRedirectBacks = 12
 	redirects := 0
 	redirectBacks := 0
