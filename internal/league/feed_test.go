@@ -188,7 +188,7 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 	if err := svc.store.SetSchedule(schedule); err != nil {
 		t.Fatal(err)
 	}
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 
 	scheduled := svc.LiveScoresView(context.Background())
@@ -233,7 +233,7 @@ func (failingScoreProvider) Snapshot(context.Context, time.Time) (LiveSnapshot, 
 }
 
 func TestLiveFeedProviderFailureIsDegradedFallback(t *testing.T) {
-	snapshot := newLiveFeed(failingScoreProvider{}).Snapshot(context.Background(), time.Now())
+	snapshot := newLiveFeed(failingScoreProvider{}, nil).Snapshot(context.Background(), time.Now())
 	if snapshot.State != MatchupStateDegraded || snapshot.Source != "fallback" || snapshot.Warning == "" {
 		t.Fatalf("fallback snapshot = %+v, want explicit degraded fallback", snapshot)
 	}

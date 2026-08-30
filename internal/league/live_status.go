@@ -28,15 +28,28 @@ type LiveStatus struct {
 // perform network work (the poller owns that).
 type LiveStatusSource func() LiveStatus
 
-// SetLiveVersionSource attaches the poller's cheap version accessor. The
-// fingerprint appends it and the live feed cache is keyed by it.
+// SetLiveVersionSource attaches the poller's cheap version accessor.
+// StateFingerprint appends its value and the live feed cache
+// (liveFeed.Snapshot) keys its cache by it, both by reading
+// s.liveVersionFn fresh on every call through liveVersion() — this is the
+// single field that stores it. liveFeed itself never copies fn: it holds
+// a back-pointer to this Service instead (liveFeed.owner), so a feed
+// swapped in after this setter runs (svc.feed = newLiveFeed(...)) is
+// still wired without calling this setter again.
+//
+// fn must be non-blocking and must never call back into this Service or
+// its live feed: liveVersion() calls fn outside poolMu, but Snapshot
+// calls liveVersion() while holding liveFeed.mu, so fn blocking or
+// re-entering either lock would stall every other reader.
+//
+// Lock order: this setter only ever takes poolMu, never liveFeed.mu — see
+// liveFeed's doc comment for the reverse direction (f.mu, then poolMu).
+// Do not add a call into s.feed here; that would risk exactly the
+// ordering this comment rules out.
 func (s *Service) SetLiveVersionSource(fn func() int64) {
 	s.poolMu.Lock()
 	s.liveVersionFn = fn
 	s.poolMu.Unlock()
-	if s.feed != nil {
-		s.feed.setVersionSource(fn)
-	}
 }
 
 // SetLiveStatusSource attaches the poller's state copy beside SetBlitzSource.

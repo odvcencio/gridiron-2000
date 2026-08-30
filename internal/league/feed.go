@@ -18,16 +18,27 @@ type liveFeed struct {
 	cacheFor time.Duration
 	cachedAt time.Time
 	cached   LiveSnapshot
-	// version and cachedVersion key the cache by the live poller's
-	// version (Task 4), on top of cacheFor: a poller tick that changes a
-	// score must not wait out the 45 s window before Snapshot notices.
-	// nil version means live scoring is not wired, so the cache behaves
+	// owner is the Service this feed's cache is keyed against — a
+	// back-pointer, not a copy of a closure, so Service.liveVersionFn
+	// stays the single source of truth (round-2 review of commit
+	// a3bf24a, finding 1: the earlier two-field design, a version
+	// closure stored on both Service and liveFeed, could drift when
+	// s.feed was replaced without re-calling SetLiveVersionSource).
+	// nil owner means live scoring is not wired, so the cache behaves
 	// exactly as before (age only).
-	version       func() int64
+	//
+	// Lock order: Snapshot holds f.mu, then calls owner.liveVersion(),
+	// which takes the owner's poolMu — f.mu, then poolMu, never the
+	// reverse. Nothing in this package may take f.mu while already
+	// holding poolMu (see SetLiveVersionSource's doc comment).
+	owner *Service
+	// cachedVersion is owner.liveVersion()'s value as of the last fetch;
+	// meaningless when owner is nil (current always reads 0 then, so age
+	// alone decides staleness).
 	cachedVersion int64
 }
 
-func newLiveFeed(provider scoreProvider) *liveFeed {
+func newLiveFeed(provider scoreProvider, owner *Service) *liveFeed {
 	demo := demoProvider{}
 	if provider == nil {
 		provider = demo
@@ -36,23 +47,18 @@ func newLiveFeed(provider scoreProvider) *liveFeed {
 		provider: provider,
 		fallback: demo,
 		cacheFor: 45 * time.Second,
+		owner:    owner,
 	}
-}
-
-// setVersionSource attaches the live poller's version accessor so Snapshot
-// can key its cache by version as well as age; see SetLiveVersionSource.
-func (f *liveFeed) setVersionSource(fn func() int64) {
-	f.mu.Lock()
-	f.version = fn
-	f.mu.Unlock()
 }
 
 func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	current := int64(0)
-	if f.version != nil {
-		current = f.version()
+	if f.owner != nil {
+		if version, ok := f.owner.liveVersion(); ok {
+			current = version
+		}
 	}
 	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor && f.cachedVersion == current {
 		return f.cached

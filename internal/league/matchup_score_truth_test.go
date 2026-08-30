@@ -99,7 +99,7 @@ func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) 
 	svc.SetScheduleSource(func() []GameInfo {
 		return []GameInfo{{ID: "active", Week: 1, Kickoff: now.Add(-time.Hour)}}
 	})
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 	data := svc.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
 	matchups, ok := data["matchups"].([]map[string]any)
@@ -201,7 +201,7 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 		),
 	}}
 	svc := newTestService(t, true)
-	svc.feed = newLiveFeed(provider)
+	svc.feed = newLiveFeed(provider, svc)
 	svc.feed.cacheFor = 0
 
 	fieldValues := func(view map[string]any, key string) map[string]string {
@@ -441,7 +441,7 @@ func TestScheduleProviderSeparatesStatsFreshnessFromCheckedTime(t *testing.T) {
 	if !snapshot.LastUpdated.Equal(statsAt) {
 		t.Fatalf("legacy LastUpdated = %s, want the mirrored ledger instant %s", snapshot.LastUpdated, statsAt)
 	}
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 	view := svc.LiveScoresView(context.Background())
 	if view["checkedAt"] != svc.formatMatchupUpdate(now) || view["statsUpdatedAt"] != svc.formatMatchupUpdate(statsAt) {

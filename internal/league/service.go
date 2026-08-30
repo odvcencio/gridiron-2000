@@ -274,7 +274,7 @@ func Default() *Service {
 		// been generated; until then it defers to the honest preseason
 		// snapshot (feed.go). This replaces the always-empty demoProvider
 		// default (competition-formats spec section 2.5).
-		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc})
+		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc}, defaultSvc)
 		// A commissioner-chosen roster-shape override (roster-shape-editor
 		// spec) survives a restart in the state file, not in league.json;
 		// apply it on top of applyActiveConfig's just-published baseline now
@@ -864,8 +864,13 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	// churn every other fingerprint reader. Appending the source's own
 	// version here is what lets a live-stat update reach browsers through
 	// their shared fingerprint synchronization paths (F14).
+	// blitzFn and liveVersionFn are read together under one poolMu hold
+	// (round-2 review of commit a3bf24a, finding 4) rather than two
+	// separate locks — s.liveVersion() would have taken poolMu a second
+	// time right after this block released it.
 	s.poolMu.Lock()
 	blitzSource := s.blitzFn
+	liveVersionSource := s.liveVersionFn
 	s.poolMu.Unlock()
 	var blitzGames []BlitzGame
 	if blitzSource != nil {
@@ -877,8 +882,8 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	}
 	// Live box-score rows are never persisted either (A2); the poller
 	// version is the only thing that tells a page a score moved.
-	if version, ok := s.liveVersion(); ok {
-		suffix += fmt.Sprintf("|live:%d", version)
+	if liveVersionSource != nil {
+		suffix += fmt.Sprintf("|live:%d", liveVersionSource())
 	}
 	// Every clock-driven boundary the UI renders: kickoffs, the draft
 	// start, the trade deadline, and the Blitz slate locks. A version

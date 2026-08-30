@@ -33,8 +33,12 @@ func (s *Service) schedule() []GameInfo {
 }
 
 // ScheduleSourceForLive exposes the attached schedule to the live poller.
+// The returned slice is schedule()'s own, freshly read on every call, not
+// a shared mutable slice the poller could corrupt; the poller must still
+// treat it as read-only, since schedule() may return the same backing
+// array across two calls when nothing has changed.
 func (s *Service) ScheduleSourceForLive() ScheduleSource {
-	return func() []GameInfo { return s.schedule() }
+	return s.schedule
 }
 
 // pickemWeek picks the week to show: the smallest week that still has a game

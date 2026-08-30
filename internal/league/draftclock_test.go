@@ -20,7 +20,6 @@ func newClockTestService(t *testing.T, demo bool, draftAt time.Time, start time.
 	clock := start
 	svc := &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
 		draftAt:  draftAt,
 		demoMode: demo,
 		teams:    defaultTeams(),
@@ -29,6 +28,7 @@ func newClockTestService(t *testing.T, demo bool, draftAt time.Time, start time.
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	svc.feed = newLiveFeed(nil, svc)
 	startTestDraft(t, svc.store)
 	return svc, &clock
 }
@@ -176,7 +176,6 @@ func TestNotSeenClockCap(t *testing.T) {
 	t.Run("not_seen within the restart grace: full deadline", func(t *testing.T) {
 		service := &Service{
 			store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-			feed:     newLiveFeed(nil),
 			draftAt:  draftAt,
 			demoMode: false,
 			teams:    defaultTeams(),
@@ -185,6 +184,7 @@ func TestNotSeenClockCap(t *testing.T) {
 			presence: newPresenceTracker(draftAt), // boots exactly at draftAt
 			now:      func() time.Time { return draftAt },
 		}
+		service.feed = newLiveFeed(nil, service)
 		startTestDraft(t, service.store)
 		if _, _, err := service.store.AssignMember("a@example.com", "A"); err != nil {
 			t.Fatal(err)
@@ -584,7 +584,6 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 	clock := draftAt
 	service := &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
 		draftAt:  draftAt,
 		demoMode: false,
 		teams:    defaultTeams(),
@@ -595,6 +594,7 @@ func TestSpeedyDraftSimulation(t *testing.T) {
 		presence: newPresenceTracker(draftAt),
 		now:      func() time.Time { return clock },
 	}
+	service.feed = newLiveFeed(nil, service)
 	startTestDraft(t, service.store)
 	pool := testPool(150)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })

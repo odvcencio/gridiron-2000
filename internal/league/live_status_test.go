@@ -29,7 +29,7 @@ func TestLiveFeedCacheInvalidatesOnLiveVersion(t *testing.T) {
 	svc.feed = newLiveFeed(providerFunc(func(context.Context, time.Time) (LiveSnapshot, error) {
 		calls++
 		return LiveSnapshot{Source: "test"}, nil
-	}))
+	}), svc)
 	version := int64(1)
 	svc.SetLiveVersionSource(func() int64 { return version })
 	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
@@ -45,13 +45,73 @@ func TestLiveFeedCacheInvalidatesOnLiveVersion(t *testing.T) {
 	}
 }
 
+// TestLiveFeedCacheIsAgeOnlyWithNoOwnerAttached covers round-2 review
+// finding 6: with no owning Service at all (the version accessor is
+// simply absent, the same as an owner whose liveVersionFn is nil), the
+// cache must behave exactly as it did before Task 4 — by age alone.
+func TestLiveFeedCacheIsAgeOnlyWithNoOwnerAttached(t *testing.T) {
+	calls := 0
+	feed := newLiveFeed(providerFunc(func(context.Context, time.Time) (LiveSnapshot, error) {
+		calls++
+		return LiveSnapshot{Source: "test"}, nil
+	}), nil)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	feed.Snapshot(context.Background(), now)
+	feed.Snapshot(context.Background(), now.Add(44*time.Second))
+	if calls != 1 {
+		t.Fatalf("calls = %d; the cache must hold for cacheFor with no owner attached", calls)
+	}
+	feed.Snapshot(context.Background(), now.Add(46*time.Second))
+	if calls != 2 {
+		t.Fatalf("calls = %d; the cache must still expire by age alone", calls)
+	}
+}
+
+// TestLiveFeedKeepsVersionInvalidationAfterFeedIsReplaced covers round-2
+// review finding 1: SetLiveVersionSource is called once (wiring), then
+// s.feed is replaced by a raw field assignment (the pattern
+// matchup_score_truth_test.go:204 already uses) with no re-wiring call.
+// Because liveFeed holds a back-pointer to its owning Service rather than
+// its own copy of the version closure, the new feed is still
+// version-aware with no extra step.
+func TestLiveFeedKeepsVersionInvalidationAfterFeedIsReplaced(t *testing.T) {
+	svc := newTestService(t, true)
+	version := int64(1)
+	svc.SetLiveVersionSource(func() int64 { return version })
+
+	calls := 0
+	svc.feed = newLiveFeed(providerFunc(func(context.Context, time.Time) (LiveSnapshot, error) {
+		calls++
+		return LiveSnapshot{Source: "test"}, nil
+	}), svc)
+
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.feed.Snapshot(context.Background(), now)
+	svc.feed.Snapshot(context.Background(), now.Add(10*time.Second))
+	if calls != 1 {
+		t.Fatalf("calls = %d; the 45 s cache must still hold", calls)
+	}
+	version = 2
+	svc.feed.Snapshot(context.Background(), now.Add(11*time.Second))
+	if calls != 2 {
+		t.Fatalf("calls = %d; a live version move must bypass the cache even though SetLiveVersionSource was never called again after the feed was replaced", calls)
+	}
+}
+
 func TestLiveStatusSourceIsOptional(t *testing.T) {
 	svc := newTestService(t, true)
 	if _, ok := svc.liveStatus(); ok {
 		t.Fatal("no source attached must read as absent")
 	}
-	svc.SetLiveStatusSource(func() LiveStatus { return LiveStatus{Enabled: true} })
-	if status, ok := svc.liveStatus(); !ok || !status.Enabled {
+	games := map[string]LiveGameState{
+		"BUF": {GameID: "g1", Away: "BAL", Home: "BUF", Period: "Q3", Clock: "8:12", InProgress: true},
+	}
+	svc.SetLiveStatusSource(func() LiveStatus { return LiveStatus{Enabled: true, Games: games} })
+	status, ok := svc.liveStatus()
+	if !ok || !status.Enabled {
 		t.Fatalf("status = %+v %v", status, ok)
+	}
+	if got := status.Games["BUF"]; got.GameID != "g1" || got.Period != "Q3" || got.Clock != "8:12" || !got.InProgress {
+		t.Fatalf(`status.Games["BUF"] = %+v`, got)
 	}
 }

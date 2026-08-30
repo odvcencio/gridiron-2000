@@ -32,7 +32,7 @@ func matchupDataFixture(t *testing.T) (*Service, time.Time) {
 			{ID: "week-2", Week: 2, Kickoff: now.Add(8 * 24 * time.Hour)},
 		}
 	})
-	service.feed = newLiveFeed(scheduleProvider{svc: service})
+	service.feed = newLiveFeed(scheduleProvider{svc: service}, service)
 	service.feed.cacheFor = 0
 	return service, now
 }
