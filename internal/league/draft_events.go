@@ -120,21 +120,64 @@ func (s *Service) draftRepairLoop(ctx context.Context, signal chan struct{}) {
 		case <-ctx.Done():
 			return
 		case <-signal:
-			now := s.clock()
-			state := s.store.Snapshot()
-			payload := s.draftFullBinds(state, now)
-			payload["started"] = state.DraftStarted
-			payload["complete"] = draftComplete(state)
-			payload["repair"] = true
-			// R2 (Task 6 review): the repair itself must never be dropped —
-			// it is the one message that resyncs whatever a prior drop
-			// already lost, so silently dropping it too would leave a
-			// client stuck stale until its own reconnect repair fires.
-			// blockOnFull (below) waits for queue room instead of the
-			// drop-and-count path every other emitDraft caller uses.
-			s.emitDraftEventBlocking(ctx, "draft:state", payload)
+			s.sendDraftRepair(ctx)
 		}
 	}
+}
+
+// sendDraftRepair builds and delivers one coalesced draft:state repair. R3
+// fix (2026-08-30 review, item 4): the generation is assigned and the store
+// is snapshotted together, both inside draftEmitMu — the same lock every
+// regular emitDraftEvent call already serializes "assign the next
+// generation" through — instead of snapshotting first (as the pre-fix code
+// did, well before calling emitDraftEventBlocking) and only assigning the
+// generation later, inside that call's own separate lock acquisition.
+//
+// The old order let a slow repair — one delayed behind a full, unconsumed
+// repairQueue, or simply scheduled late — snapshot BEFORE a newer regular
+// event committed, but still receive a HIGHER generation once it finally
+// reached the lock (draftGeneration only ever increases, and "reached the
+// lock later" is all that decided who got the higher number). Wired to a
+// client that discards anything not strictly newer, that repair then
+// regressed the room to state older than what the client had already
+// applied under the regular event's lower generation. Snapshotting inside
+// the same critical section that assigns the generation ties the two
+// together: whichever call's generation is higher is also, by
+// construction, the one whose snapshot the store lock ordered later — see
+// app/draft's Sink for the second half of this fix, a guard that refuses
+// to broadcast any draft:state whose generation does not exceed the
+// highest one already sent, in case a version of this race this loop does
+// not fully close still slips through.
+//
+// The repairQueue send itself still happens outside draftEmitMu (the P2
+// fix, 2026-08-30 review, preserved here): a slow/full repairQueue must
+// stall only this goroutine, never a concurrent producer's own
+// emitDraftEvent.
+func (s *Service) sendDraftRepair(ctx context.Context) {
+	s.draftEmitMu.Lock()
+	generation := s.draftGeneration.Add(1)
+	now := s.clock()
+	state := s.store.Snapshot()
+	s.poolMu.Lock()
+	repairQueue := s.draftRepairQueue
+	s.poolMu.Unlock()
+	s.draftEmitMu.Unlock()
+	if repairQueue == nil {
+		return
+	}
+	payload := s.draftFullBinds(state, now)
+	payload["started"] = state.DraftStarted
+	payload["complete"] = draftComplete(state)
+	payload["repair"] = true
+	payload["generation"] = generation
+	payload["at"] = now.UTC().Format(time.RFC3339)
+	event := DraftEvent{Name: "draft:state", Generation: generation, Payload: payload}
+	// R2 (Task 6 review): the repair itself must never be dropped — it is
+	// the one message that resyncs whatever a prior drop already lost, so
+	// silently dropping it too would leave a client stuck stale until its
+	// own reconnect repair fires. This blocks for queue room instead of the
+	// drop-and-count path every other emitDraft caller uses.
+	sendDraftEventBlocking(ctx, repairQueue, event)
 }
 
 // emitDraft assigns the next generation and enqueues payload for the drain
@@ -205,6 +248,18 @@ func (s *Service) emitDraftEventBlocking(ctx context.Context, name string, paylo
 	payload["at"] = s.clock().UTC().Format(time.RFC3339)
 	event := DraftEvent{Name: name, Generation: generation, Payload: payload}
 	s.draftEmitMu.Unlock()
+	sendDraftEventBlocking(ctx, repairQueue, event)
+}
+
+// sendDraftEventBlocking parks until repairQueue accepts event or ctx is
+// canceled. Shared by emitDraftEventBlocking (generation assigned at call
+// time, payload supplied pre-built) and sendDraftRepair (generation
+// assigned earlier, atomically with the snapshot it describes — see that
+// method's own doc comment for why the two need different assignment
+// timing). Never touches draftEmitMu itself: both callers release it
+// before reaching here, so a full/unconsumed repairQueue stalls only the
+// calling goroutine, never a concurrent producer's own emitDraftEvent.
+func sendDraftEventBlocking(ctx context.Context, repairQueue chan DraftEvent, event DraftEvent) {
 	select {
 	case repairQueue <- event:
 	case <-ctx.Done():

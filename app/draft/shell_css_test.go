@@ -33,11 +33,14 @@ func TestDraftShellStylesheetSection(t *testing.T) {
 	}
 }
 
-// TestDraftPaneInnerSegmentsSwitchWithCSS pins the Task 6 review's R3 fix:
-// the history pane's Tape/Board/Teams segment and the my-team pane's
-// Queue/Roster/Room segment each need their own three panel-switching
-// rules (both radio groups previously rendered every panel at once, with
-// no :has() pairing at all).
+// TestDraftPaneInnerSegmentsSwitchWithCSS pins the Task 6 review's R3 fix
+// for the surviving radio-group segment (My Team's Queue/Roster/Room) and
+// item 1a's own replacement for the history pane's Tape/Board/Teams
+// segment: since the server now renders exactly one .draft-history__view
+// at a time (DraftHistory's ShowTape/ShowBoard/ShowTeams), and the
+// segment itself is three plain data-gosx-link navigations rather than a
+// radio group (DraftHistoryHead's own doc comment), there is no
+// panel-switching CSS rule to pin for it — its absence is the fix.
 func TestDraftPaneInnerSegmentsSwitchWithCSS(t *testing.T) {
 	raw, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
@@ -45,9 +48,6 @@ func TestDraftPaneInnerSegmentsSwitchWithCSS(t *testing.T) {
 	}
 	css := string(raw)
 	for _, want := range []string{
-		".draft-pane--history:has(#history-tape:checked) .draft-history__view--tape",
-		".draft-pane--history:has(#history-board:checked) .draft-history__view--board",
-		".draft-pane--history:has(#history-teams:checked) .draft-history__view--teams",
 		".draft-mine:has(#mine-queue:checked) .draft-mine__view--queue",
 		".draft-mine:has(#mine-roster:checked) .draft-mine__view--roster",
 		".draft-mine:has(#mine-room:checked) .draft-mine__view--room",
@@ -56,13 +56,21 @@ func TestDraftPaneInnerSegmentsSwitchWithCSS(t *testing.T) {
 			t.Errorf("stylesheet missing panel-switching rule %q", want)
 		}
 	}
+	for _, obsolete := range []string{"#history-tape:checked", "#history-board:checked", "#history-teams:checked"} {
+		if strings.Contains(css, obsolete) {
+			t.Errorf("stylesheet still references %q — item 1a removed the history segment's native radios (DraftHistoryHead is three plain data-gosx-link navigations now)", obsolete)
+		}
+	}
 }
 
-// TestDraftBoardTabExpandsTheHistoryPane is T2 (2026-08-30 polish pass):
-// while the Board sub-tab is checked, the history pane spans the
-// workspace (the available pane hides) so every team column shows at
-// 1440px, matching PickBoard.dc.html. The Tape/Teams tabs restore the
-// three-pane grid (no override rule keys off them).
+// TestDraftBoardTabExpandsTheHistoryPane is T2 (2026-08-30 polish pass),
+// updated for item 1a (2026-08-30 review): while the Board view is
+// active, the history pane spans the workspace (the available pane
+// hides) so every team column shows at 1440px, matching
+// PickBoard.dc.html. The trigger is now data-history-board="true" on
+// .draft-panes (Page(), page.gsx), a plain attribute Go sets from the
+// same ShowBoard flag DraftHistory branches on, not a :has(#history-
+// board:checked) selector reaching for a radio that no longer exists.
 func TestDraftBoardTabExpandsTheHistoryPane(t *testing.T) {
 	raw, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
@@ -70,8 +78,8 @@ func TestDraftBoardTabExpandsTheHistoryPane(t *testing.T) {
 	}
 	css := string(raw)
 	for _, want := range []string{
-		".draft-panes:has(#history-board:checked) {",
-		".draft-panes:has(#history-board:checked) .draft-pane--available {",
+		`.draft-panes[data-history-board="true"] {`,
+		`.draft-panes[data-history-board="true"] .draft-pane--available {`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("stylesheet missing T2 board-expand rule %q", want)
@@ -125,30 +133,54 @@ func TestDraftTapeRowTogglePassesTheTouchBaseline(t *testing.T) {
 	}
 }
 
-// TestDraftPhoneTeamsTabSelectsTheTeamsSubView is P8 (2026-08-30 review):
-// the phone bottom tab bar's Teams tab must force the Teams sub-view
-// inside the history pane, not whatever sub-view a manager last picked —
-// the tab bar and the Tape/Board/Teams segment are two independent radio
-// groups, so #tab-teams:checked alone does not select #history-teams.
-func TestDraftPhoneTeamsTabSelectsTheTeamsSubView(t *testing.T) {
+// TestDraftPhoneTeamsTabRevealsTheHistoryPane is P8 (2026-08-30 review),
+// updated for item 1a: the phone bottom tab bar's Teams tab still reveals
+// the history pane the same way the Picks tab does — #tab-teams:checked
+// is a real radio in the "draft-tab" group either way (DraftMobileTabs,
+// page.gsx). It no longer needs a CSS rule to also force a sub-view
+// inside that pane: #tab-teams's own checked state is now driven by the
+// same server-computed ShowTeams flag that decided which ONE
+// .draft-history__view--X the server rendered in the first place, so the
+// two can never disagree, and the old force-display override
+// (page.gsx's DraftMobileTabs doc comment has the detail) is gone.
+func TestDraftPhoneTeamsTabRevealsTheHistoryPane(t *testing.T) {
 	raw, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
 		t.Fatal(err)
 	}
 	css := string(raw)
-	last := strings.LastIndex(css, "@media (max-width: 56.1875rem)")
-	if last < 0 {
-		t.Fatal("stylesheet missing the phone/tablet @media (max-width: 56.1875rem) block")
+	if !strings.Contains(css, "#tab-teams:checked) .draft-pane--history") {
+		t.Error("stylesheet missing the #tab-teams:checked rule that reveals .draft-pane--history")
 	}
-	block := css[last:]
-	for _, want := range []string{
+	for _, obsolete := range []string{
 		"#tab-teams:checked) .draft-history__view--tape",
 		"#tab-teams:checked) .draft-history__view--board",
-		"#tab-teams:checked) .draft-history__view--teams",
 	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("the phone media block missing P8's Teams-tab sub-view rule containing %q", want)
+		if strings.Contains(css, obsolete) {
+			t.Errorf("stylesheet still references %q — item 1a made this force-display override unnecessary (DraftMobileTabs' own doc comment, page.gsx)", obsolete)
 		}
+	}
+}
+
+// TestDraftByTeamPlayerNameStacksOverPosAndNFL is item 7 (2026-08-30
+// review): the By Team tab's own compact rows must restore the stacked
+// player-name-over-"POS · NFL" layout .tape-row__player lost when it
+// became a flex row for the main tape row's own T4 layout (name,
+// position chip, and AUTO/COMM tag sharing one line there).
+func TestDraftByTeamPlayerNameStacksOverPosAndNFL(t *testing.T) {
+	raw, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	ruleStart := strings.Index(css, ".team-column__picks .tape-row__player {")
+	if ruleStart < 0 {
+		t.Fatal("stylesheet missing .team-column__picks .tape-row__player rule")
+	}
+	ruleEnd := strings.Index(css[ruleStart:], "}")
+	rule := css[ruleStart : ruleStart+ruleEnd]
+	if !strings.Contains(rule, "display: block") {
+		t.Errorf(".team-column__picks .tape-row__player must set display: block (item 7, stacked over POS · NFL): %s", rule)
 	}
 }
 

@@ -174,6 +174,18 @@ func (updates *LiveUpdates) syncJoiningClient(ctx *hub.Context) {
 // generation does not exceed the highest one already applied is a stale or
 // replayed delivery and must not roll last back under a value the detector
 // (or a later Sink call) already advanced past.
+//
+// Item 4 (2026-08-30 review): a draft:state repair whose generation does
+// not exceed the highest one this Sink has already broadcast never goes
+// out at all. internal/league's sendDraftRepair (draft_events.go) closes
+// the race that made this possible at its source — assigning the
+// generation atomically with the snapshot it describes — but this guard
+// stays as the belt-and-suspenders the review asked for: it is cheap,
+// keyed only on the ordering key every event already carries, and it
+// protects against any future producer that reintroduces a similar
+// snapshot-before-generation gap. Only draft:state is guarded; every other
+// event name still broadcasts unconditionally (a real commit's own delta,
+// never stale relative to itself).
 func (updates *LiveUpdates) Sink() func(league.DraftEvent) {
 	return func(event league.DraftEvent) {
 		current := updates.currentFingerprint()
@@ -184,11 +196,16 @@ func (updates *LiveUpdates) Sink() func(league.DraftEvent) {
 		payload["generation"] = event.Generation
 		payload["fingerprint"] = current
 		updates.mu.Lock()
-		if event.Generation > updates.lastGeneration {
+		highest := updates.lastGeneration
+		stale := event.Name == draftStateEvent && event.Generation <= highest
+		if event.Generation > highest {
 			updates.last = current
 			updates.lastGeneration = event.Generation
 		}
 		updates.mu.Unlock()
+		if stale {
+			return
+		}
 		updates.hub.Broadcast(event.Name, payload)
 	}
 }

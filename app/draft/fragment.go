@@ -26,6 +26,19 @@ const (
 	// coincidence only (that one is the hub reconnect's fingerprint cursor,
 	// on a different endpoint); the two never appear on the same request.
 	draftTapeSinceKey = "since"
+
+	// draftHistoryViewQueryKey is item 1a's own cursor (2026-08-30 review):
+	// which ONE of the Tape/Board/Teams sub-views a request renders — both
+	// the tape fragment's own "?view=" and the full page's "/draft?view="
+	// (attachDraftFragmentView runs against either). The segment and the
+	// mobile Teams tab are plain data-gosx-link navigations to
+	// "/draft?view=X" (DraftHistoryHead's own doc comment, page.gsx,
+	// explains why not a client-side signal write).
+	draftHistoryViewQueryKey = "view"
+
+	draftHistoryViewTape  = "tape"
+	draftHistoryViewBoard = "board"
+	draftHistoryViewTeams = "teams"
 )
 
 // draftFragmentLoader adapts DraftDataReadOnlyOptions to the load
@@ -116,6 +129,7 @@ func draftFragmentHandler(
 
 		prepared := prepareDraftData(load(request))
 		prepared = attachDraftFragmentSince(prepared, request)
+		prepared = attachDraftFragmentView(prepared, request)
 		view, component, err := draftRegionView(prepared, region)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -235,6 +249,69 @@ func attachDraftFragmentSince(data map[string]any, request *http.Request) map[st
 	return data
 }
 
+// attachDraftFragmentView selects the ONE Tape/Board/Teams sub-view the
+// pane region actually renders (item 1a, 2026-08-30 review): a missing,
+// empty, or unrecognized "?view=" all normalize to the tape default. Since
+// a "?since=" cursor already switches draftRegionView's tape case straight
+// to the bare DraftTapeRows partial (bypassing DraftHistory, and with it
+// this View selection, entirely), the two query parameters never interact:
+// "?since=" always means "the tape view's own incremental rows", "?view="
+// only matters for a full-pane (no "?since=") render.
+//
+// It also runs against a full PAGE request, not just the fragment
+// endpoint (page.server.go's Load calls it too): Page()'s own segment and
+// mobile Teams tab are plain data-gosx-link navigations to "/draft?view=
+// X" (see DraftHistoryHead's own doc comment for why — every click-based
+// signal-writing attribute gosx@v0.53.9 offers unconditionally cancels
+// its own triggering click's native default action, which would have
+// meant a native radio never actually became checked). A soft nav
+// re-runs Load with the new query string and swaps in a whole fresh
+// server render, so BOTH the page's own initial view selection AND the
+// region's own "?view=" (below) must come from the SAME request, not a
+// client-side signal — that is what history_tape_url is for: a plain,
+// pre-formatted string field (never a chained data.history.View
+// expression in the .gsx template — this file's history_tape_url comment
+// three lines down explains why), so the tape pane's own region binds a
+// STATIC URL, re-resolved fresh on every full/soft page load, with no
+// data-gosx-region-signal or "{value}" token at all.
+func attachDraftFragmentView(data map[string]any, request *http.Request) map[string]any {
+	history, ok := data["history"].(draftHistoryView)
+	if !ok {
+		return data
+	}
+	raw := strings.ToLower(strings.TrimSpace(request.URL.Query().Get(draftHistoryViewQueryKey)))
+	history.View = normalizeDraftHistoryView(raw)
+	history.ShowTape = history.View == draftHistoryViewTape
+	history.ShowBoard = history.View == draftHistoryViewBoard
+	history.ShowTeams = history.View == draftHistoryViewTeams
+	data["history"] = history
+	// history_tape_url/history_view_tape/_board/_teams: flat top-level
+	// fields (never a nested data.history.X chain in page.gsx — matching
+	// this package's existing rule, RoundsEmpty's own doc comment,
+	// against relying on unproven GSX template-side expression shapes)
+	// for Page()'s own region URL and DraftHistoryHead/DraftMobileTabs'
+	// server-computed "which segment is active" state.
+	data["history_tape_url"] = "/draft/fragment/tape?view=" + history.View
+	data["history_view_tape"] = history.ShowTape
+	data["history_view_board"] = history.ShowBoard
+	data["history_view_teams"] = history.ShowTeams
+	return data
+}
+
+// normalizeDraftHistoryView maps any raw "?view=" value to one of the three
+// recognized sub-views, defaulting to tape — never len() or a bare string
+// compare against props inside the .gsx template itself (item 3); the
+// three ShowX bools attachDraftFragmentView derives from this are what the
+// template actually branches on.
+func normalizeDraftHistoryView(raw string) string {
+	switch raw {
+	case draftHistoryViewBoard, draftHistoryViewTeams:
+		return raw
+	default:
+		return draftHistoryViewTape
+	}
+}
+
 // filterTapeRoundsSince keeps only the picks numbered above since, round
 // order and pick order (both newest-first) unchanged; a round left with no
 // qualifying picks is dropped rather than rendering an empty header.
@@ -337,6 +414,16 @@ func draftRegionData(view any) (map[string]any, bool) {
 		return map[string]any{
 			"rounds": typed.Rounds, "board": typed.Board, "teams": typed.Teams,
 			"complete": typed.Complete, "latest": typed.Latest, "since": typed.Since,
+			// view is part of the hashed payload for the same reason since
+			// is (item 1a, 2026-08-30 review): "?view=tape" and
+			// "?view=board" against identical underlying picks render
+			// different DraftHistory bodies, so they must hash to
+			// different ETags — otherwise a region that switches its
+			// {value} from one view to another could be served a stale
+			// 304 still carrying the PREVIOUS view's cached body (see
+			// gosx-live-binds' regions.ts: record.etag survives a {value}
+			// change on the same bound element).
+			"view":         typed.View,
 			"has_on_clock": typed.HasOnClock, "next_label": typed.NextLabel,
 			"on_clock_name": typed.OnClockName, "on_clock_abbr": typed.OnClockAbbr, "on_clock_tone": typed.OnClockTone,
 		}, true
@@ -357,4 +444,102 @@ func etagMatches(header, current string) bool {
 		}
 	}
 	return false
+}
+
+// PickDetailFragmentHandler serves one pick's lazily-loaded detail body
+// (item 1b, 2026-08-30 review): DraftPickDetail's <summary> sets a
+// per-pick signal on open, and its own micro-region fetches this exactly
+// once per row a viewer actually expands, through
+// GET /draft/fragment/pick/{n} — the lever that brought the tape
+// fragment's own gzip size back under the D3 refresh-budget ceiling
+// (spec-draft-room-and-live-scoring-v0.1.md, 4 KB per pick in fallback
+// mode), by no longer inlining every made pick's full detail eagerly.
+func PickDetailFragmentHandler(service *league.Service) http.Handler {
+	return pickDetailFragmentHandler(draftFragmentAccess(service), draftPickDetailLoader(service))
+}
+
+// draftPickDetailLoader adapts Service.DraftPickDetail to
+// pickDetailFragmentHandler's load shape, converting the league-level
+// PickDetail into the same page-level draftTapePickView every other
+// pick-detail render already uses (tapePickProps/bestAvailableProps/
+// tapePicksProps, page.server.go).
+func draftPickDetailLoader(service *league.Service) func(*http.Request, int) (draftTapePickView, bool) {
+	return func(r *http.Request, number int) (draftTapePickView, bool) {
+		detail, ok := service.DraftPickDetail(r, number)
+		if !ok {
+			return draftTapePickView{}, false
+		}
+		view := tapePickProps(detail.TapePick)
+		view.Projection = detail.Projection
+		view.Source = detail.Source
+		view.BestAvailable = bestAvailableProps(detail.BestAvailable)
+		view.TeamPicks = tapePicksProps(detail.TeamPicks)
+		return view, true
+	}
+}
+
+func pickDetailFragmentHandler(allowed func(*http.Request) bool, load func(*http.Request, int) (draftTapePickView, bool)) http.Handler {
+	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			writer.Header().Set("Allow", http.MethodGet)
+			http.Error(writer, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+			return
+		}
+		if allowed == nil || !allowed(request) {
+			http.Error(writer, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		number, err := strconv.Atoi(request.PathValue("n"))
+		if err != nil || number < 1 {
+			http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if load == nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		view, ok := load(request, number)
+		if !ok {
+			http.Error(writer, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		etag, err := draftPickDetailETag(number, view)
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		setDraftFragmentHeaders(writer, etag)
+		if etagMatches(request.Header.Get("If-None-Match"), etag) {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
+		program, err := route.LoadFileProgramHere("page.gsx")
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		html, err := route.RenderProgramComponent(program, "DraftPickDetailBody", route.ProgramRenderEnv{
+			Values: map[string]any{"props": view},
+		})
+		if err != nil {
+			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write([]byte(html))
+	})
+}
+
+// draftPickDetailETag hashes the pick number alongside its rendered view,
+// the same semantic-ETag shape draftRegionETag uses for the other six
+// fragments (excluding nothing here: a pick's own detail carries no
+// wall-clock-only field the way the command bar's clock does).
+func draftPickDetailETag(number int, view draftTapePickView) (string, error) {
+	payload := map[string]any{"pick": number, "view": view}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return `"` + hex.EncodeToString(digest[:]) + `"`, nil
 }

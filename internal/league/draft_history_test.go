@@ -3,7 +3,6 @@ package league
 import (
 	"fmt"
 	"testing"
-	"time"
 )
 
 func makePicks(t *testing.T, service *Service, count int) PersistedState {
@@ -87,6 +86,12 @@ func TestPickValueIsPickNumberMinusADP(t *testing.T) {
 // hand back the zero DraftHistoryView, not run DraftHistory at all — the
 // command/available/queue/room/workspace fragments never render it, and
 // draftData used to build it unconditionally on every one of their polls.
+//
+// Item 11 (2026-08-30 review): asserts on the zero-value view alone, no
+// wall-clock ceiling — item 9 moved this test's own former timing
+// assertion to TestDraftHistoryStaysFastAtFullDraftPickCount's
+// allocation-count check below, the one call site that actually still
+// runs DraftHistory's build.
 func TestDraftDataSkipsHistoryBuildWhenNotIncluded(t *testing.T) {
 	service, _, member := newEventTestService(t)
 	teams := len(service.Teams())
@@ -94,34 +99,33 @@ func TestDraftDataSkipsHistoryBuildWhenNotIncluded(t *testing.T) {
 	makePicks(t, service, teams*rounds)
 	request := pickRequest(t, member.Email)
 
-	start := time.Now()
 	data := service.DraftDataReadOnlyOptions(request, false)
-	elapsed := time.Since(start)
 
 	history, _ := data["history"].(DraftHistoryView)
 	if len(history.Rounds) != 0 || len(history.Picks) != 0 || len(history.Teams) != 0 {
 		t.Fatalf("history = %+v, want the zero value when includeHistory=false", history)
-	}
-	limit := 5 * time.Millisecond
-	if raceDetectorEnabled {
-		limit = 30 * time.Millisecond
-	}
-	if elapsed > limit {
-		t.Fatalf("draftData(includeHistory=false) took %s at %d picks, want well under %s", elapsed, teams*rounds, limit)
 	}
 }
 
 // TestDraftHistoryStaysFastAtFullDraftPickCount is the P1 perf fix's other
 // half: DraftHistory's build plus one Detail call per pick (the tape's own
 // full render cost, hydratedTapePicksProps in page.server.go) must stay
-// well under 3ms at a full completed draft's pick count — the pre-fix
-// O(P^2) TeamPicks rescan cost the review clocked at ~8ms at 120 picks.
-// Under -race the limit widens to 25ms (raceDetectorEnabled,
-// race_enabled_test.go): the race detector's own per-access
-// instrumentation legitimately costs several times the un-instrumented
-// runtime on code this allocation-heavy, well short of what the O(P^2)
-// regression this test guards against would still cost even scaled up
-// by the same factor.
+// roughly linear in the pick count — the pre-fix O(P^2) TeamPicks rescan
+// cost the review clocked at ~8ms at 120 picks.
+//
+// Item 9 (2026-08-30 review): a wall-clock ceiling is exactly the wrong
+// tool for a shared CI runner — a noisy neighbor or a slower machine
+// fails a fixed-millisecond assertion for reasons that have nothing to do
+// with the algorithm under test (this file used to carry a build-tag pair,
+// race_enabled_test.go/race_disabled_test.go, purely to widen the
+// threshold under -race; both are gone, no longer needed). Allocation
+// count is a deterministic, environment-independent proxy for
+// algorithmic complexity instead: testing.AllocsPerRun reports the same
+// number on a fast machine and a slow one, and an O(P) implementation
+// allocates a roughly constant number of objects per pick regardless of
+// how many picks came before it, while an O(P^2) regression (like the
+// pre-fix TeamPicks rescan) blows that per-pick multiplier up by roughly
+// the pick count itself.
 func TestDraftHistoryStaysFastAtFullDraftPickCount(t *testing.T) {
 	service, _, _ := newEventTestService(t)
 	teams := len(service.Teams())
@@ -129,17 +133,20 @@ func TestDraftHistoryStaysFastAtFullDraftPickCount(t *testing.T) {
 	total := teams * rounds
 	state := makePicks(t, service, total)
 
-	start := time.Now()
-	history := service.DraftHistory(state, "")
-	for _, pick := range history.Picks {
-		history.Detail(pick.Number)
-	}
-	elapsed := time.Since(start)
-	limit := 3 * time.Millisecond
-	if raceDetectorEnabled {
-		limit = 25 * time.Millisecond
-	}
-	if elapsed > limit {
-		t.Fatalf("DraftHistory + one Detail per pick took %s at %d picks, want well under %s", elapsed, total, limit)
+	allocs := testing.AllocsPerRun(5, func() {
+		history := service.DraftHistory(state, "")
+		for _, pick := range history.Picks {
+			history.Detail(pick.Number)
+		}
+	})
+	perPick := allocs / float64(total)
+	// A generous per-pick ceiling: the un-instrumented build measures well
+	// under this today (see the doc comment above), and an O(P^2)
+	// regression at 120 picks would multiply the per-pick figure by
+	// roughly 120x, not the 2-3x of ordinary allocator/GC noise between
+	// runs.
+	const limitPerPick = 60.0
+	if perPick > limitPerPick {
+		t.Fatalf("DraftHistory + one Detail per pick allocates %.0f objects at %d picks (%.1f/pick), want under %.1f/pick — looks like an O(P^2) regression", allocs, total, perPick, limitPerPick)
 	}
 }

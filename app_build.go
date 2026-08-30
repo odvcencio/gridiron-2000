@@ -596,6 +596,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/command", draftpage.CommandFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/tape", draftpage.TapeFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/pick/{n}", draftpage.PickDetailFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))
 	app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))

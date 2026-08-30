@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"time"
 )
@@ -44,10 +45,14 @@ type TapeRound struct {
 // team's fixed position in draft order, never the pick's slot within its
 // round (those two coincide only in odd rounds).
 type BoardCell struct {
-	Round, Column, Number  int
-	Label                  string
-	Filled, Mine, OnClock  bool
-	PlayerName, Position   string
+	Round, Column, Number int
+	Label                 string
+	Filled, Mine, OnClock bool
+	PlayerName, Position  string
+	// NFLTeam backs the mockup's board-cell copy ("1.01 · WR · CIN",
+	// PickBoard.dc.html — a mockup divergence closed 2026-08-30 review):
+	// empty on an unfilled cell.
+	NFLTeam                string
 	IsAuto, IsCommissioner bool
 }
 
@@ -250,7 +255,7 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 				player := pool.byID[pick.PlayerID]
 				madeBy := pick.MadeBy
 				cell.Filled = true
-				cell.PlayerName, cell.Position = player.Name, player.Position
+				cell.PlayerName, cell.Position, cell.NFLTeam = player.Name, player.Position, player.NFLTeam
 				cell.IsAuto, cell.IsCommissioner = madeBy == "auto", madeBy == "commissioner"
 			}
 			row.Cells[column-1] = cell
@@ -367,6 +372,24 @@ func valueVsADPLabel(pickNumber int, adp float64) string {
 // everyone.
 func (s *Service) DraftLedger() []TapePick {
 	return s.DraftHistory(s.store.Snapshot(), "").Picks
+}
+
+// DraftPickDetail answers one pick's lazily-loaded detail body (item 1b,
+// 2026-08-30 review): app/draft's GET /draft/fragment/pick/{n} calls this
+// directly, rather than routing through the eager DraftHistory build every
+// other fragment shares, so opening one tape row costs one Detail lookup
+// plus the DraftHistory build it depends on, not a whole-pane re-render.
+// The bool is false for a pick number that has not been made (0, negative,
+// or past the current pick count) — the caller answers 404 for that case,
+// matching every other fragment handler's not-found shape.
+func (s *Service) DraftPickDetail(r *http.Request, number int) (PickDetail, bool) {
+	state := s.store.Snapshot()
+	if number < 1 || number > len(state.Picks) {
+		return PickDetail{}, false
+	}
+	viewer := s.viewerReadOnly(r, state)
+	viewerTeam, _ := viewer["team_id"].(string)
+	return s.DraftHistory(state, viewerTeam).Detail(number), true
 }
 
 func stringAny(m map[string]any, key string) string {

@@ -84,7 +84,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	common := []string{
 		`class="draft-shell`, `data-draft-live-mode="fallback"`, `class="draft-command"`,
 		`data-gosx-region-url="/draft/fragment/command"`, `data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
-		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape"`,
+		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape?view=tape"`,
 		`id="tab-players"`, `id="tab-picks"`, `class="draft-tabbar"`,
 		`aria-live="polite"`, `aria-live="off"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
 		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // inert on v0.53.9: assert the attributes only

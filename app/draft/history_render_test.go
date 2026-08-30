@@ -1,6 +1,8 @@
 package draft
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -69,9 +71,25 @@ func fullHistoryFixture(picks []league.TapePick, rounds, next int, complete bool
 // fixture and returns the body.
 func renderTapeRegion(t *testing.T, fixture map[string]any) string {
 	t.Helper()
+	return renderTapeRegionPath(t, fixture, "/draft/fragment/tape")
+}
+
+// renderTapeRegionView is renderTapeRegion for one explicit "?view="
+// (item 1a, 2026-08-30 review): the tape pane's default render is now
+// tape-only, so a Board or Teams assertion needs its own explicit
+// "?view=board"/"?view=teams" request, the same one the pane body's own
+// region issues once a viewer picks that segment (page.gsx's
+// data-gosx-region-url="/draft/fragment/tape?view={value}").
+func renderTapeRegionView(t *testing.T, fixture map[string]any, view string) string {
+	t.Helper()
+	return renderTapeRegionPath(t, fixture, "/draft/fragment/tape?view="+view)
+}
+
+func renderTapeRegionPath(t *testing.T, fixture map[string]any, path string) string {
+	t.Helper()
 	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d; body: %s", response.Code, response.Body.String())
 	}
@@ -157,8 +175,8 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	if !strings.Contains(row17, pick17.Manager) {
 		t.Errorf("row 17 missing manager %q: %s", pick17.Manager, row17)
 	}
-	if !strings.Contains(row17, `aria-expanded="false"`) {
-		t.Errorf("row 17 missing its DETAIL toggle's aria-expanded: %s", row17)
+	if !strings.Contains(row17, `class="tape-row__summary"`) {
+		t.Errorf("row 17 missing its DETAIL toggle's summary: %s", row17)
 	}
 
 	// Row 3: AUTO, inline with the player line (T4) — before the
@@ -177,30 +195,48 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Errorf("row 3: AUTO (%d) must sit on the player line, before the team+manager line (%d): %s", autoAt, teamAt, row3)
 	}
 
-	// Value labels.
-	if !strings.Contains(body, "+3") {
-		t.Error("missing +3 value label (pick 1, three past ADP)")
+	// Item 1b: the value label itself is lazy content (DraftPickDetailBody,
+	// fetched from GET /draft/fragment/pick/{n} only once a viewer opens
+	// the row — TestPickDetailFragmentServesOneLazyPickBody below covers
+	// its own content). The tape fragment carries only each row's own
+	// lazy-region wiring, not the value label text.
+	if strings.Contains(body, "+3") || strings.Contains(body, "−4") {
+		t.Error("the eager tape fragment must not carry a value label (item 1b: the detail body is lazy)")
 	}
-	if !strings.Contains(body, "−4") {
-		t.Error("missing −4 value label (pick 2, a reach)")
+	if !strings.Contains(body, `data-gosx-region-url="/draft/fragment/pick/1"`) {
+		t.Error("row 1 missing its lazy pick-detail region url")
+	}
+	if !strings.Contains(body, `data-gosx-region-signal="$dp1"`) {
+		t.Error("row 1 missing its lazy pick-detail region signal")
 	}
 
-	// Board: cell 2.08 sits in round 2's column 1 (the snake's reversed
-	// column-to-slot mapping), and it is filled (pick 16 was made).
-	if !strings.Contains(body, `data-round="2" data-column="1"`) {
+	// Item 1a: the default (tape) render must never carry Board's own
+	// markup at all — that is the whole point of the single-view fix.
+	if strings.Contains(body, `class="board-grid"`) {
+		t.Error("the default tape render must not carry the Board view (item 1a: single-view-per-response)")
+	}
+
+	// Board: fetched separately, its own "?view=board". Cell 2.08 sits in
+	// round 2's column 1 (the snake's reversed column-to-slot mapping),
+	// and it is filled (pick 16 was made).
+	boardBody := renderTapeRegionView(t, fixture, "board")
+	if strings.Contains(boardBody, `class="draft-tape-rows"`) {
+		t.Error("?view=board must not carry the Tape view's own markup (item 1a: single-view-per-response)")
+	}
+	if !strings.Contains(boardBody, `data-round="2" data-column="1"`) {
 		t.Error("missing board cell round=2 column=1")
 	}
-	if cellStart := strings.Index(body, `data-round="2" data-column="1"`); cellStart >= 0 {
-		cellEnd := strings.Index(body[cellStart:], "</div>")
-		cell := body[cellStart : cellStart+cellEnd]
+	if cellStart := strings.Index(boardBody, `data-round="2" data-column="1"`); cellStart >= 0 {
+		cellEnd := strings.Index(boardBody[cellStart:], "</div>")
+		cell := boardBody[cellStart : cellStart+cellEnd]
 		if !strings.Contains(cell, "2.08") {
 			t.Errorf("board cell round=2 column=1 missing label 2.08: %s", cell)
 		}
 	}
-	if !strings.Contains(body, `class="board-cell c-WR"`) {
+	if !strings.Contains(boardBody, `class="board-cell c-WR"`) {
 		t.Error(`missing class="board-cell c-WR" on a filled WR cell`)
 	}
-	if n := strings.Count(body, `data-clock="true"`); n != 1 {
+	if n := strings.Count(boardBody, `data-clock="true"`); n != 1 {
 		t.Errorf("data-clock=\"true\" count = %d, want exactly 1", n)
 	}
 
@@ -222,8 +258,8 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	if n := strings.Count(body, `class="tape-row pick-detail"`); n != made {
 		t.Errorf("tape-row pick-detail count = %d, want %d", n, made)
 	}
-	if n := strings.Count(body, `aria-expanded="false"`); n != made {
-		t.Errorf("aria-expanded count = %d, want %d (one DETAIL toggle per pick)", n, made)
+	if n := strings.Count(body, `class="tape-row__summary"`); n != made {
+		t.Errorf("tape-row__summary count = %d, want %d (one DETAIL toggle per pick; item 2: aria-expanded is never hardcoded, the browser derives it from <details open>)", n, made)
 	}
 	if strings.Contains(body, `class="btn btn-sm btn-ghost">Detail<`) {
 		t.Error("DETAIL must no longer render as a separate full-width button (T3)")
@@ -259,6 +295,42 @@ func TestDraftTapeRowOmitsTimeToPickWhenZero(t *testing.T) {
 	row = body[rowStart : rowStart+rowEnd]
 	if !strings.Contains(row, "0:49") {
 		t.Errorf("row 1 (TimeToPickSec=49) must show its time-to-pick segment: %s", row)
+	}
+}
+
+// TestDraftTapeRowWhoOmitsLeadingSeparatorWhenManagerIsEmpty is item 12
+// (2026-08-30 review): .tape-row__who is one run — TeamName, then each of
+// Manager/NFLTeam/TimeToPick prefixed with " · " only when it is itself
+// present (item 5's own fix) — so an empty Manager (an unclaimed seat's
+// autopick, say) must never leave a leading " · " before NFLTeam.
+func TestDraftTapeRowWhoOmitsLeadingSeparatorWhenManagerIsEmpty(t *testing.T) {
+	pick := tapePickFixture(1, "auto")
+	pick.Manager = ""
+	pick.TimeToPickSec, pick.TimeToPick = 0, "0:00" // isolate the Manager-omission case: no third separator to count
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture([]league.TapePick{pick}, 1, 2, false)
+	body := renderTapeRegion(t, fixture)
+	rowStart := strings.Index(body, `data-tape-key="pick-1"`)
+	if rowStart < 0 {
+		t.Fatal("row 1 not found")
+	}
+	rowEnd := strings.Index(body[rowStart:], "</details>")
+	row := body[rowStart : rowStart+rowEnd]
+	whoStart := strings.Index(row, `class="tape-row__who"`)
+	if whoStart < 0 {
+		t.Fatal("row 1 missing .tape-row__who")
+	}
+	whoEnd := strings.Index(row[whoStart:], "</div>")
+	who := row[whoStart : whoStart+whoEnd]
+	if strings.Contains(who, " ·  ·") {
+		t.Errorf(".tape-row__who (empty Manager) has a doubled separator: %s", who)
+	}
+	if n := strings.Count(who, "·"); n != 1 {
+		t.Errorf(".tape-row__who (empty Manager) has %d separators, want exactly 1 (before NFLTeam only, Manager omitted entirely): %s", n, who)
+	}
+	if !strings.Contains(who, pick.TeamName) || !strings.Contains(who, "· "+pick.NFLTeam) {
+		t.Errorf(".tape-row__who missing team name or its correctly-prefixed NFL team: %s", who)
 	}
 }
 
@@ -327,11 +399,189 @@ func TestDraftByTeamRendersPicksAndNeeds(t *testing.T) {
 		},
 	}
 	fixture["history"] = history
-	body := renderTapeRegion(t, fixture)
+	// Item 1a: Teams is its own "?view=teams" fetch.
+	body := renderTapeRegionView(t, fixture, "teams")
 	if !strings.Contains(body, pick.PlayerName) {
 		t.Error("By team tab missing the team's own drafted player")
 	}
 	if !strings.Contains(body, "WR 0/2") {
 		t.Errorf("By team tab missing the roster-needs chip \"WR 0/2\": %s", body)
+	}
+}
+
+// gzipSize compresses body the same way server.EnableGzip's own
+// middleware would (gzip.DefaultCompression — server/gzip.go) — the
+// draftFragmentHandler under test here never runs behind that middleware
+// itself (a plain httptest.ResponseRecorder), so this measures what the
+// production gzip layer would produce from the identical bytes.
+func gzipSize(t *testing.T, body string) int {
+	t.Helper()
+	var buf bytes.Buffer
+	writer, err := gzip.NewWriterLevel(&buf, gzip.DefaultCompression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Len()
+}
+
+// TestTapeFragmentSizeStaysUnderTheRefreshBudget is item 1's own blocking
+// gate (2026-08-30 review): spec-draft-room-and-live-scoring-v0.1.md's D3
+// refresh-budget table caps a fallback-mode tape fragment at 4,096 B
+// gzip. A 120-pick draft (8 teams x 15 rounds, a full season) is the
+// worst case this room ever renders. Measured against the archived
+// pre-fix build (7075f37, all three sub-views eagerly rendered together,
+// every pick-detail body inline): 16,997 B for the whole pane, of which
+// the tape sub-view alone was already 11,187 B — over budget on its own,
+// before board (2,733 B) or teams (3,676 B) are even added.
+//
+// Fixed numbers this test currently measures (t.Logf also prints these
+// on every run): tape 1,718 B, board 1,938 B, teams 2,332 B — all under
+// the 4,096 B ceiling. Item 1a (single-view-per-response) and 1b (lazy
+// per-pick detail) alone brought the full pane down to roughly 5 KB for
+// tape, still over budget: the pick number's own repetition across
+// data-tape-key/data-pick-number/the slot label/#N/the two lazy-region
+// attributes is genuine per-row entropy gzip cannot compress away.
+// draftTapeMaxRenderedRounds (page.server.go) — capping the full pane
+// render to the newest 3 rounds, the plan's own pre-approved fallback —
+// is what closes the remaining gap.
+func TestTapeFragmentSizeStaysUnderTheRefreshBudget(t *testing.T) {
+	const made = 120
+	const teams = 8
+	const roundsTotal = made / teams
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		madeBy := "manager"
+		if n%11 == 0 {
+			madeBy = "auto"
+		}
+		pick := tapePickFixture(n, madeBy)
+		if n%7 == 0 {
+			pick.HasValue, pick.Value, pick.ValueLabel = true, 2, "+2"
+		}
+		picks = append(picks, pick)
+	}
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	history := fullHistoryFixture(picks, roundsTotal, made+1, false)
+	// Populate Teams with a realistic full draft's worth of by-team rows
+	// (fullHistoryFixture, unlike Rounds/Board, leaves it empty by
+	// default): the "?view=teams" byte figure below is otherwise a
+	// meaningless near-zero measurement against zero teams, not the D3
+	// budget's real worst case.
+	byTeam := map[string][]league.TapePick{}
+	for _, pick := range picks {
+		byTeam[pick.TeamID] = append(byTeam[pick.TeamID], pick)
+	}
+	teamsView := make([]league.TeamColumn, 0, len(fixtureTeams))
+	for index, name := range fixtureTeams {
+		teamID := fmt.Sprintf("team-%d", index+1)
+		teamsView = append(teamsView, league.TeamColumn{
+			Team:  map[string]any{"id": teamID, "name": name, "abbreviation": strings.ToUpper(name[:2]), "tone": "cyan", "manager": "Manager " + name, "mine": false},
+			Picks: byTeam[teamID],
+			Needs: []map[string]any{
+				{"label": "QB", "filled": 1, "total": 1, "open": false},
+				{"label": "RB", "filled": 2, "total": 2, "open": false},
+				{"label": "WR", "filled": 2, "total": 3, "open": true},
+			},
+		})
+	}
+	history.Teams = teamsView
+	fixture["history"] = history
+
+	const budget = 4096
+	for _, view := range []struct {
+		name string
+		body string
+	}{
+		{"tape", renderTapeRegion(t, fixture)}, // the default: no "?view=" at all
+		{"board", renderTapeRegionView(t, fixture, "board")},
+		{"teams", renderTapeRegionView(t, fixture, "teams")},
+	} {
+		size := gzipSize(t, view.body)
+		t.Logf("%s fragment at %d picks = %d B gzip (raw %d B, budget %d B)", view.name, made, size, len(view.body), budget)
+		if size > budget {
+			t.Errorf("%s fragment at %d picks = %d B gzip, want <= %d B (D3 refresh budget, fallback mode)", view.name, made, size, budget)
+		}
+	}
+}
+
+// TestPickDetailFragmentServesOneLazyPickBody is item 1b's own render
+// test (2026-08-30 review): GET /draft/fragment/pick/{n} answers exactly
+// one pick's detail body content — the same fields the eager
+// pre-fix .pick-detail__body carried inline — with the standard method/
+// access guards and a semantic ETag/304, matching every other draft
+// fragment.
+func TestPickDetailFragmentServesOneLazyPickBody(t *testing.T) {
+	pick := tapePickFixture(7, "manager")
+	pick.HasValue, pick.Value, pick.ValueLabel = true, 3, "+3"
+
+	load := func(r *http.Request, number int) (draftTapePickView, bool) {
+		if number != 7 {
+			return draftTapePickView{}, false
+		}
+		view := tapePickProps(pick)
+		view.Projection, view.Source = "18.4", "queue #2"
+		view.BestAvailable = bestAvailableProps([]league.BestAvailablePick{{ID: "pool-100", Name: "Best Available", Position: "WR", NFLTeam: "SEA"}})
+		view.TeamPicks = tapePicksProps([]league.TapePick{tapePickFixture(1, "manager")})
+		return view, true
+	}
+	handler := pickDetailFragmentHandler(func(*http.Request) bool { return true }, load)
+
+	request := func(path string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.SetPathValue("n", strings.TrimPrefix(path, "/draft/fragment/pick/"))
+		return r
+	}
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, request("/draft/fragment/pick/7"))
+	if first.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", first.Code, first.Body.String())
+	}
+	body := first.Body.String()
+	for _, want := range []string{"Proj 18.4", "vs ADP +3", "Drafted by", "Source: queue #2", "Best Available", "SEA", "Player card"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pick detail body missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, `class="pick-detail__body"`) {
+		t.Error("the lazy endpoint must answer the body's own CONTENT, not another copy of its wrapper div")
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("missing ETag")
+	}
+
+	second := request("/draft/fragment/pick/7")
+	second.Header.Set("If-None-Match", etag)
+	notModified := httptest.NewRecorder()
+	handler.ServeHTTP(notModified, second)
+	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
+		t.Fatalf("conditional response = %d with %d bytes, want bodyless 304", notModified.Code, notModified.Body.Len())
+	}
+
+	missing := httptest.NewRecorder()
+	handler.ServeHTTP(missing, request("/draft/fragment/pick/999"))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("status for an unmade pick = %d, want 404", missing.Code)
+	}
+
+	unauthorized := pickDetailFragmentHandler(func(*http.Request) bool { return false }, load)
+	denied := httptest.NewRecorder()
+	unauthorized.ServeHTTP(denied, request("/draft/fragment/pick/7"))
+	if denied.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status = %d, want %d", denied.Code, http.StatusUnauthorized)
+	}
+
+	postDenied := httptest.NewRecorder()
+	handler.ServeHTTP(postDenied, httptest.NewRequest(http.MethodPost, "/draft/fragment/pick/7", nil))
+	if postDenied.Code != http.StatusMethodNotAllowed || postDenied.Header().Get("Allow") != http.MethodGet {
+		t.Fatalf("POST status = %d allow=%q", postDenied.Code, postDenied.Header().Get("Allow"))
 	}
 }

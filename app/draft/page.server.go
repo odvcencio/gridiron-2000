@@ -213,12 +213,24 @@ type draftCommandView struct {
 // DraftTapeRows and attachDraftFragmentSince below has already trimmed
 // Rounds to picks numbered above it.
 type draftHistoryView struct {
-	Rounds      []draftTapeRoundView
-	Board       draftBoardView
-	Teams       []draftTeamColumnView
-	Complete    bool
-	Latest      int
-	Since       int
+	Rounds   []draftTapeRoundView
+	Board    draftBoardView
+	Teams    []draftTeamColumnView
+	Complete bool
+	Latest   int
+	Since    int
+	// View/ShowTape/ShowBoard/ShowTeams: item 1a (2026-08-30 review). View
+	// is one of "tape"/"board"/"teams" (attachDraftFragmentView,
+	// fragment.go, normalizes any "?view=" to one of these, defaulting to
+	// tape); the three ShowX bools are what DraftHistory's own template
+	// actually branches on (page.gsx renders only the selected sub-view's
+	// markup, never all three at once — the tape sub-view alone eagerly
+	// carried far more bytes than the D3 refresh-budget's 4 KB ceiling
+	// allows once all three views rendered together on every poll).
+	View        string
+	ShowTape    bool
+	ShowBoard   bool
+	ShowTeams   bool
 	HasOnClock  bool
 	NextLabel   string
 	OnClockName string
@@ -228,8 +240,12 @@ type draftHistoryView struct {
 	// DraftHistoryProps doc comment (P10, 2026-08-30 review).
 	OnClockHasAvatarImage bool
 	OnClockAvatarImageURL string
-	// RoundsEmpty: see page.gsx's DraftHistoryProps doc comment (the
-	// len()-on-a-rebound-slice-prop GoSX limitation, 2026-08-30 review).
+	// RoundsEmpty: see page.gsx's DraftHistoryProps doc comment. len()
+	// never resolves correctly in a .gsx expression through
+	// route.RenderProgramComponent (any shape — direct or nested, slice
+	// or string, 2026-08-30 review), so every length this page needs
+	// inside a template is computed here in Go and passed down as a
+	// plain field instead.
 	RoundsEmpty bool
 }
 
@@ -276,6 +292,7 @@ type draftBoardCellView struct {
 	Label                  string
 	Filled, Mine, OnClock  bool
 	PlayerName, Position   string
+	NFLTeam                string
 	IsAuto, IsCommissioner bool
 }
 
@@ -385,11 +402,39 @@ func tapeRoundsProps(rounds []league.TapeRound, history league.DraftHistoryView)
 	return out
 }
 
+// draftTapeMaxRenderedRounds is item 1's own final lever (2026-08-30
+// review), the fallback the plan pre-approves once item 1a
+// (single-view-per-response) and 1b (lazy per-pick detail) alone still
+// left the tape sub-view over the D3 refresh budget's 4 KB gzip ceiling
+// at a full 120-pick draft (measured ~5 KB, item 1a+1b alone — the pick
+// number's own repetition across data-tape-key/data-pick-number/the slot
+// label/#N/the two lazy-region attributes is genuine per-row entropy
+// gzip cannot compress away, unlike the surrounding boilerplate it
+// already collapses to a handful of bytes per repeat). Capping the FULL
+// pane render (Since < 0) to the newest 3 rounds keeps the live tail's
+// own "?since=" catch-up unaffected (it only ever asks for picks newer
+// than an already-seen cursor, always inside this window in practice),
+// while a viewer wanting the complete historical record still has the
+// Board/Teams tabs (unaffected: neither reads Rounds) and, once the
+// draft finishes, the CSV export.
+const draftTapeMaxRenderedRounds = 3
+
+// capTapeRounds keeps at most the newest draftTapeMaxRenderedRounds
+// entries of rounds (already newest-first, league.DraftHistory's own
+// ordering) — a no-op once a draft holds three rounds or fewer.
+func capTapeRounds(rounds []draftTapeRoundView) []draftTapeRoundView {
+	if len(rounds) <= draftTapeMaxRenderedRounds {
+		return rounds
+	}
+	return rounds[:draftTapeMaxRenderedRounds]
+}
+
 func boardCellProps(cell league.BoardCell) draftBoardCellView {
 	return draftBoardCellView{
 		Round: cell.Round, Column: cell.Column, Number: cell.Number, Label: cell.Label,
 		Filled: cell.Filled, Mine: cell.Mine, OnClock: cell.OnClock,
-		PlayerName: cell.PlayerName, Position: cell.Position, IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
+		PlayerName: cell.PlayerName, Position: cell.Position, NFLTeam: cell.NFLTeam,
+		IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
 	}
 }
 
@@ -437,12 +482,22 @@ func buildDraftHistoryView(data map[string]any) draftHistoryView {
 		}
 	}
 	return draftHistoryView{
-		Rounds: tapeRoundsProps(history.Rounds, history), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
+		Rounds: capTapeRounds(tapeRoundsProps(history.Rounds, history)), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
 		// Complete comes from data["draft"]["complete"] (the same signal
 		// draftRoomStatus/DraftCommandBar already read), not history.Complete:
 		// a fixture that never sets data["history"] (every non-league test
 		// fixture in this package) would otherwise always see complete=false.
 		Complete: complete, Latest: history.Latest, Since: -1,
+		// View defaults to tape here (the initial full-page render,
+		// Page()'s own inline <DraftHistory>, and every non-fragment
+		// caller): fragment.go's attachDraftFragmentView overwrites this
+		// per-request from "?view=" for the tape pane's own region
+		// fetches. Defaulting the SSR render to tape too, rather than
+		// rendering all three sub-views inline, keeps the very first
+		// paint consistent with every refresh afterward — a viewer who
+		// has never touched the segment sees the same single-view shape
+		// before and after the first draft:pick.
+		View: draftHistoryViewTape, ShowTape: true, ShowBoard: false, ShowTeams: false,
 		HasOnClock: hasOnClock, NextLabel: nextLabel,
 		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
 		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
@@ -719,6 +774,11 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	data["command"] = command
 	data["available"] = available
 	data["queue"] = queue
+	// csrf: the top-level token DraftHistoryHead's and DraftMobileTabs'
+	// own managed forms need directly (Page(), below) — those two
+	// components sit outside every one of the five typed views above, so
+	// they have no .CSRF field of their own to read.
+	data["csrf"] = token
 	return data
 }
 
@@ -731,7 +791,7 @@ func init() {
 			// The initial page view is an attendance claim. The body heartbeat
 			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
-			data := attachDraftRequestState(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request)
+			data := attachDraftRequestState(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request), ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

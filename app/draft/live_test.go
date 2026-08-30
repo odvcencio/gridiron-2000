@@ -137,6 +137,55 @@ func TestSinkBroadcastsEachEventOnceAndQuietsTheDetector(t *testing.T) {
 	}
 }
 
+// TestSinkNeverBroadcastsAStaleDraftState is item 4's own belt-and-
+// suspenders test (2026-08-30 review): once the Sink has broadcast a
+// higher-generation event, a draft:state carrying a LOWER (or equal)
+// generation never reaches the wire at all — but a draft:state with a
+// higher generation still does.
+func TestSinkNeverBroadcastsAStaleDraftState(t *testing.T) {
+	var fingerprint atomic.Value
+	fingerprint.Store("generation-1")
+	updates := newLiveUpdates(func() string { return fingerprint.Load().(string) })
+	updates.observe(false)
+	server := httptest.NewServer(updates.handler(func(*http.Request) bool { return true }))
+	defer server.Close()
+	conn := dialDraftLive(t, server.URL, "generation-1")
+	defer conn.Close()
+	readDraftHubEvent(t, conn, "__welcome")
+
+	sink := updates.Sink()
+	sink(league.DraftEvent{Name: "draft:pick", Generation: 5, Payload: map[string]any{}})
+	if got := readDraftHubEvent(t, conn, "draft:pick"); got != "generation-1" {
+		t.Fatalf("draft:pick fingerprint = %q, want generation-1", got)
+	}
+
+	// A stale repair (generation 3, below the 5 already sent) must never
+	// reach the wire; a fresh one (generation 6) still does. Send both
+	// before reading anything: if the stale one had gone out, it would be
+	// the NEXT frame, ahead of the fresh one.
+	sink(league.DraftEvent{Name: draftStateEvent, Generation: 3, Payload: map[string]any{}})
+	sink(league.DraftEvent{Name: draftStateEvent, Generation: 6, Payload: map[string]any{}})
+
+	var message struct {
+		Event string         `json:"event"`
+		Data  map[string]any `json:"data"`
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.ReadJSON(&message); err != nil {
+		t.Fatalf("read draft:state: %v", err)
+	}
+	if message.Event != draftStateEvent || message.Data["generation"] != float64(6) {
+		t.Fatalf("message = %+v, want one draft:state at generation 6 (the stale generation-3 repair must never reach the wire)", message)
+	}
+
+	// And nothing else follows: the stale repair truly never sent, rather
+	// than merely arriving after the fresh one.
+	_ = conn.SetReadDeadline(time.Now().Add(300 * time.Millisecond))
+	if err := conn.ReadJSON(&message); err == nil {
+		t.Fatalf("an extra frame arrived after the fresh draft:state: %+v", message)
+	}
+}
+
 func TestDraftLiveWatcherPushesAChangedFingerprint(t *testing.T) {
 	var fingerprint atomic.Value
 	fingerprint.Store("generation-1")

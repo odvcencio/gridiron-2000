@@ -8655,16 +8655,28 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 /* T2 (2026-08-30 polish pass): the Board sub-tab expands the history pane
    the same way S5's completed-draft state does above — the round x team
    grid needs the width to show every team column at 1440px
-   (PickBoard.dc.html). #history-board sits inside .draft-pane--history
-   (DraftHistoryHead), so :has() at .draft-panes reaches it without a
-   second ancestor hop. The Tape/Teams tabs restore the plain three-pane
-   grid; neither keys off #history-board. */
-.draft-panes:has(#history-board:checked) {
-  grid-template-columns: minmax(0, 1fr) 300px;
-}
+   (PickBoard.dc.html). Item 1a (2026-08-30 review) replaced the segment's
+   native radios with plain data-gosx-link navigations (DraftHistoryHead's
+   own doc comment), so this keys off data-history-board — a plain
+   attribute Page() sets on .draft-panes itself from the same
+   server-computed ShowBoard flag DraftHistory branches on — rather than
+   a :has() selector reaching for a checked history-segment radio that no
+   longer exists. The Tape/Teams views restore the plain three-pane grid;
+   neither sets the attribute.
+   Item 10 (2026-08-30 review): scoped inside a min-width media query —
+   .draft-panes is a 3-column grid only at this width or wider (the
+   @media (max-width: 56.1875rem) block below switches it to a plain
+   block, tab-gated single pane instead), so an unscoped
+   grid-template-columns override here was dead weight below that width
+   at best, and a needless cascade entry to reason about at worst. */
+@media (min-width: 56.25rem) {
+  .draft-panes[data-history-board="true"] {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
 
-.draft-panes:has(#history-board:checked) .draft-pane--available {
-  display: none;
+  .draft-panes[data-history-board="true"] .draft-pane--available {
+    display: none;
+  }
 }
 
 .draft-pane {
@@ -8693,6 +8705,36 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* Mockup divergences (2026-08-30 review): draft-history-head now stacks
+   TWO rows instead of the single flex row .draft-pane__head/
+   .draft-available-head share above — the Tape/Board/Teams segment plus
+   the "↓ Latest" jump link (moved here from inside the swapped tape
+   sub-view, so it stays put across every region refresh) on one line,
+   the position/mine filter chips on the next, matching Main.dc.html. */
+.draft-history-head {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.draft-history-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.draft-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-shell .draft-history-filters input:checked + .chip {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+  border-color: var(--color-accent-cyan);
 }
 
 .draft-available-head__chips {
@@ -8890,6 +8932,10 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+  /* Item 1a (2026-08-30 review): the history pane's own three options are
+     now <a> elements (DraftHistoryHead's own doc comment), which carry a
+     default underline .segment's original <label> options never had. */
+  text-decoration: none;
 }
 
 .segment input:checked + .segment__option {
@@ -8898,6 +8944,23 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 .segment input:focus-visible + .segment__option {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+/* Item 1a (2026-08-30 review): the history pane's own Tape/Board/Teams
+   segment is three plain <a data-gosx-link> navigations, not a radio
+   group (DraftHistoryHead's own doc comment, page.gsx) — the "active"
+   look keys off aria-current, server-computed from the same ShowTape/
+   ShowBoard/ShowTeams flags DraftHistory itself branches on, directly on
+   the element rather than a sibling-selector off a checked radio. The
+   My Team pane's own Queue/Roster/Room segment is unaffected: it is
+   still a real radio group, still styled by the two rules above. */
+.segment a.segment__option[aria-current="true"] {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.segment a.segment__option:focus-visible {
   outline: 2px solid var(--color-accent-cyan);
 }
 
@@ -8980,25 +9043,20 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 /* History pane (D4): the final ledger's CSV export link, and the Tape/
-   Board/Teams view switch — draft-history-head's segment radios sit
-   outside .draft-history (a sibling, not a parent), so the :has() below
-   is anchored at .draft-pane--history, the nearest shared ancestor. */
+   Board/Teams view. Item 1a (2026-08-30 review): the server renders
+   exactly one .draft-history__view--X at a time (DraftHistory's own
+   ShowTape/ShowBoard/ShowTeams), so this no longer needs a display:none
+   base rule plus a :has()-driven override to pick the right one out of
+   three — whichever one exists is simply the one to show, and .segment's
+   own links (DraftHistoryHead) are plain data-gosx-link navigations now,
+   not a native radio group a :has() selector could key off in the first
+   place. */
 .draft-history__ledger {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-md);
-}
-
-.draft-history__view {
-  display: none;
-}
-
-.draft-pane--history:has(#history-tape:checked) .draft-history__view--tape,
-.draft-pane--history:has(#history-board:checked) .draft-history__view--board,
-.draft-pane--history:has(#history-teams:checked) .draft-history__view--teams {
-  display: block;
 }
 
 /* overflow-x only: vertical scroll stays owned by .draft-pane__body (the
@@ -9009,11 +9067,30 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   overflow-x: auto;
 }
 
+/* Mockup divergence (2026-08-30 review): "↓ Latest" now sits inline in
+   draft-history-head__row, next to the Tape/Board/Teams segment, rather
+   than sticky inside the scrolling tape sub-view — it never scrolls out
+   of view either way, since the head itself is outside .draft-pane__body,
+   the shell's one scrolling axis per pane. flex-shrink: 0 keeps it from
+   losing its own width to the segment when the row gets tight. */
 .draft-history__jump {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  margin: var(--space-xs) var(--space-md);
+  flex-shrink: 0;
+}
+
+/* Mockup divergence, item 1's own filter chips (2026-08-30 review): a
+   plain radio group in draft-history-head (outside the swapped pane
+   body, so the selection survives every region refresh) — CSS alone
+   hides a non-matching row, client-side, once its :checked state
+   changes. Scoped to .draft-history__view--tape's own rows only:
+   DraftByTeam's per-team rows (.team-column__picks .tape-row) carry
+   neither data-position nor data-mine and stay unaffected regardless of
+   which filter chip is active. */
+.draft-pane--history:has(#tape-filter-qb:checked) .draft-history__view--tape .tape-row:not([data-position="QB"]),
+.draft-pane--history:has(#tape-filter-rb:checked) .draft-history__view--tape .tape-row:not([data-position="RB"]),
+.draft-pane--history:has(#tape-filter-wr:checked) .draft-history__view--tape .tape-row:not([data-position="WR"]),
+.draft-pane--history:has(#tape-filter-te:checked) .draft-history__view--tape .tape-row:not([data-position="TE"]),
+.draft-pane--history:has(#tape-filter-mine:checked) .draft-history__view--tape .tape-row:not([data-mine="true"]) {
+  display: none;
 }
 
 /* Tape: a sticky round header over every round's rows, newest round first
@@ -9153,40 +9230,26 @@ details.tape-row {
   flex-shrink: 0;
 }
 
-/* T4: the team+manager+NFL-team+time-to-pick line follows, muted and
-   smaller (13px) than the player line above it — one line, team name
-   only mildly emphasized against the rest. */
+/* T4/item 5 (2026-08-30 review): the team+manager+NFL-team+time-to-pick
+   line follows, muted and smaller (13px) than the player line above it —
+   ONE run, ONE ellipsis, not a bold team name plus a separately-capped
+   trailer (the pre-item-5 shape, S12's own screenshot-pass fix): running
+   two elements with different overflow rules let the NFL team and
+   time-to-pick get squeezed out of a merely 45%-wide trailer even when
+   the team name itself had room to spare. A single <small> truncates
+   together, so whichever piece is missing at 360px is whichever one the
+   whole line ran out of room for, not always the same two. */
 .tape-row__who {
   display: flex;
-  align-items: baseline;
-  flex-wrap: nowrap;
-  gap: .3125rem;
   min-width: 0;
   overflow: hidden;
 }
 
-.tape-row__who strong,
 .tape-row__who small {
   font-size: .8125rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-
-/* The team name claims space first (flex: 1 1 auto); the manager/NFL-
-   team/time-to-pick trailer is capped at 45% and shrinks first, so a
-   long team name never gets crowded down to one or two letters by a
-   comparatively unimportant manager name (S12, the T4 screenshot pass —
-   the pre-tuning ratio let "Null Pointers" collapse to "N…"). */
-.tape-row__who strong {
-  font-weight: 600;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.tape-row__who small {
-  flex: 0 1 auto;
-  max-width: 45%;
   min-width: 0;
 }
 
@@ -9292,22 +9355,30 @@ details[open] > .tape-row__summary .pick-detail__chevron::before {
   top: 0;
   z-index: 5;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-xs);
   padding: var(--space-xs);
   overflow: hidden;
   background: var(--color-canvas);
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .board-grid__team[data-mine="true"] {
   box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 
+/* Mockup divergence (2026-08-30 review): the team's full name wraps over
+   up to two lines instead of truncating to one ellipsized line
+   ("Kern…"). max-height (not -webkit-line-clamp) caps it: P6's own
+   comment above (.draft-command__banner) already found line-clamp did
+   not clip reliably on a CSS grid item in the engine the screenshot pass
+   measured against, and .board-grid__team is exactly that, a
+   .board-grid grid item — the max-height + overflow: hidden shape is the
+   same fallback that fixed the bleed there. */
 .board-grid__name {
   overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  line-height: 1.15;
+  max-height: 2.3em;
 }
 
 .board-grid__round {
@@ -9403,6 +9474,17 @@ details[open] > .tape-row__summary .pick-detail__chevron::before {
 
 .team-column__picks .tape-row {
   grid-template-columns: 2.5rem minmax(0, 1fr);
+}
+
+/* Item 7 (2026-08-30 review): the By Team tab's own compact rows stack
+   the player name over its "POS · NFL" line — .tape-row__player's own
+   base rule (above) is a flex ROW now (T4: the main tape row's player
+   name, position chip, and any AUTO/COMM tag share one line), which
+   left this narrower, two-column context's player name and its
+   "POS · NFL" small crowded onto that same single line instead of the
+   stacked shape they had before .tape-row__player became flex. */
+.team-column__picks .tape-row__player {
+  display: block;
 }
 
 .team-column__needs {
@@ -9649,21 +9731,16 @@ details[open] > .tape-row__summary .pick-detail__chevron::before {
     display: none;
   }
 
-  /* P8 (2026-08-30 review): the phone bottom tab bar's Teams tab and the
-     history pane's own Tape/Board/Teams segment are two independent
-     radio groups — #tab-teams:checked alone only reveals .draft-pane--
-     history (above), not any particular sub-view inside it. Force the
-     Teams sub-view whenever the Teams tab is the one showing the pane,
-     regardless of which sub-view a manager last picked on desktop. */
-  .draft-shell:has(#tab-teams:checked) .draft-history__view--tape,
-  .draft-shell:has(#tab-teams:checked) .draft-history__view--board {
-    display: none;
-  }
-
-  .draft-shell:has(#tab-teams:checked) .draft-history__view--teams {
-    display: block;
-  }
-
+  /* P8/item 1a (2026-08-30 review): the pre-item-1a fix forced the Teams
+     sub-view via CSS whenever the phone bottom tab bar's Teams tab
+     showed the pane, since #tab-teams:checked and the desktop segment
+     were two independent radio groups that could disagree. Item 1a
+     removed the need: #tab-teams's own checked state (DraftMobileTabs,
+     page.gsx) is now driven by the SAME server-computed ShowTeams flag
+     that decided which one .draft-history__view--X the server rendered
+     in the first place, so the two can no longer disagree — whichever
+     view exists in the DOM is already the right one, with no CSS
+     override needed here at all. */
   .draft-tabbar {
     display: flex;
     border-top: 1px solid var(--color-border);
@@ -9683,6 +9760,10 @@ details[open] > .tape-row__summary .pick-detail__chevron::before {
     font-size: var(--type-xs);
     letter-spacing: .12em;
     text-transform: uppercase;
+    /* Item 1a (2026-08-30 review): the Teams tab is an <a> now
+       (DraftMobileTabs' own doc comment, page.gsx), which carries a
+       default underline the other three <label> tabs never had. */
+    text-decoration: none;
   }
 
   .draft-tabbar input:focus-visible + .draft-tabbar__tab {

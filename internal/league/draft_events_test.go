@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -657,6 +658,66 @@ func TestEmitDraftEventBlockingReturnsOnContextCancelWithoutStallingProducers(t 
 	case <-blocked:
 	case <-time.After(2 * time.Second):
 		t.Fatal("emitDraftEventBlocking did not return once ctx was canceled")
+	}
+}
+
+// TestDraftRepairGenerationNeverOutrunsANewerRegularEvent is item 4's own
+// regression test (2026-08-30 review): sendDraftRepair must assign its
+// generation atomically with the snapshot it describes (both under
+// draftEmitMu), so a repair can never carry a HIGHER generation than a
+// regular draft:pick whose own committed pick the repair's snapshot has
+// not yet observed. It races many real picks (through MakePick, the
+// production path that also assigns generations under draftEmitMu)
+// against many repairs fired directly at sendDraftRepair, then sorts every
+// observed event by generation and checks the "picks made" figure every
+// draft:pick/draft:state payload carries (draftLiveTail's own "pick.made"
+// field, present on both) never decreases as generation increases — the
+// invariant the pre-fix snapshot-before-generation order could break.
+func TestDraftRepairGenerationNeverOutrunsANewerRegularEvent(t *testing.T) {
+	t.Cleanup(clearRosterShape)
+	setRosterShape(RosterPreset{Name: "repair-order-fixture", Slots: map[string]int{}, Bench: 1})
+	service, recorder, requests := newFullySeatedEventTestService(t)
+	teams := service.Teams()
+
+	var picking sync.WaitGroup
+	picking.Add(1)
+	go func() {
+		defer picking.Done()
+		for index, team := range teams {
+			playerID := fmt.Sprintf("pool-%03d", index+1)
+			if _, _, _, err := service.MakePick(requests[team.ID], team.ID, playerID); err != nil {
+				t.Errorf("pick %d for %s: %v", index+1, team.ID, err)
+				return
+			}
+		}
+	}()
+	for i := 0; i < len(teams)*3; i++ {
+		service.sendDraftRepair(context.Background())
+	}
+	picking.Wait()
+
+	waitForNamedCount(t, recorder, "draft:pick", len(teams))
+	events := recorder.snapshot()
+	sort.Slice(events, func(i, j int) bool { return events[i].Generation < events[j].Generation })
+
+	picksKnown := func(event DraftEvent) (int, bool) {
+		pick, ok := event.Payload["pick"].(map[string]any)
+		if !ok {
+			return 0, false
+		}
+		made, ok := pick["made"].(int)
+		return made, ok
+	}
+	var last int
+	for _, event := range events {
+		made, ok := picksKnown(event)
+		if !ok {
+			continue // draft:seat/draft:clock carry no "pick" bind; skip.
+		}
+		if made < last {
+			t.Fatalf("event %+v (generation %d) reports %d picks made, want >= %d (the previous, lower-generation event)", event, event.Generation, made, last)
+		}
+		last = made
 	}
 }
 

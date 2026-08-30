@@ -922,6 +922,7 @@ type BoardCell struct {
 	Label                  string
 	Filled, Mine, OnClock  bool
 	PlayerName, Position   string
+	NFLTeam                string
 	IsAuto, IsCommissioner bool
 }
 
@@ -936,11 +937,13 @@ type BoardRow struct {
 type BoardView struct {
 	Columns []map[string]any
 	Rows    []BoardRow
-	// ColumnCount is len(Columns), pre-rendered as a string: a GSX "+"
-	// concatenation only combines strings (an int operand silently drops,
-	// leaving the CSS custom property empty), so DraftBoard's own
-	// style={"--board-columns:" + ...} needs this already-formatted field
-	// rather than calling len() inline.
+	// ColumnCount is len(Columns), computed in Go and pre-rendered as a
+	// string: never call len() in a .gsx expression (a follow-up probe
+	// against gosx@v0.53.9, 2026-08-30 review, proved it returns empty
+	// through route.RenderProgramComponent in every shape tried, direct
+	// or nested, slice or string — not a narrower case), so DraftBoard's
+	// own style={"--board-columns:" + ...} needs this already-formatted
+	// field rather than a len(props.Columns) call inline.
 	ColumnCount string
 }
 
@@ -981,6 +984,18 @@ type DraftHistoryProps struct {
 	Complete bool
 	Latest   int
 	Since    int
+	// ShowTape/ShowBoard/ShowTeams select the ONE sub-view DraftHistory
+	// actually renders (item 1a, 2026-08-30 review): the server picks
+	// exactly one, from "?view=" (fragment.go's attachDraftFragmentView),
+	// rather than rendering all three and hiding two with CSS — the tape
+	// sub-view alone used to carry far more bytes than the D3 refresh-
+	// budget's 4 KB ceiling allows once every poll rendered all three.
+	// Computed in Go, not compared here as a bare View string, matching
+	// this file's own rule against relying on GSX template-side
+	// comparisons for anything that gates a whole subtree's presence.
+	ShowTape  bool
+	ShowBoard bool
+	ShowTeams bool
 	// The on-the-clock synthetic row DraftTapeRows leads its newest round
 	// with (Task 7 Step 4). HasOnClock is false once the draft is complete
 	// and on every "?since=" incremental fragment (the row belongs on a
@@ -998,12 +1013,14 @@ type DraftHistoryProps struct {
 	OnClockAvatarImageURL string
 	// RoundsEmpty is len(Rounds) == 0, computed in Go (page.server.go) and
 	// passed down as a plain bool rather than evaluated as len(props.Rounds)
-	// inside DraftTapeRows: GoSX's file-program interpreter (the
-	// route.RenderProgramComponent path every fragment renders through)
-	// does not resolve len() correctly on a slice prop rebound into a
-	// nested component call (empirically confirmed 2026-08-30 — the
-	// expression silently evaluates empty rather than 0), while a plain
-	// bool rebinds correctly. False on every "?since=" incremental poll
+	// inside DraftTapeRows: a follow-up probe against gosx@v0.53.9
+	// (2026-08-30 review) proved len() returns empty through
+	// route.RenderProgramComponent in EVERY shape tried — direct or
+	// nested, a slice or a string — not only the rebound-slice-prop case
+	// this fix was first written against. The rule is broader than the
+	// original comment stated: never call len() in a .gsx expression;
+	// compute the length in Go and pass it down, the way this field
+	// already does. False on every "?since=" incremental poll
 	// (attachDraftFragmentSince, fragment.go), matching HasOnClock: the
 	// empty-tape message belongs on a full pane render only.
 	RoundsEmpty bool
@@ -1031,8 +1048,11 @@ type DraftAvailableHeadProps struct {
 }
 
 type DraftHistoryHeadProps struct {
-	Started  bool
-	Complete bool
+	Started   bool
+	Complete  bool
+	ShowTape  bool
+	ShowBoard bool
+	ShowTeams bool
 }
 
 // DraftCommandBar is the shell's one always-visible surface: the pick
@@ -1225,23 +1245,50 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 // on desktop by the stylesheet's breakpoint): the checked radio drives
 // which pane the mobile stylesheet reveals via :has(), no JavaScript.
 type DraftMobileTabsProps struct {
-	Complete bool
+	Complete  bool
+	ShowBoard bool
+	ShowTeams bool
 }
 
 // DraftMobileTabs defaults to the Players tab while the draft is running
 // (S5): once it is complete that pane hides (nothing left to draft, the
 // mobile equivalent of the desktop available pane collapsing), so a
 // completed draft instead opens on the tape/ledger.
+//
+// The Teams tab is a plain data-gosx-link to "/draft?view=teams" (item
+// 6/P8, item 1a, 2026-08-30 review — see DraftHistoryHead's own doc
+// comment for why not data-gosx-set or a managed form): #tab-teams and
+// the desktop-style history segment are otherwise two independent native
+// radio groups, so a checked #tab-teams alone reveals the history pane
+// (the existing phone-width CSS) but says nothing about WHICH sub-view
+// shows inside it. #tab-teams itself stays a real radio in the
+// "draft-tab" group, its own checked state now driven by ShowTeams (the
+// same server-computed flag DraftHistory branches on) rather than
+// Complete alone — a soft nav to "?view=teams" re-renders this whole
+// component with ShowTeams true, checking #tab-teams in the SAME
+// response that also lands on the teams sub-view, no client-side write
+// needed to keep the two in agreement.
+//
+// #tab-picks needs the same ShowBoard-aware treatment for its own
+// reason: the desktop segment's Board link (DraftHistoryHead) is a real
+// page navigation too, and a viewer can reach "/draft?view=board" from a
+// phone-width layout by rotating a tablet, resizing a browser window, or
+// following a shared/bookmarked link. Without ShowBoard, #tab-picks'
+// checked state read only Complete, so a soft/full nav to "?view=board"
+// on an in-progress draft (Complete false) landed back on #tab-players —
+// the wrong tab, showing the available pool instead of the board a
+// "?view=board" URL asked for — a real regression the T-rider pass'
+// own browser screenshots caught.
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
-		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.Complete == false}></input>
+		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false}></input>
 		<label class="draft-tabbar__tab" for="tab-players">Players</label>
 		<input type="radio" name="draft-tab" id="tab-queue" class="visually-hidden"></input>
 		<label class="draft-tabbar__tab" for="tab-queue">Queue</label>
-		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.Complete}></input>
+		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && (props.ShowBoard || props.Complete)}></input>
 		<label class="draft-tabbar__tab" for="tab-picks">Picks</label>
-		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden"></input>
-		<label class="draft-tabbar__tab" for="tab-teams">Teams</label>
+		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
+		<a class="draft-tabbar__tab" href="/draft?view=teams" data-gosx-link aria-current={props.ShowTeams}>Teams</a>
 	</nav>
 }
 
@@ -1588,18 +1635,66 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 	</div>
 }
 
-// DraftHistoryHead is the pick-history pane's fixed head: the Tape/Board/
-// Teams segment and the state label (DRAFT LOG / LIVE LOG / FINAL LEDGER).
+// DraftHistoryHead is the history pane's always-visible chrome (sits
+// outside the pane's own swapped .draft-pane__body region, so it never
+// re-renders on a poll): the Tape/Board/Teams segment, the "↓ Latest"
+// jump link inline at its right edge (mockup divergence, 2026-08-30
+// review — it used to sit inside the swapped tape sub-view instead), and
+// the tape's own position/mine filter chips (a second mockup divergence:
+// ALL | QB | RB | WR | TE | Mine under the tab row).
+//
+// The segment is three plain data-gosx-link navigations to
+// "/draft?view=tape|board|teams" (item 1a), not a native radio group
+// signalling a client-side write: every click-based signal-writing
+// attribute gosx@v0.53.9 offers (data-gosx-set, data-gosx-toggle-target)
+// unconditionally calls e.preventDefault() on its own triggering click
+// (client/runtime/host/actions.ts) — placed on a <label for="..."> or
+// its target radio, that cancels the SAME click's native "check this
+// radio" default action, so the radio never actually became checked
+// (found live: the segment stayed on Tape and the pane went blank after
+// a Board click, even though the region fetch itself succeeded). A
+// managed-form workaround has the identical problem one layer up
+// (data-gosx-managed's own JSON response has no path into a shared
+// signal at all — confirmed by reading navigation.ts's managed-submit
+// pipeline directly, not just the docs). A plain link sidesteps all of
+// it: data-gosx-link soft-navigates to the new URL (client/runtime/
+// host/navigation.ts, the same mechanism the pool pagination links on
+// this same page already use), re-running Load with the new "?view=",
+// so ShowTape/ShowBoard/ShowTeams (below) and the pane body's own
+// region URL (data.history_tape_url, Page()) both come from that ONE
+// fresh server render — no client-side signal needed at all. The
+// active option gets aria-current, computed here in Go from the same
+// three bools DraftHistory itself branches on.
+//
+// The filter chips are a separate, plain native radio group
+// (draft-tape-filter) — CSS alone (.tape-row rules scoped under
+// .draft-history__view--tape, public/styles.css) hides a non-matching row
+// once its :checked state changes, client-side: no server round trip
+// needed, so no data-gosx-link concern applies to them.
 func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 	return <div class="draft-history-head">
 		<h2 id="draft-history-title" class="visually-hidden">Pick history</h2>
-		<div class="segment" role="radiogroup" aria-label="Pick history panels">
-			<input type="radio" name="draft-history-view" id="history-tape" class="visually-hidden" checked></input>
-			<label class="segment__option" for="history-tape">Tape</label>
-			<input type="radio" name="draft-history-view" id="history-board" class="visually-hidden"></input>
-			<label class="segment__option" for="history-board">Board</label>
-			<input type="radio" name="draft-history-view" id="history-teams" class="visually-hidden"></input>
-			<label class="segment__option" for="history-teams">Teams</label>
+		<div class="draft-history-head__row">
+			<div class="segment" role="radiogroup" aria-label="Pick history panels">
+				<a class="segment__option" href="/draft?view=tape" data-gosx-link aria-current={props.ShowTape}>Tape</a>
+				<a class="segment__option" href="/draft?view=board" data-gosx-link aria-current={props.ShowBoard}>Board</a>
+				<a class="segment__option" href="/draft?view=teams" data-gosx-link aria-current={props.ShowTeams}>Teams</a>
+			</div>
+			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>
+		</div>
+		<div class="draft-history-filters" role="radiogroup" aria-label="Filter the tape">
+			<input type="radio" name="draft-tape-filter" id="tape-filter-all" class="visually-hidden" checked></input>
+			<label class="chip" for="tape-filter-all">ALL</label>
+			<input type="radio" name="draft-tape-filter" id="tape-filter-qb" class="visually-hidden"></input>
+			<label class="chip" for="tape-filter-qb">QB</label>
+			<input type="radio" name="draft-tape-filter" id="tape-filter-rb" class="visually-hidden"></input>
+			<label class="chip" for="tape-filter-rb">RB</label>
+			<input type="radio" name="draft-tape-filter" id="tape-filter-wr" class="visually-hidden"></input>
+			<label class="chip" for="tape-filter-wr">WR</label>
+			<input type="radio" name="draft-tape-filter" id="tape-filter-te" class="visually-hidden"></input>
+			<label class="chip" for="tape-filter-te">TE</label>
+			<input type="radio" name="draft-tape-filter" id="tape-filter-mine" class="visually-hidden"></input>
+			<label class="chip" for="tape-filter-mine">Mine</label>
 		</div>
 	</div>
 }
@@ -1613,11 +1708,42 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 // line sits under it, muted; the slot label and pick number stay in mono
 // at the row's two edges, matching the mockup. .pick-detail__chevron is a
 // decorative marker only (aria-hidden): the summary element itself is the
-// real, natively keyboard-and-screen-reader-accessible toggle, and its
-// aria-expanded state is the browser's own <details> semantics.
+// real, natively keyboard-and-screen-reader-accessible toggle. It carries
+// no hardcoded aria-expanded (item 2, 2026-08-30 review): the browser
+// derives that state itself from <details open>, so a static
+// aria-expanded="false" markup attribute would only ever describe the
+// row's initial paint and go stale — wrong, not just redundant — the
+// instant a viewer opened it.
+//
+// Known limitation (item 8, 2026-08-30 review): an open row's <details
+// open> state is native browser state on that one DOM node, not anything
+// GoSX's fallback-mode region swap carries forward — a region refetch
+// (draft:pick/draft:undo/draft:state, or a Tape/Board/Teams tab switch)
+// replaces the whole pane's innerHTML, so every row remounts closed,
+// whichever one a viewer had open included. Fixing this needs either a
+// client-side "which pick number is open" signal GoSX v0.53.9 has no
+// declarative way to read back into a fresh server render, or global
+// page JS to re-apply it after each swap — out of scope here per the
+// review's own rule against adding one for this. Item 1b's per-row lazy
+// fetch (DraftPickDetailBody) means reopening a row after a swap costs
+// one small GET, not a full-detail re-render, so the cost of losing this
+// state is small.
 func DraftPickDetail(props TapePick) Node {
+	// "$dp" + Number ("$dp7", not the fuller "$draft.detail.pick7"): the
+	// D3 refresh-budget size test (TestTapeFragmentSizeStaysUnderTheRefresh
+	// Budget) measured this shorthand's own byte savings as the difference
+	// between passing and failing the 4 KB ceiling at a full 120-pick
+	// draft — a signal name and its region-url counterpart both repeat
+	// once per row, so every character here is paid for 120 times over.
+	// No data-gosx-set-value either: an omitted one defaults to "" (the
+	// framework's own documented default), and gosxNotifySharedSignal
+	// (client/js/bootstrap-src/00-textlayout.ts) notifies every
+	// subscriber on every set call regardless of whether the value
+	// actually changed, so a bare data-gosx-set fires the row's own
+	// micro-region refresh just as reliably as an explicit value would,
+	// on both the open AND the close click.
 	return <details class="tape-row pick-detail" data-tape-key={"pick-" + props.Number} data-pick-number={props.Number} data-mine={props.Mine} data-auto={props.IsAuto} data-position={props.Position}>
-		<summary class="tape-row__summary" aria-expanded="false">
+		<summary class="tape-row__summary" data-gosx-set={"$dp" + props.Number}>
 			<span class="mono tape-row__slot">{props.Label}</span>
 			<span class={"team-mark tone-" + props.TeamTone}>
 				<If cond={props.HasAvatarImage}>
@@ -1633,9 +1759,10 @@ func DraftPickDetail(props TapePick) Node {
 					<If cond={props.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
 				</div>
 				<div class="tape-row__who">
-					<strong>{props.TeamName}</strong>
 					<small>
-						{props.Manager} · {props.NFLTeam}
+						{props.TeamName}
+						<If cond={props.Manager != ""}> · {props.Manager}</If>
+						<If cond={props.NFLTeam != ""}> · {props.NFLTeam}</If>
 						<If cond={props.TimeToPickSec > 0}> · {props.TimeToPick}</If>
 					</small>
 				</div>
@@ -1645,28 +1772,43 @@ func DraftPickDetail(props TapePick) Node {
 				<span class="pick-detail__chevron" aria-hidden="true"></span>
 			</div>
 		</summary>
-		<div class="pick-detail__body">
-			<div class="pick-detail__stats">
-				<span class="mono">Proj {props.Projection}</span>
-				<If cond={props.HasValue}><span class="mono">vs ADP {props.ValueLabel}</span></If>
-			</div>
-			<p class="mono muted">Drafted by {props.TeamName} · {props.Manager}</p>
-			<p class="mono muted">Source: {props.Source}</p>
-			<div class="pick-detail__best">
-				<span class="idx">Best available at this pick</span>
-				<Each of={props.BestAvailable} as="candidate">
-					<span>{candidate.Name} <small>{candidate.Position} · {candidate.NFLTeam}</small></span>
-				</Each>
-			</div>
-			<div class="pick-detail__team">
-				<span class="idx">{props.TeamName} so far</span>
-				<Each of={props.TeamPicks} as="teamPick">
-					<span class={"chip pos-" + teamPick.Position}>{teamPick.PlayerName}</span>
-				</Each>
-			</div>
-			<a class="btn btn-sm" href={"/players?q=" + props.PlayerName}>Player card →</a>
-		</div>
+		<div class="pick-detail__body" data-gosx-region data-gosx-region-url={"/draft/fragment/pick/" + props.Number} data-gosx-region-signal={"$dp" + props.Number}></div>
 	</details>
+}
+
+// DraftPickDetailBody is one pick's expanded accordion content ALONE (item
+// 1b, 2026-08-30 review): DraftPickDetail's <summary> sets a per-pick
+// signal on open ($dp<N>, unique per row so opening one row never
+// refetches every other row's own micro-region), and
+// .pick-detail__body's own data-gosx-region lazily fetches this component
+// through GET /draft/fragment/pick/{n} the first time — and every
+// subsequent time, since a native <details> re-toggling re-fires the same
+// signal — a viewer actually opens that row. Eagerly rendering all of this
+// inline for every made pick (the pre-fix shape) was the single largest
+// contributor to the tape fragment's own gzip size at a full 120-pick
+// draft, well over the D3 refresh-budget's 4 KB ceiling in fallback mode.
+func DraftPickDetailBody(props TapePick) Node {
+	return <>
+		<div class="pick-detail__stats">
+			<span class="mono">Proj {props.Projection}</span>
+			<If cond={props.HasValue}><span class="mono">vs ADP {props.ValueLabel}</span></If>
+		</div>
+		<p class="mono muted">Drafted by {props.TeamName} · {props.Manager}</p>
+		<p class="mono muted">Source: {props.Source}</p>
+		<div class="pick-detail__best">
+			<span class="idx">Best available at this pick</span>
+			<Each of={props.BestAvailable} as="candidate">
+				<span>{candidate.Name} <small>{candidate.Position} · {candidate.NFLTeam}</small></span>
+			</Each>
+		</div>
+		<div class="pick-detail__team">
+			<span class="idx">{props.TeamName} so far</span>
+			<Each of={props.TeamPicks} as="teamPick">
+				<span class={"chip pos-" + teamPick.Position}>{teamPick.PlayerName}</span>
+			</Each>
+		</div>
+		<a class="btn btn-sm" href={"/players?q=" + props.PlayerName}>Player card →</a>
+	</>
 }
 
 // DraftTapeRows is the tape's own body (D4): every round newest first, each
@@ -1723,7 +1865,12 @@ func DraftTapeRows(props DraftHistoryProps) Node {
 
 // DraftBoard is the round x team grid (D4): a sticky team-column header row,
 // then one sticky round header and one board-cell row per round. The pane
-// owns overflow: auto so the grid scrolls both ways at phone width.
+// owns overflow: auto so the grid scrolls both ways at phone width. The
+// header shows the team's full name under its badge, wrapped over up to
+// two lines (mockup divergence, 2026-08-30 review — it used to truncate
+// to one ellipsized line, "Kern…"); a filled cell reads "1.01 · WR · CIN"
+// (label · position · NFL team, PickBoard.dc.html — the NFL team was
+// missing before this same pass).
 func DraftBoard(props BoardView) Node {
 	return <div class="board-grid" style={"--board-columns:" + props.ColumnCount}>
 		<div class="board-grid__corner"></div>
@@ -1745,7 +1892,7 @@ func DraftBoard(props BoardView) Node {
 					</If>
 					<If cond={cell.OnClock == false && cell.Filled}>
 						<strong>{cell.PlayerName}</strong>
-						<small>{cell.Label} · {cell.Position}<If cond={cell.IsAuto}> · AUTO</If></small>
+						<small>{cell.Label} · {cell.Position} · {cell.NFLTeam}<If cond={cell.IsAuto}> · AUTO</If></small>
 					</If>
 					<If cond={cell.OnClock == false && cell.Filled == false}>
 						<small>{cell.Label}<If cond={cell.Mine}> · you</If></small>
@@ -1795,21 +1942,33 @@ func DraftByTeam(props DraftByTeamProps) Node {
 	</div>
 }
 
-// DraftHistory is the pick-tape pane's swapped body (D4): the Tape/Board/
-// Teams views (only one visible at a time, the draft-history-head segment's
-// CSS :has() rules), plus the completed draft's final ledger and CSV export
-// link.
+// DraftHistory is the pick-tape pane's swapped body (D4): exactly ONE of
+// the Tape/Board/Teams views (item 1a, 2026-08-30 review — the server
+// picks which, from "?view=", fragment.go's attachDraftFragmentView; the
+// ShowTape/ShowBoard/ShowTeams bools this branches on are computed there,
+// never a bare view-string compare inside the template itself), plus the
+// completed draft's final ledger and CSV export link. The
+// .draft-history__view--X wrapper classes and the draft-history-head
+// segment's CSS :has() rules stay as a second, redundant safety net (T2's
+// own board-expand rule also keys off the same radios): normally at most
+// one wrapper exists in the DOM at all, since the server already sent
+// only one view's markup.
 func DraftHistory(props DraftHistoryProps) Node {
 	return <div class="draft-history" data-latest={props.Latest}>
 		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
-		<div class="draft-history__view draft-history__view--tape">
-			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>
-			<div class="tape" id="tape-latest">
-				<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty}></DraftTapeRows>
+		<If cond={props.ShowTape}>
+			<div class="draft-history__view draft-history__view--tape">
+				<div class="tape" id="tape-latest">
+					<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty}></DraftTapeRows>
+				</div>
 			</div>
-		</div>
-		<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
-		<div class="draft-history__view draft-history__view--teams"><DraftByTeam Teams={props.Teams}></DraftByTeam></div>
+		</If>
+		<If cond={props.ShowBoard}>
+			<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
+		</If>
+		<If cond={props.ShowTeams}>
+			<div class="draft-history__view draft-history__view--teams"><DraftByTeam Teams={props.Teams}></DraftByTeam></div>
+		</If>
 		<If cond={props.Complete}>
 			<div class="draft-history__ledger">
 				<span class="idx">FINAL LEDGER</span>
@@ -1828,11 +1987,11 @@ func Page() Node {
 		<header class="draft-command" data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
-		<DraftMobileTabs Complete={data.draft.complete}></DraftMobileTabs>
-		<div class="draft-panes">
+		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams}></DraftMobileTabs>
+		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
-				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete}></DraftHistoryHead>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/tape" data-gosx-region-on="draft:pick draft:undo draft:state">
+				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams}></DraftHistoryHead>
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state">
 					<DraftHistory {...data.history}></DraftHistory>
 				</div>
 			</section>
