@@ -1,0 +1,46 @@
+package replay
+
+import (
+	"context"
+	"net/http"
+	"testing"
+	"time"
+
+	"gridiron-2000/internal/fantasy"
+)
+
+func TestServerAdvancesOnAScheduleAndListsTheGame(t *testing.T) {
+	game := loadGame(t)
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	server := Serve(game, 10*time.Second, func() time.Time { return now })
+	defer server.Close()
+	// NewBoxScoreClient's maxBodyBytes parameter (added by Task 1, after
+	// this plan step was drafted) is 0 here, which falls back to its own
+	// default cap.
+	client, err := fantasy.NewBoxScoreClient(server.URL(), 2026, http.DefaultClient, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := client.FetchBoxScore(context.Background(), "20250907_BAL@BUF")
+	if err != nil || first.Period != "" {
+		t.Fatalf("frame 0 = %+v %v", first, err)
+	}
+	now = now.Add(25 * time.Second)
+	third, err := client.FetchBoxScore(context.Background(), "20250907_BAL@BUF")
+	if err != nil || third.Period != "Q1" || server.ServedIndex() != 2 || server.ServedAt(2).IsZero() {
+		t.Fatalf("after 25 s = %+v index=%d err=%v", third, server.ServedIndex(), err)
+	}
+	listings, err := client.FetchGamesForWeek(context.Background(), "reg", "1")
+	wantDate := server.Start().In(eastern).Format("20060102")
+	if err != nil || len(listings) != 1 || listings[0].ID != "20250907_BAL@BUF" || listings[0].Date != wantDate {
+		t.Fatalf("listings = %+v %v (want date %s)", listings, err, wantDate)
+	}
+	games := server.ScheduleSource()()
+	if len(games) != 1 || games[0].Week != 1 || games[0].Away != "BAL" || games[0].Home != "BUF" || !games[0].Kickoff.Equal(server.Start()) {
+		t.Fatalf("schedule = %+v", games)
+	}
+}

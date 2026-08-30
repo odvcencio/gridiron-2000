@@ -2,18 +2,59 @@ package main
 
 import (
 	"context"
+	"log"
+	"net/http"
+	"os"
+	"strings"
 	"sync"
+	"time"
 
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/openstats"
+	"gridiron-2000/internal/sim/replay"
 )
 
 // liveScoringRuntime is what BuildApp wires for A1-A3 and what /test/live
-// reports. Task 8 adds the Replay field.
+// reports.
 type liveScoringRuntime struct {
 	Poller *livescore.Poller
+	Replay *replay.Server // non-nil only in LIVE_REPLAY_FIXTURE demo mode
+}
+
+// liveScoringInputs picks the real relay or the replay. In replay mode
+// (LIVE_REPLAY_FIXTURE=<dir>) the schedule is the replay's one game with
+// kickoff = replay start, the fetcher points at the in-process fake
+// relay, and liveCfg.Enabled is forced true unless LIVE_SCORING_ENABLED
+// is exactly "false". A missing or unreadable fixture logs once and
+// leaves the poller on the normal (non-replay) path instead.
+func liveScoringInputs(pool *fantasy.Service, lg *league.Service, rt *AppRuntime) (livescore.Config, livescore.Fetcher, *replay.Server) {
+	liveCfg := livescore.ConfigFromEnv()
+	dir := strings.TrimSpace(os.Getenv("LIVE_REPLAY_FIXTURE"))
+	if dir == "" {
+		return liveCfg, pool.BoxScoreClient(), nil
+	}
+	game, err := replay.LoadDir(dir)
+	if err != nil {
+		log.Printf("livescore: LIVE_REPLAY_FIXTURE=%s: %v; the live poller stays disabled", dir, err)
+		liveCfg.Enabled = false
+		return liveCfg, pool.BoxScoreClient(), nil
+	}
+	server := replay.Serve(game, livescore.ReplayStepFromEnv(), time.Now)
+	rt.closers = append(rt.closers, server.Close)
+	lg.SetScheduleSource(server.ScheduleSource())
+	if !strings.EqualFold(strings.TrimSpace(os.Getenv("LIVE_SCORING_ENABLED")), "false") {
+		liveCfg.Enabled = true
+	}
+	log.Printf("livescore: replay mode from %s (%d frames, step %s)", dir, server.FrameCount(), server.Step())
+	fetcher, err := fantasy.NewBoxScoreClient(server.URL(), liveCfg.Season, &http.Client{Timeout: 10 * time.Second}, 0)
+	if err != nil {
+		log.Printf("livescore: replay mode: %v; the live poller stays disabled", err)
+		liveCfg.Enabled = false
+		return liveCfg, pool.BoxScoreClient(), nil
+	}
+	return liveCfg, fetcher, server
 }
 
 // liveScheduleSource adapts the league schedule to the poller's shape.
@@ -60,13 +101,16 @@ const fantasyPoolDisabledReason = "fantasy pool disabled: no Tank01 key or relay
 // StartDraftClock, StartRosterOps, ...), with one addition: it also joins
 // rt.wg so AppRuntime.Close can wait for the goroutine to actually return
 // (see Close's doc comment) rather than merely firing it and forgetting
-// it. fetcher and liveCfg are parameters so Task 8's replay mode can
-// substitute a fake relay. fantasyEnabled is fantasy.Service.Enabled():
-// when false (no TANK01_API_KEY and no TANK01_BASE_URL), this forces the
-// poller off regardless of LIVE_SCORING_ENABLED and records why, so
+// it. fetcher and liveCfg are parameters so liveScoringInputs's replay
+// mode can substitute a fake relay for the shared Tank01 client.
+// fantasyEnabled gates the poller on whether it has a real way to reach
+// Tank01: BuildApp passes fantasy.Service.Enabled() (no TANK01_API_KEY
+// and no TANK01_BASE_URL forces the poller off, recording why so
 // /test/live and the status line show the real cause instead of a bare
-// "disabled" — and, more importantly, so the poller never dials Tank01
-// unauthenticated.
+// "disabled", and so the poller never dials Tank01 unauthenticated) OR'd
+// with "a replay server is active" — a self-contained fake relay needs no
+// Tank01 credentials of its own, so it must not be blocked by a guard
+// that exists only to keep an unauthenticated client off the real one.
 func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fantasyEnabled bool, stats *openstats.Service, lg *league.Service, rt *AppRuntime) *liveScoringRuntime {
 	liveCfg.Now = lg.ClockForTest // wall time unless the harness overrides it
 	if !fantasyEnabled {

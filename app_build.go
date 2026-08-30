@@ -28,7 +28,6 @@ import (
 	"gridiron-2000/internal/commissionerhq/v1provider"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
-	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/mailer"
 	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
@@ -104,13 +103,19 @@ type AppRuntime struct {
 	// when the ctx passed to Start is canceled, but Close does not wait
 	// for it (round-2 review of commit cdeb7f2, finding 4 — a deliberate,
 	// narrower change, not a general join-everything policy).
-	wg           sync.WaitGroup
-	StopNotify   context.CancelFunc
-	Drain        func(timeout time.Duration) int
-	AppName      string
-	Port         string
-	HQV1         *commissionerHQV1Runtime
-	Live         *liveScoringRuntime
+	wg         sync.WaitGroup
+	StopNotify context.CancelFunc
+	Drain      func(timeout time.Duration) int
+	AppName    string
+	Port       string
+	HQV1       *commissionerHQV1Runtime
+	Live       *liveScoringRuntime
+	// closers runs inside Close, after restoreClock: today only the
+	// replay server's httptest.Server (live_scoring.go's
+	// liveScoringInputs), so LIVE_REPLAY_FIXTURE demo mode stops its
+	// listener on shutdown instead of leaking it for the process
+	// lifetime.
+	closers      []func()
 	restoreClock func() // nil unless cfg.TestAuth mounted the harness clock override
 }
 
@@ -145,10 +150,13 @@ const closeWaitTimeout = 5 * time.Second
 // Close also restores the harness clock override mountTestRoutes may have
 // installed: lazy (only the first /test/clock request installs it), so a
 // harness build that never exercises /test/clock never touches the
-// process-wide league clock at all, and that part is then a no-op. Safe
-// to call more than once, and safe to call on every AppRuntime, harness
-// or not — a caller does not need to know whether cfg.TestAuth was set,
-// or whether Start was ever called, to clean up.
+// process-wide league clock at all, and that part is then a no-op. It
+// then runs every closer in r.closers (today: a LIVE_REPLAY_FIXTURE
+// replay server's httptest.Server.Close), in registration order, after
+// the clock restore and before waiting on r.wg. Safe to call more than
+// once, and safe to call on every AppRuntime, harness or not — a caller
+// does not need to know whether cfg.TestAuth was set, or whether Start
+// was ever called, to clean up.
 func (r *AppRuntime) Close() {
 	if r == nil {
 		return
@@ -156,6 +164,9 @@ func (r *AppRuntime) Close() {
 	r.closeOnce.Do(func() {
 		if r.restoreClock != nil {
 			r.restoreClock()
+		}
+		for _, closer := range r.closers {
+			closer()
 		}
 		done := make(chan struct{})
 		go func() {
@@ -313,7 +324,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		return openStats.Status().PlayerStats.LastUpdated
 	})
 	league.Default().SetHistoricalSource(historicalSource(openStats))
-	liveRuntime := buildLiveScoring(livescore.ConfigFromEnv(), fantasyPool.BoxScoreClient(), fantasyPool.Enabled(), openStats, league.Default(), rt)
+	liveCfg, liveFetcher, replayServer := liveScoringInputs(fantasyPool, league.Default(), rt)
+	// A replay server is its own self-contained relay: it needs no Tank01
+	// credentials of its own, so its presence stands in for
+	// fantasyPool.Enabled() when deciding whether buildLiveScoring may
+	// leave the poller on (see buildLiveScoring's fantasyEnabled doc).
+	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), rt)
+	liveRuntime.Replay = replayServer
 	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	rt.starters = append(rt.starters, func(ctx context.Context) {

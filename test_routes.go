@@ -248,7 +248,10 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 	// hostname is operational detail, never a credential, and no
 	// production deployment ever serves this route (round-2 review of
 	// commit cdeb7f2, finding 7).
-	// Task 8 adds a replay object to out.
+	// In LIVE_REPLAY_FIXTURE demo mode, out also carries a replay object
+	// with the fake relay's own progress: frame count, the highest frame
+	// index served so far, when that index was first served, the
+	// replay's start instant, and the step between frames.
 	app.Mount("GET /test/live", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{"version": int64(0), "in_window": 0, "poller": map[string]any{}}
 		if live != nil && live.Poller != nil {
@@ -256,6 +259,13 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			out["version"] = live.Poller.Version()
 			out["in_window"] = health.InWindow
 			out["poller"] = health
+		}
+		if live != nil && live.Replay != nil {
+			out["replay"] = map[string]any{
+				"frames": live.Replay.FrameCount(), "served_index": live.Replay.ServedIndex(),
+				"served_at": live.Replay.ServedAt(live.Replay.ServedIndex()).UTC(),
+				"start":     live.Replay.Start().UTC(), "step_ms": live.Replay.Step().Milliseconds(),
+			}
 		}
 		writeJSON(w, out)
 	}))
