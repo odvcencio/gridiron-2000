@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -393,8 +394,17 @@ func TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline(t *testing.T) 
 
 // TestTapeFragmentSinceReturnsOnlyNewerRows proves attachDraftFragmentSince
 // and filterTapeRoundsSince (fragment.go): "?since=N" switches the tape
-// fragment to DraftTapeRows, every pick above N alone, each preceded by
-// its round header once.
+// fragment to DraftTapeRows, every pick above N alone.
+//
+// Review item 2 (2026-08-30) flipped the header half of this test: since
+// round 1's own header (data-tape-key="round-1") already reached the page
+// on an earlier response (since < round.First), since=2 — still inside
+// round 1 (First=1) — must NOT re-carry it. A re-sent header would only
+// be dropped by the prepend region's own data-tape-key dedupe
+// (client/runtime/host/regions.ts), discarding the whole node — including
+// any fresher "N of M made" text — before it ever reaches the DOM; its
+// own live MadeBindKey/CurrentBindAttr bind (item 3) is what actually
+// keeps an already-rendered header current from here on.
 func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	fixture := draftFragmentFixture()
 	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
@@ -406,8 +416,106 @@ func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	if !strings.Contains(body, `data-tape-key="pick-3"`) || strings.Contains(body, `data-tape-key="pick-2"`) || strings.Contains(body, `class="draft-history"`) {
 		t.Fatalf("since=2 must render rows newer than 2 only: %s", body)
 	}
-	if !strings.Contains(body, `data-tape-key="round-1"`) {
-		t.Fatalf("since=2 must carry the round header its rows belong to: %s", body)
+	if strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=2 must NOT re-carry round 1's own header, already on the page: %s", body)
+	}
+}
+
+// TestTapeRowsFragmentSinceReturnsOnlyNewerRows pins finding 1 (2026-08-30
+// review): target mode's own markup never sends "?since=" to the
+// "tape-rows" region, but attachDraftFragmentSince runs for every region,
+// so a caller that does send it still gets only the rows numbered above
+// the cursor — the same filtered DraftTapeRows body the "tape" region's
+// own "?since=" poll returns (TestTapeFragmentSinceReturnsOnlyNewerRows,
+// above). This is API compatibility only (TapeRowsFragmentHandler's own
+// doc comment, fragment.go).
+func TestTapeRowsFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRowsRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape-rows?since=2", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, `data-tape-key="pick-3"`) || strings.Contains(body, `data-tape-key="pick-2"`) || strings.Contains(body, `class="draft-history"`) {
+		t.Fatalf("tape-rows since=2 must render rows newer than 2 only: %s", body)
+	}
+}
+
+// TestTapeRowsFragmentNeverLeaksTheLiveRootOrShell is finding 4 (2026-08-30
+// review): DraftTapeRows carries no outer element of its own (its own doc
+// comment, page.gsx) — the "tape-rows" region's response must be the bare
+// round/row markup alone, none of the wrapping DraftHistory pane's own
+// live root, region element, #tape-latest anchor, or role="status"
+// stale-fallback paragraph. Checked at 0, 1, and 11 picks (0 crosses into
+// RoundsEmpty; 11 crosses an 8-team round boundary).
+func TestTapeRowsFragmentNeverLeaksTheLiveRootOrShell(t *testing.T) {
+	forbidden := []string{
+		"data-gosx-live-mode",
+		"data-gosx-region",
+		"tape-latest",
+		"draft-history",
+		`role="status"`,
+	}
+	for _, made := range []int{0, 1, 11} {
+		picks := make([]league.TapePick, 0, made)
+		for n := 1; n <= made; n++ {
+			picks = append(picks, tapePickFixture(n, "manager"))
+		}
+		fixture := draftFragmentFixture()
+		fixture["history"] = tapeHistoryFixture(picks)
+		fixture["picks_empty"] = made == 0
+		handler := draftFragmentHandler(draftTapeRowsRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape-rows", nil))
+		body := response.Body.String()
+		for _, marker := range forbidden {
+			if strings.Contains(body, marker) {
+				t.Errorf("%d picks: tape-rows body leaked %q: %s", made, marker, body)
+			}
+		}
+	}
+}
+
+// TestTapeFragmentSinceRoundHeaderCrossesRoundBoundary is review item 2's
+// own T1/T2/T4 sequence (2026-08-30): three sequential same-round picks
+// (T1, T2, T4 — an 8-team league's round 1, picks 1/2/4) show round 1's
+// header exactly once, on the FIRST of the three "?since=" fetches, never
+// re-sent on the later two; a fourth pick that crosses the round boundary
+// (pick 9, round 2) DOES carry round 2's own fresh header, and still
+// never re-carries round 1's.
+func TestTapeFragmentSinceRoundHeaderCrossesRoundBoundary(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{
+		tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(4, "manager"),
+		tapePickFixture(9, "manager"),
+	})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	fetch := func(since int) string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape?since="+strconv.Itoa(since), nil))
+		return response.Body.String()
+	}
+	// T1: nothing seen yet — round 1's header is genuinely new.
+	if body := fetch(0); !strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=0 must carry round 1's own header: %s", body)
+	}
+	// T2 (a second same-round pick, since=1 >= round.First=1): no header.
+	if body := fetch(1); strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=1 must NOT re-carry round 1's own header: %s", body)
+	}
+	// T4 (a third same-round pick, since=2): still no header.
+	if body := fetch(2); strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=2 must NOT re-carry round 1's own header: %s", body)
+	}
+	// Crossing into round 2 at pick 9 (since=4): round 2's header is new.
+	body := fetch(4)
+	if !strings.Contains(body, `data-tape-key="round-2"`) {
+		t.Fatalf("since=4 (crossing into round 2) must carry round 2's own header: %s", body)
+	}
+	if strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=4 must not re-carry round 1's own header even at a round boundary: %s", body)
 	}
 }
 
@@ -517,22 +625,33 @@ func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
 	}
 }
 
-// TestDraftTapeRegionDoesNotYetRequestSinceCursor is item 7's own unit
-// test (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
-// never requests the "?since=" cursor itself — the tape pane's own
-// region carries no "-cursor"/"{cursor}" binding yet, only a static URL
-// (data.history_tape_url). Target mode (Task 8, gosx v0.53.10's region
-// "{cursor}" bind) is the caller that will ask for it; the server-side
-// machinery (draftTapeSinceKey, attachDraftFragmentSince,
-// filterTapeRoundsSince) stays ready for that today.
-func TestDraftTapeRegionDoesNotYetRequestSinceCursor(t *testing.T) {
+// TestDraftTapeRegionIsAPlainReplaceInTargetMode supersedes the deleted
+// prepend-cursor contract (findings 1/2/3/6, 2026-08-30 review): target
+// mode's tape pane now nests exactly ONE plain REPLACE region (no
+// data-gosx-region-mode, no data-gosx-region-key, no data-gosx-region-cursor,
+// no "{cursor}" token anywhere in page.gsx), fetching TapeRowsFragmentHandler's
+// own dedicated endpoint on every draft:pick/draft:undo/draft:state.
+func TestDraftTapeRegionIsAPlainReplaceInTargetMode(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"data-gosx-region-cursor", "-cursor={", "since={value}"} {
-		if strings.Contains(string(source), forbidden) {
-			t.Errorf("page.gsx already requests a region cursor (%q) — item 7 expected fallback mode to wait for target mode (Task 8)", forbidden)
+	body := string(source)
+	for _, want := range []string{
+		`data-gosx-region-url={props.TapeURL} data-gosx-region-on="draft:pick draft:undo draft:state"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx must request the tape-rows region as a plain replace, missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`data-gosx-region-mode="prepend"`,
+		`data-gosx-region-key=`,
+		`data-gosx-region-cursor=`,
+		`{cursor}`,
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("page.gsx must carry no prepend machinery, found %q", forbidden)
 		}
 	}
 }
@@ -591,10 +710,12 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 	}
 	// Scoped to the app shell (D2, D5, Page()'s own component tree): the
 	// legacy DraftRoom/DraftWorkspace components above this marker keep
-	// every form signaled until Task 8 retires the two of them (they are
-	// unreachable from Page() already), and happen to reuse the same
-	// props.Actions.toggle_ready/toggle_autopick action expressions the
-	// shell's own signal-free forms below the marker use.
+	// every form signaled — Task 8 (target mode, 2026-08-30) kept both
+	// mounted rather than retiring them (they stay unreachable from
+	// Page(), a documented, deliberately deferred cleanup) — and happen
+	// to reuse the same props.Actions.toggle_ready/toggle_autopick
+	// action expressions the shell's own signal-free forms below the
+	// marker use.
 	if marker := strings.Index(string(source), "// --- The app shell (D2, D5)"); marker >= 0 {
 		source = source[marker:]
 	}
@@ -650,10 +771,18 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(page)
+	// Task 8 (target mode, gosx@v0.53.10): the command bar's own region
+	// (data-gosx-region-url="/draft/fragment/command", -on=...) retired in
+	// favor of a fetchless data-gosx-live-mode="event" root — the whole
+	// point of target mode's zero-fetch-per-pick budget (S6). DraftRoom
+	// and DraftWorkspace still carry the OLD fallback-shaped markup
+	// verbatim (their own /draft/fragment/room|workspace routes stay
+	// mounted, unused by Page()), so this test still pins them by name.
 	for _, want := range []string{
-		`data-gosx-region-url="/draft/fragment/command"`,
-		`data-gosx-region-signal="$draft.state.refresh"`,
-		`data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
+		`data-gosx-live-mode="event"`,
+		`data-gosx-live-src="/draft/live.json"`,
+		`data-gosx-live-hub="draft-live"`,
+		`data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,

@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -256,6 +257,16 @@ type draftHistoryView struct {
 	// carrying the viewer's own pool q/pos/page (item 6).
 	HasOlderRounds bool
 	OlderHref      string
+	// TapeURL/TargetMode (findings 1/2/3/6, 2026-08-30 review): TapeURL is
+	// target mode's OWN static URL for its single nested tape-rows region
+	// (attachDraftFragmentView, fragment.go) — a distinct string from
+	// history_tape_url (which still names the full "tape" region:
+	// Tape/Board/Teams plus the pane shell, fallback mode's own outer
+	// region). TargetMode selects target-mode's nested live-root/
+	// single-replace-region structure versus fallback's plain
+	// full-replace region (DRAFT_LIVE_MODE=fallback).
+	TapeURL    string
+	TargetMode bool
 	// detail resolves one pick's full accordion content on demand (item 1,
 	// 2026-08-30 review): attachDraftFragmentPick (fragment.go) calls this
 	// exactly once, for the single pick number a "?pick=" query names, and
@@ -315,6 +326,22 @@ type draftTapeRoundView struct {
 	Current            bool
 	Made, Total        int
 	Picks              []draftTapePickView
+	// ShowHeader/MadeBindKey/CurrentBindAttr (review item 2/3, 2026-08-30):
+	// a "?since=" response renders a round's header only the FIRST time
+	// that round appears at all (since < round.First, filterTapeRoundsSince,
+	// fragment.go) — every later poll within the SAME round omits it, since
+	// gosx's region-key dedupe (data-tape-key) would drop a re-sent header
+	// anyway, and a dropped node's own fresh "N of M made" text never
+	// reaches the DOM. MadeBindKey ("round.<r>.made") and CurrentBindAttr
+	// ("data-current:round.<r>.current") keep an EMIT-ONCE header's own
+	// made-count and current-round flag live instead — internal/league's
+	// draft_events.go emits both under "round.<r>.*" on every draft:pick/
+	// draft:undo/draft:state. ShowHeader is always true on a full render
+	// (Since < 0, tapeRoundsProps' own default); filterTapeRoundsSince
+	// overrides it per round for a "?since=" response.
+	ShowHeader      bool
+	MadeBindKey     string
+	CurrentBindAttr string
 }
 
 type draftBoardCellView struct {
@@ -324,6 +351,15 @@ type draftBoardCellView struct {
 	PlayerName, Position   string
 	NFLTeam                string
 	IsAuto, IsCommissioner bool
+	// CellBindKey/PosBindAttr (Task 8, target mode): pre-formatted
+	// data-gosx-live-bind/-bind-attr values ("cell.<round>.<column>",
+	// "data-pos:cellpos.<round>.<column>") — computed here, in Go, rather
+	// than concatenated from Round/Column ints inside the .gsx template,
+	// matching this package's established rule against relying on
+	// unproven GSX template-side expression shapes (ColumnCount's own
+	// doc comment, DraftHistoryProps.RoundsEmpty's own doc comment).
+	CellBindKey string
+	PosBindAttr string
 }
 
 type draftBoardRowView struct {
@@ -445,10 +481,17 @@ func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []d
 			card.Href = draftHistoryHref(draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
 			picks = append(picks, card)
 		}
+		roundKey := strconv.Itoa(round.Round)
 		out = append(out, draftTapeRoundView{
 			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
 			Current: round.Current, Made: round.Made, Total: round.Total,
 			Picks: picks,
+			// ShowHeader defaults true here (every full render shows every
+			// round's own header); filterTapeRoundsSince (fragment.go)
+			// overrides it per round for a "?since=" response.
+			ShowHeader:      true,
+			MadeBindKey:     "round." + roundKey + ".made",
+			CurrentBindAttr: "data-current:round." + roundKey + ".current",
 		})
 	}
 	return out
@@ -493,11 +536,14 @@ func capTapeRounds(rounds []draftTapeRoundView) []draftTapeRoundView {
 }
 
 func boardCellProps(cell league.BoardCell) draftBoardCellView {
+	round, column := strconv.Itoa(cell.Round), strconv.Itoa(cell.Column)
 	return draftBoardCellView{
 		Round: cell.Round, Column: cell.Column, Number: cell.Number, Label: cell.Label,
 		Filled: cell.Filled, Mine: cell.Mine, OnClock: cell.OnClock,
 		PlayerName: cell.PlayerName, Position: cell.Position, NFLTeam: cell.NFLTeam,
 		IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
+		CellBindKey: "cell." + round + "." + column,
+		PosBindAttr: "data-pos:cellpos." + round + "." + column,
 	}
 }
 
@@ -530,7 +576,23 @@ func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
 // into the page-level draftHistoryView above. A fixture that never sets
 // "history" (every non-league test fixture in this package) type-asserts
 // to the zero value, so the pane still renders — empty, never a panic.
-func buildDraftHistoryView(data map[string]any) draftHistoryView {
+// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30): "target"
+// (the default, and anything else) keeps gosx@v0.53.10's fetchless
+// data-gosx-live-* binds; "fallback" (case-insensitive) restores the pre-
+// Task-8 data-gosx-region*-driven refetch-and-swap wiring in the exact
+// same page.gsx, gated by <If cond={data.live_mode == "target"}> pairs. A
+// plain process env var, the same simplicity PICK_CLOCK/GOSX_APP_ROOT
+// already use (sim_child_test.go) — no additional local-env gate, since
+// this selects a rendering strategy, not a privileged or destructive
+// action.
+func draftLiveMode() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "fallback") {
+		return "fallback"
+	}
+	return "target"
+}
+
+func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryView {
 	history, _ := data["history"].(league.DraftHistoryView)
 	complete := boolField(mapField(data, "draft"), "complete")
 	onClock := mapField(data, "on_clock")
@@ -573,6 +635,7 @@ func buildDraftHistoryView(data map[string]any) draftHistoryView {
 		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
 		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
 		RoundsEmpty: len(history.Rounds) == 0,
+		TargetMode:  liveMode == "target",
 		detail:      history.Detail,
 	}
 }
@@ -749,6 +812,18 @@ func prepareDraftData(data map[string]any) map[string]any {
 	viewData["has_adp"] = boolField(data, "has_adp")
 	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
 	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
+	// yourpick_bind_key (Task 8, target mode): the command bar's "your pick
+	// in N" text binds this whole key, a pre-formatted "yourpick.<team>.
+	// label" string (never a Go int concatenated inside the .gsx template
+	// itself — this file's established rule, ColumnCount's own doc
+	// comment). draftLiveTail (draft_events.go) already emits a full
+	// "your pick in N" / "no more picks" label under this exact per-team
+	// key on every draft:pick/undo/state event, so the bound span's whole
+	// text tracks it with no further field needed. Meaningless (and
+	// unread: the command bar only renders the bound span while
+	// viewer.has_seat) for an unseated viewer, so an empty team id is
+	// safe here.
+	viewData["yourpick_bind_key"] = "yourpick." + stringField(mapField(data, "viewer"), "team_id") + ".label"
 
 	actions := map[string]string{
 		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
@@ -769,9 +844,21 @@ func prepareDraftData(data map[string]any) map[string]any {
 		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
 	}
 	// live_mode/shell_modifier drive the shell root's own attributes
-	// (data-draft-live-mode, the --final class variant); "fallback" is the
-	// only mode until Task 8 pins v0.53.10 and switches to target mode.
-	output["live_mode"] = "fallback"
+	// (data-draft-live-mode, the --final class variant). Task 8 pins
+	// gosx@v0.53.10 and switches the room to "target" by default: the
+	// command, available, and my-team panes apply hub payloads through
+	// data-gosx-live-* binds with no fetch; the tape pane's own single
+	// nested region (findings 1/2/3/6, 2026-08-30 review) does a plain
+	// replace fetch on every draft:pick/draft:undo/draft:state instead of
+	// a whole-pane refetch or a growing prepend. DRAFT_LIVE_MODE=fallback
+	// (review item 8,
+	// draftLiveMode below) restores "fallback" (data-gosx-region*
+	// refetch-and-swap on every draft:pick/undo/state) — every fragment
+	// endpoint and region attribute Task 6/7 built stays fully wired in
+	// this same page.gsx for that env, gated by <If cond={data.live_mode
+	// == "target"}> pairs rather than a second template.
+	liveMode := draftLiveMode()
+	output["live_mode"] = liveMode
 	output["shell_modifier"] = ""
 	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
 		output["shell_modifier"] = " draft-shell--final"
@@ -780,7 +867,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 	// Since defaults to -1 ("unset"): draftRegionView (fragment.go) renders
 	// the full DraftHistory pane until attachDraftFragmentSince overwrites
 	// it with a "?since=" request's cursor and precomputed Rows.
-	output["history"] = buildDraftHistoryView(data)
+	output["history"] = buildDraftHistoryView(data, liveMode)
 	output["available"] = draftAvailableView{
 		Data: viewData, Players: typedPlayers,
 		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,

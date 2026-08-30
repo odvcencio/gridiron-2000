@@ -18,6 +18,7 @@ const (
 	draftWorkspaceRegion = "workspace"
 	draftCommandRegion   = "command"
 	draftTapeRegion      = "tape"
+	draftTapeRowsRegion  = "tape-rows"
 	draftAvailableRegion = "available"
 	draftQueueRegion     = "queue"
 
@@ -27,17 +28,18 @@ const (
 	// coincidence only (that one is the hub reconnect's fingerprint cursor,
 	// on a different endpoint); the two never appear on the same request.
 	//
-	// Item 7 (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
-	// never REQUESTS this cursor itself — .draft-pane__body's own
-	// data-gosx-region carries no "-cursor"/"{value}" token wired to a
-	// signal that tracks the latest pick seen, so every region refetch
-	// re-asks for the pane's own full (capped) render instead. The
-	// server-side machinery here (this key, attachDraftFragmentSince,
-	// filterTapeRoundsSince) stays in place and load-bearing regardless:
-	// target mode (Task 8, gosx v0.53.10's region "{cursor}" bind) is the
-	// caller that will start asking for "?since=" on its own, at which
-	// point this same code path answers it with no further change. Until
-	// then it is exercised only by this package's own tests.
+	// 2026-08-30 review (findings 1/2/3/6): target mode no longer sends
+	// this cursor at all — DraftHistory's own inner region
+	// (draftTapeRowsRegion, TapeRowsFragmentHandler below) is a single
+	// PLAIN REPLACE region, page.gsx's data-gosx-region-url={props.TapeURL}
+	// with no data-gosx-region-mode/-key/-cursor and no "{cursor}" token,
+	// nested inside the pane's own live root; a full replace on every
+	// draft:pick/draft:undo/draft:state never accumulates stale rows, so
+	// the prepend-and-cursor machinery this key used to drive is gone.
+	// draftTapeSinceKey and the "?since=" handling below stay live ONLY
+	// for the original "tape" region (draftTapeRegion) — fallback mode's
+	// own full-pane region and any external API caller — never requested
+	// by target mode's markup again.
 	draftTapeSinceKey = "since"
 
 	// draftHistoryViewQueryKey is item 1a's own cursor (2026-08-30 review):
@@ -106,9 +108,39 @@ func CommandFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftCommandRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
-// TapeFragmentHandler serves the pick-history pane's swapped body.
+// TapeFragmentHandler serves the pick-history pane's full swapped body
+// (Tape/Board/Teams, whichever "?view=" names): fallback mode's own outer
+// pane-body region, plus "?since=" partial-row polling kept for API
+// compatibility (2026-08-30 review, findings 1/2/6) — target mode's
+// markup no longer requests this endpoint at all.
 func TapeFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftTapeRegion, draftFragmentAccess(service), draftFragmentLoader(service, true))
+}
+
+// TapeRowsFragmentHandler serves ONLY the tape's round-grouped rows
+// (DraftTapeRows, never the pane shell, the live root, #tape-latest, the
+// region element itself, or the role="status" stale-fallback paragraph) —
+// findings 1/2/3/6 (2026-08-30 review). It is target mode's ONE tape
+// region, a plain replace (the default mode), fetched fresh on every
+// draft:pick/draft:undo/draft:state: every round header, the on-the-clock
+// synthetic row, and the "NO PICKS YET" empty state render exactly as the
+// current server state has them on every response, so nothing here can
+// ever go stale or grow without bound the way the deleted prepend region
+// could (draftRegionView, below, always answers this region with
+// DraftTapeRows, never the full DraftHistory pane) — capTapeRounds
+// (attachDraftFragmentView) still caps a full render to the newest three
+// rounds, and "?rounds=all"/"?pick=" still expand/open it exactly as the
+// full "tape" region's own URL does (history.TapeURL carries the same two
+// query parameters, attachDraftFragmentView).
+//
+// Target mode's own markup never sends "?since=" to this endpoint. The
+// parameter is still accepted here, for API compatibility only (2026-08-30
+// review, finding 1): attachDraftFragmentSince runs for every region, so
+// "?since=40" yields only the rows numbered above pick 40 — the same
+// filtered DraftTapeRows body the "tape" region's own "?since=" poll
+// returns (TestTapeRowsFragmentSinceReturnsOnlyNewerRows).
+func TapeRowsFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftTapeRowsRegion, draftFragmentAccess(service), draftFragmentLoader(service, true))
 }
 
 // AvailableFragmentHandler serves the available-players pane's swapped
@@ -222,6 +254,16 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 			return view, "DraftTapeRows", nil
 		}
 		return view, "DraftHistory", nil
+	case draftTapeRowsRegion:
+		// Always DraftTapeRows, regardless of Since — target mode's single
+		// region never sends "?since=" (draftTapeSinceKey's own doc
+		// comment), so this is unconditional rather than mirroring
+		// draftTapeRegion's Since >= 0 check above.
+		view, ok := data["history"].(draftHistoryView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftTapeRows", nil
 	case draftAvailableRegion:
 		view, ok := data["available"].(draftAvailableView)
 		if !ok {
@@ -246,14 +288,33 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 // negative, or non-numeric "?since=" leaves Since at prepareDraftData's -1
 // default, so every other fragment (and a plain GET /draft/fragment/tape)
 // keeps rendering the full pane untouched.
+//
+// request.URL.Query().Has, not Get, decides whether "?since=" was given at
+// all. A present-but-empty "?since=" (for example "/draft/fragment/tape?since=")
+// counts as "since=0" and switches to the incremental DraftTapeRows
+// render, the full made-picks list. A request that never asks for
+// "since" at all (every ordinary GET /draft/fragment/tape, and the outer
+// replace-mode region's own "?view=" URL) still renders the full pane.
+// Get alone cannot tell these two cases apart: both read "" from an
+// absent key and from a present-but-empty one.
+//
+// This distinction exists for API compatibility only (2026-08-30
+// review, findings 1/2). No current client sends an empty "?since=";
+// the prepend region that once relied on it is gone (TapeFragmentHandler
+// and TapeRowsFragmentHandler doc comments, above).
 func attachDraftFragmentSince(data map[string]any, request *http.Request) map[string]any {
-	raw := strings.TrimSpace(request.URL.Query().Get(draftTapeSinceKey))
-	if raw == "" {
+	query := request.URL.Query()
+	if !query.Has(draftTapeSinceKey) {
 		return data
 	}
-	since, err := strconv.Atoi(raw)
-	if err != nil || since < 0 {
-		return data
+	raw := strings.TrimSpace(query.Get(draftTapeSinceKey))
+	since := 0
+	if raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return data
+		}
+		since = parsed
 	}
 	history, ok := data["history"].(draftHistoryView)
 	if !ok {
@@ -378,6 +439,30 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 		tapeURL += "&" + draftHistoryRoundsKey + "=all"
 	}
 	data["history_tape_url"] = tapeURL
+	// TapeURL (findings 1/2/3/6, 2026-08-30 review): target mode's own
+	// single tape region (page.gsx's DraftHistory, ShowTape branch) needs
+	// its OWN static URL, never history_tape_url above — that one names
+	// the full "tape" region (Tape/Board/Teams plus the pane shell),
+	// which the deleted prepend design used to mis-fetch on every
+	// draft:undo (re-nesting a whole second .draft-history, live root and
+	// all, inside the first). TapeRowsFragmentHandler's own dedicated
+	// endpoint renders ONLY DraftTapeRows, so this carries no "?view="
+	// (every "?view=" answer from that endpoint is the same rows body) —
+	// only "&pick=" and "&rounds=all", the same two cursors
+	// history_tape_url carries, so an open pick or an expanded "Older
+	// rounds" view survives the region's own draft:pick/draft:undo/
+	// draft:state refresh instead of silently re-collapsing.
+	rowsURL := "/draft/fragment/tape-rows"
+	sep := "?"
+	if pick := parseDraftHistoryPick(request); pick > 0 {
+		rowsURL += sep + draftHistoryPickKey + "=" + strconv.Itoa(pick)
+		sep = "&"
+	}
+	if requestedAllRounds {
+		rowsURL += sep + draftHistoryRoundsKey + "=all"
+	}
+	history.TapeURL = rowsURL
+	data["history"] = history
 	data["history_view_tape"] = history.ShowTape
 	data["history_view_board"] = history.ShowBoard
 	data["history_view_teams"] = history.ShowTeams
@@ -506,6 +591,19 @@ func normalizeDraftHistoryView(raw string) string {
 // filterTapeRoundsSince keeps only the picks numbered above since, round
 // order and pick order (both newest-first) unchanged; a round left with no
 // qualifying picks is dropped rather than rendering an empty header.
+//
+// ShowHeader (review item 2, 2026-08-30): a round's header renders only
+// when since < round.First — the client has never seen ANY pick from this
+// round before, so the header is genuinely new. Once since reaches or
+// passes round.First, the client's own copy of this round's header is
+// already on the page from an earlier "?since=" response (or the initial
+// full render); re-sending it would only be dropped by the prepend
+// region's own data-tape-key dedupe (client/runtime/host/regions.ts),
+// which discards the WHOLE node — including any fresher "N of M made"
+// text it might have carried — before it ever reaches the DOM. Emitting
+// it once, ever, and keeping it live via MadeBindKey/CurrentBindAttr
+// (draftTapeRoundView's own doc comment) is the only path that actually
+// reaches an already-rendered header.
 func filterTapeRoundsSince(rounds []draftTapeRoundView, since int) []draftTapeRoundView {
 	out := make([]draftTapeRoundView, 0, len(rounds))
 	for _, round := range rounds {
@@ -519,6 +617,7 @@ func filterTapeRoundsSince(rounds []draftTapeRoundView, since int) []draftTapeRo
 			continue
 		}
 		round.Picks = picks
+		round.ShowHeader = since < round.First
 		out = append(out, round)
 	}
 	return out

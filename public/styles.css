@@ -1627,6 +1627,45 @@ button.badge-option:hover {
   background: var(--color-accent-haze);
 }
 
+/* Target mode (Task 8): the command bar's on-clock team mark
+   (.draft-command__mark) retargets through data-gosx-live-bind-attr, not
+   data-gosx-live-bind-class — v0.53.10's -bind-class toggles ONE fixed
+   class token from a boolean, which fits a yes/no state, not a pick
+   among several team tones. A mirrored data-tone attribute carries the
+   tone name instead, so a pick landing after the initial paint can still
+   recolor the mark. */
+.draft-command__mark[data-tone="magenta"],
+.draft-command__mark[data-tone="pink"] {
+  color: var(--color-accent-hot);
+  background: var(--color-hot-haze);
+}
+
+.draft-command__mark[data-tone="cyan"],
+.draft-command__mark[data-tone="blue"] {
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+}
+
+.draft-command__mark[data-tone="orange"] {
+  color: var(--color-orange);
+  background: var(--color-white-faint);
+}
+
+.draft-command__mark[data-tone="violet"] {
+  color: var(--color-violet);
+  background: var(--color-hot-haze);
+}
+
+.draft-command__mark[data-tone="gold"] {
+  color: var(--color-gold);
+  background: var(--color-white-faint);
+}
+
+.draft-command__mark[data-tone="lime"] {
+  color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
 .score {
   color: var(--color-text-primary);
   font-family: var(--font-display);
@@ -2216,7 +2255,8 @@ button.badge-option:hover {
 
 .draft-region,
 .draft-live-room,
-.draft-live-workspace {
+.draft-live-workspace,
+.draft-tape-rows {
   min-width: 0;
 }
 
@@ -10063,6 +10103,36 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 .board-cell.c-DST {
+  border-color: var(--color-accent-hot);
+}
+
+/* Target mode (Task 8): a live board cell's position can only change via
+   data-gosx-live-bind-attr, not data-gosx-live-bind-class — v0.53.10's
+   -bind-class toggles ONE fixed class token from a boolean, which fits a
+   yes/no state, not a pick among several positions. A pick landing after
+   the initial paint retargets data-pos instead, and these mirror
+   .board-cell.c-<pos> above for that attribute. */
+.board-cell[data-pos="QB"] {
+  border-color: var(--color-violet);
+}
+
+.board-cell[data-pos="RB"] {
+  border-color: var(--color-orange);
+}
+
+.board-cell[data-pos="WR"] {
+  border-color: var(--color-accent-cyan);
+}
+
+.board-cell[data-pos="TE"] {
+  border-color: var(--color-gold);
+}
+
+.board-cell[data-pos="K"] {
+  border-color: var(--color-blue);
+}
+
+.board-cell[data-pos="DST"] {
   border-color: var(--color-accent-hot);
 }
 

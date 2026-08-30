@@ -64,7 +64,7 @@ func chromePath(t *testing.T) string {
 }
 
 // browserAppRoot returns the app root whose dist/ holds the built client
-// runtime, or skips.
+// runtime, or skips (or fails — see the GOSX_APP_ROOT guard below).
 //
 // This precondition is the difference between evidence and a vacuous pass.
 // GoSX serves a no-op bootstrap stub when it finds no build manifest
@@ -73,8 +73,21 @@ func chromePath(t *testing.T) string {
 // never re-registered, and a clock test would report a tick it never had to
 // earn. Build the assets first:
 //
-//	go install m31labs.dev/gosx/cmd/gosx@v0.53.9
+//	go install m31labs.dev/gosx/cmd/gosx@v0.53.10
 //	GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
+//
+// The gate (2026-08-30 review): a plain local `go test .` (no GOSX_APP_ROOT
+// in the runner's own environment) still skips silently when dist/ is
+// missing — a developer running the package's other, non-browser tests
+// must not be forced to build the client runtime first. But the CI/release
+// gate always sets GOSX_APP_ROOT (the same var startBrowserDraft/
+// startBrowserDraftWith pass to the CHILD process below) to pin the child
+// to a specific worktree's dist/ — when that same var is ALSO present in
+// THIS process's own environment, a missing manifest is never an
+// acceptable silent skip: it means the gate ran without building the
+// client first, which the coordinator's own instructions forbid ("0
+// browser skips"). That case fails loudly instead, naming the exact
+// command that fixes it.
 func browserAppRoot(t *testing.T) string {
 	t.Helper()
 	root, err := os.Getwd()
@@ -83,6 +96,9 @@ func browserAppRoot(t *testing.T) string {
 	}
 	manifest := filepath.Join(root, "dist", "build.json")
 	if _, err := os.Stat(manifest); err != nil {
+		if os.Getenv("GOSX_APP_ROOT") != "" {
+			t.Fatalf("no built client runtime at %s (GOSX_APP_ROOT is set, so a skip here is not allowed): run `gosx build --dev .` with the pinned CLI before this suite", manifest)
+		}
 		t.Skipf("no built client runtime at %s; run `gosx build --dev .` with the pinned CLI to collect browser evidence", manifest)
 	}
 	return root
@@ -97,6 +113,19 @@ func startBrowserDraft(t *testing.T) (*simChild, *simLeague, context.Context) {
 	chrome := chromePath(t)
 	root := browserAppRoot(t)
 	child, league := startSeatedDraft(t, "", true, "GOSX_APP_ROOT="+root)
+	return child, league, newBrowserContext(t, chrome)
+}
+
+// startBrowserDraftWith is startBrowserDraft with extra child-process
+// environment appended after GOSX_APP_ROOT (Task 8) — a scenario that
+// needs, for example, a short PICK_CLOCK to put a countdown cue tier
+// close to a pick's own deadline.
+func startBrowserDraftWith(t *testing.T, extraEnv ...string) (*simChild, *simLeague, context.Context) {
+	t.Helper()
+	chrome := chromePath(t)
+	root := browserAppRoot(t)
+	env := append([]string{"GOSX_APP_ROOT=" + root}, extraEnv...)
+	child, league := startSeatedDraft(t, "", true, env...)
 	return child, league, newBrowserContext(t, chrome)
 }
 
