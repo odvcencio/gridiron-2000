@@ -925,8 +925,6 @@ type TapeRound struct {
 	Current            bool
 	Made, Total        int
 	Picks              []TapePick
-	// Cursor: see draftTapeRoundView's own doc comment (page.server.go).
-	Cursor int
 	// ShowHeader/MadeBindKey/CurrentBindAttr: see draftTapeRoundView's own
 	// doc comment (page.server.go).
 	ShowHeader      bool
@@ -1902,38 +1900,24 @@ func DraftPickDetailBody(props TapePick) Node {
 // DraftTapeRows is the tape's own body (D4): every round newest first, each
 // with a sticky one-line header (round, snake direction, pick span, "N of
 // M made" — T1 polish, 2026-08-30 review), then one row per pick, newest
-// pick first, each row doubling as its own DraftPickDetail toggle. It is
-// also the "?since=" fragment body (fragment.go): prepareDraftData/
-// attachDraftFragmentSince pre-filter Rounds to picks numbered above Since
-// before this renders, so the template itself needs no cursor-aware
-// branching.
-// The round header carries data-pick-number={round.Cursor} (Task 8): the
-// tape's own prepend region (DraftHistory's ShowTape branch, below) reads
-// data-gosx-region-cursor off whichever DIRECT CHILD of the prepend
-// container renders first — at a round boundary that is this header, not
-// yet a pick row, so it needs the SAME cursor value a first pick row
-// would carry (round.Cursor's own doc comment, page.server.go, explains
-// why that is round.Picks[0].Number, never round.Last). This function
-// itself no longer carries its own outer element (a GSX fragment, "<>"):
-// its direct children must land as the PREPEND CONTAINER's own direct
-// children for data-gosx-region-key/-cursor dedupe and cursor reads to
-// see them at all — the caller (DraftHistory's ShowTape branch, and
-// Page()'s pane-body/PickDetailFragmentHandler-adjacent full render) owns
-// the ".draft-tape-rows" wrapper and its class instead.
-//
-// Review item 2 (2026-08-30): each round's own header renders only when
-// round.ShowHeader is true — once per round, ever, never re-sent on a
-// later "?since=" response for a round the client has already seen (a
-// re-sent header would only be dropped by the prepend region's own
-// data-tape-key dedupe, which discards the whole node before it ever
-// reaches the DOM). Review item 3: MadeBindKey/CurrentBindAttr keep that
-// emit-once header's own "N of M made" text and data-current attribute
-// live from then on, since a dropped re-send can no longer do it.
+// pick first, each row doubling as its own DraftPickDetail toggle. It
+// backs THREE callers: target mode's own single tape-rows region
+// (findings 1/2/3/6, 2026-08-30 review — a full replace on every
+// draft:pick/draft:undo/draft:state, so round.ShowHeader is always true
+// here, every visible round's header rendering fresh on every response),
+// fallback mode's full "tape" region, and the "?since=" partial the
+// server still answers for API compatibility (prepareDraftData/
+// attachDraftFragmentSince pre-filter Rounds to picks numbered above
+// Since before this renders, and set ShowHeader per round — see
+// filterTapeRoundsSince, fragment.go). This function itself carries no
+// outer element (a GSX fragment, "<>"): the caller (DraftHistory's
+// ShowTape branch, and Page()'s pane-body full render) owns the
+// ".draft-tape-rows" wrapper and its class instead.
 func DraftTapeRows(props DraftHistoryProps) Node {
 	return <>
 		<Each of={props.Rounds} as="round">
 			<If cond={round.ShowHeader}>
-				<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current} data-pick-number={round.Cursor} data-gosx-live-bind-attr={round.CurrentBindAttr}>
+				<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current} data-gosx-live-bind-attr={round.CurrentBindAttr}>
 					<span class="idx">ROUND {round.Round}</span>
 					<span class="mono muted tape-round__meta">{round.Direction} picks {round.First}–{round.Last} · <span data-gosx-live-bind={round.MadeBindKey}>{round.Made}</span> of {round.Total} made</span>
 				</div>
@@ -2107,22 +2091,34 @@ func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node 
 // region refetches, taking every board/available/mine bind with it for
 // the rest of the session (proven live; board froze after one undo).
 // TargetMode's own branch below therefore keeps its data-gosx-live-mode
-// root OUTSIDE every region: the tape view's own undo-scoped replace
-// region and pick/state-scoped prepend region both nest INSIDE that live
-// root instead, which is safe — they are plain regions, not live roots,
-// and DO rebind after either one's own swap (verified in the runtime
-// source above). draft:state never triggers a full-pane replace here: the
-// live root's own binds already cover cell/cellpos/clock/room/onclock/
-// pick from a draft:state repair's full payload, and the prepend
-// region's own draft:state trigger catches the tape's rows up via the
-// SAME "?since={cursor}" fetch a draft:pick uses (item 2b: only
-// draft:undo — a rare event — replaces the tape wholesale, since a
-// prepend-only region can never remove a row a full replace-mode fetch
-// can). Fallback's branch (DRAFT_LIVE_MODE=fallback, TargetMode false)
-// restores the pre-Task-8 shape exactly: no live root, no nested
-// regions — the WHOLE pane refetches on every draft:pick/undo/state
-// through Page()'s own outer .draft-pane__body region instead (see
-// Page()'s own two-branch history pane).
+// root OUTSIDE every region.
+//
+// Findings 1/2/3/6 (2026-08-30 review) replaced the tape's own TWO nested
+// regions (an outer undo-scoped replace wrapping an inner pick/state-
+// scoped prepend) with exactly ONE plain nested region: a growable
+// prepend can only ever add rows, so it could never remove an undone
+// pick, went stale the moment a real row landed above its own
+// on-the-clock/"NO PICKS YET" placeholders, and (word for word what a
+// browser proved) duplicated a WHOLE second .draft-history — live root
+// and all — inside itself on its own sibling region's first undo-scoped
+// refetch. A single REPLACE region (the default mode: no
+// data-gosx-region-mode, no data-gosx-region-key, no growable-cursor token)
+// nested inside the live root is safe by the same verified GoSX rule
+// above (a plain region rebinds correctly after its own swap), and a
+// full replace on every draft:pick/draft:undo/draft:state can never grow
+// stale or duplicate anything — TapeRowsFragmentHandler's own endpoint
+// (fragment.go) always answers with a fresh, complete, correctly-capped
+// rows body. draft:state carries this same fresh body whether it is a
+// regular full-pane resync OR sendDraftRepair's own coalesced repair off
+// the queue-drop path (internal/league/draft_events.go, finding 3): the
+// region does not distinguish the two, so an undone pick a client missed
+// (a dropped draft:undo) still disappears the moment the trailing
+// draft:state repair's own draft:state trigger re-fetches this region.
+// Fallback's branch (DRAFT_LIVE_MODE=fallback, TargetMode false) restores
+// the pre-Task-8 shape exactly: no live root, no nested regions — the
+// WHOLE pane refetches on every draft:pick/undo/state through Page()'s
+// own outer .draft-pane__body region instead (see Page()'s own
+// two-branch history pane).
 func DraftHistory(props DraftHistoryProps) Node {
 	return <>
 	<If cond={props.TargetMode}>
@@ -2130,17 +2126,8 @@ func DraftHistory(props DraftHistoryProps) Node {
 		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
 		<If cond={props.ShowTape}>
 			<div class="draft-history__view draft-history__view--tape">
-				<div class="tape" id="tape-latest" data-gosx-region data-gosx-region-url={props.TapeURL} data-gosx-region-on="draft:undo">
-					<div
-						class="draft-tape-rows"
-						data-gosx-region
-						data-gosx-region-url="/draft/fragment/tape?since={cursor}"
-						data-gosx-region-mode="prepend"
-						data-gosx-region-key="data-tape-key"
-						data-gosx-region-cursor="data-pick-number"
-						data-gosx-region-on="draft:pick draft:state"
-						data-gosx-region-allow-empty
-					>
+				<div class="tape" id="tape-latest">
+					<div class="draft-tape-rows" data-gosx-region data-gosx-region-url={props.TapeURL} data-gosx-region-on="draft:pick draft:undo draft:state">
 						<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty} HasOlderRounds={props.HasOlderRounds} OlderHref={props.OlderHref}></DraftTapeRows>
 					</div>
 				</div>
@@ -2174,6 +2161,16 @@ func DraftHistory(props DraftHistoryProps) Node {
 // with NO ancestor region, so a region swap elsewhere on the page can
 // never orphan them; fallback (DRAFT_LIVE_MODE=fallback) restores the
 // pre-Task-8 data-gosx-region*-on-every-pane wiring exactly.
+//
+// Findings 4/5 (2026-08-30 review): the command header's own live root
+// now lists draft:seat alongside draft:pick/undo/clock/state, so its
+// room.* binds (the room-count summary) stay current after a seat's
+// ready/autopick toggle, not only after a pick/undo/clock tick. The mine
+// pane's own inner region likewise now lists draft:pick/undo/seat/state
+// (it carried NO data-gosx-region-on at all before this fix, so it never
+// refetched on anything) — "Roster needs" and "AUTOPICK · ON/OFF" are
+// both server-computed off DraftMyTeam's Roster view, so a region
+// refetch, not a live bind, is what keeps them current.
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
 		<div class="draft-notice" aria-live="polite">
@@ -2181,7 +2178,7 @@ func Page() Node {
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
 		<If cond={data.live_mode == "target"}>
-		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:state">
+		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
 		</If>
@@ -2223,7 +2220,7 @@ func Page() Node {
 			<section class="draft-pane draft-pane--mine" aria-labelledby="draft-mine-title">
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:seat draft:state">
-					<div data-gosx-region data-gosx-region-url="/draft/fragment/queue">
+					<div data-gosx-region data-gosx-region-url="/draft/fragment/queue" data-gosx-region-on="draft:pick draft:undo draft:seat draft:state">
 						<DraftMyTeam {...data.queue}></DraftMyTeam>
 					</div>
 				</div>

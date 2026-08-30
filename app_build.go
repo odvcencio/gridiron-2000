@@ -654,6 +654,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/command", draftpage.CommandFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/tape", draftpage.TapeFragmentHandler(league.Default()))
+	// tape-rows (2026-08-30 review, findings 1/2/3/6): target mode's own
+	// single nested tape region — DraftTapeRows only, never the pane
+	// shell — replacing the deleted prepend region's "?since=" fetch.
+	app.Mount("GET /draft/fragment/tape-rows", draftpage.TapeRowsFragmentHandler(league.Default()))
 	// Stays mounted for gosx v0.53.10's target mode (Task 8), which binds a per-pick click region straight to it.
 	app.Mount("GET /draft/fragment/pick/{n}", draftpage.PickDetailFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))

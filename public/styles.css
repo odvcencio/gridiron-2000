@@ -2255,7 +2255,8 @@ button.badge-option:hover {
 
 .draft-region,
 .draft-live-room,
-.draft-live-workspace {
+.draft-live-workspace,
+.draft-tape-rows {
   min-width: 0;
 }
 

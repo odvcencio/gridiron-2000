@@ -257,14 +257,14 @@ type draftHistoryView struct {
 	// carrying the viewer's own pool q/pos/page (item 6).
 	HasOlderRounds bool
 	OlderHref      string
-	// TapeURL/TargetMode (review items 1/8, 2026-08-30): TapeURL is the
-	// SAME string history_tape_url already carries (attachDraftFragmentView)
-	// — DraftHistory's own ShowTape branch needs it directly as a prop,
-	// not a Page()-level-only field, now that the tape's own undo-scoped
-	// replace-region (review item 1) lives INSIDE DraftHistory rather than
-	// wrapping it. TargetMode selects target-mode's nested live-root/
-	// prepend/undo-region structure versus fallback's plain single
-	// full-replace region (review item 8, DRAFT_LIVE_MODE=fallback).
+	// TapeURL/TargetMode (findings 1/2/3/6, 2026-08-30 review): TapeURL is
+	// target mode's OWN static URL for its single nested tape-rows region
+	// (attachDraftFragmentView, fragment.go) — a distinct string from
+	// history_tape_url (which still names the full "tape" region:
+	// Tape/Board/Teams plus the pane shell, fallback mode's own outer
+	// region). TargetMode selects target-mode's nested live-root/
+	// single-replace-region structure versus fallback's plain
+	// full-replace region (DRAFT_LIVE_MODE=fallback).
 	TapeURL    string
 	TargetMode bool
 	// detail resolves one pick's full accordion content on demand (item 1,
@@ -326,20 +326,6 @@ type draftTapeRoundView struct {
 	Current            bool
 	Made, Total        int
 	Picks              []draftTapePickView
-	// Cursor (Task 8, target mode): the round header's own
-	// data-pick-number, the newest (Picks[0], since Picks is
-	// newest-pick-first) made pick number this round carries — never
-	// round.Last, the round's theoretical final slot, which can exceed
-	// what is actually made and would silently skip real future picks
-	// once used as a "?since=" cursor. The tape's own prepend region
-	// (page.gsx's DraftTapeRows) reads data-gosx-region-cursor off
-	// whichever DIRECT CHILD renders first; at a round boundary that is
-	// this round header, not yet a pick row, so the header needs its own
-	// correct cursor value too — see fragment.go's attachDraftFragmentSince
-	// doc comment for the matching server-side half of this fix. Zero
-	// when Picks is empty (never observed: tapeRoundsProps only builds a
-	// TapeRound entry for a round that already holds at least one pick).
-	Cursor int
 	// ShowHeader/MadeBindKey/CurrentBindAttr (review item 2/3, 2026-08-30):
 	// a "?since=" response renders a round's header only the FIRST time
 	// that round appears at all (since < round.First, filterTapeRoundsSince,
@@ -495,15 +481,11 @@ func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []d
 			card.Href = draftHistoryHref(draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
 			picks = append(picks, card)
 		}
-		cursor := 0
-		if len(picks) > 0 {
-			cursor = picks[0].Number
-		}
 		roundKey := strconv.Itoa(round.Round)
 		out = append(out, draftTapeRoundView{
 			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
 			Current: round.Current, Made: round.Made, Total: round.Total,
-			Picks: picks, Cursor: cursor,
+			Picks: picks,
 			// ShowHeader defaults true here (every full render shows every
 			// round's own header); filterTapeRoundsSince (fragment.go)
 			// overrides it per round for a "?since=" response.
@@ -865,9 +847,11 @@ func prepareDraftData(data map[string]any) map[string]any {
 	// (data-draft-live-mode, the --final class variant). Task 8 pins
 	// gosx@v0.53.10 and switches the room to "target" by default: the
 	// command, available, and my-team panes apply hub payloads through
-	// data-gosx-live-* binds with no fetch; the tape pane's own inner
-	// region grows through "?since={cursor}" prepend instead of a
-	// whole-pane refetch. DRAFT_LIVE_MODE=fallback (review item 8,
+	// data-gosx-live-* binds with no fetch; the tape pane's own single
+	// nested region (findings 1/2/3/6, 2026-08-30 review) does a plain
+	// replace fetch on every draft:pick/draft:undo/draft:state instead of
+	// a whole-pane refetch or a growing prepend. DRAFT_LIVE_MODE=fallback
+	// (review item 8,
 	// draftLiveMode below) restores "fallback" (data-gosx-region*
 	// refetch-and-swap on every draft:pick/undo/state) — every fragment
 	// endpoint and region attribute Task 6/7 built stays fully wired in
@@ -962,7 +946,6 @@ func init() {
 			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
 			data := attachDraftRequestState(attachDraftFragmentPick(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request), ctx.Request), ctx.Request)
-			data = suppressStaleTapePlaceholdersForTargetMode(data)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

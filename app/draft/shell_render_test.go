@@ -87,8 +87,8 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		// data-gosx-region of its own any more — a fetchless
 		// data-gosx-live-mode="event" root applies hub payloads directly
 		// (S6's zero-fetch-per-pick budget).
-		`data-gosx-live-mode="event"`, `data-gosx-live-on="draft:pick draft:undo draft:clock draft:state"`,
-		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape?view=tape"`,
+		`data-gosx-live-mode="event"`, `data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
+		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape-rows"`,
 		`id="tab-players"`, `id="tab-picks"`, `class="draft-tabbar"`,
 		`aria-live="polite"`, `aria-live="off"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
 		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // live on v0.53.10

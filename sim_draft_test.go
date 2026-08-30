@@ -97,6 +97,30 @@ func seatLeague(t *testing.T, child *simChild) *simLeague {
 	return seatLeagueWith(t, child, true)
 }
 
+// refreshPresence sends one heartbeat for every seated bot (never the
+// commissioner, who holds no seat) — 2026-08-30 review: PresenceConnectedWithin
+// (internal/league/presence.go) is 12s, and seatLeagueWith's own one-time
+// Presence() call at setup is the ONLY heartbeat a pure-HTTP bot ever sends
+// on its own. A browser scenario whose own pacing (picks, waits, ledger
+// checks) runs past that 12s window sees every stale seat's own here->idle
+// transition land in the SAME clock tick — emitPresenceTransitions
+// (draft_events.go) emits one real draft:seat PER SEAT whose presence
+// label actually changed, so a coincidental multi-seat expiry is a burst
+// of GENUINE events, not a bug — but it breaks a scenario asserting an
+// EXACT fetch count per draft:seat trigger (a target-mode region that
+// listens to draft:seat refetches once per event, burst included). A
+// real browser tab's own body heartbeat keeps ITS OWN seat fresh
+// automatically (page.server.go's Load doc comment); this gives every
+// bot-held seat the same freshness a scenario's timing needs.
+func (l *simLeague) refreshPresence(t *testing.T) {
+	t.Helper()
+	for _, bot := range l.bots {
+		if err := bot.Presence(); err != nil {
+			t.Fatalf("refresh presence for %s: %v", bot.Email, err)
+		}
+	}
+}
+
 // byTeam returns the bot that holds seat id.
 func (l *simLeague) byTeam(id string) *draft.Bot {
 	for _, bot := range l.bots {

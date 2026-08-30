@@ -569,25 +569,33 @@ func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
 	}
 }
 
-// TestDraftTapeRegionRequestsSinceCursorInTargetMode supersedes item 7's
-// earlier "not yet" guard (2026-08-30 review): now that Task 8 pins
-// gosx@v0.53.10, the tape pane's own inner region DOES request the
-// "?since={cursor}" prepend cursor — data-gosx-region-mode="prepend",
-// -key/-cursor naming the same data-tape-key/data-pick-number attributes
-// every tape row and round header already carry.
-func TestDraftTapeRegionRequestsSinceCursorInTargetMode(t *testing.T) {
+// TestDraftTapeRegionIsAPlainReplaceInTargetMode supersedes the deleted
+// prepend-cursor contract (findings 1/2/3/6, 2026-08-30 review): target
+// mode's tape pane now nests exactly ONE plain REPLACE region (no
+// data-gosx-region-mode, no data-gosx-region-key, no data-gosx-region-cursor,
+// no "{cursor}" token anywhere in page.gsx), fetching TapeRowsFragmentHandler's
+// own dedicated endpoint on every draft:pick/draft:undo/draft:state.
+func TestDraftTapeRegionIsAPlainReplaceInTargetMode(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
+	body := string(source)
 	for _, want := range []string{
-		`data-gosx-region-mode="prepend"`,
-		`data-gosx-region-key="data-tape-key"`,
-		`data-gosx-region-cursor="data-pick-number"`,
-		`data-gosx-region-url="/draft/fragment/tape?since={cursor}"`,
+		`data-gosx-region-url={props.TapeURL} data-gosx-region-on="draft:pick draft:undo draft:state"`,
 	} {
-		if !strings.Contains(string(source), want) {
-			t.Errorf("page.gsx must request the tape prepend cursor in target mode (Task 8), missing %q", want)
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx must request the tape-rows region as a plain replace, missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`data-gosx-region-mode="prepend"`,
+		`data-gosx-region-key=`,
+		`data-gosx-region-cursor=`,
+		`{cursor}`,
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("page.gsx must carry no prepend machinery, found %q", forbidden)
 		}
 	}
 }
@@ -718,7 +726,7 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		`data-gosx-live-mode="event"`,
 		`data-gosx-live-src="/draft/live.json"`,
 		`data-gosx-live-hub="draft-live"`,
-		`data-gosx-live-on="draft:pick draft:undo draft:clock draft:state"`,
+		`data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,
