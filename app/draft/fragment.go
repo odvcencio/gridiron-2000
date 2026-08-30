@@ -126,12 +126,19 @@ func TapeFragmentHandler(service *league.Service) http.Handler {
 // synthetic row, and the "NO PICKS YET" empty state render exactly as the
 // current server state has them on every response, so nothing here can
 // ever go stale or grow without bound the way the deleted prepend region
-// could. It never reads "?since=" (draftRegionView, below, always answers
-// this region with DraftTapeRows regardless of Since) — capTapeRounds
+// could (draftRegionView, below, always answers this region with
+// DraftTapeRows, never the full DraftHistory pane) — capTapeRounds
 // (attachDraftFragmentView) still caps a full render to the newest three
 // rounds, and "?rounds=all"/"?pick=" still expand/open it exactly as the
 // full "tape" region's own URL does (history.TapeURL carries the same two
 // query parameters, attachDraftFragmentView).
+//
+// Target mode's own markup never sends "?since=" to this endpoint. The
+// parameter is still accepted here, for API compatibility only (2026-08-30
+// review, finding 1): attachDraftFragmentSince runs for every region, so
+// "?since=40" yields only the rows numbered above pick 40 — the same
+// filtered DraftTapeRows body the "tape" region's own "?since=" poll
+// returns (TestTapeRowsFragmentSinceReturnsOnlyNewerRows).
 func TapeRowsFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftTapeRowsRegion, draftFragmentAccess(service), draftFragmentLoader(service, true))
 }
@@ -283,19 +290,18 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 // keeps rendering the full pane untouched.
 //
 // request.URL.Query().Has, not Get, decides whether "?since=" was given at
-// ALL (Task 8): the target-mode prepend region's own "{cursor}" token
-// substitutes a literal empty string, encodeURIComponent(cursor || ""),
-// the first time it fires — before any numbered row is on the page to read
-// a cursor off (gosx's regions.ts, RegionCursorAttr's own doc comment) —
-// producing a request whose "since" key is PRESENT but empty:
-// "/draft/fragment/tape?since=". Has reports true for that request, so it
-// is treated as "since=0" (every real pick is numbered from 1, so this
-// answers with the full made-picks list as the prepend's first batch),
-// while a request that never asked for "since" at all (every ordinary GET
-// /draft/fragment/tape, and the outer replace-mode region's own "?view="
-// URL) still renders the full pane, exactly as before this fix. Get alone
-// cannot tell these two apart: both read "" from an absent key and a
-// present-but-empty one.
+// all. A present-but-empty "?since=" (for example "/draft/fragment/tape?since=")
+// counts as "since=0" and switches to the incremental DraftTapeRows
+// render, the full made-picks list. A request that never asks for
+// "since" at all (every ordinary GET /draft/fragment/tape, and the outer
+// replace-mode region's own "?view=" URL) still renders the full pane.
+// Get alone cannot tell these two cases apart: both read "" from an
+// absent key and from a present-but-empty one.
+//
+// This distinction exists for API compatibility only (2026-08-30
+// review, findings 1/2). No current client sends an empty "?since=";
+// the prepend region that once relied on it is gone (TapeFragmentHandler
+// and TapeRowsFragmentHandler doc comments, above).
 func attachDraftFragmentSince(data map[string]any, request *http.Request) map[string]any {
 	query := request.URL.Query()
 	if !query.Has(draftTapeSinceKey) {

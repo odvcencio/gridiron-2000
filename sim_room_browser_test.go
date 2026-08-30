@@ -738,6 +738,81 @@ func TestBrowserSeatToggleKeepsCommandAndMyTeamRoomCountsInAgreement(t *testing.
 	}
 }
 
+// burstIdleWait bounds TestBrowserQueueRegionSurvivesAMultiSeatIdleBurst's
+// own wait: comfortably past PresenceConnectedWithin (12s), plus margin
+// for whatever setup latency (child boot, headless Chrome launch,
+// sign-in navigation) already elapsed before the wait began.
+const burstIdleWait = 16 * time.Second
+
+// burstViewerRefreshEvery keeps the viewer's OWN seat inside
+// PresenceConnectedWithin throughout burstIdleWait, the same claim the
+// browser tab's own body heartbeat makes on its own — done explicitly
+// here (viewer.Presence(), never league.refreshPresence(t), which would
+// also refresh the seats this test needs to go idle) so the measurement
+// below isolates exactly one control seat against every other.
+const burstViewerRefreshEvery = 3 * time.Second
+
+// TestBrowserQueueRegionSurvivesAMultiSeatIdleBurst is finding 5's own
+// measurement (2026-08-30 review, MAJOR/unmeasured): emitPresenceTransitions
+// (internal/league/draft_events.go) emits one draft:seat event per seat
+// whose presence label changes in a single clockTick, and the queue
+// region (page.gsx) fetches /draft/fragment/queue once per draft:seat it
+// receives. Several bot seats going idle together — left untouched since
+// seatLeagueWith's own one-time setup call, deliberately never
+// league.refreshPresence(t) here — settle into "idle" without flapping
+// back, so the burst is bounded, not unbounded; this test measures it
+// rather than adding a debounce.
+func TestBrowserQueueRegionSurvivesAMultiSeatIdleBurst(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	ledger := newFetchLedger()
+	listenLedger(t, ctx, ledger)
+	viewer := league.bots[len(league.bots)-1]
+	signInAsManager(t, ctx, child, viewer)
+
+	// Every OTHER seat's presence timestamp stays at seatLeagueWith's own
+	// setup-time Presence() call, so all of them cross
+	// PresenceConnectedWithin together, in real time, while this test
+	// waits below.
+	expiredSeats := len(league.bots) - 1
+
+	ledger.wait(t)
+	ledger.reset()
+	deadline := time.Now().Add(burstIdleWait)
+	for time.Now().Before(deadline) {
+		if err := viewer.Presence(); err != nil {
+			t.Fatalf("refresh the viewer's own presence: %v", err)
+		}
+		time.Sleep(burstViewerRefreshEvery)
+	}
+	ledger.wait(t)
+
+	ledger.mu.Lock()
+	fetches := ledger.fragments["/draft/fragment/queue"]
+	sizes := append([]int(nil), ledger.gzipBytes["/draft/fragment/queue"]...)
+	ledger.mu.Unlock()
+
+	maxSize := 0
+	for _, size := range sizes {
+		if size > maxSize {
+			maxSize = size
+		}
+		if size > 4096 {
+			t.Errorf("draft:seat idle burst: /draft/fragment/queue response %d bytes exceeds the 4096 byte ceiling", size)
+		}
+	}
+	if ceiling := expiredSeats + 1; fetches > ceiling {
+		t.Errorf("draft:seat idle burst: /draft/fragment/queue fetched %d times for %d expired seats, want <= %d", fetches, expiredSeats, ceiling)
+	}
+	if fetches == 0 {
+		t.Error("draft:seat idle burst: /draft/fragment/queue was never fetched; no seats transitioned, so this test measured nothing")
+	}
+	t.Logf("draft:seat idle burst measurement: %d expired seats, %d /draft/fragment/queue fetches (ceiling %d), max gzip body %d bytes (ceiling 4096)",
+		expiredSeats, fetches, expiredSeats+1, maxSize)
+}
+
 // TestBrowserTapeEmptyStateRendersAndReturnsAfterUndo is finding 6's own
 // browser evidence: with zero picks the tape-rows fragment must render
 // "NO PICKS YET" and the on-the-clock row (buildDraftHistoryView's

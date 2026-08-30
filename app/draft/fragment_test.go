@@ -421,6 +421,62 @@ func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	}
 }
 
+// TestTapeRowsFragmentSinceReturnsOnlyNewerRows pins finding 1 (2026-08-30
+// review): target mode's own markup never sends "?since=" to the
+// "tape-rows" region, but attachDraftFragmentSince runs for every region,
+// so a caller that does send it still gets only the rows numbered above
+// the cursor — the same filtered DraftTapeRows body the "tape" region's
+// own "?since=" poll returns (TestTapeFragmentSinceReturnsOnlyNewerRows,
+// above). This is API compatibility only (TapeRowsFragmentHandler's own
+// doc comment, fragment.go).
+func TestTapeRowsFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRowsRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape-rows?since=2", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, `data-tape-key="pick-3"`) || strings.Contains(body, `data-tape-key="pick-2"`) || strings.Contains(body, `class="draft-history"`) {
+		t.Fatalf("tape-rows since=2 must render rows newer than 2 only: %s", body)
+	}
+}
+
+// TestTapeRowsFragmentNeverLeaksTheLiveRootOrShell is finding 4 (2026-08-30
+// review): DraftTapeRows carries no outer element of its own (its own doc
+// comment, page.gsx) — the "tape-rows" region's response must be the bare
+// round/row markup alone, none of the wrapping DraftHistory pane's own
+// live root, region element, #tape-latest anchor, or role="status"
+// stale-fallback paragraph. Checked at 0, 1, and 11 picks (0 crosses into
+// RoundsEmpty; 11 crosses an 8-team round boundary).
+func TestTapeRowsFragmentNeverLeaksTheLiveRootOrShell(t *testing.T) {
+	forbidden := []string{
+		"data-gosx-live-mode",
+		"data-gosx-region",
+		"tape-latest",
+		"draft-history",
+		`role="status"`,
+	}
+	for _, made := range []int{0, 1, 11} {
+		picks := make([]league.TapePick, 0, made)
+		for n := 1; n <= made; n++ {
+			picks = append(picks, tapePickFixture(n, "manager"))
+		}
+		fixture := draftFragmentFixture()
+		fixture["history"] = tapeHistoryFixture(picks)
+		fixture["picks_empty"] = made == 0
+		handler := draftFragmentHandler(draftTapeRowsRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape-rows", nil))
+		body := response.Body.String()
+		for _, marker := range forbidden {
+			if strings.Contains(body, marker) {
+				t.Errorf("%d picks: tape-rows body leaked %q: %s", made, marker, body)
+			}
+		}
+	}
+}
+
 // TestTapeFragmentSinceRoundHeaderCrossesRoundBoundary is review item 2's
 // own T1/T2/T4 sequence (2026-08-30): three sequential same-round picks
 // (T1, T2, T4 — an 8-team league's round 1, picks 1/2/4) show round 1's
