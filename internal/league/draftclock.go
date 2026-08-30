@@ -11,7 +11,7 @@ const (
 	// DefaultPickClock, MinPickClock, and MaxPickClock bound the pick-clock
 	// duration. PICK_CLOCK and the commissioner's ClockDurationSec override
 	// both clamp into [MinPickClock, MaxPickClock].
-	DefaultPickClock = 90 * time.Second
+	DefaultPickClock = 120 * time.Second
 	MinPickClock     = 10 * time.Second
 	MaxPickClock     = 10 * time.Minute
 

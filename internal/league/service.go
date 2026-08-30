@@ -278,7 +278,7 @@ func Default() *Service {
 			players:           defaultPlayers(),
 			cfg:               cfg,
 			presence:          newPresenceTracker(time.Now()),
-			pickClockDefault:  parsePickClock(os.Getenv("PICK_CLOCK")),
+			pickClockDefault:  resolvePickClockDefault(os.Getenv("PICK_CLOCK"), cfg.PickClockSeconds),
 			avatarRoot:        avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
 			avatarDurableRoot: avatarEnvString("AVATAR_DURABLE_ROOT", "data"),
 			defaultBadgeRoot:  avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
@@ -493,6 +493,19 @@ func parsePickClock(value string) time.Duration {
 		return DefaultPickClock
 	}
 	return clampPickClock(duration)
+}
+
+// resolvePickClockDefault applies the documented precedence: PICK_CLOCK
+// (environment) over draft.pick_clock_seconds (league.json) over
+// DefaultPickClock. Every result clamps to [MinPickClock, MaxPickClock].
+func resolvePickClockDefault(env string, configSeconds int) time.Duration {
+	if strings.TrimSpace(env) != "" {
+		return parsePickClock(env)
+	}
+	if configSeconds > 0 {
+		return clampPickClock(time.Duration(configSeconds) * time.Second)
+	}
+	return DefaultPickClock
 }
 
 // pickClock resolves the pick-clock duration for state: the commissioner's

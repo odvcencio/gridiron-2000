@@ -75,6 +75,7 @@ Leagues above 12 teams are valid but emit a player-pool depth warning; `deep-lea
 | --- | --- |
 | `at` | RFC3339 timestamp for the draft meeting. It is a reminder/window only; it never starts pick one. |
 | `rounds` | 1–30 and exactly equal to the draftable roster total: starters + bench + reserve. IR is excluded because it is an in-season stash, not a draft slot. |
+| `pick_clock_seconds` | Optional, 10–600. Default 120. PICK_CLOCK overrides it. |
 | `format_label` | Optional public description of the draft format. |
 
 ## `copy`

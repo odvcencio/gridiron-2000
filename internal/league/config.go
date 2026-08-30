@@ -137,9 +137,14 @@ type Config struct {
 
 	Teams []TeamSeed
 
-	DraftAt     time.Time
-	Rounds      int
-	FormatLabel string
+	DraftAt time.Time
+	Rounds  int
+	// PickClockSeconds is draft.pick_clock_seconds: 0 means unset (the
+	// caller falls back to DefaultPickClock); a nonzero value validates to
+	// 10-600 (validateConfig) and is resolvePickClockDefault's config-tier
+	// input, itself outranked by the PICK_CLOCK environment override.
+	PickClockSeconds int
+	FormatLabel      string
 
 	SeasonStartAt time.Time
 	ScoringFormat string
@@ -194,9 +199,10 @@ type configFile struct {
 	} `json:"league"`
 	Teams []TeamSeed `json:"teams"`
 	Draft struct {
-		At          string `json:"at"`
-		Rounds      int    `json:"rounds"`
-		FormatLabel string `json:"format_label"`
+		At               string `json:"at"`
+		Rounds           int    `json:"rounds"`
+		PickClockSeconds int    `json:"pick_clock_seconds"`
+		FormatLabel      string `json:"format_label"`
 	} `json:"draft"`
 	SeasonStartAt string          `json:"season_start_at"`
 	ScoringFormat string          `json:"scoring_format"`
@@ -448,23 +454,24 @@ func loadConfigBytes(path string, raw []byte) (Config, error) {
 	}
 
 	cfg := Config{
-		Version:       file.Version,
-		Name:          file.League.Name,
-		ShortCode:     file.League.ShortCode,
-		Tagline:       file.League.Tagline,
-		ModeLabel:     file.League.ModeLabel,
-		URL:           file.League.URL,
-		Timezone:      file.League.Timezone,
-		Season:        file.League.Season,
-		Teams:         file.Teams,
-		Rounds:        file.Draft.Rounds,
-		FormatLabel:   file.Draft.FormatLabel,
-		ScoringFormat: file.ScoringFormat,
-		Copy:          file.Copy,
-		Waivers:       file.Waivers,
-		Trades:        file.Trades,
-		Postseason:    file.Postseason,
-		Membership:    file.Membership,
+		Version:          file.Version,
+		Name:             file.League.Name,
+		ShortCode:        file.League.ShortCode,
+		Tagline:          file.League.Tagline,
+		ModeLabel:        file.League.ModeLabel,
+		URL:              file.League.URL,
+		Timezone:         file.League.Timezone,
+		Season:           file.League.Season,
+		Teams:            file.Teams,
+		Rounds:           file.Draft.Rounds,
+		PickClockSeconds: file.Draft.PickClockSeconds,
+		FormatLabel:      file.Draft.FormatLabel,
+		ScoringFormat:    file.ScoringFormat,
+		Copy:             file.Copy,
+		Waivers:          file.Waivers,
+		Trades:           file.Trades,
+		Postseason:       file.Postseason,
+		Membership:       file.Membership,
 	}
 	// Absent waivers/trades blocks resolve to their defaults (roster-ops
 	// spec section 10: "Absent blocks resolve to the defaults below"). A
@@ -693,6 +700,9 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 
 	if cfg.Rounds < 1 || cfg.Rounds > 30 {
 		return nil, fmt.Errorf("league config: draft.rounds must be 1 to 30")
+	}
+	if cfg.PickClockSeconds != 0 && (cfg.PickClockSeconds < 10 || cfg.PickClockSeconds > 600) {
+		return nil, fmt.Errorf("league config: draft.pick_clock_seconds must be 10 to 600")
 	}
 	if cfg.DraftAt.IsZero() {
 		return nil, fmt.Errorf("league config: draft.at must be an RFC3339 timestamp")
