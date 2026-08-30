@@ -120,6 +120,14 @@ type Service struct {
 	// disabled — no TANK01_API_KEY, or the contest has sunset — and
 	// BlitzData renders its honest feed-offline state.
 	blitzFn BlitzSource
+	// liveVersionFn and liveStatusFn are the live-scoring poller's two
+	// seams (live_status.go): liveVersionFn is the cheap int64 accessor
+	// StateFingerprint and the live feed cache call on every request;
+	// liveStatusFn copies the poller's state and is read only by the
+	// overlay and the render path (Task 10). Both nil means live scoring
+	// is not wired — every reader falls back to its existing behavior.
+	liveVersionFn func() int64
+	liveStatusFn  LiveStatusSource
 	// blitzPre1Fn supplies preseason-week-1 production (owner directive,
 	// 2026-08-16); see blitz.go's SetBlitzPre1Source. nil means no pre1
 	// data is available yet — the board falls back to its non-pre1
@@ -866,6 +874,11 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 		snapshot := blitzSource()
 		blitzGames = snapshot.Games
 		suffix += fmt.Sprintf("|blitz:%d", snapshot.Version)
+	}
+	// Live box-score rows are never persisted either (A2); the poller
+	// version is the only thing that tells a page a score moved.
+	if version, ok := s.liveVersion(); ok {
+		suffix += fmt.Sprintf("|live:%d", version)
 	}
 	// Every clock-driven boundary the UI renders: kickoffs, the draft
 	// start, the trade deadline, and the Blitz slate locks. A version

@@ -18,6 +18,13 @@ type liveFeed struct {
 	cacheFor time.Duration
 	cachedAt time.Time
 	cached   LiveSnapshot
+	// version and cachedVersion key the cache by the live poller's
+	// version (Task 4), on top of cacheFor: a poller tick that changes a
+	// score must not wait out the 45 s window before Snapshot notices.
+	// nil version means live scoring is not wired, so the cache behaves
+	// exactly as before (age only).
+	version       func() int64
+	cachedVersion int64
 }
 
 func newLiveFeed(provider scoreProvider) *liveFeed {
@@ -32,10 +39,22 @@ func newLiveFeed(provider scoreProvider) *liveFeed {
 	}
 }
 
+// setVersionSource attaches the live poller's version accessor so Snapshot
+// can key its cache by version as well as age; see SetLiveVersionSource.
+func (f *liveFeed) setVersionSource(fn func() int64) {
+	f.mu.Lock()
+	f.version = fn
+	f.mu.Unlock()
+}
+
 func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor {
+	current := int64(0)
+	if f.version != nil {
+		current = f.version()
+	}
+	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor && f.cachedVersion == current {
 		return f.cached
 	}
 	snapshot, err := f.provider.Snapshot(ctx, now)
@@ -57,8 +76,7 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 		snapshot.LastUpdated = snapshot.CheckedAt
 	}
 	snapshot.RefreshAfterSeconds = int(DefaultRefreshPeriod.Seconds())
-	f.cached = snapshot
-	f.cachedAt = now
+	f.cached, f.cachedAt, f.cachedVersion = snapshot, now, current
 	return snapshot
 }
 
