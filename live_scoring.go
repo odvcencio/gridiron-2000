@@ -27,12 +27,24 @@ type liveScoringRuntime struct {
 // (LIVE_REPLAY_FIXTURE=<dir>) the schedule is the replay's one game with
 // kickoff = replay start, the fetcher points at the in-process fake
 // relay, and liveCfg.Enabled is forced true unless LIVE_SCORING_ENABLED
-// is exactly "false". A missing or unreadable fixture logs once and
-// leaves the poller on the normal (non-replay) path instead.
-func liveScoringInputs(pool *fantasy.Service, lg *league.Service, rt *AppRuntime) (livescore.Config, livescore.Fetcher, *replay.Server) {
+// is exactly "false". Replay mode is refused outside a local APP_ENV
+// unless LIVE_REPLAY_ALLOW_PRODUCTION=true is set explicitly (the Stable
+// Kernel rehearsal uses that override): a refusal logs once, naming both
+// conditions, leaves the schedule untouched, and returns the normal
+// (non-replay) fetcher — exactly as if LIVE_REPLAY_FIXTURE had not been
+// set. A missing or unreadable fixture (once past that gate) also logs
+// once, but leaves the poller disabled outright (liveCfg.Enabled =
+// false), since a broken fixture path is very likely a misconfiguration,
+// not a deliberate "run without replay" choice.
+func liveScoringInputs(pool *fantasy.Service, lg *league.Service, rt *AppRuntime, appEnv string) (livescore.Config, livescore.Fetcher, *replay.Server) {
 	liveCfg := livescore.ConfigFromEnv()
 	dir := strings.TrimSpace(os.Getenv("LIVE_REPLAY_FIXTURE"))
 	if dir == "" {
+		return liveCfg, pool.BoxScoreClient(), nil
+	}
+	allowProduction := strings.EqualFold(strings.TrimSpace(os.Getenv("LIVE_REPLAY_ALLOW_PRODUCTION")), "true")
+	if !isLocalAppEnv(appEnv) && !allowProduction {
+		log.Printf("livescore: LIVE_REPLAY_FIXTURE=%s refused: APP_ENV=%q is not a local environment (\"\", local, development, test) and LIVE_REPLAY_ALLOW_PRODUCTION is not \"true\"; the live poller uses the normal relay", dir, appEnv)
 		return liveCfg, pool.BoxScoreClient(), nil
 	}
 	game, err := replay.LoadDir(dir)

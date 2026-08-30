@@ -72,6 +72,10 @@ func (g *Game) Frames() []Frame {
 		working["awayPts"] = formatStat(awayScore)
 		working["homePts"] = formatStat(homeScore)
 		setLineScoreTotals(working, awayScore, homeScore)
+		// parseBoxScore never reads scoringPlays; this reduced shape (only
+		// the four fields scoringPlay decodes, not the original score
+		// text/team/playerIDs) is kept only for a reader inspecting a raw
+		// served frame by hand.
 		working["scoringPlays"] = g.scoring[:cursor]
 
 		frames = append(frames, Frame{Index: i + 1, Period: p.Period, Clock: p.Clock, Body: marshalEnvelope(working)})
@@ -218,6 +222,14 @@ func buildDST(rawFinal any, teamDefense map[string]map[string]float64, away, hom
 	}
 }
 
+// buildDSTUnit renders one D/ST unit's cumulative counters, each clamped
+// to at most the final body's own value for that key (round-2 review of
+// commit 698ec54, finding 2): a per-play Defense delta and the final
+// summary do not always reconcile (see the package doc's
+// defensiveInterceptions example), and a replay must never show a D/ST
+// stat this game's own final box later takes away. The clamp also keeps
+// every counter monotonically non-decreasing across frames, since the
+// running sum only grows and the ceiling never moves.
 func buildDSTUnit(rawFinalUnit any, sums map[string]float64, ptsAllowed float64) map[string]any {
 	finalUnit, _ := rawFinalUnit.(map[string]any)
 	unit := make(map[string]any, len(dstDeltaKeys)+3)
@@ -229,7 +241,13 @@ func buildDSTUnit(rawFinalUnit any, sums map[string]float64, ptsAllowed float64)
 		}
 	}
 	for _, key := range dstDeltaKeys {
-		unit[key] = formatStat(sums[key])
+		value := sums[key]
+		if finalUnit != nil {
+			if ceiling, ok := parseFloat(finalUnit[key]); ok && ceiling < value {
+				value = ceiling
+			}
+		}
+		unit[key] = formatStat(value)
 	}
 	unit["ptsAllowed"] = formatStat(ptsAllowed)
 	return unit

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -185,5 +187,87 @@ func TestBuildAppRuntimeCloseWaitsForARegisteredGoroutine(t *testing.T) {
 	}
 	if elapsed > closeWaitTimeout-time.Second {
 		t.Fatalf("Close took %s; it should return promptly once the goroutine finishes, well under the %s bound", elapsed, closeWaitTimeout)
+	}
+}
+
+// replayFixtureDir is the BAL-BUF testdata directory replay.LoadDir reads,
+// shared by every test in this file that wires LIVE_REPLAY_FIXTURE.
+func replayFixtureDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.Abs(filepath.Join("internal", "sim", "replay", "testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+// TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv covers coordinator
+// review finding 1 (commit 698ec54): a deployed APP_ENV must refuse
+// LIVE_REPLAY_FIXTURE outright, leaving both the poller's fetcher and the
+// league schedule on their normal (non-replay) path.
+func TestLiveScoringInputsRefusesReplayOutsideLocalAppEnv(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("LIVE_SCORING_ENABLED", "true")
+	t.Setenv("LIVE_REPLAY_FIXTURE", replayFixtureDir(t))
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if rt.Live == nil || rt.Live.Replay != nil {
+		t.Fatalf("a production APP_ENV must refuse replay mode: %+v", rt.Live)
+	}
+	for _, game := range league.Default().ScheduleSourceForLive()() {
+		if strings.HasPrefix(game.ID, "replay-") {
+			t.Fatalf("schedule carries a replay game despite the refusal: %+v", game)
+		}
+	}
+}
+
+// TestLiveScoringInputsAllowsReplayInProductionWithOverride covers the
+// Stable Kernel rehearsal override: LIVE_REPLAY_ALLOW_PRODUCTION=true lets
+// replay mode run even outside a local APP_ENV.
+func TestLiveScoringInputsAllowsReplayInProductionWithOverride(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("APP_ENV", "production")
+	t.Setenv("LIVE_SCORING_ENABLED", "true")
+	t.Setenv("LIVE_REPLAY_ALLOW_PRODUCTION", "true")
+	t.Setenv("LIVE_REPLAY_FIXTURE", replayFixtureDir(t))
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if rt.Live == nil || rt.Live.Replay == nil {
+		t.Fatalf("LIVE_REPLAY_ALLOW_PRODUCTION=true must let replay mode run in production: %+v", rt.Live)
+	}
+}
+
+// TestLiveScoringInputsUsesReplayInLocalAppEnv confirms the common case
+// needs no override: hermeticEnv's own APP_ENV=test is already local.
+func TestLiveScoringInputsUsesReplayInLocalAppEnv(t *testing.T) {
+	hermeticEnv(t)
+	t.Setenv("LIVE_SCORING_ENABLED", "true")
+	t.Setenv("LIVE_REPLAY_FIXTURE", replayFixtureDir(t))
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Close()
+	if rt.Live == nil || rt.Live.Replay == nil {
+		t.Fatalf("a local APP_ENV must run replay mode without any override: %+v", rt.Live)
 	}
 }

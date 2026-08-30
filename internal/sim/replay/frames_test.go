@@ -66,3 +66,31 @@ func TestFramesCarryScoreAndDSTFromScoringPlays(t *testing.T) {
 		t.Fatal("BAL led at some point in this game; the score track never showed it")
 	}
 }
+
+// TestFramesDSTCountersNeverDecrease covers coordinator review finding 2
+// (commit 698ec54): a running D/ST counter, once clamped to the final
+// body's own value, must never step backward frame to frame — even where
+// the fixture's own per-play deltas and final summary disagree (see the
+// package doc's defensiveInterceptions example).
+func TestFramesDSTCountersNeverDecrease(t *testing.T) {
+	game := loadGame(t)
+	frames := game.Frames()
+	previous := map[string]map[string]float64{}
+	for _, frame := range frames {
+		box := fantasy.ParseBoxScore(frame.Body)
+		for team, line := range box.DST {
+			for _, key := range []string{"sacks", "defensiveInterceptions", "fumblesRecovered", "defTD", "safeties"} {
+				current := line[key]
+				if prior, ok := previous[team]; ok {
+					if current < prior[key] {
+						t.Fatalf("%s %s dropped from %v to %v at frame %d", team, key, prior[key], current, frame.Index)
+					}
+				}
+				if previous[team] == nil {
+					previous[team] = map[string]float64{}
+				}
+				previous[team][key] = current
+			}
+		}
+	}
+}

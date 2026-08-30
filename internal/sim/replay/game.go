@@ -2,6 +2,16 @@
 // ordered sequence of in-progress box scores, and serves them behind a
 // fake relay (server.go) so the real poller, overlay, fingerprint, hub,
 // and browser can run unchanged against a replayed game (S7).
+//
+// The shipped fixture (testdata/box-20250907_BAL-BUF-pbp.json) is not
+// internally perfectly consistent: its allPlayByPlay Defense deltas
+// record one interception (player 3052101, BAL) that the final box
+// score's own DST.away.defensiveInterceptions never reflects (it reads
+// "0"). Frames clamps every in-progress D/ST counter to the final body's
+// own value (frames.go's buildDSTUnit) specifically so a replay never
+// shows — and later silently un-shows — a D/ST stat the final box does
+// not corroborate, regardless of which way a source fixture's own
+// per-play and final numbers happen to disagree.
 package replay
 
 import (
@@ -9,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -114,7 +125,11 @@ func Load(path string) (*Game, error) {
 func LoadDir(dir string) (*Game, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("no box-*.json with allPlayByPlay in %s", dir)
+		// %w keeps the underlying cause (a missing directory reads
+		// differently from one that exists but refuses read access), even
+		// though the message text stays the one liveScoringInputs and its
+		// tests already match on.
+		return nil, fmt.Errorf("no box-*.json with allPlayByPlay in %s: %w", dir, err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
@@ -140,13 +155,18 @@ func LoadDir(dir string) (*Game, error) {
 
 // stringField reads a raw JSON value (decoded into a map[string]any) as a
 // string. Tank01 fixtures are string-typed throughout, but this stays
-// lenient about a JSON number the same way fantasy's own flexString does,
-// since this package has no access to that unexported helper.
+// lenient about a bare JSON number the same way fantasy's own flexString
+// does, since this package has no access to that unexported helper.
+// json.Number never actually occurs here (Load decodes with the standard
+// json.Unmarshal, not a Decoder.UseNumber()), but is handled anyway for
+// parity with flexString and in case that ever changes.
 func stringField(value any) string {
 	switch typed := value.(type) {
 	case string:
 		return typed
-	case fmt.Stringer:
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case json.Number:
 		return typed.String()
 	default:
 		return ""

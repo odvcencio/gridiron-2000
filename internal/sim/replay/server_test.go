@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -42,5 +43,28 @@ func TestServerAdvancesOnAScheduleAndListsTheGame(t *testing.T) {
 	games := server.ScheduleSource()()
 	if len(games) != 1 || games[0].Week != 1 || games[0].Away != "BAL" || games[0].Home != "BUF" || !games[0].Kickoff.Equal(server.Start()) {
 		t.Fatalf("schedule = %+v", games)
+	}
+}
+
+// TestServerBoxScoreRejectsAnotherGamesID covers coordinator review
+// finding 7 (commit 698ec54): this replay serves exactly one game, and a
+// request naming any other gameID must 404, not silently return this
+// game's frame, and must not move ServedIndex.
+func TestServerBoxScoreRejectsAnotherGamesID(t *testing.T) {
+	game := loadGame(t)
+	now := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	server := Serve(game, 10*time.Second, func() time.Time { return now })
+	defer server.Close()
+	client, err := fantasy.NewBoxScoreClient(server.URL(), 2026, http.DefaultClient, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.FetchBoxScore(context.Background(), "20250907_SEA@ARI")
+	var statusErr *fantasy.HTTPStatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusNotFound {
+		t.Fatalf("mismatched gameID = %v, want a 404 HTTPStatusError", err)
+	}
+	if server.ServedIndex() != 0 {
+		t.Fatalf("a rejected request must not move ServedIndex: %d", server.ServedIndex())
 	}
 }

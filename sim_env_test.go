@@ -37,6 +37,11 @@ var harnessSensitiveEnv = []string{
 	"LIVE_DAILY_BUDGET",
 	"LIVE_MAX_INFLIGHT",
 	"LIVE_REPLAY_FIXTURE",
+	// LIVE_REPLAY_ALLOW_PRODUCTION overrides liveScoringInputs's APP_ENV
+	// gate on replay mode (the Stable Kernel rehearsal's override for a
+	// deployed environment). An exported "true" in the developer's shell
+	// must not silently widen what a test process is allowed to wire.
+	"LIVE_REPLAY_ALLOW_PRODUCTION",
 }
 
 // harnessSensitiveEnvWith returns the shared list plus extra, as a new

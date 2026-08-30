@@ -148,7 +148,15 @@ func (s *Server) recordServed(index int) {
 	}
 }
 
+// handleBoxScore answers getNFLBoxScore for this replay's own game only:
+// a request naming a different (or missing) gameID gets a plain 404,
+// never this game's frame, and is not counted toward ServedIndex/ServedAt
+// (round-2 review of commit 698ec54, finding 7).
 func (s *Server) handleBoxScore(w http.ResponseWriter, r *http.Request) {
+	if gameID := r.URL.Query().Get("gameID"); gameID != s.game.ID {
+		s.handleNotFound(w, r)
+		return
+	}
 	index := s.indexAt(s.now())
 	s.recordServed(index)
 	w.Header().Set("Content-Type", "application/json")
