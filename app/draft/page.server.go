@@ -167,6 +167,11 @@ type draftPlayerCardView struct {
 	MatchupChip     string
 	MatchupDetail   string
 	CanDraft        bool
+	// Taken marks a personal-queue entry someone else already drafted (the
+	// row still shows, struck through client-side, rather than silently
+	// disappearing). Always false for an available-pool entry, which
+	// excludes drafted players by construction.
+	Taken bool
 }
 
 type draftRoomView struct {
@@ -181,6 +186,45 @@ type draftWorkspaceView struct {
 	Players        []draftPlayerCardView
 	CSRF           string
 	MakePickAction string
+}
+
+// draftCommandView backs the always-visible command bar region: the
+// on-clock team, the pick clock, the room summary, the sound and
+// commissioner controls, and (while seated) the ready/autopick controls.
+type draftCommandView struct {
+	Data          map[string]any
+	CSRF          string
+	Actions       map[string]string
+	StatusSummary string
+}
+
+// draftHistoryView backs the pick-tape pane. Task 7 adds the typed
+// pick/board/team fields the tabs need; for now DraftHistory reads Data
+// directly, the same untyped pattern draftRoomView's tape used before.
+type draftHistoryView struct {
+	Data  map[string]any
+	Since int
+}
+
+// draftAvailableView backs the available-players pane: the pool list plus
+// the make-pick and queue-add actions every eligible row's buttons post to.
+type draftAvailableView struct {
+	Data           map[string]any
+	Players        []draftPlayerCardView
+	CSRF           string
+	MakePickAction string
+	QueueAddAction string
+}
+
+// draftQueueView backs the "my team" pane: the viewer's full personal
+// queue (including already-taken entries, Task 5a's DraftMyTeam), the
+// roster-needs tally, and the queue-remove action a taken row's Clear
+// button posts to.
+type draftQueueView struct {
+	Data              map[string]any
+	Queue             []draftPlayerCardView
+	CSRF              string
+	QueueRemoveAction string
 }
 
 func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
@@ -226,6 +270,7 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			MatchupChip:     stringField(player, "matchup_chip"),
 			MatchupDetail:   stringField(player, "matchup_detail"),
 			CanDraft:        boolField(player, "draft_eligible"),
+			Taken:           boolField(player, "taken"),
 		})
 	}
 	return out
@@ -292,11 +337,12 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 func prepareDraftData(data map[string]any) map[string]any {
 	teams, _ := data["teams"].([]map[string]any)
 	players, _ := data["available"].([]map[string]any)
+	queueRaw, _ := data["queue"].([]map[string]any)
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
+	typedQueue := draftPlayerProps(queueRaw)
 	data["teams"] = typedTeams
 	data["seat_controls"] = draftSeatControlProps(teams)
-	data["available"] = typedPlayers
 
 	viewData := make(map[string]any, len(data)+1)
 	for key, value := range data {
@@ -305,17 +351,35 @@ func prepareDraftData(data map[string]any) map[string]any {
 	workspaceURL := draftWorkspaceFragmentURL(data)
 	viewData["workspace_fragment_url"] = workspaceURL
 	data["workspace_fragment_url"] = workspaceURL
-	room := draftRoomView{Data: viewData, Actions: map[string]string{
+	actions := map[string]string{
 		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
 		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
 		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
 		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
 		"seat_autopick": draftActionPath("seat-autopick"), "seat_ready": draftActionPath("seat-ready"),
-	}}
+	}
+	room := draftRoomView{Data: viewData, Actions: actions}
 	room.StatusSummary = draftRoomStatus(viewData)
 	data["room"] = room
 	data["workspace"] = draftWorkspaceView{
 		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
+	}
+	// live_mode/shell_modifier drive the shell root's own attributes
+	// (data-draft-live-mode, the --final class variant); "fallback" is the
+	// only mode until Task 8 pins v0.53.10 and switches to target mode.
+	data["live_mode"] = "fallback"
+	data["shell_modifier"] = ""
+	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
+		data["shell_modifier"] = " draft-shell--final"
+	}
+	data["command"] = draftCommandView{Data: viewData, Actions: actions, StatusSummary: room.StatusSummary}
+	data["history"] = draftHistoryView{Data: viewData}
+	data["available"] = draftAvailableView{
+		Data: viewData, Players: typedPlayers,
+		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"),
+	}
+	data["queue"] = draftQueueView{
+		Data: viewData, Queue: typedQueue, QueueRemoveAction: draftActionPath("queue-remove"),
 	}
 	return data
 }
@@ -355,9 +419,15 @@ func draftRoomStatus(data map[string]any) string {
 func attachDraftRequestState(data map[string]any, request *http.Request) map[string]any {
 	room, _ := data["room"].(draftRoomView)
 	workspace, _ := data["workspace"].(draftWorkspaceView)
+	command, _ := data["command"].(draftCommandView)
+	available, _ := data["available"].(draftAvailableView)
+	queue, _ := data["queue"].(draftQueueView)
 	token := session.Token(request)
 	room.CSRF = token
 	workspace.CSRF = token
+	command.CSRF = token
+	available.CSRF = token
+	queue.CSRF = token
 	seats, _ := room.Data["seat_controls"].([]DraftSeatControlCard)
 	for i := range seats {
 		seats[i].CSRF = token
@@ -366,6 +436,9 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	workspace.Data["seat_controls"] = seats
 	data["room"] = room
 	data["workspace"] = workspace
+	data["command"] = command
+	data["available"] = available
+	data["queue"] = queue
 	return data
 }
 
@@ -508,6 +581,24 @@ func init() {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
+			},
+			// queue-add/queue-remove back the shell's own Big Board controls
+			// (the available pane's "+ Queue" button and the my-team pane's
+			// "Clear" button on a taken row): BoardAdd/BoardRemove already
+			// carry the ownership and validation rules, so these are routing
+			// only, the same shape as make-pick above.
+			"queue-add": func(ctx *action.Context) error {
+				player, err := league.Default().BoardAdd(ctx.Request, ctx.FormData["player_id"])
+				if err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s added to your queue.", player.Name))
+			},
+			"queue-remove": func(ctx *action.Context) error {
+				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				return draftActionSuccess(ctx, "/draft", "Removed from your queue.")
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])

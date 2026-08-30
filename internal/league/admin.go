@@ -1195,6 +1195,10 @@ func (s *Service) AdminStartDraft(r *http.Request) (bool, error) {
 	if err != nil || !started {
 		return started, err
 	}
+	// A fresh draft is never complete; re-arm the completion latch so a
+	// later pick that completes it emits draft:state (mirrors
+	// AdminResetDraft's identical guard).
+	s.draftCompleteEmitted.Store(false)
 	now := s.clock()
 	snapshot := s.store.Snapshot()
 	s.emitDraftState(snapshot, now, true, false)

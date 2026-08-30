@@ -14,6 +14,10 @@ import (
 const (
 	draftRoomRegion      = "room"
 	draftWorkspaceRegion = "workspace"
+	draftCommandRegion   = "command"
+	draftTapeRegion      = "tape"
+	draftAvailableRegion = "available"
+	draftQueueRegion     = "queue"
 )
 
 // RoomFragmentHandler returns the authoritative room chrome without the
@@ -28,6 +32,32 @@ func RoomFragmentHandler(service *league.Service) http.Handler {
 // and pick tape current without replacing the rest of the draft page.
 func WorkspaceFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftWorkspaceRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+}
+
+// CommandFragmentHandler serves the shell's always-visible command bar
+// region (Task 5a's app shell). Task 6 refines the ETag/?since behaviour
+// this and the three handlers below share with RoomFragmentHandler and
+// WorkspaceFragmentHandler above; the mount is load-bearing now, so the
+// browser room's countdown and pick-label region swap on a real typed
+// event instead of 404ing.
+func CommandFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftCommandRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+}
+
+// TapeFragmentHandler serves the pick-history pane's swapped body.
+func TapeFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftTapeRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+}
+
+// AvailableFragmentHandler serves the available-players pane's swapped
+// body, including the position-filtered ?pos= refetch the chips drive.
+func AvailableFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftAvailableRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+}
+
+// QueueFragmentHandler serves the "my team" pane's swapped body.
+func QueueFragmentHandler(service *league.Service) http.Handler {
+	return draftFragmentHandler(draftQueueRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
 }
 
 func draftFragmentAccess(service *league.Service) func(*http.Request) bool {
@@ -117,6 +147,30 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 			return nil, "", errInvalidDraftRegion
 		}
 		return view, "DraftWorkspace", nil
+	case draftCommandRegion:
+		view, ok := data["command"].(draftCommandView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftCommandBar", nil
+	case draftTapeRegion:
+		view, ok := data["history"].(draftHistoryView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftHistory", nil
+	case draftAvailableRegion:
+		view, ok := data["available"].(draftAvailableView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftAvailable", nil
+	case draftQueueRegion:
+		view, ok := data["queue"].(draftQueueView)
+		if !ok {
+			return nil, "", errInvalidDraftRegion
+		}
+		return view, "DraftMyTeam", nil
 	default:
 		return nil, "", errInvalidDraftRegion
 	}

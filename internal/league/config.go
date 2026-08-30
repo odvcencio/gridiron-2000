@@ -863,6 +863,15 @@ func validateWaivers(w WaiversBlock) error {
 func applyActiveConfig(cfg Config) {
 	activeTeams = teamsFromSeeds(cfg.Teams)
 	DraftRounds = cfg.Rounds
+	// A rounds increase can turn an already-complete draft (by the old
+	// round count) incomplete again (draftComplete, roster.go); re-arm the
+	// singleton's completion latch so a pick that re-completes it under the
+	// new count emits draft:state. defaultSvc is nil on the very first,
+	// boot-time call (Default() has not constructed it yet), which this
+	// guards against.
+	if defaultSvc != nil {
+		defaultSvc.draftCompleteEmitted.Store(false)
+	}
 	DefaultDraftAt = cfg.DraftAt.Format(time.RFC3339)
 	DefaultDraftTZ = cfg.Timezone
 	DefaultSeasonStartAt = cfg.SeasonStartAt.Format(time.RFC3339)

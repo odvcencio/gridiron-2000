@@ -597,3 +597,20 @@ func TestDropPathSchedulesOneCoalescedRepair(t *testing.T) {
 		t.Fatalf("repair draft:state events = %d, want exactly 1", len(repairs))
 	}
 }
+
+// TestApplyActiveConfigClearsCompletionLatch proves the F1 fix: a rounds
+// change (applyActiveConfig, called for a live config reload or by a test
+// simulating one) can turn an already-complete draft incomplete again by
+// the new round count, so it must re-arm draftCompleteEmitted the same way
+// AdminResetDraft and AdminStartDraft do.
+func TestApplyActiveConfigClearsCompletionLatch(t *testing.T) {
+	service, _, _ := newEventTestService(t)
+	service.draftCompleteEmitted.Store(true)
+	previous := defaultSvc
+	defaultSvc = service
+	t.Cleanup(func() { defaultSvc = previous })
+	applyActiveConfig(DefaultConfig())
+	if service.draftCompleteEmitted.Load() {
+		t.Fatal("applyActiveConfig did not clear the completion latch")
+	}
+}

@@ -2464,16 +2464,70 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	if s.demoMode && draftOpen {
 		canPick = true
 	}
+	boardKey := boardKeyForViewer(state, s.viewerKey(r))
+	boardOrder := state.Boards[boardKey]
 	boardPanel := make([]map[string]any, 0, 5)
-	for _, id := range state.Boards[boardKeyForViewer(state, s.viewerKey(r))] {
-		if picked[id] {
+	// queuePanel is the shell's full personal-queue view (D2): every board
+	// entry, in order, each carrying taken so a drafted target still shows
+	// (struck through, client-side) rather than silently vanishing.
+	// boardPanel stays the pre-existing 5-item undrafted "peek" the legacy
+	// DraftWorkspace sidebar reads; both share one playerMap build per id.
+	queuePanel := make([]map[string]any, 0, len(boardOrder))
+	for _, id := range boardOrder {
+		player, ok := pool.byID[id]
+		if !ok {
 			continue
 		}
-		if player, ok := pool.byID[id]; ok {
-			boardPanel = append(boardPanel, playerMap(player, scoringValues, matchup))
-			if len(boardPanel) == 5 {
-				break
+		item := playerMap(player, scoringValues, matchup)
+		item["taken"] = picked[id]
+		queuePanel = append(queuePanel, item)
+		if !picked[id] && len(boardPanel) < 5 {
+			boardPanel = append(boardPanel, item)
+		}
+	}
+	// rosterNeeds tallies the viewer's own drafted players by exact
+	// position against the active roster preset's starter slots (a simple
+	// per-position count, not the FLEX-aware bipartite match
+	// maximumDraftStarterFill uses for legality): display only, so a
+	// player who could also cover a flex slot still counts under their
+	// primary position here.
+	rosterNeeds := make([]map[string]any, 0, 8)
+	if viewerTeam != "" {
+		preset := CurrentRoster()
+		filledByPosition := map[string]int{}
+		for _, pick := range state.Picks {
+			if pick.TeamID != viewerTeam {
+				continue
 			}
+			if player, ok := pool.byID[pick.PlayerID]; ok {
+				filledByPosition[player.Position]++
+			}
+		}
+		slotNames := make([]string, 0, len(preset.Slots))
+		for name := range preset.Slots {
+			slotNames = append(slotNames, name)
+		}
+		sort.Strings(slotNames)
+		for _, name := range slotNames {
+			required := preset.Slots[name]
+			have := filledByPosition[name]
+			if have > required {
+				have = required
+			}
+			rosterNeeds = append(rosterNeeds, map[string]any{
+				"label": name, "filled": have, "total": required, "open": have < required,
+			})
+		}
+	}
+	// nextQueued is the viewer's own top still-draftable board target — the
+	// pick bar's "Draft" shortcut reads it so a phone never needs to
+	// scroll to the available pane to take the queue's #1 pick.
+	nextQueued := map[string]any{"has": false}
+	if len(boardPanel) > 0 {
+		top := boardPanel[0]
+		nextQueued = map[string]any{
+			"has": true, "id": top["id"], "name": top["name"],
+			"position": top["position"], "nfl_team": top["nfl_team"],
 		}
 	}
 	availableMaps := playerMapsWithScoring(pagedAvailable, scoringValues, matchup)
@@ -2481,16 +2535,67 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
 	}
 	readyManagerCount, managerCount := s.draftSeatCounts(state)
+	// The command bar's room summary and the shell's per-viewer turn math
+	// both read the same team maps draftTeamMaps already builds for
+	// "teams" below; computed once here and reused, not rebuilt.
+	teamMaps := s.draftTeamMaps(state, onClockID)
+	hereCount, autoCount := 0, 0
+	for _, team := range teamMaps {
+		if presence, _ := team["presence"].(string); presence == "here" {
+			hereCount++
+		}
+		if auto, _ := team["autopick"].(bool); auto {
+			autoCount++
+		}
+	}
+	picksTotal := draftTeamCount() * CurrentDraftRounds()
+	blankTeamMap := map[string]any{"abbreviation": ""}
+	nextTeamMap := blankTeamMap
+	if nextNumber+1 <= picksTotal {
+		nextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+1)))
+	}
+	afterNextTeamMap := blankTeamMap
+	if nextNumber+2 <= picksTotal {
+		afterNextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+2)))
+	}
+	// yourPickIn counts picks until the viewer's own next turn: 0 when on
+	// the clock right now, -1 when seatless or when no future turn remains
+	// (mirrors yourPickBinds' convention in draft_events.go).
+	yourPickIn := -1
+	if viewerTeam != "" {
+		for number := nextNumber; number <= picksTotal; number++ {
+			if teamOnClock(state.DraftOrder, number) == viewerTeam {
+				yourPickIn = number - nextNumber
+				break
+			}
+		}
+	}
+	poolStatusMap := s.poolFreshnessMap(pool)
+	// banner is the command bar's one-line status strip: paused takes
+	// priority over rehearsal, which takes priority over an honest pool
+	// freshness notice, so a manager never sees more than one competing
+	// claim about why the room looks the way it does.
+	banner := ""
+	switch {
+	case state.ClockPaused:
+		banner = "Clock paused — picks stay open"
+	case s.demoMode:
+		banner = "Rehearsal mode"
+	default:
+		if hasNotice, _ := poolStatusMap["has_notice"].(bool); hasNotice {
+			banner, _ = poolStatusMap["detail"].(string)
+		}
+	}
 	return map[string]any{
 		"viewer":               viewer,
 		"public_entry":         publicEntryData(publicEntry),
 		"draft":                s.draftSummary(now),
-		"teams":                s.draftTeamMaps(state, onClockID),
+		"teams":                teamMaps,
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),
 		"available":            availableMaps,
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
-		"pool_status":          s.poolFreshnessMap(pool),
+		"pool_status":          poolStatusMap,
 		"pool_count":           len(pool.players),
 		"available_count":      len(available),
 		"pool_query":           rawQuery,
@@ -2534,6 +2639,19 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
+		"picks_total":          picksTotal,
+		"snake_direction":      snakeDirection(activeTeamCount(state.DraftOrder), nextNumber),
+		"next_team":            nextTeamMap,
+		"after_next_team":      afterNextTeamMap,
+		"viewer_on_clock":      viewerTeam != "" && viewerTeam == onClockID,
+		"your_pick_in":         yourPickIn,
+		"here_count":           hereCount,
+		"auto_count":           autoCount,
+		"banner":               banner,
+		"queue":                queuePanel,
+		"queue_empty":          len(queuePanel) == 0,
+		"next_queued":          nextQueued,
+		"roster_needs":         rosterNeeds,
 	}
 }
 

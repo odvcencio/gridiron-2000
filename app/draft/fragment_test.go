@@ -232,8 +232,9 @@ func TestDraftFragmentFixtureIsFreshForEachRender(t *testing.T) {
 	if got := stringField(available[0], "name"); got != "Test Player" {
 		t.Fatalf("fresh fixture player name = %q, want Test Player", got)
 	}
-	if _, ok := prepared["available"].([]draftPlayerCardView); !ok {
-		t.Fatalf("prepared fixture available = %T, want prepared player cards", prepared["available"])
+	preparedView, ok := prepared["available"].(draftAvailableView)
+	if !ok || len(preparedView.Players) != 1 {
+		t.Fatalf("prepared fixture available = %#v, want one prepared player card", prepared["available"])
 	}
 }
 
@@ -274,14 +275,14 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	}
 	source := string(page)
 	for _, want := range []string{
-		`data-gosx-region-url="/draft/fragment/room"`,
+		`data-gosx-region-url="/draft/fragment/command"`,
 		`data-gosx-region-signal="$draft.state.refresh"`,
-		`data-gosx-region-on="draft:pick draft:undo draft:state draft:clock"`,
+		`data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,
-		`<DraftRoom {...data.room}></DraftRoom>`,
-		`<DraftWorkspace {...data.workspace}></DraftWorkspace>`,
+		`func DraftRoom(props DraftRoomProps) Node {`,
+		`func DraftWorkspace(props DraftWorkspaceProps) Node {`,
 		`aria-live="polite"`,
 	} {
 		if !strings.Contains(source, want) {
@@ -293,8 +294,18 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 			t.Errorf("draft page retains refresh-driven behavior %q", forbidden)
 		}
 	}
-	if got, want := strings.Count(source, `data-gosx-action-signal="$draft.state.refresh"`), strings.Count(source, `<form method="post"`); got != want {
-		t.Fatalf("managed action signals = %d, POST forms = %d; every draft mutation must refresh in place", got, want)
+	// Pick-mutation forms (make-pick, queue-add, queue-remove) rely on the
+	// typed hub events the command/available/queue regions already listen
+	// to, not a manual refresh-signal poke; a commissioner form still
+	// carries the signal as an explicit nudge (its own region does not
+	// listen to every event a commissioner action can produce).
+	for _, forbiddenAction := range []string{`action={props.QueueAddAction} data-gosx-managed="true" data-gosx-action-signal`, `action={props.QueueRemoveAction} data-gosx-managed="true" data-gosx-action-signal`, `action={props.MakePickAction} data-gosx-managed="true" data-gosx-action-signal`} {
+		if strings.Contains(source, forbiddenAction) {
+			t.Errorf("a pick-mutation form still carries a manual refresh-signal poke: %q", forbiddenAction)
+		}
+	}
+	if !strings.Contains(source, `action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh"`) {
+		t.Error("the commissioner draft-start form dropped its refresh-signal nudge")
 	}
 
 	serverSource, err := os.ReadFile("page.server.go")

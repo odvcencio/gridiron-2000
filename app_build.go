@@ -594,6 +594,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/command", draftpage.CommandFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/tape", draftpage.TapeFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence
