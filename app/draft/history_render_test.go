@@ -600,6 +600,41 @@ func TestOlderRoundsLinkRendersEveryRoundWithRoundsAll(t *testing.T) {
 	}
 }
 
+// TestOlderRoundsPickOutsideTheCappedWindowExpandsToRenderItsRow is the
+// 2026-08-30 follow-up's own test: without this fix, item 3's round cap
+// makes a "?pick=" deep link into an early round a silent no-op — the
+// row it names never renders at all, so attachDraftFragmentPick finds
+// nothing to open. attachDraftFragmentView now treats a pick outside
+// the capped window exactly like an explicit "?rounds=all": the full
+// pane renders, so the named row is present and opens.
+func TestOlderRoundsPickOutsideTheCappedWindowExpandsToRenderItsRow(t *testing.T) {
+	const made = 60 // 8 teams: round 1 covers picks 1-8, round 8 (newest) is partial
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture(picks, 8, made+1, false)
+
+	body := renderTapeRegionPath(t, fixture, "/draft/fragment/tape?pick=3")
+	if !strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("?pick=3 names a round-1 pick; the cap must expand to render round 1: %s", body)
+	}
+	rowStart := strings.Index(body, `data-tape-key="pick-3"`)
+	if rowStart < 0 {
+		t.Fatal("row for pick 3 not found")
+	}
+	rowEnd := strings.Index(body[rowStart:], "</article>")
+	row := body[rowStart : rowStart+rowEnd]
+	if !strings.Contains(row, `data-open="true"`) {
+		t.Errorf("pick 3's row must render open: %s", row)
+	}
+	if strings.Contains(body, `class="btn btn-sm draft-tape-older"`) {
+		t.Error("a render expanded to show a named pick must not also carry the Older rounds link")
+	}
+}
+
 // TestPickDetailFragmentServesOneLazyPickBody is item 1b's own render
 // test (2026-08-30 review): GET /draft/fragment/pick/{n} answers exactly
 // one pick's detail body content — the same fields the eager

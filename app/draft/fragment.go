@@ -327,11 +327,32 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	// template exactly as that filter left them, never re-capped on top.
 	// HasOlderRounds is computed from the UNCAPPED count, before the cap
 	// (or "?rounds=all", item 3) removes any rounds at all.
+	//
+	// requestedAllRounds (2026-08-30 follow-up) is this request's own
+	// literal "?rounds=all" — the value history_tape_url, below, echoes
+	// back verbatim. It is distinct from allRounds, which also turns true
+	// when a "?pick=" deep link names a row the cap would otherwise drop
+	// (the next block): that expansion is re-derived fresh from the pick
+	// number on every request, so it never needs to be echoed into the
+	// URL itself.
+	requestedAllRounds := strings.EqualFold(strings.TrimSpace(query.Get(draftHistoryRoundsKey)), "all")
 	if history.Since < 0 {
-		allRounds := strings.EqualFold(strings.TrimSpace(query.Get(draftHistoryRoundsKey)), "all")
+		allRounds := requestedAllRounds
+		capped := capTapeRounds(history.Rounds)
+		// A "?pick=N" deep link whose round the cap would drop must still
+		// open its row: attachDraftFragmentPick (below) only ever hydrates
+		// a pick actually present in Rounds, so a capped pick from an
+		// early round rendered nothing before this check — rendering
+		// every round instead, exactly as an explicit "?rounds=all"
+		// already does, is what makes the deep link work.
+		if !allRounds {
+			if pick := parseDraftHistoryPick(request); pick > 0 && !tapeRoundsHavePick(capped, pick) && tapeRoundsHavePick(history.Rounds, pick) {
+				allRounds = true
+			}
+		}
 		history.HasOlderRounds = !allRounds && len(history.Rounds) > draftTapeMaxRenderedRounds
 		if !allRounds {
-			history.Rounds = capTapeRounds(history.Rounds)
+			history.Rounds = capped
 		}
 	}
 	data["history"] = history
@@ -347,9 +368,18 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	// whenever the request did, so the open row survives a region
 	// refresh (draft:pick/draft:undo/draft:state, Page()'s own
 	// data-gosx-region-on) that would otherwise re-fetch the pane closed.
+	//
+	// 2026-08-30 follow-up: history_tape_url likewise carries
+	// "&rounds=all" whenever this request's own "?rounds=" did, so an
+	// expanded tape (the "Older rounds ↓" target) survives the same
+	// region refresh instead of silently re-collapsing to the newest
+	// three rounds while the address bar still reads "rounds=all".
 	tapeURL := "/draft/fragment/tape?view=" + history.View
 	if pick := parseDraftHistoryPick(request); pick > 0 {
 		tapeURL += "&" + draftHistoryPickKey + "=" + strconv.Itoa(pick)
+	}
+	if requestedAllRounds {
+		tapeURL += "&" + draftHistoryRoundsKey + "=all"
 	}
 	data["history_tape_url"] = tapeURL
 	data["history_view_tape"] = history.ShowTape
@@ -392,6 +422,22 @@ func parseDraftHistoryPick(request *http.Request) int {
 	return number
 }
 
+// tapeRoundsHavePick reports whether rounds carries a round whose Picks
+// includes pick number number — attachDraftFragmentView's own test
+// (2026-08-30 follow-up) for whether a "?pick=" deep link's row survived
+// the round cap, or needs every round rendered instead so it does not
+// silently open nothing.
+func tapeRoundsHavePick(rounds []draftTapeRoundView, number int) bool {
+	for _, round := range rounds {
+		for _, pick := range round.Picks {
+			if pick.Number == number {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // attachDraftFragmentPick marks the tape row a "?pick=" query names as
 // open and hydrates its detail fields inline (item 1, 2026-08-30 review):
 // the fix's whole point is that a made pick's detail body renders
@@ -408,9 +454,11 @@ func parseDraftHistoryPick(request *http.Request) int {
 // keeping the tape fragment's own gzip size the way item 1b already
 // brought it under the D3 refresh budget — this fix does not reopen that
 // cost for every row, only for the one a viewer actually asked to see.
-// A pick number outside the rendered (possibly capped, item 2) Rounds
-// silently opens nothing: you can only open a row the pane actually
-// rendered.
+// A pick number that names no made pick at all still opens nothing (the
+// loop below finds no matching row). A pick that DOES exist but the round
+// cap would otherwise have dropped no longer falls into that case:
+// attachDraftFragmentView (2026-08-30 follow-up) already expanded Rounds
+// to every round for it, before this function ever runs.
 func attachDraftFragmentPick(data map[string]any, request *http.Request) map[string]any {
 	history, ok := data["history"].(draftHistoryView)
 	if !ok {

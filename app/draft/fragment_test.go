@@ -485,6 +485,38 @@ func TestDraftHistoryLinksPreserveThePoolState(t *testing.T) {
 	}
 }
 
+// TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh is the
+// 2026-08-30 follow-up's own test: a request that already carries
+// "?rounds=all" must see that cursor echoed back into history_tape_url,
+// exactly as "?pick=" already was, so the pane stays expanded across the
+// region's own draft:pick/draft:undo/draft:state refresh instead of
+// silently recollapsing to the newest three rounds while the address bar
+// still reads "?rounds=all". The tape fragment at the same query must
+// also actually render every round, not just the newest three.
+func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
+	const made = 40 // 5 rounds at 8 teams
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture(picks, 5, made+1, false)
+
+	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft?view=tape&rounds=all", nil))
+	tapeURL, _ := prepared["history_tape_url"].(string)
+	if !strings.Contains(tapeURL, "rounds=all") {
+		t.Errorf("history_tape_url = %q, must carry rounds=all when the request did", tapeURL)
+	}
+
+	body := renderTapeRegionPath(t, fixture, "/draft/fragment/tape?view=tape&rounds=all")
+	for _, round := range []string{"round-1", "round-2", "round-3", "round-4", "round-5"} {
+		if !strings.Contains(body, `data-tape-key="`+round+`"`) {
+			t.Errorf("?view=tape&rounds=all must render every round, missing %s: %s", round, body)
+		}
+	}
+}
+
 // TestDraftTapeRegionDoesNotYetRequestSinceCursor is item 7's own unit
 // test (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
 // never requests the "?since=" cursor itself — the tape pane's own
