@@ -76,6 +76,20 @@ func TestScoresLiveHubPushesChangesAndRepairsAStaleReconnect(t *testing.T) {
 	updates.observe(false)
 	server := httptest.NewServer(updates.handler(func(*http.Request) bool { return true }))
 	defer server.Close()
+	// seenVersions tracks every scores:changed payload version this test
+	// observes, in receipt order, so it can assert none of them regress
+	// (round-2 review of commit 917cf4f, finding 5): a client that has
+	// already rendered version N must never be told to render something
+	// older.
+	var seenVersions []int64
+	assertNonDecreasing := func(version int64) {
+		t.Helper()
+		if len(seenVersions) > 0 && version < seenVersions[len(seenVersions)-1] {
+			t.Fatalf("payload version regressed: %v then %d", seenVersions, version)
+		}
+		seenVersions = append(seenVersions, version)
+	}
+
 	first := dialScoresLive(t, server.URL, "1")
 	readScoresEvent(t, first, "__welcome")
 	version.Store(2)
@@ -84,6 +98,8 @@ func TestScoresLiveHubPushesChangesAndRepairsAStaleReconnect(t *testing.T) {
 	}
 	if got := readScoresEvent(t, first, scoresLiveEvent); got.Version != 2 || got.Fingerprint != "fp-2" {
 		t.Fatalf("change payload = %+v", got)
+	} else {
+		assertNonDecreasing(got.Version)
 	}
 	_ = first.Close()
 	version.Store(3)
@@ -92,6 +108,8 @@ func TestScoresLiveHubPushesChangesAndRepairsAStaleReconnect(t *testing.T) {
 	readScoresEvent(t, reconnected, "__welcome")
 	if got := readScoresEvent(t, reconnected, scoresLiveEvent); got.Version != 3 {
 		t.Fatalf("repair payload = %+v", got)
+	} else {
+		assertNonDecreasing(got.Version)
 	}
 	current := dialScoresLive(t, server.URL, "3") // current since: no repair frame
 	defer current.Close()
@@ -102,16 +120,19 @@ func TestScoresLiveHubPushesChangesAndRepairsAStaleReconnect(t *testing.T) {
 	if _, _, err := current.ReadMessage(); err == nil {
 		t.Fatal("a current reconnect must receive no repair frame")
 	}
+	if len(seenVersions) != 2 || seenVersions[0] != 2 || seenVersions[1] != 3 {
+		t.Fatalf("seenVersions = %v, want [2 3]", seenVersions)
+	}
 }
 
 func TestScoresLiveBindingsAreDeclared(t *testing.T) {
 	for path, want := range map[string][]string{
 		"page.gsx":               {`data-gosx-live-on="scores:changed"`},
-		"page.server.go":         {"EnableBootstrap()", `BindHub(scoresLiveHubName, ScoresLiveBindingPath(), nil)`},
+		"page.server.go":         {"EnableBootstrap()", `BindHub(ScoresLiveHubName, ScoresLiveBindingPath(), nil)`},
 		"../page.gsx":            {`data-gosx-live-on="scores:changed"`},
-		"../page.server.go":      {"EnableBootstrap()", "matchupspage.ScoresLiveBindingPath()"},
+		"../page.server.go":      {"EnableBootstrap()", "matchupspage.ScoresLiveHubName", "matchupspage.ScoresLiveBindingPath()"},
 		"../team/page.gsx":       {`data-gosx-region-on="scores:changed"`},
-		"../team/page.server.go": {"matchupspage.ScoresLiveBindingPath()"},
+		"../team/page.server.go": {"matchupspage.ScoresLiveHubName", "matchupspage.ScoresLiveBindingPath()"},
 	} {
 		source, err := os.ReadFile(path)
 		if err != nil {

@@ -157,9 +157,19 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			ctx.Runtime().EnableBootstrap()
-			ctx.Runtime().BindHub("scores-live", matchupspage.ScoresLiveBindingPath(), nil)
 			data := league.Default().DashboardData(ctx.Request.Context(), ctx.Request)
+			// Bootstrap and the scores-live socket are gated exactly like
+			// page.gsx's own live element (data.viewer.signed_in &&
+			// data.has_seat, ~line 386): a signed-out landing visitor must
+			// load no runtime and open no socket (round-2 review of commit
+			// 917cf4f, finding 1).
+			viewer, _ := data["viewer"].(map[string]any)
+			signedIn, _ := viewer["signed_in"].(bool)
+			hasSeat, _ := data["has_seat"].(bool)
+			if signedIn && hasSeat {
+				ctx.Runtime().EnableBootstrap()
+				ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
+			}
 			if featured, ok := data["featured"].([]map[string]any); ok {
 				data["featured"] = dashboardMatchupCards(featured)
 			}

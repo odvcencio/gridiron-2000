@@ -352,6 +352,65 @@ func renderAuthenticatedHomepage(t *testing.T) string {
 	return recorder.Body.String()
 }
 
+// TestHomepageBootstrapAndHubGateOnSignedInAndSeated covers round-2
+// review finding 1: the GoSX bootstrap runtime and the scores-live hub
+// binding must load only for the same viewer state that unlocks
+// page.gsx's own live element (data.viewer.signed_in && data.has_seat,
+// ~line 386) — a signed-out landing visitor loads no runtime and opens no
+// socket. "id="gosx-manifest"" and `data-gosx-script="bootstrap"` are
+// the bootstrap runtime's own rendered markers (m31labs.dev/gosx's
+// island.go); BindHub adds the hub's entry to that same manifest.
+func TestHomepageBootstrapAndHubGateOnSignedInAndSeated(t *testing.T) {
+	signedOut := renderLandingPage(t)
+	for _, marker := range []string{`id="gosx-manifest"`, `data-gosx-script="bootstrap"`} {
+		if strings.Contains(signedOut, marker) {
+			t.Fatalf("a signed-out landing visitor must load no bootstrap runtime or hub (%q present): %s", marker, signedOut)
+		}
+	}
+
+	seated := runHomeBootstrapFixture(t, "seated")
+	for _, marker := range []string{`id="gosx-manifest"`, `data-gosx-script="bootstrap"`, "scores-live"} {
+		if !strings.Contains(seated, marker) {
+			t.Fatalf("a signed-in, seated viewer must load the bootstrap runtime and the scores-live hub (missing %q): %s", marker, seated)
+		}
+	}
+}
+
+func runHomeBootstrapFixture(t *testing.T, scenario string) string {
+	t.Helper()
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHomeBootstrapRenderFixtureProcess$")
+	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
+	if err != nil {
+		t.Fatalf("league fixture path: %v", err)
+	}
+	cmd.Env = append(os.Environ(),
+		"HOME_BOOTSTRAP_RENDER_FIXTURE="+scenario,
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"LEAGUE_FILE="+leagueFile,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("homepage bootstrap fixture %s: %v\n%s", scenario, err, output)
+	}
+	return string(output)
+}
+
+func TestHomeBootstrapRenderFixtureProcess(t *testing.T) {
+	scenario := os.Getenv("HOME_BOOTSTRAP_RENDER_FIXTURE")
+	if scenario == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	if scenario == "seated" {
+		if _, err := service.AssignManager("render@example.com", "Render Fixture"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fmt.Print(renderAuthenticatedHomepage(t))
+}
+
 func TestHomepageActionCenterSourceContract(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

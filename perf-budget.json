@@ -7,8 +7,9 @@
         "lcp <= 2500",
         "long_tasks <= 2",
         "tbt <= 150",
-        "js_total_kb <= 140"
-      ]
+        "js_total_kb <= 297"
+      ],
+      "note": "Raised from 140 (round-2 review of commit 917cf4f, finding 2): Task 6 wired the GoSX bootstrap runtime plus the scores-live hub chunk into the signed-in, seated variant of /, and unconditionally into /matchups and /team, for live-score push updates. Measured against a gosx build --prod . dist/ build (2026-08-29): the pre-existing inline navigation enhancer alone is 83160 B raw / 24235 B gzip (signed-out / is unchanged and stays at this floor, well under both the old and the new cap). A seated page additionally loads bootstrap-runtime.<hash>.js (148446 B raw / 40720 B gzip) and bootstrap-feature-hubs.<hash>.js (44467 B raw / 13930 B gzip, resource-hinted via <link rel=preload>), for a measured total of 276073 B raw (269.60 KB) / 78885 B gzip (77.04 KB). 297 is ceil(269.60 * 1.10): raw bytes, matching this cap's existing convention (140 already roughly fit the raw inline enhancer; 77 KB gzip would not have needed raising at all). This profile is shared by every league route (/, /matchups, /team, /login) — the schema has no per-route override — so /login and signed-out / are simply well under the new cap too, not exempted from it."
     },
     "draft": {
       "description": "Draft room with one focused GoSX island.",

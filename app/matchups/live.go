@@ -8,13 +8,18 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/app/liveaccess"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/hub"
 )
 
 const (
-	ScoresLiveHubPath       = "/scores/live"
-	scoresLiveHubName       = "scores-live"
+	ScoresLiveHubPath = "/scores/live"
+	// ScoresLiveHubName is exported (round-2 review of commit 917cf4f,
+	// finding 3) so Home and Team (different packages) can pass the same
+	// name BindHub sees here, rather than each hand-copying the literal
+	// string.
+	ScoresLiveHubName       = "scores-live"
 	scoresLiveEvent         = "scores:changed"
 	scoresLiveCheckInterval = 500 * time.Millisecond
 	scoresLiveSinceKey      = "since"
@@ -45,7 +50,7 @@ type ScoresLive struct {
 
 func newScoresLive(version func() int64, fingerprint func() string) *ScoresLive {
 	updates := &ScoresLive{
-		hub:         hub.New(scoresLiveHubName),
+		hub:         hub.New(ScoresLiveHubName),
 		version:     version,
 		fingerprint: fingerprint,
 	}
@@ -141,6 +146,13 @@ func (updates *ScoresLive) syncJoiningClient(ctx *hub.Context) {
 	// since token still receives a targeted repair below when it is stale
 	// (round-2 note 37 keeps this reset — the same pattern
 	// app/draft/live.go:127-131 uses).
+	//
+	// This reset and the Start ticker's own observe(true) can race: a
+	// version bump landing between this reset and the parse below can, at
+	// worst, cause one duplicate scores:changed frame for this client (the
+	// ticker's broadcast plus this join's own repair) — never a lost
+	// update, since either path always carries the latest version()
+	// (round-2 review of commit 917cf4f, finding 6).
 	if ctx.Hub.ClientCount() == 1 {
 		updates.mu.Lock()
 		updates.baselined = true
@@ -154,30 +166,14 @@ func (updates *ScoresLive) syncJoiningClient(ctx *hub.Context) {
 	ctx.Hub.Send(ctx.Client.ID, scoresLiveEvent, scoresLivePayload{Fingerprint: updates.currentFingerprint(), Version: current})
 }
 
-// scoresLiveAccess is a local copy of app/draft/fragment.go's
-// draftFragmentAccess (demo mode, or a signed-in league member) — the
-// hub package boundary keeps app/matchups from importing app/draft just
-// for this one predicate.
-func scoresLiveAccess(service *league.Service) func(*http.Request) bool {
-	return func(request *http.Request) bool {
-		if service == nil {
-			return false
-		}
-		if service.DemoMode() {
-			return true
-		}
-		_, signedIn := service.CurrentUser(request)
-		return signedIn
-	}
-}
-
-// Handler accepts only authenticated league viewers (or rehearsal mode),
-// then attaches the reconnecting page's since token as immutable
-// connection metadata. A reconnect whose page is already current is
-// silent; a reconnect after a missed poller tick receives one targeted
-// synchronization event.
+// Handler accepts only authenticated league viewers (or rehearsal mode) —
+// app/liveaccess.SignedInOrDemo, the same predicate the draft-live hub
+// uses (round-2 review of commit 917cf4f, finding 4) — then attaches the
+// reconnecting page's since token as immutable connection metadata. A
+// reconnect whose page is already current is silent; a reconnect after a
+// missed poller tick receives one targeted synchronization event.
 func (updates *ScoresLive) Handler(service *league.Service) http.Handler {
-	return updates.handler(scoresLiveAccess(service))
+	return updates.handler(liveaccess.SignedInOrDemo(service))
 }
 
 func (updates *ScoresLive) handler(allowed func(*http.Request) bool) http.Handler {
@@ -216,7 +212,14 @@ func setDefaultScoresLive(updates *ScoresLive) {
 // ScoresLiveBindingPath exposes the current binding path (path plus the
 // current poller version as the since token) to any page in any package
 // that calls NewScoresLive's installed default — Home and Team both bind
-// through this, since ScoresLive itself lives in app/matchups.
+// through this, since ScoresLive itself lives in app/matchups. Before
+// NewScoresLive ever runs (defaultScoresLive.updates is nil — a build
+// that never wires live scoring, or a test rendering a page module in
+// isolation) this falls back to the bare ScoresLiveHubPath with no since
+// token, which reads as "since 0": the first join after the real hub
+// starts sends that client one harmless repair frame, exactly the same
+// as any other stale reconnect (round-2 review of commit 917cf4f,
+// finding 7).
 func ScoresLiveBindingPath() string {
 	defaultScoresLive.RLock()
 	updates := defaultScoresLive.updates

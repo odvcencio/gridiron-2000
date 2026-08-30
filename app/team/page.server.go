@@ -322,7 +322,7 @@ func init() {
 			// The Team lineup region's interval/signal refresh is inert unless
 			// the page opts into GoSX's bootstrap runtime.
 			ctx.Runtime().EnableBootstrap()
-			ctx.Runtime().BindHub("scores-live", matchupspage.ScoresLiveBindingPath(), nil)
+			ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
 			data := prepareTeamData(league.Default().TeamData(ctx.Request), ctx.Request)
 			// Identity mutations stay on the open editor after a native
 			// POST-redirect-GET and after a managed success. GoSX removes the
