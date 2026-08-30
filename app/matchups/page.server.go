@@ -2,48 +2,12 @@ package matchups
 
 import (
 	"log"
+	"strings"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
-
-// MatchupCardData is the typed data.matchups entry: structurally
-// identical to page.gsx's strict MatchupCardProps, field for field. It
-// stays flat for the two team marks and carries the disclosure rows as one
-// package-local StarterLedgerRow slice: Page() reaches MatchupCard through
-// exactly one {...matchup} spread, while GoSX still receives a typed row
-// value for its strict <Each>. It is named MatchupCardData, not MatchupCard,
-// because page.gsx's strict component owns that package-level name.
-type MatchupCardData struct {
-	ID                 string
-	State              string
-	ShowLiveIndicator  bool
-	LiveIndicator      string
-	Status             string
-	Clock              string
-	AwayID             string
-	AwayName           string
-	AwayManager        string
-	AwayScore          string
-	AwayScoreKnown     bool
-	AwayScoreNote      string
-	AwayTone           string
-	AwayAbbreviation   string
-	AwayHasAvatarImage bool
-	AwayAvatarImageURL string
-	LedgerRows         []map[string]any
-	HomeID             string
-	HomeName           string
-	HomeManager        string
-	HomeScore          string
-	HomeScoreKnown     bool
-	HomeScoreNote      string
-	HomeTone           string
-	HomeAbbreviation   string
-	HomeHasAvatarImage bool
-	HomeAvatarImageURL string
-}
 
 func stringField(m map[string]any, key string) string {
 	value, _ := m[key].(string)
@@ -68,64 +32,43 @@ func intField(m map[string]any, key string) int {
 	}
 }
 
-func starterLedgerRows(raw any, teamName string) []map[string]any {
-	entries, _ := raw.([]map[string]any)
-	rows := make([]map[string]any, 0, len(entries))
-	for _, entry := range entries {
-		rows = append(rows, map[string]any{
-			"live_key": stringField(entry, "live_key"), "team_name": teamName,
-			"slot": stringField(entry, "slot"), "player_id": stringField(entry, "player_id"),
-			"player_name": stringField(entry, "player_name"), "position": stringField(entry, "position"),
-			"nfl_team": stringField(entry, "nfl_team"), "has_nfl_team": stringField(entry, "nfl_team") != "",
-			"points": stringField(entry, "points"), "provenance": stringField(entry, "provenance"),
-			"join_state": stringField(entry, "join_state"), "detail": stringField(entry, "detail"),
-		})
+// starterStateClass derives one starter cell's state-chip modifier class
+// from its rendered GameState text (starterGameState, matchup_ledger.go):
+// "FINAL" is always the literal string that function returns for a final
+// game; an in-progress period is always Tank01's uppercase Q1..Q4/OT
+// (the Sep 10 drill's decision, plan doc); everything else — a formatted
+// kickoff instant ("SUN 4:25 PM") or the empty string when the game state
+// is not yet known — reads as not-yet-started. This is a render-time-only
+// classification: like the top status line's own data-live-state
+// attribute, it is set once at render and does not itself live-update
+// (only the bound text inside it does) — see FeaturedMatchup's/StarterCell's
+// own state-chip doc comments in page.gsx.
+func starterStateClass(gameState string) string {
+	switch {
+	case gameState == "FINAL":
+		return "state--final"
+	case strings.HasPrefix(gameState, "Q") || strings.HasPrefix(gameState, "OT"):
+		return "state--live"
+	default:
+		return "state--pre"
 	}
-	return rows
 }
 
-// matchupsPageCards converts MatchupsData's map[string]any "matchups" slice
-// (each entry carrying nested "away"/"home" maps) into flat typed
-// MatchupCardData values, so page.gsx's strict MatchupCard/ScoreTeam/
-// TeamMark spread and attribute boundaries all prove clean: the tier-2
-// spread boundary rejects a map[string]any source outright (it "cannot
-// prove field coverage").
-func matchupsPageCards(raw []map[string]any) []MatchupCardData {
-	out := make([]MatchupCardData, 0, len(raw))
-	for _, entry := range raw {
-		away, _ := entry["away"].(map[string]any)
-		home, _ := entry["home"].(map[string]any)
-		out = append(out, MatchupCardData{
-			ID:                 stringField(entry, "id"),
-			State:              stringField(entry, "state"),
-			ShowLiveIndicator:  boolField(entry, "show_live_indicator"),
-			LiveIndicator:      stringField(entry, "live_indicator"),
-			Status:             stringField(entry, "status"),
-			Clock:              stringField(entry, "clock"),
-			AwayID:             stringField(away, "id"),
-			AwayName:           stringField(away, "name"),
-			AwayManager:        stringField(away, "manager"),
-			AwayScore:          stringField(away, "score"),
-			AwayScoreKnown:     boolField(away, "score_known"),
-			AwayScoreNote:      stringField(away, "score_note"),
-			AwayTone:           stringField(away, "tone"),
-			AwayAbbreviation:   stringField(away, "abbreviation"),
-			AwayHasAvatarImage: boolField(away, "has_avatar_image"),
-			AwayAvatarImageURL: stringField(away, "avatar_image_url"),
-			HomeID:             stringField(home, "id"),
-			HomeName:           stringField(home, "name"),
-			HomeManager:        stringField(home, "manager"),
-			HomeScore:          stringField(home, "score"),
-			HomeScoreKnown:     boolField(home, "score_known"),
-			HomeScoreNote:      stringField(home, "score_note"),
-			HomeTone:           stringField(home, "tone"),
-			HomeAbbreviation:   stringField(home, "abbreviation"),
-			HomeHasAvatarImage: boolField(home, "has_avatar_image"),
-			HomeAvatarImageURL: stringField(home, "avatar_image_url"),
-			LedgerRows:         append(starterLedgerRows(away["starters"], stringField(away, "name")), starterLedgerRows(home["starters"], stringField(home, "name"))...),
-		})
+// matchupStateClass derives a matchup-level state-chip modifier class
+// from the A5 LiveState (LIVE/PAUSED/FINAL/LEDGER): PAUSED reads as the
+// same "signal in flight, just degraded" live treatment as LIVE, since
+// both mean a real NFL game the poller is tracking is underway; LEDGER
+// (nothing kicked off, or the mirrored weekly ledger already stands in)
+// reads as not-yet-started.
+func matchupStateClass(liveState string) string {
+	switch liveState {
+	case "LIVE", "PAUSED":
+		return "state--live"
+	case "FINAL":
+		return "state--final"
+	default:
+		return "state--pre"
 	}
-	return out
 }
 
 // StarterCellData is one lineup-slot pair's single side ("mine" or
@@ -149,6 +92,7 @@ type StarterCellData struct {
 	Detail     string
 	Source     string
 	GameState  string
+	StateClass string
 }
 
 // starterCellData converts one side of a FeaturedMatchupPairData row.
@@ -175,6 +119,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		Detail:     stringField(row, "detail"),
 		Source:     stringField(row, "source"),
 		GameState:  stringField(row, "game_state"),
+		StateClass: starterStateClass(stringField(row, "game_state")),
 	}
 }
 
@@ -234,6 +179,7 @@ type FeaturedMatchupData struct {
 	Label            string
 	LiveIndicator    string
 	LiveState        string
+	StateClass       string
 	WinProb          string
 	WinProbWidth     string
 	StillToPlay      int
@@ -263,6 +209,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		Label:            stringField(raw, "label"),
 		LiveIndicator:    stringField(raw, "live_indicator"),
 		LiveState:        stringField(raw, "live_state"),
+		StateClass:       matchupStateClass(stringField(raw, "live_state")),
 		WinProb:          stringField(raw, "win_prob"),
 		WinProbWidth:     stringField(raw, "win_prob_width"),
 		StillToPlay:      intField(raw, "still_to_play"),
@@ -282,6 +229,7 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 type ScorebugTeamData struct {
 	ID             string
 	Name           string
+	Manager        string
 	Abbreviation   string
 	Score          string
 	Tone           string
@@ -294,6 +242,7 @@ func scorebugTeamData(raw any) ScorebugTeamData {
 	return ScorebugTeamData{
 		ID:             stringField(team, "id"),
 		Name:           stringField(team, "name"),
+		Manager:        stringField(team, "manager"),
 		Abbreviation:   stringField(team, "abbreviation"),
 		Score:          stringField(team, "score"),
 		Tone:           stringField(team, "tone"),
@@ -302,16 +251,17 @@ func scorebugTeamData(raw any) ScorebugTeamData {
 	}
 }
 
-// ScorebugData is one data.other_matchups entry: a matchupMaps entry (see
-// MatchupCardData) reduced to the compact scorebug card's own fields,
-// plus the three A6 summary fields MatchupsData adds to every matchup it
-// does not feature (LiveState, ProjectedAway, ProjectedHome,
-// StillToPlay). ScorebugSummary (Task 11b) is a copy of app/page.gsx's
-// MiniMatchup, not a shared component — see that component's own doc
-// comment for why.
+// ScorebugData is one data.other_matchups entry: a matchupMaps entry
+// reduced to the compact scorebug card's own fields, plus the A6 summary
+// fields MatchupsData adds to every matchup it does not feature
+// (LiveState, ProjectedAway, ProjectedHome, StillToPlay,
+// StillToPlayTotal, Pairs). ScorebugSummary (Task 11b) is a copy of
+// app/page.gsx's MiniMatchup, not a shared component — see that
+// component's own doc comment for why.
 type ScorebugData struct {
 	ID               string
 	LiveState        string
+	StateClass       string
 	LiveIndicator    string
 	Status           string
 	Clock            string
@@ -321,19 +271,32 @@ type ScorebugData struct {
 	ProjectedHome    string
 	StillToPlay      int
 	StillToPlayTotal int
+	Pairs            []FeaturedMatchupPairData
 }
 
 // matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
-// the way matchupsPageCards converts "matchups" — into typed values a
-// strict spread boundary can prove field coverage for.
+// (each matchupMaps entry, plus A6's per-matchup projection/still-to-play
+// summary fields) into typed values a strict spread boundary can prove
+// field coverage for — the same conversion shape featuredMatchupData
+// uses for my_matchup.
 func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 	out := make([]ScorebugData, 0, len(raw))
 	for _, entry := range raw {
 		away, _ := entry["away"].(map[string]any)
 		home, _ := entry["home"].(map[string]any)
+		pairsRaw, _ := entry["pairs"].([]map[string]any)
+		pairs := make([]FeaturedMatchupPairData, 0, len(pairsRaw))
+		for _, pair := range pairsRaw {
+			pairs = append(pairs, FeaturedMatchupPairData{
+				Slot:   stringField(pair, "slot"),
+				Mine:   starterCellData(pair["mine"], false),
+				Theirs: starterCellData(pair["theirs"], true),
+			})
+		}
 		out = append(out, ScorebugData{
 			ID:               stringField(entry, "id"),
 			LiveState:        stringField(entry, "live_state"),
+			StateClass:       matchupStateClass(stringField(entry, "live_state")),
 			LiveIndicator:    stringField(entry, "live_indicator"),
 			Status:           stringField(entry, "status"),
 			Clock:            stringField(entry, "clock"),
@@ -343,6 +306,7 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 			ProjectedHome:    stringField(entry, "projected_home"),
 			StillToPlay:      intField(entry, "still_to_play"),
 			StillToPlayTotal: intField(entry, "still_to_play_total"),
+			Pairs:            pairs,
 		})
 	}
 	return out
@@ -355,9 +319,6 @@ func init() {
 			ctx.Runtime().EnableBootstrap()
 			ctx.Runtime().BindHub(ScoresLiveHubName, ScoresLiveBindingPath(), nil)
 			data := league.Default().MatchupsData(ctx.Request.Context(), ctx.Request)
-			if matchups, ok := data["matchups"].([]map[string]any); ok {
-				data["matchups"] = matchupsPageCards(matchups)
-			}
 			if myMatchup, ok := data["my_matchup"].(map[string]any); ok {
 				data["my_matchup"] = featuredMatchupData(myMatchup)
 			}

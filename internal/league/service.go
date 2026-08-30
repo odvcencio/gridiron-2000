@@ -3734,6 +3734,11 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			// models and the live-bind map was the bug).
 			entry["still_to_play"] = stillToPlay(combined, status)
 			entry["still_to_play_total"] = len(combined)
+			// Every scorebug's own expandable body carries the same
+			// per-slot starter pairs the featured card renders (Task 11b's
+			// Scorebug body is a ul.matchup-pairs of StarterCell, same as
+			// FeaturedMatchup's).
+			entry["pairs"] = featuredStarterPairs(m.Away.StarterLedger, m.Home.StarterLedger)
 		}
 		other = append(other, entry)
 	}

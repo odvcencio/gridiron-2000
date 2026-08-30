@@ -91,6 +91,15 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 	}
 }
 
+// TestMatchupsPageWeekBrowserRoute's required strings were updated for
+// Task 11b's page rewrite: the old "SEASON SCHEDULE // WEEK 2" /
+// "WEEK 2 VIEW" / "Static schedule snapshot" copy lived in the retired
+// matchup-week-controls/masthead-console sections. The new masthead's own
+// degraded-state headline ("SCHEDULE" / "STATUS.", from
+// matchupStaticPresentation) plus the WeekBrowser's "Back to current
+// week" link cover the same regression this test guards: a non-current
+// week must render its own week label and never claim a live auto-refresh
+// it cannot deliver (the forbidden list below, unchanged).
 func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
 	cmd.Env = append(os.Environ(),
@@ -105,10 +114,10 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	}
 	body := string(output)
 	for _, want := range []string{
-		"SEASON SCHEDULE // WEEK 2",
-		"WEEK 2 VIEW",
-		"Status pending",
-		"Static schedule snapshot",
+		`data-gosx-live-bind="weekLabel">Week 2`,
+		`data-gosx-live-bind="headlineTop">SCHEDULE`,
+		`data-gosx-live-bind="headlineBottom">STATUS.`,
+		"Back to current week",
 		"href=\"/matchups\"",
 	} {
 		if !strings.Contains(body, want) {
@@ -198,6 +207,19 @@ func TestMatchupsPageFixtureProcess(t *testing.T) {
 	if fixture == "live" {
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+			t.Fatal(err)
+		}
+		// Seat the two pinned demo-pool names as actual starters (Task 11b:
+		// the page no longer carries a projection-leaders rail, so their
+		// only way onto the rendered page — featured card or a scorebug —
+		// is a real starting slot). This also gives the BAL@BUF frame a
+		// matched, in-progress starter to resolve LiveState to LIVE for
+		// real, rather than the page-wide LEDGER fallback an empty lineup
+		// leaves every row at.
+		if err := svc.SeedStarterForTest("team-1", 1, "QB", "p-09"); err != nil {
+			t.Fatal(err)
+		}
+		if err := svc.SeedStarterForTest("team-2", 1, "QB", "p-06"); err != nil {
 			t.Fatal(err)
 		}
 		// Testdata naming (decided after Task 1 review): the hyphenated
@@ -295,8 +317,8 @@ func TestMatchupsPageRendersWithRealScheduleData(t *testing.T) {
 	if strings.Contains(body, "WENT DARK") || strings.Contains(body, "render strict component") {
 		t.Fatalf("matchups page rendered the error page instead of matchup cards: %s", body)
 	}
-	if !strings.Contains(body, "matchup-card") {
-		t.Fatalf("expected at least one rendered matchup-card in the response, got: %s", body)
+	if !strings.Contains(body, `class="my-matchup card"`) {
+		t.Fatalf("expected the featured matchup card in the response, got: %s", body)
 	}
 	if strings.Contains(body, "NO MATCHUPS YET") {
 		t.Fatalf("expected real seeded matchups, got the empty state: %s", body)

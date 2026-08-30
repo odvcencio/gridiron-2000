@@ -28,11 +28,16 @@ type MatchupTeamCard struct {
 
 // MatchupCard is the typed data.featured entry MiniMatchup's legacy body
 // reads (ID, Status, Clock) and spreads (Away, Home) into TeamMark.
+// LiveState is the A5 truthful state (LIVE/PAUSED/FINAL/LEDGER,
+// matchupMaps' own "live_state") MiniMatchup renders as plain text next
+// to its existing live-dot (Task 11b): Home keeps its own two-live-dot
+// allowlist count unchanged, so this is text, never a new dot.
 type MatchupCard struct {
 	ID                string
 	State             string
 	ShowLiveIndicator bool
 	LiveIndicator     string
+	LiveState         string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -93,6 +98,7 @@ func dashboardMatchupCards(raw []map[string]any) []MatchupCard {
 			State:             stringField(entry, "state"),
 			ShowLiveIndicator: boolField(entry, "show_live_indicator"),
 			LiveIndicator:     stringField(entry, "live_indicator"),
+			LiveState:         stringField(entry, "live_state"),
 			Status:            stringField(entry, "status"),
 			Clock:             stringField(entry, "clock"),
 			Away:              matchupTeamCardFromMap(away),

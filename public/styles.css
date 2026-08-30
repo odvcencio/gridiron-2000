@@ -8416,4 +8416,445 @@ body.is-on-clock .draft-clock-panel {
     border-color: var(--color-accent-cyan);
     background: var(--color-white-soft);
   }
+
+  /* Task 11b: Matchups summary-first layout, phone width. The
+     .matchups-page prefix on every selector here is not scoping for its
+     own sake: this block's rules and the base (non-media) block appended
+     later in this file target several of the same bare class names at
+     equal specificity (.state, .slot-row, .my-matchup__summary, ...), so
+     without an extra class raising specificity here, the later-in-file
+     base declaration would win the cascade tie-break even though this
+     media query is the one actually in effect at this width (round-1
+     empirical finding: .starter-cell__state stayed visible at 390px and
+     overflowed the phone viewport before this prefix was added). */
+  .matchups-page .matchups-masthead__word {
+    display: none;
+  }
+
+  .matchups-page .matchups-masthead__sub {
+    display: none;
+  }
+
+  .matchups-page .matchup-status-line__games {
+    display: none;
+  }
+
+  .matchups-page .my-matchup__summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "mine theirs"
+      "score score";
+  }
+
+  .matchups-page .my-matchup__team {
+    grid-area: mine;
+  }
+
+  .matchups-page .my-matchup__team--opponent {
+    grid-area: theirs;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .matchups-page .my-matchup__score {
+    grid-area: score;
+  }
+
+  .matchups-page .bar {
+    width: 100%;
+  }
+
+  .matchups-page .my-matchup__totals .score {
+    font-size: 2.125rem;
+  }
+
+  .matchups-page .slot-row {
+    grid-template-columns: minmax(0, 1fr) 3.5rem 3.5rem minmax(0, 1fr);
+  }
+
+  .matchups-page .slot-row--head-desktop {
+    display: none;
+  }
+
+  .matchups-page .slot-row--head-mobile {
+    display: grid;
+  }
+
+  .matchups-page .starter-cell__state {
+    display: none;
+  }
+
+  .matchups-page .starter-cell__state-text {
+    display: inline;
+  }
+}
+
+/* Task 11b: Matchups summary-first layout (A6) — the featured "my
+   matchup" card, compact scorebugs, and the single A5 status line that
+   replaces the retired provenance table. Values mirror the approved
+   mockups (warroom/Matchups.dc.html, MatchupsMobile.dc.html), translated
+   onto this stylesheet's existing tokens. Mobile overrides for these
+   classes live inside the file's existing last phone-width breakpoint
+   block (mobile_touch_contract_test.go reads that block by position — a
+   literal max-width: 38rem media query written here, even inside a
+   comment, would move where that test reads from and lose its own
+   touch-target rules). */
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.matchups-masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.matchups-masthead h1 {
+  margin: 0;
+  font-size: 1.875rem;
+  line-height: 1.1;
+}
+
+.matchups-masthead__sub {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
+
+.pickem-weeknav .board-button {
+  min-height: 2.25rem;
+}
+
+.matchup-status-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-glass);
+}
+
+.matchup-status-line__games {
+  margin-left: auto;
+}
+
+.state-chip,
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.state-chip[data-live-state="LIVE"],
+.state-chip[data-live-state="PAUSED"],
+.state--live {
+  color: var(--color-accent);
+  border-color: rgba(217, 255, 67, 0.6);
+  background: var(--color-accent-haze);
+}
+
+.state-chip[data-live-state="FINAL"],
+.state--final {
+  color: var(--color-text-secondary);
+}
+
+.state-chip[data-live-state="LEDGER"],
+.state--pre {
+  color: var(--color-text-muted);
+  border-style: dashed;
+}
+
+.matchup-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 21.25rem;
+  align-items: start;
+  gap: var(--space-md);
+}
+
+@media (max-width: 64rem) {
+  .matchup-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.my-matchup__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.my-matchup__team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.my-matchup__team > div {
+  min-width: 0;
+}
+
+.my-matchup__team strong {
+  display: block;
+  font-size: var(--type-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-matchup__team small {
+  display: block;
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.my-matchup__team--opponent {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+.my-matchup__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.my-matchup__totals {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+.my-matchup__totals .score {
+  font-size: 2.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.my-matchup__totals .score:first-child {
+  color: var(--color-accent);
+}
+
+.bar {
+  width: 13.75rem;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-white-soft);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-cyan));
+}
+
+.slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.75rem 4rem 4rem 5.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 9px var(--space-md);
+  border-top: 1px solid var(--color-border);
+  min-height: 3.25rem;
+}
+
+.slot-row--head {
+  border-top: 0;
+  min-height: auto;
+  padding-top: var(--space-xs);
+  padding-bottom: 4px;
+}
+
+.slot-row--head .section-index {
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.slot-row--head .section-index:first-child {
+  text-align: left;
+}
+
+.slot-row--head .section-index.right {
+  text-align: right;
+}
+
+.slot-row--head-mobile {
+  display: none;
+}
+
+.starter-cell {
+  display: contents;
+}
+
+/* .starter-cell has display: contents (below), which promotes its three
+   direct children — .matchup-ledger (the <details>, holding
+   .starter-cell__name as its <summary>), .starter-cell__state, and
+   .starter-cell__pts — to be the actual grid items .slot-row lays out;
+   .starter-cell itself never becomes a box. order and text-align must
+   target those three promoted children directly: setting either on
+   .starter-cell__name (a non-grid-item descendant, nested inside the
+   .matchup-ledger grid item) has no layout effect at all. */
+.starter-cell[data-right="true"] .starter-cell__pts {
+  order: 1;
+}
+
+.starter-cell[data-right="true"] .starter-cell__state {
+  order: 2;
+}
+
+.starter-cell[data-right="true"] .matchup-ledger {
+  order: 3;
+  text-align: right;
+}
+
+.matchup-ledger {
+  min-width: 0;
+}
+
+.starter-cell__name {
+  cursor: pointer;
+  list-style: none;
+}
+
+.starter-cell__name::-webkit-details-marker {
+  display: none;
+}
+
+.starter-cell__name strong {
+  display: block;
+  font-size: var(--type-sm);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.starter-cell__name small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.starter-cell__state {
+  justify-self: center;
+}
+
+.starter-cell__state-text {
+  display: none;
+}
+
+.pts,
+.starter-cell__pts {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.125rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.right {
+  text-align: right;
+}
+
+.matchup-pairs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.around-league {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.around-league__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scorebug {
+  padding: 6px 0;
+}
+
+.scorebug__summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.scorebug__summary::-webkit-details-marker {
+  display: none;
+}
+
+.scorebug__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px var(--space-sm) 2px;
+}
+
+.mini {
+  display: grid;
+  grid-template-columns: 2.125rem minmax(0, 1fr) 4rem;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+.mini strong {
+  display: block;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini .pts {
+  font-size: 1.25rem;
+  text-align: right;
 }

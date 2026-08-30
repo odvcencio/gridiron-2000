@@ -23,6 +23,7 @@ type MiniMatchupProps struct {
 	ID                string
 	ShowLiveIndicator bool
 	LiveIndicator     string
+	LiveState         string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -36,6 +37,7 @@ func MiniMatchup(props MiniMatchupProps) Node {
 				<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span>
 				<span data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			</span>
+			<span class="mono" data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span>
 			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</div>
 		<div class="mini-team">
