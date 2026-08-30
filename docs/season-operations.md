@@ -222,7 +222,7 @@ Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENA
 | `LIVE` | The poller has a healthy, in-progress signal for at least one starter's game. | `Live box scores · checked N s ago` |
 | `FINAL` | The poller marked a starter's game final, but the mirrored weekly ledger has not posted that player's corrected stats yet. | `Final box scores · weekly ledger pending` |
 | `LEDGER` | No live signal is authoritative right now — pre-kickoff, the week is closed, or every relevant stat already sits in the mirrored nflverse file. | `Weekly ledger (nflverse)` |
-| `PAUSED` | The live poller itself is degraded (the kill switch is off, the relay returned 429, the daily budget is exhausted, or repeated relay/listing failures) while a starter's game is in progress. | `Live box scores paused · <reason>` |
+| `PAUSED` | The live poller itself is degraded (the relay returned 429, the daily budget is exhausted, or repeated relay/listing failures) while a starter's game the poller has already recorded as in progress. The kill switch alone cannot produce this state: flipping it restarts the process, and the restarted poller has no game history to pause on — see [Kill-switch procedure](#kill-switch-procedure). | `Live box scores paused · <reason>` |
 
 ### Precedence
 
@@ -242,13 +242,15 @@ Live scoring classifies a game from Tank01's `gameStatusCode`:
 
 ### Kill-switch procedure
 
-Precondition: the drill only reaches `PAUSED · disabled` when a starter's NFL game is actually in progress at the moment the flag flips off — the precedence above reads a disabled poller as `PAUSED` only for an in-progress starter. Outside a live game window (an off-hours rehearsal, or a bye week) the status line correctly reads `LEDGER` instead, since there is no live signal to pause; that is the expected, correct result, not a failed drill. Run this drill during a live game window.
+`LIVE_SCORING_ENABLED` is read once, at process start (`internal/livescore`'s `Poller`). Nothing re-reads it while the process runs. So "flipping the flag" always means a pod roll, never a live in-process toggle, and the new pod's poller always starts with an empty box-score history — it has never ticked, so it has never seen any game as in progress.
 
-1. Confirm at least one starter's game is currently in progress (the status line already reads `LIVE` or `PAUSED`, not `LEDGER`).
+That has a direct consequence for the state you will observe. `PAUSED` (the precedence above) requires the *current* poller to already hold an in-progress game in its own memory; a pod that just booted with the flag off never reaches that condition, no matter how far into a game the drill runs. **The drill's correct, expected result is `LEDGER`, not `PAUSED · disabled`.** `LEDGER` here still proves the kill switch works — the poller is off (`Health().Enabled == false`), degraded, and correctly reports `disabled` — it is only the *status-line label* that differs from a same-process runtime toggle, because this product has no such toggle. Confirmed on the harness: `TestSimGameDayTimeline` (`sim_gameday_test.go`) restarts a live-in-progress child with the flag off and observes `LEDGER` every time; see [Replay harness evidence](#replay-harness-evidence) below.
+
+1. Confirm at least one starter's game is currently in progress (the status line already reads `LIVE`).
 2. Set the flag to `false` on flagship (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod. Flagship is the only live instance for 2026 (the Stable Kernel league did not form).
-3. Within 60 seconds, confirm the Matchups status line reads the `PAUSED` state chip with the source line `Live box scores paused · disabled`.
+3. Within 60 seconds, confirm the Matchups status line reads `LEDGER` (`Weekly ledger (nflverse)`) and `/api/health`-adjacent poller diagnostics (or an operator route, once one exists) show the poller disabled.
 4. To resume, set `LIVE_SCORING_ENABLED=true` and roll again; confirm the state chip reads `LIVE` within 60 seconds.
-5. Log the drill (date, times, and confirmed state transitions) in `docs/launch-checklist.md`. The Sep 10 2026 TNF drill (DAL@PHI, kickoff 20:20 EDT) is the first scheduled run: at 21:00 EDT (one hour after kickoff, a game in progress), set the flag to `false` on Stable Kernel, confirm `PAUSED · disabled` within 60 s, set it back to `true`, and confirm `LIVE` within 60 s.
+5. Log the drill (date, times, and confirmed state transitions) in `docs/launch-checklist.md`. The Sep 10 2026 TNF drill (DAL@PHI, kickoff 20:20 EDT) is the first scheduled run: at 21:00 EDT (one hour after kickoff, a game in progress), set the flag to `false` on flagship, confirm `LEDGER` within 60 s, set it back to `true`, and confirm `LIVE` within 60 s.
 
 ### Replay harness evidence
 
@@ -263,6 +265,8 @@ Precondition: the drill only reaches `PAUSED · disabled` when a starter's NFL g
 | Whole root run (`go test . -count=1`) | 130.8 s (2:11.5), under concurrent host load from other sessions | "under two minutes" (Goal 6) |
 
 The whole-root-run figure above was measured with several other agents' work running concurrently on the same host (background builds and an unrelated project's test suite); no quiet-host baseline has been recorded yet. Re-run on an otherwise idle host before treating a Goal 6 regression as real.
+
+`go test . -run 'TestSimGameDayTimeline' -count=1 -timeout 900s` walks the whole Sep 10 2026 timeline end to end in one scenario, using the same replay fixture as one continuous game: boot with the flag off (`LEDGER`, poller off) — restart with the flag on 30 minutes before kickoff (enabled, idle, zero box-score fetches while the window is closed) — advance to 5 minutes before kickoff (the window opens, frames flow, `LIVE`) — restart with the flag off an hour after kickoff, a game in progress (the kill-switch drill: `LEDGER`, not `PAUSED · disabled` — see the finding in [Kill-switch procedure](#kill-switch-procedure) above) — restart with the flag on (`LIVE` resumes) — advance past kickoff+5h (the window closes). Measured wall time: 41.1 s (`gridiron-2000-gameday-20260830`, 2026-08-30, `go1.26.0`).
 
 `perf-budget.json`'s `league` profile (`/`, `/matchups`, `/team`, `/login`) caps `js_total_kb` at 90 on a gzip transfer-byte basis. A signed-out `/` stays at the pre-existing inline navigation enhancer alone (24 KB gzip) — the bootstrap hub bundle Task 6 added loads only for seated pages. A seated page (the GoSX bootstrap runtime plus the scores-live hub chunk) measures 77 KB gzip (`bootstrap-runtime` 40 KB + `bootstrap-feature-hubs` 14 KB + the 24 KB floor), comfortably inside the 90 KB cap.
 

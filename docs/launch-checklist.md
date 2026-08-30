@@ -686,14 +686,19 @@ explicit action, never a batch.
    progress, `"0"`/`""` pre-game, any other code with a non-empty
    `currentPeriod` treated as in progress). One hour after kickoff, run the
    kill-switch drill on flagship: set the flag to `false`, roll the pod,
-   confirm `PAUSED · disabled` on the status line within 60 s, set it back
-   to `true`, confirm `LIVE` within 60 s. Log the drill below.
+   confirm `LEDGER` on the status line within 60 s, set it back to `true`,
+   confirm `LIVE` within 60 s. Log the drill below. The status line reads
+   `LEDGER`, not `PAUSED · disabled`, because the flag is read only at
+   process start: the rolled pod's poller has never ticked, so it has no
+   in-progress game in memory to pause on. See
+   [Kill-switch procedure](season-operations.md#kill-switch-procedure) for
+   the full explanation and the harness evidence (`TestSimGameDayTimeline`).
 7. **Watch the relay budget header** on the first live Sunday, at kickoff,
    mid-afternoon, and Sunday Night Football kickoff.
 
 ### Kill-switch drill log
 
-| Date | Kickoff (matchup) | Flag off at | `PAUSED · disabled` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
+| Date | Kickoff (matchup) | Flag off at | `LEDGER` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
 | _2026-09-10 (DAL@PHI, 20:20 EDT)_ | | | | | | |
 
