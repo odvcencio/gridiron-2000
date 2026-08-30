@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,13 +43,15 @@ type ttlRule struct {
 // wins. A path matching no rule falls back to defaultTTL.
 var ttlTable = []ttlRule{
 	{
-		// Box scores change during a live game. blitz_source.go's live
-		// poller re-fetches a game's box score on BLITZ_POLL_INTERVAL,
-		// which defaults to 180s (blitzEnvDuration in blitz_source.go);
-		// matching that cadence here means the relay never serves a
-		// score staler than the app would have fetched on its own.
+		// This is the base/fallback box-score TTL ttlForEntry uses once a
+		// game is actually in progress (or its status is unreadable): the
+		// live poller's own cadence, LIVE_POLL_INTERVAL (internal/livescore
+		// Config.Interval), defaults to 5s, so 4s here means the relay
+		// never serves a score staler than the poller would have fetched
+		// on its own. A pre-game or final box score gets a much longer TTL
+		// instead — see ttlForEntry, which this rule backs.
 		prefix: "/getNFLBoxScore",
-		ttl:    3 * time.Minute,
+		ttl:    4 * time.Second,
 	},
 	{
 		// The preseason schedule (one week's game list) changes at most
@@ -75,6 +78,33 @@ func ttlFor(path string) time.Duration {
 		}
 	}
 	return defaultTTL
+}
+
+// ttlForEntry is ttlFor made status-aware for box scores. Status-code
+// rule: "2" (or a Final period) never changes (24 h); "0" or "" with no
+// period changes at kickoff (60 s); "1", or any other code with a period,
+// is in progress and follows the live cadence (4 s), as does an unreadable body.
+func ttlForEntry(path string, body []byte) time.Duration {
+	if !strings.HasPrefix(path, "/getNFLBoxScore") {
+		return ttlFor(path)
+	}
+	var envelope struct {
+		Body struct {
+			StatusCode string `json:"gameStatusCode"`
+			Period     string `json:"currentPeriod"`
+		} `json:"body"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return ttlFor(path)
+	}
+	code, period := strings.TrimSpace(envelope.Body.StatusCode), strings.TrimSpace(envelope.Body.Period)
+	switch {
+	case code == "2" || strings.EqualFold(period, "final"):
+		return 24 * time.Hour
+	case (code == "0" || code == "") && period == "":
+		return 60 * time.Second
+	}
+	return ttlFor(path)
 }
 
 // cacheEntry is one cached upstream response, held in memory and mirrored
@@ -115,9 +145,19 @@ type Relay struct {
 	dataDir    string
 	httpClient *http.Client
 	now        func() time.Time
+	// dailyBudget is STATRELAY_DAILY_BUDGET: the maximum number of
+	// upstream fetches this relay charges per UTC day. 0 means unlimited
+	// (no header, no charge, no limit) — main.go sets it after NewRelay;
+	// tests set it directly (relay.dailyBudget = N).
+	dailyBudget int
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
+	// budgetDate and budgetUsed track dailyBudget's spend, guarded by mu
+	// alongside cache: budgetDate is the UTC calendar day (YYYY-MM-DD) the
+	// count applies to, reset to 0 the first time a new day is observed.
+	budgetDate string
+	budgetUsed int
 
 	sfMu    sync.Mutex
 	sfCalls map[string]*sfCall
@@ -162,6 +202,9 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.RUnlock()
 
 	if haveCache && !cached.expired(now) {
+		if r.dailyBudget > 0 {
+			w.Header().Set("X-Statrelay-Budget-Remaining", strconv.Itoa(r.remainingBudget(now)))
+		}
 		log.Printf("statrelay: cache=hit path=%s", key)
 		writeEntry(w, cached, false)
 		return
@@ -170,6 +213,20 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		log.Printf("statrelay: cache=expired path=%s", key)
 	} else {
 		log.Printf("statrelay: cache=miss path=%s", key)
+	}
+
+	remaining, allowed := r.chargeBudget(now)
+	if r.dailyBudget > 0 {
+		w.Header().Set("X-Statrelay-Budget-Remaining", strconv.Itoa(remaining))
+	}
+	if !allowed {
+		if haveCache {
+			log.Printf("statrelay: cache=stale path=%s reason=budget", key)
+			writeEntry(w, cached, true)
+			return
+		}
+		http.Error(w, "statrelay: daily budget exhausted", http.StatusTooManyRequests)
+		return
 	}
 
 	entry, err := r.fetchSingleflight(req.Context(), key)
@@ -191,6 +248,53 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		log.Printf("statrelay: disk persist failed path=%s err=%q", key, err)
 	}
 	writeEntry(w, entry, false)
+}
+
+// chargeBudget spends one unit of today's fetch budget and reports what
+// remains. dailyBudget == 0 means unlimited: it returns (0, true) and
+// counts nothing, so an unlimited relay never takes r.mu on this path.
+// Otherwise it rolls the count over on a new UTC day, then either spends
+// one unit (limit-used, true) or reports exhaustion ((0, false)) without
+// spending — mirrors blitzPoller.chargeBudget (blitz_source.go:652).
+func (r *Relay) chargeBudget(now time.Time) (remaining int, allowed bool) {
+	if r.dailyBudget == 0 {
+		return 0, true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rolloverBudgetLocked(now)
+	if r.budgetUsed >= r.dailyBudget {
+		return 0, false
+	}
+	r.budgetUsed++
+	return r.dailyBudget - r.budgetUsed, true
+}
+
+// remainingBudget is chargeBudget's read-only counterpart for the
+// cache-hit header: same day check, but it never charges and never
+// writes budgetDate/budgetUsed. A stale count on the first hit of a new
+// day is corrected by the next chargeBudget call, which does roll over
+// and persist the reset.
+func (r *Relay) remainingBudget(now time.Time) int {
+	if r.dailyBudget == 0 {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	used := r.budgetUsed
+	if r.budgetDate != now.UTC().Format("20060102") {
+		used = 0
+	}
+	return r.dailyBudget - used
+}
+
+// rolloverBudgetLocked resets budgetUsed when the UTC calendar day has
+// changed. Callers hold r.mu (write-locked) already.
+func (r *Relay) rolloverBudgetLocked(now time.Time) {
+	today := now.UTC().Format("20060102")
+	if r.budgetDate != today {
+		r.budgetDate, r.budgetUsed = today, 0
+	}
 }
 
 // fetchSingleflight collapses concurrent identical fetches (same key) into
@@ -261,7 +365,7 @@ func (r *Relay) fetchUpstream(ctx context.Context, key string) (cacheEntry, erro
 		StatusCode:  resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"),
 		FetchedAt:   r.now(),
-		TTL:         ttlFor(path),
+		TTL:         ttlForEntry(path, body),
 	}, nil
 }
 

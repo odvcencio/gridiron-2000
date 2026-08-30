@@ -325,7 +325,7 @@ func TestTTLTableAssignsExpectedBuckets(t *testing.T) {
 		path string
 		want time.Duration
 	}{
-		{"/getNFLBoxScore", 3 * time.Minute},
+		{"/getNFLBoxScore", 4 * time.Second},
 		{"/getNFLGamesForWeek", 24 * time.Hour},
 		{"/getNFLPlayerList", defaultTTL},
 		{"/getNFLADP", defaultTTL},
@@ -354,5 +354,71 @@ func TestQueryStringIsPartOfTheCacheKey(t *testing.T) {
 
 	if got := upstream.count(); got != 2 {
 		t.Fatalf("upstream hits = %d, want 2 (one per distinct query)", got)
+	}
+}
+
+// TestBoxScoreTTLFollowsGameStatus covers ttlForEntry: a final game (code
+// "2", or a Final period) caches for 24h, a pre-game body (code "0" or
+// "", empty period) caches for 60s, and anything else — in progress
+// (code "1"), an unrecognized code with a period, or an unreadable body —
+// follows the live poll cadence (4s). Every other endpoint is unaffected.
+func TestBoxScoreTTLFollowsGameStatus(t *testing.T) {
+	cases := []struct {
+		body string
+		want time.Duration
+	}{
+		{`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`, 24 * time.Hour},
+		{`{"statusCode":200,"body":{"gameStatusCode":"0","currentPeriod":""}}`, 60 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"","currentPeriod":""}}`, 60 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q3","gameClock":"8:12"}}`, 4 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"7","currentPeriod":"Q4"}}`, 4 * time.Second},
+		{`not json`, 4 * time.Second},
+	}
+	for _, c := range cases {
+		if got := ttlForEntry("/getNFLBoxScore", []byte(c.body)); got != c.want {
+			t.Errorf("ttlForEntry(%s) = %v want %v", c.body, got, c.want)
+		}
+	}
+	if got := ttlForEntry("/getNFLGamesForWeek", []byte(`{}`)); got != 24*time.Hour {
+		t.Errorf("games-for-week ttl = %v", got)
+	}
+}
+
+// TestDailyBudgetReturns429AndServesCacheWhenPresent covers
+// STATRELAY_DAILY_BUDGET: an unlimited relay (dailyBudget == 0) never
+// sends the budget header; a limited relay counts fetches, decrements the
+// remaining count in the response header, returns 429 once exhausted
+// (serving a stale cached copy instead when one exists), and resets on a
+// new UTC day.
+func TestDailyBudgetReturns429AndServesCacheWhenPresent(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q1"}}`)
+	server := upstream.server()
+	defer server.Close()
+	unlimited, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	if got := doGet(t, unlimited, "/getNFLBoxScore?gameID=z"); got.Header().Get("X-Statrelay-Budget-Remaining") != "" {
+		t.Fatalf("an unlimited relay must omit the budget header, got %q", got.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	relay, clock := relayForTest(t, server, t.TempDir(), "test-key")
+	relay.dailyBudget = 2
+	first := doGet(t, relay, "/getNFLBoxScore?gameID=a")
+	if first.Code != http.StatusOK || first.Header().Get("X-Statrelay-Budget-Remaining") != "1" {
+		t.Fatalf("first = %d remaining=%q", first.Code, first.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	doGet(t, relay, "/getNFLBoxScore?gameID=b")
+	clock.advance(5 * time.Second)
+	third := doGet(t, relay, "/getNFLBoxScore?gameID=c")
+	if third.Code != http.StatusTooManyRequests || third.Header().Get("X-Statrelay-Budget-Remaining") != "0" {
+		t.Fatalf("over budget = %d remaining=%q", third.Code, third.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	stale := doGet(t, relay, "/getNFLBoxScore?gameID=a")
+	if stale.Code != http.StatusOK || stale.Header().Get("X-Statrelay-Stale") != "true" {
+		t.Fatalf("over budget with cache = %d stale=%q", stale.Code, stale.Header().Get("X-Statrelay-Stale"))
+	}
+	if upstream.count() != 3 {
+		t.Fatalf("upstream hits = %d want 3 (one unlimited, two limited)", upstream.count())
+	}
+	clock.advance(24 * time.Hour)
+	if reset := doGet(t, relay, "/getNFLBoxScore?gameID=c"); reset.Code != http.StatusOK {
+		t.Fatalf("budget did not reset on a new UTC day: %d", reset.Code)
 	}
 }
