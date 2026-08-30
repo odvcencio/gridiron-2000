@@ -55,6 +55,19 @@ func boolField(m map[string]any, key string) bool {
 	return value
 }
 
+func intField(m map[string]any, key string) int {
+	switch value := m[key].(type) {
+	case int:
+		return value
+	case int64:
+		return int(value)
+	case float64:
+		return int(value)
+	default:
+		return 0
+	}
+}
+
 func starterLedgerRows(raw any, teamName string) []map[string]any {
 	entries, _ := raw.([]map[string]any)
 	rows := make([]map[string]any, 0, len(entries))
@@ -115,6 +128,210 @@ func matchupsPageCards(raw []map[string]any) []MatchupCardData {
 	return out
 }
 
+// StarterCellData is one lineup-slot pair's single side ("mine" or
+// "theirs" in FeaturedMatchupPairData) — the strict-component twin of a
+// starterLedgerMaps row. A nil raw value (a slot featuredStarterPairs
+// could not resolve a row for on this side) converts to the zero value,
+// which reads as an unconfigured slot (HasPlayer false), the same as an
+// explicit empty-slot row.
+type StarterCellData struct {
+	HasPlayer  bool
+	LiveKey    string
+	PlayerID   string
+	PlayerName string
+	Position   string
+	NFLTeam    string
+	HasNFLTeam bool
+	Points     string
+	Provenance string
+	JoinState  string
+	Detail     string
+	Source     string
+	GameState  string
+}
+
+func starterCellData(raw any) StarterCellData {
+	row, _ := raw.(map[string]any)
+	nflTeam := stringField(row, "nfl_team")
+	return StarterCellData{
+		HasPlayer:  stringField(row, "player_id") != "",
+		LiveKey:    stringField(row, "live_key"),
+		PlayerID:   stringField(row, "player_id"),
+		PlayerName: stringField(row, "player_name"),
+		Position:   stringField(row, "position"),
+		NFLTeam:    nflTeam,
+		HasNFLTeam: nflTeam != "",
+		Points:     stringField(row, "points"),
+		Provenance: stringField(row, "provenance"),
+		JoinState:  stringField(row, "join_state"),
+		Detail:     stringField(row, "detail"),
+		Source:     stringField(row, "source"),
+		GameState:  stringField(row, "game_state"),
+	}
+}
+
+// FeaturedMatchupPairData is one FeaturedMatchupData.Pairs entry: one
+// lineupSlots(CurrentRoster()) slot, both sides' starter cell side by
+// side, the shape the summary-first "my matchup" card's slot rows render.
+type FeaturedMatchupPairData struct {
+	Slot   string
+	Mine   StarterCellData
+	Theirs StarterCellData
+}
+
+// FeaturedTeamData is FeaturedMatchupData's Mine/Theirs team summary —
+// deliberately not MatchupTeamCard/MatchupCardData's team shape: the
+// featured card additionally needs Record and Projected, and never needs
+// ScoreNote or ScoreKnown (the featured card always has a live score to
+// show, even a 0.0 one).
+type FeaturedTeamData struct {
+	ID             string
+	Name           string
+	Manager        string
+	Record         string
+	Score          string
+	Projected      string
+	Tone           string
+	Abbreviation   string
+	HasAvatarImage bool
+	AvatarImageURL string
+}
+
+func featuredTeamData(raw any) FeaturedTeamData {
+	team, _ := raw.(map[string]any)
+	return FeaturedTeamData{
+		ID:             stringField(team, "id"),
+		Name:           stringField(team, "name"),
+		Manager:        stringField(team, "manager"),
+		Record:         stringField(team, "record"),
+		Score:          stringField(team, "score"),
+		Projected:      stringField(team, "projected"),
+		Tone:           stringField(team, "tone"),
+		Abbreviation:   stringField(team, "abbreviation"),
+		HasAvatarImage: boolField(team, "has_avatar_image"),
+		AvatarImageURL: stringField(team, "avatar_image_url"),
+	}
+}
+
+// FeaturedMatchupData is the typed data.my_matchup entry: MatchupsData's
+// summary-first featured card (A6) — the viewer's own matchup this week,
+// or the week's first matchup labeled FEATURED when they have none.
+// HasMatchup false (no matchups published this week at all) leaves every
+// other field at its zero value; a page rendering this must gate on
+// HasMatchup first, the same way data.matchups_empty gates MatchupCard.
+type FeaturedMatchupData struct {
+	HasMatchup     bool
+	IsViewer       bool
+	ID             string
+	Label          string
+	LiveIndicator  string
+	LiveState      string
+	WinProb        string
+	WinProbWidth   string
+	StillToPlay    string
+	NextLineupHref string
+	Mine           FeaturedTeamData
+	Theirs         FeaturedTeamData
+	Pairs          []FeaturedMatchupPairData
+}
+
+func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
+	pairsRaw, _ := raw["pairs"].([]map[string]any)
+	pairs := make([]FeaturedMatchupPairData, 0, len(pairsRaw))
+	for _, pair := range pairsRaw {
+		pairs = append(pairs, FeaturedMatchupPairData{
+			Slot:   stringField(pair, "slot"),
+			Mine:   starterCellData(pair["mine"]),
+			Theirs: starterCellData(pair["theirs"]),
+		})
+	}
+	return FeaturedMatchupData{
+		HasMatchup:     boolField(raw, "has_matchup"),
+		IsViewer:       boolField(raw, "is_viewer"),
+		ID:             stringField(raw, "id"),
+		Label:          stringField(raw, "label"),
+		LiveIndicator:  stringField(raw, "live_indicator"),
+		LiveState:      stringField(raw, "live_state"),
+		WinProb:        stringField(raw, "win_prob"),
+		WinProbWidth:   stringField(raw, "win_prob_width"),
+		StillToPlay:    stringField(raw, "still_to_play"),
+		NextLineupHref: stringField(raw, "next_lineup_href"),
+		Mine:           featuredTeamData(raw["mine"]),
+		Theirs:         featuredTeamData(raw["theirs"]),
+		Pairs:          pairs,
+	}
+}
+
+// ScorebugTeamData is ScorebugData's Away/Home team summary: the compact
+// scorebug card's own trimmed team shape (no ScoreNote/ScoreKnown/starter
+// ledger — see MatchupCardData for the full-card equivalent).
+type ScorebugTeamData struct {
+	ID             string
+	Name           string
+	Abbreviation   string
+	Score          string
+	Tone           string
+	HasAvatarImage bool
+	AvatarImageURL string
+}
+
+func scorebugTeamData(raw any) ScorebugTeamData {
+	team, _ := raw.(map[string]any)
+	return ScorebugTeamData{
+		ID:             stringField(team, "id"),
+		Name:           stringField(team, "name"),
+		Abbreviation:   stringField(team, "abbreviation"),
+		Score:          stringField(team, "score"),
+		Tone:           stringField(team, "tone"),
+		HasAvatarImage: boolField(team, "has_avatar_image"),
+		AvatarImageURL: stringField(team, "avatar_image_url"),
+	}
+}
+
+// ScorebugData is one data.other_matchups entry: a matchupMaps entry (see
+// MatchupCardData) reduced to the compact scorebug card's own fields,
+// plus the three A6 summary fields MatchupsData adds to every matchup it
+// does not feature (LiveState, ProjectedAway, ProjectedHome,
+// StillToPlay). ScorebugSummary (Task 11b) is a copy of app/page.gsx's
+// MiniMatchup, not a shared component — see that component's own doc
+// comment for why.
+type ScorebugData struct {
+	ID            string
+	LiveState     string
+	LiveIndicator string
+	Status        string
+	Clock         string
+	Away          ScorebugTeamData
+	Home          ScorebugTeamData
+	ProjectedAway string
+	ProjectedHome string
+	StillToPlay   int
+}
+
+// matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
+// the way matchupsPageCards converts "matchups" — into typed values a
+// strict spread boundary can prove field coverage for.
+func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
+	out := make([]ScorebugData, 0, len(raw))
+	for _, entry := range raw {
+		away, _ := entry["away"].(map[string]any)
+		home, _ := entry["home"].(map[string]any)
+		out = append(out, ScorebugData{
+			ID:            stringField(entry, "id"),
+			LiveState:     stringField(entry, "live_state"),
+			LiveIndicator: stringField(entry, "live_indicator"),
+			Status:        stringField(entry, "status"),
+			Clock:         stringField(entry, "clock"),
+			Away:          scorebugTeamData(away),
+			Home:          scorebugTeamData(home),
+			ProjectedAway: stringField(entry, "projected_away"),
+			ProjectedHome: stringField(entry, "projected_home"),
+			StillToPlay:   intField(entry, "still_to_play"),
+		})
+	}
+	return out
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -124,6 +341,12 @@ func init() {
 			data := league.Default().MatchupsData(ctx.Request.Context(), ctx.Request)
 			if matchups, ok := data["matchups"].([]map[string]any); ok {
 				data["matchups"] = matchupsPageCards(matchups)
+			}
+			if myMatchup, ok := data["my_matchup"].(map[string]any); ok {
+				data["my_matchup"] = featuredMatchupData(myMatchup)
+			}
+			if others, ok := data["other_matchups"].([]map[string]any); ok {
+				data["other_matchups"] = matchupsPageScorebugs(others)
 			}
 			return data, nil
 		},

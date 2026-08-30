@@ -1787,12 +1787,18 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	isCurrentWeek := selectedWeek == currentWeek
 	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
+	teamID, _ := viewer["team_id"].(string)
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, currentWeek)
 	return map[string]any{
 		"viewer":             viewer,
 		"live":               s.liveMapForWeek(live, isCurrentWeek),
 		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 		"matchups":           matchups,
 		"matchups_empty":     len(matchups) == 0,
+		"my_matchup":         myMatchup,
+		"other_matchups":     otherMatchups,
+		"other_count_label":  otherMatchupsCountLabel(len(otherMatchups)),
+		"status_line":        s.matchupStatusLine(live),
 		"leaders":            s.leaderMaps(),
 		"league":             s.leagueMap(),
 		"week":               selectedWeek,
@@ -2640,6 +2646,10 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
 	matchupLiveStateBind := make(map[string]string, len(live.Matchups))
+	projected := make(map[string]string, len(live.Matchups)*2)
+	winProb := make(map[string]string, len(live.Matchups))
+	stillToPlayBind := make(map[string]string, len(live.Matchups))
+	liveStatusValue, hasLive := s.liveStatus()
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -2672,6 +2682,18 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
+		awayProjected := projectedTotal(matchup.Away.StarterLedger, s.starterProjections(matchup.Away.StarterLedger), liveStatusValue, hasLive)
+		homeProjected := projectedTotal(matchup.Home.StarterLedger, s.starterProjections(matchup.Home.StarterLedger), liveStatusValue, hasLive)
+		projected[matchup.Away.ID] = fmt.Sprintf("%.1f", awayProjected)
+		projected[matchup.Home.ID] = fmt.Sprintf("%.1f", homeProjected)
+		// winProb.<matchupID> is always the HOME side's win probability — a
+		// fixed, matchup-scoped convention (there is no "viewer" to take a
+		// side for here, unlike my_matchup's mine/theirs), matching
+		// featuredMatchupMap's own Home-first tie-break for the
+		// non-viewer FEATURED case.
+		winProb[matchup.ID] = fmt.Sprintf("%.0f%%", winProbability(homeProjected, awayProjected)*100)
+		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
+		stillToPlayBind[matchup.ID] = fmt.Sprintf("%d of %d starters still to play", stillToPlay(combined, liveStatusValue), len(combined))
 	}
 	checkedAt := live.CheckedAt
 	if checkedAt.IsZero() {
@@ -2697,6 +2719,9 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"matchupClock":      matchupClock,
 		"matchupIndicator":  matchupIndicator,
 		"matchupLiveState":  matchupLiveStateBind,
+		"projected":         projected,
+		"winProb":           winProb,
+		"stillToPlay":       stillToPlayBind,
 		"starterPoints":     starterPoints,
 		"starterPlayerName": starterPlayerName,
 		"starterPosition":   starterPosition,
@@ -3633,6 +3658,171 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 		})
 	}
 	return out
+}
+
+// featuredMatchupIndex resolves which of matchups (live.Matchups, in
+// schedule order) is "my_matchup": the viewer's own matchup this week
+// when teamID names one of its two sides, else the week's first matchup
+// (isViewer false — the page labels this case FEATURED instead of
+// claiming it belongs to the viewer). index is -1 when the week has no
+// matchups at all.
+func featuredMatchupIndex(matchups []ScoreMatchup, teamID string) (index int, isViewer bool) {
+	if teamID != "" {
+		for i, m := range matchups {
+			if m.Home.ID == teamID || m.Away.ID == teamID {
+				return i, true
+			}
+		}
+	}
+	if len(matchups) > 0 {
+		return 0, false
+	}
+	return -1, false
+}
+
+// otherMatchupsCountLabel renders MatchupsData's "other_count_label"
+// ("3 other matchups", "1 other matchup", "0 other matchups").
+func otherMatchupsCountLabel(count int) string {
+	if count == 1 {
+		return "1 other matchup"
+	}
+	return fmt.Sprintf("%d other matchups", count)
+}
+
+// featuredMatchupViews builds MatchupsData's summary-first pair: my_matchup
+// (A6's featured card, viewer's own matchup or the week's first one) and
+// other_matchups (matchupMaps' remaining entries, each carrying the
+// projected-total and still-to-play fields the scorebug cards render).
+// matchups must be s.matchupMaps(state, live.Matchups) — the same slice,
+// in the same order, so index alignment with live.Matchups holds.
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, currentWeek int) (map[string]any, []map[string]any) {
+	status, hasLive := s.liveStatus()
+	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
+	other := make([]map[string]any, 0, len(matchups))
+	for i, entry := range matchups {
+		if i == index {
+			continue
+		}
+		if i < len(live.Matchups) {
+			m := live.Matchups[i]
+			entry["projected_away"] = fmt.Sprintf("%.1f", projectedTotal(m.Away.StarterLedger, s.starterProjections(m.Away.StarterLedger), status, hasLive))
+			entry["projected_home"] = fmt.Sprintf("%.1f", projectedTotal(m.Home.StarterLedger, s.starterProjections(m.Home.StarterLedger), status, hasLive))
+			entry["still_to_play"] = stillToPlay(append(append([]StarterLedgerRow{}, m.Away.StarterLedger...), m.Home.StarterLedger...), status)
+		}
+		other = append(other, entry)
+	}
+	if index < 0 {
+		return emptyFeaturedMatchup(), other
+	}
+	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, currentWeek, status, hasLive), other
+}
+
+// emptyFeaturedMatchup is my_matchup's shape when the week has no
+// matchups at all (no schedule yet, or a bye with nobody else scheduled).
+func emptyFeaturedMatchup() map[string]any {
+	return map[string]any{
+		"has_matchup": false, "is_viewer": false, "id": "", "label": "",
+		"live_indicator": "", "live_state": "", "win_prob": "", "win_prob_width": "0%",
+		"still_to_play": "", "next_lineup_href": "",
+		"mine": map[string]any{}, "theirs": map[string]any{}, "pairs": []map[string]any{},
+	}
+}
+
+// featuredMatchupMap renders my_matchup for one resolved ScoreMatchup.
+// mine/theirs follow the viewer's own side when isViewer holds; the
+// FEATURED (non-viewer) case has no "own side" to follow, so it labels
+// Home "mine" and Away "theirs" — an arbitrary but stable choice, since
+// nothing distinguishes the two sides for a spectator.
+func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, currentWeek int, status LiveStatus, hasLive bool) map[string]any {
+	mine, theirs := m.Home, m.Away
+	if isViewer && m.Away.ID == teamID {
+		mine, theirs = m.Away, m.Home
+	}
+	mineProjected := projectedTotal(mine.StarterLedger, s.starterProjections(mine.StarterLedger), status, hasLive)
+	theirsProjected := projectedTotal(theirs.StarterLedger, s.starterProjections(theirs.StarterLedger), status, hasLive)
+	winProbText := fmt.Sprintf("%.0f%%", winProbability(mineProjected, theirsProjected)*100)
+	combined := append(append([]StarterLedgerRow{}, mine.StarterLedger...), theirs.StarterLedger...)
+	label := ""
+	if !isViewer {
+		label = "FEATURED"
+	}
+	return map[string]any{
+		"has_matchup":      true,
+		"is_viewer":        isViewer,
+		"id":               m.ID,
+		"label":            label,
+		"live_indicator":   liveIndicatorToken(m.State),
+		"live_state":       m.LiveState,
+		"win_prob":         winProbText,
+		"win_prob_width":   winProbText,
+		"still_to_play":    fmt.Sprintf("%d of %d starters still to play", stillToPlay(combined, status), len(combined)),
+		"next_lineup_href": fmt.Sprintf("/team?week=%d#lineup", currentWeek+1),
+		"mine":             s.featuredTeamMap(state, mine, mineProjected),
+		"theirs":           s.featuredTeamMap(state, theirs, theirsProjected),
+		"pairs":            featuredStarterPairs(mine.StarterLedger, theirs.StarterLedger),
+	}
+}
+
+// featuredTeamMap is my_matchup's mine/theirs team shape.
+func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projected float64) map[string]any {
+	team := s.teamView(state, side.ID)
+	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
+	return map[string]any{
+		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
+		"score": matchupScoreText(side), "projected": fmt.Sprintf("%.1f", projected),
+		"tone": team.Tone, "abbreviation": side.Abbreviation,
+		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
+	}
+}
+
+// featuredStarterPairs zips both sides' starter-ledger rows one per
+// lineupSlots(CurrentRoster()) entry, in the fixed engine slot order both
+// sides' rows already share (matchupLineup resolves every team through
+// the same lineupSlots(CurrentRoster()) walk). A side missing a row for a
+// slot (should not happen — every configured slot always gets a row, even
+// an empty one) renders that side of the pair as nil rather than
+// panicking on an index a differently-shaped roster produced.
+func featuredStarterPairs(mineRows, theirsRows []StarterLedgerRow) []map[string]any {
+	mine := starterLedgerMaps(mineRows)
+	theirs := starterLedgerMaps(theirsRows)
+	slots := lineupSlots(CurrentRoster())
+	out := make([]map[string]any, 0, len(slots))
+	for i := range slots {
+		var mineRow, theirsRow map[string]any
+		if i < len(mine) {
+			mineRow = mine[i]
+		}
+		if i < len(theirs) {
+			theirsRow = theirs[i]
+		}
+		slot := ""
+		switch {
+		case mineRow != nil:
+			slot, _ = mineRow["slot"].(string)
+		case theirsRow != nil:
+			slot, _ = theirsRow["slot"].(string)
+		}
+		out = append(out, map[string]any{"slot": slot, "mine": mineRow, "theirs": theirsRow})
+	}
+	return out
+}
+
+// matchupStatusLine renders MatchupsData's status_line: the one-sentence
+// A5/A6 status the page shows in place of the old provenance table, plus
+// the three raw fields (live_state, checked_at, games_final) a strict
+// GSX component needs individually rather than pre-joined into prose.
+func (s *Service) matchupStatusLine(live LiveSnapshot) map[string]any {
+	checkedAt := live.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = live.LastUpdated
+	}
+	return map[string]any{
+		"live_state":       live.LiveState,
+		"source_line":      live.SourceLine,
+		"checked_at":       s.formatMatchupUpdateOrUnavailable(checkedAt),
+		"stats_updated_at": s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt),
+		"games_final":      live.GamesFinal,
+	}
 }
 
 func (s *Service) teamByID(id string) Team {

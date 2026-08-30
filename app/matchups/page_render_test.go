@@ -11,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/livescore"
+	"gridiron-2000/internal/sim/replay"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -126,6 +129,45 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	}
 }
 
+// TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine covers Task 11a:
+// the "live" render fixture (a real in-progress BAL@BUF frame from the
+// replay harness) proves the page renders the summary-first layout — the
+// A6 status line in place of the retired provenance table, the viewer's
+// featured matchup card before the rest of the week's matchups, and the
+// bracket still below every matchup — even though the actual page.gsx
+// markup this fixture drives does not exist until Task 11b.
+func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(), "MATCHUPS_RENDER_FIXTURE=live",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		`class="matchup-status-line"`, `data-gosx-live-bind="liveState"`, `data-gosx-live-bind="sourceLine"`, `data-gosx-live-bind="gamesFinal"`,
+		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="projected.`, `data-gosx-live-bind="stillToPlay.`,
+		`class="matchup-pair slot-row"`, `<details class="matchup-ledger">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
+		`data-gosx-live-on="scores:changed"`, "Live box scores · checked", "Q2 ", "Josh Allen", "Lamar Jackson",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("live fixture missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{"Scores from", "Browser checked", "Stats ledger updated", "View mode", "Browser poll", `class="masthead-console"`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("live fixture still renders the provenance table: %q", forbidden)
+		}
+	}
+	if strings.Index(body, `class="my-matchup card"`) > strings.Index(body, `class="matchup-grid"`) {
+		t.Error("the featured matchup must render before the other matchups")
+	}
+	if strings.Index(body, `class="matchup-grid"`) > strings.Index(body, "playoff-truth-card") {
+		t.Error("the bracket must stay below the week's matchups")
+	}
+}
+
 func TestMatchupsMastheadCanShrinkBesideNavigationRail(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
@@ -151,6 +193,37 @@ func TestMatchupsPageFixtureProcess(t *testing.T) {
 		kickoff := time.Now().Add(24 * time.Hour)
 		svc.SetScheduleSource(func() []league.GameInfo {
 			return []league.GameInfo{{ID: "future", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "MIA"}}
+		})
+	}
+	if fixture == "live" {
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := svc.AdminGenerateSchedule(request, 14, 1, 42); err != nil {
+			t.Fatal(err)
+		}
+		// Testdata naming (decided after Task 1 review): the hyphenated
+		// copy, not the fixture's own "@" name — a literal "@" in a
+		// tracked test file trips privacy_contract_test.go's email-shaped
+		// scan.
+		game, err := replay.Load(filepath.Join("..", "..", "internal", "sim", "replay", "testdata", "box-20250907_BAL-BUF-pbp.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		box := fantasy.ParseBoxScore(game.Frames()[70].Body) // mid second quarter
+		start := time.Now().Add(-time.Hour)
+		svc.SetScheduleSource(func() []league.GameInfo {
+			return []league.GameInfo{{ID: "g1", Week: 1, Kickoff: start, Away: "BAL", Home: "BUF"}, {ID: "g2", Week: 1, Kickoff: start.Add(4 * time.Hour), Away: "SF", Home: "SEA"}}
+		})
+		snapshot := livescore.SnapshotFromBoxScores(1, start, box)
+		svc.SetWeekStatsSource(func(week int) []league.WeekStatLine {
+			return livescore.MergeLines(nil, week, snapshot, svc.ResolveLivePlayer)
+		})
+		svc.SetLiveStatusSource(func() league.LiveStatus {
+			games := map[string]league.LiveGameState{}
+			for _, g := range snapshot.Games {
+				state := league.LiveGameState{GameID: g.ID, Away: g.Away, Home: g.Home, Period: g.Period, Clock: g.Clock, Final: g.Final, InProgress: g.InProgress, Kickoff: g.Kickoff}
+				games[g.Away], games[g.Home] = state, state
+			}
+			return league.LiveStatus{Enabled: true, CheckedAt: time.Now().Add(-4 * time.Second), Games: games}
 		})
 	}
 	fmt.Print(renderMatchupsPage(t))
@@ -229,11 +302,11 @@ func TestMatchupsPageRendersWithRealScheduleData(t *testing.T) {
 		t.Fatalf("expected real seeded matchups, got the empty state: %s", body)
 	}
 	for _, want := range []string{
-		"Starter scoring ledger · both teams",
-		"Configured starters only. Bench, reserve, and IR are excluded.",
+		"Points update as plays land",
+		"tap a starter for the box score",
 		`data-gosx-live-bind="starterPoints.`,
-		"Browser checked",
-		"Stats ledger updated",
+		`data-gosx-live-bind="sourceLine"`,
+		`data-gosx-live-bind="gamesFinal"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("real schedule render missing matchup truth surface %q: %s", want, body)
@@ -249,37 +322,40 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 	source := string(page)
 	for _, want := range []string{
 		"<details class=\"matchup-ledger\">",
-		"data-gosx-live-bind={\"starterPoints.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterPlayerName.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterPosition.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterNFLTeam.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterProvenance.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterJoinState.\" + row.live_key}",
-		"data-gosx-live-bind={\"starterDetail.\" + row.live_key}",
+		"data-gosx-live-bind={\"starterPoints.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterPlayerName.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterPosition.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterNFLTeam.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterProvenance.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterJoinState.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterDetail.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterGameState.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterSource.\" + props.LiveKey}",
+		"data-gosx-live-bind=\"sourceLine\"",
+		"data-gosx-live-bind=\"statsUpdatedAt\"",
 		"Configured starters only. Bench, reserve, and IR are excluded.",
-		"{data.live.checked_label}",
-		"{data.live.stats_updated_label}",
-		"<span>Browser poll</span>",
 	} {
 		if !strings.Contains(source, want) {
 			t.Fatalf("matchup page lost native disclosure/freshness contract %q", want)
 		}
 	}
 	for _, forbidden := range []string{
-		"<span>{row.player_name}</span>",
-		"<small>{row.position}<If cond={row.has_nfl_team}>",
-		"<span>{row.provenance} · {row.join_state}</span>",
-		"<small class=\"matchup-ledger__detail\">{row.detail}</small>",
+		"<span>Browser poll</span>",
+		"{data.live.checked_label}",
+		"{data.live.stats_updated_label}",
+		"class=\"masthead-console\"",
 	} {
 		if strings.Contains(source, forbidden) {
-			t.Fatalf("starter ledger field lost live binding: %q", forbidden)
+			t.Fatalf("matchup page still carries the retired provenance table: %q", forbidden)
 		}
 	}
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(styles), ".matchup-ledger__row") {
-		t.Fatal("matchup starter-ledger styles are missing")
+	for _, want := range []string{".matchup-ledger__row", ".slot-row"} {
+		if !strings.Contains(string(styles), want) {
+			t.Fatalf("matchup starter-ledger styles are missing %q", want)
+		}
 	}
 }
