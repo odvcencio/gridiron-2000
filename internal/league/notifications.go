@@ -1769,7 +1769,7 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 		dropPlayer = pool.byID[result.Claim.DropID]
 	}
 	faab := s.cfg.Waivers.Mode == "faab"
-	order := waiverOrder(state, s.cfg)
+	order := waiverOrder(state, s.cfg, s.schedule())
 	n := len(order)
 	winningTeamName := ""
 	if result.WinningTeamID != "" {
@@ -1788,7 +1788,11 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	case "beaten":
 		if faab {
 			title = "OUTBID."
-			subject = fmt.Sprintf("OUTBID: %s went to %s for %s", addPlayer.Name, winningTeamName, faabUnits(result.WinningBid))
+			// F8: never disclose the winning bid amount to the team that
+			// lost the claim (app/help/content.go's documented "never
+			// expose another team's private bid") — only that they were
+			// outbid. The winner still sees their own bid, below.
+			subject = fmt.Sprintf("OUTBID: %s went to %s", addPlayer.Name, winningTeamName)
 		} else {
 			title = "BEATEN TO IT."
 			subject = fmt.Sprintf("MISSED: %s went to %s on priority", addPlayer.Name, winningTeamName)
@@ -1827,8 +1831,10 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 		rows = append(rows, emailkit.PanelRow{Label: "PRIORITY", Value: fmt.Sprintf("%s claimed it first", winningTeamName)})
 	case result.Outcome == "beaten" && faab:
 		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
+		// F8: the beaten team sees only its own bid, never the winning
+		// amount that outbid it.
 		rows = append(rows,
-			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: %s · winning: %s", faabUnits(result.Claim.Bid), faabUnits(result.WinningBid))},
+			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: %s", faabUnits(result.Claim.Bid))},
 			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("%s remaining", faabUnits(remaining))},
 		)
 	default: // failed

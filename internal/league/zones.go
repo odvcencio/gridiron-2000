@@ -279,6 +279,35 @@ func effectiveRosterSize(state PersistedState, teamID string) int {
 	return len(currentRosters(state)[teamID]) - irOccupantCount(state, teamID)
 }
 
+// creditedDropCount counts how many of dropIDs actually free a general
+// roster spot for teamID (F3): effectiveRosterSize already excludes an
+// IR occupant from the cap, so dropping one credits zero spots, never a
+// second free slot stacked on top of the one IR already gave. Every cap
+// check that pairs a simultaneous add with a named drop (RecordTransaction,
+// ProcessWaivers, AddPlayer, FileClaim) must add len(incoming) and
+// subtract this, never len(dropIDs), so an IR-occupant drop can never
+// double-credit the cap arithmetic the way a plain len(txn.Drops) did.
+func creditedDropCount(state PersistedState, teamID string, dropIDs []string) int {
+	credited := 0
+	for _, id := range dropIDs {
+		if zoneOfPlayer(state, teamID, id) != zoneIR {
+			credited++
+		}
+	}
+	return credited
+}
+
+// maxOpenClaimsPerTeam bounds one team's open waiver-claim queue (F4): a
+// team can never usefully want more open claims than its own roster has
+// spots, so the current roster size is a generous, config-friendly cap —
+// it moves with a commissioner's roster-shape override the same way every
+// other roster-size cap in this package already does — while still
+// closing the unbounded-filing abuse case (500 open claims filed by one
+// team in a single burst, no rejection, no rate limit).
+func maxOpenClaimsPerTeam() int {
+	return CurrentRoster().Total()
+}
+
 // nextKickoffGrace is how far into the past a kickoff still counts as
 // "the current one" for nextKickoffForTeam — the same 4-hour convention
 // pickemWeekAt (pickem.go) already uses for "which NFL week is this."

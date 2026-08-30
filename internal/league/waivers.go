@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -145,6 +146,15 @@ type waiverStatus struct {
 	// ON WAIVERS conditions applies. Empty outside AvailabilityOnWaivers.
 	Reason string
 }
+
+// waiverKickoffPendingLabel is the one shared answer for a kickoff-locked
+// claim's resolve time (F7): the live processing run decides "due" by
+// reading the game's current Final flag, never gameFinalAt's
+// kickoff-plus-five-hours estimate, so no surface may promise a specific
+// instant for it. Both the pool row (PlayersData) and MY CLAIMS
+// (waiverClaimResolutionView) render this exact string so the same
+// kickoff-locked player can never show two different answers.
+const waiverKickoffPendingLabel = "Pending — resolves once this player's game is marked final."
 
 // lastDropInstant returns the At instant and Type ("drop" or "auto-drop")
 // of the most recent drop or auto-drop transaction naming playerID among
@@ -394,9 +404,18 @@ func weeklyPointsRank(sch SeasonSchedule, teamIDs []string, week int, seasonRank
 	return out
 }
 
+// performanceBaseOrderCalls instruments F4's per-run hoist invariant: one
+// Store.ProcessWaivers run must call performanceBaseOrder (the
+// standings/weekly-rank computation) exactly once, no matter how many
+// claims it resolves. atomic because ordinary read paths (PlayersData,
+// notifyWaiverResult) can call waiverOrder concurrently with a run;
+// tests only ever read this between single-threaded calls of their own.
+var performanceBaseOrderCalls int64
+
 // performanceBaseOrder derives the post-close base order (section 5.2.1,
 // W >= 1): a season/weekly-rank blend, worst combined performance first.
 func performanceBaseOrder(sch SeasonSchedule, teamIDs []string, cfg Config, week int) []string {
+	atomic.AddInt64(&performanceBaseOrderCalls, 1)
 	standings := ComputeStandings(sch, teamIDs, TiebreakInputs{SeasonSeed: sch.Seed})
 	seasonRank := make(map[string]int, len(standings))
 	for _, st := range standings {
@@ -443,15 +462,53 @@ func moveToBack(order []string, teamID string) []string {
 	return out
 }
 
-// applyInPeriodPenalties replays every claim Transaction with Week > week,
+// lastWeekClosePenaltyBoundary resolves the wall-clock instant (F1) after
+// which a claim transaction counts as "in period" for the section 5.2.1
+// in-period penalty: the schedule mirror's earliest known kickoff of the
+// week immediately after lastClosedWeek(sch) — the first instant a future
+// recompute could next legitimately absorb that closed week's results and
+// forgive an earlier penalty. This replaces the old, buggy comparison
+// against a claim transaction's own recorded Week number: that number is
+// itself derived from the schedule mirror at claim-resolution time
+// (lineupCurrentWeekAt) and can equal lastClosedWeek exactly — an empty
+// schedule mirror, a commissioner force-close, or a claim resolved after
+// the season's last scheduled week all reach that equality — silently
+// suppressing the penalty and letting one team's winning claim keep
+// waiver position 1 and sweep the rest of the run.
+//
+// ok is false, and the caller must then treat every open claim
+// transaction as in period (the safe direction: a suppressed penalty is
+// exactly the audited bug this replaces), when: no week has closed yet
+// (week == 0 — 5.2.1 already penalizes every real claim before week 1
+// closes, so there is nothing to forgive yet), the schedule mirror
+// carries no kickoff for the following week (a source outage, or a
+// commissioner force-close made ahead of the mirror catching up), or
+// lastClosedWeek is already the season's final scheduled week (there is
+// no following week left, so no future recompute can ever forgive a
+// claim resolved after the season ends).
+func lastWeekClosePenaltyBoundary(sch *SeasonSchedule, games []GameInfo) (time.Time, bool) {
+	week := lastClosedWeek(sch)
+	if week == 0 {
+		return time.Time{}, false
+	}
+	return firstKickoff(games, week+1)
+}
+
+// applyInPeriodPenalties replays every claim Transaction resolved after
+// boundary (when haveBoundary is true — see lastWeekClosePenaltyBoundary),
 // in At order, moving each winner to the back (section 5.2.1's in-period
-// penalty). The penalty set empties automatically once week advances past
-// a claim's Week, which is how the penalty "expires at the next
-// recompute" with no separate expiry bookkeeping.
-func applyInPeriodPenalties(base []string, transactions []Transaction, week int) []string {
+// penalty). When haveBoundary is false every claim transaction counts as
+// in period (F1's safe fallback). The penalty set empties automatically
+// once a fresh recompute's boundary passes a claim's At instant, which is
+// how the penalty "expires at the next recompute" with no separate expiry
+// bookkeeping.
+func applyInPeriodPenalties(base []string, transactions []Transaction, boundary time.Time, haveBoundary bool) []string {
 	claims := make([]Transaction, 0)
 	for _, txn := range transactions {
-		if txn.Type == "claim" && txn.Week > week {
+		if txn.Type != "claim" {
+			continue
+		}
+		if !haveBoundary || txn.At.After(boundary) {
 			claims = append(claims, txn)
 		}
 	}
@@ -463,21 +520,34 @@ func applyInPeriodPenalties(base []string, transactions []Transaction, week int)
 	return order
 }
 
+// waiverBaseOrder computes section 5.2.1's pre-penalty base order: the
+// inverse round-1 draft order before week 1 closes, or the
+// performance-weighted blend anchored at lastClosedWeek once one has.
+// This is the expensive, per-run-constant half of waiverOrder — it does
+// not depend on anything a claim resolution can change (Transactions),
+// only on the persisted schedule and draft order — so Store.ProcessWaivers
+// computes it exactly once per run (F4) and replays only the cheap
+// applyInPeriodPenalties half after each win, instead of recomputing
+// standings once per resolved claim.
+func waiverBaseOrder(state PersistedState, cfg Config) []string {
+	teamIDs := defaultTeamIDs()
+	week := lastClosedWeek(state.Schedule)
+	if week == 0 || state.Schedule == nil {
+		return reverseStrings(roundOneOrder(state.DraftOrder))
+	}
+	return performanceBaseOrder(*state.Schedule, teamIDs, cfg, week)
+}
+
 // waiverOrder derives the full current claim order (roster-ops spec
 // section 5.2.1): the performance base at the last week close (or inverse
 // draft order before week 1 closes), then in-period claim penalties
-// replayed from the transaction log. Nothing here is stored.
-func waiverOrder(state PersistedState, cfg Config) []string {
-	teamIDs := defaultTeamIDs()
-	week := lastClosedWeek(state.Schedule)
-
-	var base []string
-	if week == 0 || state.Schedule == nil {
-		base = reverseStrings(roundOneOrder(state.DraftOrder))
-	} else {
-		base = performanceBaseOrder(*state.Schedule, teamIDs, cfg, week)
-	}
-	return applyInPeriodPenalties(base, state.Transactions, week)
+// replayed from the transaction log. Nothing here is stored. games backs
+// the in-period penalty's time boundary (F1) — pass the same schedule
+// mirror every other roster-ops read uses (Service.schedule()).
+func waiverOrder(state PersistedState, cfg Config, games []GameInfo) []string {
+	base := waiverBaseOrder(state, cfg)
+	boundary, haveBoundary := lastWeekClosePenaltyBoundary(state.Schedule, games)
+	return applyInPeriodPenalties(base, state.Transactions, boundary, haveBoundary)
 }
 
 // faabRemaining derives each team's remaining FAAB budget (faab mode

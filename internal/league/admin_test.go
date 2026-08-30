@@ -488,6 +488,61 @@ func TestCommissionerForceAutopick(t *testing.T) {
 	})
 }
 
+// TestAdminRunWaivers pins F5's commissioner force-run: the same
+// authority/confirmation gates AdminForceAutopick uses, and a resolved
+// run that reuses Store.ProcessWaivers exactly (the ordinary cycle's own
+// resolution path), recording WaiversProcessedThrough at the
+// commissioner's own clock instant rather than a computed nextRun.
+func TestAdminRunWaivers(t *testing.T) {
+	t.Run("rejected for non-commissioners", func(t *testing.T) {
+		service := newTestService(t, false)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation); err == nil {
+			t.Fatal("a non-commissioner request must be rejected")
+		}
+	})
+
+	t.Run("rejected without the exact confirmation", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := service.AdminRunWaivers(request, "wrong"); err == nil {
+			t.Fatal("a missing/incorrect confirmation must be rejected")
+		}
+	})
+
+	t.Run("resolves a due claim immediately, out of cycle", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		if err := service.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.FileClaim(WaiverClaim{ID: "clm-1", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		results, err := service.AdminRunWaivers(request, RunWaiversConfirmation)
+		if err != nil {
+			t.Fatalf("AdminRunWaivers: %v", err)
+		}
+		if len(results) != 1 || results[0].Outcome != "won" {
+			t.Fatalf("results = %+v, want one won outcome", results)
+		}
+		state := service.store.Snapshot()
+		if len(state.WaiverClaims) != 0 || len(state.Transactions) != 1 {
+			t.Fatalf("claims/transactions = %d/%d, want 0/1", len(state.WaiverClaims), len(state.Transactions))
+		}
+		if !state.WaiversProcessedThrough.Equal(now.UTC()) {
+			t.Fatalf("WaiversProcessedThrough = %v, want %v (the commissioner's own clock instant)", state.WaiversProcessedThrough, now)
+		}
+	})
+}
+
 // TestDraftIsLive checks that scheduled time and demo mode never replace
 // the persisted commissioner start.
 func TestDraftIsLive(t *testing.T) {

@@ -103,13 +103,17 @@ func TestMoveClaimEqualFAABBidsChangesProcessingOrder(t *testing.T) {
 	}
 }
 
+// TestProcessWaiversPersistsPrivateReceiptsForEveryOutcome covers both
+// terminal receipt outcomes (won, beaten). F6: a claim whose AddID has
+// left the bounded pool this run is deferred, not resolved as "failed" —
+// TestProcessWaiversDeferredClaimStaysOpenWhenAddIDLeavesPool below
+// covers that outcome instead of a third terminal receipt here.
 func TestProcessWaiversPersistsPrivateReceiptsForEveryOutcome(t *testing.T) {
 	store := processWaiversFixtureStore(t)
 	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
 	for _, claim := range []WaiverClaim{
 		{ID: "clm-win", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-3 * time.Hour)},
 		{ID: "clm-beaten", TeamID: "team-2", AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
-		{ID: "clm-failed", TeamID: "team-3", AddID: "gone-player", FiledAt: now.Add(-time.Hour)},
 	} {
 		if err := store.FileClaim(claim); err != nil {
 			t.Fatal(err)
@@ -119,12 +123,12 @@ func TestProcessWaiversPersistsPrivateReceiptsForEveryOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 3 {
-		t.Fatalf("results = %+v, want three outcomes", results)
+	if len(results) != 2 {
+		t.Fatalf("results = %+v, want two outcomes", results)
 	}
 	state := store.Snapshot()
-	if len(state.WaiverClaims) != 0 || len(state.WaiverReceipts) != 3 {
-		t.Fatalf("claims/receipts = %d/%d, want 0/3", len(state.WaiverClaims), len(state.WaiverReceipts))
+	if len(state.WaiverClaims) != 0 || len(state.WaiverReceipts) != 2 {
+		t.Fatalf("claims/receipts = %d/%d, want 0/2", len(state.WaiverClaims), len(state.WaiverReceipts))
 	}
 	byID := make(map[string]WaiverReceipt, len(state.WaiverReceipts))
 	for _, receipt := range state.WaiverReceipts {
@@ -142,8 +146,50 @@ func TestProcessWaiversPersistsPrivateReceiptsForEveryOutcome(t *testing.T) {
 	if got := byID["clm-beaten"]; got.Outcome != "beaten" || got.WinningTeamID != "team-7" || got.Reason == "" {
 		t.Fatalf("beaten receipt = %+v", got)
 	}
-	if got := byID["clm-failed"]; got.Outcome != "failed" || got.WinningTeamID != "" || got.Add.PlayerID != "gone-player" || got.Reason == "" {
-		t.Fatalf("failed receipt = %+v", got)
+}
+
+// TestProcessWaiversDeferredClaimStaysOpenWhenAddIDLeavesPool pins F6: a
+// claim whose AddID has left this run's bounded pool (a roster shuffle or
+// source refresh, not the manager's fault) stays open — no receipt, no
+// transaction, no destroyed claim — and resolves normally once the
+// player is back in the pool on a later run.
+func TestProcessWaiversDeferredClaimStaysOpenWhenAddIDLeavesPool(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-deferred", TeamID: "team-3", AddID: "gone-player", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	pool := processWaiversFixturePool() // "gone-player" is not in this pool
+	results, err := store.ProcessWaivers(now, processWaiversCfg(), nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 0 {
+		t.Fatalf("results = %+v, want no resolution while the player is out of the pool", results)
+	}
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-deferred" {
+		t.Fatalf("WaiverClaims = %+v, want clm-deferred still open", state.WaiverClaims)
+	}
+	if len(state.WaiverReceipts) != 0 || len(state.Transactions) != 0 {
+		t.Fatalf("a deferred claim must not produce a receipt or transaction: receipts=%d transactions=%d", len(state.WaiverReceipts), len(state.Transactions))
+	}
+
+	// The player returns to the pool on a later run: the still-open claim
+	// resolves normally.
+	pool["gone-player"] = Player{ID: "gone-player", Name: "Gone Player", Position: "WR", NFLTeam: "PIT"}
+	later := now.Add(24 * time.Hour)
+	results, err = store.ProcessWaivers(later, processWaiversCfg(), nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != "won" {
+		t.Fatalf("results after the player returns = %+v, want one won outcome", results)
+	}
+	state = store.Snapshot()
+	if len(state.WaiverClaims) != 0 || len(state.WaiverReceipts) != 1 {
+		t.Fatalf("claims/receipts after recovery = %d/%d, want 0/1", len(state.WaiverClaims), len(state.WaiverReceipts))
 	}
 }
 

@@ -751,8 +751,50 @@ func TestPlayersDataWaiverReceiptsAreTeamPrivateAndIgnoreEmailPrefs(t *testing.T
 	if len(receipts) != 1 || receipts[0]["claim_id"] != "mine" || receipts[0]["add_name"] != "My Player" {
 		t.Fatalf("private receipts = %+v, want only team-1 receipt", receipts)
 	}
-	if receipts[0]["has_winning_bid"] != true || receipts[0]["winning_bid"] != 14 {
-		t.Fatalf("receipt winning bid projection = %+v", receipts[0])
+	// F8: the beaten team's own private receipt never discloses the
+	// amount that outbid it — only the commissioner's all-teams overlay
+	// (F5) may ever surface a beaten claim's true winning bid.
+	if receipts[0]["has_winning_bid"] != false || receipts[0]["winning_bid"] != 0 {
+		t.Fatalf("receipt winning bid projection = %+v, want the winning bid withheld from the beaten team", receipts[0])
+	}
+}
+
+// TestPlayersDataCommissionerSeesAllReceiptsIncludingWinningBid pins F5
+// (commissioner receipts are not team-private) and F8 (the winning FAAB
+// bid may surface for the commissioner's trusted, audited overlay, the
+// one place it ever does).
+func TestPlayersDataCommissionerSeesAllReceiptsIncludingWinningBid(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	svc.demoMode = true // demo mode grants IsCommissioner
+	svc.store.mu.Lock()
+	svc.store.state.WaiverReceipts = []WaiverReceipt{
+		{ClaimID: "other", Season: 2026, Week: 1, TeamID: "team-2", Add: TransactionPlayer{Name: "Other Player", Position: "WR"}, Outcome: "won", Reason: "Claim awarded.", ResolvedAt: now},
+		{ClaimID: "mine", Season: 2026, Week: 1, TeamID: "team-1", Add: TransactionPlayer{Name: "My Player", Position: "RB"}, Mode: "faab", Outcome: "beaten", WinningTeamID: "team-2", WinningBid: 14, WinningBidKnown: true, Reason: "outbid", ResolvedAt: now},
+	}
+	svc.store.mu.Unlock()
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	if data["is_commissioner"] != true {
+		t.Fatal("demo mode must grant is_commissioner")
+	}
+	receipts, _ := data["commissioner_waiver_receipts"].([]map[string]any)
+	if len(receipts) != 2 {
+		t.Fatalf("commissioner receipts = %+v, want both teams' receipts", receipts)
+	}
+	var mine map[string]any
+	for _, r := range receipts {
+		if r["claim_id"] == "mine" {
+			mine = r
+		}
+	}
+	if mine == nil {
+		t.Fatal("commissioner view is missing team-1's receipt")
+	}
+	if mine["team_abbr"] == "" {
+		t.Fatal("commissioner view must name the owning team")
+	}
+	if mine["has_winning_bid"] != true || mine["winning_bid"] != 14 {
+		t.Fatalf("commissioner receipt winning bid projection = %+v, want the true winning bid disclosed", mine)
 	}
 }
 
@@ -955,6 +997,49 @@ func TestPlayersDataCapacityBreakdownSeparatesGeneralReserveAndIR(t *testing.T) 
 	t.Fatal("fa-open row not found")
 }
 
+// TestPlayersDataKickoffLockedResolveTimeAgreesBetweenPoolRowAndMyClaims
+// pins F7: the pool row and MY CLAIMS panel must render the exact same
+// answer for one kickoff-locked player's resolve time. Before the fix,
+// the pool row rendered a kickoff-plus-five-hours estimate
+// (formatResolvesAt(status.ResolvesAt)) while MY CLAIMS said the timing
+// was unavailable — two different answers for the same claim.
+func TestPlayersDataKickoffLockedResolveTimeAgreesBetweenPoolRowAndMyClaims(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	if err := svc.store.FileClaim(WaiverClaim{ID: "clm-kick", TeamID: "team-1", AddID: "fa-open", FiledAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "in-progress", Week: 1, Kickoff: now.Add(-time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+
+	rows, _ := data["players"].([]map[string]any)
+	var poolResolves any
+	found := false
+	for _, row := range rows {
+		if row["id"] == "fa-open" {
+			poolResolves = row["waiver_resolves"]
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("fa-open not found in the pool rows")
+	}
+
+	claims, _ := data["my_claims"].([]map[string]any)
+	if len(claims) != 1 {
+		t.Fatalf("my_claims = %+v, want exactly one open claim", claims)
+	}
+	if poolResolves != claims[0]["resolution_label"] {
+		t.Fatalf("pool row waiver_resolves = %q, MY CLAIMS resolution_label = %q; the two surfaces must agree", poolResolves, claims[0]["resolution_label"])
+	}
+	if poolResolves != waiverKickoffPendingLabel {
+		t.Fatalf("waiver_resolves = %q, want the shared kickoff-pending label %q", poolResolves, waiverKickoffPendingLabel)
+	}
+}
+
 func TestPlayersDataClaimResolutionStates(t *testing.T) {
 	claimRow := func(svc *Service) map[string]any {
 		data := svc.PlayersData(deadlineTestGET("/players"))
@@ -995,9 +1080,11 @@ func TestPlayersDataClaimResolutionStates(t *testing.T) {
 	if err := unknownSvc.store.FileClaim(WaiverClaim{ID: "unknown-claim", TeamID: "team-1", AddID: "missing-player", FiledAt: unknownNow}); err != nil {
 		t.Fatalf("seed unknown claim: %v", err)
 	}
+	// F6: an AddID absent from the pool is deferred, not "unknown" — the
+	// claim stays open and resolves once the player returns to the pool.
 	unknown := claimRow(unknownSvc)
-	if unknown == nil || unknown["resolution_state"] != "unknown" || unknown["resolution_at"] != "" || unknown["resolution_relative"] != "" {
-		t.Fatalf("unknown claim resolution = %+v, want no invented time", unknown)
+	if unknown == nil || unknown["resolution_state"] != "deferred" || unknown["resolution_at"] != "" || unknown["resolution_relative"] != "" {
+		t.Fatalf("deferred claim resolution = %+v, want no invented time", unknown)
 	}
 
 	degradedSvc, degradedNow := newWaiversTestService(t)

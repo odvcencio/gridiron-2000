@@ -15,7 +15,17 @@ func newRosterOpsTestService(t *testing.T, start time.Time) (*Service, *time.Tim
 	t.Helper()
 	svc, clock := newNotifyTestService(t, start.Add(24*time.Hour), start)
 	svc.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
-	svc.SetScheduleSource(func() []GameInfo { return nil })
+	// A non-empty, but otherwise inert, schedule mirror: F2 defers a
+	// waiver run entirely while games is empty, so every timing/N14 test
+	// in this file needs a non-empty games slice to keep exercising the
+	// run itself. Team AAA/BBB never appear in processWaiversPool (its
+	// players are all PIT), so this fixture never kickoff-locks anything
+	// these tests file claims or drops against, and its single Final week-1
+	// game keeps lineupCurrentWeekAt/pickemWeekAt's derived "current week"
+	// answer (1) identical to what an empty games slice already returned.
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: time.Date(2026, 9, 10, 13, 0, 0, 0, time.UTC), Final: true}}
+	})
 	svc.cfg.Timezone = "UTC" // keep the 09:00 process_time math in UTC, matching every `start` fixture below
 	if err := svc.store.SetDraftOrder(defaultTeamIDs()); err != nil {
 		t.Fatal(err)
@@ -158,6 +168,47 @@ func TestRosterOpsTickFiresN14OnWin(t *testing.T) {
 	}
 	if svc.notifyQueue.Depth() != 1 {
 		t.Fatalf("queue depth = %d, want 1 (one N14 send)", svc.notifyQueue.Depth())
+	}
+}
+
+// TestRosterOpsTickDefersWhenScheduleSourceIsEmpty pins F2: an empty
+// schedule mirror must defer a waiver run entirely, exactly like the
+// player-pool-unavailable guard just below it in evalWaiverRun, rather
+// than resolve claims as if no player were ever kickoff-locked. Probe 3
+// (roster-ops audit) showed a live, kicked-but-not-final player's drop
+// re-validation silently passing because games was empty; ported here as
+// a named regression, plus a recovery check once the source heals.
+func TestRosterOpsTickDefersWhenScheduleSourceIsEmpty(t *testing.T) {
+	start := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+	svc, _ := newRosterOpsTestService(t, start)
+	svc.SetScheduleSource(func() []GameInfo { return nil }) // reproduce the schedule-source outage
+	svc.rosterOpsTick(start)                                // baselines WaiversProcessedThrough to start
+
+	if err := svc.store.FileClaim(WaiverClaim{ID: "clm-1", TeamID: "team-7", AddID: "wv-1", FiledAt: start}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Past the scheduled run, repeatedly: an empty schedule mirror must
+	// keep deferring, never silently resolve the claim.
+	svc.rosterOpsTick(start.Add(25 * time.Hour))
+	svc.rosterOpsTick(start.Add(49 * time.Hour))
+	state := svc.store.Snapshot()
+	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-1" {
+		t.Fatalf("WaiverClaims = %+v, want clm-1 still open while the schedule source is empty", state.WaiverClaims)
+	}
+	if len(state.Transactions) != 0 || len(state.WaiverReceipts) != 0 {
+		t.Fatalf("a deferred run must not resolve anything: transactions=%d receipts=%d", len(state.Transactions), len(state.WaiverReceipts))
+	}
+
+	// Recovery: once the schedule source is healthy again, the next tick
+	// resolves the still-open claim normally.
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: time.Date(2026, 9, 10, 13, 0, 0, 0, time.UTC), Final: true}}
+	})
+	svc.rosterOpsTick(start.Add(50 * time.Hour))
+	state = svc.store.Snapshot()
+	if len(state.WaiverClaims) != 0 || len(state.Transactions) != 1 {
+		t.Fatalf("state after schedule source recovers = claims %d, transactions %d; want 0/1", len(state.WaiverClaims), len(state.Transactions))
 	}
 }
 

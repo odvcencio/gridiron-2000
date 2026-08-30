@@ -455,6 +455,43 @@ func TestCommissionerSummaryV1SignedProviderSuccessAndStoreFailure(t *testing.T)
 	}
 }
 
+// TestCommissionerV1WaiverRunStateReportsOverdue pins F5's commissioner
+// blindness fix: the waiver_run calendar entry must say "overdue" once
+// the processor has missed an entire extra cycle of its own — a stuck
+// ticker, not merely the ordinary gap before the next daily run — and
+// otherwise stay "scheduled".
+func TestCommissionerV1WaiverRunStateReportsOverdue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "UTC"
+	cfg.Waivers.ProcessTime = "09:00"
+
+	processedThrough := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+	state := PersistedState{WaiversProcessedThrough: processedThrough}
+	nextRun := nextWaiverProcessingRun(cfg, processedThrough, processedThrough) // 09:00 09-18
+
+	cases := []struct {
+		name string
+		now  time.Time
+		want string
+	}{
+		{"never processed", processedThrough, "scheduled"},
+		{"before the next run", nextRun.Add(-time.Hour), "scheduled"},
+		{"just past the next run", nextRun.Add(time.Hour), "scheduled"},
+		{"missed an entire extra cycle", nextRun.Add(25 * time.Hour), "overdue"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := commissionerV1WaiverRunState(cfg, state, c.now); got != c.want {
+				t.Fatalf("commissionerV1WaiverRunState(now=%v) = %q, want %q", c.now, got, c.want)
+			}
+		})
+	}
+
+	if got := commissionerV1WaiverRunState(cfg, PersistedState{}, processedThrough); got != "scheduled" {
+		t.Fatalf("a never-baselined WaiversProcessedThrough must stay %q, got %q", "scheduled", got)
+	}
+}
+
 func TestReadableSnapshotCouplesHealthAndClone(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
 	defer store.Close()

@@ -5,7 +5,9 @@ package league
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net/http"
 	"time"
 )
 
@@ -206,6 +208,16 @@ func (s *Service) evalWaiverRun(now time.Time) {
 	}
 
 	games := s.schedule()
+	if len(games) == 0 {
+		// F2: do not resolve or advance waiver state against an empty
+		// schedule mirror. With no games, playerLockedForRosterMutation can
+		// never prove any player's game is live, so a run here could
+		// silently resolve a claim whose named drop should still be
+		// kickoff-locked — exactly the same defer-not-fail precedent the
+		// pool guard just below already applies to a missing player source.
+		log.Printf("roster ops: waiver run deferred because the schedule source is empty")
+		return
+	}
 	pool := s.pool()
 	if playerPoolIsUnavailable(pool) {
 		// Do not resolve or advance waiver state against an empty source. A
@@ -223,4 +235,47 @@ func (s *Service) evalWaiverRun(now time.Time) {
 	for _, result := range results {
 		s.notifyWaiverResult(result, nextRun)
 	}
+}
+
+// RunWaiversConfirmation is the exact typed acknowledgement for the
+// commissioner's force-run waiver action (F5, commissioner oversight): an
+// out-of-cycle run resolves every currently due claim immediately and
+// cannot be undone from this screen, the same irreversibility class as
+// ForceCurrentPickConfirmation.
+const RunWaiversConfirmation = "RUN WAIVERS NOW"
+
+// AdminRunWaivers forces one out-of-cycle waiver processing run (F5:
+// commissioner oversight for a run that is stuck or overdue). It calls
+// Store.ProcessWaivers directly — the exact same resolution path
+// evalWaiverRun drives on its own schedule — so a forced run can never
+// diverge from the ordinary cycle's rules, and fires the same N14
+// notifications evalWaiverRun does once the run's single persist has
+// committed. now is the run's authoritative resolution instant (the
+// commissioner's own clock), not a computed nextRun: a force-run is by
+// definition out of cycle.
+func (s *Service) AdminRunWaivers(r *http.Request, confirmation string) ([]WaiverResult, error) {
+	if err := s.requireCommissioner(r); err != nil {
+		return nil, err
+	}
+	if err := requireMutationConfirmation(RunWaiversConfirmation, confirmation); err != nil {
+		return nil, err
+	}
+	pool := s.pool()
+	if playerPoolIsUnavailable(pool) {
+		return nil, fmt.Errorf("player data is unavailable; try again once the pool refreshes")
+	}
+	games := s.schedule()
+	if len(games) == 0 {
+		return nil, fmt.Errorf("the schedule source is unavailable; try again once it refreshes")
+	}
+	now := s.clock()
+	rosterCap := CurrentRoster().Total()
+	results, err := s.store.ProcessWaivers(now, s.cfg, games, pool.byID, rosterCap)
+	if err != nil {
+		return nil, err
+	}
+	for _, result := range results {
+		s.notifyWaiverResult(result, now)
+	}
+	return results, nil
 }

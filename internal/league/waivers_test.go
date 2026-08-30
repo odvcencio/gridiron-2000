@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -44,7 +45,7 @@ func TestLastClosedWeekEmptyWeekNeverCounts(t *testing.T) {
 func TestWaiverOrderPreWeek1InverseDraftOrder(t *testing.T) {
 	teamIDs := defaultTeamIDs() // team-1..team-8, config order
 	state := PersistedState{DraftOrder: append([]string(nil), teamIDs...)}
-	order := waiverOrder(state, DefaultConfig())
+	order := waiverOrder(state, DefaultConfig(), nil)
 	want := reverseStrings(teamIDs)
 	if len(order) != len(want) {
 		t.Fatalf("len(order) = %d, want %d", len(order), len(want))
@@ -58,7 +59,7 @@ func TestWaiverOrderPreWeek1InverseDraftOrder(t *testing.T) {
 
 func TestWaiverOrderPreWeek1FallsBackToDefaultOrderWhenUndrawn(t *testing.T) {
 	state := PersistedState{} // no DraftOrder drawn yet
-	order := waiverOrder(state, DefaultConfig())
+	order := waiverOrder(state, DefaultConfig(), nil)
 	want := reverseStrings(defaultTeamIDs())
 	for i := range want {
 		if order[i] != want[i] {
@@ -121,7 +122,7 @@ func TestWaiverOrderSeasonWeightDefault60(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 60
 	state := PersistedState{Schedule: &sch}
-	order := waiverOrder(state, cfg)
+	order := waiverOrder(state, cfg, nil)
 	want := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -137,7 +138,7 @@ func TestWaiverOrderPureSeasonAt100(t *testing.T) {
 	sch := weightingFixtureSchedule()
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 100
-	order := waiverOrder(PersistedState{Schedule: &sch}, cfg)
+	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil)
 	want := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -150,7 +151,7 @@ func TestWaiverOrderPureWeeklyAt0(t *testing.T) {
 	sch := weightingFixtureSchedule()
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 0
-	order := waiverOrder(PersistedState{Schedule: &sch}, cfg)
+	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil)
 	want := []string{"team-1", "team-2", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}
 	for i, id := range want {
 		if order[i] != id {
@@ -231,10 +232,12 @@ func TestWaiverOrderEqualCombinedBreaksBySeededDraw(t *testing.T) {
 
 func TestApplyInPeriodPenaltyMovesWinnerToBack(t *testing.T) {
 	base := []string{"team-1", "team-2", "team-3", "team-4"}
+	claimAt := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
 	transactions := []Transaction{
-		{Type: "claim", TeamID: "team-1", Week: 2, At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
+		{Type: "claim", TeamID: "team-1", At: claimAt},
 	}
-	order := applyInPeriodPenalties(base, transactions, 1) // week (W) == 1; claim's Week (2) > W
+	boundary := claimAt.Add(-time.Hour) // the claim resolved after the boundary: in period
+	order := applyInPeriodPenalties(base, transactions, boundary, true)
 	want := []string{"team-2", "team-3", "team-4", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -245,12 +248,15 @@ func TestApplyInPeriodPenaltyMovesWinnerToBack(t *testing.T) {
 
 func TestApplyInPeriodPenaltyExpiresAtNextRecompute(t *testing.T) {
 	base := []string{"team-1", "team-2", "team-3", "team-4"}
-	// The claim's Week (2) no longer exceeds the new W (2) once the
-	// period advances — the penalty set empties automatically.
+	claimAt := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
+	// The claim resolved before the new boundary once the period advances
+	// (the following week's kickoff moved past it) — the penalty set
+	// empties automatically.
 	transactions := []Transaction{
-		{Type: "claim", TeamID: "team-1", Week: 2, At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
+		{Type: "claim", TeamID: "team-1", At: claimAt},
 	}
-	order := applyInPeriodPenalties(base, transactions, 2)
+	boundary := claimAt.Add(time.Hour)
+	order := applyInPeriodPenalties(base, transactions, boundary, true)
 	for i, id := range base {
 		if order[i] != id {
 			t.Fatalf("order = %v, want the untouched base %v (penalty expired)", order, base)
@@ -261,15 +267,228 @@ func TestApplyInPeriodPenaltyExpiresAtNextRecompute(t *testing.T) {
 func TestApplyInPeriodPenaltyMultipleWinsReplayInAtOrder(t *testing.T) {
 	base := []string{"team-1", "team-2", "team-3", "team-4"}
 	transactions := []Transaction{
-		{Type: "claim", TeamID: "team-3", Week: 2, At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
-		{Type: "claim", TeamID: "team-1", Week: 2, At: time.Date(2026, 9, 20, 9, 1, 0, 0, time.UTC)},
+		{Type: "claim", TeamID: "team-3", At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
+		{Type: "claim", TeamID: "team-1", At: time.Date(2026, 9, 20, 9, 1, 0, 0, time.UTC)},
 	}
-	order := applyInPeriodPenalties(base, transactions, 1)
+	boundary := time.Date(2026, 9, 20, 8, 0, 0, 0, time.UTC)
+	order := applyInPeriodPenalties(base, transactions, boundary, true)
 	want := []string{"team-2", "team-4", "team-3", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
 			t.Fatalf("order = %v, want %v (both wins replayed in At order)", order, want)
 		}
+	}
+}
+
+// TestApplyInPeriodPenaltyFallsBackToAlwaysPenalizeWithoutBoundary pins
+// F1's safe fallback: haveBoundary == false (no derivable last-week-close
+// instant — the schedule mirror is empty, or the season's last scheduled
+// week has already closed) must treat every claim as in period, never as
+// exempt, closing the equality loophole the old Week-number comparison had.
+func TestApplyInPeriodPenaltyFallsBackToAlwaysPenalizeWithoutBoundary(t *testing.T) {
+	base := []string{"team-1", "team-2", "team-3", "team-4"}
+	transactions := []Transaction{
+		{Type: "claim", TeamID: "team-1", At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
+	}
+	order := applyInPeriodPenalties(base, transactions, time.Time{}, false)
+	want := []string{"team-2", "team-3", "team-4", "team-1"}
+	for i, id := range want {
+		if order[i] != id {
+			t.Fatalf("order = %v, want %v (no boundary: every claim counts as in period)", order, want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// F3: an IR-occupant drop must not double-credit the roster cap
+// ---------------------------------------------------------------------
+
+// TestProcessWaiversRejectsIRDropAsFreeingARosterSpot ports the
+// roster-ops audit's probe 2 for the claim-resolution path: a claim that
+// names an IR occupant as its drop must not bypass rosterCap at
+// resolution either — effectiveRosterSize already excludes the IR
+// occupant, so the old `next.DropID == ""` gate (which skipped the cap
+// check entirely whenever any drop was named) let this combination push
+// the effective roster past cap.
+func TestProcessWaiversRejectsIRDropAsFreeingARosterSpot(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	draftPlayerToTeam(t, store, "team-8", "d-a", now)
+	draftPlayerToTeam(t, store, "team-8", "d-b", now)
+	pool := processWaiversFixturePool()
+	if err := store.PlaceInZone("team-8", "d-a", zoneIR, "RB", now); err != nil {
+		t.Fatalf("PlaceInZone: %v", err)
+	}
+	state := store.Snapshot()
+	rosterCap := effectiveRosterSize(state, "team-8") // team-8 is exactly at its effective cap right now
+
+	if err := store.FileClaim(WaiverClaim{ID: "clm-ir", TeamID: "team-8", AddID: "wv-1", DropID: "d-a", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	results, err := store.ProcessWaivers(now, processWaiversCfg(), nil, pool, rosterCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != "failed" {
+		t.Fatalf("results = %+v, want the claim to fail (an IR drop must not free a spot)", results)
+	}
+	after := store.Snapshot()
+	if newEff := effectiveRosterSize(after, "team-8"); newEff > rosterCap {
+		t.Fatalf("effective roster size %d exceeds cap %d after an IR-drop claim", newEff, rosterCap)
+	}
+}
+
+// ---------------------------------------------------------------------
+// F1: time-authoritative in-period penalty (roster-ops audit)
+// ---------------------------------------------------------------------
+
+// closedWeek1Schedule is the shared 4-matchup, all-final week-1 fixture
+// the three F1 regression tests below all close over — the exact shape
+// the roster-ops audit's probes used.
+func closedWeek1Schedule() SeasonSchedule {
+	return SeasonSchedule{Season: 2026, Seed: 1, Weeks: []ScheduleWeek{
+		{Week: 1, Matchups: []LeagueMatchup{
+			{HomeTeamID: "team-1", AwayTeamID: "team-2", HomeScore: 10, AwayScore: 20, Final: true},
+			{HomeTeamID: "team-3", AwayTeamID: "team-4", HomeScore: 30, AwayScore: 40, Final: true},
+			{HomeTeamID: "team-5", AwayTeamID: "team-6", HomeScore: 50, AwayScore: 60, Final: true},
+			{HomeTeamID: "team-7", AwayTeamID: "team-8", HomeScore: 70, AwayScore: 80, Final: true},
+		}},
+	}}
+}
+
+// TestProcessWaiversPenaltyAppliesWhenScheduleMirrorIsEmpty ports the
+// roster-ops audit's probe 1: an empty schedule mirror (a source outage)
+// used to make lineupCurrentWeekAt fall back to week 1, exactly equal to
+// lastClosedWeek(1) — the old strict Week-number comparison
+// (txn.Week > lastClosedWeek) silently suppressed the in-period penalty
+// on that equality, letting the winner keep waiver position 1 and sweep
+// every remaining claim in the same run.
+func TestProcessWaiversPenaltyAppliesWhenScheduleMirrorIsEmpty(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	if err := store.SetSchedule(closedWeek1Schedule()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	cfg := processWaiversCfg()
+	order := waiverOrder(store.Snapshot(), cfg, nil)
+	first, rival := order[0], order[1]
+	for _, c := range []WaiverClaim{
+		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-b", TeamID: first, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-c", TeamID: rival, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+	} {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// games == nil reproduces a schedule-source outage.
+	results, err := store.ProcessWaivers(now, cfg, nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wins := 0
+	for _, r := range results {
+		if r.Outcome == "won" && r.Claim.TeamID == first {
+			wins++
+		}
+	}
+	if wins > 1 {
+		t.Fatalf("%s swept %d claims in one run after an empty schedule mirror; the in-period penalty must apply after its first win", first, wins)
+	}
+	if after := waiverOrder(store.Snapshot(), cfg, nil); after[0] == first {
+		t.Fatalf("winner %s stayed at waiver position 1 after winning; no in-period penalty applied (order=%v)", first, after)
+	}
+}
+
+// TestProcessWaiversPenaltyAppliesAfterForceClose ports the roster-ops
+// audit's probe 1b: a commissioner force-closes week 1 (every matchup
+// marked Final) while week 1's Monday-night game has not actually kicked
+// off yet in the schedule mirror. lineupCurrentWeekAt still reads the
+// live mirror's own current week (1), exactly equal to lastClosedWeek(1)
+// — the same equality-suppression bug as the empty-mirror probe, this
+// time from a real, healthy mirror that simply has not caught up to the
+// force-close yet.
+func TestProcessWaiversPenaltyAppliesAfterForceClose(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	if err := store.SetSchedule(closedWeek1Schedule()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC) // Monday morning run
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(-72 * time.Hour), Away: "PIT", Home: "NYJ", Final: true},
+		{ID: "gmnf", Week: 1, Kickoff: now.Add(11 * time.Hour), Away: "KC", Home: "LV"}, // MNF, not kicked
+	}
+	cfg := processWaiversCfg()
+	order := waiverOrder(store.Snapshot(), cfg, games)
+	first, rival := order[0], order[1]
+	for _, c := range []WaiverClaim{
+		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-b", TeamID: first, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-c", TeamID: rival, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+	} {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := store.ProcessWaivers(now, cfg, games, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wins := 0
+	for _, r := range results {
+		if r.Outcome == "won" && r.Claim.TeamID == first {
+			wins++
+		}
+	}
+	if wins > 1 {
+		t.Fatalf("%s swept %d claims in one run after a force close; the in-period penalty must still apply", first, wins)
+	}
+}
+
+// TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek covers the
+// season's last scheduled week: once it closes there is no following
+// week left in the mirror at all (not merely an outage), so
+// lastWeekClosePenaltyBoundary's fallback must still penalize every
+// winning claim — otherwise the very last week's waiver leader would earn
+// a permanent, un-demotable position 1 for the rest of the franchise's
+// history.
+func TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	sch := closedWeek1Schedule() // the whole season: exactly one week, already closed
+	if err := store.SetSchedule(sch); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 22, 9, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(-192 * time.Hour), Away: "PIT", Home: "NYJ", Final: true},
+	} // no week-2 game exists anywhere: the season is over
+	cfg := processWaiversCfg()
+	order := waiverOrder(store.Snapshot(), cfg, games)
+	first, rival := order[0], order[1]
+	for _, c := range []WaiverClaim{
+		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-b", TeamID: first, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-c", TeamID: rival, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+	} {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := store.ProcessWaivers(now, cfg, games, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wins := 0
+	for _, r := range results {
+		if r.Outcome == "won" && r.Claim.TeamID == first {
+			wins++
+		}
+	}
+	if wins > 1 {
+		t.Fatalf("%s swept %d claims after the season's last scheduled week; a post-season claim must still be penalized", first, wins)
+	}
+	if after := waiverOrder(store.Snapshot(), cfg, games); after[0] == first {
+		t.Fatal("winner stayed at waiver position 1 after the season's last scheduled week; the post-season fallback must still demote a winner")
 	}
 }
 
@@ -355,6 +574,47 @@ func TestClearsAtHonorsClearDays(t *testing.T) {
 	want := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC) // Friday 09:00 (worked example 11.2)
 	if !got.Equal(want) {
 		t.Fatalf("clearsAt = %v, want %v (roster-ops spec worked example 11.2)", got, want)
+	}
+}
+
+// TestWaiverProcessingClockAcrossDSTSpringForward covers the roster-ops
+// audit's missing DST test: a run spanning a DST transition in the
+// league timezone must keep landing on the configured local process_time
+// (09:00), never drifting by the transition's lost or gained hour.
+// firstRunAtOrAfter/firstRunStrictlyAfter build every candidate with
+// time.Date in the league's *time.Location, which is already DST-aware —
+// this walks six consecutive daily runs across March 8, 2026, the US
+// spring-forward Sunday (America/New_York: 02:00 EST -> 03:00 EDT), to
+// confirm that holds in practice, not just in the implementation's own
+// reasoning.
+func TestWaiverProcessingClockAcrossDSTSpringForward(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "America/New_York"
+	cfg.Waivers.ProcessTime = "09:00"
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatalf("America/New_York: %v", err)
+	}
+
+	run := firstRunAtOrAfter(cfg, time.Date(2026, 3, 5, 9, 0, 0, 0, loc)) // Thursday, before the transition week
+	sawEST, sawEDT := false, false
+	for i := 0; i < 6; i++ {
+		local := run.In(loc)
+		if local.Hour() != 9 || local.Minute() != 0 {
+			t.Fatalf("run %d local time = %02d:%02d on %s, want 09:00 unshifted", i, local.Hour(), local.Minute(), local.Format("2006-01-02"))
+		}
+		switch _, offset := run.Zone(); offset {
+		case -5 * 3600:
+			sawEST = true
+		case -4 * 3600:
+			sawEDT = true
+		default:
+			t.Fatalf("run %d UTC offset = %ds, want EST (-18000) or EDT (-14400)", i, offset)
+		}
+		run = firstRunStrictlyAfter(cfg, run)
+	}
+	if !sawEST || !sawEDT {
+		t.Fatalf("the walk did not span the DST transition: sawEST=%v sawEDT=%v", sawEST, sawEDT)
 	}
 }
 
@@ -710,6 +970,96 @@ func draftPlayerToTeam(t *testing.T, store *Store, teamID, playerID string, now 
 		if onClock == teamID {
 			return
 		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// F4: open-claim rate limiting and the per-run standings hoist
+// ---------------------------------------------------------------------
+
+// TestFileClaimCapsOpenClaimsPerTeam pins F4 (roster-ops audit probe 4):
+// one team filing an unbounded burst of open claims — the probe filed
+// 500 in 1.36s with no rejection. maxOpenClaimsPerTeam bounds this at the
+// roster size, enforced by Store.fileClaimWithAuthority even through the
+// plain FileClaim path the probe used directly (no pool, no service
+// layer, no rosterCap parameter available to lean on).
+func TestFileClaimCapsOpenClaimsPerTeam(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	limit := maxOpenClaimsPerTeam()
+	filed := 0
+	var lastErr error
+	for i := 0; i < limit+5; i++ {
+		id := fmt.Sprintf("clm-%d", i)
+		add := fmt.Sprintf("ghost-%d", i)
+		if err := store.FileClaim(WaiverClaim{ID: id, TeamID: "team-1", AddID: add, FiledAt: now}); err != nil {
+			lastErr = err
+			break
+		}
+		filed++
+	}
+	if filed != limit {
+		t.Fatalf("filed = %d claims before rejection, want exactly %d (maxOpenClaimsPerTeam)", filed, limit)
+	}
+	if lastErr == nil {
+		t.Fatal("filing past the cap must be rejected")
+	}
+	if got := teamOpenClaimCount(store.Snapshot().WaiverClaims, "team-1"); got != limit {
+		t.Fatalf("open claims for team-1 = %d, want %d", got, limit)
+	}
+}
+
+// TestFileClaimRejectsPlayerNotInPool pins F4's other closure: a claim
+// naming a player this run's pool does not recognize at all is neither
+// ON WAIVERS nor FREE AGENT (playerWaiverStatus's exhaustive three-state
+// table needs pool membership just to classify a player), so
+// FileClaimWithAuthority must reject it once a pool is available —
+// closing the "ghost player" half of probe 4's unbounded-filing case.
+func TestFileClaimRejectsPlayerNotInPool(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	pool := processWaiversFixturePool()
+	claim := WaiverClaim{ID: "clm-ghost", TeamID: "team-1", AddID: "ghost-player", FiledAt: now}
+	if err := store.FileClaimWithAuthority(claim, nil, pool, now); err == nil {
+		t.Fatal("a claim naming a player outside the pool must be rejected")
+	}
+	if len(store.Snapshot().WaiverClaims) != 0 {
+		t.Fatal("no claim should have been filed")
+	}
+}
+
+// TestProcessWaiversComputesStandingsOnce pins F4's hoist: one run must
+// call performanceBaseOrder (the standings/weekly-rank computation)
+// exactly once, no matter how many claims it resolves in the same run —
+// not once per resolved claim, the pre-fix cost the audit measured (500
+// claims cloning state and recomputing waiverOrder under Store.mu).
+func TestProcessWaiversComputesStandingsOnce(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	if err := store.SetSchedule(closedWeek1Schedule()); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
+	claims := []WaiverClaim{
+		{ID: "clm-a", TeamID: "team-1", AddID: "wv-1", FiledAt: now.Add(-4 * time.Hour)},
+		{ID: "clm-b", TeamID: "team-2", AddID: "wv-1", FiledAt: now.Add(-3 * time.Hour)},
+		{ID: "clm-c", TeamID: "team-3", AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-d", TeamID: "team-4", AddID: "wv-2", FiledAt: now.Add(-time.Hour)},
+	}
+	for _, c := range claims {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	atomic.StoreInt64(&performanceBaseOrderCalls, 0)
+	results, err := store.ProcessWaivers(now, processWaiversCfg(), nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 4 {
+		t.Fatalf("results = %+v, want four outcomes", results)
+	}
+	if got := atomic.LoadInt64(&performanceBaseOrderCalls); got != 1 {
+		t.Fatalf("performanceBaseOrder calls in one run = %d, want exactly 1 (hoisted out of the per-claim loop)", got)
 	}
 }
 
@@ -1115,6 +1465,53 @@ func TestProcessWaiversFAABBudgetExceededAtProcessingFails(t *testing.T) {
 	}
 	if won != 1 || failed != 1 {
 		t.Fatalf("results = %+v, want exactly one win and one budget failure", results)
+	}
+}
+
+// TestProcessWaiversFAABFallsToNextValidBidInSameRun covers the roster-ops
+// audit's missing FAAB test: when the top bidder for a contested player
+// is over its own remaining budget, the claim falls to the next valid
+// bid in the SAME run — the loop's re-derivation after each resolution
+// (pickNextClaim over the whole remaining set, not scoped to one player)
+// must reach the second-highest bidder without waiting for a later run.
+func TestProcessWaiversFAABFallsToNextValidBidInSameRun(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	for _, c := range []WaiverClaim{
+		{ID: "clm-over", TeamID: "team-7", AddID: "wv-1", Bid: 90, FiledAt: now.Add(-3 * time.Hour)},
+		{ID: "clm-valid", TeamID: "team-2", AddID: "wv-1", Bid: 40, FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-low", TeamID: "team-6", AddID: "wv-1", Bid: 10, FiledAt: now.Add(-time.Hour)},
+	} {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := processWaiversCfg()
+	cfg.Waivers.Mode = "faab"
+	cfg.Waivers.FAABBudget = 50 // team-7's bid (90) exceeds its own budget
+	results, err := store.ProcessWaivers(now, cfg, nil, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results = %+v, want three outcomes", results)
+	}
+	byClaimID := map[string]WaiverResult{}
+	for _, r := range results {
+		byClaimID[r.Claim.ID] = r
+	}
+	if got := byClaimID["clm-over"]; got.Outcome != "failed" {
+		t.Fatalf("over-budget top bid = %+v, want failed", got)
+	}
+	if got := byClaimID["clm-valid"]; got.Outcome != "won" || got.WinningBid != 40 {
+		t.Fatalf("next valid bid = %+v, want won at 40 in the same run", got)
+	}
+	if got := byClaimID["clm-low"]; got.Outcome != "beaten" || got.WinningTeamID != "team-2" {
+		t.Fatalf("lowest bid = %+v, want beaten by team-2", got)
+	}
+	state := store.Snapshot()
+	if len(state.Transactions) != 1 || state.Transactions[0].TeamID != "team-2" || state.Transactions[0].Bid != 40 {
+		t.Fatalf("Transactions = %+v, want one claim txn for team-2 at bid 40", state.Transactions)
 	}
 }
 

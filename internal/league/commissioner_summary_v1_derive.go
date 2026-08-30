@@ -314,6 +314,29 @@ func commissionerV1Attention(leagueID string, vacant, notReady, boardGaps int, d
 	return items
 }
 
+// commissionerV1WaiverRunState reports the waiver-run calendar entry's
+// state (F5, commissioner blindness): "overdue" once the processor has
+// missed an entire extra cycle of its own, not merely the ordinary
+// hour-of-day gap before the next daily run. nextWaiverProcessingRun
+// derives purely from the last successful WaiversProcessedThrough, so a
+// stuck ticker (the schedule/pool-unavailable defer guards in
+// evalWaiverRun leaving a run perpetually due) shows here as a
+// next-run instant that keeps falling further behind now, rather than
+// silently staying "scheduled" forever.
+func commissionerV1WaiverRunState(cfg Config, state PersistedState, now time.Time) string {
+	if state.WaiversProcessedThrough.IsZero() {
+		return "scheduled"
+	}
+	nextRun := nextWaiverProcessingRun(cfg, state.WaiversProcessedThrough, now)
+	if nextRun.IsZero() {
+		return "scheduled"
+	}
+	if now.After(firstRunStrictlyAfter(cfg, nextRun)) {
+		return "overdue"
+	}
+	return "scheduled"
+}
+
 func commissionerV1Calendar(cfg Config, state PersistedState, draft *hqv1.Draft, lineup hqv1.Lineup, waivers hqv1.Waivers, pickem hqv1.Pickem, now time.Time) hqv1.Calendar {
 	items := make([]hqv1.Deadline, 0, 8)
 	add := func(code, category, title string, at *string, state, href string) {
@@ -332,7 +355,7 @@ func commissionerV1Calendar(cfg Config, state PersistedState, draft *hqv1.Draft,
 		add("draft_clock", "draft", "Current draft pick clock", v1String(commissionerV1Time(state.ClockDeadline)), "scheduled", "/draft")
 	}
 	add("lineup_lock", "lineup", "Next lineup lock", lineup.NextLockAt, "scheduled", "/team")
-	add("waiver_run", "waivers", "Next waiver run", waivers.NextRunAt, "scheduled", "/players")
+	add("waiver_run", "waivers", "Next waiver run", waivers.NextRunAt, commissionerV1WaiverRunState(cfg, state, now), "/players")
 	add("pickem_lock", "pickem", "Next Pick'em lock", pickem.NextDeadlineAt, "scheduled", "/pickem")
 	if deadline, ok := parseTradeDeadline(cfg); ok && now.Before(deadline) {
 		add("trade_deadline", "trades", "Trade deadline", v1String(commissionerV1Time(deadline)), "scheduled", "/trades")

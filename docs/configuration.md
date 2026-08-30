@@ -124,6 +124,14 @@ These optional fields may accompany either base shape:
 | `clear_days` | 0–7. |
 | `process_time` | Local league time in 24-hour `HH:MM` form. |
 
+Under `perf-priority`, the claim order blends two ranks: season standing and
+the most recent closed week's points, weighted by `season_weight_pct` (season
+weight first, weekly weight the remainder). The worst combined rank claims
+first. A team that wins a claim moves to the back of the order for every
+claim it wins during the current period. That in-period penalty clears at the
+next weekly recompute; it does not clear merely because the run's clock
+reads a new day.
+
 ## `trades`
 
 | Field | Rule |

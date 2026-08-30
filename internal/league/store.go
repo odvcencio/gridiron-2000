@@ -3149,19 +3149,25 @@ func (s *Store) recordTransactionWithAuthority(txn Transaction, rosterCap int, g
 			}
 		}
 	}
-	// effectiveRosterSize excludes IR occupants from the cap math (SK
-	// spec: "placing a player in IR frees a general roster spot") — with
-	// no IR occupants this is exactly the raw ownership count, unchanged.
-	current := effectiveRosterSize(s.state, txn.TeamID)
-	if next := current + len(txn.Adds) - len(txn.Drops); next > rosterCap {
-		return fmt.Errorf("your roster is full; choose a player to drop")
-	}
-	txn.At = txn.At.UTC()
-	s.state.Transactions = append(s.state.Transactions, txn)
 	dropIDs := make([]string, 0, len(txn.Drops))
 	for _, drop := range txn.Drops {
 		dropIDs = append(dropIDs, drop.PlayerID)
 	}
+	// effectiveRosterSize excludes IR occupants from the cap math (SK
+	// spec: "placing a player in IR frees a general roster spot") — with
+	// no IR occupants this is exactly the raw ownership count, unchanged.
+	// creditedDropCount (F3) counts only the named drops that actually
+	// free a spot: an IR occupant is already excluded from current, so
+	// dropping one must not also subtract a second credit here — doing so
+	// let an IR-drop-plus-add combination push the effective roster past
+	// rosterCap undetected.
+	current := effectiveRosterSize(s.state, txn.TeamID)
+	credited := creditedDropCount(s.state, txn.TeamID, dropIDs)
+	if next := current + len(txn.Adds) - credited; next > rosterCap {
+		return fmt.Errorf("your roster is full; choose a player to drop")
+	}
+	txn.At = txn.At.UTC()
+	s.state.Transactions = append(s.state.Transactions, txn)
 	s.clearZoneAssignmentsLocked(txn.TeamID, dropIDs)
 	return s.persistLocked(colTransactions, colRosterZones)
 }
@@ -3222,6 +3228,21 @@ func (s *Store) fileClaimWithAuthority(claim WaiverClaim, games []GameInfo, pool
 	}
 	if _, exists := waiverClaimByTeamAndPlayer(s.state.WaiverClaims, claim.TeamID, claim.AddID); exists {
 		return fmt.Errorf("you already hold a claim for that player")
+	}
+	// F4: cap one team's open-claim queue at the roster size and, once a
+	// pool is available, reject a claim on a player this run cannot ever
+	// resolve as ON WAIVERS or FREE AGENT (an unrecognized ID). Together
+	// these close the unbounded-filing probe (500 open "ghost" claims
+	// filed by one team with no rejection); the count cap alone still
+	// applies even through the plain FileClaim path, which carries no
+	// pool at all.
+	if teamOpenClaimCount(s.state.WaiverClaims, claim.TeamID) >= maxOpenClaimsPerTeam() {
+		return fmt.Errorf("you already have the maximum number of open claims")
+	}
+	if poolByID != nil {
+		if _, ok := poolByID[claim.AddID]; !ok {
+			return fmt.Errorf("that player is not available to claim")
+		}
 	}
 	for _, existing := range s.state.WaiverClaims {
 		if existing.ID == claim.ID {
@@ -3379,6 +3400,17 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			notYetDue = append(notYetDue, c)
 			continue
 		}
+		if _, ok := poolByID[c.AddID]; !ok {
+			// F6: this claim's AddID has left the bounded pool this run (a
+			// roster shuffle or source refresh, not the manager's fault, and
+			// not a decided outcome). Leave it open exactly like a
+			// not-yet-due claim — never destroy it as "failed" — so it
+			// resolves once the player returns to the pool, or the manager
+			// cancels it themselves. waiverClaimResolutionView (players.go)
+			// surfaces this as "deferred" on the claim's own MY CLAIMS row.
+			notYetDue = append(notYetDue, c)
+			continue
+		}
 		player := poolByID[c.AddID]
 		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
 		if status.State == AvailabilityOnWaivers {
@@ -3388,10 +3420,22 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		due = append(due, c)
 	}
 
+	// F4: waiverBaseOrder (the expensive standings/weekly-rank computation)
+	// depends only on the persisted schedule and draft order, neither of
+	// which a claim resolution can change, so it is computed exactly once
+	// per run here rather than once per resolved claim. Only the cheap
+	// applyInPeriodPenalties half — a scan of the still-growing
+	// Transactions log — needs to be replayed after every win so a later
+	// contest for the same add player, or a later claim by the winning
+	// team, sees the fresh back-of-order penalty before its own turn
+	// resolves (section 5.4 step 3's determinism requirement).
+	base := waiverBaseOrder(s.state, cfg)
+	boundary, haveBoundary := lastWeekClosePenaltyBoundary(s.state.Schedule, games)
+
 	var results []WaiverResult
 	remaining := due
 	for len(remaining) > 0 {
-		order := waiverOrder(s.state, cfg)
+		order := applyInPeriodPenalties(base, s.state.Transactions, boundary, haveBoundary)
 		var budget map[string]int
 		if cfg.Waivers.Mode == "faab" {
 			budget = faabRemaining(s.state, cfg.Waivers.FAABBudget)
@@ -3413,6 +3457,13 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		if addKnown {
 			limitPosition, limitCap, limitBreach = teamWouldBreachLimit(s.state, poolByID, next.TeamID, []string{next.AddID}, outgoing)
 		}
+		// F3: credit only a non-IR named drop. effectiveRosterSize already
+		// excludes an IR occupant from the count, so dropping one frees no
+		// additional spot — crediting it anyway (the old DropID == "" gate,
+		// which skipped this check entirely whenever any drop was named)
+		// let an IR-drop-plus-add claim push the effective roster past
+		// rosterCap undetected.
+		rosterCredit := creditedDropCount(s.state, next.TeamID, outgoing)
 
 		switch {
 		case owner[next.AddID] != "":
@@ -3421,16 +3472,13 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			if cfg.Waivers.Mode == "faab" {
 				result.WinningBid, winningBidKnown = waiverWinningBid(s.state.Transactions, next.AddID, result.WinningTeamID)
 			}
-		case !addKnown:
-			result.Outcome = "failed"
-			result.Reason = "that player is no longer available"
 		case next.DropID != "" && owner[next.DropID] != next.TeamID:
 			result.Outcome = "failed"
 			result.Reason = lineupNotOnRosterMessage
 		case next.DropID != "" && playerLockedForRosterMutation(s.state, games, week, poolByID[next.DropID], now):
 			result.Outcome = "failed"
 			result.Reason = fmt.Sprintf("%s is locked and cannot be dropped until the week closes", poolByID[next.DropID].Name)
-		case next.DropID == "" && effectiveRosterSize(s.state, next.TeamID)+1 > rosterCap:
+		case effectiveRosterSize(s.state, next.TeamID)+1-rosterCredit > rosterCap:
 			result.Outcome = "failed"
 			result.Reason = "your roster is full; choose a player to drop"
 		case cfg.Waivers.Mode == "faab" && next.Bid > budget[next.TeamID]:

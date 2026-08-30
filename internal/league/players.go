@@ -40,8 +40,11 @@ func waiverClaimResolutionView(state PersistedState, cfg Config, games []GameInf
 	status := playerWaiverStatus(state, cfg, games, player.ID, player.NFLTeam, now)
 	if status.State == AvailabilityOnWaivers {
 		if status.Reason == "kickoff" {
+			// F7: share the exact same label the pool row renders
+			// (waiverKickoffPendingLabel), so this player's kickoff-locked
+			// resolve time can never disagree between the two surfaces.
 			view["resolution_state"] = "degraded"
-			view["resolution_label"] = "Resolution timing is unavailable until this player's game is marked final."
+			view["resolution_label"] = waiverKickoffPendingLabel
 			return view
 		}
 		if status.ResolvesAt.IsZero() {
@@ -98,6 +101,63 @@ func playerMatchesQuery(player Player, query string) bool {
 		return true
 	}
 	return strings.Contains(playerSearchText(player), query)
+}
+
+// waiverReceiptRow projects one WaiverReceipt for a viewer (F5, F8). The
+// durable WaiverReceipt itself always carries the true winning FAAB bid
+// (needed for the audited record and the commissioner's oversight view),
+// but discloseWinningBid gates whether this particular projection may ever
+// surface it: false for a team's own private "MY CLAIMS" receipts (F8 — a
+// beaten team's own view says only that it was outbid, never the amount),
+// true only for the commissioner's all-teams overlay (F5). includeTeam
+// adds the owning team's name/abbreviation, which only the commissioner's
+// cross-team view needs — a manager's own receipts are already known to
+// be their own team's.
+func (s *Service) waiverReceiptRow(receipt WaiverReceipt, includeTeam, discloseWinningBid bool) map[string]any {
+	dropLabel := ""
+	if len(receipt.Drops) > 0 {
+		dropLabel = fmt.Sprintf("%s (%s)", receipt.Drops[0].Name, receipt.Drops[0].Position)
+	}
+	winnerName, winnerAbbr := "", ""
+	if receipt.WinningTeamID != "" {
+		winner := s.teamByID(receipt.WinningTeamID)
+		winnerName, winnerAbbr = winner.Name, winner.Abbreviation
+	}
+	winningBid, hasWinningBid := 0, false
+	if discloseWinningBid && receipt.Outcome == "beaten" && receipt.Mode == "faab" && receipt.WinningBidKnown {
+		winningBid, hasWinningBid = receipt.WinningBid, true
+	}
+	row := map[string]any{
+		"claim_id":          receipt.ClaimID,
+		"season":            receipt.Season,
+		"week":              receipt.Week,
+		"add_name":          receipt.Add.Name,
+		"add_position":      receipt.Add.Position,
+		"drop_label":        dropLabel,
+		"has_drop":          dropLabel != "",
+		"bid":               receipt.Bid,
+		"faab":              receipt.Mode == "faab",
+		"submitted_order":   receipt.SubmittedPriority,
+		"waiver_position":   receipt.WaiverPosition,
+		"waiver_team_count": receipt.WaiverTeamCount,
+		"outcome":           strings.ToUpper(receipt.Outcome),
+		"won":               receipt.Outcome == "won",
+		"beaten":            receipt.Outcome == "beaten",
+		"failed":            receipt.Outcome == "failed",
+		"reason":            receipt.Reason,
+		"has_winner":        receipt.WinningTeamID != "",
+		"winner_name":       winnerName,
+		"winner_abbr":       winnerAbbr,
+		"winning_bid":       winningBid,
+		"has_winning_bid":   hasWinningBid,
+		"resolved_at":       receipt.ResolvedAt.Format("Jan 2, 3:04 PM MST"),
+	}
+	if includeTeam {
+		team := s.teamByID(receipt.TeamID)
+		row["team_name"] = team.Name
+		row["team_abbr"] = team.Abbreviation
+	}
+	return row
 }
 
 // playerRosterZoneCounts reports the owned roster's presentation buckets for
@@ -189,7 +249,16 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		row["on_waivers"] = onWaivers
 		row["waiver_resolves"] = ""
 		if onWaivers {
-			row["waiver_resolves"] = formatResolvesAt(s.cfg, status.ResolvesAt)
+			// F7: one shared answer for a kickoff-locked player's resolve
+			// time, so this pool row can never disagree with the same
+			// player's MY CLAIMS row (waiverClaimResolutionView) — a
+			// kickoff-lock's ResolvesAt is only ever an estimate the live
+			// processor does not itself use to decide "due".
+			if status.Reason == "kickoff" {
+				row["waiver_resolves"] = waiverKickoffPendingLabel
+			} else {
+				row["waiver_resolves"] = formatResolvesAt(s.cfg, status.ResolvesAt)
+			}
 		}
 		ownerAbbr := ""
 		if rostered {
@@ -229,14 +298,23 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			if playerLockedForRosterMutation(state, games, lineupWeek, player, now) {
 				continue
 			}
+			label := fmt.Sprintf("%s (%s)", player.Name, player.Position)
+			// F3: an IR occupant stays offered as a drop choice, but its
+			// label says so plainly — effectiveRosterSize already excludes
+			// it from the cap, so dropping it frees no additional roster
+			// spot on top of the one IR already gave (it is priced at zero
+			// credit; see creditedDropCount, zones.go).
+			if zoneOfPlayer(state, teamID, id) == zoneIR {
+				label += " — IR, will not free a roster spot"
+			}
 			dropOptions = append(dropOptions, map[string]any{
 				"id":    player.ID,
-				"label": fmt.Sprintf("%s (%s)", player.Name, player.Position),
+				"label": label,
 			})
 		}
 	}
 
-	order := waiverOrder(state, s.cfg)
+	order := waiverOrder(state, s.cfg, games)
 	orderRows := make([]map[string]any, 0, len(order))
 	for index, id := range order {
 		orderRows = append(orderRows, map[string]any{
@@ -263,9 +341,16 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 				dropLabel = fmt.Sprintf("%s (%s)", dropPlayer.Name, dropPlayer.Position)
 			}
 		}
+		// F6: an AddID absent from the current pool is not "unknown" data —
+		// it is a claim the processor deferred rather than failed (a roster
+		// shuffle or source refresh left the player out of this run's
+		// bounded pool). This label matches the exact deferred state the
+		// claim stays open under (store.go's ProcessWaivers), so MY CLAIMS
+		// never mislabels an open, still-live claim as a data outage.
 		resolution := map[string]any{
-			"resolution_state": "unknown", "resolution_label": "Player data unavailable; refresh before waiver processing.",
-			"resolution_at": "", "resolution_relative": "", "has_resolution_at": false,
+			"resolution_state": "deferred",
+			"resolution_label": "Deferred: player not in the pool this run; the claim stays open and resolves once they return, or you cancel it.",
+			"resolution_at":    "", "resolution_relative": "", "has_resolution_at": false,
 		}
 		if addPlayer.ID != "" {
 			resolution = waiverClaimResolutionView(state, s.cfg, games, addPlayer, now)
@@ -300,40 +385,21 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			if receipt.TeamID != teamID {
 				continue
 			}
-			dropLabel := ""
-			if len(receipt.Drops) > 0 {
-				dropLabel = fmt.Sprintf("%s (%s)", receipt.Drops[0].Name, receipt.Drops[0].Position)
-			}
-			winnerName, winnerAbbr := "", ""
-			if receipt.WinningTeamID != "" {
-				winner := s.teamByID(receipt.WinningTeamID)
-				winnerName, winnerAbbr = winner.Name, winner.Abbreviation
-			}
-			myReceipts = append(myReceipts, map[string]any{
-				"claim_id":          receipt.ClaimID,
-				"season":            receipt.Season,
-				"week":              receipt.Week,
-				"add_name":          receipt.Add.Name,
-				"add_position":      receipt.Add.Position,
-				"drop_label":        dropLabel,
-				"has_drop":          dropLabel != "",
-				"bid":               receipt.Bid,
-				"faab":              receipt.Mode == "faab",
-				"submitted_order":   receipt.SubmittedPriority,
-				"waiver_position":   receipt.WaiverPosition,
-				"waiver_team_count": receipt.WaiverTeamCount,
-				"outcome":           strings.ToUpper(receipt.Outcome),
-				"won":               receipt.Outcome == "won",
-				"beaten":            receipt.Outcome == "beaten",
-				"failed":            receipt.Outcome == "failed",
-				"reason":            receipt.Reason,
-				"has_winner":        receipt.WinningTeamID != "",
-				"winner_name":       winnerName,
-				"winner_abbr":       winnerAbbr,
-				"winning_bid":       receipt.WinningBid,
-				"has_winning_bid":   receipt.Outcome == "beaten" && receipt.Mode == "faab" && receipt.WinningBidKnown,
-				"resolved_at":       receipt.ResolvedAt.Format("Jan 2, 3:04 PM MST"),
-			})
+			myReceipts = append(myReceipts, s.waiverReceiptRow(receipt, false, false))
+		}
+	}
+
+	// F5: the commissioner sees every team's receipts, not just their own
+	// team's — the same commissioner gate (IsCommissioner) every other
+	// commissioner-only overlay in this package already reuses. F8: this
+	// is also the one place the true winning FAAB bid may ever surface
+	// for a beaten claim — a trusted, audited overlay, never the beaten
+	// team's own private view.
+	isCommissioner := s.IsCommissioner(r)
+	commissionerReceipts := make([]map[string]any, 0, 50)
+	if isCommissioner {
+		for index := len(state.WaiverReceipts) - 1; index >= 0 && len(commissionerReceipts) < 50; index-- {
+			commissionerReceipts = append(commissionerReceipts, s.waiverReceiptRow(state.WaiverReceipts[index], true, true))
 		}
 	}
 
@@ -378,19 +444,26 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			reserveRosterSize, preset.ReserveTotal(),
 			irRosterSize, preset.IR,
 		),
-		"drop_options":         dropOptions,
-		"drop_options_empty":   len(dropOptions) == 0,
-		"waivers_faab":         faab,
-		"waiver_order":         orderRows,
-		"waiver_team_count":    len(order),
-		"my_waiver_position":   myPosition,
-		"my_faab_remaining":    faabRemainingByTeam[teamID],
-		"my_claims":            myClaims,
-		"my_claims_empty":      len(myClaims) == 0,
-		"my_waiver_receipts":   myReceipts,
-		"my_receipts_empty":    len(myReceipts) == 0,
-		"matchup_source_label": matchupLabel,
-		"has_matchup_source":   hasMatchupLabel,
+		"drop_options":       dropOptions,
+		"drop_options_empty": len(dropOptions) == 0,
+		"waivers_faab":       faab,
+		"waiver_order":       orderRows,
+		"waiver_team_count":  len(order),
+		"my_waiver_position": myPosition,
+		"my_faab_remaining":  faabRemainingByTeam[teamID],
+		"my_claims":          myClaims,
+		"my_claims_empty":    len(myClaims) == 0,
+		"my_waiver_receipts": myReceipts,
+		"my_receipts_empty":  len(myReceipts) == 0,
+		// is_commissioner/commissioner_waiver_receipts (F5): commissioner
+		// oversight of the waiver wire — every team's receipts, not just
+		// the viewer's own, reusing the same IsCommissioner gate every
+		// other commissioner-only overlay in this package already uses.
+		"is_commissioner":              isCommissioner,
+		"commissioner_waiver_receipts": commissionerReceipts,
+		"commissioner_receipts_empty":  len(commissionerReceipts) == 0,
+		"matchup_source_label":         matchupLabel,
+		"has_matchup_source":           hasMatchupLabel,
 	}
 }
 
@@ -472,7 +545,14 @@ func (s *Service) AddPlayer(r *http.Request, requestedTeam, addID, dropID, confi
 		}
 		txn.Drops = []TransactionPlayer{transactionPlayerFromPlayer(dropPlayer)}
 		dropIDs = []string{dropID}
-	} else if effectiveRosterSize(state, teamID)+1 > rosterCap { // W6
+	}
+	// W6: F3's fix — credit only a non-IR named drop. The old `else if`
+	// here skipped this check entirely whenever any drop was named, on
+	// the assumption a drop always frees exactly the one spot the add
+	// needs; that assumption is false for an IR occupant, whom
+	// effectiveRosterSize already excludes from the count, so dropping
+	// one frees no additional spot.
+	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, dropIDs) > rosterCap {
 		return "", fmt.Errorf("your roster is full; choose a player to drop")
 	}
 	// Limits (optional knob, default off, SK spec).
@@ -597,6 +677,13 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 	if _, exists := waiverClaimByTeamAndPlayer(state.WaiverClaims, teamID, addID); exists { // W5
 		return "", fmt.Errorf("you already hold a claim for %s", addPlayer.Name)
 	}
+	// F4: cap this team's open-claim queue at the roster size, for the
+	// exact user-facing message — Store.fileClaimWithAuthority repeats
+	// this as defense-in-depth for every filing path, including a direct
+	// Store caller.
+	if teamOpenClaimCount(state.WaiverClaims, teamID) >= maxOpenClaimsPerTeam() {
+		return "", fmt.Errorf("you already have the maximum of %d open claims; cancel one before filing another", maxOpenClaimsPerTeam())
+	}
 
 	now := s.clock()
 	games := s.schedule()
@@ -604,6 +691,7 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 	rosterCap := CurrentRoster().Total()
 	claim := WaiverClaim{TeamID: teamID, AddID: addID, FiledAt: now}
 
+	var claimOutgoing []string
 	if dropID != "" {
 		dropPlayer, ok := pool.byID[dropID]
 		if !ok || owner[dropID] != teamID { // W7
@@ -613,16 +701,19 @@ func (s *Service) FileClaim(r *http.Request, requestedTeam, addID, dropID string
 			return "", fmt.Errorf("%s is locked and cannot be dropped until the week closes", dropPlayer.Name)
 		}
 		claim.DropID = dropID
-	} else if effectiveRosterSize(state, teamID)+1 > rosterCap { // W6
+		claimOutgoing = []string{dropID}
+	}
+	// W6: F3's fix — credit only a non-IR named drop (see AddPlayer's
+	// identical fix and creditedDropCount's doc comment, zones.go).
+	// Filing-time fail fast; ProcessWaivers re-checks at resolution time,
+	// since roster composition may shift between filing and the claim's
+	// own run.
+	if effectiveRosterSize(state, teamID)+1-creditedDropCount(state, teamID, claimOutgoing) > rosterCap { // W6
 		return "", fmt.Errorf("your roster is full; choose a player to drop")
 	}
 	// Limits (optional knob, default off, SK spec) — filing-time fail
 	// fast; ProcessWaivers re-checks at resolution time, since roster
 	// composition may shift between filing and the claim's own run.
-	var claimOutgoing []string
-	if claim.DropID != "" {
-		claimOutgoing = []string{claim.DropID}
-	}
 	if position, limit, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{addID}, claimOutgoing); breach {
 		return "", fmt.Errorf("%s", limitMessage(position, limit))
 	}
