@@ -25,6 +25,18 @@ var harnessSensitiveEnv = []string{
 	"COMMISSIONER_HQ_V1_REGISTRY_FILE",
 	"COMMISSIONER_HQ_PEERS",
 	"COMMISSIONER_HQ_TOKEN",
+	// An exported LIVE_SCORING_ENABLED=true (or a poll cadence/budget
+	// tuned for production) must not start a real live poller inside a
+	// test process either — the same reasoning as TANK01_API_KEY above.
+	// buildLiveScoring also forces the poller off whenever the fantasy
+	// pool itself is unauthenticated, but that is a second, independent
+	// guard, not a reason to skip clearing these (round-2 review of
+	// commit cdeb7f2, finding 1).
+	"LIVE_SCORING_ENABLED",
+	"LIVE_POLL_INTERVAL",
+	"LIVE_DAILY_BUDGET",
+	"LIVE_MAX_INFLIGHT",
+	"LIVE_REPLAY_FIXTURE",
 }
 
 // harnessSensitiveEnvWith returns the shared list plus extra, as a new

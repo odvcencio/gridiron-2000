@@ -29,6 +29,13 @@ type Config struct {
 	Season int
 	Now    func() time.Time
 	Logf   func(string, ...any)
+	// DisabledReason overrides Health.Reason's default "disabled" text
+	// when Enabled is false. The caller that builds Config sets it when
+	// it already knows a more specific cause (main.go's buildLiveScoring:
+	// the fantasy pool has no Tank01 key or relay, so it forced Enabled
+	// false itself, round-2 review of commit cdeb7f2, finding 2). Empty
+	// means the plain "disabled" text.
+	DisabledReason string
 }
 
 func ConfigFromEnv() Config {

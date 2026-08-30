@@ -47,20 +47,44 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 	}
 }
 
+// fantasyPoolDisabledReason is livescore.Config.DisabledReason's value
+// when buildLiveScoring forces the poller off because the fantasy pool
+// itself has no way to reach Tank01. It is exported as a constant, not
+// inlined, so /test/live and a future status-line test can both assert on
+// the exact same string (round-2 review of commit cdeb7f2, finding 2).
+const fantasyPoolDisabledReason = "fantasy pool disabled: no Tank01 key or relay"
+
 // buildLiveScoring wires the poller, the overlay, and the two seams, and
 // appends the poller loop to rt.starters — the same background-loop
 // registration every other rt.starters entry uses (startBlitzPoller,
-// StartDraftClock, StartRosterOps, ...): poller.Run(ctx) returns, and its
-// own fetch goroutines join before it does, when the ctx passed to
-// rt.Start is canceled. fetcher and liveCfg are parameters so Task 8's
-// replay mode can substitute a fake relay.
-func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, stats *openstats.Service, lg *league.Service, rt *AppRuntime) *liveScoringRuntime {
+// StartDraftClock, StartRosterOps, ...), with one addition: it also joins
+// rt.wg so AppRuntime.Close can wait for the goroutine to actually return
+// (see Close's doc comment) rather than merely firing it and forgetting
+// it. fetcher and liveCfg are parameters so Task 8's replay mode can
+// substitute a fake relay. fantasyEnabled is fantasy.Service.Enabled():
+// when false (no TANK01_API_KEY and no TANK01_BASE_URL), this forces the
+// poller off regardless of LIVE_SCORING_ENABLED and records why, so
+// /test/live and the status line show the real cause instead of a bare
+// "disabled" — and, more importantly, so the poller never dials Tank01
+// unauthenticated.
+func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fantasyEnabled bool, stats *openstats.Service, lg *league.Service, rt *AppRuntime) *liveScoringRuntime {
 	liveCfg.Now = lg.ClockForTest // wall time unless the harness overrides it
+	if !fantasyEnabled {
+		liveCfg.Enabled = false
+		liveCfg.DisabledReason = fantasyPoolDisabledReason
+	}
 	poller := livescore.New(liveCfg, fetcher, liveScheduleSource(lg.ScheduleSourceForLive()))
 	base := leagueWeekStatsSource(stats)
 	// weekStatsSnapshot runs once per team per matchup render (scorer.go:165,
 	// :213), so memoize the poller copy per version: one deep copy per tick,
-	// not one per team.
+	// not one per team. The version/snapshot pair read here may lag one
+	// tick behind poller.Version() under concurrent access — a second
+	// caller's Version() can move between this current() call's own
+	// Version() read and its Snapshot() call — and self-corrects on the
+	// very next current() call; it is never more than one tick stale. The
+	// returned Snapshot's maps (Weeks, Games) are the poller's own copy
+	// from that tick, shared across every caller of current() until the
+	// next tick — callers must treat them as read-only.
 	var (
 		snapMu      sync.Mutex
 		snapVersion int64 = -1
@@ -79,7 +103,13 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, stats
 	})
 	lg.SetLiveVersionSource(poller.Version)
 	lg.SetLiveStatusSource(liveStatusFromPoller(poller.Snapshot, poller.Health))
-	rt.starters = append(rt.starters, func(ctx context.Context) { go poller.Run(ctx) })
+	rt.starters = append(rt.starters, func(ctx context.Context) {
+		rt.wg.Add(1)
+		go func() {
+			defer rt.wg.Done()
+			poller.Run(ctx)
+		}()
+	})
 	return &liveScoringRuntime{Poller: poller}
 }
 

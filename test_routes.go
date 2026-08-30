@@ -240,6 +240,14 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 	// UnmatchedGames, and ListingFailures included, since Health carries
 	// no json tags to drop them (round-2 review of commit 1ddb094 added
 	// those fields; Task 5's execution notes ask that they surface here).
+	// This also serializes Health.LastError, which may name the relay
+	// host a fetch failed against — acceptable here specifically because
+	// this route is loopback-only (testRoutesLoopbackOnly) and harness-only
+	// (mountTestRoutes is wired only when cfg.TestAuth is set, which
+	// AppConfig.validate refuses outside a local environment): a relay
+	// hostname is operational detail, never a credential, and no
+	// production deployment ever serves this route (round-2 review of
+	// commit cdeb7f2, finding 7).
 	// Task 8 adds a replay object to out.
 	app.Mount("GET /test/live", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
 		out := map[string]any{"version": int64(0), "in_window": 0, "poller": map[string]any{}}

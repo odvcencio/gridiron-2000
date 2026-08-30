@@ -183,11 +183,17 @@ func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
 			http.Error(writer, "live view unavailable", http.StatusInternalServerError)
 			return
 		}
+		// The same trailing newline json.NewEncoder(w).Encode(v) writes
+		// (and writeDataJSON therefore produces elsewhere): appended here,
+		// before hashing, so the ETag matches the exact bytes this handler
+		// writes rather than the pre-newline json.Marshal output (round-2
+		// review of commit cdeb7f2, finding 6).
+		body = append(body, '\n')
 		sum := sha256.Sum256(body)
 		etag := `"live-` + hex.EncodeToString(sum[:8]) + `"`
 		writer.Header().Set("Cache-Control", "no-store")
 		writer.Header().Set("ETag", etag)
-		if request.Header.Get("If-None-Match") == etag {
+		if ifNoneMatchHasWeak(request.Header.Get("If-None-Match"), etag) {
 			writer.WriteHeader(http.StatusNotModified)
 			return
 		}
@@ -198,6 +204,31 @@ func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
 		writer.WriteHeader(http.StatusOK)
 		_, _ = writer.Write(body)
 	}))
+}
+
+// ifNoneMatchHasWeak reports whether header — an If-None-Match request
+// header value — matches etag under RFC 9110 section 8.8.3.2's weak
+// comparison, the form GET must use: the "W/" prefix is stripped (weak
+// and strong tags compare equal once stripped), the header may carry a
+// comma-separated list of entity tags and any one matching is enough, and
+// a bare "*" matches unconditionally (round-2 review of commit cdeb7f2,
+// finding 3).
+func ifNoneMatchHasWeak(header, etag string) bool {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return false
+	}
+	if header == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func queryInt(request *http.Request, key string, fallback int) int {

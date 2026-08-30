@@ -93,9 +93,17 @@ func AppConfigFromEnv() (AppConfig, error) {
 // a process singleton, so a second draft clock or roster-ops loop would be a
 // bug, not extra capacity.
 type AppRuntime struct {
-	starters     []func(ctx context.Context)
-	startOnce    sync.Once
-	closeOnce    sync.Once
+	starters  []func(ctx context.Context)
+	startOnce sync.Once
+	closeOnce sync.Once
+	// wg is joined by any starter whose background goroutine Close should
+	// actually wait for, rather than merely fire and forget — today, only
+	// the live-scoring poller (live_scoring.go's buildLiveScoring). Every
+	// other rt.starters entry keeps its pre-existing semantics: it stops
+	// when the ctx passed to Start is canceled, but Close does not wait
+	// for it (round-2 review of commit cdeb7f2, finding 4 — a deliberate,
+	// narrower change, not a general join-everything policy).
+	wg           sync.WaitGroup
 	StopNotify   context.CancelFunc
 	Drain        func(timeout time.Duration) int
 	AppName      string
@@ -115,14 +123,31 @@ func (r *AppRuntime) Start(ctx context.Context) {
 	})
 }
 
+// closeWaitTimeout bounds Close's wait on r.wg (round-2 review of commit
+// cdeb7f2, finding 4): Close must never hang a shutdown path indefinitely
+// because one background goroutine is slow to notice its context was
+// canceled.
+const closeWaitTimeout = 5 * time.Second
+
 // Close releases the resources BuildApp acquired outside the normal
-// request/response path and outside Start's background loops. Today that
-// is just the harness clock override mountTestRoutes may install: it is
-// lazy (only the first /test/clock request installs it), so a harness
-// build that never exercises /test/clock never touches the process-wide
-// league clock at all, and this call is then a no-op. Safe to call more
-// than once, and safe to call on every AppRuntime, harness or not — a
-// caller does not need to know whether cfg.TestAuth was set to clean up.
+// request/response path, and waits — up to closeWaitTimeout — for every
+// goroutine registered on r.wg to actually return. Close does not cancel
+// any context itself; that is still the caller's job before calling Close
+// (main.go cancels runtimeContext via signal.NotifyContext; a test calls
+// its own cancel()), exactly as it always has been for every rt.starters
+// entry. This only keeps Close from returning while a goroutine it knows
+// about is still unwinding, so a caller that already canceled the context
+// and immediately calls Close does not race that goroutine's own cleanup.
+// A goroutine still running past closeWaitTimeout is logged, not killed —
+// Go has no way to force one to stop, so hitting that log line means a
+// real shutdown-ordering bug to fix, not something Close can paper over.
+// Close also restores the harness clock override mountTestRoutes may have
+// installed: lazy (only the first /test/clock request installs it), so a
+// harness build that never exercises /test/clock never touches the
+// process-wide league clock at all, and that part is then a no-op. Safe
+// to call more than once, and safe to call on every AppRuntime, harness
+// or not — a caller does not need to know whether cfg.TestAuth was set,
+// or whether Start was ever called, to clean up.
 func (r *AppRuntime) Close() {
 	if r == nil {
 		return
@@ -130,6 +155,16 @@ func (r *AppRuntime) Close() {
 	r.closeOnce.Do(func() {
 		if r.restoreClock != nil {
 			r.restoreClock()
+		}
+		done := make(chan struct{})
+		go func() {
+			r.wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(closeWaitTimeout):
+			log.Printf("AppRuntime.Close: a background goroutine did not stop within %s", closeWaitTimeout)
 		}
 	})
 }
@@ -277,7 +312,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		return openStats.Status().PlayerStats.LastUpdated
 	})
 	league.Default().SetHistoricalSource(historicalSource(openStats))
-	liveRuntime := buildLiveScoring(livescore.ConfigFromEnv(), fantasyPool.BoxScoreClient(), openStats, league.Default(), rt)
+	liveRuntime := buildLiveScoring(livescore.ConfigFromEnv(), fantasyPool.BoxScoreClient(), fantasyPool.Enabled(), openStats, league.Default(), rt)
 	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	rt.starters = append(rt.starters, func(ctx context.Context) {

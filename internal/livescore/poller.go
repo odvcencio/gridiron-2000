@@ -141,6 +141,8 @@ func (p *Poller) Health() Health {
 		CircuitOpenUntil: p.circuitOpen, LastSuccess: p.lastSuccess, LastError: p.lastError,
 		InWindow: p.inWindow, Unmatched: p.unmatched, UnmatchedGames: append([]string(nil), p.unmatchedGames...)}
 	switch {
+	case !p.cfg.Enabled && p.cfg.DisabledReason != "":
+		h.Degraded, h.Reason = true, p.cfg.DisabledReason
 	case !p.cfg.Enabled:
 		h.Degraded, h.Reason = true, "disabled"
 	case now.Before(p.circuitOpen):
