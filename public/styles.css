@@ -8437,6 +8437,618 @@ body.is-on-clock .draft-clock-panel {
     border-color: var(--color-accent-cyan);
     background: var(--color-white-soft);
   }
+
+  /* Task 11b: Matchups summary-first layout, phone width. The
+     .matchups-page prefix on every selector here is not scoping for its
+     own sake: this block's rules and the base (non-media) block appended
+     later in this file target several of the same bare class names at
+     equal specificity (.state, .slot-row, .my-matchup__summary, ...), so
+     without an extra class raising specificity here, the later-in-file
+     base declaration would win the cascade tie-break even though this
+     media query is the one actually in effect at this width (round-1
+     empirical finding: .starter-cell__state stayed visible at 390px and
+     overflowed the phone viewport before this prefix was added). */
+  .matchups-page .matchups-masthead__word {
+    display: none;
+  }
+
+  .matchups-page .matchups-masthead__sub {
+    display: none;
+  }
+
+  .matchups-page .my-matchup__summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "mine theirs"
+      "score score";
+  }
+
+  .matchups-page .my-matchup__team {
+    grid-area: mine;
+  }
+
+  .matchups-page .my-matchup__team--opponent {
+    grid-area: theirs;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .matchups-page .my-matchup__team--opponent .matchup-team-line {
+    justify-content: flex-start;
+  }
+
+  .matchups-page .my-matchup__score {
+    grid-area: score;
+  }
+
+  .matchups-page .bar {
+    width: 100%;
+  }
+
+  .matchups-page .my-matchup__totals .score {
+    font-size: 2.125rem;
+  }
+
+  /* 54px matches the approved mobile mockup's own .row grid-template-columns
+     (MatchupsMobile.dc.html) exactly; the taller min-height gives a name
+     the phone's own abbreviation budget still misses (page.server.go's
+     mobileShortName) room to wrap onto a second line — starter-cell__name
+     strong's white-space: normal below — rather than force a horizontal
+     scrollbar (item 4, round-2 fidelity pass). */
+  .matchups-page .slot-row {
+    grid-template-columns: minmax(0, 1fr) 54px 54px minmax(0, 1fr);
+    min-height: 3.75rem;
+  }
+
+  .matchups-page .slot-row--head-desktop {
+    display: none;
+  }
+
+  .matchups-page .slot-row--head-mobile {
+    display: grid;
+  }
+
+  .matchups-page .starter-cell__state {
+    display: none;
+  }
+
+  .matchups-page .starter-cell__state-text {
+    display: inline;
+  }
+
+  /* Swap which name span page.gsx's StarterCell renders: the phone
+     budget's own abbreviated form, not the desktop full name (item 4). A
+     name the abbreviation still can't shrink enough wraps onto a second
+     line instead of overflowing horizontally — the row's own taller
+     min-height above exists for exactly this rare case. */
+  .matchups-page .starter-cell__name-full {
+    display: none;
+  }
+
+  .matchups-page .starter-cell__name-short {
+    display: inline;
+  }
+
+  .matchups-page .starter-cell__name strong {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Status line, phone width (items 2, 4, and 7; item 4 revises the
+     round-2 fidelity pass's own nowrap+ellipsis rule): the separate
+     ledger-stamp sentence still never fits beside the state chip and
+     source phrase on a 390px line, and the mockup's own phone header
+     still never shows it (MatchupsMobile.dc.html) — only the source
+     phrase and the games-final count do, sharing this row. But an
+     ellipsis silently hid part of the source phrase's own live provider
+     text; wrapping instead keeps every character visible, at the cost
+     of the row occasionally growing past one line (still well inside
+     the "at most two rows" budget). */
+  .matchups-page .matchup-status-line {
+    flex-wrap: wrap;
+  }
+
+  .matchups-page .matchup-status-line__source {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .matchups-page .matchup-status-line__ledger {
+    display: none;
+  }
+
+  .matchups-page .matchup-status-line__games {
+    flex: 0 0 auto;
+  }
+}
+
+/* Task 11b: Matchups summary-first layout (A6) — the featured "my
+   matchup" card, compact scorebugs, and the single A5 status line that
+   replaces the retired provenance table. Values mirror the approved
+   mockups (warroom/Matchups.dc.html, MatchupsMobile.dc.html), translated
+   onto this stylesheet's existing tokens. Mobile overrides for these
+   classes live inside the file's existing last phone-width breakpoint
+   block (mobile_touch_contract_test.go reads that block by position — a
+   literal max-width: 38rem media query written here, even inside a
+   comment, would move where that test reads from and lose its own
+   touch-target rules). */
+
+.display {
+  font-family: var(--font-display);
+  font-weight: 400;
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.matchups-masthead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.matchups-masthead h1 {
+  margin: 0;
+  font-size: 1.875rem;
+  line-height: 1.1;
+}
+
+.matchups-masthead__sub {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-xs);
+  color: var(--color-text-muted);
+}
+
+.pickem-weeknav .board-button {
+  min-height: 2.25rem;
+}
+
+.matchup-status-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-panel-glass);
+}
+
+.matchup-status-line__games {
+  margin-left: auto;
+}
+
+.state-chip,
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.state-chip[data-live-state="LIVE"],
+.state-chip[data-live-state="PAUSED"],
+.state--live {
+  color: var(--color-accent);
+  border-color: rgba(217, 255, 67, 0.6);
+  background: var(--color-accent-haze);
+}
+
+.state-chip[data-live-state="FINAL"],
+.state--final {
+  color: var(--color-text-secondary);
+}
+
+.state-chip[data-live-state="LEDGER"],
+.state--pre {
+  color: var(--color-text-muted);
+  border-style: dashed;
+}
+
+.matchup-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 21.25rem;
+  align-items: start;
+  gap: var(--space-md);
+}
+
+@media (max-width: 64rem) {
+  .matchup-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.my-matchup__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.my-matchup__team {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.my-matchup__team > div {
+  min-width: 0;
+}
+
+/* The team name never truncates at desktop width — only the manager line
+   below it (.my-matchup__team small) clamps to one line (item M7, round-2
+   fidelity pass): text-wrap: balance mirrors the approved mockup's own
+   treatment of this element (warroom/Matchups.dc.html). */
+.my-matchup__team strong {
+  display: block;
+  font-size: var(--type-sm);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+/* .matchup-team-line is a flex row, not a single truncated inline string
+   (round-2 review of ae1a525, item 2): only .matchup-team-line__manager
+   (the one unbounded free-text field) may shrink and ellipsize. The
+   fixed-format record and live-bound projection in
+   .matchup-team-line__meta never shrink, so a long manager name can
+   never push "proj N" out of view. */
+.my-matchup__team small {
+  font-size: var(--type-xs);
+}
+
+.my-matchup__team small.matchup-team-line {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.matchup-team-line__manager {
+  min-width: 0;
+  flex-shrink: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchup-team-line__meta {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.my-matchup__team--opponent {
+  justify-content: flex-end;
+  text-align: right;
+}
+
+/* The opponent column is right-aligned; its .matchup-team-line row must
+   push itself (not reorder its two flex children) to the right edge so
+   short content still reads flush right, matching the pre-flex inline
+   text-align: right this replaced. */
+.my-matchup__team--opponent .matchup-team-line {
+  justify-content: flex-end;
+}
+
+.my-matchup__score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.my-matchup__totals {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-md);
+}
+
+/* The bare .score rule (defect: two equal-specificity single-class rules,
+   .mono and .score, both set font-family — .score, declared later in this
+   file, wins the tie and puts the featured totals in the display font
+   instead of mono, which is what read as a solid colored block rather
+   than legible digits at 44px in an em-dash "—" glyph). This selector's
+   extra .my-matchup__totals ancestor class outranks that tie unconditionally,
+   independent of source order, so it always wins here regardless of where
+   .score/.mono end up moving in this file (item 1, round-2 fidelity pass). */
+.my-matchup__totals .score {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 2.75rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.my-matchup__totals .score:first-child {
+  color: var(--color-accent);
+}
+
+.bar {
+  width: 13.75rem;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-white-soft);
+  overflow: hidden;
+}
+
+.bar > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-accent), var(--color-accent-cyan));
+}
+
+.slot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.75rem 4rem 4rem 5.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 9px var(--space-md);
+  border-top: 1px solid var(--color-border);
+  min-height: 3.25rem;
+}
+
+.slot-row--head {
+  border-top: 0;
+  min-height: auto;
+  padding-top: var(--space-xs);
+  padding-bottom: 4px;
+}
+
+.slot-row--head .section-index {
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.slot-row--head .section-index:first-child {
+  text-align: left;
+}
+
+.slot-row--head .section-index.right {
+  text-align: right;
+}
+
+.slot-row--head-mobile {
+  display: none;
+}
+
+.starter-cell {
+  display: contents;
+}
+
+/* .starter-cell has display: contents (below), which promotes its three
+   direct children — .matchup-ledger (the <details>, holding
+   .starter-cell__name as its <summary>), .starter-cell__state, and
+   .starter-cell__pts — to be the actual grid items .slot-row lays out;
+   .starter-cell itself never becomes a box. order and text-align must
+   target those three promoted children directly: setting either on
+   .starter-cell__name (a non-grid-item descendant, nested inside the
+   .matchup-ledger grid item) has no layout effect at all. */
+.starter-cell[data-right="true"] .starter-cell__pts {
+  order: 1;
+}
+
+.starter-cell[data-right="true"] .starter-cell__state {
+  order: 2;
+}
+
+.starter-cell[data-right="true"] .matchup-ledger {
+  order: 3;
+  text-align: right;
+}
+
+/* .matchup-ledger is also the class name of an older, unrelated
+   disclosure (public/styles.css:2457, "scoped to the matchup card" —
+   dead in app/ since Task 11b, but its border/border-radius/background
+   still apply here at equal specificity and later-wins-ties in that
+   rule's favor is exactly backwards): unstyled here is deliberate — this
+   .matchup-ledger is a bare slot-row grid item (.starter-cell has
+   display: contents above), not a bordered card (items 4 and 5, round-2
+   fidelity pass: this was rendering as a rounded, tinted outline around
+   every single starter name on desktop, and eating the padding+border
+   width phone's four-column layout needed for a full name to fit). */
+.matchup-ledger {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.starter-cell__name {
+  display: block;
+  cursor: pointer;
+  list-style: none;
+}
+
+.starter-cell__name::-webkit-details-marker {
+  display: none;
+}
+
+/* .matchup-ledger summary (2463) sets padding/color/letter-spacing at
+   (0,1,1) specificity — one class plus the summary type selector — which
+   this file's own plain .starter-cell__name single-class rule (0,1,0)
+   can never outrank regardless of source order. This compound selector
+   clears every property that stale rule set, unconditionally. */
+.matchup-ledger .starter-cell__name {
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  letter-spacing: normal;
+}
+
+.starter-cell__name strong {
+  display: block;
+  font-size: var(--type-sm);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The phone breakpoint (last max-width: 38rem block, below) swaps which
+   of these two is visible; desktop always shows the full name (item 4,
+   round-2 fidelity pass — page.gsx's StarterCell doc comment). */
+.starter-cell__name-short {
+  display: none;
+}
+
+.starter-cell__name small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.starter-cell__state {
+  justify-self: center;
+}
+
+/* No empty dashed pill (rider on the review of ae1a525, item 7): a
+   starter whose GameState is "" (an empty slot, or a game the render
+   truly has no signal for) must not render a bordered chip with nothing
+   inside it. :empty — not omitting the element from the markup — keeps
+   the data-gosx-live-bind target present so a later poll that fills in a
+   real GameState still has something to patch; the pill reappears the
+   moment that live update gives it text content. Applies to both the
+   .state and .state-chip variants of this pill shape (also used at the
+   matchup level, where the live-dot child always keeps it non-empty). */
+.state:empty,
+.state-chip:empty {
+  display: none;
+}
+
+.starter-cell__state-text {
+  display: none;
+}
+
+.pts,
+.starter-cell__pts {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.125rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.right {
+  text-align: right;
+}
+
+.matchup-pairs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.around-league {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+/* .matchup-grid is a shared class (also the dashboard's two-up mini-matchup
+   grid, public/styles.css:1374): its own repeat(2, minmax(0,1fr)) rule
+   squeezed every scorebug into a ~160px-wide half of this 340px aside,
+   leaving no room for the .mini row's name+manager column (item 3,
+   round-2 fidelity pass — assertScorebugNamesNonEmpty,
+   sim_matchups_browser_test.go, guards against the missing text this
+   caused). Scorebugs in the around-the-league rail always stack in one
+   full-width column. */
+.around-league .matchup-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.around-league__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.scorebug {
+  padding: 6px 0;
+}
+
+.scorebug__summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.scorebug__summary::-webkit-details-marker {
+  display: none;
+}
+
+.scorebug__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px var(--space-sm) 2px;
+}
+
+.mini {
+  display: grid;
+  grid-template-columns: 2.125rem minmax(0, 1fr) 4rem;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+}
+
+/* TeamMark (page.gsx) always renders team-mark--large (3.7rem, type-sm
+   font), never a size prop — wider than .mini's own 2.125rem (34px)
+   first column, so the mark visually overlapped the name column even
+   though the grid track math looked right (item 3, rider on the review
+   of ae1a525: the name cell must actually start right of the mark, not
+   just after a 34px grid line the mark itself already overruns).
+   Shrinking the mark back to the compact-row size here, rather than
+   widening the column, keeps the literal 34px track; the font-size reset
+   (item 11, rider on the review of ff2a9b3) shrinks the monogram text to
+   match, since team-mark--large's type-sm size was sized for the wider
+   3.7rem box and would otherwise crowd or overflow this one. */
+.mini .team-mark {
+  width: 2.125rem;
+  font-size: var(--type-xs);
+}
+
+.mini strong {
+  display: block;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini small {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini .pts {
+  font-size: 1.25rem;
+  text-align: right;
 }
 
 /* Draft war room */

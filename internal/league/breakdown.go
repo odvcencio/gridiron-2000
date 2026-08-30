@@ -57,6 +57,46 @@ var breakdownRows = []breakdownRow{
 	{statKey: "puntBlocked", label: "Blocked", ruleKey: "puntBlocked"},
 }
 
+// tank01DSTRows is the DEFENSE-group twin of breakdownRows for the DST
+// unit of a Tank01 box score (internal/fantasy.BoxScore.DST). It is a
+// separate table so scoreStatsWithValues (Blitz) never scores D/ST keys.
+// It carries no label: RuleStatsFromTank01, its only reader, never renders
+// one; Task 10 can add labels where it renders D/ST breakdown rows.
+var tank01DSTRows = []breakdownRow{
+	{statKey: "sacks", ruleKey: "dstSack"},
+	{statKey: "defensiveInterceptions", ruleKey: "dstInt"},
+	{statKey: "fumblesRecovered", ruleKey: "dstFumbleRec"},
+	{statKey: "defTD", ruleKey: "dstTD"},
+	{statKey: "safeties", ruleKey: "dstSafety"},
+}
+
+// RuleStatsFromTank01 maps a Tank01-keyed stat line onto the league's
+// scoring-rule keys: breakdownRows for a player, tank01DSTRows plus
+// ptsAllowed for a D/ST unit. dstShutout is written only when the game is
+// final and zero points were allowed; an in-progress or non-shutout final
+// result carries no shutout key at all, not a zero. Every other zero
+// value is dropped too, so an empty result means "no data" for offense
+// and D/ST alike: the overlay's precedence rule (Task 3,
+// livescore.MergeLines) keys on the poller's game status, never on
+// len(stats), so this omission is safe.
+func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float64 {
+	out := make(map[string]float64, len(stats))
+	for _, table := range [][]breakdownRow{breakdownRows, tank01DSTRows} {
+		for _, row := range table {
+			if row.ruleKey == "" {
+				continue
+			}
+			if value, ok := stats[row.statKey]; ok && value != 0 && finiteScoringPoints(value) {
+				out[row.ruleKey] = value
+			}
+		}
+	}
+	if allowed, ok := stats["ptsAllowed"]; ok && final && allowed == 0 {
+		out["dstShutout"] = 1
+	}
+	return out
+}
+
 // breakdownDefaultValues resolves every scoring rule's stock point value,
 // with no commissioner overrides applied. It touches no store state, so
 // callers that lack a live override snapshot (see currentScoringValues)

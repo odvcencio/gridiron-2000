@@ -3,20 +3,39 @@ package league
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
+// matchupStatsSnapshot is one week's authoritative read for both the
+// scoring ledger and the A5 truthful-state resolution that rides beside
+// it: games and live/hasLive let starterGameState and matchupLiveState
+// (feed.go) answer "is this starter's game live, final, or not started
+// yet" from the same read the points come from, so a page render can
+// never show a score from one instant and a game-state label from
+// another (round-2 finding 17).
 type matchupStatsSnapshot struct {
 	lines       []WeekStatLine
 	final       bool
 	known       bool
 	sourceState string
 	sourceErr   error
+	games       []GameInfo // this week's NFL games (s.schedule() filtered by Week)
+	live        LiveStatus
+	hasLive     bool
 }
 
 func (s *Service) matchupStatsSnapshot(week int) matchupStatsSnapshot {
 	lines, final, known, sourceState, sourceErr := weekStatsSnapshot(s.weekStatsSource(), week)
+	var games []GameInfo
+	for _, game := range s.schedule() {
+		if game.Week == week {
+			games = append(games, game)
+		}
+	}
+	live, hasLive := s.liveStatus()
 	return matchupStatsSnapshot{
 		lines: lines, final: final, known: known, sourceState: sourceState, sourceErr: sourceErr,
+		games: games, live: live, hasLive: hasLive,
 	}
 }
 
@@ -79,7 +98,14 @@ func ledgerProvenance(assignment SlotAssignment, explicit map[string]string, pin
 func ledgerPlayerDetail(row *StarterLedgerRow) {
 	switch row.JoinState {
 	case "matched":
-		row.Detail = "Matched to the mirrored player-stat ledger."
+		switch row.Source {
+		case StatSourceLive:
+			row.Detail = "Matched to the live box score; the game is in progress."
+		case StatSourceLiveFinal:
+			row.Detail = "Matched to the final box score; the weekly ledger is not posted yet."
+		default:
+			row.Detail = "Matched to the mirrored player-stat ledger."
+		}
 	case "missing-join":
 		row.Detail = "No matching player-stat row for this name and position; 0.0 is an explicit join miss."
 	case "stats-unavailable":
@@ -89,6 +115,164 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 	case "empty":
 		row.Detail = "No player is configured in this starting slot."
 	}
+}
+
+// tank01ToNFLverseAbbreviation maps the three Tank01 team abbreviations
+// that differ from nflverse's own (LAR, WSH, JAC), the same correction
+// internal/livescore.NormalizeTeam applies. This is a small, deliberate
+// duplicate — internal/league must not import internal/livescore (no
+// import cycle, Tasks 3/5 decision) — used only by teamHasGame below: a
+// real pool player can carry a Tank01-sourced NFLTeam like "LAR"
+// (defaultPlayers' Puka Nacua), while GameInfo.Away/Home can arrive
+// already normalized to nflverse's "LA" (internal/sim/replay's own
+// ScheduleSource calls the same normalizer), so an unnormalized
+// string-equality check would miss that starter's real game and
+// misread them as on bye.
+var tank01ToNFLverseAbbreviation = map[string]string{"LAR": "LA", "WSH": "WAS", "JAC": "JAX"}
+
+func normalizeNFLAbbreviation(abbr string) string {
+	upper := strings.ToUpper(strings.TrimSpace(abbr))
+	if mapped, ok := tank01ToNFLverseAbbreviation[upper]; ok {
+		return mapped
+	}
+	return upper
+}
+
+// teamHasGame reports whether team (normalized) is either side of any
+// of games.
+func teamHasGame(team string, games []GameInfo) bool {
+	normalized := normalizeNFLAbbreviation(team)
+	for _, game := range games {
+		if normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
+// starterOnBye reports whether player's NFL team has no game at all in
+// week's loaded schedule — a true bye — guarded on the schedule actually
+// being loaded (len(snapshot.games) > 0). With no schedule wired at all
+// (the common unit-test shape, or before the season schedule syncs),
+// every team looks like "no game this week"; treating that as a
+// league-wide bye would be a much larger, wrong claim than the "cannot
+// read this one starter's game" case starterGameKnownZeroSoFar's other
+// branches already fall back to (rider on the review of ff2a9b3, item
+// 3).
+//
+// teamHasGame's schedule-presence check is the sole signal (residuals
+// N1/N2, review of eb549b6): player.ByeWeek/slotWarnsBye is not
+// consulted here at all. Trusting ByeWeek directly had two failure
+// modes — a stale ByeWeek that happened to equal week could claim "BYE"
+// (and let the bye branch bypass the poller's own Degraded check) even
+// while the team's real game sat right there in the loaded schedule
+// (N1), and a pool that carries no bye data at all (ByeWeek == 0, the
+// offline/fallback pool) could never read a genuine bye correctly no
+// matter how plainly the schedule showed the team absent (N2). The
+// schedule the render already has is strictly more authoritative than a
+// separate, possibly stale or absent field for the same fact.
+func starterOnBye(player Player, week int, snapshot matchupStatsSnapshot) bool {
+	if len(snapshot.games) == 0 {
+		return false
+	}
+	return !teamHasGame(player.NFLTeam, snapshot.games)
+}
+
+// starterGameState renders one starter's game clock: "BYE" when the
+// starter's team has no game this week, "Q3 8:12" while the poller sees
+// the game in progress, "FINAL" once final, the kickoff ("SUN 4:25 PM")
+// from the schedule before it starts, else "".
+func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, location *time.Location) string {
+	if starterOnBye(player, week, snapshot) {
+		return "BYE"
+	}
+	team := player.NFLTeam
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			switch {
+			case game.Final:
+				return "FINAL"
+			case game.InProgress && game.Clock != "":
+				return game.Period + " " + game.Clock
+			case game.InProgress:
+				return game.Period
+			}
+		}
+	}
+	for _, game := range snapshot.games {
+		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+			if game.Final {
+				return "FINAL"
+			}
+			return strings.ToUpper(game.Kickoff.In(location).Format("Mon 3:04 PM"))
+		}
+	}
+	return ""
+}
+
+// starterGameNotStarted reports whether team's game is affirmatively
+// known — from the live poller's status or, before the poller has it in
+// its window, from the NFL schedule's kickoff instant — to not have
+// kicked off yet. It answers the same question starterGameState renders
+// as a label, kept as its own bool so the point-value fallback (rider
+// R3: an explicit 0.0 once a starter's game is live even with no line
+// for them yet, an honest "—" only before kickoff) never has to parse
+// GameState's formatted string back apart. Absent any signal at all
+// (no live status wired, no matching scheduled game) it answers false —
+// "not known to be unstarted" is not the same claim as "in progress",
+// but rendering an explicit 0.0 by default is the safer of the two
+// honest options when the starter's game state truly cannot be read.
+func starterGameNotStarted(team string, snapshot matchupStatsSnapshot, now time.Time) bool {
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			return !game.Final && !game.InProgress
+		}
+	}
+	for _, game := range snapshot.games {
+		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+			return !game.Final && now.Before(game.Kickoff)
+		}
+	}
+	return false
+}
+
+// starterGameKnownZeroSoFar reports whether a missing-join starter's game
+// state is affirmatively known — a true bye (starterOnBye), under a
+// healthy live poller, or (via starterGameNotStarted's own fallback)
+// from the NFL schedule when the poller has no entry yet — to be a bye,
+// pre-kickoff, or in progress. In every one of those states the starter's
+// box score genuinely has nothing to report: the missing ledger join is
+// an honest 0.0, not an unaccounted-for gap, and the team total may count
+// it toward a KNOWN sum instead of going UNKNOWN for hours until
+// nflverse posts the week (rider on the review of ae1a525, item 1 —
+// today one such starter alone forced the whole team total, its
+// projection, and its win probability to read "—" for the entire game;
+// extended to true byes by the review of ff2a9b3, item 3). A bye is
+// known regardless of poller health — there is no game for the poller to
+// be degraded about. It answers false — leaving the total UNKNOWN, same
+// as before this rider — when the live poller itself reports Degraded,
+// when the game located for this team is already Final (a missing
+// ledger row for a finished game is a real gap the ledger has not
+// closed yet, not an honest zero), or when no signal at all locates the
+// game for this starter (no live entry and no scheduled kickoff,
+// including an unconfigured/unrecognized NFL team).
+func starterGameKnownZeroSoFar(player Player, week int, snapshot matchupStatsSnapshot, now time.Time) bool {
+	if starterOnBye(player, week, snapshot) {
+		return true
+	}
+	if snapshot.hasLive && snapshot.live.Degraded {
+		return false
+	}
+	team := player.NFLTeam
+	if starterGameNotStarted(team, snapshot, now) {
+		return true
+	}
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			return game.InProgress
+		}
+	}
+	return false
 }
 
 // teamWeekLedger is the canonical scoring/ledger calculation. It calls the
@@ -104,9 +288,13 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		sourceState = "unavailable"
 	}
 	values := s.currentScoringValues()
-	byKey := weekStatsByKey(lines)
+	lineByKey := weekStatLinesByKey(lines)
 	lineup, pinned := s.matchupLineup(state, teamID, week)
 	explicit := explicitLineupForWeek(state.Lineups[teamID], week)
+	// Hoisted out of the per-starter loop below: every row reads the same
+	// clock instant, and s.clock() is not free (round-2 review of commit
+	// 8a4ffea, finding 6).
+	now := s.clock()
 	rows := make([]StarterLedgerRow, 0, len(lineup.Slots))
 	total := 0.0
 	complete := true
@@ -131,22 +319,42 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		row.PlayerName = assignment.Player.Name
 		row.Position = assignment.Player.Position
 		row.NFLTeam = assignment.Player.NFLTeam
+		row.GameState = starterGameState(assignment.Player, week, snapshot, s.matchupLocation())
 		if sourceErr != nil {
 			row.JoinState = "stats-unavailable"
 		} else if len(lines) == 0 {
 			row.JoinState = "stats-empty"
+		} else if line, joined := lineByKey[normalizePlayerKey(assignment.Player.Name, assignment.Player.Position)]; joined {
+			row.Points = scorePlayerStats(line.Stats, values)
+			row.JoinState = "matched"
+			row.Source = line.Source
+			if row.Source == "" {
+				row.Source = StatSourceLedger
+			}
+			total += row.Points
 		} else {
-			points, joined := scorePlayerPoints(assignment.Player, byKey, values)
-			if joined {
-				row.Points = points
-				row.JoinState = "matched"
-				total += points
-			} else {
-				row.JoinState = "missing-join"
+			row.JoinState = "missing-join"
+			if !starterGameKnownZeroSoFar(assignment.Player, week, snapshot, now) {
 				complete = false
 			}
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
+		switch {
+		case row.JoinState == "matched":
+			// scored above; PointsText already reflects it.
+		case snapshot.hasLive && snapshot.live.Degraded:
+			// A known live-poller outage is not "unknown": never render an
+			// implicit 0.0 while the poller itself reports it cannot see the
+			// game right now (round-2 review of commit 8a4ffea, finding 2).
+			row.PointsText = "—"
+		case starterGameNotStarted(row.NFLTeam, snapshot, now):
+			// R3: a starter with no live row yet and no ledger line either
+			// only reads as an honest "—" once the game is known not to
+			// have started; once it is live (or we cannot tell), the
+			// explicit 0.0 above stands — the player is simply scoreless
+			// so far, not unaccounted for.
+			row.PointsText = "—"
+		}
 		ledgerPlayerDetail(&row)
 		rows = append(rows, row)
 	}

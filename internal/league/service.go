@@ -99,11 +99,16 @@ type Service struct {
 	// DefaultPickClock; see pickClock.
 	pickClockDefault time.Duration
 
-	poolMu       sync.Mutex
-	poolSource   PlayerSource
-	poolCache    playerPool
-	poolStatusFn PoolStatusSource
-	scheduleFn   ScheduleSource
+	poolMu     sync.Mutex
+	poolSource PlayerSource
+	poolCache  playerPool
+	// liveNameIndex is ResolveLivePlayer's normalized-name lookup, built
+	// lazily and rebuilt only when liveNameVersion no longer matches
+	// poolCache.version — see ResolveLivePlayer.
+	liveNameVersion int64
+	liveNameIndex   map[string][]Player
+	poolStatusFn    PoolStatusSource
+	scheduleFn      ScheduleSource
 	// statsUpdatedAtFn supplies the open-stats player-ledger freshness instant
 	// used by the commissioner week-close readiness view. It is optional so
 	// fixtures and deployments without the mirror fail closed rather than
@@ -122,6 +127,14 @@ type Service struct {
 	// disabled — no TANK01_API_KEY, or the contest has sunset — and
 	// BlitzData renders its honest feed-offline state.
 	blitzFn BlitzSource
+	// liveVersionFn and liveStatusFn are the live-scoring poller's two
+	// seams (live_status.go): liveVersionFn is the cheap int64 accessor
+	// StateFingerprint and the live feed cache call on every request;
+	// liveStatusFn copies the poller's state and is read only by the
+	// overlay and the render path (Task 10). Both nil means live scoring
+	// is not wired — every reader falls back to its existing behavior.
+	liveVersionFn func() int64
+	liveStatusFn  LiveStatusSource
 	// blitzPre1Fn supplies preseason-week-1 production (owner directive,
 	// 2026-08-16); see blitz.go's SetBlitzPre1Source. nil means no pre1
 	// data is available yet — the board falls back to its non-pre1
@@ -330,7 +343,7 @@ func Default() *Service {
 		// been generated; until then it defers to the honest preseason
 		// snapshot (feed.go). This replaces the always-empty demoProvider
 		// default (competition-formats spec section 2.5).
-		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc})
+		defaultSvc.feed = newLiveFeed(scheduleProvider{svc: defaultSvc}, defaultSvc)
 		// A commissioner-chosen roster-shape override (roster-shape-editor
 		// spec) survives a restart in the state file, not in league.json;
 		// apply it on top of applyActiveConfig's just-published baseline now
@@ -990,8 +1003,13 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 	// churn every other fingerprint reader. Appending the source's own
 	// version here is what lets a live-stat update reach browsers through
 	// their shared fingerprint synchronization paths (F14).
+	// blitzFn and liveVersionFn are read together under one poolMu hold
+	// (round-2 review of commit a3bf24a, finding 4) rather than two
+	// separate locks — s.liveVersion() would have taken poolMu a second
+	// time right after this block released it.
 	s.poolMu.Lock()
 	blitzSource := s.blitzFn
+	liveVersionSource := s.liveVersionFn
 	s.poolMu.Unlock()
 	var blitzGames []BlitzGame
 	if blitzSource != nil {
@@ -1000,6 +1018,11 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 		snapshot := blitzSource()
 		blitzGames = snapshot.Games
 		suffix += fmt.Sprintf("|blitz:%d", snapshot.Version)
+	}
+	// Live box-score rows are never persisted either (A2); the poller
+	// version is the only thing that tells a page a score moved.
+	if liveVersionSource != nil {
+		suffix += fmt.Sprintf("|live:%d", liveVersionSource())
 	}
 	// Every clock-driven boundary the UI renders: kickoffs, the draft
 	// start, the trade deadline, and the Blitz slate locks. A version
@@ -1257,6 +1280,46 @@ func (s *Service) pool() playerPool {
 		s.poolCache = s.buildPool(players, version, label)
 	}
 	return s.poolCache
+}
+
+// ResolveLivePlayer maps one Tank01 box-score row onto a pool player: the
+// Tank01 ID first, then the unique normalized name. The ID path also
+// reaches the embedded fixture players buildPool merges into pool.byID
+// (see buildPool), so a demo or offline pool's synthetic ID still
+// resolves; the name path indexes pool.players only — the sourced players,
+// not the embedded fixtures — by design, since a live report never names a
+// fixture player. An ambiguous or unknown name does not resolve, so a live
+// row never lands on the wrong player. The name index is rebuilt only when
+// the pool version moves, and the rebuild check and the rebuild itself
+// happen under one poolMu hold against the freshest s.poolCache, not the
+// pool snapshot pool() returned earlier: releasing and re-acquiring poolMu
+// between them would let a concurrent pool refresh race the rebuild and
+// leave the index built from a stale snapshot.
+func (s *Service) ResolveLivePlayer(tank01ID, longName string) (Player, bool) {
+	pool := s.pool()
+	if player, ok := pool.byID[strings.TrimSpace(tank01ID)]; ok {
+		return player, true
+	}
+	key := strings.TrimSuffix(normalizePlayerKey(longName, ""), "|")
+	if key == "" {
+		return Player{}, false
+	}
+	s.poolMu.Lock()
+	current := s.poolCache
+	if s.liveNameIndex == nil || s.liveNameVersion != current.version {
+		index := make(map[string][]Player, len(current.players))
+		for _, player := range current.players {
+			name := strings.TrimSuffix(normalizePlayerKey(player.Name, ""), "|")
+			index[name] = append(index[name], player)
+		}
+		s.liveNameIndex, s.liveNameVersion = index, current.version
+	}
+	matches := s.liveNameIndex[key]
+	s.poolMu.Unlock()
+	if len(matches) != 1 {
+		return Player{}, false
+	}
+	return matches[0], true
 }
 
 // playerPoolIsUnavailable identifies the fail-closed source state shared by
@@ -1875,12 +1938,18 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	isCurrentWeek := selectedWeek == currentWeek
 	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
+	teamID, _ := viewer["team_id"].(string)
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, currentWeek)
 	return map[string]any{
 		"viewer":             viewer,
 		"live":               s.liveMapForWeek(live, isCurrentWeek),
 		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
 		"matchups":           matchups,
 		"matchups_empty":     len(matchups) == 0,
+		"my_matchup":         myMatchup,
+		"other_matchups":     otherMatchups,
+		"other_count_label":  otherMatchupsCountLabel(len(otherMatchups)),
+		"status_line":        s.matchupStatusLine(live),
 		"leaders":            s.leaderMaps(),
 		"league":             s.leagueMap(),
 		"week":               selectedWeek,
@@ -2879,9 +2948,29 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProvenance := make(map[string]string)
 	starterJoinState := make(map[string]string)
 	starterDetail := make(map[string]string)
+	starterSource := make(map[string]string)
+	starterGameStateBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
+	matchupLiveStateBind := make(map[string]string, len(live.Matchups))
+	projected := make(map[string]string, len(live.Matchups)*2)
+	// winProb is keyed by TEAM ID, not matchup ID: each side's own win
+	// probability is published under its own key (round-2 review of
+	// commit 133d1d7, finding 1). A matchup-keyed value could only ever
+	// hold one side's number, and the featured card binds its own team
+	// (mine), not a fixed side, so a matchup-keyed bind would silently
+	// flip the shown percentage to the wrong side's number the first
+	// time the viewer's team is Away.
+	winProb := make(map[string]string, len(live.Matchups)*2)
+	// stillToPlay/stillToPlayTotal are the bare count and the total,
+	// matching my_matchup/other_matchups' own two int fields (round-2
+	// review of commit 133d1d7, finding 2); the page composes the "N of
+	// M starters still to play" sentence from the two bound spans.
+	stillToPlayBind := make(map[string]string, len(live.Matchups))
+	stillToPlayTotalBind := make(map[string]string, len(live.Matchups))
+	liveStatusValue, hasLive := s.liveStatus()
+	pool := s.pool()
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -2894,6 +2983,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterProvenance[row.LiveKey] = row.Provenance
 		starterJoinState[row.LiveKey] = row.JoinState
 		starterDetail[row.LiveKey] = row.Detail
+		starterSource[row.LiveKey] = row.Source
+		starterGameStateBind[row.LiveKey] = row.GameState
 	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
@@ -2911,6 +3002,16 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
+		matchupLiveStateBind[matchup.ID] = matchup.LiveState
+		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, pool.byID), liveStatusValue, hasLive)
+		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
+		projected[matchup.Away.ID] = projectedText(awayProjected, matchup.Away.ScoreKnown)
+		projected[matchup.Home.ID] = projectedText(homeProjected, matchup.Home.ScoreKnown)
+		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, matchup.Home.ScoreKnown, matchup.Away.ScoreKnown)
+		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, matchup.Away.ScoreKnown, matchup.Home.ScoreKnown)
+		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
+		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlay(combined, liveStatusValue))
+		stillToPlayTotalBind[matchup.ID] = strconv.Itoa(len(combined))
 	}
 	checkedAt := live.CheckedAt
 	if checkedAt.IsZero() {
@@ -2928,10 +3029,19 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"state":             live.State,
 		"status":            live.Status,
 		"warning":           live.Warning,
+		"liveState":         live.LiveState,
+		"sourceLine":        live.SourceLine,
+		"slateLine":         live.SlateLine,
+		"gamesFinal":        live.GamesFinal,
 		"scores":            scores,
 		"matchupStatus":     matchupStatus,
 		"matchupClock":      matchupClock,
 		"matchupIndicator":  matchupIndicator,
+		"matchupLiveState":  matchupLiveStateBind,
+		"projected":         projected,
+		"winProb":           winProb,
+		"stillToPlay":       stillToPlayBind,
+		"stillToPlayTotal":  stillToPlayTotalBind,
 		"starterPoints":     starterPoints,
 		"starterPlayerName": starterPlayerName,
 		"starterPosition":   starterPosition,
@@ -2939,6 +3049,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterProvenance": starterProvenance,
 		"starterJoinState":  starterJoinState,
 		"starterDetail":     starterDetail,
+		"starterSource":     starterSource,
+		"starterGameState":  starterGameStateBind,
 		"liveStatus":        liveStatus,
 		"liveUpdated":       checked,
 		"lastUpdated":       statsUpdated,
@@ -3719,6 +3831,10 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"week_label":          live.WeekLabel,
 		"state":               live.State,
 		"status":              live.Status,
+		"live_state":          live.LiveState,
+		"source_line":         live.SourceLine,
+		"slate_line":          live.SlateLine,
+		"games_final":         live.GamesFinal,
 		"last_updated":        statsUpdatedAt,
 		"checked_at":          s.formatMatchupUpdateOrUnavailable(checkedAt),
 		"stats_updated_at":    statsUpdatedAt,
@@ -3766,14 +3882,14 @@ func matchupPresentation(state string) map[string]string {
 	case MatchupStateScheduled:
 		return map[string]string{
 			"headline_top": "WEEK", "headline_bottom": "SCHEDULED.",
-			"sync_label": "Waiting for kickoff", "refresh_label": "Checks every 60 sec",
+			"sync_label": "Waiting for kickoff", "refresh_label": "Push at kickoff · 60 s fallback",
 			"note_title": "Scheduled scoring", "note_body": "Scores begin updating after the first NFL kickoff for this fantasy week.",
 		}
 	case MatchupStateInProgress:
 		return map[string]string{
 			"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
-			"sync_label": "Live scores on", "refresh_label": "60 sec",
-			"note_title": "Live scoring", "note_body": "Scores update on their own. No need to refresh the page.",
+			"sync_label": "Live scores on", "refresh_label": "Push · 60 s fallback",
+			"note_title": "Live scoring", "note_body": "Scores push to this page during games. No refresh is needed.",
 		}
 	case MatchupStateFinal:
 		return map[string]string{
@@ -3784,7 +3900,7 @@ func matchupPresentation(state string) map[string]string {
 	case MatchupStateDegraded:
 		return map[string]string{
 			"headline_top": "SCHEDULE", "headline_bottom": "STATUS.",
-			"sync_label": "Timing unavailable", "refresh_label": "Retrying every 60 sec",
+			"sync_label": "Timing unavailable", "refresh_label": "Retrying · 60 s fallback",
 			"note_title": "Limited matchup data", "note_body": "Pairings remain visible, but kickoff or scoring status is not currently authoritative.",
 		}
 	default:
@@ -3843,6 +3959,7 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 		out = append(out, map[string]any{
 			"id":                  matchup.ID,
 			"state":               matchup.State,
+			"live_state":          matchup.LiveState,
 			"show_live_indicator": matchup.State == MatchupStateInProgress,
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
@@ -3869,10 +3986,221 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
-			"detail": row.Detail,
+			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
 		})
 	}
 	return out
+}
+
+// featuredMatchupIndex resolves which of matchups (live.Matchups, in
+// schedule order) is "my_matchup": the viewer's own matchup this week
+// when teamID names one of its two sides, else the week's first matchup
+// (isViewer false — the page labels this case FEATURED instead of
+// claiming it belongs to the viewer). index is -1 when the week has no
+// matchups at all.
+func featuredMatchupIndex(matchups []ScoreMatchup, teamID string) (index int, isViewer bool) {
+	if teamID != "" {
+		for i, m := range matchups {
+			if m.Home.ID == teamID || m.Away.ID == teamID {
+				return i, true
+			}
+		}
+	}
+	if len(matchups) > 0 {
+		return 0, false
+	}
+	return -1, false
+}
+
+// otherMatchupsCountLabel renders MatchupsData's "other_count_label"
+// ("3 other matchups", "1 other matchup", "0 other matchups").
+func otherMatchupsCountLabel(count int) string {
+	if count == 1 {
+		return "1 other matchup"
+	}
+	return fmt.Sprintf("%d other matchups", count)
+}
+
+// featuredMatchupViews builds MatchupsData's summary-first pair: my_matchup
+// (A6's featured card, viewer's own matchup or the week's first one) and
+// other_matchups (matchupMaps' remaining entries, each carrying the
+// projected-total and still-to-play fields the scorebug cards render).
+// matchups must be s.matchupMaps(state, live.Matchups) — the same slice,
+// in the same order, so index alignment with live.Matchups holds. pool is
+// read once (s.pool(), which takes poolMu) for the whole render and
+// threaded down to every starterProjections call this function and
+// featuredMatchupMap make, rather than each call taking the pool itself
+// (round-2 review of commit 133d1d7, finding 3).
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, currentWeek int) (map[string]any, []map[string]any) {
+	status, hasLive := s.liveStatus()
+	pool := s.pool()
+	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
+	other := make([]map[string]any, 0, len(matchups))
+	for i, entry := range matchups {
+		if i == index {
+			continue
+		}
+		if i < len(live.Matchups) {
+			m := live.Matchups[i]
+			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, pool.byID), status, hasLive)
+			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, pool.byID), status, hasLive)
+			entry["projected_away"] = projectedText(awayProjected, m.Away.ScoreKnown)
+			entry["projected_home"] = projectedText(homeProjected, m.Home.ScoreKnown)
+			combined := append(append([]StarterLedgerRow{}, m.Away.StarterLedger...), m.Home.StarterLedger...)
+			// still_to_play/still_to_play_total are the bare count and the
+			// total, both plain ints: the page composes "N of M starters
+			// still to play" itself, the same shape my_matchup's own two
+			// fields take (round-2 review of commit 133d1d7, finding 2 —
+			// three different shapes for one figure across the two view
+			// models and the live-bind map was the bug).
+			entry["still_to_play"] = stillToPlay(combined, status)
+			entry["still_to_play_total"] = len(combined)
+			// Every scorebug's own expandable body carries the same
+			// per-slot starter pairs the featured card renders (Task 11b's
+			// Scorebug body is a ul.matchup-pairs of StarterCell, same as
+			// FeaturedMatchup's).
+			entry["pairs"] = featuredStarterPairs(m.Away.StarterLedger, m.Home.StarterLedger)
+		}
+		other = append(other, entry)
+	}
+	if index < 0 {
+		return emptyFeaturedMatchup(), other
+	}
+	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, currentWeek, status, hasLive, pool.byID), other
+}
+
+// emptyFeaturedMatchup is my_matchup's shape when the week has no
+// matchups at all (no schedule yet, or a bye with nobody else scheduled).
+func emptyFeaturedMatchup() map[string]any {
+	return map[string]any{
+		"has_matchup": false, "is_viewer": false, "id": "", "label": "",
+		"live_indicator": "", "live_state": "", "win_prob": "", "win_prob_width": "0%",
+		"still_to_play": 0, "still_to_play_total": 0,
+		"next_lineup_href": "", "next_week": 0, "has_next_week": false,
+		"mine": map[string]any{}, "theirs": map[string]any{}, "pairs": []map[string]any{},
+	}
+}
+
+// featuredMatchupMap renders my_matchup for one resolved ScoreMatchup.
+// mine/theirs follow the viewer's own side when isViewer holds; the
+// FEATURED (non-viewer) case has no "own side" to follow, so it labels
+// Home "mine" and Away "theirs" — an arbitrary but stable choice, since
+// nothing distinguishes the two sides for a spectator. byID is the
+// caller's single s.pool().byID read for the whole render (see
+// featuredMatchupViews).
+func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, currentWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
+	mine, theirs := m.Home, m.Away
+	if isViewer && m.Away.ID == teamID {
+		mine, theirs = m.Away, m.Home
+	}
+	mineProjected := projectedTotal(mine.StarterLedger, starterProjections(mine.StarterLedger, byID), status, hasLive)
+	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
+	winProbText := winProbabilityText(mineProjected, theirsProjected, mine.ScoreKnown, theirs.ScoreKnown)
+	// win_prob_width is a literal CSS width set once at render (not
+	// live-bound, page.gsx's comment beside the bar), so it can never hold
+	// the "—" placeholder winProbText renders for an unknown side; "0%"
+	// is the same safe fallback emptyFeaturedMatchup already uses.
+	winProbWidth := winProbText
+	if winProbWidth == winProbabilityDashText {
+		winProbWidth = "0%"
+	}
+	combined := append(append([]StarterLedgerRow{}, mine.StarterLedger...), theirs.StarterLedger...)
+	label := ""
+	if !isViewer {
+		label = "FEATURED"
+	}
+	// next_week/has_next_week clamp the footer's "set lineup" link to the
+	// schedule's own last week — currentWeek+1 alone could name a week
+	// that was never generated once the season is on its final week
+	// (round-2 review of commit 133d1d7, finding 4).
+	nextWeek := currentWeek + 1
+	hasNextWeek := state.Schedule != nil
+	if state.Schedule != nil {
+		if weeks := seasonScheduleWeeks(*state.Schedule); len(weeks) > 0 && nextWeek > weeks[len(weeks)-1] {
+			nextWeek = weeks[len(weeks)-1]
+			hasNextWeek = false
+		}
+	}
+	return map[string]any{
+		"has_matchup":         true,
+		"is_viewer":           isViewer,
+		"id":                  m.ID,
+		"label":               label,
+		"live_indicator":      liveIndicatorToken(m.State),
+		"live_state":          m.LiveState,
+		"win_prob":            winProbText,
+		"win_prob_width":      winProbWidth,
+		"still_to_play":       stillToPlay(combined, status),
+		"still_to_play_total": len(combined),
+		"next_lineup_href":    fmt.Sprintf("/team?week=%d#lineup", nextWeek),
+		"next_week":           nextWeek,
+		"has_next_week":       hasNextWeek,
+		"mine":                s.featuredTeamMap(state, mine, mineProjected),
+		"theirs":              s.featuredTeamMap(state, theirs, theirsProjected),
+		"pairs":               featuredStarterPairs(mine.StarterLedger, theirs.StarterLedger),
+	}
+}
+
+// featuredTeamMap is my_matchup's mine/theirs team shape.
+func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projected float64) map[string]any {
+	team := s.teamView(state, side.ID)
+	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
+	return map[string]any{
+		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
+		"score": matchupScoreText(side), "projected": projectedText(projected, side.ScoreKnown),
+		"tone": team.Tone, "abbreviation": side.Abbreviation,
+		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
+	}
+}
+
+// featuredStarterPairs zips both sides' starter-ledger rows one per
+// lineupSlots(CurrentRoster()) entry, in the fixed engine slot order both
+// sides' rows already share (matchupLineup resolves every team through
+// the same lineupSlots(CurrentRoster()) walk). A side missing a row for a
+// slot (should not happen — every configured slot always gets a row, even
+// an empty one) renders that side of the pair as nil rather than
+// panicking on an index a differently-shaped roster produced.
+func featuredStarterPairs(mineRows, theirsRows []StarterLedgerRow) []map[string]any {
+	mine := starterLedgerMaps(mineRows)
+	theirs := starterLedgerMaps(theirsRows)
+	slots := lineupSlots(CurrentRoster())
+	out := make([]map[string]any, 0, len(slots))
+	for i := range slots {
+		var mineRow, theirsRow map[string]any
+		if i < len(mine) {
+			mineRow = mine[i]
+		}
+		if i < len(theirs) {
+			theirsRow = theirs[i]
+		}
+		slot := ""
+		switch {
+		case mineRow != nil:
+			slot, _ = mineRow["slot"].(string)
+		case theirsRow != nil:
+			slot, _ = theirsRow["slot"].(string)
+		}
+		out = append(out, map[string]any{"slot": slot, "mine": mineRow, "theirs": theirsRow})
+	}
+	return out
+}
+
+// matchupStatusLine renders MatchupsData's status_line: the one-sentence
+// A5/A6 status the page shows in place of the old provenance table, plus
+// the three raw fields (live_state, checked_at, games_final) a strict
+// GSX component needs individually rather than pre-joined into prose.
+func (s *Service) matchupStatusLine(live LiveSnapshot) map[string]any {
+	checkedAt := live.CheckedAt
+	if checkedAt.IsZero() {
+		checkedAt = live.LastUpdated
+	}
+	return map[string]any{
+		"live_state":       live.LiveState,
+		"source_line":      live.SourceLine,
+		"checked_at":       s.formatMatchupUpdateOrUnavailable(checkedAt),
+		"stats_updated_at": s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt),
+		"games_final":      live.GamesFinal,
+	}
 }
 
 func (s *Service) teamByID(id string) Team {

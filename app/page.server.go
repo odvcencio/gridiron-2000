@@ -3,6 +3,7 @@ package app
 import (
 	"log"
 
+	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -27,11 +28,16 @@ type MatchupTeamCard struct {
 
 // MatchupCard is the typed data.featured entry MiniMatchup's legacy body
 // reads (ID, Status, Clock) and spreads (Away, Home) into TeamMark.
+// LiveState is the A5 truthful state (LIVE/PAUSED/FINAL/LEDGER,
+// matchupMaps' own "live_state") MiniMatchup renders as plain text next
+// to its existing live-dot (Task 11b): Home keeps its own two-live-dot
+// allowlist count unchanged, so this is text, never a new dot.
 type MatchupCard struct {
 	ID                string
 	State             string
 	ShowLiveIndicator bool
 	LiveIndicator     string
+	LiveState         string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -92,6 +98,7 @@ func dashboardMatchupCards(raw []map[string]any) []MatchupCard {
 			State:             stringField(entry, "state"),
 			ShowLiveIndicator: boolField(entry, "show_live_indicator"),
 			LiveIndicator:     stringField(entry, "live_indicator"),
+			LiveState:         stringField(entry, "live_state"),
 			Status:            stringField(entry, "status"),
 			Clock:             stringField(entry, "clock"),
 			Away:              matchupTeamCardFromMap(away),
@@ -157,6 +164,18 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().DashboardData(ctx.Request.Context(), ctx.Request)
+			// Bootstrap and the scores-live socket are gated exactly like
+			// page.gsx's own live element (data.viewer.signed_in &&
+			// data.has_seat, ~line 386): a signed-out landing visitor must
+			// load no runtime and open no socket (round-2 review of commit
+			// 917cf4f, finding 1).
+			viewer, _ := data["viewer"].(map[string]any)
+			signedIn, _ := viewer["signed_in"].(bool)
+			hasSeat, _ := data["has_seat"].(bool)
+			if signedIn && hasSeat {
+				ctx.Runtime().EnableBootstrap()
+				ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
+			}
 			if featured, ok := data["featured"].([]map[string]any); ok {
 				data["featured"] = dashboardMatchupCards(featured)
 			}

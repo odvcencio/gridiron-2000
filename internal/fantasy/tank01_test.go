@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -418,6 +419,39 @@ func TestTank01ClientKeyOptionalWhenBaseURLSet(t *testing.T) {
 	}
 	if got := sawHeader.Get("x-rapidapi-host"); got != "" {
 		t.Errorf("x-rapidapi-host = %q, want unset when no key is configured", got)
+	}
+}
+
+// TestTank01ClientHTTPStatusErrorOn429 pins get()'s error shape for a
+// non-200 upstream reply: a *HTTPStatusError an errors.As caller (the live
+// poller's circuit breaker) can match on, carrying the same "endpoint: HTTP
+// status" text the old bare fmt.Errorf produced (internal/league/blitz_health.go:131
+// matches that text's "429" substring today).
+func TestTank01ClientHTTPStatusErrorOn429(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	client := &tank01Client{
+		baseURL: server.URL,
+		maxBody: 1 << 20,
+		client:  server.Client(),
+	}
+
+	_, err := client.get(context.Background(), "getNFLBoxScore", nil)
+	if err == nil {
+		t.Fatal("want an error on HTTP 429")
+	}
+	var statusErr *HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("errors.As(%v, &HTTPStatusError{}) = false, want true", err)
+	}
+	if statusErr.Status != http.StatusTooManyRequests {
+		t.Errorf("Status = %d, want %d", statusErr.Status, http.StatusTooManyRequests)
+	}
+	if got, want := statusErr.Error(), "getNFLBoxScore: HTTP 429"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
 	}
 }
 

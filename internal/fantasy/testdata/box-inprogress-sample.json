@@ -1,0 +1,4 @@
+{"statusCode": 200, "body": {"gameID": "20260913_AWY@HOM", "away": "AWY", "home": "HOM", "awayPts": "10", "homePts": "0", "gameStatus": "Live - In Progress", "gameStatusCode": "1", "currentPeriod": "Q3", "gameClock": "8:12",
+ "DST": {"away": {"teamAbv": "AWY", "teamID": "1", "defTD": "0", "defensiveInterceptions": "1", "sacks": "2", "fumblesRecovered": "0", "ptsAllowed": "0", "safeties": "0"},
+         "home": {"teamAbv": "HOM", "teamID": "2", "defTD": "0", "defensiveInterceptions": "0", "sacks": "0", "fumblesRecovered": "1", "ptsAllowed": "10", "safeties": "0"}},
+ "playerStats": {"1": {"gameID": "20260913_AWY@HOM", "teamID": "1", "team": "AWY", "teamAbv": "AWY", "playerID": "1", "longName": "Away Passer", "Passing": {"passYds": "120", "passTD": "1", "int": "0", "passAttempts": "14", "passCompletions": "9"}}}}}

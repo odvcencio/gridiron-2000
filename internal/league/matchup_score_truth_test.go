@@ -2,6 +2,7 @@ package league
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -82,6 +83,350 @@ func TestTeamWeekLedgerReportsMissingJoinInsteadOfSilentZero(t *testing.T) {
 	t.Fatal("ledger omitted p-01 while reporting the join miss")
 }
 
+// TestStarterGameKnownZeroSoFar covers rider item 1 (review of ae1a525):
+// a missing-join starter's game must read as an honest, KNOWN 0.0 only
+// when a healthy signal affirmatively places it pre-kickoff or in
+// progress, and false — leaving the team total UNKNOWN — for a Final
+// game, a degraded poller (even one that otherwise has an in-progress
+// entry for the team), or no signal at all. It also covers rider item 3
+// (review of ff2a9b3): a true bye (the team absent from a loaded,
+// non-empty schedule) is a known 0.0 regardless of poller health, and
+// the two residuals from the review of eb549b6: N1, a stale ByeWeek that
+// happens to equal week must never claim BYE (or bypass the poller's own
+// Degraded check) while the team's real game sits in the loaded
+// schedule; N2, a pool with no bye data at all (ByeWeek == 0) must still
+// read a genuine bye correctly — the loaded schedule's own team presence
+// is the one signal that matters, not ByeWeek.
+func TestStarterGameKnownZeroSoFar(t *testing.T) {
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	player := Player{NFLTeam: "CIN"}
+	byePlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	// staleByeWeekPlayer's ByeWeek (1) matches the week under test even
+	// though CIN's real game sits in the loaded schedule (N1) — the
+	// opposite shape from byePlayer, which has no game in the loaded
+	// schedule at all.
+	staleByeWeekPlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	// noByeDataPlayer models a pool with no bye field populated at all
+	// (ByeWeek's zero value, the offline/fallback pool's own shape, N2):
+	// CIN is genuinely absent from the loaded schedule below, and that
+	// absence alone — not ByeWeek — must still read as a known bye.
+	noByeDataPlayer := Player{NFLTeam: "CIN"}
+	cases := []struct {
+		name     string
+		player   Player
+		snapshot matchupStatsSnapshot
+		want     bool
+	}{
+		{
+			name:     "schedule pre-kickoff, no poller wired",
+			player:   player,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(time.Hour)}}},
+			want:     true,
+		},
+		{
+			name:     "schedule final, no poller wired",
+			player:   player,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-3 * time.Hour), Final: true}}},
+			want:     false,
+		},
+		{
+			name:     "live in progress, healthy poller",
+			player:   player,
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     true,
+		},
+		{
+			name:     "live final",
+			player:   player,
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"CIN": {Final: true}}}},
+			want:     false,
+		},
+		{
+			name:     "poller degraded, even with an in-progress entry",
+			player:   player,
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     false,
+		},
+		{
+			name:     "no signal at all",
+			player:   player,
+			snapshot: matchupStatsSnapshot{},
+			want:     false,
+		},
+		{
+			name:     "true bye: loaded schedule omits the team, healthy poller",
+			player:   byePlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"BUF": {InProgress: true}, "MIA": {InProgress: true}}}},
+			want:     true,
+		},
+		{
+			name:     "true bye: known even while the poller reports degraded",
+			player:   byePlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Degraded: true}},
+			want:     true,
+		},
+		{
+			name:     "bye-week match but no schedule loaded at all: not a league-wide bye",
+			player:   byePlayer,
+			snapshot: matchupStatsSnapshot{},
+			want:     false,
+		},
+		{
+			name:     "N1: stale ByeWeek matches week, but the team's real game sits in the loaded schedule, degraded poller",
+			player:   staleByeWeekPlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     false,
+		},
+		{
+			name:     "N2: no bye data at all (ByeWeek zero value), but the team is genuinely absent from the loaded schedule",
+			player:   noByeDataPlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"BUF": {InProgress: true}, "MIA": {InProgress: true}}}},
+			want:     true,
+		},
+		{
+			name:     "N1 abbreviation normalization: player carries Tank01-style LAR, schedule already normalized to LA",
+			player:   Player{NFLTeam: "LAR", ByeWeek: 1},
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "LA", Home: "SF", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Degraded: true}},
+			want:     false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := starterGameKnownZeroSoFar(c.player, 1, c.snapshot, now); got != c.want {
+				t.Fatalf("starterGameKnownZeroSoFar = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestTeamHasGameNormalizesTank01Abbreviations covers the abbreviation
+// normalization residual N1 names explicitly: teamHasGame must match a
+// Tank01-style team code (LAR, WSH, JAC) against an nflverse-style
+// schedule entry (LA, WAS, JAX) and vice versa, the same three-entry
+// correction internal/livescore.NormalizeTeam applies, kept as its own
+// copy here since internal/league must not import internal/livescore.
+func TestTeamHasGameNormalizesTank01Abbreviations(t *testing.T) {
+	games := []GameInfo{{Away: "LA", Home: "SF"}, {Away: "BUF", Home: "MIA"}}
+	cases := []struct {
+		team string
+		want bool
+	}{
+		{"LAR", true},  // Tank01-style, schedule already normalized to LA
+		{"LA", true},   // already nflverse-style
+		{"lar", true},  // case-insensitive
+		{"SF", true},   // untouched by the three-entry map
+		{"WSH", false}, // not in this schedule at all
+		{"DAL", false},
+	}
+	for _, c := range cases {
+		if got := teamHasGame(c.team, games); got != c.want {
+			t.Errorf("teamHasGame(%q) = %v, want %v", c.team, got, c.want)
+		}
+	}
+}
+
+// TestStarterGameStateRendersBYEOnlyForATrueBye covers the "no BYE chip"
+// half of residual N1 (review of eb549b6): starterGameState must not
+// render "BYE" for a starter whose ByeWeek happens to equal week when
+// their team's real game sits in the loaded schedule, and must render
+// "BYE" for a starter whose team is genuinely absent from a loaded
+// schedule, independent of ByeWeek (residual N2).
+func TestStarterGameStateRendersBYEOnlyForATrueBye(t *testing.T) {
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	location := time.UTC
+	staleByeWeekPlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	snapshotTeamPresent := matchupStatsSnapshot{
+		games:   []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-time.Hour)}},
+		hasLive: true,
+		live:    LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}},
+	}
+	if got := starterGameState(staleByeWeekPlayer, 1, snapshotTeamPresent, location); got == "BYE" {
+		t.Fatalf("starterGameState (N1, stale ByeWeek, team present) = %q, want anything but BYE", got)
+	}
+
+	noByeDataPlayer := Player{NFLTeam: "CIN"}
+	snapshotTeamAbsent := matchupStatsSnapshot{
+		games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}},
+	}
+	if got := starterGameState(noByeDataPlayer, 1, snapshotTeamAbsent, location); got != "BYE" {
+		t.Fatalf("starterGameState (N2, no ByeWeek data, team genuinely absent) = %q, want BYE", got)
+	}
+}
+
+// draftSecondPickForTeam1 advances the (bypassed-lifecycle) draft with
+// arbitrary filler picks for every other team until team-1's own second
+// pick comes up (the last slot of snake round 2, pick 2*len(defaultTeams())),
+// then makes that pick for team-1 with playerID. Store.MakePick enforces
+// strict turn order regardless of draftLifecycleBypass, so team-1 cannot
+// receive a second roster player without every intervening pick landing
+// somewhere first; Store.MakePick never validates a playerID against any
+// player pool, so the filler IDs below are never looked up.
+func draftSecondPickForTeam1(t *testing.T, svc *Service, now time.Time, playerID string) {
+	t.Helper()
+	target := 2 * len(defaultTeams())
+	for number := 2; number < target; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := svc.store.MakePick(teamID, fmt.Sprintf("filler-%02d", number), "manager", now, time.Time{}); err != nil {
+			t.Fatalf("filler pick %d for %s: %v", number, teamID, err)
+		}
+	}
+	if _, err := svc.store.MakePick("team-1", playerID, "manager", now, time.Time{}); err != nil {
+		t.Fatalf("team-1 second pick %s: %v", playerID, err)
+	}
+}
+
+// TestTeamWeekLedgerCountsPreKickoffMissingJoinAsKnownZero is rider test
+// (a): a lone starter whose game has not kicked off yet, with no ledger
+// join, still yields a KNOWN 0.0 team total — not the hours-long "—" the
+// pre-rider rule produced for every game of the slate.
+func TestTeamWeekLedgerCountsPreKickoffMissingJoinAsKnownZero(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "cin-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "CIN", Home: "CLE"}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if !ledger.Known || ledger.TotalText != "0.0" || ledger.Total != 0 {
+		t.Fatalf("pre-kickoff ledger = %+v, want a known 0.0 total", ledger)
+	}
+	for _, row := range ledger.Rows {
+		if row.PlayerID == "p-01" {
+			if row.JoinState != "missing-join" {
+				t.Fatalf("p-01 row = %+v, want missing-join", row)
+			}
+			return
+		}
+	}
+	t.Fatal("ledger omitted p-01")
+}
+
+// TestTeamWeekLedgerSumsMatchedAndInProgressKnownZeroRows is rider test
+// (b): one matched starter plus one missing-join starter whose game a
+// healthy poller reports in progress still yields a KNOWN total equal to
+// the matched sum alone (the missing-join row's honest 0.0 changes
+// nothing numerically, only whether the aggregate itself is trusted).
+func TestTeamWeekLedgerSumsMatchedAndInProgressKnownZeroRows(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	draftSecondPickForTeam1(t, svc, now, "p-02") // Bijan Robinson, ATL
+	svc.SetLiveStatusSource(func() LiveStatus {
+		return LiveStatus{Enabled: true, Games: map[string]LiveGameState{"ATL": {GameID: "atl-game", Period: "Q2", Clock: "5:00", InProgress: true}}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Ja'Marr Chase", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if !ledger.Known || ledger.TotalText != "6.0" || ledger.Total != 6 {
+		t.Fatalf("mixed matched/in-progress ledger = %+v, want a known 6.0 total", ledger)
+	}
+	var sawMatched, sawKnownZero bool
+	for _, row := range ledger.Rows {
+		switch row.PlayerID {
+		case "p-01":
+			sawMatched = true
+			if row.JoinState != "matched" || row.Points != 6 {
+				t.Fatalf("p-01 row = %+v, want a matched 6-point row", row)
+			}
+		case "p-02":
+			sawKnownZero = true
+			if row.JoinState != "missing-join" {
+				t.Fatalf("p-02 row = %+v, want missing-join", row)
+			}
+		}
+	}
+	if !sawMatched || !sawKnownZero {
+		t.Fatalf("rows seen: matched=%v knownZero=%v (%+v)", sawMatched, sawKnownZero, ledger.Rows)
+	}
+}
+
+// TestTeamWeekLedgerStaysUnknownOnDegradedPoller is rider test (c): a
+// degraded poller must keep the team total UNKNOWN even for a starter
+// whose game the schedule alone would otherwise place pre-kickoff — a
+// known outage is not the same claim as "affirmatively known" — and the
+// resulting winProbabilityText for that side must render the same
+// honest dash, never a borrowed percentage.
+func TestTeamWeekLedgerStaysUnknownOnDegradedPoller(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "cin-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "CIN", Home: "CLE"}}
+	})
+	svc.SetLiveStatusSource(func() LiveStatus {
+		return LiveStatus{Enabled: true, Degraded: true, Reason: "daily budget exhausted"}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if ledger.Known || ledger.TotalText != "—" {
+		t.Fatalf("degraded ledger = %+v, want an unknown dash total", ledger)
+	}
+	if got := winProbabilityText(50, 40, ledger.Known, true); got != "—" {
+		t.Fatalf("winProbabilityText for the degraded/unknown side = %q, want the dash", got)
+	}
+	if got := projectedText(50, ledger.Known); got != "—" {
+		t.Fatalf("projectedText for the degraded/unknown side = %q, want the dash, never a proj figure beside the dash score", got)
+	}
+}
+
+// TestTeamWeekLedgerCountsByeWeekStarterAsKnownZeroWithBadge is rider
+// item 3 (review of ff2a9b3): a starter on a true bye — no matched stat
+// line, healthy poller, a loaded week-1 schedule that never mentions
+// their team — still yields a KNOWN, numeric team total and renders
+// GameState "BYE" for that row (which .state:empty never hides, since
+// "BYE" is non-empty text).
+func TestTeamWeekLedgerCountsByeWeekStarterAsKnownZeroWithBadge(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	byePlayer := Player{ID: "p-bye", Name: "Bye Week Wideout", Position: "WR", NFLTeam: "CIN", ByeWeek: 1}
+	pool := append(append([]Player{}, defaultPlayers()...), byePlayer)
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "test" })
+	if _, err := svc.store.MakePick("team-1", "p-bye", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	// A loaded, non-empty week-1 schedule that never mentions CIN: the
+	// starterOnBye guard (len(snapshot.games) > 0) requires a real
+	// schedule, not merely "no signal at all" for this player.
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "other-game", Week: 1, Kickoff: now.Add(-time.Hour), Away: "BUF", Home: "MIA"}}
+	})
+	svc.SetLiveStatusSource(func() LiveStatus {
+		return LiveStatus{Enabled: true, Games: map[string]LiveGameState{"BUF": {InProgress: true}, "MIA": {InProgress: true}}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if !ledger.Known || ledger.TotalText != "0.0" {
+		t.Fatalf("bye-week ledger = %+v, want a known 0.0 total", ledger)
+	}
+	for _, row := range ledger.Rows {
+		if row.PlayerID == "p-bye" {
+			if row.GameState != "BYE" || row.JoinState != "missing-join" {
+				t.Fatalf("bye-week row = %+v, want GameState \"BYE\" and missing-join", row)
+			}
+			return
+		}
+	}
+	t.Fatal("ledger omitted the bye-week starter")
+}
+
 func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) {
 	svc := newTestService(t, true)
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
@@ -99,7 +444,7 @@ func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) 
 	svc.SetScheduleSource(func() []GameInfo {
 		return []GameInfo{{ID: "active", Week: 1, Kickoff: now.Add(-time.Hour)}}
 	})
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 	data := svc.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
 	matchups, ok := data["matchups"].([]map[string]any)
@@ -201,7 +546,7 @@ func TestLiveScoresViewStarterRowsUpdateEveryFieldForIdentityAndJoinTransitions(
 		),
 	}}
 	svc := newTestService(t, true)
-	svc.feed = newLiveFeed(provider)
+	svc.feed = newLiveFeed(provider, svc)
 	svc.feed.cacheFor = 0
 
 	fieldValues := func(view map[string]any, key string) map[string]string {
@@ -441,7 +786,7 @@ func TestScheduleProviderSeparatesStatsFreshnessFromCheckedTime(t *testing.T) {
 	if !snapshot.LastUpdated.Equal(statsAt) {
 		t.Fatalf("legacy LastUpdated = %s, want the mirrored ledger instant %s", snapshot.LastUpdated, statsAt)
 	}
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 	view := svc.LiveScoresView(context.Background())
 	if view["checkedAt"] != svc.formatMatchupUpdate(now) || view["statsUpdatedAt"] != svc.formatMatchupUpdate(statsAt) {

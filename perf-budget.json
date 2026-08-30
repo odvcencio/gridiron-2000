@@ -1,5 +1,6 @@
 {
   "defaultProfile": "league",
+  "basis": "gzip",
   "profiles": {
     "league": {
       "description": "Server-first league route with the lightweight navigation enhancer.",
@@ -7,8 +8,9 @@
         "lcp <= 2500",
         "long_tasks <= 2",
         "tbt <= 150",
-        "js_total_kb <= 140"
-      ]
+        "js_total_kb <= 90"
+      ],
+      "note": "Corrected to a gzip transfer-byte basis (round-2 review of commit fe8775f, finding 5; supersedes the 297 raw-byte figure from finding 2 of the prior review). Measured against a gosx build --prod . dist/ build (2026-08-29): the pre-existing inline navigation enhancer alone is 24235 B gzip (23.67 KB, 83160 B raw) - signed-out / is unchanged and stays at this floor. A seated page (Task 6: the GoSX bootstrap runtime plus the scores-live hub chunk, wired into the signed-in/seated variant of /, and unconditionally into /matchups and /team) additionally loads bootstrap-runtime.<hash>.js (40720 B gzip, 148446 B raw) and bootstrap-feature-hubs.<hash>.js (13930 B gzip, 44467 B raw, resource-hinted via <link rel=preload>), for a measured total of 78885 B gzip (77.04 KB, 276073 B / 269.60 KB raw). 90 covers the measured 77 KB gzip with headroom; this profile is shared by every league route (/, /matchups, /team, /login) - the schema has no per-route override - so /login and signed-out / (24 KB gzip) are simply well under the cap too, not exempted from it."
     },
     "draft": {
       "description": "Draft room with one focused GoSX island.",

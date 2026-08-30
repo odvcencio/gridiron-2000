@@ -60,6 +60,18 @@ spec:
             # relay, not this namespace's Secret, owns TANK01_API_KEY.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
+            # Regular-season live scoring kill switch (internal/livescore).
+            # "false" until docs/launch-checklist.md's live-scoring rollout
+            # section explicitly flips it per instance; LIVE_DAILY_BUDGET is
+            # a placeholder the owner confirms after the Mega RapidAPI tier.
+            - name: LIVE_SCORING_ENABLED
+              value: "false"
+            - name: LIVE_POLL_INTERVAL
+              value: "5s"
+            - name: LIVE_MAX_INFLIGHT
+              value: "4"
+            - name: LIVE_DAILY_BUDGET
+              value: "20000"
             # Read-only Commissioner HQ federation. Browser cookies, CSRF
             # tokens, manager identities, and mutations never cross hosts.
             - name: COMMISSIONER_INSTANCE_ID

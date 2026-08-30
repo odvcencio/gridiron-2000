@@ -527,7 +527,6 @@ func newTradesTestService(t *testing.T, skipManagerTeamID string) (svc *Service,
 	clock := now
 	svc = &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
 		draftAt:  now.Add(-time.Hour),
 		demoMode: true,
 		teams:    defaultTeams(),
@@ -536,6 +535,7 @@ func newTradesTestService(t *testing.T, skipManagerTeamID string) (svc *Service,
 		presence: newPresenceTracker(now.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	svc.feed = newLiveFeed(nil, svc)
 	svc.store.draftLifecycleBypass = true
 	queue := notify.New(func(notify.Message) error { return nil }, func(string, ...any) {})
 	svc.SetNotifier(queue, true)

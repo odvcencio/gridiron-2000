@@ -19,6 +19,7 @@ import (
 
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/mailer"
 	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
@@ -390,24 +391,6 @@ func pointsAllowedByTeam(games []openstats.ScheduleGame, eastern *time.Location,
 	return allowed
 }
 
-// dstNicknames maps every nflverse team abbreviation to the "{Nickname}
-// D/ST" display name the fantasy pool's demo/fallback data already uses
-// for a team-defense player (internal/fantasy/fallback.go), since
-// normalizePlayerKey joins on (name, position) and openstats' team-stats
-// mirror carries only abbreviations. A team missing from the live pool
-// under a differently-formatted DST name is a join miss, reported through
-// the existing JoinMiss path — never a crash, never a wrong attribution.
-var dstNicknames = map[string]string{
-	"ARI": "Cardinals D/ST", "ATL": "Falcons D/ST", "BAL": "Ravens D/ST", "BUF": "Bills D/ST",
-	"CAR": "Panthers D/ST", "CHI": "Bears D/ST", "CIN": "Bengals D/ST", "CLE": "Browns D/ST",
-	"DAL": "Cowboys D/ST", "DEN": "Broncos D/ST", "DET": "Lions D/ST", "GB": "Packers D/ST",
-	"HOU": "Texans D/ST", "IND": "Colts D/ST", "JAX": "Jaguars D/ST", "KC": "Chiefs D/ST",
-	"LA": "Rams D/ST", "LAC": "Chargers D/ST", "LV": "Raiders D/ST", "MIA": "Dolphins D/ST",
-	"MIN": "Vikings D/ST", "NE": "Patriots D/ST", "NO": "Saints D/ST", "NYG": "Giants D/ST",
-	"NYJ": "Jets D/ST", "PHI": "Eagles D/ST", "PIT": "Steelers D/ST", "SEA": "Seahawks D/ST",
-	"SF": "49ers D/ST", "TB": "Buccaneers D/ST", "TEN": "Titans D/ST", "WAS": "Commanders D/ST",
-}
-
 // dstWeekStatLines builds one WeekStatLine per NFL team's defense/special
 // teams unit for week from the team-stats mirror (WP-R2, DEFENSE group):
 // dstSack, dstInt, dstFumbleRec (opponent-fumble recoveries only —
@@ -422,7 +405,7 @@ func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int
 	out := make([]league.WeekStatLine, 0, len(rows))
 	for _, row := range rows {
 		team := strings.ToUpper(row.Team)
-		name, ok := dstNicknames[team]
+		name, ok := livescore.DSTName(team)
 		if !ok {
 			// An unrecognized team abbreviation (a source drift, not a
 			// user error) scores nothing rather than guessing a name —
@@ -441,8 +424,9 @@ func dstWeekStatLines(stats *openstats.Service, eastern *time.Location, week int
 			statLine["dstShutout"] = 1
 		}
 		out = append(out, league.WeekStatLine{
-			Key:   openstats.NormalizePlayerKey(name, "DST"),
-			Stats: statLine,
+			Key:    openstats.NormalizePlayerKey(name, "DST"),
+			Stats:  statLine,
+			Source: league.StatSourceLedger,
 		})
 	}
 	return out
@@ -595,8 +579,9 @@ func leagueWeekStatsSource(stats *openstats.Service) league.WeekStatsSource {
 				}
 			}
 			out = append(out, league.WeekStatLine{
-				Key:   openstats.NormalizePlayerKey(row.PlayerName, row.Position),
-				Stats: statLine,
+				Key:    openstats.NormalizePlayerKey(row.PlayerName, row.Position),
+				Stats:  statLine,
+				Source: league.StatSourceLedger,
 			})
 		}
 		out = append(out, dstWeekStatLines(stats, eastern, week)...)

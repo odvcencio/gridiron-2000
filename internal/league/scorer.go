@@ -12,6 +12,18 @@ type MatchupScorer interface {
 	TeamWeekScore(teamID string, week int) (points float64, final bool, err error)
 }
 
+// StatSource* names the origin of a WeekStatLine, and therefore of any
+// StarterLedgerRow joined against it (A2, the live-scoring precedence
+// rule): a live row wins while that player's game is in progress; a
+// ledger row wins once the game is final, or when live has no data for
+// it. livescore.MergeLines (Task 3) picks the winning line per player key
+// using the poller's game status; this package only carries the label.
+const (
+	StatSourceLedger    = "ledger"     // nflverse weekly file
+	StatSourceLive      = "live"       // Tank01 box score, game in progress
+	StatSourceLiveFinal = "live-final" // Tank01 box score, game final, ledger not posted yet
+)
+
 // WeekStatLine is one player's weekly totals, keyed by scoring rule keys
 // (passYards, rushTD, reception, ...). Key is the output of
 // normalizePlayerKey (player name + position), the same shape
@@ -20,14 +32,27 @@ type MatchupScorer interface {
 // the real function and this package keeps its own copy in lockstep; see
 // scorer_test.go's parity test.
 type WeekStatLine struct {
-	Key   string
-	Stats map[string]float64
+	Key    string
+	Stats  map[string]float64
+	Source string // one of the StatSource* values; "" reads as ledger
 }
 
 // WeekStatsSource supplies every player's stat line for one NFL week.
 // main.go injects an adapter over internal/openstats, following the
 // ScheduleSource / HistoricalSource pattern.
 type WeekStatsSource func(week int) []WeekStatLine
+
+// weekStatLinesByKey indexes the whole WeekStatLine by player key in one
+// pass over lines. A caller that needs both a line's Stats and its Source
+// together (the starter ledger) reads both off the same entry instead of
+// building two separate maps with two walks over lines.
+func weekStatLinesByKey(lines []WeekStatLine) map[string]WeekStatLine {
+	byKey := make(map[string]WeekStatLine, len(lines))
+	for _, line := range lines {
+		byKey[line.Key] = line
+	}
+	return byKey
+}
 
 // weekStatsSnapshot reads one weekly ledger for a scoring operation. The
 // source is intentionally queried once by callers that render a whole
@@ -52,6 +77,22 @@ func weekStatsByKey(lines []WeekStatLine) map[string]map[string]float64 {
 	return byKey
 }
 
+// scorePlayerStats applies the league's scoring values to one player's
+// already-resolved rule-keyed stat line. scorePlayerPoints and the starter
+// ledger (matchup_ledger.go, which resolves its own line from
+// weekStatLinesByKey) both call this, so a rendered row's points can never
+// drift from the team's aggregate score.
+func scorePlayerStats(stats map[string]float64, values map[string]float64) float64 {
+	points := 0.0
+	for ruleKey, statValue := range stats {
+		if !finiteScoringPoints(statValue) {
+			continue
+		}
+		points += statValue * scoringPoints(values, ruleKey)
+	}
+	return points
+}
+
 // scorePlayerPoints is the single player-to-points calculation used by both
 // MatchupScorer.TeamWeekScore and the explanatory starter ledger. Keeping the
 // join and rule application here prevents a rendered row from drifting away
@@ -61,14 +102,7 @@ func scorePlayerPoints(player Player, byKey map[string]map[string]float64, value
 	if !ok {
 		return 0, false
 	}
-	points := 0.0
-	for ruleKey, statValue := range line {
-		if !finiteScoringPoints(statValue) {
-			continue
-		}
-		points += statValue * scoringPoints(values, ruleKey)
-	}
-	return points, true
+	return scorePlayerStats(line, values), true
 }
 
 func scorePlayers(players []Player, lines []WeekStatLine, values map[string]float64, week int, teamID string, onMiss func(JoinMiss)) float64 {

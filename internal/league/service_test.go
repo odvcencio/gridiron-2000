@@ -18,9 +18,8 @@ func newTestService(t *testing.T, demo bool) *Service {
 	avatarAnchor := t.TempDir()
 	store := NewStore(filepath.Join(t.TempDir(), "state.json"))
 	store.draftLifecycleBypass = true
-	return &Service{
+	svc := &Service{
 		store:             store,
-		feed:              newLiveFeed(nil),
 		draftAt:           time.Now().Add(-time.Hour),
 		demoMode:          demo,
 		teams:             defaultTeams(),
@@ -30,6 +29,8 @@ func newTestService(t *testing.T, demo bool) *Service {
 		avatarDurableRoot: avatarAnchor,
 		defaultBadgeRoot:  filepath.Join(t.TempDir(), "avatar-defaults"),
 	}
+	svc.feed = newLiveFeed(nil, svc)
+	return svc
 }
 
 func testPool(size int) []Player {

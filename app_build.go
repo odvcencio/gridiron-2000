@@ -17,6 +17,7 @@ import (
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	matchupspage "gridiron-2000/app/matchups"
 	pickempage "gridiron-2000/app/pickem"
 	playerspage "gridiron-2000/app/players"
 	teampage "gridiron-2000/app/team"
@@ -92,14 +93,29 @@ func AppConfigFromEnv() (AppConfig, error) {
 // a process singleton, so a second draft clock or roster-ops loop would be a
 // bug, not extra capacity.
 type AppRuntime struct {
-	starters     []func(ctx context.Context)
-	startOnce    sync.Once
-	closeOnce    sync.Once
-	StopNotify   context.CancelFunc
-	Drain        func(timeout time.Duration) int
-	AppName      string
-	Port         string
-	HQV1         *commissionerHQV1Runtime
+	starters  []func(ctx context.Context)
+	startOnce sync.Once
+	closeOnce sync.Once
+	// wg is joined by any starter whose background goroutine Close should
+	// actually wait for, rather than merely fire and forget — today, only
+	// the live-scoring poller (live_scoring.go's buildLiveScoring). Every
+	// other rt.starters entry keeps its pre-existing semantics: it stops
+	// when the ctx passed to Start is canceled, but Close does not wait
+	// for it (round-2 review of commit cdeb7f2, finding 4 — a deliberate,
+	// narrower change, not a general join-everything policy).
+	wg         sync.WaitGroup
+	StopNotify context.CancelFunc
+	Drain      func(timeout time.Duration) int
+	AppName    string
+	Port       string
+	HQV1       *commissionerHQV1Runtime
+	Live       *liveScoringRuntime
+	// closers runs inside Close, after restoreClock: today only the
+	// replay server's httptest.Server (live_scoring.go's
+	// liveScoringInputs), so LIVE_REPLAY_FIXTURE demo mode stops its
+	// listener on shutdown instead of leaking it for the process
+	// lifetime.
+	closers      []func()
 	restoreClock func() // nil unless cfg.TestAuth mounted the harness clock override
 }
 
@@ -113,14 +129,34 @@ func (r *AppRuntime) Start(ctx context.Context) {
 	})
 }
 
+// closeWaitTimeout bounds Close's wait on r.wg (round-2 review of commit
+// cdeb7f2, finding 4): Close must never hang a shutdown path indefinitely
+// because one background goroutine is slow to notice its context was
+// canceled.
+const closeWaitTimeout = 5 * time.Second
+
 // Close releases the resources BuildApp acquired outside the normal
-// request/response path and outside Start's background loops. Today that
-// is just the harness clock override mountTestRoutes may install: it is
-// lazy (only the first /test/clock request installs it), so a harness
-// build that never exercises /test/clock never touches the process-wide
-// league clock at all, and this call is then a no-op. Safe to call more
-// than once, and safe to call on every AppRuntime, harness or not — a
-// caller does not need to know whether cfg.TestAuth was set to clean up.
+// request/response path, and waits — up to closeWaitTimeout — for every
+// goroutine registered on r.wg to actually return. Close does not cancel
+// any context itself; that is still the caller's job before calling Close
+// (main.go cancels runtimeContext via signal.NotifyContext; a test calls
+// its own cancel()), exactly as it always has been for every rt.starters
+// entry. This only keeps Close from returning while a goroutine it knows
+// about is still unwinding, so a caller that already canceled the context
+// and immediately calls Close does not race that goroutine's own cleanup.
+// A goroutine still running past closeWaitTimeout is logged, not killed —
+// Go has no way to force one to stop, so hitting that log line means a
+// real shutdown-ordering bug to fix, not something Close can paper over.
+// Close also restores the harness clock override mountTestRoutes may have
+// installed: lazy (only the first /test/clock request installs it), so a
+// harness build that never exercises /test/clock never touches the
+// process-wide league clock at all, and that part is then a no-op. It
+// then runs every closer in r.closers (today: a LIVE_REPLAY_FIXTURE
+// replay server's httptest.Server.Close), in registration order, after
+// the clock restore and before waiting on r.wg. Safe to call more than
+// once, and safe to call on every AppRuntime, harness or not — a caller
+// does not need to know whether cfg.TestAuth was set, or whether Start
+// was ever called, to clean up.
 func (r *AppRuntime) Close() {
 	if r == nil {
 		return
@@ -130,6 +166,19 @@ func (r *AppRuntime) Close() {
 			r.restoreClock()
 		}
 		league.Default().StopDraftEvents()
+		for _, closer := range r.closers {
+			closer()
+		}
+		done := make(chan struct{})
+		go func() {
+			r.wg.Wait()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(closeWaitTimeout):
+			log.Printf("AppRuntime.Close: a background goroutine did not stop within %s", closeWaitTimeout)
+		}
 	})
 }
 
@@ -276,7 +325,14 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		return openStats.Status().PlayerStats.LastUpdated
 	})
 	league.Default().SetHistoricalSource(historicalSource(openStats))
-	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
+	liveCfg, liveFetcher, replayServer := liveScoringInputs(fantasyPool, league.Default(), rt, cfg.AppEnv)
+	// A replay server is its own self-contained relay: it needs no Tank01
+	// credentials of its own, so its presence stands in for
+	// fantasyPool.Enabled() when deciding whether buildLiveScoring may
+	// leave the poller on (see buildLiveScoring's fantasyEnabled doc).
+	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), rt)
+	liveRuntime.Replay = replayServer
+	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	rt.starters = append(rt.starters, func(ctx context.Context) {
 		startBlitzPoller(ctx, fantasyPool, league.Default())
@@ -303,6 +359,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	draftLiveUpdates.SetRepairView(func() map[string]any { return league.Default().DraftLiveView(nil) })
 	draftLiveUpdates.SetDraftEventSink(league.Default())
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
+	scoresLive := matchupspage.NewScoresLive(liveRuntime.Poller.Version, leagueFingerprint)
+	rt.starters = append(rt.starters, scoresLive.Start)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends
 	// — only the send step at the end of each tick is itself
@@ -604,6 +662,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))
 	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
+	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence
 	// bound; managed player mutations signal the same regions immediately while
@@ -648,7 +707,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}))
 
 	if cfg.TestAuth {
-		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager)
+		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager, rt.Live)
 	}
 
 	rootHandler, err := router.BuildChecked()

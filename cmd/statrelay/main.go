@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,11 @@ func main() {
 	}
 
 	relay := NewRelay(host, apiKey, dataDir, &http.Client{Timeout: 30 * time.Second}, time.Now)
+	dailyBudget := envInt("STATRELAY_DAILY_BUDGET", 0)
+	if dailyBudget < 0 { // a negative value reads as unlimited, matching livescore.New's clamp
+		dailyBudget = 0
+	}
+	relay.dailyBudget = dailyBudget // 0 = unlimited
 	relay.LoadDisk()
 
 	server := &http.Server{
@@ -64,6 +70,15 @@ func main() {
 func envString(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value
+	}
+	return fallback
+}
+
+// envInt reads key from the environment as an integer, falling back to
+// fallback when unset, blank, or unparsable.
+func envInt(key string, fallback int) int {
+	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
+		return parsed
 	}
 	return fallback
 }

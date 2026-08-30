@@ -28,7 +28,7 @@ func TestDashboardDataUsesTargetedLivePollingOnlyWhenUseful(t *testing.T) {
 		if err := svc.store.SetSchedule(schedule); err != nil {
 			t.Fatal(err)
 		}
-		svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+		svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 		svc.feed.cacheFor = 0
 
 		request, _ := http.NewRequest(http.MethodGet, "/", nil)
