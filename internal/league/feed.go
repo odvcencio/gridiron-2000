@@ -249,7 +249,11 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 // matchupLiveState resolves exactly one state in the spec's order (A5):
 // posted final -> LEDGER; in-progress starter and degraded poller ->
 // PAUSED; in-progress starter -> LIVE; a live-final row with no ledger row
-// -> FINAL; otherwise LEDGER.
+// -> FINAL; otherwise LEDGER. inProgress can only ever be true once hasLive
+// already is (it is set from status.Games, which is only consulted when
+// hasLive holds), so an unwired poller (hasLive false) always falls
+// through the switch to LEDGER — there is no separate "!hasLive" case to
+// guard for (round-2 review of commit 8a4ffea, finding 3).
 func matchupLiveState(postedFinal bool, status LiveStatus, hasLive bool, rows []StarterLedgerRow) string {
 	if postedFinal {
 		return LiveStateLedger
@@ -265,7 +269,7 @@ func matchupLiveState(postedFinal bool, status LiveStatus, hasLive bool, rows []
 		}
 	}
 	switch {
-	case inProgress && (!hasLive || status.Degraded):
+	case inProgress && status.Degraded:
 		return LiveStatePaused
 	case inProgress:
 		return LiveStateLive

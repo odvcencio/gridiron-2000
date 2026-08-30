@@ -100,6 +100,29 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 	}
 }
 
+// versionedSnapshot memoizes snapshot's result per version's value, so N
+// callers reading at the same version each get the one copy snapshot
+// produced for that version instead of paying for a fresh call every time.
+// version and snapshot are called with no lock held by the caller; the
+// returned closure serializes its own reads internally, so it is safe to
+// share across concurrent callers (round-2 review of commit 8a4ffea,
+// finding 1).
+func versionedSnapshot(version func() int64, snapshot func() livescore.Snapshot) func() livescore.Snapshot {
+	var (
+		mu      sync.Mutex
+		haveVer int64 = -1
+		snap    livescore.Snapshot
+	)
+	return func() livescore.Snapshot {
+		mu.Lock()
+		defer mu.Unlock()
+		if v := version(); v != haveVer {
+			snap, haveVer = snapshot(), v
+		}
+		return snap
+	}
+}
+
 // fantasyPoolDisabledReason is livescore.Config.DisabledReason's value
 // when buildLiveScoring forces the poller off because the fantasy pool
 // itself has no way to reach Tank01. It is exported as a constant, not
@@ -132,33 +155,26 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 	poller := livescore.New(liveCfg, fetcher, liveScheduleSource(lg.ScheduleSourceForLive()))
 	base := leagueWeekStatsSource(stats)
 	// weekStatsSnapshot runs once per team per matchup render (scorer.go:165,
-	// :213), so memoize the poller copy per version: one deep copy per tick,
-	// not one per team. The version/snapshot pair read here may lag one
-	// tick behind poller.Version() under concurrent access — a second
-	// caller's Version() can move between this current() call's own
-	// Version() read and its Snapshot() call — and self-corrects on the
-	// very next current() call; it is never more than one tick stale. The
-	// returned Snapshot's maps (Weeks, Games) are the poller's own copy
-	// from that tick, shared across every caller of current() until the
-	// next tick — callers must treat them as read-only.
-	var (
-		snapMu      sync.Mutex
-		snapVersion int64 = -1
-		snap        livescore.Snapshot
-	)
-	current := func() livescore.Snapshot {
-		snapMu.Lock()
-		defer snapMu.Unlock()
-		if v := poller.Version(); v != snapVersion {
-			snap, snapVersion = poller.Snapshot(), v
-		}
-		return snap
-	}
+	// :213), and liveStatusFromPoller runs once per matchupStatsSnapshot on
+	// top of that (matchup_ledger.go:35), so memoize the poller copy per
+	// version: one deep copy per tick, not one per team or per ledger.
+	// current is shared by both seams below (round-2 review of commit
+	// 8a4ffea, finding 1: liveStatusFromPoller was still wired to the raw,
+	// unmemoized poller.Snapshot, undoing half the saving). The
+	// version/snapshot pair read here may lag one tick behind
+	// poller.Version() under concurrent access — a second caller's
+	// Version() can move between this current() call's own Version() read
+	// and its Snapshot() call — and self-corrects on the very next
+	// current() call; it is never more than one tick stale. The returned
+	// Snapshot's maps (Weeks, Games) are the poller's own copy from that
+	// tick, shared across every caller of current() until the next tick —
+	// callers must treat them as read-only.
+	current := versionedSnapshot(poller.Version, poller.Snapshot)
 	lg.SetWeekStatsSource(func(week int) []league.WeekStatLine {
 		return livescore.MergeLines(base(week), week, current(), lg.ResolveLivePlayer)
 	})
 	lg.SetLiveVersionSource(poller.Version)
-	lg.SetLiveStatusSource(liveStatusFromPoller(poller.Snapshot, poller.Health))
+	lg.SetLiveStatusSource(liveStatusFromPoller(current, poller.Health))
 	rt.starters = append(rt.starters, func(ctx context.Context) {
 		rt.wg.Add(1)
 		go func() {

@@ -186,6 +186,10 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 	lineByKey := weekStatLinesByKey(lines)
 	lineup, pinned := s.matchupLineup(state, teamID, week)
 	explicit := explicitLineupForWeek(state.Lineups[teamID], week)
+	// Hoisted out of the per-starter loop below: every row reads the same
+	// clock instant, and s.clock() is not free (round-2 review of commit
+	// 8a4ffea, finding 6).
+	now := s.clock()
 	rows := make([]StarterLedgerRow, 0, len(lineup.Slots))
 	total := 0.0
 	complete := true
@@ -228,7 +232,15 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			complete = false
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
-		if row.JoinState != "matched" && starterGameNotStarted(row.NFLTeam, snapshot, s.clock()) {
+		switch {
+		case row.JoinState == "matched":
+			// scored above; PointsText already reflects it.
+		case snapshot.hasLive && snapshot.live.Degraded:
+			// A known live-poller outage is not "unknown": never render an
+			// implicit 0.0 while the poller itself reports it cannot see the
+			// game right now (round-2 review of commit 8a4ffea, finding 2).
+			row.PointsText = "—"
+		case starterGameNotStarted(row.NFLTeam, snapshot, now):
 			// R3: a starter with no live row yet and no ledger line either
 			// only reads as an honest "—" once the game is known not to
 			// have started; once it is live (or we cannot tell), the

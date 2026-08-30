@@ -85,7 +85,13 @@ func TestMatchupLiveStatePrecedence(t *testing.T) {
 	}{
 		{"live", LiveStatus{Enabled: true, Games: inProgress, CheckedAt: time.Date(2026, 9, 13, 17, 59, 56, 0, time.UTC)}, map[string]string{allen: StatSourceLive}, "LIVE", "Live box scores · checked 4 s ago"},
 		{"paused on degraded relay", LiveStatus{Enabled: true, Degraded: true, Reason: "daily budget exhausted", Games: inProgress}, map[string]string{allen: StatSourceLive}, "PAUSED", "Live box scores paused · daily budget exhausted"},
-		{"paused on kill switch", LiveStatus{Enabled: false, Degraded: true, Reason: "disabled", Games: inProgress}, nil, "PAUSED", "Live box scores paused · disabled"},
+		// Round-2 review finding 5 (commit 8a4ffea): a disabled poller never
+		// runs (livescore.Poller.Run returns immediately when !cfg.Enabled),
+		// so it can never have populated Games with an in-progress game —
+		// "disabled and reporting in-progress games" cannot happen in
+		// production. The real disabled-kill-switch case carries an empty
+		// Games map and resolves to LEDGER, not PAUSED.
+		{"disabled kill switch reports no games in flight", LiveStatus{Enabled: false, Degraded: true, Reason: "disabled"}, nil, "LEDGER", "Weekly ledger (nflverse)"},
 		{"final before the ledger", LiveStatus{Enabled: true, Games: final}, map[string]string{allen: StatSourceLiveFinal}, "FINAL", "Final box scores · weekly ledger pending"},
 		{"ledger", LiveStatus{Enabled: true, Games: final}, map[string]string{allen: StatSourceLedger}, "LEDGER", "Weekly ledger (nflverse)"},
 	}
@@ -152,37 +158,65 @@ func TestStarterRowsCarryGameStateLabels(t *testing.T) {
 	}
 }
 
-// TestStarterZeroPointsRendersHonestDashOnlyBeforeKickoff covers rider R3:
-// a starter absent from the live frame (preseasonPlayerStats drops a
-// player with zero stats so far, so no WeekStatLine exists for them yet)
-// renders an explicit 0.0 once their game is in progress, and an honest
-// "—" only when their game has not started and no ledger row exists
-// either. Neither starter here has a WeekStatLine at all (sources is
-// nil), so both rows land on "missing"/"stats-empty" join states; the
-// distinguishing signal is each player's own NFL game state.
-func TestStarterZeroPointsRendersHonestDashOnlyBeforeKickoff(t *testing.T) {
-	status := LiveStatus{Enabled: true, Games: map[string]LiveGameState{"BUF": {GameID: "g1", Period: "Q2", Clock: "3:10", InProgress: true}}}
-	_, snapshot := liveStateFixture(t, status, nil)
-	sawBUF, sawPHI := false, false
-	for _, matchup := range snapshot.Matchups {
-		for _, team := range []ScoreTeam{matchup.Home, matchup.Away} {
-			for _, row := range team.StarterLedger {
-				switch row.NFLTeam {
-				case "BUF":
-					sawBUF = true
-					if row.PointsText != "0.0" {
-						t.Fatalf("in-progress starter with no live row yet = %+v, want an explicit 0.0", row)
-					}
-				case "PHI":
-					sawPHI = true
-					if row.PointsText != "—" {
-						t.Fatalf("pre-kickoff starter with no ledger row = %+v, want an honest dash", row)
+// TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage
+// covers rider R3 and round-2 review finding 2 (commit 8a4ffea): a starter
+// absent from the live frame (preseasonPlayerStats drops a player with
+// zero stats so far, so no WeekStatLine exists for them yet) renders an
+// explicit 0.0 once their game is in progress and the poller reports no
+// outage, an honest "—" when their game has not started and no ledger
+// row exists either, and the same honest "—" — never an implicit 0.0 —
+// once the poller itself reports Degraded, since a known outage is not
+// the same claim as "unknown".
+func TestStarterZeroPointsRendersHonestDashBeforeKickoffOrOnDegradedOutage(t *testing.T) {
+	t.Run("in progress with no known outage", func(t *testing.T) {
+		status := LiveStatus{Enabled: true, Games: map[string]LiveGameState{"BUF": {GameID: "g1", Period: "Q2", Clock: "3:10", InProgress: true}}}
+		_, snapshot := liveStateFixture(t, status, nil)
+		sawBUF, sawPHI := false, false
+		for _, matchup := range snapshot.Matchups {
+			for _, team := range []ScoreTeam{matchup.Home, matchup.Away} {
+				for _, row := range team.StarterLedger {
+					switch row.NFLTeam {
+					case "BUF":
+						sawBUF = true
+						if row.PointsText != "0.0" {
+							t.Fatalf("in-progress starter with no live row yet = %+v, want an explicit 0.0", row)
+						}
+					case "PHI":
+						sawPHI = true
+						if row.PointsText != "—" {
+							t.Fatalf("pre-kickoff starter with no ledger row = %+v, want an honest dash", row)
+						}
 					}
 				}
 			}
 		}
-	}
-	if !sawBUF || !sawPHI {
-		t.Fatalf("rows seen: BUF=%v PHI=%v", sawBUF, sawPHI)
-	}
+		if !sawBUF || !sawPHI {
+			t.Fatalf("rows seen: BUF=%v PHI=%v", sawBUF, sawPHI)
+		}
+	})
+
+	t.Run("in progress but the poller reports a known outage", func(t *testing.T) {
+		// The same in-progress BUF game, but the poller itself reports
+		// Degraded. A known outage is not "unknown", so the unmatched
+		// starter must never render an implicit 0.0 that reads like a real,
+		// official zero.
+		status := LiveStatus{Enabled: true, Degraded: true, Reason: "daily budget exhausted", Games: map[string]LiveGameState{"BUF": {GameID: "g1", Period: "Q2", Clock: "3:10", InProgress: true}}}
+		_, snapshot := liveStateFixture(t, status, nil)
+		sawBUF := false
+		for _, matchup := range snapshot.Matchups {
+			for _, team := range []ScoreTeam{matchup.Home, matchup.Away} {
+				for _, row := range team.StarterLedger {
+					if row.NFLTeam == "BUF" {
+						sawBUF = true
+						if row.PointsText != "—" {
+							t.Fatalf("in-progress starter during a known poller outage = %+v, want an honest dash", row)
+						}
+					}
+				}
+			}
+		}
+		if !sawBUF {
+			t.Fatal("BUF row not seen")
+		}
+	})
 }

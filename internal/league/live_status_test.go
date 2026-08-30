@@ -77,6 +77,48 @@ func TestLiveFeedCacheInvalidatesWhenScheduleIsPublished(t *testing.T) {
 	}
 }
 
+// TestLiveFeedCacheInvalidatesOnScheduleWeekClose covers round-2 review
+// finding 4 (commit 8a4ffea): closing a week writes s.state.Schedule in
+// place (SetScheduleWeekWithLineups, reached here through
+// CommitScheduleWeekClose) rather than replacing it wholesale, and that
+// write must bump scheduleGeneration exactly like SetSchedule does, so a
+// cached pre-close snapshot cannot go on being served past the close.
+func TestLiveFeedCacheInvalidatesOnScheduleWeekClose(t *testing.T) {
+	svc := newTestService(t, true)
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	svc.feed = newLiveFeed(providerFunc(func(context.Context, time.Time) (LiveSnapshot, error) {
+		calls++
+		return LiveSnapshot{Source: "test"}, nil
+	}), svc)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.feed.Snapshot(context.Background(), now)
+	svc.feed.Snapshot(context.Background(), now.Add(10*time.Second))
+	if calls != 1 {
+		t.Fatalf("calls = %d; the 45 s cache must still hold", calls)
+	}
+	week, ok := scheduleWeekByNumber(schedule, 1)
+	if !ok {
+		t.Fatal("week 1 missing")
+	}
+	for i := range week.Matchups {
+		week.Matchups[i].Final = true
+	}
+	if err := svc.store.CommitScheduleWeekClose(week, map[string]map[string]string{}); err != nil {
+		t.Fatal(err)
+	}
+	svc.feed.Snapshot(context.Background(), now.Add(11*time.Second))
+	if calls != 2 {
+		t.Fatalf("calls = %d; closing a week must bust the cache even though the poller version did not move", calls)
+	}
+}
+
 // TestLiveFeedCacheIsAgeOnlyWithNoOwnerAttached covers round-2 review
 // finding 6: with no owning Service at all (the version accessor is
 // simply absent, the same as an owner whose liveVersionFn is nil), the

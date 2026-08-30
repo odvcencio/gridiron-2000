@@ -30,6 +30,33 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 	}
 }
 
+// TestVersionedSnapshotCallsSnapshotOnceAtOneVersion covers round-2
+// review finding 1 (commit 8a4ffea): N ledger builds reading at one
+// poller version must cost exactly one Snapshot() call, whether they
+// arrive through the week-stats seam or (as of this fix) the live-status
+// seam that liveStatusFromPoller feeds.
+func TestVersionedSnapshotCallsSnapshotOnceAtOneVersion(t *testing.T) {
+	version := int64(1)
+	calls := 0
+	current := versionedSnapshot(func() int64 { return version }, func() livescore.Snapshot {
+		calls++
+		return livescore.Snapshot{Version: version}
+	})
+	for i := 0; i < 5; i++ {
+		if got := current(); got.Version != version {
+			t.Fatalf("current() = %+v", got)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1 for 5 reads at one version", calls)
+	}
+	version = 2
+	current()
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2 once the version moved", calls)
+	}
+}
+
 func TestLiveWeekAPISendsETagAndHonors304(t *testing.T) {
 	// Pin the service clock: LiveScoresView renders relative labels
 	// ("checked N s ago") that would otherwise change the body between the
