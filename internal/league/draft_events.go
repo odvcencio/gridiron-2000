@@ -1,6 +1,7 @@
 package league
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -14,37 +15,112 @@ type DraftEvent struct {
 	Payload    map[string]any
 }
 
-// SetDraftEventSink installs the one function every committed draft change
-// calls exactly once. internal/league cannot import app/draft, so the hub
-// adapter registers itself here at boot, next to SetPlayerSource.
+// draftEventQueueSize bounds the sink dispatch backlog. A full queue means
+// the drain goroutine (or the hub sink it calls) has fallen behind; emitDraft
+// drops the event rather than block the caller's own request or ticker
+// goroutine, and counts the drop in draftDropped so the next draft:state
+// repair can report it (see draftFullBinds's dropped_events field).
+const draftEventQueueSize = 256
+
+// SetDraftEventSink installs the hub adapter and starts the one goroutine
+// that serializes dispatch. internal/league cannot import app/draft, so the
+// hub adapter registers itself here at boot, next to SetPlayerSource.
+//
+// emitDraft assigns each event's generation and pushes it onto the queue
+// under draftEmitMu, so wire order always matches generation order; the
+// drain goroutine below — never the caller's own request or ticker
+// goroutine — pays for fn's cost (the fingerprint stamp, the JSON marshal,
+// and the websocket fan-out inside hub.Broadcast). A second call replaces
+// the sink and restarts the goroutine against a fresh queue; StopDraftEvents
+// (wired into AppRuntime.Close) is the only other way to stop it.
 func (s *Service) SetDraftEventSink(fn func(DraftEvent)) {
 	s.poolMu.Lock()
-	s.draftSink = fn
+	if s.draftQueueCancel != nil {
+		s.draftQueueCancel()
+	}
+	queue := make(chan DraftEvent, draftEventQueueSize)
+	ctx, cancel := context.WithCancel(context.Background())
+	s.draftQueue = queue
+	s.draftQueueCancel = cancel
 	s.poolMu.Unlock()
+	go draftEventDrain(ctx, queue, fn)
 }
 
-func (s *Service) emitDraft(name string, payload map[string]any) {
+// StopDraftEvents halts the dispatch goroutine SetDraftEventSink started, if
+// any. main.go's AppRuntime.Close calls it at shutdown; safe to call when no
+// sink was ever installed, and safe to call more than once.
+func (s *Service) StopDraftEvents() {
 	s.poolMu.Lock()
-	sink := s.draftSink
+	cancel := s.draftQueueCancel
+	s.draftQueue = nil
+	s.draftQueueCancel = nil
 	s.poolMu.Unlock()
-	if sink == nil {
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// draftEventDrain is the single consumer: it delivers every queued event to
+// fn strictly in the order emitDraft enqueued it, off the caller's own
+// goroutine. It exits once ctx is canceled; any event still buffered in
+// queue at that point is simply never delivered (shutdown, not a bug).
+func draftEventDrain(ctx context.Context, queue chan DraftEvent, fn func(DraftEvent)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-queue:
+			if fn != nil {
+				fn(event)
+			}
+		}
+	}
+}
+
+// emitDraft assigns the next generation and enqueues payload for the drain
+// goroutine, never blocking: draftEmitMu serializes "assign the generation"
+// with "push onto the queue" as one step, so two producers can never
+// enqueue out of generation order, and a full queue drops the event (and
+// counts it) rather than stall the caller.
+func (s *Service) emitDraft(name string, payload map[string]any) {
+	s.draftEmitMu.Lock()
+	defer s.draftEmitMu.Unlock()
+	s.poolMu.Lock()
+	queue := s.draftQueue
+	s.poolMu.Unlock()
+	if queue == nil {
 		return
 	}
 	generation := s.draftGeneration.Add(1)
 	payload["generation"] = generation
 	payload["at"] = s.clock().UTC().Format(time.RFC3339)
-	sink(DraftEvent{Name: name, Generation: generation, Payload: payload})
+	event := DraftEvent{Name: name, Generation: generation, Payload: payload}
+	select {
+	case queue <- event:
+	default:
+		s.draftDropped.Add(1)
+	}
 }
 
-// pickColumn is the team column of pick number in draft order, 1-based.
-func pickColumn(order []string, number int) int {
+// draftTeamCount is the denominator every draft completion and pick-count
+// calculation shares: the same team count draftComplete (roster.go) and the
+// store's own MakePick/AutoPick caps use — len(defaultTeams()), never the
+// possibly-trimmed s.Teams(). A draft:* payload's total must always agree
+// with the store's own completion rule, or a client could show "120 of 120"
+// while the server still disagrees that the draft is complete.
+func draftTeamCount() int { return len(defaultTeams()) }
+
+// pickColumn is teamID's column in draft order, 1-based. It trusts the
+// pick's own recorded team rather than recomputing who was on the clock for
+// a pick number, which stays correct even when a payload is built from a
+// snapshot a concurrent, later commit has already raced ahead of.
+func pickColumn(order []string, teamID string) int {
 	ids := order
 	if len(ids) == 0 {
 		ids = defaultTeamIDs()
 	}
-	team := teamOnClock(order, number)
 	for index, id := range ids {
-		if id == team {
+		if id == teamID {
 			return index + 1
 		}
 	}
@@ -79,6 +155,20 @@ func timeToPickSeconds(state PersistedState, index int) int {
 	return used
 }
 
+// pickIndexByNumber returns the position of the pick numbered number within
+// state.Picks, or -1 when absent. A concurrent commit can add a later pick
+// to the snapshot before a payload is built from it, so a caller describing
+// one specific pick must locate it by number rather than assume it sits at
+// len(state.Picks)-1.
+func pickIndexByNumber(state PersistedState, number int) int {
+	for index, pick := range state.Picks {
+		if pick.Number == number {
+			return index
+		}
+	}
+	return -1
+}
+
 // clockBinds keeps the spec field names for draft:clock.
 func (s *Service) clockBinds(state PersistedState, now time.Time) map[string]any {
 	clock := s.clockView(state, now)
@@ -92,8 +182,12 @@ func (s *Service) clockBinds(state PersistedState, now time.Time) map[string]any
 
 func (s *Service) emitDraftClock(state PersistedState) {
 	now := s.clock()
-	payload := s.clockBinds(state, now)
-	payload["clock"] = s.clockBinds(state, now)
+	binds := s.clockBinds(state, now)
+	payload := make(map[string]any, len(binds)+1)
+	for key, value := range binds {
+		payload[key] = value
+	}
+	payload["clock"] = binds
 	s.emitDraft("draft:clock", payload)
 }
 
@@ -103,7 +197,7 @@ func (s *Service) emitDraftClock(state PersistedState) {
 // happened) reports in: -1 and onclock: false.
 func (s *Service) yourPickBinds(state PersistedState) map[string]any {
 	out := map[string]any{}
-	total := len(s.Teams()) * CurrentDraftRounds()
+	total := draftTeamCount() * CurrentDraftRounds()
 	next := len(state.Picks) + 1
 	for _, team := range s.Teams() {
 		in := -1
@@ -164,7 +258,7 @@ func (s *Service) draftBoardBinds(state PersistedState) (cell, cellpos, player, 
 	pool := s.pool()
 	for _, pick := range state.Picks {
 		round := strconv.Itoa(pick.Round)
-		column := strconv.Itoa(pickColumn(state.DraftOrder, pick.Number))
+		column := strconv.Itoa(pickColumn(state.DraftOrder, pick.TeamID))
 		p := pool.byID[pick.PlayerID]
 		roundCell, _ := cell[round].(map[string]any)
 		if roundCell == nil {
@@ -184,24 +278,14 @@ func (s *Service) draftBoardBinds(state PersistedState) (cell, cellpos, player, 
 	return
 }
 
-// draftFullBinds is the whole live-bind object minus the started/complete
-// flags: cell/cellpos/player/queue for picked IDs only, clock, yourpick,
-// room, onclock, and pick. DraftLiveView and every draft:state emission
-// share it, so a stale reconnect and a lifecycle transition carry the same
-// shape.
-func (s *Service) draftFullBinds(state PersistedState, now time.Time) map[string]any {
-	cell, cellpos, player, queue := s.draftBoardBinds(state)
-	complete := draftComplete(state)
-	next := len(state.Picks) + 1
-	onClockID := ""
-	if !complete {
-		onClockID = teamOnClock(state.DraftOrder, next)
-	}
+// draftLiveTail bundles the four binds every draft:* payload shares beyond
+// its own subject (a pick, an undo, or the whole board): yourpick, room,
+// onclock (for onClockID, "" once the draft completes), and the
+// pick-progress summary for pick number next.
+func (s *Service) draftLiveTail(state PersistedState, now time.Time, onClockID string, next int) map[string]any {
 	teams := activeTeamCount(state.DraftOrder)
-	total := len(s.Teams()) * CurrentDraftRounds()
+	total := draftTeamCount() * CurrentDraftRounds()
 	return map[string]any{
-		"cell": cell, "cellpos": cellpos, "player": player, "queue": queue,
-		"clock":    s.clockBinds(state, now),
 		"yourpick": s.yourPickBinds(state),
 		"room":     s.roomBinds(state, now),
 		"onclock":  s.onClockBinds(state, onClockID),
@@ -210,6 +294,33 @@ func (s *Service) draftFullBinds(state PersistedState, now time.Time) map[string
 			"made": len(state.Picks), "total": total,
 		},
 	}
+}
+
+// draftFullBinds is the whole live-bind object minus the started/complete
+// flags: cell/cellpos/player/queue for picked IDs only, clock, yourpick,
+// room, onclock, pick, and the dropped-event counter. DraftLiveView and
+// every draft:state emission share it, so a stale reconnect and a
+// lifecycle transition carry the same shape.
+func (s *Service) draftFullBinds(state PersistedState, now time.Time) map[string]any {
+	cell, cellpos, player, queue := s.draftBoardBinds(state)
+	complete := draftComplete(state)
+	next := len(state.Picks) + 1
+	onClockID := ""
+	if !complete {
+		onClockID = teamOnClock(state.DraftOrder, next)
+	}
+	payload := map[string]any{
+		"cell": cell, "cellpos": cellpos, "player": player, "queue": queue,
+		"clock": s.clockBinds(state, now),
+		// dropped_events surfaces emitDraft's queue-full counter: a client
+		// that sees this rise between two draft:state messages missed real
+		// events and should treat this repair as authoritative, not a delta.
+		"dropped_events": s.draftDropped.Load(),
+	}
+	for key, value := range s.draftLiveTail(state, now, onClockID, next) {
+		payload[key] = value
+	}
+	return payload
 }
 
 // DraftLiveView is the full room state for a stale reconnect's repair and
@@ -238,38 +349,62 @@ func (s *Service) emitDraftState(state PersistedState, now time.Time, started, c
 	s.emitDraft("draft:state", payload)
 }
 
-// draftPickPayload builds draft:pick from the post-commit snapshot.
+// maybeEmitDraftComplete emits draft:state{complete:true} the instant a
+// commit crosses an incomplete draft into a complete one. before is the
+// snapshot taken prior to the commit; after is the post-commit snapshot.
+// The store refuses any pick once the draft is complete (store.go's
+// MakePick/AutoPick length checks), so a successful commit that leaves the
+// draft complete is, by construction, the one commit that just made it so;
+// comparing before/after here is belt-and-suspenders against that
+// invariant ever weakening, not the only thing preventing a double emit.
+//
+// This exists because Store.MakePick already zeroes the clock fields on the
+// pick that completes the draft (the "final pick" branch), so clockTick's
+// own leftover-clock-clear branch — which is what used to emit this — never
+// finds dirty clock fields to clear and never runs.
+func (s *Service) maybeEmitDraftComplete(before, after PersistedState, now time.Time) {
+	if draftComplete(before) || !draftComplete(after) {
+		return
+	}
+	s.emitDraftState(after, now, true, true)
+}
+
+// draftPickPayload builds draft:pick from the post-commit snapshot. Every
+// field describing the pick itself is grounded in pick.Number, never in
+// state.Picks' length: a concurrent commit (an autopick racing a manual
+// pick, say) can add a later pick to state before this payload is built,
+// and state.Picks' last entry would then describe the wrong pick.
 func (s *Service) draftPickPayload(state PersistedState, pick DraftPick, now time.Time) map[string]any {
 	player := s.pool().byID[pick.PlayerID]
 	teams := activeTeamCount(state.DraftOrder)
-	column := pickColumn(state.DraftOrder, pick.Number)
-	total := len(s.Teams()) * CurrentDraftRounds()
-	next := len(state.Picks) + 1
+	column := pickColumn(state.DraftOrder, pick.TeamID)
+	total := draftTeamCount() * CurrentDraftRounds()
+	next := pick.Number + 1
 	nextTeam := ""
-	if len(state.Picks) < total {
+	if pick.Number < total {
 		nextTeam = teamOnClock(state.DraftOrder, next)
 	}
 	clock := s.clockBinds(state, now)
 	round := strconv.Itoa(pick.Round)
 	col := strconv.Itoa(column)
-	return map[string]any{
+	payload := map[string]any{
 		"number": pick.Number, "round": pick.Round, "slot": pickSlot(teams, pick.Number), "column": column,
 		"team_id": pick.TeamID, "player_id": pick.PlayerID, "player_name": player.Name,
 		"position": player.Position, "nfl_team": player.NFLTeam,
 		"is_auto": pick.MadeBy == "auto", "is_commissioner": pick.MadeBy == "commissioner",
-		"clock_used_sec": timeToPickSeconds(state, len(state.Picks)-1),
+		"clock_used_sec": timeToPickSeconds(state, pickIndexByNumber(state, pick.Number)),
 		"next_team_id":   nextTeam, "next_deadline": clock["effective_deadline"],
-		"picks_made": len(state.Picks), "picks_total": total,
-		"cell":     map[string]any{round: map[string]any{col: player.Name}},
-		"cellpos":  map[string]any{round: map[string]any{col: player.Position}},
-		"player":   map[string]any{pick.PlayerID: map[string]any{"taken": true}},
-		"queue":    map[string]any{pick.PlayerID: map[string]any{"taken": true}},
-		"clock":    clock,
-		"yourpick": s.yourPickBinds(state),
-		"room":     s.roomBinds(state, now),
-		"onclock":  s.onClockBinds(state, nextTeam),
-		"pick":     map[string]any{"number": next, "round": pickRound(teams, next), "direction": snakeDirection(teams, next), "made": len(state.Picks), "total": total},
+		"picks_made": pick.Number, "picks_total": total,
+		"cell":    map[string]any{round: map[string]any{col: player.Name}},
+		"cellpos": map[string]any{round: map[string]any{col: player.Position}},
+		"player":  map[string]any{pick.PlayerID: map[string]any{"taken": true}},
+		"queue":   map[string]any{pick.PlayerID: map[string]any{"taken": true}},
+		"clock":   clock,
 	}
+	for key, value := range s.draftLiveTail(state, now, nextTeam, next) {
+		payload[key] = value
+	}
+	return payload
 }
 
 // emitDraftUndo builds draft:undo from the removed pick (read from the
@@ -277,10 +412,9 @@ func (s *Service) draftPickPayload(state PersistedState, pick DraftPick, now tim
 // snapshot): the cell reverts to its open-slot pick label, never a blank
 // string, so the board never shows an ambiguous empty cell.
 func (s *Service) emitDraftUndo(state PersistedState, removed DraftPick, now time.Time) {
-	teams := activeTeamCount(state.DraftOrder)
 	round := strconv.Itoa(removed.Round)
-	column := strconv.Itoa(pickColumn(state.DraftOrder, removed.Number))
-	label := pickLabel(removed.Number, len(s.Teams()))
+	column := strconv.Itoa(pickColumn(state.DraftOrder, removed.TeamID))
+	label := pickLabel(removed.Number, draftTeamCount())
 	clock := s.clockBinds(state, now)
 	next := len(state.Picks) + 1
 	nextTeam := ""
@@ -294,8 +428,9 @@ func (s *Service) emitDraftUndo(state PersistedState, removed DraftPick, now tim
 		"player":  map[string]any{removed.PlayerID: map[string]any{"taken": false}},
 		"queue":   map[string]any{removed.PlayerID: map[string]any{"taken": false}},
 		"clock":   clock,
-		"pick":    map[string]any{"number": next, "round": pickRound(teams, next), "direction": snakeDirection(teams, next), "made": len(state.Picks), "total": len(s.Teams()) * CurrentDraftRounds()},
-		"onclock": s.onClockBinds(state, nextTeam),
+	}
+	for key, value := range s.draftLiveTail(state, now, nextTeam, next) {
+		payload[key] = value
 	}
 	s.emitDraft("draft:undo", payload)
 }

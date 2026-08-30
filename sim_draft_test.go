@@ -27,12 +27,6 @@ var simTeamNames = []string{
 }
 
 const (
-	// simDraftChangedEvent is the fingerprint detector's fallback broadcast;
-	// nothing in the room listens to it once the sink is wired, but the
-	// reconnect scenario's stale-token repair path (superseded by
-	// simDraftStateEvent below) and the detector's own tests still exercise
-	// it directly.
-	simDraftChangedEvent = "draft:changed"
 	// simDraftStateEvent is the sink's reconnect repair: a stale-token join
 	// receives one draft:state carrying the full bind object plus the live
 	// fingerprint.

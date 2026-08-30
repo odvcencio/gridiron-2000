@@ -35,14 +35,15 @@ type LiveUpdates struct {
 	hub         *hub.Hub
 	fingerprint func() string
 
-	mu        sync.Mutex
-	last      string
-	startOnce sync.Once
+	mu             sync.Mutex
+	last           string
+	lastGeneration uint64
+	startOnce      sync.Once
 
 	// repair supplies the full bind object a stale reconnect receives; see
 	// SetRepairView. nil until app_build.go wires league.Default's
 	// DraftLiveView, so tests that never call SetRepairView still get a
-	// valid (empty) repair payload.
+	// valid (empty) repair payload. Guarded by mu, like last.
 	repair func() map[string]any
 }
 
@@ -146,9 +147,12 @@ func (updates *LiveUpdates) syncJoiningClient(ctx *hub.Context) {
 	if strings.TrimSpace(since) == current {
 		return
 	}
+	updates.mu.Lock()
+	repair := updates.repair
+	updates.mu.Unlock()
 	payload := map[string]any{}
-	if updates.repair != nil {
-		if view := updates.repair(); view != nil {
+	if repair != nil {
+		if view := repair(); view != nil {
 			payload = view
 		}
 	}
@@ -161,6 +165,15 @@ func (updates *LiveUpdates) syncJoiningClient(ctx *hub.Context) {
 // It stamps the ordering key and the live fingerprint, baselines the change
 // detector so the same commit never also produces a draft:changed, and
 // broadcasts once.
+//
+// The league side already delivers events to this function in increasing
+// generation order (draft_events.go's single-consumer queue), but that
+// guarantee only covers Sink-to-Sink ordering. observe's own fingerprint
+// detector (below) writes the same last field from its own ticker
+// goroutine, so last only ever advances forward here: a Sink call whose
+// generation does not exceed the highest one already applied is a stale or
+// replayed delivery and must not roll last back under a value the detector
+// (or a later Sink call) already advanced past.
 func (updates *LiveUpdates) Sink() func(league.DraftEvent) {
 	return func(event league.DraftEvent) {
 		current := updates.currentFingerprint()
@@ -171,14 +184,21 @@ func (updates *LiveUpdates) Sink() func(league.DraftEvent) {
 		payload["generation"] = event.Generation
 		payload["fingerprint"] = current
 		updates.mu.Lock()
-		updates.last = current
+		if event.Generation > updates.lastGeneration {
+			updates.last = current
+			updates.lastGeneration = event.Generation
+		}
 		updates.mu.Unlock()
 		updates.hub.Broadcast(event.Name, payload)
 	}
 }
 
 // SetRepairView installs the full bind object a stale reconnect receives.
-func (updates *LiveUpdates) SetRepairView(view func() map[string]any) { updates.repair = view }
+func (updates *LiveUpdates) SetRepairView(view func() map[string]any) {
+	updates.mu.Lock()
+	updates.repair = view
+	updates.mu.Unlock()
+}
 
 // Handler accepts only authenticated league viewers (or rehearsal mode), then
 // attaches the SSR fingerprint as immutable connection metadata. A reconnect

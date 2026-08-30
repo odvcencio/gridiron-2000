@@ -1236,6 +1236,11 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	if token == "" || token != draftPreviousPickToken(state) {
 		return errAdminActionStale
 	}
+	// draftPreviousPickToken returns "" for zero picks (confirmations.go),
+	// which the check above already rejects (token == "" fails it before
+	// ever comparing), so this can never fire today. Kept as a defensive
+	// assertion, not dead code: a future change to that token function must
+	// not turn a stale-token rejection into an index panic on the next line.
 	if len(state.Picks) == 0 {
 		return errors.New("no picks to undo")
 	}
@@ -1273,10 +1278,15 @@ func (s *Service) AdminSetClockSeconds(r *http.Request, secs int) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
+	before := s.store.Snapshot()
 	if err := s.store.SetClockDuration(secs); err != nil {
 		return err
 	}
-	s.emitDraftClock(s.store.Snapshot())
+	after := s.store.Snapshot()
+	if after.ClockDurationSec == before.ClockDurationSec {
+		return nil
+	}
+	s.emitDraftClock(after)
 	return nil
 }
 
@@ -1287,10 +1297,15 @@ func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) erro
 		return err
 	}
 	teamID = strings.TrimSpace(teamID)
+	before := s.store.Snapshot()
 	if err := s.store.SetAutopickIfClaimed(teamID, on); err != nil {
 		return err
 	}
-	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
+	after := s.store.Snapshot()
+	if after.Autopick[teamID] == before.Autopick[teamID] {
+		return nil
+	}
+	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
 	return nil
 }
 
@@ -1303,10 +1318,15 @@ func (s *Service) AdminSetReady(r *http.Request, teamID string, on bool) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
+	before := s.store.Snapshot()
 	if err := s.store.SetReady(teamID, on); err != nil {
 		return err
 	}
-	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
+	after := s.store.Snapshot()
+	if after.Ready[teamID] == before.Ready[teamID] {
+		return nil
+	}
+	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
 	return nil
 }
 
@@ -1350,7 +1370,9 @@ func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToke
 	if err != nil {
 		return DraftPick{}, Player{}, Team{}, err
 	}
-	s.emitDraft("draft:pick", s.draftPickPayload(s.store.Snapshot(), pick, now))
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
 	// N6: notify the seat's manager that a pick fired on their behalf,
 	// skipping a manager who was CONNECTED at pick time (spec section 3,
 	// N6). state is the pre-fire snapshot already read above, matching the

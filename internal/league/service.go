@@ -166,19 +166,31 @@ type Service struct {
 	motifRoot string
 	badgeArt  badgeArtCache
 
-	// draftSink is the one function every committed draft change calls
-	// exactly once; see SetDraftEventSink and emitDraft in draft_events.go.
-	// nil in every test that does not opt in — the sink call becomes a
-	// silent no-op, so no test needs to install one to stay green.
-	draftSink func(DraftEvent)
+	// draftQueue is the single-consumer dispatch channel SetDraftEventSink
+	// installs and StopDraftEvents tears down; nil until a sink is wired,
+	// which makes emitDraft a silent no-op in every test that does not opt
+	// in. draftQueueCancel stops draftEventDrain's goroutine. Both are
+	// guarded by poolMu, alongside lastPresence below.
+	draftQueue       chan DraftEvent
+	draftQueueCancel context.CancelFunc
+	// draftEmitMu serializes emitDraft's "assign the next generation" with
+	// "push onto draftQueue" as one step, so two concurrent producers (an
+	// HTTP pick and the clock ticker's autopick, say) can never enqueue out
+	// of generation order; see draft_events.go.
+	draftEmitMu sync.Mutex
 	// draftGeneration is draft:*'s monotonic ordering key, one process-wide
 	// counter shared by every event name so a client can total-order a mix
 	// of draft:pick, draft:clock, and draft:seat.
 	draftGeneration atomic.Uint64
+	// draftDropped counts events emitDraft discarded because draftQueue was
+	// full; draftFullBinds surfaces it as dropped_events on every
+	// draft:state so a client can tell a repair is authoritative rather
+	// than a delta.
+	draftDropped atomic.Uint64
 	// lastPresence is clockTick's and RecordPresence's shared memory of each
-	// seat's last-announced presence label, guarded by poolMu alongside
-	// draftSink. It exists so emitPresenceTransitions emits one draft:seat
-	// per real transition, never once per tick.
+	// seat's last-announced presence label, guarded by poolMu. It exists so
+	// emitPresenceTransitions (and RecordPresence's own transition check)
+	// emit one draft:seat per real change, never once per tick or poll.
 	lastPresence map[string]string
 }
 
@@ -686,7 +698,6 @@ func (s *Service) RecordPresence(r *http.Request, now time.Time) {
 	if key == "" {
 		return
 	}
-	state := s.store.Snapshot()
 	seenAt, seen := s.presence.seen(key)
 	before := presenceStateSince(seenAt, seen, now, s.presence.startedAt)
 	s.presence.record(key, now)
@@ -694,6 +705,11 @@ func (s *Service) RecordPresence(r *http.Request, now time.Time) {
 	if after == before {
 		return
 	}
+	// Only a heartbeat's own key transitioned so far; the snapshot and the
+	// team-aggregate lookup below cost a store read, so they wait until
+	// that much is established. Every non-transitioning poll (the common
+	// case, one every PollPeriod) returns above without either.
+	state := s.store.Snapshot()
 	teamID := s.teamForPresenceKey(state, key)
 	if teamID == "" {
 		return
@@ -702,6 +718,16 @@ func (s *Service) RecordPresence(r *http.Request, now time.Time) {
 	s.poolMu.Lock()
 	if s.lastPresence == nil {
 		s.lastPresence = map[string]string{}
+	}
+	previous, seenTeam := s.lastPresence[teamID]
+	// A co-manager can already hold the seat's aggregate at label (teamPresence
+	// takes the strongest of every operator assigned to the seat), even
+	// though this key's own state just moved: the room's rendered presence
+	// has not changed, so this poll must emit nothing, the same rule
+	// emitPresenceTransitions enforces on the ticker side.
+	if seenTeam && previous == label {
+		s.poolMu.Unlock()
+		return
 	}
 	s.lastPresence[teamID] = label
 	s.poolMu.Unlock()
@@ -2769,7 +2795,9 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	if err != nil {
 		return DraftPick{}, Player{}, Team{}, err
 	}
-	s.emitDraft("draft:pick", s.draftPickPayload(s.store.Snapshot(), pick, now))
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
 	return pick, player, s.teamByID(teamID), nil
 }
 

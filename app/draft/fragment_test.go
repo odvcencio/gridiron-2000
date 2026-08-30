@@ -276,7 +276,7 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	for _, want := range []string{
 		`data-gosx-region-url="/draft/fragment/room"`,
 		`data-gosx-region-signal="$draft.state.refresh"`,
-		`data-gosx-region-on="draft:changed"`,
+		`data-gosx-region-on="draft:pick draft:undo draft:state draft:clock"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,

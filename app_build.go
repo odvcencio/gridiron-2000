@@ -129,6 +129,7 @@ func (r *AppRuntime) Close() {
 		if r.restoreClock != nil {
 			r.restoreClock()
 		}
+		league.Default().StopDraftEvents()
 	})
 }
 

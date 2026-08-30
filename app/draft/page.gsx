@@ -858,10 +858,10 @@ func Page() Node {
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
-		<div class="draft-region" data-gosx-region data-gosx-region-url="/draft/fragment/room" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:changed">
+		<div class="draft-region" data-gosx-region data-gosx-region-url="/draft/fragment/room" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:state draft:clock">
 			<DraftRoom {...data.room}></DraftRoom>
 		</div>
-		<div class="draft-region" data-gosx-region data-gosx-region-url={data.workspace_fragment_url} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:changed">
+		<div class="draft-region" data-gosx-region data-gosx-region-url={data.workspace_fragment_url} data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:state draft:clock">
 			<DraftWorkspace {...data.workspace}></DraftWorkspace>
 		</div>
 	</main>

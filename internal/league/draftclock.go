@@ -116,7 +116,15 @@ func (s *Service) clockTick(now time.Time) {
 		return
 	}
 
-	// 1-2. Draft complete: clear a leftover deadline once, then idle.
+	// 1-2. Draft complete: clear a leftover deadline once, then idle. In
+	// normal operation MakePick and clockTick's own autopick branch below
+	// already zero the clock fields on the pick that completes the draft
+	// (and emit draft:state themselves, via maybeEmitDraftComplete), so this
+	// branch's condition is false right after a real completion and it does
+	// nothing; it exists as a defensive fallback for a state that reaches
+	// "complete" with the clock fields still dirty some other way (a
+	// restored backup, a rounds/roster-shape change that retroactively
+	// completes an in-progress draft).
 	if len(state.Picks) >= totalPicks {
 		if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
 			if err := s.store.ClearClock(); err != nil {
@@ -127,6 +135,12 @@ func (s *Service) clockTick(now time.Time) {
 		}
 		return
 	}
+
+	// Presence keeps updating every tick from here on, regardless of the
+	// pick clock's own paused/armed state below: a manager's HERE/IDLE/AWAY
+	// status is independent of whether the pick clock itself is running, so
+	// pausing the clock must not also freeze the room's presence chips.
+	s.emitPresenceTransitions(state, now)
 
 	// 3. Paused: the timer and auto-pick stop; picks stay allowed through
 	// the manual path.
@@ -151,7 +165,6 @@ func (s *Service) clockTick(now time.Time) {
 	// spec's "timing honesty" note. Guarded internally by notifyReady, so
 	// this is a no-op when notifications are not wired.
 	s.evalOnTheClock(state, now)
-	s.emitPresenceTransitions(state, now)
 
 	// 6. Not yet due.
 	effective, reason := s.effectiveDeadline(state, now)
@@ -184,7 +197,9 @@ func (s *Service) clockTick(now time.Time) {
 		}
 		return
 	}
-	s.emitDraft("draft:pick", s.draftPickPayload(s.store.Snapshot(), pick, now))
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
 	// N6: notify the seat's manager that a pick fired on their behalf,
 	// skipping a manager who was CONNECTED at pick time (spec section 3,
 	// N6). state is the pre-fire snapshot already read above, matching the
