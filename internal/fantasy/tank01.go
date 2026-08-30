@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 )
 
 // tank01Client speaks the Tank01 RapidAPI surface. Every response arrives as
@@ -22,7 +23,7 @@ type tank01Client struct {
 	baseURL  string
 	client   *http.Client
 	maxBody  int64
-	requests int
+	requests atomic.Int64
 }
 
 func (t *tank01Client) get(ctx context.Context, endpoint string, params map[string]string) (json.RawMessage, error) {
@@ -66,7 +67,7 @@ func (t *tank01Client) get(ctx context.Context, endpoint string, params map[stri
 		return nil, err
 	}
 	defer response.Body.Close()
-	t.requests++
+	t.requests.Add(1)
 	raw, err := io.ReadAll(io.LimitReader(response.Body, t.maxBody+1))
 	if err != nil {
 		return nil, err
@@ -75,10 +76,19 @@ func (t *tank01Client) get(ctx context.Context, endpoint string, params map[stri
 		return nil, fmt.Errorf("%s: response exceeds %d bytes", endpoint, t.maxBody)
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %d", endpoint, response.StatusCode)
+		return nil, &HTTPStatusError{Endpoint: endpoint, Status: response.StatusCode}
 	}
 	return unwrapEnvelope(raw), nil
 }
+
+// HTTPStatusError reports a non-200 upstream reply. The live poller opens
+// its circuit on a 429 through errors.As.
+type HTTPStatusError struct {
+	Endpoint string
+	Status   int
+}
+
+func (e *HTTPStatusError) Error() string { return fmt.Sprintf("%s: HTTP %d", e.Endpoint, e.Status) }
 
 // unwrapEnvelope returns the payload inside {"statusCode":..,"body":..} or the
 // raw document when the envelope is absent.
