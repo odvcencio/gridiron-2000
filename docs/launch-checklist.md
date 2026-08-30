@@ -60,6 +60,18 @@ docker login harbor.draco.quest
 docker push "${IMAGE}"
 ```
 
+Build and push the relay image from the same commit with its own Dockerfile
+(the relay deployment pulls `:latest` with `imagePullPolicy: Always`, so a
+`kubectl rollout restart deployment/statrelay` picks the new image up):
+
+```bash
+docker build -f cmd/statrelay/Dockerfile \
+  -t "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}" \
+  -t harbor.draco.quest/orchard/gridiron-2000-statrelay:latest .
+docker push "harbor.draco.quest/orchard/gridiron-2000-statrelay:${RELEASE}"
+docker push harbor.draco.quest/orchard/gridiron-2000-statrelay:latest
+```
+
 Record the pushed digest before changing either Deployment:
 
 ```bash
