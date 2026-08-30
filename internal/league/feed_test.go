@@ -266,6 +266,64 @@ func TestDemoProviderUsesConfiguredSeasonStartWeek(t *testing.T) {
 	}
 }
 
+// TestWeekStateSlateLineAcrossPreWeekLiveBetweenGamesAndComplete is rider
+// test (5) (review of ae1a525): scheduleProvider.weekState's fourth
+// return value (the masthead's slate-line phrase) has no direct test
+// covering all four states it can render across a week's lifecycle.
+func TestWeekStateSlateLineAcrossPreWeekLiveBetweenGamesAndComplete(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	provider := scheduleProvider{svc: svc}
+	kickoff := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)
+
+	t.Run("pre-week", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: now.Add(2 * time.Hour)}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateScheduled {
+			t.Fatalf("pre-week state = %q, want scheduled", state)
+		}
+		if !strings.HasSuffix(slate, " slate") || strings.Contains(slate, "in progress") {
+			t.Fatalf("pre-week slate = %q, want a bare upcoming-slate phrase", slate)
+		}
+	})
+
+	t.Run("live", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: kickoff}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateInProgress {
+			t.Fatalf("live state = %q, want in_progress", state)
+		}
+		if !strings.Contains(slate, "slate in progress") {
+			t.Fatalf("live slate = %q, want the in-progress phrase", slate)
+		}
+	})
+
+	t.Run("between games (NFL final, week not closed)", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: kickoff, Final: true}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateDegraded {
+			t.Fatalf("between-games state = %q, want degraded", state)
+		}
+		if !strings.Contains(slate, "games final") {
+			t.Fatalf("between-games slate = %q, want the games-final phrase", slate)
+		}
+	})
+
+	t.Run("complete", func(t *testing.T) {
+		matchups := []LeagueMatchup{{ID: "m1", Week: 1, HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true}}
+		state, _, _, slate := provider.weekState(1, matchups, now)
+		if state != MatchupStateFinal || slate != "Week complete" {
+			t.Fatalf("complete state = %q slate = %q, want final/\"Week complete\"", state, slate)
+		}
+	})
+}
+
 func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
 	snapshot, err := demoProvider{}.Snapshot(context.Background(), time.Now())
 	if err != nil {

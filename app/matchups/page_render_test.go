@@ -381,3 +381,28 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 		}
 	}
 }
+
+// TestMobileShortNameCountsRunesNotBytes is rider item 6 (review of
+// ae1a525): mobileNameOverflowChars is a glyph budget, so a multi-byte
+// accented name must compare against the same ~12-rune budget an equally
+// long ASCII name gets, not read as artificially long because len()
+// counts its UTF-8 encoding's extra bytes.
+func TestMobileShortNameCountsRunesNotBytes(t *testing.T) {
+	// "José Ramírez" is 12 runes (two accented) but 14 bytes: a
+	// byte-length check would wrongly treat it as over budget and
+	// abbreviate it, even though it fits the same budget a 12-rune ASCII
+	// name like "Jayden Watts" does not need to.
+	if got := mobileShortName("José Ramírez"); got != "José Ramírez" {
+		t.Fatalf("mobileShortName(12-rune accented name) = %q, want it returned unabbreviated", got)
+	}
+	if got := mobileShortName("Jayden Watts"); got != "Jayden Watts" {
+		t.Fatalf("mobileShortName(12-rune ascii name) = %q, want it returned unabbreviated", got)
+	}
+	// A name genuinely over budget still abbreviates, accented or not.
+	if got := mobileShortName("Alejandro Domínguez"); got != "A. Domínguez" {
+		t.Fatalf("mobileShortName(over-budget accented name) = %q, want the initial-abbreviated form", got)
+	}
+	if got := mobileShortName("Jayden Daniels"); got != "J. Daniels" {
+		t.Fatalf("mobileShortName(over-budget ascii name) = %q, want the initial-abbreviated form", got)
+	}
+}

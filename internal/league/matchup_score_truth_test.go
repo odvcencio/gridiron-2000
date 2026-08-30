@@ -2,6 +2,7 @@ package league
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -80,6 +81,187 @@ func TestTeamWeekLedgerReportsMissingJoinInsteadOfSilentZero(t *testing.T) {
 		}
 	}
 	t.Fatal("ledger omitted p-01 while reporting the join miss")
+}
+
+// TestStarterGameKnownZeroSoFar covers rider item 1 (review of ae1a525):
+// a missing-join starter's game must read as an honest, KNOWN 0.0 only
+// when a healthy signal affirmatively places it pre-kickoff or in
+// progress, and false — leaving the team total UNKNOWN — for a Final
+// game, a degraded poller (even one that otherwise has an in-progress
+// entry for the team), or no signal at all.
+func TestStarterGameKnownZeroSoFar(t *testing.T) {
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name     string
+		snapshot matchupStatsSnapshot
+		want     bool
+	}{
+		{
+			name:     "schedule pre-kickoff, no poller wired",
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(time.Hour)}}},
+			want:     true,
+		},
+		{
+			name:     "schedule final, no poller wired",
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-3 * time.Hour), Final: true}}},
+			want:     false,
+		},
+		{
+			name:     "live in progress, healthy poller",
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     true,
+		},
+		{
+			name:     "live final",
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"CIN": {Final: true}}}},
+			want:     false,
+		},
+		{
+			name:     "poller degraded, even with an in-progress entry",
+			snapshot: matchupStatsSnapshot{hasLive: true, live: LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     false,
+		},
+		{
+			name:     "no signal at all",
+			snapshot: matchupStatsSnapshot{},
+			want:     false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := starterGameKnownZeroSoFar("CIN", c.snapshot, now); got != c.want {
+				t.Fatalf("starterGameKnownZeroSoFar = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// draftSecondPickForTeam1 advances the (bypassed-lifecycle) draft with
+// arbitrary filler picks for every other team until team-1's own second
+// pick comes up (the last slot of snake round 2, pick 2*len(defaultTeams())),
+// then makes that pick for team-1 with playerID. Store.MakePick enforces
+// strict turn order regardless of draftLifecycleBypass, so team-1 cannot
+// receive a second roster player without every intervening pick landing
+// somewhere first; Store.MakePick never validates a playerID against any
+// player pool, so the filler IDs below are never looked up.
+func draftSecondPickForTeam1(t *testing.T, svc *Service, now time.Time, playerID string) {
+	t.Helper()
+	target := 2 * len(defaultTeams())
+	for number := 2; number < target; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := svc.store.MakePick(teamID, fmt.Sprintf("filler-%02d", number), "manager", now, time.Time{}); err != nil {
+			t.Fatalf("filler pick %d for %s: %v", number, teamID, err)
+		}
+	}
+	if _, err := svc.store.MakePick("team-1", playerID, "manager", now, time.Time{}); err != nil {
+		t.Fatalf("team-1 second pick %s: %v", playerID, err)
+	}
+}
+
+// TestTeamWeekLedgerCountsPreKickoffMissingJoinAsKnownZero is rider test
+// (a): a lone starter whose game has not kicked off yet, with no ledger
+// join, still yields a KNOWN 0.0 team total — not the hours-long "—" the
+// pre-rider rule produced for every game of the slate.
+func TestTeamWeekLedgerCountsPreKickoffMissingJoinAsKnownZero(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "cin-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "CIN", Home: "CLE"}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if !ledger.Known || ledger.TotalText != "0.0" || ledger.Total != 0 {
+		t.Fatalf("pre-kickoff ledger = %+v, want a known 0.0 total", ledger)
+	}
+	for _, row := range ledger.Rows {
+		if row.PlayerID == "p-01" {
+			if row.JoinState != "missing-join" {
+				t.Fatalf("p-01 row = %+v, want missing-join", row)
+			}
+			return
+		}
+	}
+	t.Fatal("ledger omitted p-01")
+}
+
+// TestTeamWeekLedgerSumsMatchedAndInProgressKnownZeroRows is rider test
+// (b): one matched starter plus one missing-join starter whose game a
+// healthy poller reports in progress still yields a KNOWN total equal to
+// the matched sum alone (the missing-join row's honest 0.0 changes
+// nothing numerically, only whether the aggregate itself is trusted).
+func TestTeamWeekLedgerSumsMatchedAndInProgressKnownZeroRows(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	draftSecondPickForTeam1(t, svc, now, "p-02") // Bijan Robinson, ATL
+	svc.SetLiveStatusSource(func() LiveStatus {
+		return LiveStatus{Enabled: true, Games: map[string]LiveGameState{"ATL": {GameID: "atl-game", Period: "Q2", Clock: "5:00", InProgress: true}}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Ja'Marr Chase", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if !ledger.Known || ledger.TotalText != "6.0" || ledger.Total != 6 {
+		t.Fatalf("mixed matched/in-progress ledger = %+v, want a known 6.0 total", ledger)
+	}
+	var sawMatched, sawKnownZero bool
+	for _, row := range ledger.Rows {
+		switch row.PlayerID {
+		case "p-01":
+			sawMatched = true
+			if row.JoinState != "matched" || row.Points != 6 {
+				t.Fatalf("p-01 row = %+v, want a matched 6-point row", row)
+			}
+		case "p-02":
+			sawKnownZero = true
+			if row.JoinState != "missing-join" {
+				t.Fatalf("p-02 row = %+v, want missing-join", row)
+			}
+		}
+	}
+	if !sawMatched || !sawKnownZero {
+		t.Fatalf("rows seen: matched=%v knownZero=%v (%+v)", sawMatched, sawKnownZero, ledger.Rows)
+	}
+}
+
+// TestTeamWeekLedgerStaysUnknownOnDegradedPoller is rider test (c): a
+// degraded poller must keep the team total UNKNOWN even for a starter
+// whose game the schedule alone would otherwise place pre-kickoff — a
+// known outage is not the same claim as "affirmatively known" — and the
+// resulting winProbabilityText for that side must render the same
+// honest dash, never a borrowed percentage.
+func TestTeamWeekLedgerStaysUnknownOnDegradedPoller(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	if _, err := svc.store.MakePick("team-1", "p-01", "manager", now, time.Time{}); err != nil { // Ja'Marr Chase, CIN
+		t.Fatal(err)
+	}
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "cin-game", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "CIN", Home: "CLE"}}
+	})
+	svc.SetLiveStatusSource(func() LiveStatus {
+		return LiveStatus{Enabled: true, Degraded: true, Reason: "daily budget exhausted"}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine {
+		return []WeekStatLine{{Key: normalizePlayerKey("Someone Else", "WR"), Stats: map[string]float64{"recTD": 1}}}
+	})
+	ledger := svc.teamWeekLedger(svc.store.Snapshot(), "team-1", 1)
+	if ledger.Known || ledger.TotalText != "—" {
+		t.Fatalf("degraded ledger = %+v, want an unknown dash total", ledger)
+	}
+	if got := winProbabilityText(50, 40, ledger.Known, true); got != "—" {
+		t.Fatalf("winProbabilityText for the degraded/unknown side = %q, want the dash", got)
+	}
 }
 
 func TestMatchupsDataCarriesStarterLedgerAndUnavailableScoreState(t *testing.T) {

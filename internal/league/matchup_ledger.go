@@ -170,6 +170,38 @@ func starterGameNotStarted(team string, snapshot matchupStatsSnapshot, now time.
 	return false
 }
 
+// starterGameKnownZeroSoFar reports whether a missing-join starter's game
+// state is affirmatively known — under a healthy live poller, or (via
+// starterGameNotStarted's own fallback) from the NFL schedule when the
+// poller has no entry yet — to be pre-kickoff or in progress. In either
+// state the starter's box score genuinely has nothing to report yet: the
+// missing ledger join is an honest 0.0, not an unaccounted-for gap, and
+// the team total may count it toward a KNOWN sum instead of going
+// UNKNOWN for hours until nflverse posts the week (rider on the review
+// of ae1a525, item 1 — today one such starter alone forced the whole
+// team total, its projection, and its win probability to read "—" for
+// the entire game). It answers false — leaving the total UNKNOWN, same
+// as before this rider — when the live poller itself reports Degraded,
+// when the game located for this team is already Final (a missing
+// ledger row for a finished game is a real gap the ledger has not
+// closed yet, not an honest zero), or when no signal at all locates the
+// game for this starter (no live entry and no scheduled kickoff,
+// including an unconfigured/unrecognized NFL team).
+func starterGameKnownZeroSoFar(team string, snapshot matchupStatsSnapshot, now time.Time) bool {
+	if snapshot.hasLive && snapshot.live.Degraded {
+		return false
+	}
+	if starterGameNotStarted(team, snapshot, now) {
+		return true
+	}
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			return game.InProgress
+		}
+	}
+	return false
+}
+
 // teamWeekLedger is the canonical scoring/ledger calculation. It calls the
 // same scorePlayerPoints helper as MatchupScorer.TeamWeekScore, while adding
 // one row per configured slot and explicit source/join states for rendering.
@@ -229,7 +261,9 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			total += row.Points
 		} else {
 			row.JoinState = "missing-join"
-			complete = false
+			if !starterGameKnownZeroSoFar(assignment.Player.NFLTeam, snapshot, now) {
+				complete = false
+			}
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
 		switch {

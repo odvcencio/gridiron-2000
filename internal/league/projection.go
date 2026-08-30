@@ -1,6 +1,9 @@
 package league
 
-import "math"
+import (
+	"fmt"
+	"math"
+)
 
 // remainingFractionByPeriod holds the fixed remaining-time-of-game
 // fraction A6's projection uses for each quarter (decision, Task 11a): the
@@ -59,6 +62,25 @@ func remainingFraction(state LiveGameState, known bool) float64 {
 // larger statistical model this render path has no data to support.
 func winProbability(mine, theirs float64) float64 {
 	return 1 / (1 + math.Exp(-(mine-theirs)/10))
+}
+
+// winProbabilityDashText is the honest not-yet-known render for a win
+// probability the current score cannot back up (winProbabilityText, and
+// the "win_prob" JSON/bind field below).
+const winProbabilityDashText = "—"
+
+// winProbabilityText renders A6's win-probability percentage, but only
+// once both sides' current team total is Known: an unknown side (the
+// poller degraded, or a starter's game state genuinely unreadable, per
+// TeamWeekLedger.Known) must never silently publish a percentage the
+// visible score itself still reads as "—" (rider on the review of
+// ae1a525, item 1 — the score cell and the win-probability cell must
+// never disagree about whether the total is known yet).
+func winProbabilityText(mine, theirs float64, mineKnown, theirsKnown bool) string {
+	if !mineKnown || !theirsKnown {
+		return winProbabilityDashText
+	}
+	return fmt.Sprintf("%.0f%%", winProbability(mine, theirs)*100)
 }
 
 // projectedTotal is one side's rest-of-game projected total: every

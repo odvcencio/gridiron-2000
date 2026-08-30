@@ -8452,6 +8452,10 @@ body.is-on-clock .draft-clock-panel {
     text-align: left;
   }
 
+  .matchups-page .my-matchup__team--opponent .matchup-team-line {
+    justify-content: flex-start;
+  }
+
   .matchups-page .my-matchup__score {
     grid-area: score;
   }
@@ -8510,23 +8514,24 @@ body.is-on-clock .draft-clock-panel {
     text-overflow: clip;
   }
 
-  /* Status line, phone width (items 2 and 7): the separate ledger-stamp
-     sentence never fits beside the state chip and source phrase on a
-     390px line, and the mockup's own phone header never shows it
-     (MatchupsMobile.dc.html) — only the source phrase and the games-final
-     count do, sharing one row. flex-wrap: nowrap plus the source phrase's
-     own ellipsis keeps that row at exactly one line, well inside the
-     "at most two rows" budget. */
+  /* Status line, phone width (items 2, 4, and 7; item 4 revises the
+     round-2 fidelity pass's own nowrap+ellipsis rule): the separate
+     ledger-stamp sentence still never fits beside the state chip and
+     source phrase on a 390px line, and the mockup's own phone header
+     still never shows it (MatchupsMobile.dc.html) — only the source
+     phrase and the games-final count do, sharing this row. But an
+     ellipsis silently hid part of the source phrase's own live provider
+     text; wrapping instead keeps every character visible, at the cost
+     of the row occasionally growing past one line (still well inside
+     the "at most two rows" budget). */
   .matchups-page .matchup-status-line {
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
   }
 
   .matchups-page .matchup-status-line__source {
     flex: 1 1 auto;
     min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    white-space: normal;
   }
 
   .matchups-page .matchup-status-line__ledger {
@@ -8681,17 +8686,46 @@ body.is-on-clock .draft-clock-panel {
   text-wrap: balance;
 }
 
+/* .matchup-team-line is a flex row, not a single truncated inline string
+   (round-2 review of ae1a525, item 2): only .matchup-team-line__manager
+   (the one unbounded free-text field) may shrink and ellipsize. The
+   fixed-format record and live-bound projection in
+   .matchup-team-line__meta never shrink, so a long manager name can
+   never push "proj N" out of view. */
 .my-matchup__team small {
-  display: block;
   font-size: var(--type-xs);
+}
+
+.my-matchup__team small.matchup-team-line {
+  display: flex;
+  min-width: 0;
   white-space: nowrap;
+}
+
+.matchup-team-line__manager {
+  min-width: 0;
+  flex-shrink: 1;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.matchup-team-line__meta {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .my-matchup__team--opponent {
   justify-content: flex-end;
   text-align: right;
+}
+
+/* The opponent column is right-aligned; its .matchup-team-line row must
+   push itself (not reorder its two flex children) to the right edge so
+   short content still reads flush right, matching the pre-flex inline
+   text-align: right this replaced. */
+.my-matchup__team--opponent .matchup-team-line {
+  justify-content: flex-end;
 }
 
 .my-matchup__score {
@@ -8868,6 +8902,20 @@ body.is-on-clock .draft-clock-panel {
   justify-self: center;
 }
 
+/* No empty dashed pill (rider on the review of ae1a525, item 7): a
+   starter whose GameState is "" (an empty slot, or a game the render
+   truly has no signal for) must not render a bordered chip with nothing
+   inside it. :empty — not omitting the element from the markup — keeps
+   the data-gosx-live-bind target present so a later poll that fills in a
+   real GameState still has something to patch; the pill reappears the
+   moment that live update gives it text content. Applies to both the
+   .state and .state-chip variants of this pill shape (also used at the
+   matchup level, where the live-dot child always keeps it non-empty). */
+.state:empty,
+.state-chip:empty {
+  display: none;
+}
+
 .starter-cell__state-text {
   display: none;
 }
@@ -8942,6 +8990,18 @@ body.is-on-clock .draft-clock-panel {
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xs) var(--space-sm);
+}
+
+/* TeamMark (page.gsx) always renders team-mark--large (3.7rem), never a
+   size prop — wider than .mini's own 2.125rem (34px) first column, so
+   the mark visually overlapped the name column even though the grid
+   track math looked right (item 3, rider on the review of ae1a525: the
+   name cell must actually start right of the mark, not just after a
+   34px grid line the mark itself already overruns). Shrinking the mark
+   back to the compact-row size here, rather than widening the column,
+   keeps the literal 34px track. */
+.mini .team-mark {
+  width: 2.125rem;
 }
 
 .mini strong {

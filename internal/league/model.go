@@ -453,9 +453,14 @@ type StarterLedgerRow struct {
 }
 
 // TeamWeekLedger is the one scoring calculation shared by the live matchup
-// totals and the starter rows rendered on a matchup card. Known is false when
-// the week-stats source is absent, empty, or cannot join every configured
-// starter. A partial join is not presented as a complete authoritative zero.
+// totals and the starter rows rendered on a matchup card. Known is false
+// when the week-stats source is absent or empty, or when a configured
+// starter's join is missing and that starter's game state cannot itself be
+// affirmatively read as pre-kickoff or in progress under a healthy live
+// poller (starterGameKnownZeroSoFar) — a genuine gap, not a partial join
+// presented as a complete authoritative zero. A starter whose game is
+// known pre-kickoff or in progress contributes an honest 0.0 to a KNOWN
+// total instead (rider on the review of ae1a525, item 1).
 type TeamWeekLedger struct {
 	TeamID      string             `json:"teamId"`
 	Week        int                `json:"week"`

@@ -3,6 +3,7 @@ package matchups
 import (
 	"log"
 	"strings"
+	"unicode/utf8"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
@@ -135,8 +136,8 @@ func starterCellData(raw any, right bool) StarterCellData {
 // body font (sim_matchups_browser_test.go's mobile name-overflow probe,
 // round-1 finding). Kept a plain character count rather than a real glyph
 // measurement: this runs at SSR time, with no canvas or layout available,
-// and every name in the pool is ASCII-range Latin text of comparable
-// average glyph width, so length is a good enough proxy.
+// and every name in the pool has comparable average glyph width, so
+// length is a good enough proxy.
 const mobileNameOverflowChars = 12
 
 // mobileShortName abbreviates a starter's first name to its initial
@@ -147,9 +148,13 @@ const mobileNameOverflowChars = 12
 // D/ST name, for instance), returns unchanged: StarterCell renders this
 // value only inside the phone breakpoint's own name span, so the full
 // PlayerName still carries desktop's copy and any name this function
-// declines to shorten.
+// declines to shorten. The budget counts runes, not bytes (rider on the
+// review of ae1a525, item 6): a multi-byte accented name (for example
+// "José Ramírez") must compare against the same ~12-glyph budget an
+// equally long ASCII name gets, not appear artificially long because
+// len() counts its UTF-8 encoding's extra bytes.
 func mobileShortName(name string) string {
-	if len(name) <= mobileNameOverflowChars {
+	if utf8.RuneCountInString(name) <= mobileNameOverflowChars {
 		return name
 	}
 	first, last, ok := strings.Cut(name, " ")

@@ -2699,8 +2699,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
 		projected[matchup.Away.ID] = fmt.Sprintf("%.1f", awayProjected)
 		projected[matchup.Home.ID] = fmt.Sprintf("%.1f", homeProjected)
-		winProb[matchup.Home.ID] = fmt.Sprintf("%.0f%%", winProbability(homeProjected, awayProjected)*100)
-		winProb[matchup.Away.ID] = fmt.Sprintf("%.0f%%", winProbability(awayProjected, homeProjected)*100)
+		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, matchup.Home.ScoreKnown, matchup.Away.ScoreKnown)
+		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, matchup.Away.ScoreKnown, matchup.Home.ScoreKnown)
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlay(combined, liveStatusValue))
 		stillToPlayTotalBind[matchup.ID] = strconv.Itoa(len(combined))
@@ -3776,7 +3776,15 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	}
 	mineProjected := projectedTotal(mine.StarterLedger, starterProjections(mine.StarterLedger, byID), status, hasLive)
 	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
-	winProbText := fmt.Sprintf("%.0f%%", winProbability(mineProjected, theirsProjected)*100)
+	winProbText := winProbabilityText(mineProjected, theirsProjected, mine.ScoreKnown, theirs.ScoreKnown)
+	// win_prob_width is a literal CSS width set once at render (not
+	// live-bound, page.gsx's comment beside the bar), so it can never hold
+	// the "—" placeholder winProbText renders for an unknown side; "0%"
+	// is the same safe fallback emptyFeaturedMatchup already uses.
+	winProbWidth := winProbText
+	if winProbWidth == winProbabilityDashText {
+		winProbWidth = "0%"
+	}
 	combined := append(append([]StarterLedgerRow{}, mine.StarterLedger...), theirs.StarterLedger...)
 	label := ""
 	if !isViewer {
@@ -3802,7 +3810,7 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 		"live_indicator":      liveIndicatorToken(m.State),
 		"live_state":          m.LiveState,
 		"win_prob":            winProbText,
-		"win_prob_width":      winProbText,
+		"win_prob_width":      winProbWidth,
 		"still_to_play":       stillToPlay(combined, status),
 		"still_to_play_total": len(combined),
 		"next_lineup_href":    fmt.Sprintf("/team?week=%d#lineup", nextWeek),

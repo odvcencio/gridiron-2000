@@ -119,7 +119,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<div>
 					<span class="section-index"><If cond={props.IsViewer}>Your team</If><If cond={props.IsViewer == false}>Featured</If></span>
 					<strong class="display">{props.Mine.Name}</strong>
-					<small class="muted">{props.Mine.Manager} · {props.Mine.Record} · proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span></small>
+					<small class="muted matchup-team-line"><span class="matchup-team-line__manager">{props.Mine.Manager}</span><span class="matchup-team-line__meta"> · {props.Mine.Record} · proj <span data-gosx-live-bind={"projected." + props.Mine.ID}>{props.Mine.Projected}</span></span></small>
 				</div>
 			</div>
 			<div class="my-matchup__score">
@@ -136,7 +136,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<div>
 					<span class="section-index muted"><If cond={props.IsViewer}>Opponent</If><If cond={props.IsViewer == false}>Versus</If></span>
 					<strong class="display">{props.Theirs.Name}</strong>
-					<small class="muted">{props.Theirs.Manager} · {props.Theirs.Record} · proj <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></small>
+					<small class="muted matchup-team-line"><span class="matchup-team-line__manager">{props.Theirs.Manager}</span><span class="matchup-team-line__meta"> · {props.Theirs.Record} · proj <span data-gosx-live-bind={"projected." + props.Theirs.ID}>{props.Theirs.Projected}</span></span></small>
 				</div>
 				<TeamMark {...props.Theirs}></TeamMark>
 			</div>

@@ -31,6 +31,39 @@ func TestWinProbabilityLogistic(t *testing.T) {
 	}
 }
 
+// TestWinProbabilityTextRendersDashWhenEitherSideUnknown covers rider item
+// 1 (review of ae1a525): the win-probability cell must never publish a
+// percentage the visible score cell itself cannot back up. Only when
+// both sides' TeamWeekLedger.Known is true may winProbabilityText render
+// a computed percentage; an unknown side on either team renders the same
+// honest "—" the score cell itself falls back to.
+func TestWinProbabilityTextRendersDashWhenEitherSideUnknown(t *testing.T) {
+	cases := []struct {
+		name                   string
+		mineKnown, theirsKnown bool
+		wantDash               bool
+	}{
+		{"both known", true, true, false},
+		{"mine unknown", false, true, true},
+		{"theirs unknown", true, false, true},
+		{"both unknown", false, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := winProbabilityText(112.4, 108.0, c.mineKnown, c.theirsKnown)
+			if c.wantDash {
+				if got != "—" {
+					t.Fatalf("winProbabilityText(...) = %q, want the honest dash", got)
+				}
+				return
+			}
+			if got == "—" {
+				t.Fatalf("winProbabilityText(...) = %q, want a computed percentage", got)
+			}
+		})
+	}
+}
+
 // TestRemainingFractionUnknownPeriodInProgressReadsHalfway covers round-2
 // review finding 6 (commit 133d1d7): a known, in-progress game whose
 // period label the table does not recognize (Tank01's "HALF", for
