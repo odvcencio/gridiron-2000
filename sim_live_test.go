@@ -388,18 +388,32 @@ func TestSimReplayScoresFlowThroughOverlayFingerprintAndHub(t *testing.T) {
 	t.Fatal("no live starter row reached /api/live/week within 60 s")
 }
 
+// waitForInWindow polls /test/live until InWindow reads want or deadline
+// passes, replacing a fixed sleep-then-check with a bound that returns as
+// soon as the poller catches up and fails loud (with the last observed
+// status) only if it never does (rider on the review of ff2a9b3, item
+// 7).
+func waitForInWindow(t *testing.T, child *simChild, want int, deadline time.Duration) testLive {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for {
+		status := readTestLive(t, child)
+		if status.InWindow == want {
+			return status
+		}
+		if time.Now().After(end) {
+			t.Fatalf("in-window games never reached %d within %s (last observed: %+v)", want, deadline, status)
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 func TestSimReplayWindowClosesFiveHoursAfterKickoff(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
 	child, _ := startReplayLeague(t, "1h") // frame 0 stays served; the game never reaches final
-	time.Sleep(6 * time.Second)            // one poll interval plus margin, for the poller to pick up the newly published schedule
-	if status := readTestLive(t, child); status.InWindow != 1 {
-		t.Fatalf("in-window games at kickoff = %d, want 1 before the +6 h advance", status.InWindow)
-	}
+	waitForInWindow(t, child, 1, 15*time.Second)
 	advanceClock(t, child.URL, 6*time.Hour)
-	time.Sleep(6 * time.Second) // one poll interval plus margin
-	if status := readTestLive(t, child); status.InWindow != 0 {
-		t.Fatalf("in-window games after +6 h = %d", status.InWindow)
-	}
+	waitForInWindow(t, child, 0, 15*time.Second)
 }

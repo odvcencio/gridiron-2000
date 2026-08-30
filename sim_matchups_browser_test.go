@@ -237,8 +237,9 @@ func assertNoStarterNameOverflow(t *testing.T, ctx context.Context, label string
 // evidence for items 1, 3, and 4 (assertFeaturedTotalsFidelity,
 // assertScorebugNamesNonEmpty, assertNoStarterNameOverflow) and, from the
 // rider on the review of ae1a525, items 1, 3, and 7
-// (waitForFeaturedTotalsKnown plus the now digits-only
-// featuredScoreValueRE, assertScorebugNameStartsAfterMark,
+// (waitForFeaturedTotalsKnown, which polls the reserved team's own cell
+// against the digits-only featuredScoreDigitRE before either
+// assertFeaturedTotalsFidelity call runs; assertScorebugNameStartsAfterMark;
 // assertNoEmptyStarterStateChip): reusing this test's one signed-in
 // browser session and league, rather than a second one, at the point
 // each viewport is already active. Skips without Chrome or a built

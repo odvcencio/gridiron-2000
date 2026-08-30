@@ -2697,8 +2697,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
 		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, pool.byID), liveStatusValue, hasLive)
 		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
-		projected[matchup.Away.ID] = fmt.Sprintf("%.1f", awayProjected)
-		projected[matchup.Home.ID] = fmt.Sprintf("%.1f", homeProjected)
+		projected[matchup.Away.ID] = projectedText(awayProjected, matchup.Away.ScoreKnown)
+		projected[matchup.Home.ID] = projectedText(homeProjected, matchup.Home.ScoreKnown)
 		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, matchup.Home.ScoreKnown, matchup.Away.ScoreKnown)
 		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, matchup.Away.ScoreKnown, matchup.Home.ScoreKnown)
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
@@ -3725,8 +3725,8 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			m := live.Matchups[i]
 			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, pool.byID), status, hasLive)
 			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, pool.byID), status, hasLive)
-			entry["projected_away"] = fmt.Sprintf("%.1f", awayProjected)
-			entry["projected_home"] = fmt.Sprintf("%.1f", homeProjected)
+			entry["projected_away"] = projectedText(awayProjected, m.Away.ScoreKnown)
+			entry["projected_home"] = projectedText(homeProjected, m.Home.ScoreKnown)
 			combined := append(append([]StarterLedgerRow{}, m.Away.StarterLedger...), m.Home.StarterLedger...)
 			// still_to_play/still_to_play_total are the bare count and the
 			// total, both plain ints: the page composes "N of M starters
@@ -3828,7 +3828,7 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
 		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
-		"score": matchupScoreText(side), "projected": fmt.Sprintf("%.1f", projected),
+		"score": matchupScoreText(side), "projected": projectedText(projected, side.ScoreKnown),
 		"tone": team.Tone, "abbreviation": side.Abbreviation,
 		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
 	}

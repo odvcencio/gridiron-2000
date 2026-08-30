@@ -301,13 +301,14 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
 | `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
-| `LIVE_SCORING_ENABLED` | `false` | Kill switch for regular-season live scoring; `internal/livescore` only polls in-progress box scores when this is exactly `true` |
+| `LIVE_SCORING_ENABLED` | `false` | Kill switch for regular-season live scoring; `internal/livescore` only polls in-progress box scores when this is exactly `true`. Exception: with `LIVE_REPLAY_FIXTURE` set, the poller runs unless this is exactly `false` — still gated by `LIVE_REPLAY_ALLOW_PRODUCTION` outside a local `APP_ENV` |
 | `LIVE_POLL_INTERVAL` | `5s` | How often each instance's live poller fetches in-progress box scores through `statrelay` |
 | `LIVE_MAX_INFLIGHT` | `4` | Maximum concurrent in-progress game fetches per instance |
 | `LIVE_DAILY_BUDGET` | `20000` | Per-instance daily cap on live box-score fetches; a placeholder until the owner confirms the Mega RapidAPI tier |
 | `LIVE_REPLAY_FIXTURE` | empty | Directory of a recorded game's play-by-play; when set, live scoring replays it instead of polling Tank01, and replaces the league schedule with the replay's one game |
 | `LIVE_REPLAY_STEP` | `2s` | Wall-clock interval between replayed play-by-play frames |
 | `LIVE_REPLAY_ALLOW_PRODUCTION` | `false` | Required alongside `LIVE_REPLAY_FIXTURE` to run a replay under a non-local `APP_ENV`; refused otherwise, since replay mode replaces the real schedule |
+| `STATRELAY_DAILY_BUDGET` | `0` (unlimited) | `statrelay`'s own daily cap on relayed upstream Tank01 calls, shared by every league instance behind it; a placeholder in the tracked manifest until the owner confirms the Mega RapidAPI tier |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
 | `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |

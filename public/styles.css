@@ -8992,16 +8992,20 @@ body.is-on-clock .draft-clock-panel {
   padding: var(--space-xs) var(--space-sm);
 }
 
-/* TeamMark (page.gsx) always renders team-mark--large (3.7rem), never a
-   size prop — wider than .mini's own 2.125rem (34px) first column, so
-   the mark visually overlapped the name column even though the grid
-   track math looked right (item 3, rider on the review of ae1a525: the
-   name cell must actually start right of the mark, not just after a
-   34px grid line the mark itself already overruns). Shrinking the mark
-   back to the compact-row size here, rather than widening the column,
-   keeps the literal 34px track. */
+/* TeamMark (page.gsx) always renders team-mark--large (3.7rem, type-sm
+   font), never a size prop — wider than .mini's own 2.125rem (34px)
+   first column, so the mark visually overlapped the name column even
+   though the grid track math looked right (item 3, rider on the review
+   of ae1a525: the name cell must actually start right of the mark, not
+   just after a 34px grid line the mark itself already overruns).
+   Shrinking the mark back to the compact-row size here, rather than
+   widening the column, keeps the literal 34px track; the font-size reset
+   (item 11, rider on the review of ff2a9b3) shrinks the monogram text to
+   match, since team-mark--large's type-sm size was sized for the wider
+   3.7rem box and would otherwise crowd or overflow this one. */
 .mini .team-mark {
   width: 2.125rem;
+  font-size: var(--type-xs);
 }
 
 .mini strong {

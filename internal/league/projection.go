@@ -83,6 +83,18 @@ func winProbabilityText(mine, theirs float64, mineKnown, theirsKnown bool) strin
 	return fmt.Sprintf("%.0f%%", winProbability(mine, theirs)*100)
 }
 
+// projectedText renders one side's projected total, but only once that
+// side's own current team total is Known — the same gate winProbabilityText
+// applies, and for the same reason (rider on the review of ff2a9b3, item
+// 5): a "proj N" figure beside a score cell that itself reads the honest
+// "—" would silently claim more certainty than the visible score does.
+func projectedText(projected float64, known bool) string {
+	if !known {
+		return winProbabilityDashText
+	}
+	return fmt.Sprintf("%.1f", projected)
+}
+
 // projectedTotal is one side's rest-of-game projected total: every
 // starter's points already on the board, plus their remaining Tank01
 // weekly projection scaled by their own game's remainingFraction. hasLive

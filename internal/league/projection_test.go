@@ -81,3 +81,17 @@ func TestRemainingFractionUnknownPeriodInProgressReadsHalfway(t *testing.T) {
 		t.Fatalf("unknown not-in-progress period = %v want 1", got)
 	}
 }
+
+// TestProjectedTextRendersDashWhenUnknown covers rider item 5 (review of
+// ff2a9b3): the featured team line's "proj N" figure must dash on the
+// same ScoreKnown gate winProbabilityText already applies to win
+// probability — a "proj N" beside a "—" score would claim more certainty
+// than the visible score itself does.
+func TestProjectedTextRendersDashWhenUnknown(t *testing.T) {
+	if got := projectedText(112.4, true); got != "112.4" {
+		t.Fatalf("projectedText(known) = %q, want a formatted number", got)
+	}
+	if got := projectedText(112.4, false); got != "—" {
+		t.Fatalf("projectedText(unknown) = %q, want the honest dash", got)
+	}
+}

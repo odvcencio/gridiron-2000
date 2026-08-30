@@ -643,9 +643,9 @@ explicit action, never a batch.
    Before turning the flag on anywhere, the owner sets `LIVE_DAILY_BUDGET`
    (per app instance) and `STATRELAY_DAILY_BUDGET` (the shared relay) to the
    Mega tier's daily allowance minus pool-sync and Blitz usage. Arithmetic to
-   check: one relay upstream call per in-progress game per 4 s TTL, so a
-   13-game Sunday costs about 9 games × 3.5 h × 900 s/4 s + 4 games × 3.5 h ×
-   900 s/4 s ≈ 41,000 relay calls; instance-side fetches every
+   check: one relay upstream call per in-progress game per 4 s TTL, so
+   900 calls/h per game (3600 s ÷ 4 s), and a 13-game Sunday costs about
+   13 games × 3.5 h × 900 calls/h ≈ 41,000 relay calls; instance-side fetches every
    `LIVE_POLL_INTERVAL` never reach upstream when the relay entry is still
    fresh. `deploy/k8s/statrelay.yaml`'s tracked `STATRELAY_DAILY_BUDGET:
    "60000"` is a placeholder above that estimate, not a confirmed Mega-tier
