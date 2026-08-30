@@ -447,6 +447,8 @@ type StarterLedgerRow struct {
 	PointsText string  `json:"pointsText"`
 	Provenance string  `json:"provenance"`
 	JoinState  string  `json:"joinState"`
+	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
+	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "FINAL", "SUN 4:25 PM", ""
 	Detail     string  `json:"detail"`
 }
 

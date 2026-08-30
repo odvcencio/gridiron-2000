@@ -12,6 +12,18 @@ type MatchupScorer interface {
 	TeamWeekScore(teamID string, week int) (points float64, final bool, err error)
 }
 
+// StatSource* names the origin of a WeekStatLine, and therefore of any
+// StarterLedgerRow joined against it (A2, the live-scoring precedence
+// rule): a live row wins while that player's game is in progress; a
+// ledger row wins once the game is final, or when live has no data for
+// it. livescore.MergeLines (Task 3) picks the winning line per player key
+// using the poller's game status; this package only carries the label.
+const (
+	StatSourceLedger    = "ledger"     // nflverse weekly file
+	StatSourceLive      = "live"       // Tank01 box score, game in progress
+	StatSourceLiveFinal = "live-final" // Tank01 box score, game final, ledger not posted yet
+)
+
 // WeekStatLine is one player's weekly totals, keyed by scoring rule keys
 // (passYards, rushTD, reception, ...). Key is the output of
 // normalizePlayerKey (player name + position), the same shape
@@ -20,14 +32,31 @@ type MatchupScorer interface {
 // the real function and this package keeps its own copy in lockstep; see
 // scorer_test.go's parity test.
 type WeekStatLine struct {
-	Key   string
-	Stats map[string]float64
+	Key    string
+	Stats  map[string]float64
+	Source string // one of the StatSource* values; "" reads as ledger
 }
 
 // WeekStatsSource supplies every player's stat line for one NFL week.
 // main.go injects an adapter over internal/openstats, following the
 // ScheduleSource / HistoricalSource pattern.
 type WeekStatsSource func(week int) []WeekStatLine
+
+// weekStatSourcesByKey indexes each WeekStatLine's Source by its player
+// key, defaulting an empty Source to StatSourceLedger so a caller can look
+// up a row's origin without re-checking the empty-string case at every
+// call site.
+func weekStatSourcesByKey(lines []WeekStatLine) map[string]string {
+	out := make(map[string]string, len(lines))
+	for _, line := range lines {
+		if line.Source == "" {
+			out[line.Key] = StatSourceLedger
+			continue
+		}
+		out[line.Key] = line.Source
+	}
+	return out
+}
 
 // weekStatsSnapshot reads one weekly ledger for a scoring operation. The
 // source is intentionally queried once by callers that render a whole

@@ -79,7 +79,14 @@ func ledgerProvenance(assignment SlotAssignment, explicit map[string]string, pin
 func ledgerPlayerDetail(row *StarterLedgerRow) {
 	switch row.JoinState {
 	case "matched":
-		row.Detail = "Matched to the mirrored player-stat ledger."
+		switch row.Source {
+		case StatSourceLive:
+			row.Detail = "Matched to the live box score; the game is in progress."
+		case StatSourceLiveFinal:
+			row.Detail = "Matched to the final box score; the weekly ledger is not posted yet."
+		default:
+			row.Detail = "Matched to the mirrored player-stat ledger."
+		}
 	case "missing-join":
 		row.Detail = "No matching player-stat row for this name and position; 0.0 is an explicit join miss."
 	case "stats-unavailable":
@@ -105,6 +112,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 	}
 	values := s.currentScoringValues()
 	byKey := weekStatsByKey(lines)
+	sources := weekStatSourcesByKey(lines)
 	lineup, pinned := s.matchupLineup(state, teamID, week)
 	explicit := explicitLineupForWeek(state.Lineups[teamID], week)
 	rows := make([]StarterLedgerRow, 0, len(lineup.Slots))
@@ -145,6 +153,9 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 				row.JoinState = "missing-join"
 				complete = false
 			}
+		}
+		if row.JoinState == "matched" {
+			row.Source = sources[normalizePlayerKey(assignment.Player.Name, assignment.Player.Position)]
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
 		ledgerPlayerDetail(&row)

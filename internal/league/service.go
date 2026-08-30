@@ -92,11 +92,16 @@ type Service struct {
 	// DefaultPickClock; see pickClock.
 	pickClockDefault time.Duration
 
-	poolMu       sync.Mutex
-	poolSource   PlayerSource
-	poolCache    playerPool
-	poolStatusFn PoolStatusSource
-	scheduleFn   ScheduleSource
+	poolMu     sync.Mutex
+	poolSource PlayerSource
+	poolCache  playerPool
+	// liveNameIndex is ResolveLivePlayer's normalized-name lookup, built
+	// lazily and rebuilt only when liveNameVersion no longer matches
+	// poolCache.version — see ResolveLivePlayer.
+	liveNameVersion int64
+	liveNameIndex   map[string][]Player
+	poolStatusFn    PoolStatusSource
+	scheduleFn      ScheduleSource
 	// statsUpdatedAtFn supplies the open-stats player-ledger freshness instant
 	// used by the commissioner week-close readiness view. It is optional so
 	// fixtures and deployments without the mirror fail closed rather than
@@ -1118,6 +1123,37 @@ func (s *Service) pool() playerPool {
 		s.poolCache = s.buildPool(players, version, label)
 	}
 	return s.poolCache
+}
+
+// ResolveLivePlayer maps one Tank01 box-score row onto a pool player: the
+// Tank01 ID first (the live pool carries it), then the unique normalized
+// name (the demo and offline pools carry synthetic IDs). An ambiguous or
+// unknown name does not resolve, so a live row never lands on the wrong
+// player. The name index is rebuilt only when the pool version moves.
+func (s *Service) ResolveLivePlayer(tank01ID, longName string) (Player, bool) {
+	pool := s.pool()
+	if player, ok := pool.byID[strings.TrimSpace(tank01ID)]; ok {
+		return player, true
+	}
+	key := strings.TrimSuffix(normalizePlayerKey(longName, ""), "|")
+	if key == "" {
+		return Player{}, false
+	}
+	s.poolMu.Lock()
+	if s.liveNameIndex == nil || s.liveNameVersion != pool.version {
+		index := make(map[string][]Player, len(pool.players))
+		for _, player := range pool.players {
+			name := strings.TrimSuffix(normalizePlayerKey(player.Name, ""), "|")
+			index[name] = append(index[name], player)
+		}
+		s.liveNameIndex, s.liveNameVersion = index, pool.version
+	}
+	matches := s.liveNameIndex[key]
+	s.poolMu.Unlock()
+	if len(matches) != 1 {
+		return Player{}, false
+	}
+	return matches[0], true
 }
 
 // playerPoolIsUnavailable identifies the fail-closed source state shared by

@@ -57,6 +57,43 @@ var breakdownRows = []breakdownRow{
 	{statKey: "puntBlocked", label: "Blocked", ruleKey: "puntBlocked"},
 }
 
+// tank01DSTRows is the DEFENSE-group twin of breakdownRows for the DST
+// unit of a Tank01 box score (internal/fantasy.BoxScore.DST). It is a
+// separate table so scoreStatsWithValues (Blitz) never scores D/ST keys.
+var tank01DSTRows = []breakdownRow{
+	{statKey: "sacks", label: "Sacks", ruleKey: "dstSack"},
+	{statKey: "defensiveInterceptions", label: "INT", ruleKey: "dstInt"},
+	{statKey: "fumblesRecovered", label: "Fum rec", ruleKey: "dstFumbleRec"},
+	{statKey: "defTD", label: "Def TD", ruleKey: "dstTD"},
+	{statKey: "safeties", label: "Safety", ruleKey: "dstSafety"},
+}
+
+// RuleStatsFromTank01 maps a Tank01-keyed stat line onto the league's
+// scoring-rule keys: breakdownRows for a player, tank01DSTRows plus
+// ptsAllowed for a D/ST unit. dstShutout scores only when final is true,
+// so an in-progress 0 never reads as a shutout. Zero values are dropped
+// except the shutout flag itself.
+func RuleStatsFromTank01(stats map[string]float64, final bool) map[string]float64 {
+	out := make(map[string]float64, len(stats))
+	for _, table := range [][]breakdownRow{breakdownRows, tank01DSTRows} {
+		for _, row := range table {
+			if row.ruleKey == "" {
+				continue
+			}
+			if value, ok := stats[row.statKey]; ok && value != 0 && finiteScoringPoints(value) {
+				out[row.ruleKey] = value
+			}
+		}
+	}
+	if allowed, ok := stats["ptsAllowed"]; ok && final {
+		out["dstShutout"] = 0
+		if allowed == 0 {
+			out["dstShutout"] = 1
+		}
+	}
+	return out
+}
+
 // breakdownDefaultValues resolves every scoring rule's stock point value,
 // with no commissioner overrides applied. It touches no store state, so
 // callers that lack a live override snapshot (see currentScoringValues)
