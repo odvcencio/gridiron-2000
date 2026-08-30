@@ -89,14 +89,28 @@ func TestTeamWeekLedgerReportsMissingJoinInsteadOfSilentZero(t *testing.T) {
 // progress, and false — leaving the team total UNKNOWN — for a Final
 // game, a degraded poller (even one that otherwise has an in-progress
 // entry for the team), or no signal at all. It also covers rider item 3
-// (review of ff2a9b3): a true bye (the player's own ByeWeek matches week,
-// with a loaded, non-empty schedule) is a known 0.0 regardless of poller
-// health, but a ByeWeek match against an empty (unloaded) schedule must
-// not read as a league-wide bye.
+// (review of ff2a9b3): a true bye (the team absent from a loaded,
+// non-empty schedule) is a known 0.0 regardless of poller health, and
+// the two residuals from the review of eb549b6: N1, a stale ByeWeek that
+// happens to equal week must never claim BYE (or bypass the poller's own
+// Degraded check) while the team's real game sits in the loaded
+// schedule; N2, a pool with no bye data at all (ByeWeek == 0) must still
+// read a genuine bye correctly — the loaded schedule's own team presence
+// is the one signal that matters, not ByeWeek.
 func TestStarterGameKnownZeroSoFar(t *testing.T) {
 	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
 	player := Player{NFLTeam: "CIN"}
 	byePlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	// staleByeWeekPlayer's ByeWeek (1) matches the week under test even
+	// though CIN's real game sits in the loaded schedule (N1) — the
+	// opposite shape from byePlayer, which has no game in the loaded
+	// schedule at all.
+	staleByeWeekPlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	// noByeDataPlayer models a pool with no bye field populated at all
+	// (ByeWeek's zero value, the offline/fallback pool's own shape, N2):
+	// CIN is genuinely absent from the loaded schedule below, and that
+	// absence alone — not ByeWeek — must still read as a known bye.
+	noByeDataPlayer := Player{NFLTeam: "CIN"}
 	cases := []struct {
 		name     string
 		player   Player
@@ -157,6 +171,24 @@ func TestStarterGameKnownZeroSoFar(t *testing.T) {
 			snapshot: matchupStatsSnapshot{},
 			want:     false,
 		},
+		{
+			name:     "N1: stale ByeWeek matches week, but the team's real game sits in the loaded schedule, degraded poller",
+			player:   staleByeWeekPlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}}},
+			want:     false,
+		},
+		{
+			name:     "N2: no bye data at all (ByeWeek zero value), but the team is genuinely absent from the loaded schedule",
+			player:   noByeDataPlayer,
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Games: map[string]LiveGameState{"BUF": {InProgress: true}, "MIA": {InProgress: true}}}},
+			want:     true,
+		},
+		{
+			name:     "N1 abbreviation normalization: player carries Tank01-style LAR, schedule already normalized to LA",
+			player:   Player{NFLTeam: "LAR", ByeWeek: 1},
+			snapshot: matchupStatsSnapshot{games: []GameInfo{{Away: "LA", Home: "SF", Kickoff: now.Add(-time.Hour)}}, hasLive: true, live: LiveStatus{Degraded: true}},
+			want:     false,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -164,6 +196,60 @@ func TestStarterGameKnownZeroSoFar(t *testing.T) {
 				t.Fatalf("starterGameKnownZeroSoFar = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+// TestTeamHasGameNormalizesTank01Abbreviations covers the abbreviation
+// normalization residual N1 names explicitly: teamHasGame must match a
+// Tank01-style team code (LAR, WSH, JAC) against an nflverse-style
+// schedule entry (LA, WAS, JAX) and vice versa, the same three-entry
+// correction internal/livescore.NormalizeTeam applies, kept as its own
+// copy here since internal/league must not import internal/livescore.
+func TestTeamHasGameNormalizesTank01Abbreviations(t *testing.T) {
+	games := []GameInfo{{Away: "LA", Home: "SF"}, {Away: "BUF", Home: "MIA"}}
+	cases := []struct {
+		team string
+		want bool
+	}{
+		{"LAR", true},  // Tank01-style, schedule already normalized to LA
+		{"LA", true},   // already nflverse-style
+		{"lar", true},  // case-insensitive
+		{"SF", true},   // untouched by the three-entry map
+		{"WSH", false}, // not in this schedule at all
+		{"DAL", false},
+	}
+	for _, c := range cases {
+		if got := teamHasGame(c.team, games); got != c.want {
+			t.Errorf("teamHasGame(%q) = %v, want %v", c.team, got, c.want)
+		}
+	}
+}
+
+// TestStarterGameStateRendersBYEOnlyForATrueBye covers the "no BYE chip"
+// half of residual N1 (review of eb549b6): starterGameState must not
+// render "BYE" for a starter whose ByeWeek happens to equal week when
+// their team's real game sits in the loaded schedule, and must render
+// "BYE" for a starter whose team is genuinely absent from a loaded
+// schedule, independent of ByeWeek (residual N2).
+func TestStarterGameStateRendersBYEOnlyForATrueBye(t *testing.T) {
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	location := time.UTC
+	staleByeWeekPlayer := Player{NFLTeam: "CIN", ByeWeek: 1}
+	snapshotTeamPresent := matchupStatsSnapshot{
+		games:   []GameInfo{{Away: "CIN", Home: "CLE", Kickoff: now.Add(-time.Hour)}},
+		hasLive: true,
+		live:    LiveStatus{Degraded: true, Games: map[string]LiveGameState{"CIN": {InProgress: true}}},
+	}
+	if got := starterGameState(staleByeWeekPlayer, 1, snapshotTeamPresent, location); got == "BYE" {
+		t.Fatalf("starterGameState (N1, stale ByeWeek, team present) = %q, want anything but BYE", got)
+	}
+
+	noByeDataPlayer := Player{NFLTeam: "CIN"}
+	snapshotTeamAbsent := matchupStatsSnapshot{
+		games: []GameInfo{{Away: "BUF", Home: "MIA", Kickoff: now.Add(-time.Hour)}},
+	}
+	if got := starterGameState(noByeDataPlayer, 1, snapshotTeamAbsent, location); got != "BYE" {
+		t.Fatalf("starterGameState (N2, no ByeWeek data, team genuinely absent) = %q, want BYE", got)
 	}
 }
 

@@ -117,6 +117,39 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 	}
 }
 
+// tank01ToNFLverseAbbreviation maps the three Tank01 team abbreviations
+// that differ from nflverse's own (LAR, WSH, JAC), the same correction
+// internal/livescore.NormalizeTeam applies. This is a small, deliberate
+// duplicate — internal/league must not import internal/livescore (no
+// import cycle, Tasks 3/5 decision) — used only by teamHasGame below: a
+// real pool player can carry a Tank01-sourced NFLTeam like "LAR"
+// (defaultPlayers' Puka Nacua), while GameInfo.Away/Home can arrive
+// already normalized to nflverse's "LA" (internal/sim/replay's own
+// ScheduleSource calls the same normalizer), so an unnormalized
+// string-equality check would miss that starter's real game and
+// misread them as on bye.
+var tank01ToNFLverseAbbreviation = map[string]string{"LAR": "LA", "WSH": "WAS", "JAC": "JAX"}
+
+func normalizeNFLAbbreviation(abbr string) string {
+	upper := strings.ToUpper(strings.TrimSpace(abbr))
+	if mapped, ok := tank01ToNFLverseAbbreviation[upper]; ok {
+		return mapped
+	}
+	return upper
+}
+
+// teamHasGame reports whether team (normalized) is either side of any
+// of games.
+func teamHasGame(team string, games []GameInfo) bool {
+	normalized := normalizeNFLAbbreviation(team)
+	for _, game := range games {
+		if normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized {
+			return true
+		}
+	}
+	return false
+}
+
 // starterOnBye reports whether player's NFL team has no game at all in
 // week's loaded schedule — a true bye — guarded on the schedule actually
 // being loaded (len(snapshot.games) > 0). With no schedule wired at all
@@ -126,8 +159,23 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 // read this one starter's game" case starterGameKnownZeroSoFar's other
 // branches already fall back to (rider on the review of ff2a9b3, item
 // 3).
+//
+// teamHasGame's schedule-presence check is the sole signal (residuals
+// N1/N2, review of eb549b6): player.ByeWeek/slotWarnsBye is not
+// consulted here at all. Trusting ByeWeek directly had two failure
+// modes — a stale ByeWeek that happened to equal week could claim "BYE"
+// (and let the bye branch bypass the poller's own Degraded check) even
+// while the team's real game sat right there in the loaded schedule
+// (N1), and a pool that carries no bye data at all (ByeWeek == 0, the
+// offline/fallback pool) could never read a genuine bye correctly no
+// matter how plainly the schedule showed the team absent (N2). The
+// schedule the render already has is strictly more authoritative than a
+// separate, possibly stale or absent field for the same fact.
 func starterOnBye(player Player, week int, snapshot matchupStatsSnapshot) bool {
-	return len(snapshot.games) > 0 && slotWarnsBye(player, week)
+	if len(snapshot.games) == 0 {
+		return false
+	}
+	return !teamHasGame(player.NFLTeam, snapshot.games)
 }
 
 // starterGameState renders one starter's game clock: "BYE" when the
