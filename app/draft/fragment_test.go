@@ -7,8 +7,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"gridiron-2000/internal/league"
 )
 
 // fixtureTeams matches pickFixture's eight-team draft order.
@@ -41,6 +44,60 @@ func pickFixture(number int, madeBy string) map[string]any {
 		},
 		"made_by": madeBy, "is_auto": madeBy == "auto", "is_commissioner": madeBy == "commissioner",
 	}
+}
+
+// tapePickFixture builds one league.TapePick by hand, mirroring pickFixture's
+// eight-team draft order and snake math (internal/league's own pickColumn/
+// pickSlot/pickLabel are unexported, so this test package cannot call
+// them directly).
+func tapePickFixture(number int, madeBy string) league.TapePick {
+	teams := len(fixtureTeams)
+	round := (number-1)/teams + 1
+	slot := (number-1)%teams + 1
+	column := slot
+	if round%2 == 0 {
+		column = teams - slot + 1
+	}
+	positions := []string{"WR", "RB", "QB", "TE"}
+	name := fixtureTeams[column-1]
+	return league.TapePick{
+		Number: number, Round: round, Slot: slot, Column: column,
+		Label:  fmt.Sprintf("%d.%02d", round, slot),
+		TeamID: fmt.Sprintf("team-%d", column), TeamName: name, TeamAbbr: strings.ToUpper(name[:2]), TeamTone: "cyan", Manager: "Manager " + name,
+		PlayerID: fmt.Sprintf("player-%03d", number), PlayerName: fmt.Sprintf("Fixture Player %03d", number), Position: positions[number%len(positions)], NFLTeam: "CIN",
+		MadeBy: madeBy, IsAuto: madeBy == "auto", IsCommissioner: madeBy == "commissioner",
+		TimeToPickSec: 30, TimeToPick: "0:30", MadeAt: "2026-01-01T00:00:00Z",
+	}
+}
+
+// tapeHistoryFixture groups picks into league.TapeRound entries the way
+// Service.DraftHistory does (draft_history.go): newest round first, each
+// round's picks newest-number first.
+func tapeHistoryFixture(picks []league.TapePick) league.DraftHistoryView {
+	teams := len(fixtureTeams)
+	byRound := map[int][]league.TapePick{}
+	for _, pick := range picks {
+		byRound[pick.Round] = append(byRound[pick.Round], pick)
+	}
+	roundNumbers := make([]int, 0, len(byRound))
+	for round := range byRound {
+		roundNumbers = append(roundNumbers, round)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(roundNumbers)))
+	rounds := make([]league.TapeRound, 0, len(roundNumbers))
+	for _, round := range roundNumbers {
+		roundPicks := append([]league.TapePick(nil), byRound[round]...)
+		sort.Slice(roundPicks, func(i, j int) bool { return roundPicks[i].Number > roundPicks[j].Number })
+		direction := "→"
+		if round%2 == 0 {
+			direction = "←"
+		}
+		rounds = append(rounds, league.TapeRound{
+			Round: round, First: (round-1)*teams + 1, Last: round * teams, Direction: direction,
+			Made: len(roundPicks), Total: teams, Picks: roundPicks,
+		})
+	}
+	return league.DraftHistoryView{Rounds: rounds, Picks: picks}
 }
 
 func draftFragmentFixture() map[string]any {
@@ -335,12 +392,12 @@ func TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline(t *testing.T) 
 }
 
 // TestTapeFragmentSinceReturnsOnlyNewerRows proves attachDraftFragmentSince
-// and draftTapeRowsSince (page.server.go): "?since=N" switches the tape
+// and filterTapeRoundsSince (fragment.go): "?since=N" switches the tape
 // fragment to DraftTapeRows, every pick above N alone, each preceded by
 // its round header once.
 func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	fixture := draftFragmentFixture()
-	fixture["picks"] = []map[string]any{pickFixture(1, "manager"), pickFixture(2, "manager"), pickFixture(3, "auto")}
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
 	fixture["picks_empty"] = false
 	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
 	response := httptest.NewRecorder()
@@ -361,7 +418,7 @@ func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 // keeps getting the whole tape, not an empty DraftTapeRows partial.
 func TestTapeFragmentWithoutSinceRendersTheFullPane(t *testing.T) {
 	fixture := draftFragmentFixture()
-	fixture["picks"] = []map[string]any{pickFixture(1, "manager")}
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager")})
 	fixture["picks_empty"] = false
 	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
 	for _, path := range []string{"/draft/fragment/tape", "/draft/fragment/tape?since=nope", "/draft/fragment/tape?since=-1"} {
@@ -370,6 +427,29 @@ func TestTapeFragmentWithoutSinceRendersTheFullPane(t *testing.T) {
 		if !strings.Contains(response.Body.String(), `class="draft-history"`) {
 			t.Errorf("%s must render the full DraftHistory pane: %s", path, response.Body.String())
 		}
+	}
+}
+
+// TestTapeFragmentETagChangesWithTheSinceCursor is the Task 6 review's R1
+// fix: "/draft/fragment/tape", "?since=0", and "?since=2" against the SAME
+// underlying picks must hash to three different ETags — one per distinct
+// DraftTapeRows/DraftHistory body — so a client that switches its cursor
+// never gets served a bodyless 304 carrying the wrong rows.
+func TestTapeFragmentETagChangesWithTheSinceCursor(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	etagFor := func(path string) string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		return response.Header().Get("ETag")
+	}
+	full := etagFor("/draft/fragment/tape")
+	since0 := etagFor("/draft/fragment/tape?since=0")
+	since2 := etagFor("/draft/fragment/tape?since=2")
+	if full == since0 || full == since2 || since0 == since2 {
+		t.Fatalf("tape ETags must differ per cursor: full=%s since=0:%s since=2:%s", full, since0, since2)
 	}
 }
 
@@ -502,6 +582,7 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		`app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))`,
 		`app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))`,
 		`app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))`,
+		`app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))`,
 		`app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))`,
 	} {
 		if !strings.Contains(buildSource, want) {

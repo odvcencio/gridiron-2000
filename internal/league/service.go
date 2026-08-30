@@ -2547,9 +2547,22 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 			"position": top["position"], "nfl_team": top["nfl_team"],
 		}
 	}
+	// hasADP gates the available pane's whole VS ADP column (header and
+	// cell, R4): the built-in offline pool carries no real ADP figures, so
+	// showing a column of empty/meaningless deltas would be worse than no
+	// column at all. valueVsADP is "if drafted right now" — nextNumber
+	// (the upcoming pick) minus the player's rounded ADP — the same sign
+	// convention TapePick.ValueLabel uses for a made pick (draft_history.go).
+	hasADP := pool.label != "offline"
 	availableMaps := playerMapsWithScoring(pagedAvailable, scoringValues, matchup)
 	for index, player := range pagedAvailable {
 		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
+		hasValue := hasADP && player.ADP > 0
+		availableMaps[index]["has_value"] = hasValue
+		availableMaps[index]["value_label"] = ""
+		if hasValue {
+			availableMaps[index]["value_label"] = valueVsADPLabel(nextNumber, player.ADP)
+		}
 	}
 	readyManagerCount, managerCount := s.draftSeatCounts(state)
 	// The command bar's room summary and the shell's per-viewer turn math
@@ -2602,10 +2615,17 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 			banner, _ = poolStatusMap["detail"].(string)
 		}
 	}
+	// history is the typed pick-tape/board/by-team view (draft_history.go):
+	// page.server.go's prepareDraftData reads it directly (a Service method
+	// result stashed in this otherwise-untyped map, the same pattern teams/
+	// picks/available already use for their own typed-conversion boundary).
+	history := s.DraftHistory(state, viewerTeam)
 	return map[string]any{
 		"viewer":               viewer,
 		"public_entry":         publicEntryData(publicEntry),
 		"draft":                s.draftSummary(now),
+		"history":              history,
+		"has_adp":              hasADP,
 		"teams":                teamMaps,
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),
 		"available":            availableMaps,

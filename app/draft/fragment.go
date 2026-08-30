@@ -209,9 +209,34 @@ func attachDraftFragmentSince(data map[string]any, request *http.Request) map[st
 		return data
 	}
 	history.Since = since
-	history.Rows = draftTapeRowsSince(history.Data, since)
+	history.Rounds = filterTapeRoundsSince(history.Rounds, since)
+	// The on-the-clock synthetic row belongs on a full pane render only
+	// (Task 7 Step 4): repeating it on every "?since=" poll would duplicate
+	// it above each newly-arrived round.
+	history.HasOnClock = false
 	data["history"] = history
 	return data
+}
+
+// filterTapeRoundsSince keeps only the picks numbered above since, round
+// order and pick order (both newest-first) unchanged; a round left with no
+// qualifying picks is dropped rather than rendering an empty header.
+func filterTapeRoundsSince(rounds []draftTapeRoundView, since int) []draftTapeRoundView {
+	out := make([]draftTapeRoundView, 0, len(rounds))
+	for _, round := range rounds {
+		picks := make([]draftTapePickView, 0, len(round.Picks))
+		for _, pick := range round.Picks {
+			if pick.Number > since {
+				picks = append(picks, pick)
+			}
+		}
+		if len(picks) == 0 {
+			continue
+		}
+		round.Picks = picks
+		out = append(out, round)
+	}
+	return out
 }
 
 var errInvalidDraftRegion = &draftRegionError{}
@@ -286,7 +311,18 @@ func draftRegionData(view any) (map[string]any, bool) {
 	case draftCommandView:
 		return typed.Data, true
 	case draftHistoryView:
-		return typed.Data, true
+		// R1 (Task 6 review): draftHistoryView carries no shared .Data map
+		// (unlike the other five region views) — Rounds/Board/Teams are
+		// its own typed fields, and Since is the tape's "?since=" cursor.
+		// Since must be part of the hashed payload, or a "?since=2" and a
+		// "?since=0" request (different DraftTapeRows bodies) collapse onto
+		// the same ETag and a real cursor change answers a wrong-bodied 304.
+		return map[string]any{
+			"rounds": typed.Rounds, "board": typed.Board, "teams": typed.Teams,
+			"complete": typed.Complete, "latest": typed.Latest, "since": typed.Since,
+			"has_on_clock": typed.HasOnClock, "next_label": typed.NextLabel,
+			"on_clock_name": typed.OnClockName, "on_clock_abbr": typed.OnClockAbbr, "on_clock_tone": typed.OnClockTone,
+		}, true
 	case draftAvailableView:
 		return typed.Data, true
 	case draftQueueView:

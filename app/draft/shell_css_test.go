@@ -32,3 +32,28 @@ func TestDraftShellStylesheetSection(t *testing.T) {
 		t.Error("the draft section must not add a 38rem block after the touch-baseline block")
 	}
 }
+
+// TestDraftPaneInnerSegmentsSwitchWithCSS pins the Task 6 review's R3 fix:
+// the history pane's Tape/Board/Teams segment and the my-team pane's
+// Queue/Roster/Room segment each need their own three panel-switching
+// rules (both radio groups previously rendered every panel at once, with
+// no :has() pairing at all).
+func TestDraftPaneInnerSegmentsSwitchWithCSS(t *testing.T) {
+	raw, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, want := range []string{
+		".draft-pane--history:has(#history-tape:checked) .draft-history__view--tape",
+		".draft-pane--history:has(#history-board:checked) .draft-history__view--board",
+		".draft-pane--history:has(#history-teams:checked) .draft-history__view--teams",
+		".draft-mine:has(#mine-queue:checked) .draft-mine__view--queue",
+		".draft-mine:has(#mine-roster:checked) .draft-mine__view--roster",
+		".draft-mine:has(#mine-room:checked) .draft-mine__view--room",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("stylesheet missing panel-switching rule %q", want)
+		}
+	}
+}

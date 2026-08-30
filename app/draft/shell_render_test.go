@@ -140,7 +140,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		}
 	}
 	drawer := renderDraftForUser(t, handler, shellCommissioner)
-	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "TYPE START", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "NOT SEEN may receive the short safety clock only after the two-minute boot grace"} {
+	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "NOT SEEN may receive the short safety clock only after the two-minute boot grace"} {
 		if !strings.Contains(drawer, want) {
 			t.Errorf("commissioner drawer missing %q", want)
 		}

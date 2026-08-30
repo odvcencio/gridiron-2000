@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -173,6 +172,9 @@ type draftPlayerCardView struct {
 	// disappearing). Always false for an available-pool entry, which
 	// excludes drafted players by construction.
 	Taken bool
+	// HasValue/ValueLabel back the available pane's VS ADP cell (R4).
+	HasValue   bool
+	ValueLabel string
 }
 
 type draftRoomView struct {
@@ -199,16 +201,244 @@ type draftCommandView struct {
 	StatusSummary string
 }
 
-// draftHistoryView backs the pick-tape pane. Task 7 adds the typed
-// pick/board/team fields the tabs need; for now DraftHistory reads Data
-// directly, the same untyped pattern draftRoomView's tape used before.
-// Since is the "?since=" tape cursor (draftTapeSinceKey, fragment.go): -1
-// means "unset", the pane's full DraftHistory render; a non-negative value
-// switches draftRegionView to DraftTapeRows and Rows carries its rows.
+// draftHistoryView backs the pick-tape pane's Tape/Board/Teams tabs (D4):
+// the same field set page.gsx's DraftHistoryProps declares, so this one
+// value renders through either "DraftHistory" (fragment.go's
+// draftRegionView, Since < 0) or "DraftTapeRows" (Since >= 0) — the
+// established pattern every other shell view (room/workspace/command/
+// available/queue) already uses, a page-level Go type distinct from but
+// structurally covering its GSX prop counterpart. Since is the "?since="
+// tape cursor (draftTapeSinceKey, fragment.go): -1 means "unset", the
+// pane's full render; a non-negative value switches draftRegionView to
+// DraftTapeRows and attachDraftFragmentSince below has already trimmed
+// Rounds to picks numbered above it.
 type draftHistoryView struct {
-	Data  map[string]any
-	Since int
-	Rows  []map[string]any
+	Rounds      []draftTapeRoundView
+	Board       draftBoardView
+	Teams       []draftTeamColumnView
+	Complete    bool
+	Latest      int
+	Since       int
+	HasOnClock  bool
+	NextLabel   string
+	OnClockName string
+	OnClockAbbr string
+	OnClockTone string
+}
+
+// draftTapePickView is the typed pick/board/team view's row-level entry,
+// structurally covering page.gsx's TapePick (the tier-2 spread boundary
+// DraftTeamCard's doc comment above describes) under a distinct name so
+// gosx build's strict-component check never sees two TapePick
+// declarations when it merges this file with page.gsx.
+type draftTapePickView struct {
+	Number, Round, Slot, Column                   int
+	Label                                         string
+	TeamID, TeamName, TeamAbbr, TeamTone, Manager string
+	HasAvatarImage                                bool
+	AvatarImageURL                                string
+	PlayerID, PlayerName, Position, NFLTeam       string
+	MadeBy                                        string
+	IsAuto, IsCommissioner, Mine                  bool
+	TimeToPickSec                                 int
+	TimeToPick                                    string
+	HasValue                                      bool
+	Value                                         int
+	ValueLabel                                    string
+	MadeAt                                        string
+	Projection                                    string
+	Source                                        string
+	BestAvailable                                 []draftBestAvailableView
+	TeamPicks                                     []draftTapePickView
+}
+
+type draftBestAvailableView struct {
+	Name, Position, NFLTeam string
+}
+
+type draftTapeRoundView struct {
+	Round, First, Last int
+	Direction          string
+	Current            bool
+	Made, Total        int
+	Picks              []draftTapePickView
+}
+
+type draftBoardCellView struct {
+	Round, Column, Number  int
+	Label                  string
+	Filled, Mine, OnClock  bool
+	PlayerName, Position   string
+	IsAuto, IsCommissioner bool
+}
+
+type draftBoardRowView struct {
+	Round     int
+	Direction string
+	Cells     []draftBoardCellView
+}
+
+type draftBoardView struct {
+	Columns     []map[string]any
+	Rows        []draftBoardRowView
+	ColumnCount string
+}
+
+// draftBoardTeamView mirrors page.gsx's DraftBoardTeam.
+type draftBoardTeamView struct {
+	ID             string
+	Name           string
+	Abbreviation   string
+	Tone           string
+	Manager        string
+	HasAvatarImage bool
+	AvatarImageURL string
+	Mine           bool
+}
+
+type draftTeamColumnView struct {
+	Team  draftBoardTeamView
+	Picks []draftTapePickView
+	Needs []map[string]any
+}
+
+func boardTeamProps(team map[string]any) draftBoardTeamView {
+	return draftBoardTeamView{
+		ID: stringField(team, "id"), Name: stringField(team, "name"), Abbreviation: stringField(team, "abbreviation"),
+		Tone: stringField(team, "tone"), Manager: stringField(team, "manager"),
+		HasAvatarImage: boolField(team, "has_avatar_image"), AvatarImageURL: stringField(team, "avatar_image_url"),
+		Mine: boolField(team, "mine"),
+	}
+}
+
+// tapePickProps converts one league.TapePick into its page-level mirror:
+// field-for-field, the same conversion boundary draftTeamProps/
+// draftPlayerProps already use for teams/players.
+func tapePickProps(pick league.TapePick) draftTapePickView {
+	return draftTapePickView{
+		Number: pick.Number, Round: pick.Round, Slot: pick.Slot, Column: pick.Column,
+		Label:    pick.Label,
+		TeamID:   pick.TeamID,
+		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: pick.Manager,
+		HasAvatarImage: pick.HasAvatarImage, AvatarImageURL: pick.AvatarImageURL,
+		PlayerID: pick.PlayerID, PlayerName: pick.PlayerName, Position: pick.Position, NFLTeam: pick.NFLTeam,
+		MadeBy: pick.MadeBy, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
+		TimeToPickSec: pick.TimeToPickSec, TimeToPick: pick.TimeToPick,
+		HasValue: pick.HasValue, Value: pick.Value, ValueLabel: pick.ValueLabel, MadeAt: pick.MadeAt,
+	}
+}
+
+func tapePicksProps(picks []league.TapePick) []draftTapePickView {
+	out := make([]draftTapePickView, 0, len(picks))
+	for _, pick := range picks {
+		out = append(out, tapePickProps(pick))
+	}
+	return out
+}
+
+// bestAvailableProps converts a pick detail's best-available snapshot into
+// its page-level mirror.
+func bestAvailableProps(items []league.BestAvailablePick) []draftBestAvailableView {
+	out := make([]draftBestAvailableView, 0, len(items))
+	for _, item := range items {
+		out = append(out, draftBestAvailableView{Name: item.Name, Position: item.Position, NFLTeam: item.NFLTeam})
+	}
+	return out
+}
+
+// hydratedTapePicksProps enriches each bare TapePick with its own expanded
+// PickDetail fields (Projection, Source, BestAvailable, TeamPicks) — the
+// tape's own inline accordion — by looking each one up in history.Detail.
+// TeamColumn.Picks and the ledger/CSV never call this: neither renders a
+// <DraftPickDetail>, so their picks stay bare (the zero value for those
+// fields is harmless — see TapePick's doc comment, page.gsx).
+func hydratedTapePicksProps(picks []league.TapePick, history league.DraftHistoryView) []draftTapePickView {
+	out := make([]draftTapePickView, 0, len(picks))
+	for _, pick := range picks {
+		card := tapePickProps(pick)
+		detail := history.Detail(pick.Number)
+		card.Projection = detail.Projection
+		card.Source = detail.Source
+		card.BestAvailable = bestAvailableProps(detail.BestAvailable)
+		card.TeamPicks = tapePicksProps(detail.TeamPicks)
+		out = append(out, card)
+	}
+	return out
+}
+
+func tapeRoundsProps(rounds []league.TapeRound, history league.DraftHistoryView) []draftTapeRoundView {
+	out := make([]draftTapeRoundView, 0, len(rounds))
+	for _, round := range rounds {
+		out = append(out, draftTapeRoundView{
+			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
+			Current: round.Current, Made: round.Made, Total: round.Total,
+			Picks: hydratedTapePicksProps(round.Picks, history),
+		})
+	}
+	return out
+}
+
+func boardCellProps(cell league.BoardCell) draftBoardCellView {
+	return draftBoardCellView{
+		Round: cell.Round, Column: cell.Column, Number: cell.Number, Label: cell.Label,
+		Filled: cell.Filled, Mine: cell.Mine, OnClock: cell.OnClock,
+		PlayerName: cell.PlayerName, Position: cell.Position, IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
+	}
+}
+
+func boardRowsProps(rows []league.BoardRow) []draftBoardRowView {
+	out := make([]draftBoardRowView, 0, len(rows))
+	for _, row := range rows {
+		cells := make([]draftBoardCellView, 0, len(row.Cells))
+		for _, cell := range row.Cells {
+			cells = append(cells, boardCellProps(cell))
+		}
+		out = append(out, draftBoardRowView{Round: row.Round, Direction: row.Direction, Cells: cells})
+	}
+	return out
+}
+
+func boardViewProps(board league.BoardView) draftBoardView {
+	return draftBoardView{Columns: board.Columns, Rows: boardRowsProps(board.Rows), ColumnCount: strconv.Itoa(len(board.Columns))}
+}
+
+func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
+	out := make([]draftTeamColumnView, 0, len(teams))
+	for _, team := range teams {
+		out = append(out, draftTeamColumnView{Team: boardTeamProps(team.Team), Picks: tapePicksProps(team.Picks), Needs: team.Needs})
+	}
+	return out
+}
+
+// buildDraftHistoryView reads data["history"] (a league.DraftHistoryView,
+// set by internal/league's draftData — see service.go) and converts it
+// into the page-level draftHistoryView above. A fixture that never sets
+// "history" (every non-league test fixture in this package) type-asserts
+// to the zero value, so the pane still renders — empty, never a panic.
+func buildDraftHistoryView(data map[string]any) draftHistoryView {
+	history, _ := data["history"].(league.DraftHistoryView)
+	complete := boolField(mapField(data, "draft"), "complete")
+	onClock := mapField(data, "on_clock")
+	hasOnClock := !complete
+	nextLabel := ""
+	if hasOnClock {
+		if teams := len(history.Board.Columns); teams > 0 {
+			pickNumber := intField(data, "pick_number")
+			round := (pickNumber-1)/teams + 1
+			slot := (pickNumber-1)%teams + 1
+			nextLabel = fmt.Sprintf("%d.%02d", round, slot)
+		}
+	}
+	return draftHistoryView{
+		Rounds: tapeRoundsProps(history.Rounds, history), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
+		// Complete comes from data["draft"]["complete"] (the same signal
+		// draftRoomStatus/DraftCommandBar already read), not history.Complete:
+		// a fixture that never sets data["history"] (every non-league test
+		// fixture in this package) would otherwise always see complete=false.
+		Complete: complete, Latest: history.Latest, Since: -1,
+		HasOnClock: hasOnClock, NextLabel: nextLabel,
+		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
+	}
 }
 
 // draftAvailableView backs the available-players pane: the pool list plus
@@ -281,50 +511,11 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			MatchupDetail:   stringField(player, "matchup_detail"),
 			CanDraft:        boolField(player, "draft_eligible"),
 			Taken:           boolField(player, "taken"),
+			HasValue:        boolField(player, "has_value"),
+			ValueLabel:      stringField(player, "value_label"),
 		})
 	}
 	return out
-}
-
-// draftTapeRowsSince builds the tape pane's "?since=" partial: every pick
-// numbered above since, newest first, each preceded by one round-header
-// row the first time that round appears in the (descending) sequence. It
-// copies pickMaps' own shape (service.go) plus is_round/tape_key, so
-// DraftTapeRows reads a pick row exactly the way DraftHistory's full
-// render already does (pick.player.name, pick.team.abbreviation, ...).
-func draftTapeRowsSince(data map[string]any, since int) []map[string]any {
-	picksRaw, _ := data["picks"].([]map[string]any)
-	type tapeEntry struct {
-		number int
-		pick   map[string]any
-	}
-	entries := make([]tapeEntry, 0, len(picksRaw))
-	for _, pick := range picksRaw {
-		if number := intField(pick, "number"); number > since {
-			entries = append(entries, tapeEntry{number: number, pick: pick})
-		}
-	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].number > entries[j].number })
-	rows := make([]map[string]any, 0, len(entries)*2)
-	lastRound := -1
-	for _, entry := range entries {
-		round := intField(entry.pick, "round")
-		if round != lastRound {
-			rows = append(rows, map[string]any{
-				"is_round": true, "round": round,
-				"tape_key": "round-" + strconv.Itoa(round),
-			})
-			lastRound = round
-		}
-		row := make(map[string]any, len(entry.pick)+2)
-		for key, value := range entry.pick {
-			row[key] = value
-		}
-		row["is_round"] = false
-		row["tape_key"] = "pick-" + strconv.Itoa(entry.number)
-		rows = append(rows, row)
-	}
-	return rows
 }
 
 // draftTeamProps converts DraftData's map[string]any "teams" slice into
@@ -413,11 +604,13 @@ func prepareDraftData(data map[string]any) map[string]any {
 	}
 	viewData["teams"] = typedTeams
 	viewData["seat_controls"] = draftSeatControlProps(teams)
-	// has_adp gates the available pane's VS ADP header and cell (Task 6
-	// execution note 5): Task 7 flips this once playerMap carries a real
-	// adp/value_vs_adp pair, so the column stays hidden rather than showing
-	// an empty header over an empty cell in the meantime.
-	viewData["has_adp"] = false
+	// has_adp gates the available pane's whole VS ADP column, header and
+	// cell alike (R4): service.go's draftData sets it once the pool source
+	// carries real ADP figures. The pane root's data-has-adp="false"
+	// attribute (page.gsx) is the matching CSS hook (R4's five-track
+	// .draft-available[data-has-adp="false"] .avail-row rule) so the
+	// column's grid track drops with it, never an empty cell.
+	viewData["has_adp"] = boolField(data, "has_adp")
 	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
 	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
 
@@ -451,7 +644,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 	// Since defaults to -1 ("unset"): draftRegionView (fragment.go) renders
 	// the full DraftHistory pane until attachDraftFragmentSince overwrites
 	// it with a "?since=" request's cursor and precomputed Rows.
-	output["history"] = draftHistoryView{Data: viewData, Since: -1}
+	output["history"] = buildDraftHistoryView(data)
 	output["available"] = draftAvailableView{
 		Data: viewData, Players: typedPlayers,
 		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,

@@ -600,6 +600,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))
 	app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))
 	app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))
+	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence

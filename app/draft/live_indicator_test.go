@@ -30,33 +30,30 @@ func buildFragmentBody(t *testing.T, region string, started, complete bool) stri
 
 // TestDraftPickTapeLabelFollowsLifecycleState covers two regions the old
 // combined workspace fragment used to carry together: the tape pane's own
-// DRAFT LOG/LIVE LOG/FINAL LEDGER label (draftTapeRegion, DraftHistoryHead)
-// and the command bar's live dot (draftCommandRegion, DraftCommandBar) —
-// the dot is now the room's one live-dot site (D2), bound only while the
-// draft is started and not complete.
+// FINAL LEDGER label (draftTapeRegion, D4's DraftHistory — the DRAFT LOG/
+// LIVE LOG state copy retired with Task 7's round-grouped tape, which
+// carries its own "N of M made" progress per round instead) and the
+// command bar's live dot (draftCommandRegion, DraftCommandBar) — the dot
+// is the room's one live-dot site (D2), bound only while the draft is
+// started and not complete.
 func TestDraftPickTapeLabelFollowsLifecycleState(t *testing.T) {
 	cases := []struct {
 		name        string
 		started     bool
 		complete    bool
-		want        string
+		wantLedger  bool
 		wantLiveDot bool
 	}{
-		{name: "scheduled", started: false, want: "DRAFT LOG"},
-		{name: "started", started: true, want: "LIVE LOG", wantLiveDot: true},
-		{name: "complete", started: true, complete: true, want: "FINAL LEDGER"},
+		{name: "scheduled", started: false},
+		{name: "started", started: true, wantLiveDot: true},
+		{name: "complete", started: true, complete: true, wantLedger: true},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			tapeBody := buildFragmentBody(t, draftTapeRegion, test.started, test.complete)
-			if !strings.Contains(tapeBody, test.want) {
-				t.Fatalf("pick tape omitted %q: %s", test.want, tapeBody)
-			}
-			if !test.started && strings.Contains(tapeBody, "LIVE LOG") {
-				t.Fatal("scheduled draft mislabeled as live log")
-			}
-			if test.complete && strings.Contains(tapeBody, "LIVE LOG") {
-				t.Fatal("completed draft retained live log label")
+			hasLedger := strings.Contains(tapeBody, "FINAL LEDGER")
+			if hasLedger != test.wantLedger {
+				t.Fatalf("pick tape FINAL LEDGER = %v, want %v: %s", hasLedger, test.wantLedger, tapeBody)
 			}
 
 			commandBody := buildFragmentBody(t, draftCommandRegion, test.started, test.complete)

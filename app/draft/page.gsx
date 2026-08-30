@@ -34,6 +34,11 @@ type DraftPlayerCard struct {
 	MatchupDetail   string
 	CanDraft        bool
 	Taken           bool
+	// HasValue/ValueLabel back the available pane's VS ADP cell (R4): "if
+	// drafted right now" — the upcoming pick minus the player's ADP.
+	// Always false/"" for a queue-pane row, which never renders the column.
+	HasValue   bool
+	ValueLabel string
 }
 
 type DraftQueueProps struct {
@@ -866,13 +871,125 @@ type DraftCommandBarProps struct {
 	StatusSummary string
 }
 
-// DraftHistoryProps backs the pick-tape pane. Task 7 adds the typed
-// pick/board/team fields the Tape/Board/Teams tabs need; for now
-// DraftHistory reads Data directly.
+// BestAvailableCard is one best-available-at-this-pick entry inside a
+// pick-detail accordion: identity only, the fields the markup renders.
+type BestAvailableCard struct {
+	Name     string
+	Position string
+	NFLTeam  string
+}
+
+// TapePick is one pick's full tape row, mirroring league.TapePick
+// field-for-field (page.server.go's tapePickProps converts one into the
+// other). The pick-detail fields (Projection, Source, BestAvailable,
+// TeamPicks) are populated only for a tape row's own inline accordion —
+// TeamColumn.Picks and DraftHistoryProps.Picks (the ledger/CSV) carry the
+// same struct with those left at their zero value, since neither ever
+// renders a <DraftPickDetail>.
+type TapePick struct {
+	Number, Round, Slot, Column                   int
+	Label                                          string
+	TeamID, TeamName, TeamAbbr, TeamTone, Manager  string
+	HasAvatarImage                                 bool
+	AvatarImageURL                                 string
+	PlayerID, PlayerName, Position, NFLTeam        string
+	MadeBy                                         string
+	IsAuto, IsCommissioner, Mine                   bool
+	TimeToPickSec                                  int
+	TimeToPick                                     string
+	HasValue                                       bool
+	Value                                          int
+	ValueLabel                                     string
+	MadeAt                                         string
+	Projection                                     string
+	Source                                         string
+	BestAvailable                                  []BestAvailableCard
+	TeamPicks                                      []TapePick
+}
+
+// TapeRound groups one round's made picks, newest pick first.
+type TapeRound struct {
+	Round, First, Last int
+	Direction          string
+	Current            bool
+	Made, Total        int
+	Picks              []TapePick
+}
+
+// BoardCell is one round x column slot of the pick board.
+type BoardCell struct {
+	Round, Column, Number  int
+	Label                  string
+	Filled, Mine, OnClock  bool
+	PlayerName, Position   string
+	IsAuto, IsCommissioner bool
+}
+
+// BoardRow is one round's full column strip, one BoardCell per team.
+type BoardRow struct {
+	Round     int
+	Direction string
+	Cells     []BoardCell
+}
+
+// BoardView is the whole pick board.
+type BoardView struct {
+	Columns []map[string]any
+	Rows    []BoardRow
+	// ColumnCount is len(Columns), pre-rendered as a string: a GSX "+"
+	// concatenation only combines strings (an int operand silently drops,
+	// leaving the CSS custom property empty), so DraftBoard's own
+	// style={"--board-columns:" + ...} needs this already-formatted field
+	// rather than calling len() inline.
+	ColumnCount string
+}
+
+// TeamColumn is one team's full pick history plus its roster-needs tally.
+// DraftBoardTeam is the compact team-identity shape the by-team column
+// header and the board's column header both need: a real declared struct,
+// not map[string]any, because a typed component's field access (unlike
+// the page-level "data"/"props.Data" escape hatch) must resolve through a
+// declared struct (gosx check: "declare the renderer-visible struct
+// beside the component").
+type DraftBoardTeam struct {
+	ID             string
+	Name           string
+	Abbreviation   string
+	Tone           string
+	Manager        string
+	HasAvatarImage bool
+	AvatarImageURL string
+	Mine           bool
+}
+
+type TeamColumn struct {
+	Team  DraftBoardTeam
+	Picks []TapePick
+	Needs []map[string]any
+}
+
+// DraftHistoryProps backs the pick-tape pane's Tape/Board/Teams tabs:
+// Rounds (newest round first, D4), Board (round-ascending grid), Teams
+// (by-team columns), Complete (the final-ledger CSV export), and Latest
+// (the most recent pick number, the "↓ Latest" jump target). Since is the
+// tape's own "?since=" cursor (fragment.go): -1 means "unset", the pane's
+// full render; DraftTapeRows reads it directly, DraftHistory ignores it.
 type DraftHistoryProps struct {
-	Data  map[string]any
-	Since int
-	Rows  []map[string]any
+	Rounds   []TapeRound
+	Board    BoardView
+	Teams    []TeamColumn
+	Complete bool
+	Latest   int
+	Since    int
+	// The on-the-clock synthetic row DraftTapeRows leads its newest round
+	// with (Task 7 Step 4). HasOnClock is false once the draft is complete
+	// and on every "?since=" incremental fragment (the row belongs on a
+	// full pane render only, never repeated on each poll).
+	HasOnClock   bool
+	NextLabel    string
+	OnClockName  string
+	OnClockAbbr  string
+	OnClockTone  string
 }
 
 type DraftAvailableProps struct {
@@ -970,7 +1087,7 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			<button type="button" class="btn btn-sm btn-ghost draft-command__rail" data-gosx-toggle-target="#main-content" data-gosx-toggle-attribute="data-rail-open" aria-expanded="false">Rail</button>
 		</div>
 		<If cond={props.Data.banner != ""}>
-			<p class="draft-command__banner mono">{props.Data.banner}</p>
+			<p class="draft-command__banner mono" title={props.Data.banner}>{props.Data.banner}</p>
 		</If>
 		<span
 			class="visually-hidden"
@@ -997,18 +1114,16 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 			<button type="button" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</button>
 		</header>
 		<div class="draft-drawer__body">
-			<If cond={props.Data.draft.complete == false}>
+			<If cond={props.Data.draft.complete == false && props.Data.draft.started == false}>
 				<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh" class="clock-controls">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 					<label class="mono" for="draft-start-confirm">TYPE START //</label>
 					<input id="draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
-					<If cond={props.Data.draft.started == false}>
-						<button class="button button--primary" type="submit">Start draft + pick clock</button>
-					</If>
-					<If cond={props.Data.draft.started}>
-						<button class="button button--compact button--ghost" type="submit" title="The draft is already live; this is a no-op safety re-confirm, not a restart">Re-confirm draft start (already live)</button>
-					</If>
+					<button class="button button--primary" type="submit">Start draft + pick clock</button>
 				</form>
+			</If>
+			<If cond={props.Data.draft.complete == false && props.Data.draft.started}>
+				<p class="mono draft-drawer__note">Draft is running. The clock controls below are live.</p>
 			</If>
 			<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 				<div class="clock-controls">
@@ -1194,7 +1309,7 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 // grid pre/live, or the pre-draft checklist and the post-draft callout in
 // place of it.
 func DraftAvailable(props DraftAvailableProps) Node {
-	return <div class="draft-available">
+	return <div class="draft-available" data-has-adp={props.Data.has_adp}>
 		<If cond={props.Data.draft.started == false}>
 			<section class="player-pool draft-checklist">
 				<div class="pool-toolbar">
@@ -1269,7 +1384,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 			</section>
 		</If>
 		<div class="avail-row avail-row--head">
-			<span class="idx">RK</span><span class="idx">PLAYER</span><span class="idx">POS</span><span class="idx">PROJ</span><span class="idx"><If cond={props.Data.has_adp}>VS ADP</If></span><span class="idx">ACTION</span>
+			<span class="idx">RK</span><span class="idx">PLAYER</span><span class="idx">POS</span><span class="idx">PROJ</span><If cond={props.Data.has_adp}><span class="idx">VS ADP</span></If><span class="idx">ACTION</span>
 		</div>
 		<Each of={props.Players} as="player">
 			<article class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search}>
@@ -1277,7 +1392,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 				<div><strong>{player.Name}</strong><small>{player.Detail}</small></div>
 				<span class={"pos pos-" + player.Position}>{player.Position}</span>
 				<span class="num">{player.Projection}</span>
-				<span class="num"></span>
+				<If cond={props.Data.has_adp}><span class="num">{player.ValueLabel}</span></If>
 				<div class="avail-row__actions">
 				<If cond={props.Data.viewer.has_seat}>
 					<form method="post" action={props.QueueAddAction} data-gosx-managed="true">
@@ -1351,39 +1466,44 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 			<input type="radio" name="draft-mine-view" id="mine-room" class="visually-hidden"></input>
 			<label class="segment__option" for="mine-room">Room</label>
 		</div>
-		<div class="pool-list" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
-			<Each of={props.Queue} as="player">
-				<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken}>
-					<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
-					<span class="mono">{player.Rank}</span>
-					<div><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small></div>
-					<If cond={player.Taken}>
-						<form method="post" action={props.QueueRemoveAction} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-							<input type="hidden" name="player_id" value={player.ID}></input>
-							<input type="hidden" name="pos" value={props.Data.pool_position}></input>
-							<input type="hidden" name="q" value={props.Data.pool_query}></input>
-							<input type="hidden" name="page" value={props.Data.pool_page}></input>
-							<button class="btn btn-sm btn-ghost" type="submit">Clear</button>
-						</form>
-					</If>
-				</article>
-			</Each>
+		<div class="draft-mine__view draft-mine__view--queue">
+			<div class="pool-list" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
+				<Each of={props.Queue} as="player">
+					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken}>
+						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
+						<span class="mono">{player.Rank}</span>
+						<div><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small></div>
+						<If cond={player.Taken}>
+							<form method="post" action={props.QueueRemoveAction} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="player_id" value={player.ID}></input>
+								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+								<input type="hidden" name="q" value={props.Data.pool_query}></input>
+								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<button class="btn btn-sm btn-ghost" type="submit">Clear</button>
+							</form>
+						</If>
+					</article>
+				</Each>
+			</div>
+			<If cond={props.Data.queue_empty}>
+				<div class="board-peek-empty"><a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a></div>
+			</If>
 		</div>
-		<If cond={props.Data.queue_empty}>
-			<div class="board-peek-empty"><a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a></div>
-		</If>
-		<div class="draft-mine__needs">
-			<span class="idx">Roster needs</span>
-			<Each of={props.Data.roster_needs} as="need">
-				<If cond={need.open}><span class="need need--open">{need.label} {need.filled}/{need.total}</span></If>
-				<If cond={need.open == false}><span class="need need--full">{need.label} {need.filled}/{need.total}</span></If>
-			</Each>
-			<span class="mono draft-mine__autopick">
-				<If cond={props.Data.viewer_autopick}>AUTOPICK · ON</If>
-				<If cond={props.Data.viewer_autopick == false}>AUTOPICK · OFF</If>
-			</span>
+		<div class="draft-mine__view draft-mine__view--roster">
+			<div class="draft-mine__needs">
+				<span class="idx">Roster needs</span>
+				<Each of={props.Data.roster_needs} as="need">
+					<If cond={need.open}><span class="need need--open">{need.label} {need.filled}/{need.total}</span></If>
+					<If cond={need.open == false}><span class="need need--full">{need.label} {need.filled}/{need.total}</span></If>
+				</Each>
+				<span class="mono draft-mine__autopick">
+					<If cond={props.Data.viewer_autopick}>AUTOPICK · ON</If>
+					<If cond={props.Data.viewer_autopick == false}>AUTOPICK · OFF</If>
+				</span>
+			</div>
 		</div>
+		<div class="draft-mine__view draft-mine__view--room">
 		<div class="draft-mine__room">
 			<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
 				<div class="manager-draft-control" id="ready-toggle" data-ready={props.Data.viewer_ready}>
@@ -1447,6 +1567,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 				<DraftTeam {...team}></DraftTeam>
 			</Each>
 		</div>
+		</div>
 	</div>
 }
 
@@ -1466,76 +1587,204 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 	</div>
 }
 
-// DraftHistory is the pick-tape pane's swapped body. Task 7 replaces this
-// with the typed Tape/Board/Teams tab set; for now it is the pick tape
-// alone, read directly off Data, plus the completed draft's CSV export
-// link (Task 6 mounts GET /draft/ledger.csv; the link exists now so a
-// manager who finishes a draft is never one click short of it).
-func DraftHistory(props DraftHistoryProps) Node {
-	return <div class="draft-history">
-		<If cond={props.Data.draft.started == false}><b class="mono draft-history__state">DRAFT LOG</b></If>
-		<If cond={props.Data.draft.started && props.Data.draft.complete == false}><b class="mono draft-history__state">LIVE LOG</b></If>
-		<If cond={props.Data.draft.complete}>
-			<div class="draft-history__ledger">
-				<span class="idx">FINAL LEDGER</span>
-				<a class="btn btn-sm" href="/draft/ledger.csv">Export CSV</a>
+// DraftPickDetail is one pick's expanded accordion (Task 7 Step 4): value
+// vs ADP, time to pick, provenance, best available at that pick, and the
+// drafting team's own picks so far, behind a <details>/<summary> disclosure
+// so the tape stays scannable with every row collapsed.
+func DraftPickDetail(props TapePick) Node {
+	return <details class="pick-detail">
+		<summary class="btn btn-sm btn-ghost">Detail</summary>
+		<div class="pick-detail__body">
+			<div class="pick-detail__stats">
+				<span class="mono">Proj {props.Projection}</span>
+				<If cond={props.HasValue}><span class="mono">vs ADP {props.ValueLabel}</span></If>
+				<span class="mono">Time to pick {props.TimeToPick}</span>
+				<If cond={props.IsAuto}><b class="tag tag--auto">AUTO</b></If>
+				<If cond={props.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
 			</div>
-		</If>
-		<If cond={props.Data.picks_empty}>
+			<p class="mono muted">Drafted by {props.TeamName} · {props.Manager}</p>
+			<p class="mono muted">Source: {props.Source}</p>
+			<div class="pick-detail__best">
+				<span class="idx">Best available at this pick</span>
+				<Each of={props.BestAvailable} as="candidate">
+					<span>{candidate.Name} <small>{candidate.Position} · {candidate.NFLTeam}</small></span>
+				</Each>
+			</div>
+			<div class="pick-detail__team">
+				<span class="idx">{props.TeamName} so far</span>
+				<Each of={props.TeamPicks} as="teamPick">
+					<span class={"chip pos-" + teamPick.Position}>{teamPick.PlayerName}</span>
+				</Each>
+			</div>
+			<a class="btn btn-sm" href={"/players?q=" + props.PlayerName}>Player card →</a>
+		</div>
+	</details>
+}
+
+// DraftTapeRows is the tape's own body (D4): every round newest first, each
+// with a sticky header (direction, pick-number span, "N of M made"), then
+// one row per pick — team badge, team name + manager, then player + a
+// position chip (the owner's "show who picked who" ask) — newest pick
+// first, each carrying its own DraftPickDetail accordion. It is also the
+// "?since=" fragment body (fragment.go): prepareDraftData/attachDraftFragmentSince
+// pre-filter Rounds to picks numbered above Since before this renders, so
+// the template itself needs no cursor-aware branching.
+func DraftTapeRows(props DraftHistoryProps) Node {
+	return <div class="draft-tape-rows">
+		<Each of={props.Rounds} as="round">
+			<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current}>
+				<span class="idx">ROUND {round.Round}</span>
+				<span class="mono muted">{round.Direction} picks {round.First}–{round.Last}</span>
+				<span class="mono muted">{round.Made} of {round.Total} made</span>
+			</div>
+			<If cond={round.Current && props.HasOnClock}>
+				<article class="tape-row tape-row--clock">
+					<span class="mono tape-row__slot">{props.NextLabel}</span>
+					<span class={"team-mark tone-" + props.OnClockTone}>{props.OnClockAbbr}</span>
+					<div class="tape-row__body"><strong>On the clock</strong><small>{props.OnClockName}</small></div>
+				</article>
+			</If>
+			<Each of={round.Picks} as="pick">
+				<article class="tape-row" data-tape-key={"pick-" + pick.Number} data-pick-number={pick.Number} data-mine={pick.Mine} data-auto={pick.IsAuto} data-position={pick.Position}>
+					<span class="mono tape-row__slot">{pick.Label}</span>
+					<span class={"team-mark tone-" + pick.TeamTone}>
+						<If cond={pick.HasAvatarImage}>
+							<img class="avatar-mark__photo" src={pick.AvatarImageURL} alt={pick.TeamName} loading="lazy" />
+						</If>
+						<If cond={pick.HasAvatarImage == false}>{pick.TeamAbbr}</If>
+					</span>
+					<div class="tape-row__body">
+						<div class="tape-row__who"><strong>{pick.TeamName}</strong><small>{pick.Manager}</small></div>
+						<div class="tape-row__player">
+							<strong>{pick.PlayerName}</strong>
+							<small><span class={"pos pos-" + pick.Position}>{pick.Position}</span> · {pick.NFLTeam} · {pick.TimeToPick}</small>
+						</div>
+					</div>
+					<div class="tape-row__meta">
+						<If cond={pick.IsAuto}><b class="tag tag--auto">AUTO</b></If>
+						<If cond={pick.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
+						<span class="mono">#{pick.Number}</span>
+					</div>
+					<DraftPickDetail {...pick}></DraftPickDetail>
+				</article>
+			</Each>
+		</Each>
+		<If cond={len(props.Rounds) == 0}>
+			<If cond={props.HasOnClock}>
+				<article class="tape-row tape-row--clock">
+					<span class="mono tape-row__slot">{props.NextLabel}</span>
+					<span class={"team-mark tone-" + props.OnClockTone}>{props.OnClockAbbr}</span>
+					<div class="tape-row__body"><strong>On the clock</strong><small>{props.OnClockName}</small></div>
+				</article>
+			</If>
 			<div class="empty-tape">
 				<strong>NO PICKS YET</strong>
 				<p>The tape starts moving when the first selection is locked.</p>
 			</div>
 		</If>
-		<div class="pick-list">
-			<Each of={props.Data.picks} as="pick">
-				<div class="pick-row">
-					<span class="mono">{pick.number}</span>
-					<div>
-						<strong>{pick.player.name}</strong>
-						<small>{pick.player.position} · {pick.player.nfl_team}</small>
-					</div>
-					<div class="pick-tape-meta">
-						<If cond={pick.is_auto}><b class="pick-tag pick-tag--auto mono">AUTO</b></If>
-						<If cond={pick.is_commissioner}><b class="pick-tag pick-tag--comm mono">COMM</b></If>
-						<b class="mono">{pick.team.abbreviation}</b>
-					</div>
-				</div>
-			</Each>
-		</div>
 	</div>
 }
 
-// DraftTapeRows is the tape pane's "?since=" partial (fragment.go, Task 6
-// step 4): the rows newer than since alone, newest first, each preceded by
-// its round header once. draftTapeRowsSince (page.server.go) builds Rows
-// in the same pick-map shape DraftHistory's <Each> above already reads.
-func DraftTapeRows(props DraftHistoryProps) Node {
-	return <div class="draft-tape-rows">
+// DraftBoard is the round x team grid (D4): a sticky team-column header row,
+// then one sticky round header and one board-cell row per round. The pane
+// owns overflow: auto so the grid scrolls both ways at phone width.
+func DraftBoard(props BoardView) Node {
+	return <div class="board-grid" style={"--board-columns:" + props.ColumnCount}>
+		<div class="board-grid__corner"></div>
+		<Each of={props.Columns} as="column">
+			<div class="board-grid__team" data-mine={column.mine}>
+				<span class={"team-mark tone-" + column.tone}>{column.abbreviation}</span>
+				<span class="board-grid__name">{column.name}<If cond={column.mine}> · you</If></span>
+			</div>
+		</Each>
 		<Each of={props.Rows} as="row">
-			<If cond={row.is_round}>
-				<div class="draft-history__round mono" data-tape-key={row.tape_key}>ROUND {row.round}</div>
-			</If>
-			<If cond={row.is_round == false}>
-				<div class="pick-row" data-tape-key={row.tape_key}>
-					<span class="mono">{row.number}</span>
-					<div>
-						<strong>{row.player.name}</strong>
-						<small>{row.player.position} · {row.player.nfl_team}</small>
-					</div>
-					<div class="pick-tape-meta">
-						<If cond={row.is_auto}><b class="pick-tag pick-tag--auto mono">AUTO</b></If>
-						<If cond={row.is_commissioner}><b class="pick-tag pick-tag--comm mono">COMM</b></If>
-						<b class="mono">{row.team.abbreviation}</b>
-					</div>
+			<div class="board-grid__round">
+				<span class="idx">ROUND {row.Round}</span>
+				<span class="mono muted">{row.Direction}</span>
+			</div>
+			<Each of={row.Cells} as="cell">
+				<div class={"board-cell c-" + cell.Position} data-round={cell.Round} data-column={cell.Column} data-filled={cell.Filled} data-mine={cell.Mine} data-clock={cell.OnClock}>
+					<If cond={cell.OnClock}>
+						<strong>on the clock</strong>
+					</If>
+					<If cond={cell.OnClock == false && cell.Filled}>
+						<strong>{cell.PlayerName}</strong>
+						<small>{cell.Label} · {cell.Position}<If cond={cell.IsAuto}> · AUTO</If></small>
+					</If>
+					<If cond={cell.OnClock == false && cell.Filled == false}>
+						<small>{cell.Label}<If cond={cell.Mine}> · you</If></small>
+					</If>
 				</div>
-			</If>
+			</Each>
 		</Each>
 	</div>
 }
 
+// DraftByTeamProps wraps the by-team column slice: GSX component props
+// must be a struct (a bare slice cannot be a component's prop type), so
+// this is Teams alone, invoked with a named attribute rather than spread.
+type DraftByTeamProps struct {
+	Teams []TeamColumn
+}
+
+// DraftByTeam is the "By team" tab (D4): one team column per franchise, its
+// own picks in draft order, then its roster-needs chips.
+func DraftByTeam(props DraftByTeamProps) Node {
+	return <div class="team-columns">
+		<Each of={props.Teams} as="column">
+			<section class="team-column" data-mine={column.Team.Mine}>
+				<header class="team-column__head">
+					<span class={"team-mark tone-" + column.Team.Tone}>{column.Team.Abbreviation}</span>
+					<div><strong>{column.Team.Name}</strong><small>{column.Team.Manager}</small></div>
+				</header>
+				<div class="team-column__picks">
+					<Each of={column.Picks} as="pick">
+						<article class="tape-row" data-tape-key={"team-pick-" + pick.Number} data-pick-number={pick.Number}>
+							<span class="mono tape-row__slot">{pick.Label}</span>
+							<div class="tape-row__player">
+								<strong>{pick.PlayerName}</strong>
+								<small><span class={"pos pos-" + pick.Position}>{pick.Position}</span> · {pick.NFLTeam}</small>
+							</div>
+						</article>
+					</Each>
+				</div>
+				<div class="team-column__needs">
+					<Each of={column.Needs} as="need">
+						<If cond={need.open}><span class="need need--open">{need.label} {need.filled}/{need.total}</span></If>
+						<If cond={need.open == false}><span class="need need--full">{need.label} {need.filled}/{need.total}</span></If>
+					</Each>
+				</div>
+			</section>
+		</Each>
+	</div>
+}
+
+// DraftHistory is the pick-tape pane's swapped body (D4): the Tape/Board/
+// Teams views (only one visible at a time, the draft-history-head segment's
+// CSS :has() rules), plus the completed draft's final ledger and CSV export
+// link.
+func DraftHistory(props DraftHistoryProps) Node {
+	return <div class="draft-history" data-latest={props.Latest}>
+		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
+		<div class="draft-history__view draft-history__view--tape">
+			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>
+			<div class="tape" id="tape-latest">
+				<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone}></DraftTapeRows>
+			</div>
+		</div>
+		<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
+		<div class="draft-history__view draft-history__view--teams"><DraftByTeam Teams={props.Teams}></DraftByTeam></div>
+		<If cond={props.Complete}>
+			<div class="draft-history__ledger">
+				<span class="idx">FINAL LEDGER</span>
+				<a class="btn btn-sm" href="/draft/ledger.csv">Export CSV</a>
+			</div>
+		</If>
+	</div>
+}
+
 func Page() Node {
-	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode} data-can-pick={data.can_pick}>
+	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
 		<div class="draft-notice" aria-live="polite">
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>

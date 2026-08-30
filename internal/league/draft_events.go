@@ -106,14 +106,13 @@ func (s *Service) draftRepairLoop(ctx context.Context, signal chan struct{}) {
 			payload["started"] = state.DraftStarted
 			payload["complete"] = draftComplete(state)
 			payload["repair"] = true
-			// signalOnDrop is false here on purpose: a repair that itself
-			// gets dropped must not requeue another signal for its own
-			// failure, or a sustained backlog would make this loop retry
-			// itself indefinitely instead of waiting for the next real
-			// producer drop. The room's plain reconnect repair
-			// (syncJoiningClient) is the backstop for a repair that never
-			// gets through.
-			s.emitDraftEvent("draft:state", payload, false)
+			// R2 (Task 6 review): the repair itself must never be dropped —
+			// it is the one message that resyncs whatever a prior drop
+			// already lost, so silently dropping it too would leave a
+			// client stuck stale until its own reconnect repair fires.
+			// blockOnFull (below) waits for queue room instead of the
+			// drop-and-count path every other emitDraft caller uses.
+			s.emitDraftEventBlocking(ctx, "draft:state", payload)
 		}
 	}
 }
@@ -157,6 +156,34 @@ func (s *Service) emitDraftEvent(name string, payload map[string]any, signalOnDr
 		}
 	}
 	s.draftEmitMu.Unlock()
+}
+
+// emitDraftEventBlocking is draftRepairLoop's own emit path (R2, Task 6
+// review): unlike emitDraftEvent, a full queue never drops this one — it
+// blocks until draftEventDrain frees a slot, or ctx is canceled
+// (shutdown/StopDraftEvents). It still holds draftEmitMu across the send,
+// preserving the same "assign the generation, then enqueue" ordering
+// guarantee emitDraftEvent's own doc comment describes; a caller blocked
+// here simply holds up the next producer's own emit until room frees,
+// which is the point — this is the one message a sustained backlog must
+// not silently lose.
+func (s *Service) emitDraftEventBlocking(ctx context.Context, name string, payload map[string]any) {
+	s.draftEmitMu.Lock()
+	defer s.draftEmitMu.Unlock()
+	s.poolMu.Lock()
+	queue := s.draftQueue
+	s.poolMu.Unlock()
+	if queue == nil {
+		return
+	}
+	generation := s.draftGeneration.Add(1)
+	payload["generation"] = generation
+	payload["at"] = s.clock().UTC().Format(time.RFC3339)
+	event := DraftEvent{Name: name, Generation: generation, Payload: payload}
+	select {
+	case queue <- event:
+	case <-ctx.Done():
+	}
 }
 
 // draftTeamCount is the denominator every draft completion and pick-count
