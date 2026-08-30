@@ -141,7 +141,7 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 	if !ok {
 		return LiveSnapshot{}, fmt.Errorf("week %d is not in the persisted season schedule", week)
 	}
-	stateLabel, statusLabel, clockLabel := p.weekState(week, wk.Matchups, now)
+	stateLabel, statusLabel, clockLabel, slateLine := p.weekState(week, wk.Matchups, now)
 	// One page render must use one authoritative weekly stat slice. Taking the
 	// snapshot before walking matchups keeps both ledgers, their aggregate
 	// scores, and every matchup on the page on the same source read/timestamp.
@@ -237,6 +237,7 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		LiveState:      pageLiveState,
 		SourceLine:     liveSourceLine(pageLiveState, weeklyStats.live, now),
 		GamesFinal:     gamesFinal,
+		SlateLine:      slateLine,
 		LiveCheckedAt:  weeklyStats.live.CheckedAt,
 		LastUpdated:    lastUpdated.UTC(),
 		CheckedAt:      now.UTC(),
@@ -300,7 +301,7 @@ func (s *Service) scheduleGeneration() int64 {
 	return s.store.ScheduleGeneration()
 }
 
-func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock string) {
+func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock, slate string) {
 	allFinal := len(matchups) > 0
 	for _, matchup := range matchups {
 		if !matchup.Final {
@@ -309,7 +310,7 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		}
 	}
 	if allFinal {
-		return MatchupStateFinal, fmt.Sprintf("Week %d results are final", week), "FINAL"
+		return MatchupStateFinal, fmt.Sprintf("Week %d results are final", week), "FINAL", "Week complete"
 	}
 	var weekGames []GameInfo
 	for _, game := range p.svc.schedule() {
@@ -318,7 +319,7 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		}
 	}
 	if len(weekGames) == 0 {
-		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE"
+		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE", ""
 	}
 	earliest := weekGames[0].Kickoff
 	weekStarted := false
@@ -337,12 +338,34 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 	location := p.svc.matchupLocation()
 	if !weekStarted {
 		kickoff := earliest.In(location).Format("Mon Jan 2 · 3:04 PM MST")
-		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff
+		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff, earliest.In(location).Format("Monday 3:04 PM") + " slate"
 	}
 	if allNFLFinal {
-		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE"
+		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE", now.In(location).Format("Mon Jan 2") + " · games final"
 	}
-	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel
+	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel, matchupSlateLine(now, location)
+}
+
+// matchupSlateLine is the masthead subtitle's date/slate phrase for an
+// in-progress week ("Sun Sep 13 · late slate in progress", the approved
+// mockup's own copy — warroom/Matchups.dc.html): today's date, then which
+// NFL broadcast window is on, classified from the hour of day in the
+// league's own timezone. This is a coarse, hour-of-day heuristic (not a
+// per-game classification), matching the mockup's own single-phrase
+// scope; it never needs game-level precision because SourceLine (the
+// status line just below it) already carries the authoritative per-game
+// freshness detail.
+func matchupSlateLine(now time.Time, location *time.Location) string {
+	local := now.In(location)
+	hour := local.Hour()
+	slate := "early"
+	switch {
+	case hour >= 19 || hour < 10:
+		slate = "primetime"
+	case hour >= 16:
+		slate = "late"
+	}
+	return local.Format("Mon Jan 2") + " · " + slate + " slate in progress"
 }
 
 func matchupStateCardLabel(state string) string {

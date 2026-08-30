@@ -8435,10 +8435,6 @@ body.is-on-clock .draft-clock-panel {
     display: none;
   }
 
-  .matchups-page .matchup-status-line__games {
-    display: none;
-  }
-
   .matchups-page .my-matchup__summary {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas:
@@ -8468,8 +8464,15 @@ body.is-on-clock .draft-clock-panel {
     font-size: 2.125rem;
   }
 
+  /* 54px matches the approved mobile mockup's own .row grid-template-columns
+     (MatchupsMobile.dc.html) exactly; the taller min-height gives a name
+     the phone's own abbreviation budget still misses (page.server.go's
+     mobileShortName) room to wrap onto a second line — starter-cell__name
+     strong's white-space: normal below — rather than force a horizontal
+     scrollbar (item 4, round-2 fidelity pass). */
   .matchups-page .slot-row {
-    grid-template-columns: minmax(0, 1fr) 3.5rem 3.5rem minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) 54px 54px minmax(0, 1fr);
+    min-height: 3.75rem;
   }
 
   .matchups-page .slot-row--head-desktop {
@@ -8486,6 +8489,52 @@ body.is-on-clock .draft-clock-panel {
 
   .matchups-page .starter-cell__state-text {
     display: inline;
+  }
+
+  /* Swap which name span page.gsx's StarterCell renders: the phone
+     budget's own abbreviated form, not the desktop full name (item 4). A
+     name the abbreviation still can't shrink enough wraps onto a second
+     line instead of overflowing horizontally — the row's own taller
+     min-height above exists for exactly this rare case. */
+  .matchups-page .starter-cell__name-full {
+    display: none;
+  }
+
+  .matchups-page .starter-cell__name-short {
+    display: inline;
+  }
+
+  .matchups-page .starter-cell__name strong {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Status line, phone width (items 2 and 7): the separate ledger-stamp
+     sentence never fits beside the state chip and source phrase on a
+     390px line, and the mockup's own phone header never shows it
+     (MatchupsMobile.dc.html) — only the source phrase and the games-final
+     count do, sharing one row. flex-wrap: nowrap plus the source phrase's
+     own ellipsis keeps that row at exactly one line, well inside the
+     "at most two rows" budget. */
+  .matchups-page .matchup-status-line {
+    flex-wrap: nowrap;
+  }
+
+  .matchups-page .matchup-status-line__source {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .matchups-page .matchup-status-line__ledger {
+    display: none;
+  }
+
+  .matchups-page .matchup-status-line__games {
+    flex: 0 0 auto;
   }
 }
 
@@ -8621,12 +8670,15 @@ body.is-on-clock .draft-clock-panel {
   min-width: 0;
 }
 
+/* The team name never truncates at desktop width — only the manager line
+   below it (.my-matchup__team small) clamps to one line (item M7, round-2
+   fidelity pass): text-wrap: balance mirrors the approved mockup's own
+   treatment of this element (warroom/Matchups.dc.html). */
 .my-matchup__team strong {
   display: block;
   font-size: var(--type-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.15;
+  text-wrap: balance;
 }
 
 .my-matchup__team small {
@@ -8655,7 +8707,17 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-md);
 }
 
+/* The bare .score rule (defect: two equal-specificity single-class rules,
+   .mono and .score, both set font-family — .score, declared later in this
+   file, wins the tie and puts the featured totals in the display font
+   instead of mono, which is what read as a solid colored block rather
+   than legible digits at 44px in an em-dash "—" glyph). This selector's
+   extra .my-matchup__totals ancestor class outranks that tie unconditionally,
+   independent of source order, so it always wins here regardless of where
+   .score/.mono end up moving in this file (item 1, round-2 fidelity pass). */
 .my-matchup__totals .score {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 2.75rem;
   font-weight: 600;
   line-height: 1;
@@ -8738,17 +8800,43 @@ body.is-on-clock .draft-clock-panel {
   text-align: right;
 }
 
+/* .matchup-ledger is also the class name of an older, unrelated
+   disclosure (public/styles.css:2457, "scoped to the matchup card" —
+   dead in app/ since Task 11b, but its border/border-radius/background
+   still apply here at equal specificity and later-wins-ties in that
+   rule's favor is exactly backwards): unstyled here is deliberate — this
+   .matchup-ledger is a bare slot-row grid item (.starter-cell has
+   display: contents above), not a bordered card (items 4 and 5, round-2
+   fidelity pass: this was rendering as a rounded, tinted outline around
+   every single starter name on desktop, and eating the padding+border
+   width phone's four-column layout needed for a full name to fit). */
 .matchup-ledger {
   min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .starter-cell__name {
+  display: block;
   cursor: pointer;
   list-style: none;
 }
 
 .starter-cell__name::-webkit-details-marker {
   display: none;
+}
+
+/* .matchup-ledger summary (2463) sets padding/color/letter-spacing at
+   (0,1,1) specificity — one class plus the summary type selector — which
+   this file's own plain .starter-cell__name single-class rule (0,1,0)
+   can never outrank regardless of source order. This compound selector
+   clears every property that stale rule set, unconditionally. */
+.matchup-ledger .starter-cell__name {
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  letter-spacing: normal;
 }
 
 .starter-cell__name strong {
@@ -8758,6 +8846,13 @@ body.is-on-clock .draft-clock-panel {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The phone breakpoint (last max-width: 38rem block, below) swaps which
+   of these two is visible; desktop always shows the full name (item 4,
+   round-2 fidelity pass — page.gsx's StarterCell doc comment). */
+.starter-cell__name-short {
+  display: none;
 }
 
 .starter-cell__name small {
@@ -8801,6 +8896,18 @@ body.is-on-clock .draft-clock-panel {
   flex-direction: column;
   gap: var(--space-sm);
   min-width: 0;
+}
+
+/* .matchup-grid is a shared class (also the dashboard's two-up mini-matchup
+   grid, public/styles.css:1374): its own repeat(2, minmax(0,1fr)) rule
+   squeezed every scorebug into a ~160px-wide half of this 340px aside,
+   leaving no room for the .mini row's name+manager column (item 3,
+   round-2 fidelity pass — assertScorebugNamesNonEmpty,
+   sim_matchups_browser_test.go, guards against the missing text this
+   caused). Scorebugs in the around-the-league rail always stack in one
+   full-width column. */
+.around-league .matchup-grid {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .around-league__head {

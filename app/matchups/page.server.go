@@ -78,21 +78,22 @@ func matchupStateClass(liveState string) string {
 // which reads as an unconfigured slot (HasPlayer false), the same as an
 // explicit empty-slot row.
 type StarterCellData struct {
-	HasPlayer  bool
-	Right      bool
-	LiveKey    string
-	PlayerID   string
-	PlayerName string
-	Position   string
-	NFLTeam    string
-	HasNFLTeam bool
-	Points     string
-	Provenance string
-	JoinState  string
-	Detail     string
-	Source     string
-	GameState  string
-	StateClass string
+	HasPlayer       bool
+	Right           bool
+	LiveKey         string
+	PlayerID        string
+	PlayerName      string
+	PlayerNameShort string
+	Position        string
+	NFLTeam         string
+	HasNFLTeam      bool
+	Points          string
+	Provenance      string
+	JoinState       string
+	Detail          string
+	Source          string
+	GameState       string
+	StateClass      string
 }
 
 // starterCellData converts one side of a FeaturedMatchupPairData row.
@@ -104,23 +105,59 @@ type StarterCellData struct {
 func starterCellData(raw any, right bool) StarterCellData {
 	row, _ := raw.(map[string]any)
 	nflTeam := stringField(row, "nfl_team")
+	playerName := stringField(row, "player_name")
 	return StarterCellData{
-		HasPlayer:  stringField(row, "player_id") != "",
-		Right:      right,
-		LiveKey:    stringField(row, "live_key"),
-		PlayerID:   stringField(row, "player_id"),
-		PlayerName: stringField(row, "player_name"),
-		Position:   stringField(row, "position"),
-		NFLTeam:    nflTeam,
-		HasNFLTeam: nflTeam != "",
-		Points:     stringField(row, "points"),
-		Provenance: stringField(row, "provenance"),
-		JoinState:  stringField(row, "join_state"),
-		Detail:     stringField(row, "detail"),
-		Source:     stringField(row, "source"),
-		GameState:  stringField(row, "game_state"),
-		StateClass: starterStateClass(stringField(row, "game_state")),
+		HasPlayer:       stringField(row, "player_id") != "",
+		Right:           right,
+		LiveKey:         stringField(row, "live_key"),
+		PlayerID:        stringField(row, "player_id"),
+		PlayerName:      playerName,
+		PlayerNameShort: mobileShortName(playerName),
+		Position:        stringField(row, "position"),
+		NFLTeam:         nflTeam,
+		HasNFLTeam:      nflTeam != "",
+		Points:          stringField(row, "points"),
+		Provenance:      stringField(row, "provenance"),
+		JoinState:       stringField(row, "join_state"),
+		Detail:          stringField(row, "detail"),
+		Source:          stringField(row, "source"),
+		GameState:       stringField(row, "game_state"),
+		StateClass:      starterStateClass(stringField(row, "game_state")),
 	}
+}
+
+// mobileNameOverflowChars is the full "First Last" length past which a
+// name reliably overflows the phone four-column slot-row's name cell (the
+// minmax(0,1fr) track beside the two fixed 54px point columns —
+// public/styles.css's phone-width .matchups-page .slot-row rule): a
+// browser measurement against the replay fixture's own starter names put
+// the fitting budget at roughly 12 characters at the cell's ~12.5px bold
+// body font (sim_matchups_browser_test.go's mobile name-overflow probe,
+// round-1 finding). Kept a plain character count rather than a real glyph
+// measurement: this runs at SSR time, with no canvas or layout available,
+// and every name in the pool is ASCII-range Latin text of comparable
+// average glyph width, so length is a good enough proxy.
+const mobileNameOverflowChars = 12
+
+// mobileShortName abbreviates a starter's first name to its initial
+// ("Jayden Daniels" -> "J. Daniels") once the full name is long enough to
+// overflow the phone slot-row's name cell (mobileNameOverflowChars). A
+// name at or under the budget, or one gosx-render can't split into a
+// first and last part (no space, or either side blank — a single-word
+// D/ST name, for instance), returns unchanged: StarterCell renders this
+// value only inside the phone breakpoint's own name span, so the full
+// PlayerName still carries desktop's copy and any name this function
+// declines to shorten.
+func mobileShortName(name string) string {
+	if len(name) <= mobileNameOverflowChars {
+		return name
+	}
+	first, last, ok := strings.Cut(name, " ")
+	if !ok || first == "" || last == "" {
+		return name
+	}
+	initial := []rune(first)[0]
+	return string(initial) + ". " + last
 }
 
 // FeaturedMatchupPairData is one FeaturedMatchupData.Pairs entry: one

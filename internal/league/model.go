@@ -528,6 +528,14 @@ type LiveSnapshot struct {
 	// GamesFinal is "<n> of <m> games final" over the week's NFL
 	// schedule, or "" when the week has no games.
 	GamesFinal string `json:"gamesFinal,omitempty"`
+	// SlateLine is the masthead subtitle A6 renders under the week
+	// label in place of the old static "LIVE SIGNAL. · Fantasy scoring
+	// is in progress" copy (matchupSlateLine): a short date/slate
+	// sentence derived from the week's own NFL schedule, distinct from
+	// SourceLine's feed-provenance sentence. Empty before any schedule
+	// exists (the preseason provider never sets it), in which case the
+	// page renders no subtitle at all.
+	SlateLine string `json:"slateLine,omitempty"`
 	// LiveCheckedAt is the live poller's own last-checked instant
 	// (LiveStatus.CheckedAt), distinct from CheckedAt (this snapshot's
 	// own render instant) and StatsUpdatedAt (the ledger's freshness).

@@ -42,12 +42,17 @@ func (s *Service) ClockForTest() time.Time { return s.clock() }
 // private escape hatch newTestService flips directly for in-package
 // tests (service_test.go); Store.MakePick still enforces the draft-order
 // "on the clock" check unconditionally, so callers must still make picks
-// in the league's real snake order (team-1, then team-2, ...).
+// in the league's real snake order (team-1, then team-2, ...). The flag
+// is restored to its prior value on return, so back-to-back calls (or a
+// caller that had already set its own bypass) never leave the store
+// permanently unguarded after this one call returns.
 func (s *Service) SeedStarterForTest(teamID string, week int, slot, playerID string) error {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
 		return fmt.Errorf("SeedStarterForTest is refused in production")
 	}
+	previousBypass := s.store.draftLifecycleBypass
 	s.store.draftLifecycleBypass = true
+	defer func() { s.store.draftLifecycleBypass = previousBypass }()
 	now := s.clock()
 	if _, err := s.store.MakePick(teamID, playerID, "manager", now, time.Time{}); err != nil {
 		return err

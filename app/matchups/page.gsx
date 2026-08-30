@@ -67,11 +67,23 @@ func WeekBrowser(props WeekBrowserProps) Node {
 // of a pair; page.gsx composes the six-column slot-row layout from the
 // plain data-right attribute in public/styles.css (round-2 review of
 // commit 133d1d7, finding 5), rather than a precomputed class string.
+//
+// The name renders twice — starter-cell__name-full (the live-bound
+// PlayerName) and starter-cell__name-short (the server-abbreviated
+// PlayerNameShort, page.server.go's mobileShortName) — with CSS toggling
+// which one is visible per breakpoint (item 4, round-2 fidelity pass):
+// PlayerNameShort is never itself live-bound (a starter's identity does
+// not change mid-game the way its stat line does), so only the full
+// variant carries data-gosx-live-bind, keeping a live update's textContent
+// patch scoped to the span it actually targets.
 func StarterCell(props StarterCellData) Node {
 	return <div class="starter-cell" data-right={props.Right}>
 		<details class="matchup-ledger">
 			<summary class="starter-cell__name">
-				<strong data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</strong>
+				<strong>
+					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
+					<span class="starter-cell__name-short">{props.PlayerNameShort}</span>
+				</strong>
 				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span> · <span class="starter-cell__state-text" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
@@ -90,6 +102,15 @@ func StarterCell(props StarterCellData) Node {
 // slot, mine and theirs side by side. IsViewer selects the labels ("Your
 // team"/"Opponent" versus "Featured"/"Versus" when the week has no seated
 // viewer matchup to show).
+//
+// The win-probability bar's fill width (the <i style={"width: " +
+// props.WinProbWidth}>...</i> below) is set once, from WinProbWidth, at
+// full render only: gosx's live-bind only ever patches an element's text,
+// never a style attribute, so a poll can never move the fill in place.
+// The percentage text right beside it (winProb.<id>) is the live-bound
+// half of that same number — it keeps ticking every poll even though the
+// bar it sits next to does not, until the next full render redraws both
+// together.
 func FeaturedMatchup(props FeaturedMatchupData) Node {
 	return <section class="my-matchup card" data-live-matchup={props.ID}>
 		<header class="my-matchup__summary">
@@ -180,22 +201,38 @@ func Scorebug(props ScorebugData) Node {
 	</details>
 }
 
+// Page's status line (below) is one composed sentence for assistive tech
+// (AT) — state, source phrase, ledger stamp, games-final count, in the
+// mockup's own order: the three raw bookkeeping spans a poll needs
+// (checkedAt/liveStatus/refreshLabel) carry no reading-order meaning of
+// their own, so they sit outside the role="status" region entirely rather
+// than fragmenting it (item 7, round-2 fidelity pass) — aria-live="polite"
+// announces the region's own text as it changes, and a value no sighted
+// or AT user is meant to read should not be part of that text. LEDGER's
+// own sourceLine value is the literal string "Weekly ledger (nflverse)"
+// (liveSourceLine, feed.go): the same words the static ledger-stamp span
+// always opens with, so that span only renders once the live state has
+// moved off LEDGER and the two no longer say the same thing back to back
+// (item 2).
 func Page() Node {
 	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 		<header class="matchups-masthead">
 			<div class="matchups-masthead__title">
 				<h1 class="display"><span data-gosx-live-bind="weekLabel">{data.live.week_label}</span> <span class="matchups-masthead__word">MATCHUPS</span></h1>
-				<p class="matchups-masthead__sub mono"><span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span> <span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span> · <span data-gosx-live-bind="status">{data.live.status}</span></p>
+				<If cond={data.live.slate_line != ""}><p class="matchups-masthead__sub mono" data-gosx-live-bind="slateLine">{data.live.slate_line}</p></If>
+				<p class="visually-hidden"><span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span> <span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span> · <span data-gosx-live-bind="status">{data.live.status}</span></p>
 			</div>
 			<If cond={data.has_weeks}><WeekBrowser HasPrevious={data.has_previous_week} PreviousHref={data.previous_week_href} Options={data.week_options} HasNext={data.has_next_week} NextHref={data.next_week_href} IsCurrent={data.is_current_week} CurrentHref={data.current_week_href}></WeekBrowser></If>
 		</header>
 		<p class="matchup-status-line" role="status" aria-live="polite">
 			<span class="state-chip" data-live-state={data.status_line.live_state}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span><b data-gosx-live-bind="liveState">{data.status_line.live_state}</b></span>
-			<span class="mono" data-gosx-live-bind="sourceLine">{data.status_line.source_line}</span>
-			<span class="mono muted">Weekly ledger (nflverse) · <span data-gosx-live-bind="statsUpdatedAt">{data.status_line.stats_updated_at}</span></span>
+			<span class="mono matchup-status-line__source" data-gosx-live-bind="sourceLine">{data.status_line.source_line}</span>
+			<If cond={data.status_line.live_state != "LEDGER"}>
+				<span class="mono muted matchup-status-line__ledger">Weekly ledger (nflverse) · <span data-gosx-live-bind="statsUpdatedAt">{data.status_line.stats_updated_at}</span></span>
+			</If>
 			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
-			<span class="visually-hidden" data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span><span class="visually-hidden" data-gosx-live-bind="liveStatus">{data.live.live_status}</span><span class="visually-hidden" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
 		</p>
+		<span class="visually-hidden" data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span><span class="visually-hidden" data-gosx-live-bind="liveStatus">{data.live.live_status}</span><span class="visually-hidden" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
 		<If cond={data.has_week_notice}><p class="matchup-week-notice" role="status">{data.week_notice}</p></If>
 		<div class="matchup-layout">
 			<If cond={data.my_matchup.HasMatchup}><FeaturedMatchup {...data.my_matchup}></FeaturedMatchup></If>
