@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -310,17 +311,41 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		}
 	}
 
-	mainSource, err := os.ReadFile("../../main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
+	buildSource := rootPackageSource(t)
 	for _, want := range []string{
 		`app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))`,
 		`app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))`,
 		`app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))`,
 	} {
-		if !strings.Contains(string(mainSource), want) {
+		if !strings.Contains(buildSource, want) {
 			t.Errorf("draft fragment route missing mount %q", want)
 		}
 	}
+}
+
+// rootPackageSource concatenates every non-test Go file of the root package.
+// The mount contract asks where a route is registered, not which file holds
+// it, so a later move inside the root package cannot silently pass.
+func rootPackageSource(t *testing.T) string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join("..", "..", "*.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources strings.Builder
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources.Write(body)
+		sources.WriteByte('\n')
+	}
+	if sources.Len() == 0 {
+		t.Fatal("root package sources not found")
+	}
+	return sources.String()
 }

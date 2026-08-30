@@ -1,6 +1,8 @@
 .env
 data/
 dist/
+# `go build ./cmd/gridiron-sim` from the repo root drops its binary here.
+/gridiron-sim
 .gosx/
 .canopy/
 artifacts/

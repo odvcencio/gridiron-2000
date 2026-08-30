@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+
 	"m31labs.dev/gosx/route"
 )
 
@@ -157,11 +159,34 @@ func TestCommissionerRegionContractIsSameOriginReadOnlyAndScoped(t *testing.T) {
 		}
 	}
 
-	mainSource, err := os.ReadFile("../../main.go")
+	if !strings.Contains(rootPackageSource(t), "app.Mount(\"GET /commissioner/fragment\", commissionerpage.FragmentHandler(hqService))") {
+		t.Fatal("same-origin commissioner fragment GET route is not mounted")
+	}
+}
+
+// rootPackageSource concatenates every non-test Go file of the root package.
+// The mount contract asks where a route is registered, not which file holds
+// it, so a later move inside the root package cannot silently pass.
+func rootPackageSource(t *testing.T) string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join("..", "..", "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(mainSource), "app.Mount(\"GET /commissioner/fragment\", commissionerpage.FragmentHandler(hqService))") {
-		t.Fatal("same-origin commissioner fragment GET route is not mounted")
+	var sources strings.Builder
+	for _, path := range paths {
+		if strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sources.Write(body)
+		sources.WriteByte('\n')
 	}
+	if sources.Len() == 0 {
+		t.Fatal("root package sources not found")
+	}
+	return sources.String()
 }

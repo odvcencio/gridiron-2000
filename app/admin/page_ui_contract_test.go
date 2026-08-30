@@ -379,11 +379,7 @@ func TestCommissionerLeagueSwitcherMarkupAndRouteContract(t *testing.T) {
 			t.Errorf("league switcher markup missing %q", want)
 		}
 	}
-	mainSource, err := os.ReadFile("../../main.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(mainSource), `app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))`) {
+	if !strings.Contains(rootPackageSource(t), `app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))`) {
 		t.Fatal("commissioner league switch route is not mounted")
 	}
 }

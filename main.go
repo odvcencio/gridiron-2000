@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -19,44 +17,37 @@ import (
 	"time"
 	_ "time/tzdata"
 
-	activitypage "gridiron-2000/app/activity"
-	adminpage "gridiron-2000/app/admin"
-	commissionerpage "gridiron-2000/app/commissioner"
-	draftpage "gridiron-2000/app/draft"
-	pickempage "gridiron-2000/app/pickem"
-	playerspage "gridiron-2000/app/players"
-	teampage "gridiron-2000/app/team"
-	tradespage "gridiron-2000/app/trades"
-	wirepage "gridiron-2000/app/wire"
-	"gridiron-2000/internal/commissionerhq"
-	"gridiron-2000/internal/commissionerhq/v1fleet"
-	"gridiron-2000/internal/commissionerhq/v1provider"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
 	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
-	"gridiron-2000/internal/wire"
 	_ "gridiron-2000/modules"
-	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/auth"
 	"m31labs.dev/gosx/env"
-	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
+
+// isLocalAppEnv reports whether APP_ENV names a local, non-deployed
+// environment. It is an allow-list: every other label, "prod" and "staging"
+// included, is a deployment. The cookie policy and AppConfig.validate share
+// this one answer so the two can never disagree about where the process runs.
+func isLocalAppEnv(appEnv string) bool {
+	switch strings.ToLower(strings.TrimSpace(appEnv)) {
+	case "", "local", "development", "test":
+		return true
+	}
+	return false
+}
 
 // gridironSessionOptions keeps the cookie policy explicit at the one place
 // where the application decides whether it is serving local plain HTTP or a
 // deployed HTTPS environment. gosx defaults to Secure when AllowInsecure is
 // omitted, so only known local/default environments opt in to plain HTTP.
 func gridironSessionOptions(appEnv string) session.Options {
-	localHTTP := false
-	switch strings.ToLower(strings.TrimSpace(appEnv)) {
-	case "", "local", "development", "test":
-		localHTTP = true
-	}
+	localHTTP := isLocalAppEnv(appEnv)
 	return session.Options{
 		CookieName:    "gridiron_session",
 		Secure:        !localHTTP,
@@ -70,400 +61,31 @@ func gridironSessionOptions(appEnv string) session.Options {
 
 func main() {
 	_, thisFile, _, _ := runtime.Caller(0)
-	root := server.ResolveAppRoot(thisFile)
-	if err := env.LoadDir(root, ""); err != nil {
+	if err := env.LoadDir(server.ResolveAppRoot(thisFile), ""); err != nil {
+		log.Fatal(err)
+	}
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
 		log.Fatal(err)
 	}
 	runtimeContext, stopRuntime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRuntime()
-	signalFeed, err := wire.Default()
+	app, rt, err := BuildApp(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
-	openStats, err := openstats.Default()
-	if err != nil {
-		log.Fatal(err)
-	}
-	// league.Default() loads league.json (or the neutral built-in default)
-	// first, so its team count and roster shape are on hand to scale
-	// FANTASY_POOL_LIMIT's own default (owner decision, productization
-	// wave: teams × roster spots × headroom, not a flat constant).
-	poolLimit := fantasy.ScaledPoolLimit(league.Default().TeamCount(), league.Default().RosterSpots())
-	fantasyPool, err := fantasy.Default(poolLimit)
-	if err != nil {
-		log.Fatal(err)
-	}
-	signalFeed.Start(runtimeContext)
-	openStats.Start(runtimeContext)
-	fantasyPool.Start(runtimeContext)
-	league.Default().SetPlayerSource(fantasyPlayerSource(fantasyPool))
-	league.Default().SetPoolStatus(fantasyPoolStatus(fantasyPool))
-	league.Default().SetScheduleSource(leagueScheduleSource(openStats))
-	league.Default().StartPickemMarketSync(runtimeContext)
-	league.Default().SetStatsUpdatedSource(func() time.Time {
-		return openStats.Status().PlayerStats.LastUpdated
-	})
-	league.Default().SetHistoricalSource(historicalSource(openStats))
-	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
-	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
-	startBlitzPoller(runtimeContext, fantasyPool, league.Default())
-	// startBlitzPre1 attaches its loading snapshot before it backgrounds the
-	// handful of REST calls against already-final games, so first render can
-	// distinguish "checking" from a verified zero-player evidence map.
-	startBlitzPre1(runtimeContext, fantasyPool, league.Default())
-	// startMatchupRanks computes the matchup-difficulty rank cache (owner
-	// ask: "we should see the opponent at a glance" plus a difficulty
-	// rank) and keeps it refreshed; it backgrounds itself for the same
-	// reason startBlitzPre1 does — see matchup_cache.go.
-	go startMatchupRanks(runtimeContext, openStats, league.Default())
-	league.Default().StartDraftClock(runtimeContext)
-	leagueFingerprint := func() string {
-		_, poolVersion := fantasyPool.Players()
-		return league.Default().StateFingerprint(poolVersion)
-	}
-	draftLiveUpdates := draftpage.StartLiveUpdates(runtimeContext, leagueFingerprint)
-	// StartRosterOps always runs, mail wired or not: waiver processing
-	// (and WP-R5's trade execution/expiry) are state mutations, not sends
-	// — only the send step at the end of each tick is itself
-	// notifyReady-gated (roster-ops spec section 5.4).
-	league.Default().StartRosterOps(runtimeContext)
-	notifyMailer := mailer.FromEnv()
-	notifyQueue := notify.New(notificationSender(notifyMailer), log.Printf)
-	league.Default().SetNotifier(notifyQueue, notifyMailer.Enabled())
-	// The notify worker gets its own cancellation, separate from
+	// The notify worker keeps its own cancellation, separate from
 	// runtimeContext: on shutdown the HTTP server stops accepting requests
-	// immediately, but the worker keeps draining whatever is already
-	// queued (see notifyQueue.Drain below the server's shutdown branch)
-	// until it finishes or the drain deadline expires. A message the
-	// ledger already marked "sent" must not be silently abandoned
-	// (design spec section 6.3; finding m1).
-	notifyContext, stopNotify := context.WithCancel(context.Background())
-	defer stopNotify()
-	// Spec section 6.6: without a transport, notifications are disabled
-	// across both the delivery queue and every league-side trigger hook.
-	// StartNotifier always runs and re-checks the same enabled flag
-	// (via notifyReady), so it is the single source of the spec's exact
-	// startup log line — no separate log call is needed here.
-	if notifyMailer.Enabled() {
-		notifyQueue.Start(notifyContext)
+	// immediately, but the worker keeps draining whatever is already queued
+	// (see rt.Drain below the server's shutdown branch) until it finishes or
+	// the drain deadline expires. A message the ledger already marked "sent"
+	// must not be silently abandoned (design spec section 6.3; finding m1).
+	if rt.StopNotify != nil {
+		defer rt.StopNotify()
 	}
-	league.Default().StartNotifier(runtimeContext)
-
-	// league.Default() has already resolved APP_NAME (env) over
-	// league.name (file) over the neutral built-in default (spec section
-	// 3.3 precedence); read the wordmark through it instead of a second,
-	// independent getenv call so the two never disagree.
-	appName := league.Default().Config().Name
-	hqConfig, err := commissionerhq.ConfigFromEnv()
-	if err != nil {
-		log.Fatal(err)
-	}
-	hqService, err := commissionerhq.New(hqConfig, func() commissionerhq.Summary {
-		poolStatus := fantasyPool.Status()
-		openData := commissionerOpenData(openStats.Status())
-		stateSchema := league.Default().StateSchemaCompatibility()
-		return league.Default().CommissionerSummary(hqConfig.InstanceID, commissionerhq.Runtime{
-			Ready:      league.Default().PersistenceError() == nil,
-			AppVersion: appVersion, FrameworkVersion: gosx.Version,
-			GitSHA: appGitSHA, Build: appBuildDate,
-			StateSchema: commissionerhq.StateSchema{
-				PersistedVersion:         stateSchema.PersistedVersion,
-				SupportedVersion:         stateSchema.SupportedVersion,
-				PersistedDatabaseVersion: stateSchema.PersistedDatabaseVersion,
-				SupportedDatabaseVersion: stateSchema.SupportedDatabaseVersion,
-				Compatible:               stateSchema.Compatible,
-			},
-		}, commissionerhq.Pool{
-			Mode: poolStatus.State, Actual: poolStatus.Players, Target: poolStatus.PoolLimit,
-			LastSync: poolStatus.LastSync, Error: poolStatus.LastError,
-		}, openData)
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	commissionerhq.SetDefault(hqService)
-	hqV1Config, err := v1provider.ConfigFromEnv()
-	if err != nil {
-		log.Fatal(err)
-	}
-	hqV1Runtime, err := buildCommissionerHQV1Runtime(hqV1Config, league.Default(), fantasyPool, openStats)
-	if err != nil {
-		log.Fatal(err)
-	}
-	hqV1FleetConfig, err := v1fleet.ConfigFromEnv()
-	if err != nil {
-		log.Fatal(err)
-	}
-	hqV1Fleet, err := v1fleet.New(hqV1FleetConfig, v1fleet.Options{})
-	if err != nil {
-		log.Fatal(err)
-	}
-	commissionerpage.SetHQV1Fleet(hqV1Fleet)
-	port := getenv("PORT", "8080")
-	appEnv := strings.TrimSpace(os.Getenv("APP_ENV"))
-	secret := getenv("SESSION_SECRET", "gridiron-2000-local-session-secret-change-me")
-	sessions, err := session.New(secret, gridironSessionOptions(appEnv))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	authManager := auth.New(sessions, auth.Options{LoginPath: "/login"})
-	googleConfigured := googleAuthConfigured()
-	googleProvider := auth.GoogleProvider(
-		os.Getenv("GOOGLE_CLIENT_ID"),
-		os.Getenv("GOOGLE_CLIENT_SECRET"),
-		getenv("GOOGLE_REDIRECT_URL", "http://localhost:8080/auth/google/callback"),
-	)
-	googleProvider.AuthParams = map[string]string{
-		"include_granted_scopes": "true",
-		"prompt":                 "select_account",
-	}
-	googleOAuth := authManager.OAuth(auth.OAuthOptions{
-		Providers:   []auth.OAuthProvider{googleProvider},
-		SuccessPath: "/",
-		FailurePath: "/login?error=oauth",
-	})
-
-	router := route.NewRouter()
-	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
-		ctx.SetLanguage("en")
-		ctx.SetMetadata(server.Metadata{
-			Links: []server.LinkTag{
-				{Rel: "stylesheet", Href: "/styles.css"},
-				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
-			},
-			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
-		})
-		// data-gosx-heartbeat/-interval (gosx#216) replaces gridiron.js's old
-		// sendPresenceHeartbeat loop on every page, not just the ones that
-		// also carry data-gosx-revalidate-interval: the heartbeat ping is
-		// visibility-aware (it pauses while the tab is hidden) but, unlike
-		// revalidation and every other periodic primitive here, it carries
-		// no focused-control interaction guard, so it keeps presence current
-		// while a manager is typing in a search box — the exact gap the old
-		// JS's focusedControlActive() special case existed only to close.
-		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
-		// directly on <body>, so no wrapper element is needed. The endpoint is
-		// route-aware because the one body marker must not turn an ordinary
-		// page's version poll into a draft-room attendance claim. Draft's live
-		// hub and fragment regions own room/version updates; its body heartbeat
-		// is presence-only. The native route Document contract carries both
-		// through the framework shell and re-reads them after managed navigation.
-		heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path)
-		ctx.BodyAttrs(
-			gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
-			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
-		)
-		return server.HTMLDocument(ctx.Document(appName, body))
-	})
-	// Authentication and onboarding redirects belong to the file routes
-	// themselves. GoSX applies this middleware only after a page or action
-	// route matches, so an unknown URL keeps the normal truthful 404 instead
-	// of being turned into a misleading login redirect.
-	if err := router.AddDir(filepath.Join(root, "app"), route.FileRoutesOptions{
-		Middleware: []route.Middleware{
-			requireLeagueSession,
-			redirectSeatedFromJoin,
-		},
-	}); err != nil {
-		log.Fatal(err)
-	}
-
-	app := server.New()
-	app.EnableNavigation()
-	app.EnableSecurityPolicy(gridironSecurityPolicy())
-	app.EnableGzip()
-	app.Use(avatarMultipartEnvelopeLimit)
-	app.Use(sessions.Middleware)
-	app.Use(sessions.Protect)
-	app.Use(authManager.Middleware)
-	app.SetPublicDir(filepath.Join(root, "public"))
-
-	// Liveness is deliberately independent of league persistence and optional
-	// upstream feeds. A process that is still serving requests must not be
-	// restarted merely because readiness has withdrawn for an operator repair.
-	app.API("GET /api/live", func(ctx *server.Context) (any, error) {
-		ctx.NoStore()
-		return livenessPayload(), nil
-	})
-	app.API("GET /api/health", func(ctx *server.Context) (any, error) {
-		// Health is a live readiness signal. A public 30-second cache could
-		// keep advertising "ok" after a runtime persistence poison, which is
-		// exactly when an orchestrator must stop routing writes here. Optional
-		// feed degradation remains diagnostic only and never changes readiness.
-		ctx.NoStore()
-		ctx.CacheTag("health")
-		wireStatus := signalFeed.Status()
-		openStatus := openStats.Status()
-		poolStatus := fantasyPool.Status()
-		draftStarted, draftStartedAt := league.Default().DraftLifecycle()
-		draftStartedAtText := ""
-		if !draftStartedAt.IsZero() {
-			draftStartedAtText = draftStartedAt.Format(time.RFC3339)
-		}
-		persistenceErr := league.Default().PersistenceError()
-		persistenceReady, persistenceStatus, persistenceMessage := persistenceHealth(persistenceErr)
-		stateSchema := league.Default().StateSchemaCompatibility()
-		blitzHealth := league.Default().BlitzDependencyHealth()
-		rosterCapacity := league.Default().TeamCount() * league.CurrentDraftRounds()
-		poolCushion := max(0, poolStatus.Players-rosterCapacity)
-		poolCoverage := 0.0
-		if rosterCapacity > 0 {
-			poolCoverage = float64(poolStatus.PoolLimit) / float64(rosterCapacity)
-		}
-		if persistenceStatus != http.StatusOK {
-			ctx.SetStatus(persistenceStatus)
-		}
-		return map[string]any{
-			"ok":               persistenceReady,
-			"liveness":         true,
-			"readiness":        persistenceReady,
-			"persistenceReady": persistenceReady,
-			"persistenceError": persistenceMessage,
-			// State schema evidence is intentionally numeric and PII-free. It
-			// reports the authoritative persisted marker, not the normalized
-			// in-memory version, so release rollback decisions can be made
-			// before an image-only change.
-			"stateSchema": stateSchemaPayload(stateSchema),
-			// Blitz is an optional upstream dependency: expose its bounded,
-			// safe provenance without making a Tank01 outage look like a
-			// process-readiness failure.
-			"blitz": blitzHealthPayload(blitzHealth),
-			"app":   appName,
-			// "version" is the Gridiron release, not the GoSX framework
-			// version. Keeping the framework version adjacent makes runtime
-			// drift (and an accidentally old image) immediately visible.
-			"version":                    appVersion,
-			"appVersion":                 appVersion,
-			"frameworkVersion":           gosx.Version,
-			"gitSHA":                     appGitSHA,
-			"buildDate":                  appBuildDate,
-			"googleOAuthReady":           googleConfigured,
-			"commissionerHQV1Configured": hqV1Config.Enabled,
-			"commissionerHQV1Listening":  hqV1Runtime.Listening(),
-			"signalWireReady":            wireStatus.Configured,
-			"signalWireMode":             wireStatus.Mode,
-			"ownedSignals":               wireStatus.RelevantSignals,
-			"openStatsRunning":           openStatus.Running,
-			"openScheduleState":          openStatus.Schedules.State,
-			"openPlayerStatsState":       openStatus.PlayerStats.State,
-			"openInjuryState":            openStatus.Injuries.State,
-			"fantasyPoolEnabled":         poolStatus.Enabled,
-			"fantasyPoolMode":            poolStatus.Mode,
-			"fantasyPoolState":           poolStatus.State,
-			"fantasyPoolPlayers":         poolStatus.Players,
-			"fantasyPoolTarget":          poolStatus.PoolLimit,
-			"fantasyRosterCapacity":      rosterCapacity,
-			"fantasyPoolCushion":         poolCushion,
-			"fantasyPoolCoverage":        poolCoverage,
-			"fantasyPoolScoring":         poolStatus.Scoring,
-			"fantasyPoolError":           poolStatus.LastError,
-			"fantasyPoolLastSuccess": func() string {
-				if poolStatus.LastSync.IsZero() {
-					return ""
-				}
-				return poolStatus.LastSync.UTC().Format(time.RFC3339)
-			}(),
-			"fantasyPoolAgeSeconds":             int64(poolStatus.Age / time.Second),
-			"fantasyPoolFreshnessWindowSeconds": int64(poolStatus.FreshFor / time.Second),
-			"draftAt":                           league.Default().DraftAt().Format(time.RFC3339),
-			"draftStarted":                      draftStarted,
-			"draftStartedAt":                    draftStartedAtText,
-			// leagueConfig: "defaults" on an unconfigured checkout, or
-			// "file:<path>" once a league.json loads (productization spec
-			// section 4.3).
-			"leagueConfig": league.Default().Config().Source,
-			"time":         time.Now().UTC().Format(time.RFC3339),
-		}, nil
-	})
-	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
-	registerLeagueHeartbeatAPIs(app, league.Default(), leagueFingerprint)
-	// /wire/fragment answers app/wire/page.gsx's data-gosx-region /
-	// data-gosx-region-interval poll (gosx#217): wirepage.FeedFragmentWithError
-	// loads that page program once and renders its typed SignalCard /
-	// WireEmptyState components, the same components the initial page uses.
-	// It is a plain HTML fragment, not a JSON API, so it lives next to the page
-	// it serves rather than under mountOwnedDataAPI's external data contract.
-	app.Mount("GET /wire/fragment", requireLeagueAccess(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writer.Header().Set("Cache-Control", "no-store")
-		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
-		node, err := wirepage.FeedFragmentWithError(request, signalFeed)
-		if err != nil {
-			http.Error(writer, "wire fragment unavailable", http.StatusInternalServerError)
-			return
-		}
-		_, _ = io.WriteString(writer, gosx.RenderHTML(node))
-	})))
-	app.API("GET /api/wire/pulse", func(ctx *server.Context) (any, error) {
-		ctx.NoStore()
-		return wirepage.PulseData(signalFeed), nil
-	})
-	app.Mount("GET /commissioner/fragment", commissionerpage.FragmentHandler(hqService))
-	app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))
-	app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))
-	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
-	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
-	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
-	// Player-pool/waiver and transaction regions are read-only projections.
-	// Their shared 4-second interval is the declared cross-client convergence
-	// bound; managed player mutations signal the same regions immediately while
-	// native forms continue through their existing POST-redirect-GET paths.
-	app.Mount("GET /players/fragment/pool", playerspage.PlayersPoolFragmentHandler(league.Default()))
-	app.Mount("GET /players/fragment/waivers", playerspage.PlayersWaiverFragmentHandler(league.Default()))
-	app.Mount("GET /activity/fragment", activitypage.ActivityFragmentHandler(league.Default()))
-	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
-	app.Mount("GET /trades/fragment", tradespage.TradeDeskFragmentHandler(league.Default()))
-	// Pick'em's selected-week region polls the authoritative per-game lock,
-	// market, result, and sheet-scoring projection. Managed picks signal an
-	// immediate refresh; the native POST-redirect-GET fallback remains intact.
-	app.Mount("GET /pickem/fragment", pickempage.PickemFragmentHandler(league.Default()))
-	app.Mount("GET /api/commissioner/v2/summary", hqService.SummaryHandler())
-	mountOwnedDataAPI(app, signalFeed, openStats, fantasyPool, os.Getenv("DATA_API_TOKEN"))
-
-	// Team avatars (design decisions 1-3): GoSX v0.50.0 exposes File/Files
-	// and MaxActionBodyBytes for managed actions, but this native upload keeps
-	// its own complete-multipart envelope cap until a bounded-multipart
-	// contract can run before the session/CSRF parser. The serving route emits
-	// its own fixed Cache-Control lifetime rather than the public-dir default,
-	// since an uploaded avatar lives in the data dir, not public/. Both still
-	// pass through the session/CSRF/auth middleware registered above (app.Use
-	// wraps every mount, not just page routes).
-	app.Mount("POST /avatar/upload", avatarUploadHandler(league.Default()))
-	app.Mount("GET /avatars/", avatarServeHandler(league.Default()))
-
-	// Team badges (the badge-picker feature): POST /avatar/badge claims,
-	// swaps, or releases a team's badge motif; GET /avatars/badge/ is a
-	// more specific subtree than the "GET /avatars/" mount above, so it is
-	// preferred for any request under that path — see badge_handlers.go's
-	// doc comments for the routing and PathValue details.
-	app.Mount("POST /avatar/badge", badgeUploadHandler(league.Default()))
-	app.Mount("GET /avatars/badge/", badgeServeHandler(league.Default()))
-
-	app.Mount("GET /auth/google/start", googleStartHandler(googleOAuth, googleConfigured))
-	app.Mount("GET /auth/google/callback", googleCallbackHandler(googleOAuth, authManager, googleConfigured))
-	app.Mount("POST /auth/logout", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authManager.SignOut(r)
-		session.AddFlash(r, "notice", "You are signed out. Sign in again to return to your team.")
-		http.Redirect(w, r, "/login", http.StatusSeeOther)
-	}))
-
-	rootHandler, err := router.BuildChecked()
-	if err != nil {
-		log.Fatal(err)
-	}
-	app.Mount("/", rootHandler)
-
-	if !googleConfigured {
-		log.Printf("Google OAuth is in setup mode; add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env")
-	}
-	wireStatus := signalFeed.Status()
-	if !wireStatus.Configured {
-		log.Printf("Signal wire is awaiting sources; enable public feeds or add BLUESKY_HANDLES / BLUESKY_DIDS")
-	} else if !wireStatus.BlueskyConfigured {
-		log.Printf("Free public feed mesh is active; add optional BLUESKY_HANDLES / BLUESKY_DIDS for event-driven social alerts")
-	}
-	log.Printf("%s listening on http://localhost:%s", appName, port)
-	if hqV1Runtime != nil {
+	rt.Start(runtimeContext)
+	log.Printf("%s listening on http://localhost:%s", rt.AppName, rt.Port)
+	if rt.HQV1 != nil {
 		log.Printf("Commissioner HQ v1 provider listening on its private listener")
 	}
 	type runtimeServerError struct {
@@ -472,11 +94,11 @@ func main() {
 	}
 	serverErrors := make(chan runtimeServerError, 2)
 	go func() {
-		serverErrors <- runtimeServerError{name: "application", err: app.ListenAndServe(":" + port)}
+		serverErrors <- runtimeServerError{name: "application", err: app.ListenAndServe(":" + rt.Port)}
 	}()
-	if hqV1Runtime != nil {
+	if rt.HQV1 != nil {
 		go func() {
-			serverErrors <- runtimeServerError{name: "Commissioner HQ provider", err: hqV1Runtime.Serve()}
+			serverErrors <- runtimeServerError{name: "Commissioner HQ provider", err: rt.HQV1.Serve()}
 		}()
 	}
 	var runtimeFailure *runtimeServerError
@@ -496,11 +118,11 @@ func main() {
 			log.Printf("server shutdown: %v", err)
 		}
 	}()
-	if hqV1Runtime != nil {
+	if rt.HQV1 != nil {
 		shutdownGroup.Add(1)
 		go func() {
 			defer shutdownGroup.Done()
-			if err := hqV1Runtime.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			if err := rt.HQV1.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
 				log.Printf("Commissioner HQ provider shutdown: %v", err)
 			}
 		}()
@@ -510,8 +132,12 @@ func main() {
 	// Give the notify worker a bounded window to finish delivering whatever
 	// was already queued before the process exits. This applies equally to a
 	// signal and either listener failing unexpectedly.
-	notifyQueue.Drain(10 * time.Second)
-	stopNotify()
+	if rt.Drain != nil {
+		rt.Drain(10 * time.Second)
+	}
+	if rt.StopNotify != nil {
+		rt.StopNotify()
+	}
 	if runtimeFailure != nil {
 		log.Fatalf("%s listener failed: %v", runtimeFailure.name, runtimeFailure.err)
 	}

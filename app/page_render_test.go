@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
@@ -23,12 +24,25 @@ func renderLandingPage(t *testing.T) string {
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
 	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	t.Setenv("APP_ENV", "test")
 
 	leagueFile, err := filepath.Abs(filepath.Join("..", "internal", "league", "testdata", "sk-league.json"))
 	if err != nil {
 		t.Fatalf("league fixture path: %v", err)
 	}
 	t.Setenv("LEAGUE_FILE", leagueFile)
+
+	// The fixture pins the draft window at a fixed instant
+	// (sk-league.json's draft.at). Freeze the service clock to a point
+	// safely before that window so this test's "SCHEDULED WINDOW" copy
+	// assertion does not flip to "AWAITING COMMISSIONER" once wall time
+	// walks past the fixture's pinned date. See SetClockForTest's doc
+	// comment (internal/league/harnessclock.go) for the harness-only seam.
+	service := league.Default()
+	service.SetClockForTest(func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, time.UTC)
+	})
+	t.Cleanup(func() { service.SetClockForTest(nil) })
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
