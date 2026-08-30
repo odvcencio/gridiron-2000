@@ -3490,7 +3490,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			}
 			c.DeferredStreak++
 			if c.DeferredStreak >= waiverClaimDeferralLimit && now.Sub(c.FirstDeferredAt) >= waiverClaimDeferralWindow {
-				reason := fmt.Sprintf("this claim deferred for %d consecutive runs across at least %d hours because %s never returned to the player pool; it expired automatically", waiverClaimDeferralLimit, int(waiverClaimDeferralWindow.Hours()), c.AddID)
+				reason := fmt.Sprintf("this claim deferred for %d consecutive runs across at least %d hours because %s never returned to the player pool; it expired automatically", c.DeferredStreak, int(waiverClaimDeferralWindow.Hours()), c.AddID)
 				results = append(results, WaiverResult{Claim: c, Outcome: "expired", Reason: reason, Week: week})
 				receipt := WaiverReceipt{
 					ClaimID: c.ID, Season: cfg.Season, Week: week, TeamID: c.TeamID,

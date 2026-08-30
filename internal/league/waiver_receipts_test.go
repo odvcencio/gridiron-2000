@@ -256,6 +256,134 @@ func TestProcessWaiversExpiresClaimAfterThreeConsecutiveDeferrals(t *testing.T) 
 	}
 }
 
+// TestProcessWaiversDeferralSurvivesFourRapidSameDayRuns pins finding 2 of
+// the 2026-08-30 review round 3: the existing 24-hour-gap coverage above
+// lands its expiring run exactly at waiverClaimDeferralWindow (48h),
+// which passes under a run-count-only rule and the time-gated rule
+// alike. Four runs an hour apart, all the same day, exercise the time
+// gate on its own: DeferredStreak reaching, and passing,
+// waiverClaimDeferralLimit must not expire the claim before
+// waiverClaimDeferralWindow has actually elapsed, and FirstDeferredAt
+// must stay pinned to the very first deferral in the streak throughout.
+func TestProcessWaiversDeferralSurvivesFourRapidSameDayRuns(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	firstRun := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-rapid", TeamID: "team-3", AddID: "gone-player", FiledAt: firstRun.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	pool := processWaiversFixturePool() // "gone-player" never returns to this pool
+	cfg := processWaiversCfg()
+
+	for i := 0; i < 4; i++ {
+		runAt := firstRun.Add(time.Duration(i) * time.Hour) // four runs, an hour apart, same day
+		if _, err := store.ProcessWaivers(runAt, cfg, nil, pool, 99); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-rapid" {
+		t.Fatalf("WaiverClaims after 4 rapid same-day runs = %+v, want clm-rapid still open (48h has not elapsed)", state.WaiverClaims)
+	}
+	if got := state.WaiverClaims[0].DeferredStreak; got != 4 {
+		t.Fatalf("DeferredStreak after 4 rapid runs = %d, want 4", got)
+	}
+	if got := state.WaiverClaims[0].FirstDeferredAt; !got.Equal(firstRun) {
+		t.Fatalf("FirstDeferredAt = %v, want the first deferral instant %v pinned across all 4 runs", got, firstRun)
+	}
+	if len(state.WaiverReceipts) != 0 {
+		t.Fatalf("WaiverReceipts = %+v, want none — the claim must not expire before 48h elapses regardless of run count", state.WaiverReceipts)
+	}
+}
+
+// TestProcessWaiversNonDeferredEvaluationResetsStreakAndRestartsClock pins
+// the rest of finding 2 (2026-08-30 review round 3): a run in which the
+// claim's AddID IS present in the pool, but is not yet due for a
+// different reason (a live kickoff lock, not a pool-absence deferral),
+// must reset both DeferredStreak and FirstDeferredAt — and a later
+// pool-absence deferral must restart the 48h clock at its own instant,
+// not stay pinned to the streak's original one.
+func TestProcessWaiversNonDeferredEvaluationResetsStreakAndRestartsClock(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	run1 := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-restart", TeamID: "team-3", AddID: "wv-1", FiledAt: run1.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := processWaiversCfg()
+	emptyPool := map[string]Player{} // wv-1 absent from the pool this run: a source outage
+
+	if _, err := store.ProcessWaivers(run1, cfg, nil, emptyPool, 99); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().WaiverClaims[0]; got.DeferredStreak != 1 || !got.FirstDeferredAt.Equal(run1) {
+		t.Fatalf("after run 1 = %+v, want DeferredStreak 1 and FirstDeferredAt %v", got, run1)
+	}
+
+	// Run 2, 2h later, well inside the 48h window: wv-1 is back in the
+	// pool but kickoff-locked (a live, not-yet-final game) — a
+	// non-deferred evaluation, not a pool-absence deferral.
+	run2 := run1.Add(2 * time.Hour)
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: run2.Add(-time.Hour), Away: "PIT", Home: "NYJ", Final: false}}
+	lockedPool := processWaiversFixturePool() // "wv-1": NFLTeam PIT
+	if _, err := store.ProcessWaivers(run2, cfg, games, lockedPool, 99); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().WaiverClaims[0]; got.DeferredStreak != 0 || !got.FirstDeferredAt.IsZero() {
+		t.Fatalf("after run 2 (non-deferred evaluation) = %+v, want DeferredStreak and FirstDeferredAt both reset", got)
+	}
+
+	// Run 3, another 2h later: wv-1 is absent from the pool again — a
+	// fresh pool-absence deferral. The clock must restart at run3, not
+	// stay pinned to run1.
+	run3 := run2.Add(2 * time.Hour)
+	if _, err := store.ProcessWaivers(run3, cfg, nil, emptyPool, 99); err != nil {
+		t.Fatal(err)
+	}
+	got := store.Snapshot().WaiverClaims[0]
+	if got.DeferredStreak != 1 {
+		t.Fatalf("DeferredStreak after run 3's fresh deferral = %d, want 1 (a new streak, not a continuation of run 1's)", got.DeferredStreak)
+	}
+	if !got.FirstDeferredAt.Equal(run3) {
+		t.Fatalf("FirstDeferredAt after run 3 = %v, want %v — the 48h clock must restart at the new deferral, not stay pinned to run 1 (%v)", got.FirstDeferredAt, run3, run1)
+	}
+}
+
+// TestProcessWaiversExpiryReasonReportsActualStreakNotTheConstant pins
+// finding 4 (2026-08-30 review round 3, store.go:3493): the expiry
+// reason must report the claim's own DeferredStreak, not the
+// waiverClaimDeferralLimit constant it happened to first cross. An
+// outage replay whose run cadence is wider than waiverClaimDeferralLimit
+// consecutive runs (here, four 16h-spaced runs against the 3-run limit)
+// still needs waiverClaimDeferralWindow (48h) of real time before it
+// expires, so the streak that finally crosses both gates is 4, not 3.
+func TestProcessWaiversExpiryReasonReportsActualStreakNotTheConstant(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	firstRun := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-outage", TeamID: "team-3", AddID: "gone-player", FiledAt: firstRun.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	pool := processWaiversFixturePool() // "gone-player" never returns to this pool
+	cfg := processWaiversCfg()
+
+	var last []WaiverResult
+	for i := 0; i < 4; i++ {
+		runAt := firstRun.Add(time.Duration(i) * 16 * time.Hour) // 4 runs, 16h apart: streak 4 by the time 48h elapses
+		results, err := store.ProcessWaivers(runAt, cfg, nil, pool, 99)
+		if err != nil {
+			t.Fatal(err)
+		}
+		last = results
+	}
+
+	if len(last) != 1 || last[0].Outcome != "expired" {
+		t.Fatalf("final run results = %+v, want one expired outcome", last)
+	}
+	want := "this claim deferred for 4 consecutive runs across at least 48 hours because gone-player never returned to the player pool; it expired automatically"
+	if last[0].Reason != want {
+		t.Fatalf("expiry reason = %q, want %q (the actual streak, not the waiverClaimDeferralLimit constant)", last[0].Reason, want)
+	}
+}
+
 func TestBeatenFAABReceiptRecordsActualWinningBid(t *testing.T) {
 	store := processWaiversFixtureStore(t)
 	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)

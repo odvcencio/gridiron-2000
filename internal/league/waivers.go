@@ -48,7 +48,7 @@ type WaiverClaim struct {
 	// commissioner's force-run button pressed three times in a row) could
 	// otherwise destroy a claim in seconds. Resets to the zero time
 	// alongside DeferredStreak.
-	FirstDeferredAt time.Time `json:"firstDeferredAt,omitempty"`
+	FirstDeferredAt time.Time `json:"firstDeferredAt"`
 }
 
 // waiverClaimDeferralLimit is how many consecutive deferred runs a claim
@@ -574,7 +574,7 @@ func waiverPenaltyBoundary(state PersistedState, games []GameInfo, now time.Time
 			return boundary
 		}
 	}
-	return waiverPenaltyFallbackFloor(state)
+	return waiverPenaltyFallbackFloor(state, now)
 }
 
 // waiverPenaltyFallbackFloor is F1's safe-direction floor (corrected by the
@@ -600,14 +600,23 @@ func waiverPenaltyBoundary(state PersistedState, games []GameInfo, now time.Time
 // closed week nor a schedule returns the zero time, under which every
 // real claim counts as in period — the safe direction this floor exists
 // to bound, not remove.
-func waiverPenaltyFallbackFloor(state PersistedState) time.Time {
-	week := lastClosedWeek(state.Schedule)
-	if week > 0 {
-		if boundary, ok := weekSettledBoundary(state.Schedule, nil, week); ok {
-			return boundary
+//
+// now must be the run's own processing instant (2026-08-30 review round
+// 3, finding 1): a candidate — the closed week's own settled boundary, or
+// GeneratedAt — that is not strictly before now is not yet trustworthy
+// either, for the exact reason waiverPenaltyBoundary's own candidate
+// needs the same guard. Without it, a deferred run whose own now falls
+// before a week-close instant its watermark had not yet caught up to
+// (a source outage delaying a 03:00 run behind a commissioner's earlier
+// force-close) received a future boundary from this unguarded fallback,
+// so applyInPeriodPenalties moved nobody and one team swept the run.
+func waiverPenaltyFallbackFloor(state PersistedState, now time.Time) time.Time {
+	if week := lastClosedWeek(state.Schedule); week > 0 {
+		if b, ok := weekSettledBoundary(state.Schedule, nil, week); ok && now.After(b) {
+			return b
 		}
 	}
-	if state.Schedule != nil {
+	if state.Schedule != nil && now.After(state.Schedule.GeneratedAt) {
 		return state.Schedule.GeneratedAt
 	}
 	return time.Time{}

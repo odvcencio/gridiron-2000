@@ -356,6 +356,73 @@ func TestAdminRunWaiversControlFreshnessFixtureProcess(t *testing.T) {
 	}
 }
 
+// TestAdminForceRunWaiversRendersEnabledWithOpenClaim pins finding 5
+// (2026-08-30 review round 3): TestAdminPageRendersActionSafetyContracts
+// only ever exercises has_open_claims == false (renderAdminPage always
+// starts a fresh, claim-free league), so nothing proved the enabled
+// branch actually renders "Force run waivers now" instead of the
+// disabled "No open claims to run" placeholder. This seeds one open
+// claim directly via Store.FileClaim — the plain path needs no draft,
+// pool, or roster state, unlike the full Service.FileClaim validation
+// chain a real manager's request goes through — before league.Default()
+// (a process-wide sync.Once singleton) opens its own Store at the same
+// path on the first request.
+func TestAdminForceRunWaiversRendersEnabledWithOpenClaim(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminForceRunWaiversRendersEnabledWithOpenClaimFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_OPEN_CLAIM_FIXTURE=1",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin open-claim force-run fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAdminForceRunWaiversRendersEnabledWithOpenClaimFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_OPEN_CLAIM_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	dataFile := filepath.Join(t.TempDir(), "league-state.json")
+	t.Setenv("DATA_FILE", dataFile)
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	seed := league.NewStore(dataFile)
+	if err := seed.FileClaim(league.WaiverClaim{ID: "fixture-claim", TeamID: "team-1", AddID: "fixture-player"}); err != nil {
+		t.Fatalf("seeding an open waiver claim: %v", err)
+	}
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (admin page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+
+	if !strings.Contains(body, "Force run waivers now") {
+		t.Fatalf("admin page did not render the enabled force-run control with an open claim: %s", body)
+	}
+	if strings.Contains(body, "No open claims to run") {
+		t.Fatalf("admin page rendered the disabled force-run control despite an open claim: %s", body)
+	}
+}
+
 func adminHiddenValue(t *testing.T, body, name string) string {
 	t.Helper()
 	re := regexp.MustCompile(`name="` + regexp.QuoteMeta(name) + `" value="([^"]*)"`)

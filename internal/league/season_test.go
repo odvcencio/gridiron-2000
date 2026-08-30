@@ -77,12 +77,19 @@ func TestCloseWeekScoresAndMarksFinal(t *testing.T) {
 		week1 = wk.Week
 		break
 	}
-	updated, misses, err := svc.closeWeek(week1, svc.clock())
+	now := svc.clock()
+	updated, misses, err := svc.closeWeek(week1, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(updated.Matchups) == 0 {
 		t.Fatal("expected at least one matchup in the closed week")
+	}
+	// 2026-08-30 review round 3, finding 3: closeWeek (season.go) is the
+	// only production writer of ClosedAt; pin that it actually stamps the
+	// close's own instant, not a zero value silently left unset.
+	if !updated.ClosedAt.Equal(now) {
+		t.Fatalf("ClosedAt = %v, want the close instant %v", updated.ClosedAt, now)
 	}
 	for _, m := range updated.Matchups {
 		if !m.Final {

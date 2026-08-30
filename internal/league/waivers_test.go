@@ -449,6 +449,77 @@ func TestProcessWaiversPenaltyAppliesAfterForceClose(t *testing.T) {
 	}
 }
 
+// TestProcessWaiversCatchUpRunAfterForceCloseAppliesPenalty ports the
+// 2026-08-30 review round 3's finding-1 probe: a deferred 03:00 run
+// executes with the run's own now (rosterops.go passes nextRun, not
+// wall-clock now) still short of the commissioner's own 12:30 force-close
+// stamped into ClosedAt the same day (a source outage delaying the
+// scheduled run behind an earlier force-close). weekSettledBoundary
+// correctly resolves to that future ClosedAt, so
+// waiverPenaltyBoundary's own now.After(boundary) guard fails and falls
+// back — but the unguarded fallback used to re-derive the exact same
+// future ClosedAt and return it anyway, so applyInPeriodPenalties'
+// txn.At.After(boundary) was false for every claim this run resolved and
+// one team swept all three contested players (the audited bug: "wins by
+// team: map[team-2:3]"). The fixed fallback must drop to a floor
+// strictly before now instead.
+func TestProcessWaiversCatchUpRunAfterForceCloseAppliesPenalty(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	sch := closedWeek1Schedule()
+	day := time.Date(2026, 9, 15, 0, 0, 0, 0, time.UTC)
+	closedAt := day.Add(12*time.Hour + 30*time.Minute) // commissioner's 12:30 force-close
+	sch.Weeks[0].ClosedAt = closedAt
+	if err := store.SetSchedule(sch); err != nil {
+		t.Fatal(err)
+	}
+	now := day.Add(3 * time.Hour) // the deferred 03:00 catch-up run, still short of 12:30
+
+	if boundary := waiverPenaltyBoundary(store.Snapshot(), nil, now); !boundary.Before(now) {
+		t.Fatalf("waiverPenaltyBoundary = %v, want a floor strictly before the run instant %v", boundary, now)
+	}
+
+	cfg := processWaiversCfg()
+	order := waiverOrder(store.Snapshot(), cfg, nil, now)
+	first, r1, r2, r3 := order[0], order[1], order[2], order[3]
+
+	pool := processWaiversFixturePool()
+	pool["wv-3"] = Player{ID: "wv-3", Name: "Wire Three", Position: "WR", NFLTeam: "PIT"}
+
+	var claims []WaiverClaim
+	for _, addID := range []string{"wv-1", "wv-2", "wv-3"} {
+		claims = append(claims,
+			WaiverClaim{ID: "clm-" + addID + "-first", TeamID: first, AddID: addID, FiledAt: now.Add(-2 * time.Hour)},
+			WaiverClaim{ID: "clm-" + addID + "-r1", TeamID: r1, AddID: addID, FiledAt: now.Add(-2 * time.Hour)},
+			WaiverClaim{ID: "clm-" + addID + "-r2", TeamID: r2, AddID: addID, FiledAt: now.Add(-2 * time.Hour)},
+			WaiverClaim{ID: "clm-" + addID + "-r3", TeamID: r3, AddID: addID, FiledAt: now.Add(-2 * time.Hour)},
+		)
+	}
+	for _, c := range claims {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	results, err := store.ProcessWaivers(now, cfg, nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	winsByTeam := map[string]int{}
+	for _, r := range results {
+		if r.Outcome == "won" {
+			winsByTeam[r.Claim.TeamID]++
+		}
+	}
+	for team, wins := range winsByTeam {
+		if wins > 1 {
+			t.Fatalf("wins by team: %v; %s swept %d of 3 contested players in one catch-up run — the in-period penalty must still apply", winsByTeam, team, wins)
+		}
+	}
+	if winsByTeam[first] == 3 {
+		t.Fatalf("wins by team: %v; %s swept all 3 contested players", winsByTeam, first)
+	}
+}
+
 // TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek covers the
 // season's last scheduled week: once it closes there is no following week
 // in the mirror at all (not merely an outage). Under the corrected
@@ -618,6 +689,7 @@ func TestWaiverPenaltyBoundary(t *testing.T) {
 // every one of these three calls even though nothing here recomputed.
 func TestWaiverPenaltyFallbackFloorFixedAcrossRuns(t *testing.T) {
 	generatedAt := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	now := generatedAt.Add(200 * time.Hour) // strictly after every candidate below
 	sch := SeasonSchedule{Season: 2026, GeneratedAt: generatedAt}
 	state := PersistedState{Schedule: &sch}
 
@@ -627,7 +699,7 @@ func TestWaiverPenaltyFallbackFloorFixedAcrossRuns(t *testing.T) {
 		generatedAt.Add(72 * time.Hour),
 	} {
 		state.WaiversProcessedThrough = processedThrough
-		got := waiverPenaltyFallbackFloor(state)
+		got := waiverPenaltyFallbackFloor(state, now)
 		if !got.Equal(generatedAt) {
 			t.Fatalf("run %d: waiverPenaltyFallbackFloor = %v, want the fixed GeneratedAt %v regardless of WaiversProcessedThrough (%v)", i+1, got, generatedAt, processedThrough)
 		}
@@ -640,9 +712,51 @@ func TestWaiverPenaltyFallbackFloorFixedAcrossRuns(t *testing.T) {
 		{HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true},
 	}}}
 	state.Schedule = &sch
-	if got := waiverPenaltyFallbackFloor(state); !got.Equal(closedAt) {
+	if got := waiverPenaltyFallbackFloor(state, now); !got.Equal(closedAt) {
 		t.Fatalf("after week 1 closes, waiverPenaltyFallbackFloor = %v, want the week's own ClosedAt %v", got, closedAt)
 	}
+}
+
+// TestWaiverPenaltyFallbackFloorGuardsBothBranches pins the 2026-08-30
+// review round 3's finding 1: when now itself has not yet reached a
+// candidate — the closed week's own settled boundary, or the schedule's
+// GeneratedAt — the fallback must not return that future candidate. A
+// deferred run's own now can fall before a week-close instant its
+// watermark has not caught up to (a source outage delaying a run behind
+// a commissioner's earlier force-close); returning the future candidate
+// there reproduces the exact suppression bug finding 1 fixed at the
+// waiverPenaltyBoundary level, through this unguarded fallback instead.
+func TestWaiverPenaltyFallbackFloorGuardsBothBranches(t *testing.T) {
+	t.Run("closed-week branch: candidate not yet in the past is not returned", func(t *testing.T) {
+		closedAt := time.Date(2026, 9, 20, 12, 30, 0, 0, time.UTC)
+		sch := SeasonSchedule{
+			Season:      2026,
+			GeneratedAt: closedAt.Add(-96 * time.Hour),
+			Weeks: []ScheduleWeek{{Week: 1, ClosedAt: closedAt, Matchups: []LeagueMatchup{
+				{HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true},
+			}}},
+		}
+		state := PersistedState{Schedule: &sch}
+		now := closedAt.Add(-1 * time.Hour) // before the close the watermark hasn't caught up to
+		got := waiverPenaltyFallbackFloor(state, now)
+		if got.Equal(closedAt) {
+			t.Fatalf("waiverPenaltyFallbackFloor = %v, must not be the future ClosedAt %v when now (%v) precedes it", got, closedAt, now)
+		}
+		if !got.Equal(sch.GeneratedAt) {
+			t.Fatalf("waiverPenaltyFallbackFloor = %v, want the fallback to drop to GeneratedAt %v (still before now)", got, sch.GeneratedAt)
+		}
+	})
+
+	t.Run("GeneratedAt branch: candidate not yet in the past falls back to the zero time", func(t *testing.T) {
+		generatedAt := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+		sch := SeasonSchedule{Season: 2026, GeneratedAt: generatedAt}
+		state := PersistedState{Schedule: &sch}
+		now := generatedAt.Add(-1 * time.Hour) // before the schedule was even generated
+		got := waiverPenaltyFallbackFloor(state, now)
+		if !got.Equal(time.Time{}) {
+			t.Fatalf("waiverPenaltyFallbackFloor = %v, want the zero time when now (%v) precedes GeneratedAt (%v)", got, now, generatedAt)
+		}
+	})
 }
 
 // TestProcessWaiversHealthyBoundaryDemotesWithinRun ports the 2026-08-30

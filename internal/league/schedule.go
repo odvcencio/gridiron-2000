@@ -32,7 +32,7 @@ type ScheduleWeek struct {
 	// that has not closed yet, and on a row written before this field
 	// existed — waiverPenaltyBoundary treats a zero ClosedAt as a legacy
 	// row and falls back to the last-kickoff estimate for it.
-	ClosedAt time.Time `json:"closedAt,omitempty"`
+	ClosedAt time.Time `json:"closedAt"`
 }
 
 // SeasonSchedule is the persisted regular-season plan plus results.
