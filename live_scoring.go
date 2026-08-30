@@ -104,7 +104,27 @@ func liveScheduleSource(schedule league.ScheduleSource) livescore.ScheduleSource
 // with no new version — MergeLines would then keep letting a stale live
 // row beat the ledger even after liveStatusFromPoller (which already did
 // this) correctly reports the chip as LEDGER.
+//
+// A pre-scan checks whether any row actually needs clearing before
+// allocating the copy: both render-path callers invoke this on every
+// call (buildLiveScoring's SetWeekStatsSource closure and
+// liveStatusFromPoller), so a seven-matchup render costs roughly 28
+// calls, and most of them find nothing to clear — no game's window has
+// closed yet. Skipping the allocation on that common path returns s
+// unchanged, which is still never a mutation of the caller's map: the
+// pre-scan itself never writes to s.Games, so there is nothing to
+// protect the caller from in that case.
 func freshenSnapshot(s livescore.Snapshot, now time.Time) livescore.Snapshot {
+	needsClear := false
+	for _, game := range s.Games {
+		if game.InProgress && !game.Final && livescore.WindowClosed(game.Kickoff, now) {
+			needsClear = true
+			break
+		}
+	}
+	if !needsClear {
+		return s
+	}
 	games := make(map[string]livescore.GameState, len(s.Games))
 	for id, game := range s.Games {
 		if game.InProgress && !game.Final && livescore.WindowClosed(game.Kickoff, now) {

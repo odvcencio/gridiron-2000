@@ -40,16 +40,21 @@ section() {
 	printf '\n== %s ==\n' "$1"
 }
 
+missing_commands=""
+
 require_command() {
 	if ! command -v "$1" >/dev/null 2>&1; then
 		echo "FAIL: required command '$1' is not on PATH" >&2
-		exit 1
+		missing_commands="${missing_commands} $1"
 	fi
 }
 
 require_command curl
 require_command jq
 require_command kubectl
+if [ -n "$missing_commands" ]; then
+	exit 1
+fi
 
 section "1/4 /api/health (https://${HOST})"
 health_body="$(curl --fail-with-body -sS "https://${HOST}/api/health" 2>&1)" && health_ok=1 || health_ok=0
@@ -72,14 +77,25 @@ fi
 section "2/4 relay reachable + budget header (svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE}, read-only port-forward)"
 pf_log="$(mktemp)"
 pf_pid=""
+curl_err_log="$(mktemp)"
 cleanup_port_forward() {
 	if [ -n "$pf_pid" ]; then
 		kill "$pf_pid" >/dev/null 2>&1 || true
 		wait "$pf_pid" 2>/dev/null || true
 	fi
-	rm -f "$pf_log"
+	rm -f "$pf_log" "$curl_err_log"
 }
-trap cleanup_port_forward EXIT INT TERM HUP
+# POSIX sh RESUMES the script after a trap handler returns, rather than
+# tearing the process down the way a signal's default action would — so a
+# plain "trap cleanup_port_forward EXIT INT TERM HUP" runs cleanup on
+# Ctrl-C and then falls through to the rest of the script, which then
+# curls a dead port-forward and cats a log file cleanup_port_forward just
+# removed. Each signal trap below cleans up, un-traps EXIT (so the normal
+# EXIT trap does not also try to run cleanup_port_forward a second time),
+# and exits explicitly with the signal's conventional code.
+trap cleanup_port_forward EXIT
+trap 'cleanup_port_forward; trap - EXIT; exit 130' INT
+trap 'cleanup_port_forward; trap - EXIT; exit 143' TERM HUP
 
 kubectl -n "$RELAY_NAMESPACE" port-forward "svc/${RELAY_SERVICE}" "${RELAY_LOCAL_PORT}:80" >"$pf_log" 2>&1 &
 pf_pid=$!
@@ -108,14 +124,19 @@ else
 	# curl's own transport outcome, the relay's HTTP status, and the
 	# budget-header check are kept apart (item 5): a relay outage (curl
 	# fails, or the relay answers with a non-200) must FAIL with its own
-	# distinct message, not read as "no budget configured."
+	# distinct message, not read as "no budget configured." curl's stderr
+	# goes to its own file (item 6), not merged into relay_headers: a
+	# progress or warning line on stderr must never land in the text the
+	# budget-header grep below reads, and must never be printed at all
+	# unless curl actually failed.
 	relay_headers="$(curl -sS -D - -o /dev/null -w 'HTTPSTATUS:%{http_code}\n' \
 		"http://127.0.0.1:${RELAY_LOCAL_PORT}/getNFLGamesForWeek?week=${WEEK}&seasonType=reg&season=${SEASON}" \
-		2>&1)" && curl_ok=1 || curl_ok=0
+		2>"$curl_err_log")" && curl_ok=1 || curl_ok=0
 	relay_headers="$(printf '%s' "$relay_headers" | tr -d '\r')"
 	http_status="$(printf '%s\n' "$relay_headers" | sed -n 's/^HTTPSTATUS://p')"
 	if [ "$curl_ok" -ne 1 ]; then
-		echo "FAIL: curl to the relay failed: ${relay_headers}" >&2
+		echo "FAIL: curl to the relay failed:" >&2
+		cat "$curl_err_log" >&2
 		fail=1
 	elif [ "$http_status" != "200" ]; then
 		echo "FAIL: the relay responded with HTTP ${http_status:-?} (not 200); check svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE}" >&2

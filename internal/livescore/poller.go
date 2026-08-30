@@ -192,22 +192,25 @@ func (p *Poller) Tick(ctx context.Context) {
 		return
 	}
 	schedule := p.schedule() // no lock held here (see the lock-order note)
-	// windowGames is every schedule game whose time window (inWindow) is
-	// open right now, independent of isFinalDone; targets narrows that
-	// to the ones Tick will actually fetch this pass. A game that
-	// reaches final early leaves targets but stays in windowGames until
-	// its own kickoff+windowAfter passes — see windowLastOpen's doc
-	// comment for why the two must be tracked apart.
+	// windowGames is every schedule game whose time window (inTimeWindow,
+	// a pure clock fact) is open right now, independent of game.Final and
+	// isFinalDone; targets narrows that to the ones Tick will actually
+	// fetch this pass. A game that reaches final early — in the
+	// schedule's own Final flag or via isFinalDone — leaves targets but
+	// stays in windowGames until its own kickoff+windowAfter passes —
+	// see windowLastOpen's doc comment for why the two must be tracked
+	// apart, and inTimeWindow's doc comment for why this loop reads
+	// inTimeWindow here, not inWindow (round-2 review finding 3).
 	var windowGames []Game
 	var targets []Game
 	weeks := map[int]bool{}
 	currentWeek := 0
 	for _, game := range schedule {
-		if !inWindow(game, now) {
+		if !inTimeWindow(game, now) {
 			continue
 		}
 		windowGames = append(windowGames, game)
-		if p.isFinalDone(game.ID) {
+		if game.Final || p.isFinalDone(game.ID) {
 			continue
 		}
 		targets = append(targets, game)
@@ -227,12 +230,15 @@ func (p *Poller) Tick(ctx context.Context) {
 	// per tick while the window stays in the same state — so a Sunday
 	// slate does not spam the log every LIVE_POLL_INTERVAL. This keys
 	// off windowGames (the real time-based window), not targets: see
-	// windowLastOpen's doc comment. Tick is not safe to call
-	// concurrently with itself (this read-then-log of p.windowLastOpen
-	// is not atomic with the write), but production never does — Run's
-	// own loop calls it serially; only a test or a future caller
-	// invoking Tick from multiple goroutines at once could double-log a
-	// transition.
+	// windowLastOpen's doc comment. The read of wasWindowOpen and the
+	// write of p.windowLastOpen above are atomic with each other — both
+	// happen inside the single p.mu hold at lines 219-225 — so two
+	// parallel Ticks can never observe the same transition and double-
+	// log it. The log call itself, below, runs after p.mu is released,
+	// so two parallel Ticks (never done in production — Run's own loop
+	// calls Tick serially; only a test or a future concurrent caller
+	// could) could still log their own distinct transitions out of
+	// order relative to each other.
 	switch {
 	case nowWindowOpen && !wasWindowOpen:
 		ids := make([]string, 0, len(windowGames))

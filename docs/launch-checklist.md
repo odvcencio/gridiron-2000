@@ -696,6 +696,13 @@ explicit action, never a batch.
 7. **Watch the relay budget header** on the first live Sunday, at kickoff,
    mid-afternoon, and Sunday Night Football kickoff.
 
+- **Known display lag:** an already-open Matchups page keeps showing `LIVE`
+  until it next redraws. The `observe` function in `app/matchups/live.go`
+  broadcasts a live update only when the poller's version number moves.
+  The clock-driven window-close correction never moves that version. The
+  page still self-corrects at its next re-render, bounded by the feed
+  cache's 45-second limit.
+
 ### Kill-switch drill log
 
 | Date | Kickoff (matchup) | Flag off at | `LEDGER` confirmed at | Flag on at | `LIVE` confirmed at | Operator |

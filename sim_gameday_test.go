@@ -264,7 +264,7 @@ func waitForLogLine(t *testing.T, child *simChild, substr string, deadline time.
 //  2. Restart with the flag on 30 minutes before kickoff (the flip
 //     step, launch-checklist.md step 13.5): enabled, but idle — the
 //     window has not opened, so zero box-score fetches occur.
-//  3. Advance to 5 minutes before kickoff: the window opens, frames
+//  3. Advance to 4 minutes before kickoff: the window opens, frames
 //     flow, and the page reads LIVE.
 //  4. Restart with the flag off an hour after kickoff, a game in
 //     progress (the kill-switch drill, season-operations.md's

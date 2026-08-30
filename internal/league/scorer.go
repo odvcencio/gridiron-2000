@@ -138,6 +138,22 @@ func (s *Service) weekStatsSource() WeekStatsSource {
 	return fn
 }
 
+// WeekStatsForTest calls the wired WeekStatsSource for week and returns its
+// result, exactly as matchupStatsSnapshot reads it in production
+// (weekStatsSnapshot(s.weekStatsSource(), week)). It exists so a
+// root-package test (main's live_scoring_test.go) can drive
+// buildLiveScoring's own installed SetWeekStatsSource closure — not a
+// standalone copy of its logic — the same "ForTest" seam pattern
+// LiveVersionForTest uses for the sibling live-status wiring. Returns nil
+// when no source is attached.
+func (s *Service) WeekStatsForTest(week int) []WeekStatLine {
+	fn := s.weekStatsSource()
+	if fn == nil {
+		return nil
+	}
+	return fn(week)
+}
+
 // JoinMiss is one rostered player whose normalized name+position found no
 // matching stat line for a scored week. It always scores zero; season.go's
 // week-close path collects these so the commissioner can see them (section
