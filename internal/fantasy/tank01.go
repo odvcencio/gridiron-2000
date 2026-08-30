@@ -438,6 +438,37 @@ func flexFloat(value any) float64 {
 	}
 }
 
+// flexFloatOK is flexFloat with an explicit success flag: it reports
+// false for a missing key (a nil interface), an empty string, or a
+// non-numeric string, so a caller can tell "no usable value" apart from
+// a genuine, explicit zero. A live box score's ptsAllowed can arrive
+// blank on an early frame before Tank01 populates it; treating that as
+// a parsed 0 would fake a shutout the game has not actually produced.
+func flexFloatOK(value any) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return 0, false
+		}
+		parsed, err := strconv.ParseFloat(trimmed, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	case json.Number:
+		parsed, err := typed.Float64()
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	default:
+		return 0, false
+	}
+}
+
 func flexInt(value any) int {
 	return int(flexFloat(value))
 }

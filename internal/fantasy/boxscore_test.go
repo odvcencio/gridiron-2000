@@ -6,24 +6,17 @@ import (
 	"testing"
 )
 
-// boxFinalFixtureName is split across two literals so the raw source text
-// never carries a contiguous name-at-name-dot-extension shape, the pattern
-// the repository's privacy contract test
-// (TestTrackedPublicRepositoryPrivacyContract) flags as an email-shaped
-// value; the runtime string is unaffected.
-const boxFinalFixtureName = "box-20250904_DAL@PHI" + ".json"
-
 func loadBoxFixture(t *testing.T, name string) BoxScore {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("testdata", name))
 	if err != nil {
 		t.Fatal(err)
 	}
-	return parseBoxScore(unwrapEnvelope(raw))
+	return ParseBoxScore(raw)
 }
 
 func TestParseBoxScoreFinalGameFields(t *testing.T) {
-	box := loadBoxFixture(t, boxFinalFixtureName)
+	box := loadBoxFixture(t, "box-20250904_DAL-PHI.json")
 	if box.GameID != "20250904_DAL@PHI" || box.Away != "DAL" || box.Home != "PHI" {
 		t.Fatalf("identity = %+v", box)
 	}
@@ -43,14 +36,20 @@ func TestParseBoxScoreFinalGameFields(t *testing.T) {
 }
 
 func TestParseBoxScoreDSTBranch(t *testing.T) {
-	box := loadBoxFixture(t, boxFinalFixtureName)
+	box := loadBoxFixture(t, "box-20250904_DAL-PHI.json")
 	dal := box.DST["DAL"]
-	if dal["sacks"] != 1 || dal["fumblesRecovered"] != 0 || dal["ptsAllowed"] != 24 {
+	if dal["sacks"] != 1 || dal["ptsAllowed"] != 24 {
 		t.Fatalf("DAL D/ST = %v", dal)
 	}
+	if value, ok := dal["fumblesRecovered"]; !ok || value != 0 {
+		t.Fatalf("DAL fumblesRecovered = %v (present=%v), want an explicit 0", value, ok)
+	}
 	phi := box.DST["PHI"]
-	if phi["fumblesRecovered"] != 1 || phi["ptsAllowed"] != 20 || phi["safeties"] != 0 {
+	if phi["fumblesRecovered"] != 1 || phi["ptsAllowed"] != 20 {
 		t.Fatalf("PHI D/ST = %v", phi)
+	}
+	if value, ok := phi["safeties"]; !ok || value != 0 {
+		t.Fatalf("PHI safeties = %v (present=%v), want an explicit 0", value, ok)
 	}
 }
 
@@ -67,12 +66,39 @@ func TestParseBoxScoreInProgressKeepsZeroPointsAllowed(t *testing.T) {
 	}
 }
 
+// TestParseBoxScoreDSTPointsAllowedFallback pins ptsAllowed's fallback to
+// the opponent's score: it must fire on a genuinely missing value (absent
+// key, blank string, JSON null) and must not fire on a value that parses,
+// including an explicit "0" (covered separately by
+// TestParseBoxScoreInProgressKeepsZeroPointsAllowed). A blank or null
+// ptsAllowed shows up on an early live frame before Tank01 has populated
+// it; reading that as a parsed 0 would fake a shutout the game has not
+// produced.
+func TestParseBoxScoreDSTPointsAllowedFallback(t *testing.T) {
+	cases := map[string]string{
+		"absent key":   `{"awayPts":"10","homePts":"24","DST":{"away":{"teamAbv":"AWY"},"home":{"teamAbv":"HOM"}}}`,
+		"empty string": `{"awayPts":"10","homePts":"24","DST":{"away":{"teamAbv":"AWY","ptsAllowed":""},"home":{"teamAbv":"HOM","ptsAllowed":""}}}`,
+		"json null":    `{"awayPts":"10","homePts":"24","DST":{"away":{"teamAbv":"AWY","ptsAllowed":null},"home":{"teamAbv":"HOM","ptsAllowed":null}}}`,
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			box := parseBoxScore([]byte(raw))
+			if box.DST["AWY"]["ptsAllowed"] != 24 {
+				t.Fatalf("AWY ptsAllowed = %v, want the home score (24) as fallback", box.DST["AWY"]["ptsAllowed"])
+			}
+			if box.DST["HOM"]["ptsAllowed"] != 10 {
+				t.Fatalf("HOM ptsAllowed = %v, want the away score (10) as fallback", box.DST["HOM"]["ptsAllowed"])
+			}
+		})
+	}
+}
+
 func TestParseBoxScoreStatusCodeRule(t *testing.T) {
 	for raw, want := range map[string]struct{ final, inProgress bool }{
-		`{"gameStatusCode":"2","currentPeriod":"Final"}`:                {true, false},
-		`{"gameStatusCode":"1","currentPeriod":"Q1"}`:                   {false, true},
-		`{"gameStatusCode":"0","currentPeriod":""}`:                     {false, false},
-		`{"gameStatusCode":"","currentPeriod":""}`:                      {false, false},
+		`{"gameStatusCode":"2","currentPeriod":"Final"}`:                 {true, false},
+		`{"gameStatusCode":"1","currentPeriod":"Q1"}`:                    {false, true},
+		`{"gameStatusCode":"0","currentPeriod":""}`:                      {false, false},
+		`{"gameStatusCode":"","currentPeriod":""}`:                       {false, false},
 		`{"gameStatusCode":"7","currentPeriod":"Q4","gameClock":"1:00"}`: {false, true},
 	} {
 		box := parseBoxScore([]byte(raw))
@@ -94,5 +120,28 @@ func TestParseGamesForWeekKeepsDateAndStatusCode(t *testing.T) {
 	games := parsePreseasonWeek(unwrapEnvelope(raw))
 	if len(games) != 1 || games[0].Date != "20250907" || games[0].StatusCode != "2" || games[0].Home != "LAR" {
 		t.Fatalf("listing = %+v", games)
+	}
+}
+
+func TestNewBoxScoreClientDefaultsAndValidation(t *testing.T) {
+	if _, err := NewBoxScoreClient("", 2025, nil, 0); err == nil {
+		t.Fatal("an empty baseURL must return an error, not a client that can never succeed")
+	}
+	client, err := NewBoxScoreClient("https://relay.example.test", 2025, nil, 0)
+	if err != nil {
+		t.Fatalf("NewBoxScoreClient: %v", err)
+	}
+	if client.client.client == nil {
+		t.Fatal("a nil httpClient must default to a usable client")
+	}
+	if client.client.maxBody != defaultBoxScoreMaxBody {
+		t.Fatalf("maxBody = %d, want the default %d when maxBodyBytes <= 0", client.client.maxBody, defaultBoxScoreMaxBody)
+	}
+	sized, err := NewBoxScoreClient("https://relay.example.test", 2025, nil, 8<<20)
+	if err != nil {
+		t.Fatalf("NewBoxScoreClient: %v", err)
+	}
+	if sized.client.maxBody != 8<<20 {
+		t.Fatalf("maxBody = %d, want the passed 8 MiB limit", sized.client.maxBody)
 	}
 }

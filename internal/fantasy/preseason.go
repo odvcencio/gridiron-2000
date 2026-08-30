@@ -3,6 +3,7 @@ package fantasy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -146,8 +147,8 @@ type BoxScore struct {
 	Period     string // currentPeriod: "", "Q1".."Q4", "OT", "Final"
 	Clock      string // gameClock: "8:12" or ""
 	Final      bool
-	InProgress bool                           // code "1", or any non-final code with a non-empty period
-	Players    map[string]PlayerLine          // Tank01 playerID -> line
+	InProgress bool                          // code "1", or any non-final code with a non-empty period
+	Players    map[string]PlayerLine         // Tank01 playerID -> line
 	DST        map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
 }
 
@@ -211,8 +212,18 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 		}
 	}
 	if dst, ok := body["DST"].(map[string]any); ok {
-		for side, opponentPoints := range map[string]float64{"away": box.HomePoints, "home": box.AwayPoints} {
-			unit, ok := dst[side].(map[string]any)
+		// A slice, not a map literal, so "away" is always visited before
+		// "home" — deterministic order for anyone stepping through this
+		// in a debugger or diffing test output.
+		sides := [2]struct {
+			side           string
+			opponentPoints float64
+		}{
+			{"away", box.HomePoints},
+			{"home", box.AwayPoints},
+		}
+		for _, pair := range sides {
+			unit, ok := dst[pair.side].(map[string]any)
 			if !ok {
 				continue
 			}
@@ -224,9 +235,15 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 			for _, key := range dstStatKeys {
 				line[key] = flexFloat(unit[key])
 			}
-			line["ptsAllowed"] = opponentPoints
-			if raw, present := unit["ptsAllowed"]; present {
-				line["ptsAllowed"] = flexFloat(raw)
+			// ptsAllowed overrides the opponent-score fallback only when
+			// the field parses to a real number. A blank string or a
+			// JSON null on an early live frame must fall through to the
+			// fallback, not be read as an explicit, shutout-faking 0; an
+			// explicit "0" (the game has genuinely allowed no points so
+			// far) still overrides, matching TestParseBoxScoreInProgressKeepsZeroPointsAllowed.
+			line["ptsAllowed"] = pair.opponentPoints
+			if value, ok := flexFloatOK(unit["ptsAllowed"]); ok {
+				line["ptsAllowed"] = value
 			}
 			box.DST[team] = line
 		}
@@ -248,6 +265,13 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 // stat-key space. Zero values are dropped (the projectionStats idiom, F5),
 // so a row with no scored group at all (Defense only, or a punter's Punting
 // group) returns an empty map and the caller drops it.
+//
+// Decision: an all-zero row and an absent row are equivalent for the live
+// overlay's precedence rule. A live cumulative stat line only grows over
+// the course of a game, so it is never below a ledger (mirror) row's
+// value; dropping the zero row costs the overlay nothing, since a caller
+// that finds no live row simply keeps its ledger row instead, the same
+// outcome as if this returned a present-but-zero map.
 func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 	stats := map[string]float64{}
 	addGroup := func(groupKey string, keyMap map[string]string) {
@@ -324,8 +348,32 @@ type BoxScoreClient struct {
 	season int
 }
 
-func NewBoxScoreClient(baseURL string, season int, httpClient *http.Client) *BoxScoreClient {
-	return &BoxScoreClient{client: &tank01Client{baseURL: strings.TrimRight(baseURL, "/"), client: httpClient, maxBody: 32 << 20}, season: season}
+// defaultBoxScoreMaxBody is NewBoxScoreClient's maxBodyBytes fallback: it
+// matches Config's own default (service.go) so a caller that passes 0
+// behaves the same as an unconfigured Service.
+const defaultBoxScoreMaxBody = 32 << 20
+
+// NewBoxScoreClient builds a standalone client for a caller outside
+// Service (the live poller's own client, or a replay-mode fake relay). A
+// nil httpClient defaults to http.DefaultClient. baseURL is required —
+// this client always talks to a relay (statrelay or a replay server),
+// never straight to RapidAPI — and an empty one is almost certainly a
+// missing TANK01_BASE_URL, so it returns an error rather than silently
+// building a client that can never succeed. maxBodyBytes <= 0 falls back
+// to defaultBoxScoreMaxBody so a replay-mode client without an explicit
+// Config.MaxBodyBytes still gets a sane cap.
+func NewBoxScoreClient(baseURL string, season int, httpClient *http.Client, maxBodyBytes int64) (*BoxScoreClient, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("NewBoxScoreClient: baseURL is required")
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	if maxBodyBytes <= 0 {
+		maxBodyBytes = defaultBoxScoreMaxBody
+	}
+	return &BoxScoreClient{client: &tank01Client{baseURL: baseURL, client: httpClient, maxBody: maxBodyBytes}, season: season}, nil
 }
 
 func (s *Service) BoxScoreClient() *BoxScoreClient {
