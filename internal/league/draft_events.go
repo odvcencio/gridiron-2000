@@ -28,26 +28,33 @@ const draftEventQueueSize = 256
 // SetPlayerSource.
 //
 // emitDraft assigns each event's generation and pushes it onto the queue
-// under draftEmitMu, so wire order always matches generation order;
-// draftEventDrain below — never the caller's own request or ticker
+// under draftEmitMu, so wire order always matches generation order among
+// regular events; the repair path (emitDraftEventBlocking) delivers
+// through its own single-slot repairQueue instead (P2 perf fix,
+// 2026-08-30 review), so it can never contend with a regular producer for
+// draftEmitMu or for queue capacity — a repair carries a full resync, not
+// a delta, so its delivery need not interleave with queue in generation
+// order. draftEventDrain below — never the caller's own request or ticker
 // goroutine — pays for fn's cost (the fingerprint stamp, the JSON marshal,
 // and the websocket fan-out inside hub.Broadcast). A second call replaces
-// the sink and restarts both goroutines against a fresh queue and signal;
-// StopDraftEvents (wired into AppRuntime.Close) is the only other way to
-// stop them.
+// the sink and restarts both goroutines against a fresh queue, repairQueue,
+// and signal; StopDraftEvents (wired into AppRuntime.Close) is the only
+// other way to stop them.
 func (s *Service) SetDraftEventSink(fn func(DraftEvent)) {
 	s.poolMu.Lock()
 	if s.draftQueueCancel != nil {
 		s.draftQueueCancel()
 	}
 	queue := make(chan DraftEvent, draftEventQueueSize)
+	repairQueue := make(chan DraftEvent, 1)
 	signal := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.draftQueue = queue
+	s.draftRepairQueue = repairQueue
 	s.draftRepairSignal = signal
 	s.draftQueueCancel = cancel
 	s.poolMu.Unlock()
-	go draftEventDrain(ctx, queue, fn)
+	go draftEventDrain(ctx, queue, repairQueue, fn)
 	go s.draftRepairLoop(ctx, signal)
 }
 
@@ -58,6 +65,7 @@ func (s *Service) StopDraftEvents() {
 	s.poolMu.Lock()
 	cancel := s.draftQueueCancel
 	s.draftQueue = nil
+	s.draftRepairQueue = nil
 	s.draftRepairSignal = nil
 	s.draftQueueCancel = nil
 	s.poolMu.Unlock()
@@ -67,14 +75,26 @@ func (s *Service) StopDraftEvents() {
 }
 
 // draftEventDrain is the single consumer: it delivers every queued event to
-// fn strictly in the order emitDraft enqueued it, off the caller's own
-// goroutine. It exits once ctx is canceled; any event still buffered in
-// queue at that point is simply never delivered (shutdown, not a bug).
-func draftEventDrain(ctx context.Context, queue chan DraftEvent, fn func(DraftEvent)) {
+// fn off the caller's own goroutine, from either channel as it arrives.
+// repairQueue is its own single-slot channel (P2 perf fix, 2026-08-30
+// review) rather than a second write into queue, precisely so a slow drain
+// stalls emitDraftEventBlocking's own send — never a concurrent producer's
+// non-blocking emitDraftEvent, which no longer contends with it for
+// draftEmitMu either (see emitDraftEventBlocking). Wire order between queue
+// and repairQueue is not preserved (select picks whichever is ready), which
+// is fine: a repair is a full resync, not a delta that must land relative
+// to any one regular event. It exits once ctx is canceled; any event still
+// buffered in either channel at that point is simply never delivered
+// (shutdown, not a bug).
+func draftEventDrain(ctx context.Context, queue, repairQueue chan DraftEvent, fn func(DraftEvent)) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case event := <-repairQueue:
+			if fn != nil {
+				fn(event)
+			}
 		case event := <-queue:
 			if fn != nil {
 				fn(event)
@@ -159,29 +179,34 @@ func (s *Service) emitDraftEvent(name string, payload map[string]any, signalOnDr
 }
 
 // emitDraftEventBlocking is draftRepairLoop's own emit path (R2, Task 6
-// review): unlike emitDraftEvent, a full queue never drops this one — it
-// blocks until draftEventDrain frees a slot, or ctx is canceled
-// (shutdown/StopDraftEvents). It still holds draftEmitMu across the send,
-// preserving the same "assign the generation, then enqueue" ordering
-// guarantee emitDraftEvent's own doc comment describes; a caller blocked
-// here simply holds up the next producer's own emit until room frees,
-// which is the point — this is the one message a sustained backlog must
-// not silently lose.
+// review): unlike emitDraftEvent, a full repair channel never drops this
+// one — it blocks until draftEventDrain frees a slot, or ctx is canceled
+// (shutdown/StopDraftEvents).
+//
+// P2 fix (2026-08-30 review): draftEmitMu is held only long enough to
+// assign the generation, the same ordering step emitDraftEvent's own doc
+// comment describes — it is released BEFORE the potentially-blocking send,
+// so a slow drain stalls only this goroutine (draftRepairLoop), never a
+// concurrent producer's own emitDraftEvent (MakePick, clockTick,
+// AdminForceAutopick, RecordPresence). The send itself goes to
+// draftRepairQueue, a channel no other producer ever writes to, so this
+// call cannot race a regular emitDraftEvent for queue capacity either.
 func (s *Service) emitDraftEventBlocking(ctx context.Context, name string, payload map[string]any) {
 	s.draftEmitMu.Lock()
-	defer s.draftEmitMu.Unlock()
 	s.poolMu.Lock()
-	queue := s.draftQueue
+	repairQueue := s.draftRepairQueue
 	s.poolMu.Unlock()
-	if queue == nil {
+	if repairQueue == nil {
+		s.draftEmitMu.Unlock()
 		return
 	}
 	generation := s.draftGeneration.Add(1)
 	payload["generation"] = generation
 	payload["at"] = s.clock().UTC().Format(time.RFC3339)
 	event := DraftEvent{Name: name, Generation: generation, Payload: payload}
+	s.draftEmitMu.Unlock()
 	select {
-	case queue <- event:
+	case repairQueue <- event:
 	case <-ctx.Done():
 	}
 }

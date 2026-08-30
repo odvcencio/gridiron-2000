@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,6 +38,12 @@ type playerPool struct {
 	label   string
 	players []Player
 	byID    map[string]Player
+	// byADP is players sorted ADP-ascending, a player with no meaningful ADP
+	// (<=0) sorted last: built once per pool version (buildPool), not
+	// per-request. draft_history.go's "best available at this pick" snapshot
+	// reads this order directly (P1 perf fix, 2026-08-30) rather than
+	// re-sorting the whole pool on every DraftHistory call.
+	byADP []Player
 	// unavailable is set when an explicitly wired production source has no
 	// authoritative rows. It keeps the embedded resolution players out of
 	// the lookup map as well as the ordered pool, so a stale player ID cannot
@@ -176,7 +183,14 @@ type Service struct {
 	// one slot, so a burst of drops coalesces into at most one pending
 	// repair; see draftRepairLoop.
 	draftRepairSignal chan struct{}
-	draftQueueCancel  context.CancelFunc
+	// draftRepairQueue is the repair's own single-slot delivery channel
+	// (P2 perf fix, 2026-08-30 review): draftEventDrain selects on it
+	// alongside draftQueue, so draftRepairLoop's blocking send
+	// (emitDraftEventBlocking) never shares draftQueue with — and can never
+	// stall behind the drain rate of — a real producer's own non-blocking
+	// emitDraftEvent.
+	draftRepairQueue chan DraftEvent
+	draftQueueCancel context.CancelFunc
 	// draftEmitMu serializes emitDraft's "assign the next generation" with
 	// "push onto draftQueue" as one step, so two concurrent producers (an
 	// HTTP pick and the clock ticker's autopick, say) can never enqueue out
@@ -1281,7 +1295,19 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 		annotated[index] = s.withHistorical(player)
 		byID[annotated[index].ID] = annotated[index]
 	}
-	return playerPool{version: version, label: label, players: annotated, byID: byID}
+	byADP := make([]Player, len(annotated))
+	copy(byADP, annotated)
+	sort.SliceStable(byADP, func(i, j int) bool {
+		left, right := byADP[i].ADP, byADP[j].ADP
+		if left <= 0 {
+			left = math.MaxFloat64
+		}
+		if right <= 0 {
+			right = math.MaxFloat64
+		}
+		return left < right
+	})
+	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP}
 }
 
 // withHistorical fills a player's previous-season line from the attached
@@ -2406,17 +2432,28 @@ func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
-	return s.draftData(r, false)
+	return s.draftData(r, false, true)
 }
 
 // DraftDataReadOnly returns the same authoritative draft view without
 // provisioning a signed-in member. Fragment polling is a read path: opening a
 // draft tab must never create membership or rewrite league persistence.
 func (s *Service) DraftDataReadOnly(r *http.Request) map[string]any {
-	return s.draftData(r, true)
+	return s.draftData(r, true, true)
 }
 
-func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
+// DraftDataReadOnlyOptions is DraftDataReadOnly with control over whether
+// the response builds DraftHistory (P1 perf fix, 2026-08-30 review):
+// draftData runs on every one of app/draft's six fragment polls, but only
+// the tape region ever renders history, so app/draft's other five fragment
+// loaders (command, available, queue, room, workspace) pass
+// includeHistory=false and skip a cost that otherwise scaled with the
+// draft's pick count on every poll regardless of what the client asked for.
+func (s *Service) DraftDataReadOnlyOptions(r *http.Request, includeHistory bool) map[string]any {
+	return s.draftData(r, true, includeHistory)
+}
+
+func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool) map[string]any {
 	now := s.clock()
 	var viewer map[string]any
 	var state PersistedState
@@ -2619,7 +2656,15 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	// page.server.go's prepareDraftData reads it directly (a Service method
 	// result stashed in this otherwise-untyped map, the same pattern teams/
 	// picks/available already use for their own typed-conversion boundary).
-	history := s.DraftHistory(state, viewerTeam)
+	// Built only when includeHistory (P1 perf fix): the zero DraftHistoryView
+	// otherwise stashed here already renders an empty pane for free —
+	// buildDraftHistoryView (page.server.go) has treated a missing "history"
+	// key this way since Task 7, the same fallback every non-league test
+	// fixture in app/draft relies on.
+	var history DraftHistoryView
+	if includeHistory {
+		history = s.DraftHistory(state, viewerTeam)
+	}
 	return map[string]any{
 		"viewer":               viewer,
 		"public_entry":         publicEntryData(publicEntry),

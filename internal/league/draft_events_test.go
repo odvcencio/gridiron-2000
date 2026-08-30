@@ -550,9 +550,11 @@ func TestDropPathSchedulesOneCoalescedRepair(t *testing.T) {
 	for i := 0; i < draftEventQueueSize; i++ {
 		queue <- DraftEvent{Name: "draft:seat", Payload: map[string]any{"filler": i}}
 	}
+	repairQueue := make(chan DraftEvent, 1)
 	signal := make(chan struct{}, 1)
 	service.poolMu.Lock()
 	service.draftQueue = queue
+	service.draftRepairQueue = repairQueue
 	service.draftRepairSignal = signal
 	service.poolMu.Unlock()
 
@@ -566,7 +568,7 @@ func TestDropPathSchedulesOneCoalescedRepair(t *testing.T) {
 	var recorder draftEventRecorder
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	go draftEventDrain(ctx, queue, recorder.record)
+	go draftEventDrain(ctx, queue, repairQueue, recorder.record)
 	go service.draftRepairLoop(ctx, signal)
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -595,6 +597,66 @@ func TestDropPathSchedulesOneCoalescedRepair(t *testing.T) {
 	}
 	if len(repairs) != 1 {
 		t.Fatalf("repair draft:state events = %d, want exactly 1", len(repairs))
+	}
+}
+
+// TestEmitDraftEventBlockingReturnsOnContextCancelWithoutStallingProducers
+// is the P2 fix's own contract (2026-08-30 review): a full, unconsumed
+// draftRepairQueue must park emitDraftEventBlocking in its own select —
+// but draftEmitMu must already be free at that point, so a concurrent
+// producer's own emitDraftEvent (the non-blocking path every real mutation
+// uses) lands at once rather than stalling behind the parked repair send.
+// Canceling ctx must then let emitDraftEventBlocking return.
+func TestEmitDraftEventBlockingReturnsOnContextCancelWithoutStallingProducers(t *testing.T) {
+	service, _, _ := newEventTestService(t)
+	service.StopDraftEvents()
+
+	queue := make(chan DraftEvent, draftEventQueueSize)
+	repairQueue := make(chan DraftEvent, 1)
+	repairQueue <- DraftEvent{Name: "draft:state", Payload: map[string]any{"filler": true}} // full: capacity 1
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	service.poolMu.Lock()
+	service.draftQueue = queue
+	service.draftRepairQueue = repairQueue
+	service.poolMu.Unlock()
+
+	blocked := make(chan struct{})
+	go func() {
+		service.emitDraftEventBlocking(ctx, "draft:state", map[string]any{"probe": true})
+		close(blocked)
+	}()
+	// Give the goroutine above a moment to reach its select and park there
+	// (repairQueue has no consumer): this is a best-effort nudge, not a
+	// correctness requirement — the producer check below still passes even
+	// if it wins the race, just less convincingly.
+	time.Sleep(10 * time.Millisecond)
+
+	done := make(chan struct{})
+	go func() {
+		service.emitDraftEvent("draft:seat", map[string]any{"real": true}, false)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("emitDraftEvent stalled behind a full, unconsumed repair channel; draftEmitMu must not be held across emitDraftEventBlocking's send")
+	}
+	if n := len(queue); n != 1 {
+		t.Fatalf("regular queue depth = %d, want 1 (the real producer's own event)", n)
+	}
+
+	select {
+	case <-blocked:
+		t.Fatal("emitDraftEventBlocking returned before ctx was canceled; the repair channel was never actually full/unconsumed")
+	default:
+	}
+
+	cancel()
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("emitDraftEventBlocking did not return once ctx was canceled")
 	}
 }
 

@@ -101,12 +101,26 @@ type DraftHistoryView struct {
 	Picks    []TapePick // ascending: the ledger and the CSV
 	Complete bool
 	Latest   int
-	details  map[int]PickDetail
+	// detail computes one pick's expanded accordion on demand (P1 perf fix,
+	// 2026-08-30): a closure over this render's own retained state and pool,
+	// not a map precomputed for every pick up front. hydratedTapePicksProps
+	// (page.server.go) is the one caller that invokes it, once per row the
+	// tape actually renders — the command/available/queue fragments never
+	// call Detail at all, and draftData already skips building history for
+	// them (DraftDataOptions.IncludeHistory).
+	detail func(number int) PickDetail
 }
 
 // Detail returns number's expanded pick detail, or the zero value when no
-// such pick has been made.
-func (v DraftHistoryView) Detail(number int) PickDetail { return v.details[number] }
+// such pick has been made (or this view was built with no detail closure —
+// the zero-value DraftHistoryView every non-league test fixture starts
+// from).
+func (v DraftHistoryView) Detail(number int) PickDetail {
+	if v.detail == nil {
+		return PickDetail{}
+	}
+	return v.detail(number)
+}
 
 // boardCellNumber resolves the pick number that lands in round/column under
 // a snake draft with teamCount active teams: column is the team's fixed
@@ -138,6 +152,18 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 
 	valueEligible := pool.label != "offline"
 	pickedUpTo := map[string]int{} // playerID -> pick number that took it
+
+	// teamPicksAsc/teamPickPos back Detail's TeamPicks lookup in O(1): built
+	// once in this same O(P) pass rather than an O(P) rescan of tapePicks
+	// per pick (the P1 perf fix, 2026-08-30 review — the old per-pick scan
+	// made the whole view O(P^2), ~8ms at 120 picks). A team's own picks
+	// land in teamPicksAsc[teamID] in ascending Number order (picks are
+	// numbered 1..P in draft order already), so teamPickPos[number] — that
+	// pick's 1-based position within its own team's slice — turns "this
+	// team's picks up to and including this one" into a slice, no copy.
+	teamPicksAsc := map[string][]TapePick{}
+	teamPickPos := map[int]int{}
+	pickByNumber := make(map[int]TapePick, len(state.Picks))
 
 	tapePicks := make([]TapePick, len(state.Picks))
 	for index, pick := range state.Picks {
@@ -174,6 +200,9 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 			MadeAt: pick.MadeAt.UTC().Format(time.RFC3339),
 		}
 		pickedUpTo[pick.PlayerID] = pick.Number
+		pickByNumber[pick.Number] = tapePicks[index]
+		teamPicksAsc[pick.TeamID] = append(teamPicksAsc[pick.TeamID], tapePicks[index])
+		teamPickPos[pick.Number] = len(teamPicksAsc[pick.TeamID])
 	}
 
 	// Rounds: newest round first, each round's picks newest pick first.
@@ -261,21 +290,17 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 		teamColumns = append(teamColumns, TeamColumn{Team: teamMapView, Picks: picks, Needs: needs})
 	}
 
-	// Details: one PickDetail per made pick, keyed by pick number.
-	sortedByADP := make([]Player, len(pool.players))
-	copy(sortedByADP, pool.players)
-	sort.SliceStable(sortedByADP, func(i, j int) bool {
-		left, right := sortedByADP[i].ADP, sortedByADP[j].ADP
-		if left <= 0 {
-			left = math.MaxFloat64
+	// detailFn computes one pick's PickDetail on request (P1 perf fix): the
+	// source/queue-index scan is bounded by the team's own board length and
+	// the best-available scan by pool.byADP (both independent of P, the
+	// pick count), and TeamPicks is an O(1) slice off teamPicksAsc/
+	// teamPickPos above — so a single Detail call costs O(board + pool),
+	// never O(P), and this closure itself does no work until called.
+	detailFn := func(number int) PickDetail {
+		pick, ok := pickByNumber[number]
+		if !ok {
+			return PickDetail{}
 		}
-		if right <= 0 {
-			right = math.MaxFloat64
-		}
-		return left < right
-	})
-	details := make(map[int]PickDetail, len(tapePicks))
-	for _, pick := range tapePicks {
 		player := pool.byID[pick.PlayerID]
 		board := state.Boards[s.boardKeyForTeam(state, pick.TeamID)]
 		source := "best available"
@@ -291,7 +316,7 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 			}
 		}
 		best := make([]BestAvailablePick, 0, 3)
-		for _, candidate := range sortedByADP {
+		for _, candidate := range pool.byADP {
 			if takenAt, taken := pickedUpTo[candidate.ID]; taken && takenAt <= pick.Number {
 				continue
 			}
@@ -301,12 +326,10 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 			}
 		}
 		var teamPicks []TapePick
-		for _, other := range tapePicks {
-			if other.TeamID == pick.TeamID && other.Number <= pick.Number {
-				teamPicks = append(teamPicks, other)
-			}
+		if pos, ok := teamPickPos[number]; ok {
+			teamPicks = teamPicksAsc[pick.TeamID][:pos]
 		}
-		details[pick.Number] = PickDetail{
+		return PickDetail{
 			TapePick: pick, Projection: fmt.Sprintf("%.1f", player.Projection),
 			Source: source, BestAvailable: best, TeamPicks: teamPicks,
 		}
@@ -319,7 +342,7 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 
 	return DraftHistoryView{
 		Rounds: tapeRounds, Board: BoardView{Columns: columns, Rows: boardRows}, Teams: teamColumns,
-		Picks: tapePicks, Complete: complete, Latest: latest, details: details,
+		Picks: tapePicks, Complete: complete, Latest: latest, detail: detailFn,
 	}
 }
 

@@ -28,18 +28,31 @@ const (
 	draftTapeSinceKey = "since"
 )
 
+// draftFragmentLoader adapts DraftDataReadOnlyOptions to the load
+// func(*http.Request) map[string]any) shape draftFragmentHandler expects
+// (P1 perf fix, 2026-08-30 review): includeHistory is false for every
+// region below except the tape pane, which is the only one page.gsx
+// renders <DraftHistory> or <DraftTapeRows> for — the other five fragments
+// otherwise paid DraftHistory's pick-count-scaled build cost on every poll
+// for a value their own component never reads.
+func draftFragmentLoader(service *league.Service, includeHistory bool) func(*http.Request) map[string]any {
+	return func(r *http.Request) map[string]any {
+		return service.DraftDataReadOnlyOptions(r, includeHistory)
+	}
+}
+
 // RoomFragmentHandler returns the authoritative room chrome without the
-// player workspace. Periodic GETs deliberately use DraftDataReadOnly so a
+// player workspace. Periodic GETs deliberately use a read-only loader so a
 // browser tab can never provision membership or persist presence as a side
 // effect of observing league state.
 func RoomFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftRoomRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftRoomRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
 // WorkspaceFragmentHandler keeps the query-scoped player pool, personal board,
 // and pick tape current without replacing the rest of the draft page.
 func WorkspaceFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftWorkspaceRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftWorkspaceRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
 // CommandFragmentHandler serves the shell's always-visible command bar
@@ -49,23 +62,23 @@ func WorkspaceFragmentHandler(service *league.Service) http.Handler {
 // browser room's countdown and pick-label region swap on a real typed
 // event instead of 404ing.
 func CommandFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftCommandRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftCommandRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
 // TapeFragmentHandler serves the pick-history pane's swapped body.
 func TapeFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftTapeRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftTapeRegion, draftFragmentAccess(service), draftFragmentLoader(service, true))
 }
 
 // AvailableFragmentHandler serves the available-players pane's swapped
 // body, including the position-filtered ?pos= refetch the chips drive.
 func AvailableFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftAvailableRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftAvailableRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
 // QueueFragmentHandler serves the "my team" pane's swapped body.
 func QueueFragmentHandler(service *league.Service) http.Handler {
-	return draftFragmentHandler(draftQueueRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
+	return draftFragmentHandler(draftQueueRegion, draftFragmentAccess(service), draftFragmentLoader(service, false))
 }
 
 func draftFragmentAccess(service *league.Service) func(*http.Request) bool {

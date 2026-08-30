@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 func makePicks(t *testing.T, service *Service, count int) PersistedState {
@@ -78,5 +79,53 @@ func TestPickValueIsPickNumberMinusADP(t *testing.T) {
 	}
 	if len(detail.BestAvailable) != 3 || detail.BestAvailable[0].ID != "pool-001" {
 		t.Fatalf("best available = %+v", detail.BestAvailable)
+	}
+}
+
+// TestDraftDataSkipsHistoryBuildWhenNotIncluded is the P1 perf fix's own
+// contract (2026-08-30 review): DraftDataReadOnlyOptions(r, false) must
+// hand back the zero DraftHistoryView, not run DraftHistory at all — the
+// command/available/queue/room/workspace fragments never render it, and
+// draftData used to build it unconditionally on every one of their polls.
+func TestDraftDataSkipsHistoryBuildWhenNotIncluded(t *testing.T) {
+	service, _, member := newEventTestService(t)
+	teams := len(service.Teams())
+	rounds := CurrentDraftRounds()
+	makePicks(t, service, teams*rounds)
+	request := pickRequest(t, member.Email)
+
+	start := time.Now()
+	data := service.DraftDataReadOnlyOptions(request, false)
+	elapsed := time.Since(start)
+
+	history, _ := data["history"].(DraftHistoryView)
+	if len(history.Rounds) != 0 || len(history.Picks) != 0 || len(history.Teams) != 0 {
+		t.Fatalf("history = %+v, want the zero value when includeHistory=false", history)
+	}
+	if elapsed > 5*time.Millisecond {
+		t.Fatalf("draftData(includeHistory=false) took %s at %d picks, want well under DraftHistory's own build cost", elapsed, teams*rounds)
+	}
+}
+
+// TestDraftHistoryStaysFastAtFullDraftPickCount is the P1 perf fix's other
+// half: DraftHistory's build plus one Detail call per pick (the tape's own
+// full render cost, hydratedTapePicksProps in page.server.go) must stay
+// well under 3ms at a full completed draft's pick count — the pre-fix
+// O(P^2) TeamPicks rescan cost the review clocked at ~8ms at 120 picks.
+func TestDraftHistoryStaysFastAtFullDraftPickCount(t *testing.T) {
+	service, _, _ := newEventTestService(t)
+	teams := len(service.Teams())
+	rounds := CurrentDraftRounds()
+	total := teams * rounds
+	state := makePicks(t, service, total)
+
+	start := time.Now()
+	history := service.DraftHistory(state, "")
+	for _, pick := range history.Picks {
+		history.Detail(pick.Number)
+	}
+	elapsed := time.Since(start)
+	if elapsed > 3*time.Millisecond {
+		t.Fatalf("DraftHistory + one Detail per pick took %s at %d picks, want well under 3ms", elapsed, total)
 	}
 }
