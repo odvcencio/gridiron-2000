@@ -861,8 +861,11 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 // --- The app shell (D2, D5): the always-visible command bar plus three
 // independently-refreshing panes (history/tape, available players, my
 // team). Task 5a's contract; DraftRoom and DraftWorkspace above stay for
-// the legacy /draft/fragment/room|workspace routes until Task 8 retires
-// them — Page() below no longer renders either.
+// the legacy /draft/fragment/room|workspace routes — Task 8 (target mode,
+// 2026-08-30) kept both mounted rather than retiring them: they are
+// inert, unused by Page() (below no longer renders either), and
+// TestDraftRegionContractIsPushDrivenAndMounted (fragment_test.go) pins
+// them present by name as a documented, deliberately deferred cleanup.
 
 type DraftCommandBarProps struct {
 	Data          map[string]any
@@ -924,6 +927,11 @@ type TapeRound struct {
 	Picks              []TapePick
 	// Cursor: see draftTapeRoundView's own doc comment (page.server.go).
 	Cursor int
+	// ShowHeader/MadeBindKey/CurrentBindAttr: see draftTapeRoundView's own
+	// doc comment (page.server.go).
+	ShowHeader      bool
+	MadeBindKey     string
+	CurrentBindAttr string
 }
 
 // BoardCell is one round x column slot of the pick board.
@@ -1043,6 +1051,10 @@ type DraftHistoryProps struct {
 	// incremental poll, matching HasOnClock/RoundsEmpty above.
 	HasOlderRounds bool
 	OlderHref      string
+	// TapeURL/TargetMode: see draftHistoryView's own doc comment
+	// (page.server.go).
+	TapeURL    string
+	TargetMode bool
 }
 
 type DraftAvailableProps struct {
@@ -1088,8 +1100,10 @@ type DraftHistoryHeadProps struct {
 // own ready/autopick controls.
 // Task 8 (target mode): every dynamic figure below sits inside its own
 // span carrying data-gosx-live-bind (text) or data-gosx-live-bind-attr
-// (an attribute — class itself is never a valid target, D1 item 3, so the
-// on-clock mark's tone rides a mirrored data-tone attribute instead of the
+// (an attribute — never data-gosx-live-bind-class here: v0.53.10's
+// -bind-class toggles ONE fixed class token from a boolean, which fits a
+// yes/no state, not a pick among several team tones, so the on-clock
+// mark's tone rides a mirrored data-tone attribute instead of the
 // tone-<name> class a fresh SSR/soft-nav render still uses). The header
 // element (Page()) is this whole subtree's one data-gosx-live-mode="event"
 // root; every bind key below matches internal/league/draft_events.go's own
@@ -1637,6 +1651,12 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		</div>
 		<div class="draft-mine__view draft-mine__view--room">
 		<div class="draft-mine__room">
+			<div class="draft-mine__room-summary mono">
+				<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> auto
+				<If cond={props.Data.your_pick_in > 0}>
+					<span class="draft-mine__yourpick" data-gosx-live-bind={props.Data.yourpick_bind_key}>your pick in {props.Data.your_pick_in}</span>
+				</If>
+			</div>
 			<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
 				<div class="manager-draft-control" id="ready-toggle" data-ready={props.Data.viewer_ready}>
 					<If cond={props.Data.viewer_ready}><small class="visually-hidden">You are checked in for draft night.</small></If>
@@ -1900,13 +1920,24 @@ func DraftPickDetailBody(props TapePick) Node {
 // see them at all — the caller (DraftHistory's ShowTape branch, and
 // Page()'s pane-body/PickDetailFragmentHandler-adjacent full render) owns
 // the ".draft-tape-rows" wrapper and its class instead.
+//
+// Review item 2 (2026-08-30): each round's own header renders only when
+// round.ShowHeader is true — once per round, ever, never re-sent on a
+// later "?since=" response for a round the client has already seen (a
+// re-sent header would only be dropped by the prepend region's own
+// data-tape-key dedupe, which discards the whole node before it ever
+// reaches the DOM). Review item 3: MadeBindKey/CurrentBindAttr keep that
+// emit-once header's own "N of M made" text and data-current attribute
+// live from then on, since a dropped re-send can no longer do it.
 func DraftTapeRows(props DraftHistoryProps) Node {
 	return <>
 		<Each of={props.Rounds} as="round">
-			<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current} data-pick-number={round.Cursor}>
-				<span class="idx">ROUND {round.Round}</span>
-				<span class="mono muted tape-round__meta">{round.Direction} picks {round.First}–{round.Last} · {round.Made} of {round.Total} made</span>
-			</div>
+			<If cond={round.ShowHeader}>
+				<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current} data-pick-number={round.Cursor} data-gosx-live-bind-attr={round.CurrentBindAttr}>
+					<span class="idx">ROUND {round.Round}</span>
+					<span class="mono muted tape-round__meta">{round.Direction} picks {round.First}–{round.Last} · <span data-gosx-live-bind={round.MadeBindKey}>{round.Made}</span> of {round.Total} made</span>
+				</div>
+			</If>
 			<If cond={round.Current && props.HasOnClock}>
 				<article class="tape-row tape-row--clock">
 					<span class="mono tape-row__slot">{props.NextLabel}</span>
@@ -2037,26 +2068,20 @@ func DraftByTeam(props DraftByTeamProps) Node {
 // own board-expand rule also keys off the same radios): normally at most
 // one wrapper exists in the DOM at all, since the server already sent
 // only one view's markup.
-func DraftHistory(props DraftHistoryProps) Node {
-	return <div class="draft-history" data-latest={props.Latest} data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
-		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
-		<If cond={props.ShowTape}>
-			<div class="draft-history__view draft-history__view--tape">
-				<div
-					class="tape draft-tape-rows"
-					id="tape-latest"
-					data-gosx-region
-					data-gosx-region-url="/draft/fragment/tape?since={cursor}"
-					data-gosx-region-mode="prepend"
-					data-gosx-region-key="data-tape-key"
-					data-gosx-region-cursor="data-pick-number"
-					data-gosx-region-on="draft:pick"
-					data-gosx-region-allow-empty
-				>
-					<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty} HasOlderRounds={props.HasOlderRounds} OlderHref={props.OlderHref}></DraftTapeRows>
-				</div>
-			</div>
-		</If>
+// DraftHistoryBoardTeamsLedgerProps is Board/Teams/the Complete ledger
+// only — split out of DraftHistory (review item 1, 2026-08-30) so that
+// component's own two mode-specific branches (below) can share this
+// identical markup instead of triplicating it.
+type DraftHistoryBoardTeamsLedgerProps struct {
+	ShowBoard bool
+	ShowTeams bool
+	Complete  bool
+	Board     BoardView
+	Teams     []TeamColumn
+}
+
+func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node {
+	return <>
 		<If cond={props.ShowBoard}>
 			<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
 		</If>
@@ -2069,36 +2094,145 @@ func DraftHistory(props DraftHistoryProps) Node {
 				<a class="btn btn-sm" href="/draft/ledger.csv">Export CSV</a>
 			</div>
 		</If>
-	</div>
+	</>
 }
 
+// DraftHistory renders in one of two SEPARATE root elements, never one
+// with conditionally-present attributes (review items 1/8, 2026-08-30):
+// GoSX's rescan after a region swap (client/runtime/host/dom.ts's
+// replaceRuntimeContent → gosxHost.regions.mount) rebinds a NESTED PLAIN
+// region correctly, but never calls setupLiveRegions — a
+// data-gosx-live-mode root nested inside ANY region (a parent's own
+// replace-and-swap, this pane's OLD structure) dies the first time that
+// region refetches, taking every board/available/mine bind with it for
+// the rest of the session (proven live; board froze after one undo).
+// TargetMode's own branch below therefore keeps its data-gosx-live-mode
+// root OUTSIDE every region: the tape view's own undo-scoped replace
+// region and pick/state-scoped prepend region both nest INSIDE that live
+// root instead, which is safe — they are plain regions, not live roots,
+// and DO rebind after either one's own swap (verified in the runtime
+// source above). draft:state never triggers a full-pane replace here: the
+// live root's own binds already cover cell/cellpos/clock/room/onclock/
+// pick from a draft:state repair's full payload, and the prepend
+// region's own draft:state trigger catches the tape's rows up via the
+// SAME "?since={cursor}" fetch a draft:pick uses (item 2b: only
+// draft:undo — a rare event — replaces the tape wholesale, since a
+// prepend-only region can never remove a row a full replace-mode fetch
+// can). Fallback's branch (DRAFT_LIVE_MODE=fallback, TargetMode false)
+// restores the pre-Task-8 shape exactly: no live root, no nested
+// regions — the WHOLE pane refetches on every draft:pick/undo/state
+// through Page()'s own outer .draft-pane__body region instead (see
+// Page()'s own two-branch history pane).
+func DraftHistory(props DraftHistoryProps) Node {
+	return <>
+	<If cond={props.TargetMode}>
+	<div class="draft-history" data-latest={props.Latest} data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
+		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
+		<If cond={props.ShowTape}>
+			<div class="draft-history__view draft-history__view--tape">
+				<div class="tape" id="tape-latest" data-gosx-region data-gosx-region-url={props.TapeURL} data-gosx-region-on="draft:undo">
+					<div
+						class="draft-tape-rows"
+						data-gosx-region
+						data-gosx-region-url="/draft/fragment/tape?since={cursor}"
+						data-gosx-region-mode="prepend"
+						data-gosx-region-key="data-tape-key"
+						data-gosx-region-cursor="data-pick-number"
+						data-gosx-region-on="draft:pick draft:state"
+						data-gosx-region-allow-empty
+					>
+						<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty} HasOlderRounds={props.HasOlderRounds} OlderHref={props.OlderHref}></DraftTapeRows>
+					</div>
+				</div>
+			</div>
+		</If>
+		<DraftHistoryBoardTeamsLedger ShowBoard={props.ShowBoard} ShowTeams={props.ShowTeams} Complete={props.Complete} Board={props.Board} Teams={props.Teams}></DraftHistoryBoardTeamsLedger>
+	</div>
+	</If>
+	<If cond={props.TargetMode == false}>
+	<div class="draft-history" data-latest={props.Latest}>
+		<p class="draft-region-stale mono" role="status">Pick history did not update. <a href="/draft">Refresh room →</a></p>
+		<If cond={props.ShowTape}>
+			<div class="draft-history__view draft-history__view--tape">
+				<div class="tape draft-tape-rows" id="tape-latest">
+					<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty} HasOlderRounds={props.HasOlderRounds} OlderHref={props.OlderHref}></DraftTapeRows>
+				</div>
+			</div>
+		</If>
+		<DraftHistoryBoardTeamsLedger ShowBoard={props.ShowBoard} ShowTeams={props.ShowTeams} Complete={props.Complete} Board={props.Board} Teams={props.Teams}></DraftHistoryBoardTeamsLedger>
+	</div>
+	</If>
+	</>
+}
+
+// Page (review item 8, 2026-08-30): every pane below renders one of TWO
+// separate wrapper elements, gated on data.live_mode — never one element
+// with conditionally-present region/live-mode attributes — mirroring
+// DraftHistory's own two-branch rule (its own doc comment explains why a
+// live root and a region can never safely share one element's fate).
+// Target mode's command/available/mine wrappers carry data-gosx-live-mode
+// with NO ancestor region, so a region swap elsewhere on the page can
+// never orphan them; fallback (DRAFT_LIVE_MODE=fallback) restores the
+// pre-Task-8 data-gosx-region*-on-every-pane wiring exactly.
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
 		<div class="draft-notice" aria-live="polite">
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
+		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:state">
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
+		</If>
+		<If cond={data.live_mode != "target"}>
+		<header class="draft-command" data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+			<DraftCommandBar {...data.command}></DraftCommandBar>
+		</header>
+		</If>
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
 				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:undo draft:state">
+				<If cond={data.live_mode == "target"}>
+				<div class="draft-pane__body">
 					<DraftHistory {...data.history}></DraftHistory>
 				</div>
+				</If>
+				<If cond={data.live_mode != "target"}>
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url={data.history_tape_url} data-gosx-region-on="draft:pick draft:undo draft:state">
+					<DraftHistory {...data.history}></DraftHistory>
+				</div>
+				</If>
 			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
 				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder}></DraftAvailableHead>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
+				<If cond={data.live_mode == "target"}>
+				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
+					<div id="draft-available-list" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
+						<DraftAvailable {...data.available}></DraftAvailable>
+					</div>
+				</div>
+				</If>
+				<If cond={data.live_mode != "target"}>
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
+				</If>
 			</section>
 			<section class="draft-pane draft-pane--mine" aria-labelledby="draft-mine-title">
-				<div class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/queue" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:seat draft:state">
+				<If cond={data.live_mode == "target"}>
+				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:seat draft:state">
+					<div data-gosx-region data-gosx-region-url="/draft/fragment/queue">
+						<DraftMyTeam {...data.queue}></DraftMyTeam>
+					</div>
+				</div>
+				</If>
+				<If cond={data.live_mode != "target"}>
+				<div class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/queue" data-gosx-region-on="draft:pick draft:undo draft:state draft:seat">
 					<DraftMyTeam {...data.queue}></DraftMyTeam>
 				</div>
+				</If>
 			</section>
 		</div>
 		<DraftPickBar {...data.available}></DraftPickBar>

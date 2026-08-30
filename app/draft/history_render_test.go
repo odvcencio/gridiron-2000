@@ -391,6 +391,14 @@ func TestDraftTapeRowWhoOmitsLeadingSeparatorWhenManagerIsEmpty(t *testing.T) {
 // row, when the on-clock team carries one — never only the abbreviation
 // fallback a made row without an avatar also uses.
 func TestDraftTapeOnClockRowSharesTheBadgePartial(t *testing.T) {
+	// DRAFT_LIVE_MODE=fallback (review item 4, 2026-08-30): a target-mode
+	// tape fragment response suppresses the on-clock synthetic row (it
+	// would go stale, unremovable, the moment a real pick prepends above
+	// it — suppressStaleTapePlaceholdersForTargetMode, fragment.go).
+	// Fallback mode's own full-pane refetch never keeps stale content
+	// around (every refresh is a whole-pane replace), so it still shows
+	// the row this test checks.
+	t.Setenv("DRAFT_LIVE_MODE", "fallback")
 	fixture := draftFragmentFixture()
 	fixture["picks_empty"] = false
 	fixture["on_clock"] = map[string]any{
@@ -419,6 +427,13 @@ func TestDraftTapeOnClockRowSharesTheBadgePartial(t *testing.T) {
 // neither ever rendered before the draft's first pick. The fix threads a
 // RoundsEmpty bool computed in Go instead.
 func TestDraftTapeRendersOnClockAndEmptyMessageBeforeAnyPick(t *testing.T) {
+	// DRAFT_LIVE_MODE=fallback (review item 4, 2026-08-30): see
+	// TestDraftTapeOnClockRowSharesTheBadgePartial's own comment above —
+	// target mode suppresses this placeholder pair everywhere the tape
+	// fragment renders, not only on Page()'s own initial load, since ANY
+	// target-mode fragment response is destined for a growable prepend
+	// container.
+	t.Setenv("DRAFT_LIVE_MODE", "fallback")
 	fixture := draftFragmentFixture()
 	fixture["picks_empty"] = true
 	fixture["on_clock"] = map[string]any{"abbreviation": "TST", "name": "Test Team", "tone": "cyan"}

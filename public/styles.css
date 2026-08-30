@@ -1628,10 +1628,12 @@ button.badge-option:hover {
 }
 
 /* Target mode (Task 8): the command bar's on-clock team mark
-   (.draft-command__mark) retargets through data-gosx-live-bind-attr,
-   which never targets "class" (D1 item 3) — a mirrored data-tone
-   attribute carries the same tone name so a pick landing after the
-   initial paint can still recolor the mark. */
+   (.draft-command__mark) retargets through data-gosx-live-bind-attr, not
+   data-gosx-live-bind-class — v0.53.10's -bind-class toggles ONE fixed
+   class token from a boolean, which fits a yes/no state, not a pick
+   among several team tones. A mirrored data-tone attribute carries the
+   tone name instead, so a pick landing after the initial paint can still
+   recolor the mark. */
 .draft-command__mark[data-tone="magenta"],
 .draft-command__mark[data-tone="pink"] {
   color: var(--color-accent-hot);
@@ -10104,9 +10106,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 /* Target mode (Task 8): a live board cell's position can only change via
-   data-gosx-live-bind-attr, which never targets "class" (D1 item 3) — so
-   a pick landing after the initial paint retargets data-pos instead, and
-   these mirror .board-cell.c-<pos> above for that attribute. */
+   data-gosx-live-bind-attr, not data-gosx-live-bind-class — v0.53.10's
+   -bind-class toggles ONE fixed class token from a boolean, which fits a
+   yes/no state, not a pick among several positions. A pick landing after
+   the initial paint retargets data-pos instead, and these mirror
+   .board-cell.c-<pos> above for that attribute. */
 .board-cell[data-pos="QB"] {
   border-color: var(--color-violet);
 }

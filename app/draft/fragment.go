@@ -153,6 +153,14 @@ func draftFragmentHandler(
 		prepared = attachDraftFragmentSince(prepared, request)
 		prepared = attachDraftFragmentView(prepared, request)
 		prepared = attachDraftFragmentPick(prepared, request)
+		// Review item 4 (2026-08-30): the same suppression Page()'s own
+		// Load applies must ALSO run here — the tape's own undo-scoped
+		// replace-region (review item 1, DraftHistory's ShowTape branch)
+		// fetches THIS handler directly on every "draft:undo", and
+		// without this call that full re-render would reintroduce the
+		// on-the-clock synthetic row / "NO PICKS YET" placeholder right
+		// back into a prepend container that can never remove it again.
+		prepared = suppressStaleTapePlaceholdersForTargetMode(prepared)
 		view, component, err := draftRegionView(prepared, region)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -397,6 +405,14 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 		tapeURL += "&" + draftHistoryRoundsKey + "=all"
 	}
 	data["history_tape_url"] = tapeURL
+	// TapeURL (review item 1, 2026-08-30): DraftHistory's own ShowTape
+	// branch needs the SAME URL directly as a prop now that its
+	// undo-scoped replace-region lives inside DraftHistory itself, not a
+	// Page()-level wrapper — re-saved into data["history"] since history
+	// (a value, not a pointer) already left this function's earlier
+	// data["history"] = history assignment behind.
+	history.TapeURL = tapeURL
+	data["history"] = history
 	data["history_view_tape"] = history.ShowTape
 	data["history_view_board"] = history.ShowBoard
 	data["history_view_teams"] = history.ShowTeams
@@ -555,6 +571,19 @@ func normalizeDraftHistoryView(raw string) string {
 // filterTapeRoundsSince keeps only the picks numbered above since, round
 // order and pick order (both newest-first) unchanged; a round left with no
 // qualifying picks is dropped rather than rendering an empty header.
+//
+// ShowHeader (review item 2, 2026-08-30): a round's header renders only
+// when since < round.First — the client has never seen ANY pick from this
+// round before, so the header is genuinely new. Once since reaches or
+// passes round.First, the client's own copy of this round's header is
+// already on the page from an earlier "?since=" response (or the initial
+// full render); re-sending it would only be dropped by the prepend
+// region's own data-tape-key dedupe (client/runtime/host/regions.ts),
+// which discards the WHOLE node — including any fresher "N of M made"
+// text it might have carried — before it ever reaches the DOM. Emitting
+// it once, ever, and keeping it live via MadeBindKey/CurrentBindAttr
+// (draftTapeRoundView's own doc comment) is the only path that actually
+// reaches an already-rendered header.
 func filterTapeRoundsSince(rounds []draftTapeRoundView, since int) []draftTapeRoundView {
 	out := make([]draftTapeRoundView, 0, len(rounds))
 	for _, round := range rounds {
@@ -568,6 +597,7 @@ func filterTapeRoundsSince(rounds []draftTapeRoundView, since int) []draftTapeRo
 			continue
 		}
 		round.Picks = picks
+		round.ShowHeader = since < round.First
 		out = append(out, round)
 	}
 	return out

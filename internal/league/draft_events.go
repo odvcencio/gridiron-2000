@@ -407,12 +407,46 @@ func (s *Service) onClockBinds(state PersistedState, teamID string) map[string]a
 	return map[string]any{"team_id": team["id"], "name": team["name"], "abbreviation": team["abbreviation"], "tone": team["tone"]}
 }
 
-// seatBinds is the one-seat readiness snapshot draft:seat carries.
+// seatBinds is the one-seat readiness snapshot draft:seat carries. room
+// (review item 7, 2026-08-30) rides along on every draft:seat too: a
+// ready/autopick toggle changes the room-wide ready/auto counts, and the
+// my-team pane's own Room summary (DraftMyTeam, page.gsx) listens to
+// draft:seat specifically so it must find "room.*" in THIS payload, not
+// only in draft:pick/undo/state's.
 func (s *Service) seatBinds(state PersistedState, teamID string, now time.Time) map[string]any {
 	label, _, _ := s.teamPresence(state, teamID, now)
 	return map[string]any{
 		"team_id": teamID, "presence": label, "ready": state.Ready[teamID], "auto": state.Autopick[teamID],
+		"room": s.roomBinds(state, now),
 	}
+}
+
+// roundBinds gives every made round's own "N of M made" count and
+// current-round flag, keyed by round number as a string (review item 3,
+// 2026-08-30): the tape's own round header renders at most once per round
+// (item 2's own fix, fragment.go's filterTapeRoundsSince), so both figures
+// must travel as live binds instead of relying on a re-sent — and always
+// deduped — header to carry a fresh value. Bound onto the header via
+// draftTapeRoundView.MadeBindKey/CurrentBindAttr (page.server.go). The
+// round the NEXT pick belongs to is always included even with zero picks
+// of its own yet, so its header (once item 2 first renders it) opens
+// already carrying the right current flag instead of waiting for a
+// second event.
+func (s *Service) roundBinds(state PersistedState, next int) map[string]any {
+	teams := activeTeamCount(state.DraftOrder)
+	made := map[int]int{}
+	for _, pick := range state.Picks {
+		made[pick.Round]++
+	}
+	current := pickRound(teams, next)
+	out := map[string]any{strconv.Itoa(current): map[string]any{"made": made[current], "current": true}}
+	for round, count := range made {
+		if round == current {
+			continue
+		}
+		out[strconv.Itoa(round)] = map[string]any{"made": count, "current": false}
+	}
+	return out
 }
 
 // draftBoardBinds builds the picked-only cell/cellpos/player/queue maps: at
@@ -453,6 +487,7 @@ func (s *Service) draftLiveTail(state PersistedState, now time.Time, onClockID s
 		"yourpick": s.yourPickBinds(state),
 		"room":     s.roomBinds(state, now),
 		"onclock":  s.onClockBinds(state, onClockID),
+		"round":    s.roundBinds(state, next),
 		"pick": map[string]any{
 			"number": next, "round": pickRound(teams, next), "direction": snakeDirection(teams, next),
 			"made": len(state.Picks), "total": total,

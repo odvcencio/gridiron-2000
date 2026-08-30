@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -256,6 +257,16 @@ type draftHistoryView struct {
 	// carrying the viewer's own pool q/pos/page (item 6).
 	HasOlderRounds bool
 	OlderHref      string
+	// TapeURL/TargetMode (review items 1/8, 2026-08-30): TapeURL is the
+	// SAME string history_tape_url already carries (attachDraftFragmentView)
+	// — DraftHistory's own ShowTape branch needs it directly as a prop,
+	// not a Page()-level-only field, now that the tape's own undo-scoped
+	// replace-region (review item 1) lives INSIDE DraftHistory rather than
+	// wrapping it. TargetMode selects target-mode's nested live-root/
+	// prepend/undo-region structure versus fallback's plain single
+	// full-replace region (review item 8, DRAFT_LIVE_MODE=fallback).
+	TapeURL    string
+	TargetMode bool
 	// detail resolves one pick's full accordion content on demand (item 1,
 	// 2026-08-30 review): attachDraftFragmentPick (fragment.go) calls this
 	// exactly once, for the single pick number a "?pick=" query names, and
@@ -329,6 +340,22 @@ type draftTapeRoundView struct {
 	// when Picks is empty (never observed: tapeRoundsProps only builds a
 	// TapeRound entry for a round that already holds at least one pick).
 	Cursor int
+	// ShowHeader/MadeBindKey/CurrentBindAttr (review item 2/3, 2026-08-30):
+	// a "?since=" response renders a round's header only the FIRST time
+	// that round appears at all (since < round.First, filterTapeRoundsSince,
+	// fragment.go) — every later poll within the SAME round omits it, since
+	// gosx's region-key dedupe (data-tape-key) would drop a re-sent header
+	// anyway, and a dropped node's own fresh "N of M made" text never
+	// reaches the DOM. MadeBindKey ("round.<r>.made") and CurrentBindAttr
+	// ("data-current:round.<r>.current") keep an EMIT-ONCE header's own
+	// made-count and current-round flag live instead — internal/league's
+	// draft_events.go emits both under "round.<r>.*" on every draft:pick/
+	// draft:undo/draft:state. ShowHeader is always true on a full render
+	// (Since < 0, tapeRoundsProps' own default); filterTapeRoundsSince
+	// overrides it per round for a "?since=" response.
+	ShowHeader      bool
+	MadeBindKey     string
+	CurrentBindAttr string
 }
 
 type draftBoardCellView struct {
@@ -472,10 +499,17 @@ func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []d
 		if len(picks) > 0 {
 			cursor = picks[0].Number
 		}
+		roundKey := strconv.Itoa(round.Round)
 		out = append(out, draftTapeRoundView{
 			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
 			Current: round.Current, Made: round.Made, Total: round.Total,
 			Picks: picks, Cursor: cursor,
+			// ShowHeader defaults true here (every full render shows every
+			// round's own header); filterTapeRoundsSince (fragment.go)
+			// overrides it per round for a "?since=" response.
+			ShowHeader:      true,
+			MadeBindKey:     "round." + roundKey + ".made",
+			CurrentBindAttr: "data-current:round." + roundKey + ".current",
 		})
 	}
 	return out
@@ -560,7 +594,23 @@ func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
 // into the page-level draftHistoryView above. A fixture that never sets
 // "history" (every non-league test fixture in this package) type-asserts
 // to the zero value, so the pane still renders — empty, never a panic.
-func buildDraftHistoryView(data map[string]any) draftHistoryView {
+// draftLiveMode reads DRAFT_LIVE_MODE (review item 8, 2026-08-30): "target"
+// (the default, and anything else) keeps gosx@v0.53.10's fetchless
+// data-gosx-live-* binds; "fallback" (case-insensitive) restores the pre-
+// Task-8 data-gosx-region*-driven refetch-and-swap wiring in the exact
+// same page.gsx, gated by <If cond={data.live_mode == "target"}> pairs. A
+// plain process env var, the same simplicity PICK_CLOCK/GOSX_APP_ROOT
+// already use (sim_child_test.go) — no additional local-env gate, since
+// this selects a rendering strategy, not a privileged or destructive
+// action.
+func draftLiveMode() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("DRAFT_LIVE_MODE")), "fallback") {
+		return "fallback"
+	}
+	return "target"
+}
+
+func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryView {
 	history, _ := data["history"].(league.DraftHistoryView)
 	complete := boolField(mapField(data, "draft"), "complete")
 	onClock := mapField(data, "on_clock")
@@ -603,6 +653,7 @@ func buildDraftHistoryView(data map[string]any) draftHistoryView {
 		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
 		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
 		RoundsEmpty: len(history.Rounds) == 0,
+		TargetMode:  liveMode == "target",
 		detail:      history.Detail,
 	}
 }
@@ -812,15 +863,18 @@ func prepareDraftData(data map[string]any) map[string]any {
 	}
 	// live_mode/shell_modifier drive the shell root's own attributes
 	// (data-draft-live-mode, the --final class variant). Task 8 pins
-	// gosx@v0.53.10 and switches the room to "target": the command,
-	// available, and my-team panes apply hub payloads through
+	// gosx@v0.53.10 and switches the room to "target" by default: the
+	// command, available, and my-team panes apply hub payloads through
 	// data-gosx-live-* binds with no fetch; the tape pane's own inner
 	// region grows through "?since={cursor}" prepend instead of a
-	// whole-pane refetch. "fallback" (data-gosx-region* refetch-and-swap)
-	// stays fully wired in this same markup — every fragment endpoint and
-	// region attribute Task 6/7 built keeps working — should a runtime
-	// ever need it again.
-	output["live_mode"] = "target"
+	// whole-pane refetch. DRAFT_LIVE_MODE=fallback (review item 8,
+	// draftLiveMode below) restores "fallback" (data-gosx-region*
+	// refetch-and-swap on every draft:pick/undo/state) — every fragment
+	// endpoint and region attribute Task 6/7 built stays fully wired in
+	// this same page.gsx for that env, gated by <If cond={data.live_mode
+	// == "target"}> pairs rather than a second template.
+	liveMode := draftLiveMode()
+	output["live_mode"] = liveMode
 	output["shell_modifier"] = ""
 	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
 		output["shell_modifier"] = " draft-shell--final"
@@ -829,7 +883,7 @@ func prepareDraftData(data map[string]any) map[string]any {
 	// Since defaults to -1 ("unset"): draftRegionView (fragment.go) renders
 	// the full DraftHistory pane until attachDraftFragmentSince overwrites
 	// it with a "?since=" request's cursor and precomputed Rows.
-	output["history"] = buildDraftHistoryView(data)
+	output["history"] = buildDraftHistoryView(data, liveMode)
 	output["available"] = draftAvailableView{
 		Data: viewData, Players: typedPlayers,
 		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,

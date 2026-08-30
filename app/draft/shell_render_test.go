@@ -178,3 +178,53 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		}
 	}
 }
+
+// TestDraftShellFallbackModeRestoresRegionRefetch is review item 8's own
+// render evidence (2026-08-30): DRAFT_LIVE_MODE=fallback restores the
+// pre-Task-8 data-gosx-region*-driven refetch-and-swap wiring in the SAME
+// page.gsx target mode otherwise uses — the command bar's own region
+// (with its "-on" trigger) is the one piece every earlier fallback-mode
+// contract test (TestDraftRegionContractIsPushDrivenAndMounted,
+// fragment_test.go) already pins as present in the SOURCE; this proves
+// it is what actually RENDERS once the env selects fallback.
+func TestDraftShellFallbackModeRestoresRegionRefetch(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftShellFallbackModeRestoresRegionRefetchFixtureProcess$")
+	cmd.Env = append(os.Environ(), "DRAFT_LIVE_MODE_FIXTURE=1", "DRAFT_LIVE_MODE=fallback", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=false", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=", "COMMISSIONER_EMAILS="+shellCommissioner)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("fallback live-mode fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestDraftShellFallbackModeRestoresRegionRefetchFixtureProcess(t *testing.T) {
+	if os.Getenv("DRAFT_LIVE_MODE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	t.Setenv("DATA_FILE", os.Getenv("DATA_FILE"))
+	t.Setenv("DEMO_MODE", "false")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	service := league.Default()
+	service.SetPlayerSource(livePool())
+	const seated = "seated-fallback@example.com"
+	if _, err := service.AssignManager(seated, "Seated Fallback"); err != nil {
+		t.Fatal(err)
+	}
+	handler := buildDraftAuthenticatedHandler(t)
+	body := renderDraftForUser(t, handler, seated)
+	for _, want := range []string{
+		`data-draft-live-mode="fallback"`,
+		`data-gosx-region-url="/draft/fragment/command"`,
+		`data-gosx-region-signal="$draft.state.refresh"`,
+		`data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
+		`data-gosx-region-url="/draft/fragment/queue"`,
+		`data-gosx-region-on="draft:pick draft:undo draft:state draft:seat"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("fallback shell missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{`data-gosx-live-mode="event"`, `data-gosx-live-src=`} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("fallback shell must carry no live-mode root, found %q", forbidden)
+		}
+	}
+}

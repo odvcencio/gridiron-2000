@@ -223,6 +223,14 @@ func (b *Bot) ToggleReady() error {
 	return b.simpleAction("/draft/__actions/toggle-ready", map[string]string{"team_id": b.TeamID})
 }
 
+// ToggleAutopick flips the caller's seat between autopick on and off. A
+// browser scenario uses this off-tab (an HTTP call, not a click) to prove
+// a room's own Room-count binds update from the resulting draft:seat hub
+// event alone, with no fetch of their own.
+func (b *Bot) ToggleAutopick() error {
+	return b.simpleAction("/draft/__actions/toggle-autopick", map[string]string{"team_id": b.TeamID})
+}
+
 // MakePick submits a pick for the caller's seat. The caller must be on the
 // clock: the server may reject an off-clock pick, so this returns the raw
 // ActionResult instead of collapsing a rejection into an error.

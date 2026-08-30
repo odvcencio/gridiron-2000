@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -393,8 +394,17 @@ func TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline(t *testing.T) 
 
 // TestTapeFragmentSinceReturnsOnlyNewerRows proves attachDraftFragmentSince
 // and filterTapeRoundsSince (fragment.go): "?since=N" switches the tape
-// fragment to DraftTapeRows, every pick above N alone, each preceded by
-// its round header once.
+// fragment to DraftTapeRows, every pick above N alone.
+//
+// Review item 2 (2026-08-30) flipped the header half of this test: since
+// round 1's own header (data-tape-key="round-1") already reached the page
+// on an earlier response (since < round.First), since=2 — still inside
+// round 1 (First=1) — must NOT re-carry it. A re-sent header would only
+// be dropped by the prepend region's own data-tape-key dedupe
+// (client/runtime/host/regions.ts), discarding the whole node — including
+// any fresher "N of M made" text — before it ever reaches the DOM; its
+// own live MadeBindKey/CurrentBindAttr bind (item 3) is what actually
+// keeps an already-rendered header current from here on.
 func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	fixture := draftFragmentFixture()
 	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
@@ -406,8 +416,50 @@ func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	if !strings.Contains(body, `data-tape-key="pick-3"`) || strings.Contains(body, `data-tape-key="pick-2"`) || strings.Contains(body, `class="draft-history"`) {
 		t.Fatalf("since=2 must render rows newer than 2 only: %s", body)
 	}
-	if !strings.Contains(body, `data-tape-key="round-1"`) {
-		t.Fatalf("since=2 must carry the round header its rows belong to: %s", body)
+	if strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=2 must NOT re-carry round 1's own header, already on the page: %s", body)
+	}
+}
+
+// TestTapeFragmentSinceRoundHeaderCrossesRoundBoundary is review item 2's
+// own T1/T2/T4 sequence (2026-08-30): three sequential same-round picks
+// (T1, T2, T4 — an 8-team league's round 1, picks 1/2/4) show round 1's
+// header exactly once, on the FIRST of the three "?since=" fetches, never
+// re-sent on the later two; a fourth pick that crosses the round boundary
+// (pick 9, round 2) DOES carry round 2's own fresh header, and still
+// never re-carries round 1's.
+func TestTapeFragmentSinceRoundHeaderCrossesRoundBoundary(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{
+		tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(4, "manager"),
+		tapePickFixture(9, "manager"),
+	})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	fetch := func(since int) string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape?since="+strconv.Itoa(since), nil))
+		return response.Body.String()
+	}
+	// T1: nothing seen yet — round 1's header is genuinely new.
+	if body := fetch(0); !strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=0 must carry round 1's own header: %s", body)
+	}
+	// T2 (a second same-round pick, since=1 >= round.First=1): no header.
+	if body := fetch(1); strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=1 must NOT re-carry round 1's own header: %s", body)
+	}
+	// T4 (a third same-round pick, since=2): still no header.
+	if body := fetch(2); strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=2 must NOT re-carry round 1's own header: %s", body)
+	}
+	// Crossing into round 2 at pick 9 (since=4): round 2's header is new.
+	body := fetch(4)
+	if !strings.Contains(body, `data-tape-key="round-2"`) {
+		t.Fatalf("since=4 (crossing into round 2) must carry round 2's own header: %s", body)
+	}
+	if strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=4 must not re-carry round 1's own header even at a round boundary: %s", body)
 	}
 }
 
@@ -594,10 +646,12 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 	}
 	// Scoped to the app shell (D2, D5, Page()'s own component tree): the
 	// legacy DraftRoom/DraftWorkspace components above this marker keep
-	// every form signaled until Task 8 retires the two of them (they are
-	// unreachable from Page() already), and happen to reuse the same
-	// props.Actions.toggle_ready/toggle_autopick action expressions the
-	// shell's own signal-free forms below the marker use.
+	// every form signaled — Task 8 (target mode, 2026-08-30) kept both
+	// mounted rather than retiring them (they stay unreachable from
+	// Page(), a documented, deliberately deferred cleanup) — and happen
+	// to reuse the same props.Actions.toggle_ready/toggle_autopick
+	// action expressions the shell's own signal-free forms below the
+	// marker use.
 	if marker := strings.Index(string(source), "// --- The app shell (D2, D5)"); marker >= 0 {
 		source = source[marker:]
 	}
