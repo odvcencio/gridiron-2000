@@ -8908,8 +8908,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   text-align: right;
 }
 
-/* segment: the Tape/Board/Teams and Queue/Roster/Room radiogroup toggles
-   inside the history and my-team panes. */
+/* segment: the pill-shaped toggle strip shared by the history pane's own
+   Tape/Board/Teams segment (item 5, 2026-08-30 review: a plain <nav
+   aria-label="Pick history panels"> of links, not a radiogroup — see
+   the .segment a.segment__option[aria-current] rule below) and the my
+   team pane's Queue/Roster/Room segment (still a real radio group). */
 .segment {
   display: inline-flex;
   gap: 2px;
@@ -9161,22 +9164,27 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   white-space: nowrap;
 }
 
-/* T3: a made pick's row and its detail panel share one <details> element
-   (class="tape-row pick-detail"); the details box itself just stacks its
-   two children (summary, then the opened .pick-detail__body) rather than
-   inheriting .tape-row's own grid — that grid now lives on
-   .tape-row__summary, its first child, below. */
-details.tape-row {
+/* Item 1 (2026-08-30 review): a made pick's row and its (once open)
+   detail panel share one <article class="tape-row tape-row--detail">
+   — replacing the pre-fix <details class="tape-row pick-detail">, whose
+   <summary data-gosx-set> never actually opened (gosx@v0.53.9's
+   capture-phase click handler cancels a <summary>'s own native toggle
+   under any data-gosx-set ancestor). The article itself just stacks its
+   children (the .tape-row__summary link, then — only when open — the
+   .pick-detail__body) rather than inheriting .tape-row's own grid; that
+   grid now lives on .tape-row__summary, its first child, below. */
+.tape-row--detail {
   display: block;
   padding: 0;
 }
 
-/* .tape-row__summary is the whole visible row (T3/T4, 2026-08-30 polish
-   pass): the native <details> disclosure trigger, so the entire ~64px row
-   is the DETAIL toggle — tap anywhere on it, not a separate full-width
-   button — and it clears the 44px (2.75rem) touch baseline on its own
-   height. The native marker triangle is hidden; .pick-detail__chevron
-   (in .tape-row__meta) is the visual affordance instead. */
+/* .tape-row__summary is the whole visible row (T3/T4 polish pass, item 1
+   2026-08-30 review): a plain <a data-gosx-link>, so the entire ~64px
+   row is the DETAIL toggle — tap anywhere on it, not a separate
+   full-width button — and it clears the 44px (2.75rem) touch baseline
+   on its own height. .pick-detail__chevron (in .tape-row__meta) is the
+   open/closed affordance, driven by the wrapping article's own
+   data-open attribute (below), never a native disclosure marker. */
 .tape-row__summary {
   display: grid;
   grid-template-columns: 2.125rem 2.25rem minmax(0, 1fr) auto;
@@ -9185,20 +9193,20 @@ details.tape-row {
   padding: var(--space-xs) var(--space-sm);
   min-height: 2.75rem;
   cursor: pointer;
-  list-style: none;
-}
-
-.tape-row__summary::-webkit-details-marker {
-  display: none;
-}
-
-.tape-row__summary::marker {
-  content: "";
+  text-decoration: none;
+  color: inherit;
 }
 
 .tape-row__summary:focus-visible {
   outline: 2px solid var(--color-accent-cyan);
   outline-offset: -2px;
+}
+
+/* The open row (item 1): a subtle accent tint on its own link, matching
+   the mockup's expanded-row treatment, distinct from .tape-row[data-
+   mine="true"]'s own tint below. */
+.tape-row--detail[data-open="true"] > .tape-row__summary {
+  background: var(--color-accent-haze);
 }
 
 .tape-row__body {
@@ -9282,7 +9290,7 @@ details.tape-row {
   transition: transform .15s ease;
 }
 
-details[open] > .tape-row__summary .pick-detail__chevron::before {
+.tape-row--detail[data-open="true"] > .tape-row__summary .pick-detail__chevron::before {
   transform: rotate(180deg);
 }
 
@@ -9323,6 +9331,17 @@ details[open] > .tape-row__summary .pick-detail__chevron::before {
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-xs);
+}
+
+/* "Older rounds ↓" (item 3, 2026-08-30 review): sits at the tape's own
+   foot, a full-width row so it clears the 44px touch baseline without a
+   bespoke min-height rule (the generic .site-frame a[data-gosx-link]
+   touch-target block, public/styles.css, already covers a bare .btn). */
+.draft-tape-older {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-sm) var(--space-md);
 }
 
 /* Board (D4): round x team grid, one sticky team-column header row, then

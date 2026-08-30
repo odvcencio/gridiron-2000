@@ -25,6 +25,18 @@ const (
 	// screen. It shares its string with live.go's draftLiveSinceKey by
 	// coincidence only (that one is the hub reconnect's fingerprint cursor,
 	// on a different endpoint); the two never appear on the same request.
+	//
+	// Item 7 (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
+	// never REQUESTS this cursor itself — .draft-pane__body's own
+	// data-gosx-region carries no "-cursor"/"{value}" token wired to a
+	// signal that tracks the latest pick seen, so every region refetch
+	// re-asks for the pane's own full (capped) render instead. The
+	// server-side machinery here (this key, attachDraftFragmentSince,
+	// filterTapeRoundsSince) stays in place and load-bearing regardless:
+	// target mode (Task 8, gosx v0.53.10's region "{cursor}" bind) is the
+	// caller that will start asking for "?since=" on its own, at which
+	// point this same code path answers it with no further change. Until
+	// then it is exercised only by this package's own tests.
 	draftTapeSinceKey = "since"
 
 	// draftHistoryViewQueryKey is item 1a's own cursor (2026-08-30 review):
@@ -35,6 +47,21 @@ const (
 	// "/draft?view=X" (DraftHistoryHead's own doc comment, page.gsx,
 	// explains why not a client-side signal write).
 	draftHistoryViewQueryKey = "view"
+
+	// draftHistoryPickKey is item 1's own "?pick=" cursor (2026-08-30
+	// review): the tape row a request should render OPEN, its detail body
+	// inline. attachDraftFragmentPick, below, is the only place that reads
+	// it for hydration; attachDraftFragmentView also reads it (through
+	// parseDraftHistoryPick) purely to keep it alive across a region
+	// refresh — see history_tape_url's own doc comment.
+	draftHistoryPickKey = "pick"
+
+	// draftHistoryRoundsKey is item 3's own "?rounds=all" cursor
+	// (2026-08-30 review): the ONE recognized value, "all", tells
+	// attachDraftFragmentView to skip capTapeRounds on a full render, so
+	// the "Older rounds ↓" link's own target sees every round the draft
+	// has made, not just the newest draftTapeMaxRenderedRounds.
+	draftHistoryRoundsKey = "rounds"
 
 	draftHistoryViewTape  = "tape"
 	draftHistoryViewBoard = "board"
@@ -130,6 +157,7 @@ func draftFragmentHandler(
 		prepared := prepareDraftData(load(request))
 		prepared = attachDraftFragmentSince(prepared, request)
 		prepared = attachDraftFragmentView(prepared, request)
+		prepared = attachDraftFragmentPick(prepared, request)
 		view, component, err := draftRegionView(prepared, region)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -279,22 +307,141 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	if !ok {
 		return data
 	}
-	raw := strings.ToLower(strings.TrimSpace(request.URL.Query().Get(draftHistoryViewQueryKey)))
-	history.View = normalizeDraftHistoryView(raw)
+	query := request.URL.Query()
+	rawView := strings.TrimSpace(query.Get(draftHistoryViewQueryKey))
+	history.View = normalizeDraftHistoryView(strings.ToLower(rawView))
 	history.ShowTape = history.View == draftHistoryViewTape
 	history.ShowBoard = history.View == draftHistoryViewBoard
 	history.ShowTeams = history.View == draftHistoryViewTeams
+
+	pos := stringField(data, "pool_position")
+	poolQuery := stringField(data, "pool_query")
+	page := intField(data, "pool_page")
+	history.OlderHref = draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, map[string]string{draftHistoryRoundsKey: "all"})
+
+	// Item 2 (2026-08-30 review): capTapeRounds runs here, not inside
+	// buildDraftHistoryView, and only for a full render (Since < 0) —
+	// attachDraftFragmentSince (draftFragmentHandler, above this call)
+	// already ran and trimmed Rounds to picks above its own "?since="
+	// cursor when one was given, so a since-poll's Rounds must reach the
+	// template exactly as that filter left them, never re-capped on top.
+	// HasOlderRounds is computed from the UNCAPPED count, before the cap
+	// (or "?rounds=all", item 3) removes any rounds at all.
+	if history.Since < 0 {
+		allRounds := strings.EqualFold(strings.TrimSpace(query.Get(draftHistoryRoundsKey)), "all")
+		history.HasOlderRounds = !allRounds && len(history.Rounds) > draftTapeMaxRenderedRounds
+		if !allRounds {
+			history.Rounds = capTapeRounds(history.Rounds)
+		}
+	}
 	data["history"] = history
+
 	// history_tape_url/history_view_tape/_board/_teams: flat top-level
 	// fields (never a nested data.history.X chain in page.gsx — matching
 	// this package's existing rule, RoundsEmpty's own doc comment,
 	// against relying on unproven GSX template-side expression shapes)
 	// for Page()'s own region URL and DraftHistoryHead/DraftMobileTabs'
 	// server-computed "which segment is active" state.
-	data["history_tape_url"] = "/draft/fragment/tape?view=" + history.View
+	//
+	// Item 1 (2026-08-30 review): history_tape_url carries "&pick=N"
+	// whenever the request did, so the open row survives a region
+	// refresh (draft:pick/draft:undo/draft:state, Page()'s own
+	// data-gosx-region-on) that would otherwise re-fetch the pane closed.
+	tapeURL := "/draft/fragment/tape?view=" + history.View
+	if pick := parseDraftHistoryPick(request); pick > 0 {
+		tapeURL += "&" + draftHistoryPickKey + "=" + strconv.Itoa(pick)
+	}
+	data["history_tape_url"] = tapeURL
 	data["history_view_tape"] = history.ShowTape
 	data["history_view_board"] = history.ShowBoard
 	data["history_view_teams"] = history.ShowTeams
+	// history_tape_explicit (item 4, 2026-08-30 review): true only when
+	// THIS request's own "?view=" named tape explicitly (a click on the
+	// desktop segment's Tape link or the phone Picks tab, or a shared/
+	// bookmarked "?view=tape" URL) — never for the bare "/draft" landing
+	// request, where ShowTape is ALSO true (buildDraftHistoryView's own
+	// ambient default) but no view was actually requested.
+	// DraftMobileTabs' own #tab-picks needs this distinction to stay
+	// mutually exclusive with #tab-players: both would otherwise want
+	// "checked" on the very first, un-clicked page load.
+	data["history_tape_explicit"] = history.ShowTape && rawView != ""
+	// history_tape_href/_board_href/_teams_href (item 6, 2026-08-30
+	// review): the desktop segment's and the phone Picks/Teams tabs' own
+	// navigation targets, carrying the viewer's current pool q/pos/page
+	// so switching sub-views never resets a filtered/paged pool search.
+	data["history_tape_href"] = draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, nil)
+	data["history_board_href"] = draftHistoryHref(draftHistoryViewBoard, pos, poolQuery, page, nil)
+	data["history_teams_href"] = draftHistoryHref(draftHistoryViewTeams, pos, poolQuery, page, nil)
+	return data
+}
+
+// parseDraftHistoryPick reads and validates "?pick=" (item 1, 2026-08-30
+// review), returning 0 for a missing, non-numeric, or non-positive value —
+// the shared "nothing to open" case both attachDraftFragmentView (the
+// tape region URL) and attachDraftFragmentPick (the row hydration below)
+// treat identically.
+func parseDraftHistoryPick(request *http.Request) int {
+	raw := strings.TrimSpace(request.URL.Query().Get(draftHistoryPickKey))
+	if raw == "" {
+		return 0
+	}
+	number, err := strconv.Atoi(raw)
+	if err != nil || number < 1 {
+		return 0
+	}
+	return number
+}
+
+// attachDraftFragmentPick marks the tape row a "?pick=" query names as
+// open and hydrates its detail fields inline (item 1, 2026-08-30 review):
+// the fix's whole point is that a made pick's detail body renders
+// SERVER-SIDE, from an ordinary link click, never from a client-side
+// data-gosx-set write under a <summary> — gosx@v0.53.9's own capture-
+// phase document click listener finds the nearest [data-gosx-set]
+// ancestor and unconditionally calls preventDefault() on the triggering
+// click, so a <summary> under (or carrying) data-gosx-set never actually
+// toggles open (client/runtime/host/actions.ts ~474-478, the verified
+// fact this whole item is built against).
+//
+// Only the ONE named pick is ever hydrated: every other row's detail
+// fields stay at their zero value (tapeRoundsProps, page.server.go),
+// keeping the tape fragment's own gzip size the way item 1b already
+// brought it under the D3 refresh budget — this fix does not reopen that
+// cost for every row, only for the one a viewer actually asked to see.
+// A pick number outside the rendered (possibly capped, item 2) Rounds
+// silently opens nothing: you can only open a row the pane actually
+// rendered.
+func attachDraftFragmentPick(data map[string]any, request *http.Request) map[string]any {
+	history, ok := data["history"].(draftHistoryView)
+	if !ok {
+		return data
+	}
+	number := parseDraftHistoryPick(request)
+	if number <= 0 || history.detail == nil {
+		return data
+	}
+	pos := stringField(data, "pool_position")
+	poolQuery := stringField(data, "pool_query")
+	page := intField(data, "pool_page")
+	closeHref := draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, nil)
+	for ri := range history.Rounds {
+		for pi := range history.Rounds[ri].Picks {
+			if history.Rounds[ri].Picks[pi].Number != number {
+				continue
+			}
+			detail := history.detail(number)
+			pick := history.Rounds[ri].Picks[pi]
+			pick.Open = true
+			pick.Href = closeHref
+			pick.Projection = detail.Projection
+			pick.Source = detail.Source
+			pick.BestAvailable = bestAvailableProps(detail.BestAvailable)
+			pick.TeamPicks = tapePicksProps(detail.TeamPicks)
+			history.Rounds[ri].Picks[pi] = pick
+			data["history"] = history
+			return data
+		}
+	}
 	return data
 }
 

@@ -122,9 +122,13 @@ func TestBrowserTapeRowShowsNFLTeamAndTimeToPickAt360px(t *testing.T) {
 	// The Picks tab, not Players, owns the history pane at phone width
 	// (DraftMobileTabs, page.gsx) — an in-progress draft defaults to
 	// Players, so .tape-row__who stays display:none until this click.
+	// Item 4 (2026-08-30 review): #tab-picks' own visible trigger is now
+	// a real data-gosx-link navigation (like Teams already was), not a
+	// <label for="tab-picks"> pure CSS toggle, so this click causes a
+	// real page load — WaitVisible below covers that round trip.
 	tabCtx, cancelTab := context.WithTimeout(ctx, browserFirstPaint)
 	defer cancelTab()
-	if err := chromedp.Run(tabCtx, chromedp.Click(`label[for="tab-picks"]`, chromedp.ByQuery)); err != nil {
+	if err := chromedp.Run(tabCtx, chromedp.Click(`#main-content .draft-tabbar__tab[href^="/draft?view=tape"]`, chromedp.ByQuery)); err != nil {
 		t.Fatalf("select the Picks tab at 360px: %v", err)
 	}
 

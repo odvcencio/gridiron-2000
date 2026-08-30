@@ -19,12 +19,21 @@ import (
 
 func renderDraftForUser(t *testing.T, handler http.Handler, email string) string {
 	t.Helper()
+	return renderDraftForUserPath(t, handler, email, "/")
+}
+
+// renderDraftForUserPath is renderDraftForUser against an explicit path
+// (item 9, 2026-08-30 review): TestDraftShellRendersEveryDraftStateFixture
+// Process uses this to render "/?view=board"/"/?view=teams", proving the
+// filter chips render only on the tape sub-view.
+func renderDraftForUserPath(t *testing.T, handler http.Handler, email, path string) string {
+	t.Helper()
 	recorder := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req := httptest.NewRequest(http.MethodGet, path, nil)
 	req.Header.Set("X-Test-User", email)
 	handler.ServeHTTP(recorder, req)
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET /draft for %s = %d, want 200; body: %s", email, recorder.Code, recorder.Body.String())
+		t.Fatalf("GET %s for %s = %d, want 200; body: %s", path, email, recorder.Code, recorder.Body.String())
 	}
 	return recorder.Body.String()
 }

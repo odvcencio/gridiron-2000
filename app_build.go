@@ -301,7 +301,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}
 	draftLiveUpdates := draftpage.NewLiveUpdates(leagueFingerprint)
 	draftLiveUpdates.SetRepairView(func() map[string]any { return league.Default().DraftLiveView(nil) })
-	league.Default().SetDraftEventSink(draftLiveUpdates.Sink())
+	draftLiveUpdates.SetDraftEventSink(league.Default())
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends

@@ -411,6 +411,100 @@ func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
 	}
 }
 
+// TestTapeFragmentSinceSurvivesTheRoundCap is item 2's own regression test
+// (2026-08-30 review): the pre-fix code applied capTapeRounds INSIDE
+// buildDraftHistoryView, before Since was even known, so a "?since="
+// cursor whose own picks fell outside the newest-3-round cap window lost
+// them — "since=39" at 60 picks (8 teams: round 5 covers picks 33-40,
+// outside the newest-3-round window of rounds 6-8/picks 41-60) silently
+// dropped pick 40, the ONE pick in round 5 above the cursor. The fix
+// (attachDraftFragmentView) applies the cap only when Since < 0, so a
+// since-poll's Rounds reach the template exactly as
+// attachDraftFragmentSince's own filter left them.
+func TestTapeFragmentSinceSurvivesTheRoundCap(t *testing.T) {
+	const made = 60
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture(picks)
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape?since=39", nil))
+	body := response.Body.String()
+	want := made - 39
+	if n := strings.Count(body, `data-tape-key="pick-`); n != want {
+		t.Fatalf("since=39 at %d picks: %d rows, want %d (picks 40..%d)", made, n, want, made)
+	}
+	if !strings.Contains(body, `data-tape-key="pick-40"`) {
+		t.Error("since=39 at 60 picks must still include pick 40 — its own round (5) fell outside the newest-3-round cap window")
+	}
+	if strings.Contains(body, `data-tape-key="pick-39"`) {
+		t.Error("since=39 must exclude pick 39 itself")
+	}
+	if !strings.Contains(body, `data-tape-key="pick-60"`) {
+		t.Error("since=39 must include the latest pick, 60")
+	}
+}
+
+// TestDraftHistoryLinksPreserveThePoolState is item 6's own test
+// (2026-08-30 review): the desktop segment's three navigation targets
+// and a tape row's own open link all carry the viewer's current pool
+// q/pos/page, built server-side (draftHistoryHref), so switching Tape/
+// Board/Teams or opening a pick's detail never resets a filtered/paged
+// pool search.
+func TestDraftHistoryLinksPreserveThePoolState(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["pool_position"] = "RB"
+	fixture["pool_query"] = "mahomes"
+	fixture["pool_page"] = 3
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager")})
+	fixture["picks_empty"] = false
+
+	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft/fragment/tape", nil))
+	for key, want := range map[string]string{
+		"history_tape_href":  "/draft?page=3&pos=RB&q=mahomes&view=tape",
+		"history_board_href": "/draft?page=3&pos=RB&q=mahomes&view=board",
+		"history_teams_href": "/draft?page=3&pos=RB&q=mahomes&view=teams",
+	} {
+		if got, _ := prepared[key].(string); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	history, ok := prepared["history"].(draftHistoryView)
+	if !ok || len(history.Rounds) == 0 || len(history.Rounds[0].Picks) == 0 {
+		t.Fatal("prepared history has no picks to check")
+	}
+	href := history.Rounds[0].Picks[0].Href
+	for _, want := range []string{"page=3", "pos=RB", "q=mahomes", "pick=1"} {
+		if !strings.Contains(href, want) {
+			t.Errorf("tape row href = %q, missing %q", href, want)
+		}
+	}
+}
+
+// TestDraftTapeRegionDoesNotYetRequestSinceCursor is item 7's own unit
+// test (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
+// never requests the "?since=" cursor itself — the tape pane's own
+// region carries no "-cursor"/"{cursor}" binding yet, only a static URL
+// (data.history_tape_url). Target mode (Task 8, gosx v0.53.10's region
+// "{cursor}" bind) is the caller that will ask for it; the server-side
+// machinery (draftTapeSinceKey, attachDraftFragmentSince,
+// filterTapeRoundsSince) stays ready for that today.
+func TestDraftTapeRegionDoesNotYetRequestSinceCursor(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"data-gosx-region-cursor", "-cursor={", "since={value}"} {
+		if strings.Contains(string(source), forbidden) {
+			t.Errorf("page.gsx already requests a region cursor (%q) — item 7 expected fallback mode to wait for target mode (Task 8)", forbidden)
+		}
+	}
+}
+
 // TestTapeFragmentWithoutSinceRendersTheFullPane proves a plain GET (no
 // "?since=") and an invalid one both fall back to DraftHistory, the pane's
 // ordinary full render — draftHistoryView.Since defaults to -1

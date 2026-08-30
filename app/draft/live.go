@@ -217,6 +217,27 @@ func (updates *LiveUpdates) SetRepairView(view func() map[string]any) {
 	updates.mu.Unlock()
 }
 
+// SetDraftEventSink installs this LiveUpdates as service's draft event
+// sink (item 10, 2026-08-30 review): app_build.go calls
+// draftLiveUpdates.SetDraftEventSink(league.Default()) once, at boot, in
+// place of the old two-line league.Default().SetDraftEventSink(draftLive
+// Updates.Sink()). It resets lastGeneration to zero FIRST: a fresh
+// Service numbers its own draft-event generations from 0/1, independently
+// of any Service this same long-lived LiveUpdates was bound to before (a
+// process restart's replacement Service, or a test harness building a
+// second Service against one shared LiveUpdates). Without the reset,
+// Sink's own stale-draft:state guard above compared the new Service's low
+// generation numbers against the OLD Service's highest already-broadcast
+// one and silently suppressed every repair the new Service ever produced
+// — a real regression a reconnecting browser would see as a room that
+// never resynchronizes.
+func (updates *LiveUpdates) SetDraftEventSink(service *league.Service) {
+	updates.mu.Lock()
+	updates.lastGeneration = 0
+	updates.mu.Unlock()
+	service.SetDraftEventSink(updates.Sink())
+}
+
 // Handler accepts only authenticated league viewers (or rehearsal mode), then
 // attaches the SSR fingerprint as immutable connection metadata. A reconnect
 // whose page is already current is silent; a reconnect after a missed event

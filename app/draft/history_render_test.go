@@ -154,15 +154,16 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Errorf("round 3 header has %d \"mono muted\" spans, want exactly 1 (T1: one line, never a three-cell grid): %s", n, round3Head)
 	}
 
-	// Row 17: isolate row 17's own markup (a <details> now: T3 merges the
-	// row and its DETAIL toggle into one native disclosure).
+	// Row 17: isolate row 17's own markup (an <article> now: item 1
+	// replaced the <details><summary data-gosx-set> shape with a plain
+	// soft-navigation link).
 	row17Start := strings.Index(body, `data-tape-key="pick-17"`)
 	if row17Start < 0 {
 		t.Fatal("row 17 not found")
 	}
-	row17End := strings.Index(body[row17Start:], "</details>")
+	row17End := strings.Index(body[row17Start:], "</article>")
 	if row17End < 0 {
-		t.Fatal("row 17 has no closing </details>")
+		t.Fatal("row 17 has no closing </article>")
 	}
 	row17 := body[row17Start : row17Start+row17End]
 	pick17 := picks[16]
@@ -178,6 +179,23 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	if !strings.Contains(row17, `class="tape-row__summary"`) {
 		t.Errorf("row 17 missing its DETAIL toggle's summary: %s", row17)
 	}
+	// Item 1 (BLOCKING, 2026-08-30 review): the row's own visible content
+	// is a plain data-gosx-link, never a <summary data-gosx-set> — a
+	// gosx@v0.53.9 capture-phase click handler cancels a <summary>'s own
+	// native toggle under any data-gosx-set ancestor, so that shape never
+	// actually opened.
+	if !strings.Contains(row17, `data-gosx-link`) {
+		t.Errorf("row 17 must be a data-gosx-link soft navigation, not a client-side signal write: %s", row17)
+	}
+	if strings.Contains(row17, "data-gosx-set") {
+		t.Errorf("row 17 must never carry data-gosx-set (item 1: that cancels a <summary>'s own native toggle): %s", row17)
+	}
+	if !strings.Contains(row17, `href="/draft?pick=17&amp;view=tape"`) {
+		t.Errorf("row 17's own link must open pick 17 (item 1: view=tape&pick=17): %s", row17)
+	}
+	if strings.Contains(row17, `aria-current="true"`) {
+		t.Errorf("row 17 must not carry aria-current before its own pick is opened: %s", row17)
+	}
 
 	// Row 3: AUTO, inline with the player line (T4) — before the
 	// team+manager line, not just present anywhere in the row.
@@ -185,7 +203,7 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	if row3Start < 0 {
 		t.Fatal("row 3 not found")
 	}
-	row3End := strings.Index(body[row3Start:], "</details>")
+	row3End := strings.Index(body[row3Start:], "</article>")
 	row3 := body[row3Start : row3Start+row3End]
 	if !strings.Contains(row3, "AUTO") {
 		t.Errorf("row 3 (auto pick) missing AUTO: %s", row3)
@@ -195,19 +213,52 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Errorf("row 3: AUTO (%d) must sit on the player line, before the team+manager line (%d): %s", autoAt, teamAt, row3)
 	}
 
-	// Item 1b: the value label itself is lazy content (DraftPickDetailBody,
-	// fetched from GET /draft/fragment/pick/{n} only once a viewer opens
-	// the row — TestPickDetailFragmentServesOneLazyPickBody below covers
-	// its own content). The tape fragment carries only each row's own
-	// lazy-region wiring, not the value label text.
+	// Item 1: no row's detail body renders inline until its own "?pick="
+	// opens it — the DEFAULT render (no "?pick=" at all) opens nothing, so
+	// no value label appears anywhere, and every row's own href still
+	// targets its OPEN state (pick=N, never already pick=1's close form).
 	if strings.Contains(body, "+3") || strings.Contains(body, "−4") {
-		t.Error("the eager tape fragment must not carry a value label (item 1b: the detail body is lazy)")
+		t.Error("the default tape render must not carry any pick's value label (item 1: only the '?pick=' row's own detail body renders)")
 	}
-	if !strings.Contains(body, `data-gosx-region-url="/draft/fragment/pick/1"`) {
-		t.Error("row 1 missing its lazy pick-detail region url")
+	if strings.Contains(body, `class="pick-detail__body"`) {
+		t.Error("the default tape render must not carry any pick's detail body (item 1: closed by default)")
 	}
-	if !strings.Contains(body, `data-gosx-region-signal="$dp1"`) {
-		t.Error("row 1 missing its lazy pick-detail region signal")
+	if !strings.Contains(body, `href="/draft?pick=1&amp;view=tape"`) {
+		t.Error("row 1's own link must target its open state (pick=1)")
+	}
+
+	// Item 1: "?pick=1" opens row 1's detail body inline, server-rendered
+	// — no lazy fetch, no client-side signal. The row now carries
+	// aria-current and its own link closes back to the plain tape view.
+	openBody := renderTapeRegionPath(t, fixture, "/draft/fragment/tape?pick=1")
+	row1Start := strings.Index(openBody, `data-tape-key="pick-1"`)
+	if row1Start < 0 {
+		t.Fatal("open render: row 1 not found")
+	}
+	row1End := strings.Index(openBody[row1Start:], "</article>")
+	row1 := openBody[row1Start : row1Start+row1End]
+	if !strings.Contains(row1, `data-open="true"`) {
+		t.Errorf("open render: row 1 must carry data-open=\"true\": %s", row1)
+	}
+	if !strings.Contains(row1, `aria-current="true"`) {
+		t.Errorf("open render: row 1's link must carry aria-current=\"true\": %s", row1)
+	}
+	if !strings.Contains(row1, `href="/draft?view=tape"`) {
+		t.Errorf("open render: row 1's own link must close back to the plain tape view: %s", row1)
+	}
+	if !strings.Contains(row1, "+3") || !strings.Contains(row1, "vs ADP") {
+		t.Errorf("open render: row 1 must carry its own inline detail body (vs ADP +3): %s", row1)
+	}
+	if !strings.Contains(row1, "Best available") || !strings.Contains(row1, "Player card") {
+		t.Errorf("open render: row 1's inline detail body is missing best-available or the player-card link: %s", row1)
+	}
+	// Only the named pick opens: row 2 (also carrying a set ADP value)
+	// must stay closed and carry no detail body of its own.
+	row2Start := strings.Index(openBody, `data-tape-key="pick-2"`)
+	row2End := strings.Index(openBody[row2Start:], "</article>")
+	row2 := openBody[row2Start : row2Start+row2End]
+	if strings.Contains(row2, "−4") || strings.Contains(row2, `class="pick-detail__body"`) {
+		t.Errorf("open render: row 2 must stay closed when only pick=1 was requested: %s", row2)
 	}
 
 	// Item 1a: the default (tape) render must never carry Board's own
@@ -253,13 +304,14 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Error("Export CSV must render once the draft is complete")
 	}
 
-	// Every one of the 17 picks carries its own pick-detail accordion, and
-	// (T3) its DETAIL toggle is the row itself, not a full-width button.
-	if n := strings.Count(body, `class="tape-row pick-detail"`); n != made {
-		t.Errorf("tape-row pick-detail count = %d, want %d", n, made)
+	// Every one of the 17 picks carries its own row, and (item 1) its
+	// DETAIL toggle is a plain link over the row itself, not a full-width
+	// button.
+	if n := strings.Count(body, `class="tape-row tape-row--detail"`); n != made {
+		t.Errorf("tape-row tape-row--detail count = %d, want %d", n, made)
 	}
 	if n := strings.Count(body, `class="tape-row__summary"`); n != made {
-		t.Errorf("tape-row__summary count = %d, want %d (one DETAIL toggle per pick; item 2: aria-expanded is never hardcoded, the browser derives it from <details open>)", n, made)
+		t.Errorf("tape-row__summary count = %d, want %d (one DETAIL toggle per pick)", n, made)
 	}
 	if strings.Contains(body, `class="btn btn-sm btn-ghost">Detail<`) {
 		t.Error("DETAIL must no longer render as a separate full-width button (T3)")
@@ -281,7 +333,7 @@ func TestDraftTapeRowOmitsTimeToPickWhenZero(t *testing.T) {
 	if rowStart < 0 {
 		t.Fatal("row 1 not found")
 	}
-	rowEnd := strings.Index(body[rowStart:], "</details>")
+	rowEnd := strings.Index(body[rowStart:], "</article>")
 	row := body[rowStart : rowStart+rowEnd]
 	if strings.Contains(row, "0:00") {
 		t.Errorf("row 1 (TimeToPickSec=0) must omit the time-to-pick segment: %s", row)
@@ -291,7 +343,7 @@ func TestDraftTapeRowOmitsTimeToPickWhenZero(t *testing.T) {
 	fixture["history"] = fullHistoryFixture([]league.TapePick{pick}, 1, 2, false)
 	body = renderTapeRegion(t, fixture)
 	rowStart = strings.Index(body, `data-tape-key="pick-1"`)
-	rowEnd = strings.Index(body[rowStart:], "</details>")
+	rowEnd = strings.Index(body[rowStart:], "</article>")
 	row = body[rowStart : rowStart+rowEnd]
 	if !strings.Contains(row, "0:49") {
 		t.Errorf("row 1 (TimeToPickSec=49) must show its time-to-pick segment: %s", row)
@@ -315,7 +367,7 @@ func TestDraftTapeRowWhoOmitsLeadingSeparatorWhenManagerIsEmpty(t *testing.T) {
 	if rowStart < 0 {
 		t.Fatal("row 1 not found")
 	}
-	rowEnd := strings.Index(body[rowStart:], "</details>")
+	rowEnd := strings.Index(body[rowStart:], "</article>")
 	row := body[rowStart : rowStart+rowEnd]
 	whoStart := strings.Index(row, `class="tape-row__who"`)
 	if whoStart < 0 {
@@ -507,6 +559,43 @@ func TestTapeFragmentSizeStaysUnderTheRefreshBudget(t *testing.T) {
 		t.Logf("%s fragment at %d picks = %d B gzip (raw %d B, budget %d B)", view.name, made, size, len(view.body), budget)
 		if size > budget {
 			t.Errorf("%s fragment at %d picks = %d B gzip, want <= %d B (D3 refresh budget, fallback mode)", view.name, made, size, budget)
+		}
+	}
+}
+
+// TestOlderRoundsLinkRendersEveryRoundWithRoundsAll is item 3's own test
+// (2026-08-30 review): the default full render stays capped to the
+// newest 3 rounds and carries an "Older rounds ↓" link; "?rounds=all"
+// renders every round instead, and that request carries no such link of
+// its own (nothing further left to show).
+func TestOlderRoundsLinkRendersEveryRoundWithRoundsAll(t *testing.T) {
+	const made = 40 // 5 rounds at 8 teams
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture(picks, 5, made+1, false)
+
+	capped := renderTapeRegion(t, fixture)
+	if !strings.Contains(capped, `class="btn btn-sm draft-tape-older"`) || !strings.Contains(capped, "Older rounds ↓") {
+		t.Errorf("the default (capped) render must carry the Older rounds link: %s", capped)
+	}
+	if strings.Contains(capped, `data-tape-key="round-1"`) || strings.Contains(capped, `data-tape-key="round-2"`) {
+		t.Errorf("the default render must stay capped to the newest 3 rounds (3, 4, 5), not carry round 1 or 2: %s", capped)
+	}
+	if !strings.Contains(capped, `href="/draft?rounds=all&amp;view=tape"`) {
+		t.Errorf("the Older rounds link must target ?rounds=all: %s", capped)
+	}
+
+	all := renderTapeRegionPath(t, fixture, "/draft/fragment/tape?rounds=all")
+	if strings.Contains(all, `class="btn btn-sm draft-tape-older"`) {
+		t.Error("?rounds=all must not itself carry the Older rounds link (nothing further to show)")
+	}
+	for _, round := range []string{"round-1", "round-2", "round-3", "round-4", "round-5"} {
+		if !strings.Contains(all, `data-tape-key="`+round+`"`) {
+			t.Errorf("?rounds=all must render every round, missing %s: %s", round, all)
 		}
 	}
 }

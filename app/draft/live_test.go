@@ -186,6 +186,53 @@ func TestSinkNeverBroadcastsAStaleDraftState(t *testing.T) {
 	}
 }
 
+// TestSetDraftEventSinkResetsLastGeneration is item 10's own test
+// (2026-08-30 review): binding a second Service through
+// LiveUpdates.SetDraftEventSink must reset lastGeneration to zero, so
+// that Service's own low generation numbers (restarting at 1) are never
+// treated as stale against the FIRST Service's highest already-broadcast
+// generation. league.Service's zero value is a safe stand-in here: this
+// test drives every event through updates.Sink() directly, never through
+// the Service's own emitDraft/repair path, so the fields
+// SetDraftEventSink touches (poolMu, the queue/cancel bookkeeping) are
+// all it needs.
+func TestSetDraftEventSinkResetsLastGeneration(t *testing.T) {
+	var fingerprint atomic.Value
+	fingerprint.Store("generation-1")
+	updates := newLiveUpdates(func() string { return fingerprint.Load().(string) })
+	updates.observe(false)
+	server := httptest.NewServer(updates.handler(func(*http.Request) bool { return true }))
+	defer server.Close()
+
+	// Stand in for a first Service reaching a high generation.
+	updates.Sink()(league.DraftEvent{Name: draftStateEvent, Generation: 50, Payload: map[string]any{}})
+
+	// Stand in for a brand-new Service, whose own generation numbering
+	// restarts at 1 independently of the first Service's generation 50.
+	second := &league.Service{}
+	t.Cleanup(second.StopDraftEvents)
+	updates.SetDraftEventSink(second)
+
+	conn := dialDraftLive(t, server.URL, "generation-1")
+	defer conn.Close()
+	readDraftHubEvent(t, conn, "__welcome")
+
+	fingerprint.Store("generation-2")
+	updates.Sink()(league.DraftEvent{Name: draftStateEvent, Generation: 1, Payload: map[string]any{}})
+
+	var message struct {
+		Event string         `json:"event"`
+		Data  map[string]any `json:"data"`
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.ReadJSON(&message); err != nil {
+		t.Fatalf("a low-generation draft:state after SetDraftEventSink must still reach the wire (the reset must not leave it looking stale): %v", err)
+	}
+	if message.Event != draftStateEvent || message.Data["generation"] != float64(1) {
+		t.Fatalf("message = %+v, want one draft:state at generation 1", message)
+	}
+}
+
 func TestDraftLiveWatcherPushesAChangedFingerprint(t *testing.T) {
 	var fingerprint atomic.Value
 	fingerprint.Store("generation-1")

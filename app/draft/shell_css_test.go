@@ -109,7 +109,8 @@ func TestDraftTapeRoundHeaderIsOneLine(t *testing.T) {
 }
 
 // TestDraftTapeRowTogglePassesTheTouchBaseline is T3 (2026-08-30 polish
-// pass): the row's own <summary> — its DETAIL toggle, T3 merges them —
+// pass), updated for item 1 (2026-08-30 review): the row's own
+// <a class="tape-row__summary" data-gosx-link> — its DETAIL toggle —
 // meets the 44px (2.75rem) touch target in both dimensions, and the
 // decorative chevron marker never itself claims a competing hit target
 // (min-width/height unset, so only the summary's own box counts).
@@ -128,8 +129,10 @@ func TestDraftTapeRowTogglePassesTheTouchBaseline(t *testing.T) {
 	if !strings.Contains(rule, "min-height: 2.75rem") {
 		t.Errorf(".tape-row__summary must set min-height: 2.75rem (T3, the 44px touch target): %s", rule)
 	}
-	if !strings.Contains(css, ".tape-row__summary::-webkit-details-marker") && !strings.Contains(css, ".tape-row__summary::marker") {
-		t.Error("stylesheet must hide the native <summary> disclosure triangle on .tape-row__summary")
+	for _, obsolete := range []string{".tape-row__summary::-webkit-details-marker", "details[open] > .tape-row__summary"} {
+		if strings.Contains(css, obsolete) {
+			t.Errorf("stylesheet still references %q — item 1 replaced <details><summary> with a plain <article><a> (no native disclosure marker to hide)", obsolete)
+		}
 	}
 }
 
@@ -224,5 +227,30 @@ func TestDraftPhoneNoticeStaysOneLine(t *testing.T) {
 	}
 	if strings.Contains(block, ".draft-command__banner {") {
 		t.Error("P6: no phone-width override of .draft-command__banner may remain (it must inherit the base one-line rule unchanged)")
+	}
+}
+
+// TestDraftTapeFilterChipsStylesheetRules is item 9's own CSS test
+// (2026-08-30 review): the six position/mine filter chips and the CSS
+// rules that hide a non-matching .tape-row when one is checked, scoped
+// to the tape sub-view only.
+func TestDraftTapeFilterChipsStylesheetRules(t *testing.T) {
+	raw, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, want := range []string{
+		".draft-history-filters {",
+		".draft-shell .draft-history-filters input:checked + .chip {",
+		`.draft-pane--history:has(#tape-filter-qb:checked) .draft-history__view--tape .tape-row:not([data-position="QB"])`,
+		`.draft-pane--history:has(#tape-filter-rb:checked) .draft-history__view--tape .tape-row:not([data-position="RB"])`,
+		`.draft-pane--history:has(#tape-filter-wr:checked) .draft-history__view--tape .tape-row:not([data-position="WR"])`,
+		`.draft-pane--history:has(#tape-filter-te:checked) .draft-history__view--tape .tape-row:not([data-position="TE"])`,
+		`.draft-pane--history:has(#tape-filter-mine:checked) .draft-history__view--tape .tape-row:not([data-mine="true"])`,
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("stylesheet missing tape-filter rule %q", want)
+		}
 	}
 }

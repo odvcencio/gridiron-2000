@@ -139,6 +139,21 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 			t.Errorf("live shell missing %q", want)
 		}
 	}
+	// Item 9 (2026-08-30 review): the six tape filter chips render on the
+	// Tape sub-view only — DraftHistoryHead sits outside the swapped
+	// pane body, so it renders once per navigation, in step with
+	// whichever sub-view the SAME response's history pane carries.
+	if n := strings.Count(live, `class="chip" for="tape-filter-`); n != 6 {
+		t.Errorf("tape (default) view: %d filter chips, want 6: %s", n, live)
+	}
+	board := renderDraftForUserPath(t, handler, seated, "/?view=board")
+	if strings.Contains(board, `class="draft-history-filters"`) {
+		t.Error("Board view must not render the tape's own filter chips (item 9)")
+	}
+	teamsView := renderDraftForUserPath(t, handler, seated, "/?view=teams")
+	if strings.Contains(teamsView, `class="draft-history-filters"`) {
+		t.Error("Teams view must not render the tape's own filter chips (item 9)")
+	}
 	drawer := renderDraftForUser(t, handler, shellCommissioner)
 	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "NOT SEEN may receive the short safety clock only after the two-minute boot grace"} {
 		if !strings.Contains(drawer, want) {
