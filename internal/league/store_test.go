@@ -2018,6 +2018,54 @@ func TestRecordTransactionEnforcesRosterCap(t *testing.T) {
 	}
 }
 
+// TestRecordTransactionRejectsIRDropAsFreeingARosterSpot pins F3 for
+// RecordTransactionWithAuthority: a drop naming an IR occupant must
+// credit zero spots toward the cap, not the raw len(txn.Drops) the old
+// arithmetic used (current + len(Adds) - len(Drops) > rosterCap).
+func TestRecordTransactionRejectsIRDropAsFreeingARosterSpot(t *testing.T) {
+	store := newTestStore(t)
+	seed := Transaction{
+		ID: "txn-seed", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-ir", Name: "IR Seed", Position: "RB"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(seed, 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.PlaceInZone("team-1", "p-ir", zoneIR, "RB", time.Now()); err != nil {
+		t.Fatalf("PlaceInZone: %v", err)
+	}
+	state := store.Snapshot()
+	if got := effectiveRosterSize(state, "team-1"); got != 0 {
+		t.Fatalf("effectiveRosterSize after IR placement = %d, want 0 (the spot is freed)", got)
+	}
+	// rosterCap 1: adding p-2 with no drop is legal (0 + 1 <= 1).
+	fill := Transaction{
+		ID: "txn-fill", Type: "add", TeamID: "team-1",
+		Adds: []TransactionPlayer{{PlayerID: "p-2", Name: "Filler", Position: "WR"}},
+		At:   time.Now(),
+	}
+	if err := store.RecordTransaction(fill, 1); err != nil {
+		t.Fatalf("RecordTransaction to fill the freed spot: %v", err)
+	}
+	// team-1 is now exactly at its effective cap (1) with p-ir still on
+	// IR. Naming p-ir as the drop for a new add must not bypass the cap:
+	// it credits zero spots.
+	over := Transaction{
+		ID: "txn-over", Type: "add", TeamID: "team-1",
+		Adds:  []TransactionPlayer{{PlayerID: "p-3", Name: "Overflow", Position: "WR"}},
+		Drops: []TransactionPlayer{{PlayerID: "p-ir", Name: "IR Seed", Position: "RB"}},
+		At:    time.Now(),
+	}
+	if err := store.RecordTransaction(over, 1); err == nil {
+		t.Fatal("an IR-occupant drop must not bypass the roster cap")
+	}
+	state = store.Snapshot()
+	if got := effectiveRosterSize(state, "team-1"); got > 1 {
+		t.Fatalf("effectiveRosterSize after the rejected transaction = %d, want no more than 1", got)
+	}
+}
+
 // TestTransactionsDecodeFromOldStateFile checks that a pre-WP-R3 state
 // file (no "transactions" key at all) loads with an empty, non-nil
 // Transactions slice and still accepts a new transaction write afterward

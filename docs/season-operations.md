@@ -193,6 +193,12 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 - A player whose game has started is unavailable for immediate addition and follows the displayed waiver timing.
 - Claims resolve on the configured daily processing clock. Performance-priority leagues use the displayed order; FAAB leagues use bids and the configured budget.
 - A claim is revalidated when it resolves. A stale claim cannot bypass roster capacity, position limits, current ownership, or budget.
+- A manager may hold open claims up to the roster size at once. Cancel a claim to file another past that limit.
+- A manager may file at most 60 claims per rolling hour. Filing faster is refused with a clear message. The count lives in memory per running instance; a restart resets it.
+- An injured-reserve occupant may be named as a claim's drop, but it frees no roster spot: IR already sits outside the roster cap, so the claim still needs an open spot for the add.
+- A claim on a player who leaves the pool during a run stays open and deferred. It resolves once the player returns to the pool, or the manager cancels it. The manager sees one notice on the first deferred run. A claim deferred across 3 consecutive runs, spanning at least 48 hours, expires automatically, with a final notice naming the reason.
+- A beaten FAAB claim reports only that another team won the player, never the winning bid amount. A manager sees their own bid at all times.
+- The commissioner sees every team's waiver receipts, not only their own team's. The commissioner may also force an out-of-cycle run from `/admin` when a run is stuck or overdue.
 
 ### Trades
 

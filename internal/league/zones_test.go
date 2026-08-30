@@ -260,6 +260,66 @@ func TestActivateFromIRRequiresDropWhenAtCap(t *testing.T) {
 	}
 }
 
+// TestAddPlayerRejectsIRDropAsFreeingARosterSpot pins F3 (roster-ops audit
+// probe 2, ported to AddPlayer's realistic, non-artificial cap math):
+// naming an IR occupant as the drop in an add must not bypass the roster
+// cap. effectiveRosterSize already excludes an IR occupant, so dropping
+// one frees no additional spot on top of the one IR already gave — the
+// old `else if dropID == ""` gate skipped the cap check entirely whenever
+// any drop was named, letting exactly this combination push the team
+// over cap.
+func TestAddPlayerRejectsIRDropAsFreeingARosterSpot(t *testing.T) {
+	svc, _ := newZonesTestServiceWithInjuryAtCap(t)
+	svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) { return "Out", true })
+	if _, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1"); err != nil {
+		t.Fatal(err)
+	}
+	// Fill the spot IR freed with a real add — the team is back at its
+	// true effective cap (4), with inj-1 still parked on IR.
+	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "", ""); err != nil {
+		t.Fatalf("AddPlayer to fill the freed spot: %v", err)
+	}
+	state := svc.store.Snapshot()
+	if got := effectiveRosterSize(state, "team-1"); got != 4 {
+		t.Fatalf("effectiveRosterSize before the exploit attempt = %d, want 4 (at cap)", got)
+	}
+
+	// Naming the IR occupant as the drop must not bypass the cap: it
+	// credits zero spots, so this add must fail exactly like a no-drop
+	// add at cap would.
+	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "qb-2", "inj-1", "add-drop-player"); err == nil {
+		t.Fatal("AddPlayer with an IR-occupant drop must not bypass the roster cap")
+	}
+	state = svc.store.Snapshot()
+	if got := effectiveRosterSize(state, "team-1"); got > 4 {
+		t.Fatalf("effectiveRosterSize after the rejected add = %d, want no more than 4", got)
+	}
+	if zoneOfPlayer(state, "team-1", "inj-1") != zoneIR {
+		t.Fatal("inj-1 must remain on IR after the rejected add")
+	}
+}
+
+// TestFileClaimRejectsIRDropAsFreeingARosterSpot pins F3's filing-time
+// fail-fast (Service.FileClaim's W6 pre-check): naming an IR occupant as
+// the drop must not let a claim file past the roster cap either.
+func TestFileClaimRejectsIRDropAsFreeingARosterSpot(t *testing.T) {
+	svc, _ := newZonesTestServiceWithInjuryAtCap(t)
+	svc.SetInjuryDesignationSource(func(name, position, nflTeam string) (string, bool) { return "Out", true })
+	if _, err := svc.PlaceInIR(zonesRequest(), "team-1", "inj-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddPlayer(zonesRequest(), "team-1", "fa-1", "", ""); err != nil {
+		t.Fatalf("AddPlayer to fill the freed spot: %v", err)
+	}
+	if _, err := svc.FileClaim(zonesRequest(), "team-1", "qb-2", "inj-1", 0); err == nil {
+		t.Fatal("FileClaim with an IR-occupant drop must not bypass the roster cap")
+	}
+	state := svc.store.Snapshot()
+	if len(state.WaiverClaims) != 0 {
+		t.Fatalf("WaiverClaims = %+v, want no claim filed", state.WaiverClaims)
+	}
+}
+
 // ---------------------------------------------------------------------
 // Limits enforcement (optional knob, default off)
 // ---------------------------------------------------------------------

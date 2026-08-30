@@ -284,6 +284,29 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// own bool (see DashboardData's transactions_empty precedent).
 		"announcements":       s.announcementAdminMaps(state),
 		"announcements_empty": len(state.Announcements) == 0,
+		// Waiver-run panel (2026-08-30 review, finding 3): the commissioner
+		// force-run oversight AdminRunWaivers already implemented but no
+		// control ever called. run_token binds the confirmation form to
+		// this exact render — see waiverRunToken.
+		"waivers": s.adminWaiversMap(state, now),
+	}
+}
+
+// adminWaiversMap renders the commissioner's waiver-run oversight panel
+// (F5, finding 3 of the 2026-08-30 review): how many claims are currently
+// open and queued, when the processor last completed a run, and a fresh
+// AdminRunWaivers confirmation token bound to this exact state.
+func (s *Service) adminWaiversMap(state PersistedState, now time.Time) map[string]any {
+	processedThrough := "never run"
+	if !state.WaiversProcessedThrough.IsZero() {
+		processedThrough = formatResolvesAt(s.cfg, state.WaiversProcessedThrough)
+	}
+	return map[string]any{
+		"open_claim_count":  len(state.WaiverClaims),
+		"has_open_claims":   len(state.WaiverClaims) > 0,
+		"processed_through": processedThrough,
+		"run_state":         commissionerV1WaiverRunState(s.cfg, state, now),
+		"run_token":         waiverRunToken(state),
 	}
 }
 

@@ -488,6 +488,138 @@ func TestCommissionerForceAutopick(t *testing.T) {
 	})
 }
 
+// TestAdminRunWaivers pins F5's commissioner force-run: the same
+// authority/confirmation gates AdminForceAutopick uses, a matching
+// errAdminActionStale freshness token (2026-08-30 review, finding 10), and
+// a resolved run that reuses Store.ProcessWaivers exactly (the ordinary
+// cycle's own resolution path), recording WaiversProcessedThrough at the
+// commissioner's own clock instant rather than a computed nextRun.
+func TestAdminRunWaivers(t *testing.T) {
+	t.Run("rejected for non-commissioners", func(t *testing.T) {
+		service := newTestService(t, false)
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, "stale"); err == nil {
+			t.Fatal("a non-commissioner request must be rejected")
+		}
+	})
+
+	t.Run("rejected without the exact confirmation", func(t *testing.T) {
+		service := newTestService(t, true) // demo mode grants commissioner
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		token := waiverRunToken(service.store.Snapshot())
+		if _, err := service.AdminRunWaivers(request, "wrong", token); err == nil {
+			t.Fatal("a missing/incorrect confirmation must be rejected")
+		}
+	})
+
+	t.Run("rejected for a missing or stale token", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, ""); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("empty token = %v, want stale-action rejection", err)
+		}
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, "stale-token"); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("stale token = %v, want stale-action rejection", err)
+		}
+	})
+
+	t.Run("a replayed token after a successful run is rejected", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		if err := service.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.FileClaim(WaiverClaim{ID: "clm-replay", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		token := waiverRunToken(service.store.Snapshot())
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token); err != nil {
+			t.Fatalf("first run: %v", err)
+		}
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("replayed token after a completed run = %v, want stale-action rejection", err)
+		}
+	})
+
+	t.Run("resolves a due claim immediately, out of cycle", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		if err := service.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.FileClaim(WaiverClaim{ID: "clm-1", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		token := waiverRunToken(service.store.Snapshot())
+		results, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token)
+		if err != nil {
+			t.Fatalf("AdminRunWaivers: %v", err)
+		}
+		if len(results) != 1 || results[0].Outcome != "won" {
+			t.Fatalf("results = %+v, want one won outcome", results)
+		}
+		state := service.store.Snapshot()
+		if len(state.WaiverClaims) != 0 || len(state.Transactions) != 1 {
+			t.Fatalf("claims/transactions = %d/%d, want 0/1", len(state.WaiverClaims), len(state.Transactions))
+		}
+		if !state.WaiversProcessedThrough.Equal(now.UTC()) {
+			t.Fatalf("WaiversProcessedThrough = %v, want %v (the commissioner's own clock instant)", state.WaiversProcessedThrough, now)
+		}
+	})
+}
+
+// TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl pins finding 8
+// of the 2026-08-30 review round 2: has_open_claims was computed and
+// handed to every admin render but nothing ever read it, so the force-run
+// control rendered identically whether or not there was anything for a
+// forced run to resolve. This checks the value itself is correct in both
+// states — app/admin/page.gsx's own render test covers the markup that
+// now gates on it.
+func TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+
+	state := service.store.Snapshot()
+	waivers := service.adminWaiversMap(state, now)
+	if got, ok := waivers["has_open_claims"].(bool); !ok || got {
+		t.Fatalf("has_open_claims = %v, want false with no open claims", waivers["has_open_claims"])
+	}
+	if got, ok := waivers["open_claim_count"].(int); !ok || got != 0 {
+		t.Fatalf("open_claim_count = %v, want 0", waivers["open_claim_count"])
+	}
+
+	if err := service.store.FileClaim(WaiverClaim{ID: "clm-open", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	state = service.store.Snapshot()
+	waivers = service.adminWaiversMap(state, now)
+	if got, ok := waivers["has_open_claims"].(bool); !ok || !got {
+		t.Fatalf("has_open_claims = %v, want true with one open claim", waivers["has_open_claims"])
+	}
+	if got, ok := waivers["open_claim_count"].(int); !ok || got != 1 {
+		t.Fatalf("open_claim_count = %v, want 1", waivers["open_claim_count"])
+	}
+}
+
 // TestDraftIsLive checks that scheduled time and demo mode never replace
 // the persisted commissioner start.
 func TestDraftIsLive(t *testing.T) {

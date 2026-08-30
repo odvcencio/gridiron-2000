@@ -32,6 +32,14 @@ const (
 	// consume the on-clock seat's Big Board target (or best available
 	// fallback) immediately, even when the clock is paused.
 	ForceCurrentPickConfirmation = "FORCE CURRENT PICK"
+	// RunWaiversConfirmation is the exact typed acknowledgement for the
+	// commissioner's force-run waiver action (F5, commissioner oversight
+	// for a run that is stuck or overdue): an out-of-cycle run resolves
+	// every currently due claim immediately and cannot be undone from
+	// this screen, the same irreversibility class as
+	// ForceCurrentPickConfirmation. Moved here from rosterops.go
+	// (2026-08-30 review, finding 10) to sit with its peers.
+	RunWaiversConfirmation = "RUN WAIVERS NOW"
 )
 
 var errAdminActionStale = errors.New("this commissioner action is stale; reload and review the current state")
@@ -148,6 +156,31 @@ func draftPreviousPickToken(state PersistedState) string {
 		strconv.FormatBool(state.ClockPaused),
 		strconv.Itoa(state.ClockRemainingSec),
 		strconv.Itoa(state.ClockDurationSec),
+	}, "\x01")
+	digest := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(digest[:])
+}
+
+// waiverRunToken binds AdminRunWaivers' confirmation screen to the exact
+// open-claim set and processing watermark it displayed (2026-08-30
+// review, finding 10, matching draftCurrentPickToken's staleness
+// pattern): a run already completed, or a claim filed/canceled, since the
+// screen rendered changes this token, so a stale double-submit is
+// rejected — errAdminActionStale — rather than silently re-running.
+func waiverRunToken(state PersistedState) string {
+	ids := make([]string, 0, len(state.WaiverClaims))
+	for _, c := range state.WaiverClaims {
+		ids = append(ids, c.ID)
+	}
+	sort.Strings(ids)
+	processedThrough := ""
+	if !state.WaiversProcessedThrough.IsZero() {
+		processedThrough = state.WaiversProcessedThrough.UTC().Format("2006-01-02T15:04:05.999999999Z07:00")
+	}
+	payload := strings.Join([]string{
+		"waiver-run-v1",
+		processedThrough,
+		strings.Join(ids, "\x00"),
 	}, "\x01")
 	digest := sha256.Sum256([]byte(payload))
 	return hex.EncodeToString(digest[:])

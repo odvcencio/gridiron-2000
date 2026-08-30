@@ -24,6 +24,15 @@ type ScheduleWeek struct {
 	Week      int             `json:"week"`
 	Matchups  []LeagueMatchup `json:"matchups"`
 	ByeTeamID string          `json:"byeTeamId,omitempty"`
+	// ClosedAt is the wall-clock instant season.go's closeWeek actually
+	// scored and finalized this week (2026-08-30 review round 2, finding
+	// 2): the true settlement instant, not merely the last game's kickoff.
+	// closeWeek stamps it once, from its own clock, the moment it commits
+	// this week as final; it never changes after that. Zero on a week
+	// that has not closed yet, and on a row written before this field
+	// existed — waiverPenaltyBoundary treats a zero ClosedAt as a legacy
+	// row and falls back to the last-kickoff estimate for it.
+	ClosedAt time.Time `json:"closedAt"`
 }
 
 // SeasonSchedule is the persisted regular-season plan plus results.

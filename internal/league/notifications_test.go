@@ -927,3 +927,29 @@ func TestPickemReminderExplicitOptInWithoutPriorPicks(t *testing.T) {
 		t.Fatalf("queue depth for an explicit opt-in with no pick history = %d, want 1", got)
 	}
 }
+
+// TestBuildWaiverResultNeverDisclosesWinningBidToBeatenTeam pins F8: a
+// beaten team's N14 notification says only that it was outbid, never the
+// amount that beat it (app/help/content.go's documented "never expose
+// another team's private bid"). The beaten team's own bid still appears.
+func TestBuildWaiverResultNeverDisclosesWinningBidToBeatenTeam(t *testing.T) {
+	now := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
+	svc, _ := newNotifyTestService(t, now.Add(-24*time.Hour), now)
+	svc.cfg.Waivers.Mode = "faab"
+	state := PersistedState{}
+	result := WaiverResult{
+		Claim:         WaiverClaim{ID: "clm-1", TeamID: "team-2", AddID: "wv-1", Bid: 9},
+		Outcome:       "beaten",
+		WinningTeamID: "team-7",
+		WinningBid:    47,
+		Week:          1,
+	}
+	member := Member{Email: "beaten@example.com", TeamID: "team-2"}
+	rn := svc.buildWaiverResult(state, result, member, now)
+	if strings.Contains(rn.Subject, "47 FAAB") || strings.Contains(rn.Text, "47 FAAB") || strings.Contains(rn.HTML, "47 FAAB") {
+		t.Fatalf("beaten notification discloses the winning bid: subject=%q text=%q", rn.Subject, rn.Text)
+	}
+	if !strings.Contains(rn.Text, "9 FAAB") {
+		t.Fatalf("beaten notification must still show the team's own bid: %q", rn.Text)
+	}
+}
