@@ -15,9 +15,10 @@ func TestDraftShellStylesheetSection(t *testing.T) {
 	for _, want := range []string{
 		"/* Draft war room */", "body:has(.draft-shell) { overflow: hidden", "body:has(.draft-shell) .site-rail { width: 4rem",
 		".draft-shell {", "height: 100dvh", ".draft-command {", ".draft-command__clock {", "@keyframes clock-pulse",
-		".draft-panes {", "grid-template-columns: 300px minmax(0, 1fr) 320px", ".draft-pane__body {", "overflow-y: auto",
+		".draft-panes {", "grid-template-columns: 360px minmax(0, 1fr) 300px", ".draft-pane__body {", "overflow-y: auto",
 		".draft-shell:has(#tab-picks:checked) .draft-pane--history", ".draft-tabbar__tab {", ".draft-drawer {",
-		".pos-QB {", ".pos-RB {", ".pos-WR {", ".pos-TE {", ".pos-K {", ".pos-DST {", ".avail-row.is-taken", ".q-row.is-taken",
+		".pos-QB {", ".pos-RB {", ".pos-WR {", ".pos-TE {", ".pos-K {", ".pos-DST {",
+		`.avail-row[data-taken="true"]`, `.q-row[data-taken="true"]`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("stylesheet missing %q", want)

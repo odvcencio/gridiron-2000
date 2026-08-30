@@ -125,6 +125,12 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 			t.Errorf("pre-draft shell missing %q", want)
 		}
 	}
+	// V1: the seat controls (ready check-in, autopick toggle) render inside
+	// pane 3's Room tab container (draft-pane--mine, itself inside
+	// draft-panes), never as a block between the command bar and the panes.
+	if panesAt, mineAt, readyAt := strings.Index(pre, `class="draft-panes"`), strings.Index(pre, `draft-pane--mine`), strings.Index(pre, `id="ready-toggle"`); panesAt < 0 || mineAt < 0 || readyAt < 0 || readyAt < panesAt || readyAt < mineAt {
+		t.Errorf("pre-draft shell: ready-toggle (%d) must render inside the Room tab (draft-panes at %d, draft-pane--mine at %d)", readyAt, panesAt, mineAt)
+	}
 	postDraftAction(t, handler, shellCommissioner, "draft-start", url.Values{"confirm": {"START"}})
 	live := renderDraftForUser(t, handler, seated)
 	check("live", live)

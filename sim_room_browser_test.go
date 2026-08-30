@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -64,11 +63,14 @@ func TestBrowserDraftRoomNeverScrollsAtPhoneWidth(t *testing.T) {
 	}
 }
 
-// touchTargetProbeScript counts visible interactive controls inside the
+// touchTargetProbeScript lists the visible interactive controls inside the
 // draft shell whose rendered box falls under the 44px (2.75rem) touch
 // baseline in either dimension. It reads getBoundingClientRect, so it
 // catches a control the mobile touch-baseline CSS rule missed by
-// selector, not just one that omitted the property.
+// selector, not just one that omitted the property. Each offender is
+// reported as "tag#id" or "tag.firstClass" (whichever identifies it),
+// joined by "|", so the Go test (below) can name-check the result against
+// a pinned allowlist instead of only counting it.
 const touchTargetProbeScript = `(function(){
 	var controls = document.querySelectorAll(
 		'#main-content button, ' +
@@ -78,24 +80,33 @@ const touchTargetProbeScript = `(function(){
 		'#main-content label.draft-tabbar__tab, ' +
 		'#main-content .chip'
 	);
-	var short = 0;
+	var short = [];
 	controls.forEach(function(el) {
 		var rect = el.getBoundingClientRect();
 		if (rect.width === 0 && rect.height === 0) {
 			return; // not rendered: e.g. a control inside a tab pane that is not the checked one
 		}
 		if (rect.width < 44 || rect.height < 44) {
-			short++;
+			var tag = el.tagName.toLowerCase();
+			var name = el.id ? (tag + '#' + el.id) : (el.className ? (tag + '.' + String(el.className).split(' ')[0]) : tag);
+			short.push(name);
 		}
 	});
-	return String(short);
+	return short.join('|');
 })()`
 
+// touchTargetAllowlist is every selector touchTargetProbeScript is known to
+// still report short at 390px (checked against the live rehearsal draft
+// this test runs): legitimate follow-up polish, not evidence the
+// touch-baseline CSS block regressed. Anything NOT on this list fails the
+// test, so a new short control cannot land silently.
+var touchTargetAllowlist = map[string]bool{
+	"span.board-row__handle": true, // the queue row's compact reorder handle, inside a table-like grid
+}
+
 // TestBrowserDraftRoomTouchTargetsAtPhoneWidth is the D5 44px touch-target
-// probe at 390px. It tolerates a handful of misses (a slack of 4) rather
-// than demanding zero: some controls (for example a queue row's compact
-// reorder handle inside a table-like grid) are legitimate targets of
-// follow-up polish, not evidence the touch-baseline CSS block regressed.
+// probe at 390px (S7, Task 5a review): every offending control's selector
+// must be on the pinned allowlist above, not just under some numeric slack.
 func TestBrowserDraftRoomTouchTargetsAtPhoneWidth(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -108,11 +119,17 @@ func TestBrowserDraftRoomTouchTargetsAtPhoneWidth(t *testing.T) {
 	if err := chromedp.Run(ctx, chromedp.Evaluate(touchTargetProbeScript, &raw)); err != nil {
 		t.Fatalf("run the touch-target probe: %v", err)
 	}
-	short, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		t.Fatalf("parse touch-target probe result %q: %v", raw, err)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return
 	}
-	if short > 4 {
-		t.Errorf("%d visible draft-room controls render under the 44px touch baseline at 390px (want <= 4)", short)
+	var unexpected []string
+	for _, name := range strings.Split(raw, "|") {
+		if !touchTargetAllowlist[name] {
+			unexpected = append(unexpected, name)
+		}
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("draft-room controls render under the 44px touch baseline at 390px and are not on the allowlist: %s", strings.Join(unexpected, ", "))
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"gridiron-2000/internal/league"
@@ -18,6 +19,13 @@ const (
 	draftTapeRegion      = "tape"
 	draftAvailableRegion = "available"
 	draftQueueRegion     = "queue"
+
+	// draftTapeSinceKey is the tape pane's own "?since=" cursor: a
+	// non-negative pick number below which the pane's rows are already on
+	// screen. It shares its string with live.go's draftLiveSinceKey by
+	// coincidence only (that one is the hub reconnect's fingerprint cursor,
+	// on a different endpoint); the two never appear on the same request.
+	draftTapeSinceKey = "since"
 )
 
 // RoomFragmentHandler returns the authoritative room chrome without the
@@ -94,6 +102,7 @@ func draftFragmentHandler(
 		}
 
 		prepared := prepareDraftData(load(request))
+		prepared = attachDraftFragmentSince(prepared, request)
 		view, component, err := draftRegionView(prepared, region)
 		if err != nil {
 			http.Error(writer, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -158,6 +167,9 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 		if !ok {
 			return nil, "", errInvalidDraftRegion
 		}
+		if view.Since >= 0 {
+			return view, "DraftTapeRows", nil
+		}
 		return view, "DraftHistory", nil
 	case draftAvailableRegion:
 		view, ok := data["available"].(draftAvailableView)
@@ -174,6 +186,32 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 	default:
 		return nil, "", errInvalidDraftRegion
 	}
+}
+
+// attachDraftFragmentSince copies a valid "?since=" into the tape pane's
+// history view. A non-negative integer switches draftRegionView's tape case
+// from the full DraftHistory render to DraftTapeRows — the rows newer than
+// since alone, each preceded by its round header once. A missing,
+// negative, or non-numeric "?since=" leaves Since at prepareDraftData's -1
+// default, so every other fragment (and a plain GET /draft/fragment/tape)
+// keeps rendering the full pane untouched.
+func attachDraftFragmentSince(data map[string]any, request *http.Request) map[string]any {
+	raw := strings.TrimSpace(request.URL.Query().Get(draftTapeSinceKey))
+	if raw == "" {
+		return data
+	}
+	since, err := strconv.Atoi(raw)
+	if err != nil || since < 0 {
+		return data
+	}
+	history, ok := data["history"].(draftHistoryView)
+	if !ok {
+		return data
+	}
+	history.Since = since
+	history.Rows = draftTapeRowsSince(history.Data, since)
+	data["history"] = history
+	return data
 }
 
 var errInvalidDraftRegion = &draftRegionError{}
@@ -201,15 +239,14 @@ func draftRegionETag(region string, view any) (string, error) {
 
 // semanticDraftRegionView excludes clock text derived only from wall time.
 // The browser countdown owns those seconds between authoritative state
-// changes; excluding them lets unchanged polls return a bodyless 304.
+// changes; excluding them lets unchanged polls return a bodyless 304. Every
+// draft region view shares this same treatment: room, workspace, and
+// Task 6's four shell panes (command, tape/history, available, queue) all
+// wrap the identical viewData map (prepareDraftData, page.server.go), so
+// draftRegionData below extracts .Data by type switch alone.
 func semanticDraftRegionView(view any) any {
-	var data map[string]any
-	switch typed := view.(type) {
-	case draftRoomView:
-		data = typed.Data
-	case draftWorkspaceView:
-		data = typed.Data
-	default:
+	data, ok := draftRegionData(view)
+	if !ok {
 		return view
 	}
 	copyData := make(map[string]any, len(data))
@@ -235,6 +272,28 @@ func semanticDraftRegionView(view any) any {
 		copyData["draft"] = stable
 	}
 	return copyData
+}
+
+// draftRegionData extracts the shared viewData map from any of the six
+// draft region view types. It returns (nil, false) for anything else, so
+// semanticDraftRegionView's caller falls back to hashing the view as-is.
+func draftRegionData(view any) (map[string]any, bool) {
+	switch typed := view.(type) {
+	case draftRoomView:
+		return typed.Data, true
+	case draftWorkspaceView:
+		return typed.Data, true
+	case draftCommandView:
+		return typed.Data, true
+	case draftHistoryView:
+		return typed.Data, true
+	case draftAvailableView:
+		return typed.Data, true
+	case draftQueueView:
+		return typed.Data, true
+	default:
+		return nil, false
+	}
 }
 
 func etagMatches(header, current string) bool {

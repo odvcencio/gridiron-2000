@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -201,30 +202,39 @@ type draftCommandView struct {
 // draftHistoryView backs the pick-tape pane. Task 7 adds the typed
 // pick/board/team fields the tabs need; for now DraftHistory reads Data
 // directly, the same untyped pattern draftRoomView's tape used before.
+// Since is the "?since=" tape cursor (draftTapeSinceKey, fragment.go): -1
+// means "unset", the pane's full DraftHistory render; a non-negative value
+// switches draftRegionView to DraftTapeRows and Rows carries its rows.
 type draftHistoryView struct {
 	Data  map[string]any
 	Since int
+	Rows  []map[string]any
 }
 
 // draftAvailableView backs the available-players pane: the pool list plus
 // the make-pick and queue-add actions every eligible row's buttons post to.
+// Actions also backs DraftPickBar's mobile ready/autopick prompt (V1): the
+// pick bar and the available pane already share this one view.
 type draftAvailableView struct {
 	Data           map[string]any
 	Players        []draftPlayerCardView
 	CSRF           string
 	MakePickAction string
 	QueueAddAction string
+	Actions        map[string]string
 }
 
 // draftQueueView backs the "my team" pane: the viewer's full personal
 // queue (including already-taken entries, Task 5a's DraftMyTeam), the
-// roster-needs tally, and the queue-remove action a taken row's Clear
-// button posts to.
+// roster-needs tally, the queue-remove action a taken row's Clear button
+// posts to, and (V1) the Room segment's own ready/autopick controls, which
+// moved here off the command bar.
 type draftQueueView struct {
 	Data              map[string]any
 	Queue             []draftPlayerCardView
 	CSRF              string
 	QueueRemoveAction string
+	Actions           map[string]string
 }
 
 func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
@@ -274,6 +284,47 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 		})
 	}
 	return out
+}
+
+// draftTapeRowsSince builds the tape pane's "?since=" partial: every pick
+// numbered above since, newest first, each preceded by one round-header
+// row the first time that round appears in the (descending) sequence. It
+// copies pickMaps' own shape (service.go) plus is_round/tape_key, so
+// DraftTapeRows reads a pick row exactly the way DraftHistory's full
+// render already does (pick.player.name, pick.team.abbreviation, ...).
+func draftTapeRowsSince(data map[string]any, since int) []map[string]any {
+	picksRaw, _ := data["picks"].([]map[string]any)
+	type tapeEntry struct {
+		number int
+		pick   map[string]any
+	}
+	entries := make([]tapeEntry, 0, len(picksRaw))
+	for _, pick := range picksRaw {
+		if number := intField(pick, "number"); number > since {
+			entries = append(entries, tapeEntry{number: number, pick: pick})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].number > entries[j].number })
+	rows := make([]map[string]any, 0, len(entries)*2)
+	lastRound := -1
+	for _, entry := range entries {
+		round := intField(entry.pick, "round")
+		if round != lastRound {
+			rows = append(rows, map[string]any{
+				"is_round": true, "round": round,
+				"tape_key": "round-" + strconv.Itoa(round),
+			})
+			lastRound = round
+		}
+		row := make(map[string]any, len(entry.pick)+2)
+		for key, value := range entry.pick {
+			row[key] = value
+		}
+		row["is_round"] = false
+		row["tape_key"] = "pick-" + strconv.Itoa(entry.number)
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // draftTeamProps converts DraftData's map[string]any "teams" slice into
@@ -334,6 +385,13 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 	return out
 }
 
+// prepareDraftData never writes back into its data parameter: every
+// derived field lands on viewData or output, two maps built fresh on each
+// call. A caller that hands the same map to two requests in a row (the
+// service always builds a fresh one per request, but a repeated-fixture
+// test — TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline —
+// deliberately does not) must keep reading the same raw teams/available/
+// queue lists on the second call, not the first call's typed leftovers.
 func prepareDraftData(data map[string]any) map[string]any {
 	teams, _ := data["teams"].([]map[string]any)
 	players, _ := data["available"].([]map[string]any)
@@ -341,16 +399,28 @@ func prepareDraftData(data map[string]any) map[string]any {
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
 	typedQueue := draftPlayerProps(queueRaw)
-	data["teams"] = typedTeams
-	data["seat_controls"] = draftSeatControlProps(teams)
 
-	viewData := make(map[string]any, len(data)+1)
+	// viewData is the one map every view's Data field shares (room,
+	// workspace, command, history, available, queue below). It must never
+	// itself gain one of those keys: draftRegionETag's json.Marshal of
+	// semanticDraftRegionView's copy would otherwise walk a cycle back
+	// through that key's own nested .Data. output, built after it, is the
+	// top-level map prepareDraftData actually returns; nothing ETags
+	// output itself, so it is free to carry them.
+	viewData := make(map[string]any, len(data)+4)
 	for key, value := range data {
 		viewData[key] = value
 	}
-	workspaceURL := draftWorkspaceFragmentURL(data)
-	viewData["workspace_fragment_url"] = workspaceURL
-	data["workspace_fragment_url"] = workspaceURL
+	viewData["teams"] = typedTeams
+	viewData["seat_controls"] = draftSeatControlProps(teams)
+	// has_adp gates the available pane's VS ADP header and cell (Task 6
+	// execution note 5): Task 7 flips this once playerMap carries a real
+	// adp/value_vs_adp pair, so the column stays hidden rather than showing
+	// an empty header over an empty cell in the meantime.
+	viewData["has_adp"] = false
+	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
+	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
+
 	actions := map[string]string{
 		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
 		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
@@ -360,28 +430,36 @@ func prepareDraftData(data map[string]any) map[string]any {
 	}
 	room := draftRoomView{Data: viewData, Actions: actions}
 	room.StatusSummary = draftRoomStatus(viewData)
-	data["room"] = room
-	data["workspace"] = draftWorkspaceView{
+
+	output := make(map[string]any, len(viewData)+8)
+	for key, value := range viewData {
+		output[key] = value
+	}
+	output["room"] = room
+	output["workspace"] = draftWorkspaceView{
 		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
 	}
 	// live_mode/shell_modifier drive the shell root's own attributes
 	// (data-draft-live-mode, the --final class variant); "fallback" is the
 	// only mode until Task 8 pins v0.53.10 and switches to target mode.
-	data["live_mode"] = "fallback"
-	data["shell_modifier"] = ""
+	output["live_mode"] = "fallback"
+	output["shell_modifier"] = ""
 	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
-		data["shell_modifier"] = " draft-shell--final"
+		output["shell_modifier"] = " draft-shell--final"
 	}
-	data["command"] = draftCommandView{Data: viewData, Actions: actions, StatusSummary: room.StatusSummary}
-	data["history"] = draftHistoryView{Data: viewData}
-	data["available"] = draftAvailableView{
+	output["command"] = draftCommandView{Data: viewData, Actions: actions, StatusSummary: room.StatusSummary}
+	// Since defaults to -1 ("unset"): draftRegionView (fragment.go) renders
+	// the full DraftHistory pane until attachDraftFragmentSince overwrites
+	// it with a "?since=" request's cursor and precomputed Rows.
+	output["history"] = draftHistoryView{Data: viewData, Since: -1}
+	output["available"] = draftAvailableView{
 		Data: viewData, Players: typedPlayers,
-		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"),
+		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,
 	}
-	data["queue"] = draftQueueView{
-		Data: viewData, Queue: typedQueue, QueueRemoveAction: draftActionPath("queue-remove"),
+	output["queue"] = draftQueueView{
+		Data: viewData, Queue: typedQueue, QueueRemoveAction: draftActionPath("queue-remove"), Actions: actions,
 	}
-	return data
+	return output
 }
 
 func draftWorkspaceFragmentURL(data map[string]any) string {
@@ -592,13 +670,15 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", fmt.Sprintf("%s added to your queue.", player.Name))
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				return draftActionSuccess(ctx, target, fmt.Sprintf("%s added to your queue.", player.Name))
 			},
 			"queue-remove": func(ctx *action.Context) error {
 				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
-				return draftActionSuccess(ctx, "/draft", "Removed from your queue.")
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				return draftActionSuccess(ctx, target, "Removed from your queue.")
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])

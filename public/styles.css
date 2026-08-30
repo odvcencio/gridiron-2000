@@ -8525,9 +8525,17 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   background: var(--color-panel-glass);
 }
 
+/* The clock and room columns cannot be plain "auto" tracks: CSS Grid sizes
+   an auto track to its item's unwrapped max-content width, and the
+   scheduled-window countdown (days, still years out for a far-future
+   DraftAt) or the room summary's five-part line can both demand far more
+   than their fair share, starving the flexible turn column down to 0 and
+   overlapping the on-clock badge under the clock. minmax(0, ...) makes
+   both share the row's leftover space instead, wrapping their own
+   content when it does not fit rather than resizing the whole grid. */
 .draft-command__inner {
   display: grid;
-  grid-template-columns: 11.875rem minmax(0, 1fr) auto;
+  grid-template-columns: 11.875rem minmax(0, 1fr) minmax(0, 16rem) minmax(0, 1fr);
   align-items: center;
   gap: var(--space-md);
   padding: 0 var(--space-md);
@@ -8606,15 +8614,20 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   min-width: 2.75rem;
 }
 
+/* V2: the offline-pool notice (and the paused/rehearsal banners sharing
+   this element, service.go's banner priority chain) is one compact mono
+   line, muted, full width, no card — never the paragraph-sized colored
+   block a bare .mono class left it as. */
 .draft-command__banner {
   grid-column: 1 / -1;
   margin: 0;
-  padding: var(--space-xs) var(--space-md);
-  color: var(--color-accent-hot);
-}
-
-.draft-command .manager-draft-control {
-  grid-column: 1 / -1;
+  padding: 0 var(--space-md) var(--space-xs);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* Panes: the tape/board/teams pane, the available-players pane, and the
@@ -8622,10 +8635,21 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    shell. */
 .draft-panes {
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  grid-template-columns: 360px minmax(0, 1fr) 300px;
   gap: var(--space-md);
   min-height: 0;
   padding: 0 var(--space-md) var(--space-md);
+}
+
+/* S5: the completed draft collapses the available-players pane (nothing
+   left to draft) and gives the tape/board/teams pane the reclaimed width
+   as the ledger's new home. */
+.draft-shell--final .draft-pane--available {
+  display: none;
+}
+
+.draft-shell--final .draft-panes {
+  grid-template-columns: minmax(0, 1fr) 320px;
 }
 
 .draft-pane {
@@ -8669,7 +8693,12 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 
 /* Rows and chips: the available-pool row, the personal-queue row, the
    position-color badge, and the roster-need pill. */
-.chip {
+/* S9: chip/pos/need/idx/muted/display/num/btn are common enough words that
+   an unscoped .chip or .num would claim the global class namespace for
+   every other page. Every rule in this shell-utility block below is
+   scoped under .draft-shell, the page's own root, matching the pattern
+   the .site-frame .chip touch-target rule already set (:8391-8398). */
+.draft-shell .chip {
   display: inline-grid;
   place-items: center;
   min-width: 2.5rem;
@@ -8681,13 +8710,13 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   font-size: var(--type-xs);
 }
 
-.chip[aria-pressed="true"] {
+.draft-shell .chip[aria-pressed="true"] {
   color: var(--color-ink-on-accent);
   background: var(--color-accent-cyan);
   border-color: var(--color-accent-cyan);
 }
 
-.pos {
+.draft-shell .pos {
   display: inline-grid;
   place-items: center;
   min-width: 2.5rem;
@@ -8698,27 +8727,27 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   font-size: var(--type-xs);
 }
 
-.pos-QB {
+.draft-shell .pos-QB {
   color: var(--color-violet);
 }
 
-.pos-RB {
+.draft-shell .pos-RB {
   color: var(--color-orange);
 }
 
-.pos-WR {
+.draft-shell .pos-WR {
   color: var(--color-accent-cyan);
 }
 
-.pos-TE {
+.draft-shell .pos-TE {
   color: var(--color-gold);
 }
 
-.pos-K {
+.draft-shell .pos-K {
   color: var(--color-blue);
 }
 
-.pos-DST {
+.draft-shell .pos-DST {
   color: var(--color-accent-hot);
 }
 
@@ -8738,7 +8767,19 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   border-top: none;
 }
 
-.avail-row.is-taken {
+/* avail-row__actions (S2): the queue-add and make-pick forms share one
+   grid cell (the row's sixth and last track) instead of each claiming its
+   own, so a seated row still renders exactly six grid children and lines
+   up with the unseated/head row's six labels. */
+.avail-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* S4: the markup carries data-taken (page.gsx), never a class — these
+   attribute selectors replace the never-emitted .is-taken/.is-taken. */
+.avail-row[data-taken="true"] {
   opacity: .45;
   text-decoration: line-through;
 }
@@ -8751,11 +8792,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   min-height: 3.5rem;
 }
 
-.q-row.is-taken strong {
+.q-row[data-taken="true"] strong {
   text-decoration: line-through;
 }
 
-.need {
+.draft-shell .need {
   display: inline-flex;
   gap: .375rem;
   padding: .375rem .5rem;
@@ -8765,7 +8806,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   font-size: var(--type-xs);
 }
 
-.need--open {
+.draft-shell .need--open {
   color: var(--color-accent-hot);
   border-color: var(--color-accent-hot);
 }
@@ -8774,7 +8815,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    a muted mono label (.idx), a hot variant for "you are on the clock",
    a display-face team name, a de-emphasized aside, and a tabular-numeral
    column. */
-.idx {
+.draft-shell .idx {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
@@ -8782,21 +8823,21 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   text-transform: uppercase;
 }
 
-.idx--hot {
+.draft-shell .idx--hot {
   color: var(--color-accent-hot);
 }
 
-.muted {
+.draft-shell .muted {
   color: var(--color-text-muted);
 }
 
-.display {
+.draft-shell .display {
   font-family: var(--font-display);
   font-size: var(--type-md);
   letter-spacing: -0.02em;
 }
 
-.num {
+.draft-shell .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
@@ -8841,7 +8882,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    command bar's Sound/Commissioner/Rail buttons, and the drawer's close
    button share. Every .btn is still a plain <button>, so the touch
    baseline block above widens it on a phone without a bespoke rule. */
-.btn {
+.draft-shell .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -8861,32 +8902,32 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   cursor: pointer;
 }
 
-.btn:hover {
+.draft-shell .btn:hover {
   border-color: var(--color-text-secondary);
   background: var(--color-white-soft);
 }
 
-.btn-sm {
+.draft-shell .btn-sm {
   min-height: 2.25rem;
   padding: 0.3rem var(--space-xs);
 }
 
-.btn-primary {
+.draft-shell .btn-primary {
   border-color: var(--color-accent);
   color: var(--color-ink-on-accent);
   background: var(--color-accent);
 }
 
-.btn-primary:hover {
+.draft-shell .btn-primary:hover {
   border-color: var(--color-accent-cyan);
   background: var(--color-accent-cyan);
 }
 
-.btn-ghost {
+.draft-shell .btn-ghost {
   background: transparent;
 }
 
-.btn:disabled {
+.draft-shell .btn:disabled {
   color: var(--color-text-muted);
   background: var(--color-white-faint);
   cursor: not-allowed;
@@ -9013,28 +9054,71 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     order: 2;
   }
 
-  /* The desktop command bar's three-column grid (pick / turn+clock /
-     room stats) has no room to breathe at phone widths: the room
-     column alone carries a live dot, three ready/here/auto counts, and
-     the sound and commissioner buttons. Stack the three groups instead
-     of forcing them to share one row, and drop the rail toggle — the
-     site rail itself is already display: none below this breakpoint
-     (see the rule at :662), so the toggle has nothing left to open. */
+  /* V5: row 1 is the pick label (left) and the clock (right); row 2 is
+     the on-clock team (badge + name + "Next: ..."); row 3 is the room
+     summary + sound toggle. .draft-command__pick, __turn, __clock, and
+     __room are direct children of __inner in DOM order pick/turn/clock/
+     room (not pick/clock/turn/room), so each needs an explicit
+     grid-column/grid-row below rather than relying on auto-placement,
+     which would otherwise pair pick with turn (both first in document
+     order) instead of pick with clock. turn and room each keep their own
+     full-width row rather than sharing row 2 half-and-half: splitting
+     390px in half left even less room for "8/8 here · 8/8 ready" than
+     today, undercutting this rider's other requirement that it fit
+     un-truncated. Ready/autopick and the seat controls left the command
+     bar for pane 3's Room tab and the mobile pick bar (V1); nothing else
+     stacks here. */
   .draft-command {
     min-height: 0;
   }
 
+  /* The clock column cannot be plain "auto": the pre-draft scheduled-
+     window countdown can read many digits wide (a far-future DraftAt) and
+     an auto track sizes to that unwrapped max-content width, squeezing
+     the pick label into (or under) it — the same failure mode the
+     desktop grid's own comment above documents. */
   .draft-command__inner {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--space-xs);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 11rem);
+    align-items: center;
+    gap: var(--space-xs) var(--space-sm);
     padding: var(--space-sm);
   }
 
+  .draft-command__pick {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .draft-command__clock {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .draft-command__clock .pick-clock {
+    font-size: var(--type-lg);
+  }
+
+  .draft-command__turn {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  /* S3: at this width .draft-command__inner is a grid (above), not a
+     flex row, so the room summary's own track only needs to stop
+     right-aligning against a now-absent sibling column. */
   .draft-command__room {
+    grid-column: 1 / -1;
+    grid-row: 3;
     flex-wrap: nowrap;
-    justify-content: space-between;
+    justify-content: flex-start;
+  }
+
+  .draft-command__room > span.idx {
+    display: none;
   }
 
   .draft-command__room > span.mono {
@@ -9049,32 +9133,17 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     flex: 0 0 auto;
   }
 
+  /* "N auto" and "your pick in N" both drop at phone width so "8/8 here ·
+     8/8 ready" always fits on the one line V5 asks for; the pick bar
+     (.draft-pickbar, below) already carries the on-clock/ready/autopick
+     prompt this room line would otherwise compete with. */
+  .draft-command__auto,
+  .draft-command__yourpick {
+    display: none;
+  }
+
   .draft-command__rail {
     display: none;
-  }
-
-  /* The seated manager's ready/autopick status rows are a full desktop
-     panel (label, explanatory sentence, full-width button) — reasonable
-     beside a three-pane desktop command bar, but at phone width they
-     alone can crowd every pane below the fold. Collapse each to one
-     compact row; the explanatory sentence stays in the DOM (still read
-     by assistive tech) but drops out of the visual layout here, since
-     the same guidance is repeated in the pre-draft checklist pane. */
-  .draft-command .manager-draft-control {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-sm);
-    padding: var(--space-xs) var(--space-sm);
-  }
-
-  .draft-command .manager-draft-control > small {
-    display: none;
-  }
-
-  .draft-command .manager-draft-control form,
-  .draft-command .manager-draft-control .button {
-    width: auto;
   }
 
   .draft-panes {
@@ -9095,6 +9164,15 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   .draft-shell:has(#tab-picks:checked) .draft-pane--history,
   .draft-shell:has(#tab-teams:checked) .draft-pane--history {
     display: flex;
+  }
+
+  /* S5 at phone width: the completed draft's available pane stays hidden
+     even on the Players tab (nothing left to draft); the #tab-players
+     :has() rule above carries an ID inside :has(), giving it more
+     specificity than a plain .draft-shell--final override would, so this
+     selector repeats that same ID to win the cascade honestly. */
+  .draft-shell--final:has(#tab-players:checked) .draft-pane--available {
+    display: none;
   }
 
   .draft-tabbar {
@@ -9126,7 +9204,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     color: var(--color-accent);
   }
 
-  .draft-shell[data-can-pick="true"] .draft-pickbar {
+  /* V1: the pick bar itself decides what to show (a Draft prompt on the
+     clock, otherwise the ready/autopick prompt) — its visibility here no
+     longer depends on data-can-pick, which never covered the ready/
+     autopick states this bar now also carries. */
+  .draft-pickbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -9136,8 +9218,17 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     background: var(--color-surface);
   }
 
+  /* S10: seven position chips wrapping to a third row would push the
+     search field and the pool itself further down a phone's first
+     screen; one scrollable row keeps them reachable without growing the
+     head. */
+  .draft-available-head__chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
   /* The available-pool row carries six grid children (rank, name, pos,
-     proj, vs-adp, action) at desktop width. A phone keeps only the four
+     proj, vs-adp, actions) at desktop width. A phone keeps only the four
      that fit without crowding the action buttons under the touch
      baseline: rank and vs-adp drop, matching the row header below. */
   .avail-row {
@@ -9149,13 +9240,16 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     display: none;
   }
 
-  .avail-row form {
-    display: flex;
+  .avail-row__actions {
     flex-direction: column;
     gap: 2px;
   }
 
-  .avail-row form button {
+  .avail-row__actions form {
+    display: flex;
+  }
+
+  .avail-row__actions form button {
     width: 100%;
   }
 }

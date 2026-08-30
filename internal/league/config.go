@@ -868,9 +868,14 @@ func applyActiveConfig(cfg Config) {
 	// singleton's completion latch so a pick that re-completes it under the
 	// new count emits draft:state. defaultSvc is nil on the very first,
 	// boot-time call (Default() has not constructed it yet), which this
-	// guards against.
-	if defaultSvc != nil {
-		defaultSvc.draftCompleteEmitted.Store(false)
+	// guards against. currentDefaultService (service.go) reads defaultSvc
+	// under defaultMu rather than directly: this function is itself a
+	// direct call site (from inside Default()'s own sync.Once and from
+	// every test that calls applyActiveConfig without ever calling
+	// Default()), so a plain package-var read here is not ordered against
+	// Default()'s own assignment for a caller that skips Default().
+	if svc := currentDefaultService(); svc != nil {
+		svc.draftCompleteEmitted.Store(false)
 	}
 	DefaultDraftAt = cfg.DraftAt.Format(time.RFC3339)
 	DefaultDraftTZ = cfg.Timezone

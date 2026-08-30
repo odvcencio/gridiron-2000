@@ -223,8 +223,23 @@ func (s *Service) clock() time.Time {
 
 var (
 	defaultOnce sync.Once
-	defaultSvc  *Service
+	// defaultMu guards defaultSvc's assignment below against any read that
+	// does not go through Default() itself — sync.Once only orders callers
+	// of Do, and applyActiveConfig (config.go) reads defaultSvc directly
+	// (also from every test that calls applyActiveConfig without ever
+	// calling Default()). currentDefaultService is the one sanctioned
+	// direct read.
+	defaultMu  sync.Mutex
+	defaultSvc *Service
 )
+
+// currentDefaultService safely reads defaultSvc outside Default()'s own
+// sync.Once-ordered goroutine — see defaultMu's doc comment above.
+func currentDefaultService() *Service {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	return defaultSvc
+}
 
 // Default builds (once) the process-wide Service, loading league.json (or
 // the neutral built-in default when none is found) through LoadConfig —
@@ -279,6 +294,7 @@ func Default() *Service {
 			// zero state and later overwrites a good database.
 			log.Fatalf("league persistence startup failed: %v", err)
 		}
+		defaultMu.Lock()
 		defaultSvc = &Service{
 			store:             store,
 			identityResolver:  resolver,
@@ -295,6 +311,7 @@ func Default() *Service {
 			defaultBadgeRoot:  avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
 			motifRoot:         avatarEnvString("AVATAR_MOTIFS_ROOT", filepath.Join("public", "avatars", "motifs")),
 		}
+		defaultMu.Unlock()
 		// scheduleProvider reads the persisted league schedule once one has
 		// been generated; until then it defers to the honest preseason
 		// snapshot (feed.go). This replaces the always-empty demoProvider
@@ -2450,7 +2467,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	displayPickNumber := nextNumber
 	round := pickRound(activeTeamCount(state.DraftOrder), nextNumber)
 	onClockID := ""
-	onClockMap := map[string]any{"abbreviation": ""}
+	onClockMap := blankTeamMap()
 	if !complete {
 		onClockID = teamOnClock(state.DraftOrder, nextNumber)
 		onClockMap = s.teamMap(s.teamView(state, onClockID))
@@ -2549,12 +2566,11 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		}
 	}
 	picksTotal := draftTeamCount() * CurrentDraftRounds()
-	blankTeamMap := map[string]any{"abbreviation": ""}
-	nextTeamMap := blankTeamMap
+	nextTeamMap := blankTeamMap()
 	if nextNumber+1 <= picksTotal {
 		nextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+1)))
 	}
-	afterNextTeamMap := blankTeamMap
+	afterNextTeamMap := blankTeamMap()
 	if nextNumber+2 <= picksTotal {
 		afterNextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+2)))
 	}
@@ -3828,6 +3844,21 @@ func (s *Service) teamView(state PersistedState, id string) Team {
 		}
 	}
 	return s.Teams()[0]
+}
+
+// blankTeamMap carries the same keys as teamMap, every one at its zero
+// value: the command bar's on-clock badge and its next/after-next labels
+// (next_team.name, after_next_team.name) read straight off whichever of
+// the two a request gets, with no separate has-a-team branch in the
+// template, so a missing key here (rather than an empty match) would read
+// back as a template error instead of the intended blank/neutral display.
+func blankTeamMap() map[string]any {
+	return map[string]any{
+		"id": "", "name": "", "abbreviation": "", "division": "",
+		"manager": "", "claimed": false, "record": "", "points_for": "",
+		"rank": "", "rank_number": 0, "streak": 0, "tone": "",
+		"has_avatar": false, "has_avatar_image": false, "avatar_image_url": "",
+	}
 }
 
 func (s *Service) teamMap(team Team) map[string]any {
