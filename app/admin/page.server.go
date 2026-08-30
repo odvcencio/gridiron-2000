@@ -362,23 +362,39 @@ func init() {
 				}
 				// deferred is not a resolution (F6 follow-up): the claim
 				// stays open, so it is counted and named separately from a
-				// won/beaten/failed/expired outcome.
-				resolved, deferred := 0, 0
+				// won/beaten/failed outcome. expired is not a resolution
+				// either (2026-08-30 review round 2, finding 7): it is an
+				// automatic timeout with no manager decision behind it, so
+				// counting it into "resolved" misreported an auto-expiry as
+				// something the run itself settled. It gets its own count
+				// and its own clause.
+				resolved, deferred, expired := 0, 0, 0
 				for _, result := range results {
-					if result.Outcome == "deferred" {
+					switch result.Outcome {
+					case "deferred":
 						deferred++
-						continue
+					case "expired":
+						expired++
+					default:
+						resolved++
 					}
-					resolved++
 				}
 				notice := "Waiver run found no due claims."
 				switch {
+				case resolved > 0 && deferred > 0 && expired > 0:
+					notice = fmt.Sprintf("Waiver run resolved %d claim%s, deferred %d, and expired %d.", resolved, plural(resolved), deferred, expired)
 				case resolved > 0 && deferred > 0:
 					notice = fmt.Sprintf("Waiver run resolved %d claim%s and deferred %d.", resolved, plural(resolved), deferred)
+				case resolved > 0 && expired > 0:
+					notice = fmt.Sprintf("Waiver run resolved %d claim%s and expired %d.", resolved, plural(resolved), expired)
+				case deferred > 0 && expired > 0:
+					notice = fmt.Sprintf("Waiver run deferred %d claim%s and expired %d; none resolved.", deferred, plural(deferred), expired)
 				case resolved > 0:
 					notice = fmt.Sprintf("Waiver run resolved %d claim%s.", resolved, plural(resolved))
 				case deferred > 0:
 					notice = fmt.Sprintf("Waiver run deferred %d claim%s; none resolved.", deferred, plural(deferred))
+				case expired > 0:
+					notice = fmt.Sprintf("Waiver run expired %d claim%s; none resolved.", expired, plural(expired))
 				}
 				actionui.RedirectWithNotice(ctx, "/admin", notice)
 				return nil

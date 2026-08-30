@@ -712,6 +712,12 @@ func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 		`name="waiver_run_token"`,
 		`action="/__actions/run-waivers"`,
 		`RUN WAIVERS NOW`,
+		// 2026-08-30 review round 2, finding 8: has_open_claims gates the
+		// control. renderAdminPage always starts a fresh, claim-free
+		// league, so the disabled state and its explanatory line are what
+		// this default render must show.
+		`No claims are open right now`,
+		`No open claims to run`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("admin safety render missing %q", want)

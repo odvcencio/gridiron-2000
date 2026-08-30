@@ -3297,9 +3297,13 @@ func (s *Store) fileClaimWithAuthority(claim WaiverClaim, games []GameInfo, pool
 // ceiling — a manager filing this often is not a real workflow — that
 // still closes the cancel/refile spam probe the open-claim-count cap
 // (maxOpenClaimsPerTeam) cannot, because canceling always drops that
-// count back down.
+// count back down. 20 was reachable by legitimate use alone (2026-08-30
+// review round 2, finding 4): a full open-claim queue is roster-size-many
+// claims (commonly ~16), and one cancel-then-refile pass on top of that
+// already approaches 20 with no spam involved. 60 stays a firm anti-spam
+// bound while giving genuine legitimate use headroom underneath it.
 const (
-	waiverFilingRateLimit  = 20
+	waiverFilingRateLimit  = 60
 	waiverFilingRateWindow = time.Hour
 )
 
@@ -3458,6 +3462,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		// the first cycle at or after FiledAt.
 		if c.FiledAt.After(now) {
 			c.DeferredStreak = 0
+			c.FirstDeferredAt = time.Time{}
 			notYetDue = append(notYetDue, c)
 			continue
 		}
@@ -3474,11 +3479,18 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			// forever with no signal (2026-08-30 review, finding 6). Track
 			// consecutive pool-absent runs: notify once on the first
 			// deferral, and expire the claim outright once it has deferred
-			// across waiverClaimDeferralLimit consecutive runs, with a final
-			// notification naming the reason.
+			// across waiverClaimDeferralLimit consecutive runs AND at least
+			// waiverClaimDeferralWindow of real time has passed since the
+			// streak began (finding 3, 2026-08-30 review round 2) — a run
+			// count alone let a replayed outage or a rapid force-run expire
+			// a claim in minutes or seconds, with no recovery window at
+			// all.
+			if c.DeferredStreak == 0 {
+				c.FirstDeferredAt = now
+			}
 			c.DeferredStreak++
-			if c.DeferredStreak >= waiverClaimDeferralLimit {
-				reason := fmt.Sprintf("this claim deferred for %d consecutive runs because %s never returned to the player pool; it expired automatically", waiverClaimDeferralLimit, c.AddID)
+			if c.DeferredStreak >= waiverClaimDeferralLimit && now.Sub(c.FirstDeferredAt) >= waiverClaimDeferralWindow {
+				reason := fmt.Sprintf("this claim deferred for %d consecutive runs across at least %d hours because %s never returned to the player pool; it expired automatically", waiverClaimDeferralLimit, int(waiverClaimDeferralWindow.Hours()), c.AddID)
 				results = append(results, WaiverResult{Claim: c, Outcome: "expired", Reason: reason, Week: week})
 				receipt := WaiverReceipt{
 					ClaimID: c.ID, Season: cfg.Season, Week: week, TeamID: c.TeamID,
@@ -3499,6 +3511,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			continue
 		}
 		c.DeferredStreak = 0
+		c.FirstDeferredAt = time.Time{}
 		player := poolByID[c.AddID]
 		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
 		if status.State == AvailabilityOnWaivers {

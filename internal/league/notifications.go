@@ -1737,11 +1737,13 @@ func (s *Service) buildAnnouncement(a Announcement, member Member) renderedNotif
 // N14 — waiver-result (roster-ops spec section 9)
 // ---------------------------------------------------------------------
 
-// notifyWaiverResult fires N14 for one resolved claim (won, beaten, or
-// failed), to every operator of the claiming seat — the primary and, if
-// bound, the co-manager (registration wave, build item 4: team-scoped
-// notifications reach both). Called from Service.evalWaiverRun after
-// Store.ProcessWaivers's single persist has already committed (section
+// notifyWaiverResult fires N14 for one claim outcome (won, beaten, failed,
+// deferred, or expired — 2026-08-30 review round 2, finding 9: this fires
+// for every outcome Store.ProcessWaivers can produce, not only the three
+// terminal-resolution ones), to every operator of the claiming seat — the
+// primary and, if bound, the co-manager (registration wave, build item 4:
+// team-scoped notifications reach both). Called from Service.evalWaiverRun
+// after Store.ProcessWaivers's single persist has already committed (section
 // 5.4 step 6): a claim's outcome is never emailed before it is durable.
 // processedAt is the run's instant (nextRun), the Headline's "WAIVERS //
 // RUN {date}" anchor.
@@ -1846,8 +1848,19 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	}
 
 	playerRow := emailkit.PanelRow{Label: "PLAYER", Value: addLabel}
+	// 2026-08-30 review round 2, finding 10: join only the non-empty parts.
+	// The old fixed three-way Sprintf left a trailing " · " whenever
+	// exactly one of Position/NFLTeam was empty (a player mid-transaction
+	// on the real NFL wire, or a source gap on one field but not both).
 	if addPlayer.Position != "" || addPlayer.NFLTeam != "" {
-		playerRow.Value = fmt.Sprintf("%s · %s · %s", addLabel, addPlayer.Position, addPlayer.NFLTeam)
+		parts := []string{addLabel}
+		if addPlayer.Position != "" {
+			parts = append(parts, addPlayer.Position)
+		}
+		if addPlayer.NFLTeam != "" {
+			parts = append(parts, addPlayer.NFLTeam)
+		}
+		playerRow.Value = strings.Join(parts, " · ")
 	}
 	rows := []emailkit.PanelRow{playerRow}
 	switch {

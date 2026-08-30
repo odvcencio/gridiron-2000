@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,15 +36,35 @@ type WaiverClaim struct {
 	// player pool (2026-08-30 review, finding 6: a deferred claim used to
 	// hold its team's cap slot forever with no signal). It resets to 0 the
 	// moment the claim resolves through any other path (still-open on
-	// waivers, or due) and expires the claim once it reaches
-	// waiverClaimDeferralLimit.
+	// waivers, or due).
 	DeferredStreak int `json:"deferredStreak,omitempty"`
+	// FirstDeferredAt is the instant this claim's current deferral streak
+	// began — the run that first set DeferredStreak to 1 (2026-08-30
+	// review round 2, finding 3). Store.ProcessWaivers expires a claim
+	// only once BOTH DeferredStreak reaches waiverClaimDeferralLimit AND
+	// at least waiverClaimDeferralWindow of wall-clock time has actually
+	// elapsed since FirstDeferredAt: DeferredStreak alone counts runs, not
+	// time, so a short outage replayed in a burst of catch-up runs (or a
+	// commissioner's force-run button pressed three times in a row) could
+	// otherwise destroy a claim in seconds. Resets to the zero time
+	// alongside DeferredStreak.
+	FirstDeferredAt time.Time `json:"firstDeferredAt,omitempty"`
 }
 
 // waiverClaimDeferralLimit is how many consecutive deferred runs a claim
-// tolerates (finding 6) before Store.ProcessWaivers expires it outright,
-// with a final notification naming the reason.
+// tolerates (finding 6) before Store.ProcessWaivers becomes willing to
+// expire it outright, with a final notification naming the reason —
+// together with waiverClaimDeferralWindow, not alone (finding 3, 2026-08-30
+// review round 2).
 const waiverClaimDeferralLimit = 3
+
+// waiverClaimDeferralWindow is the minimum wall-clock time that must have
+// actually elapsed since a claim's FirstDeferredAt before
+// waiverClaimDeferralLimit consecutive deferred runs are allowed to expire
+// it (finding 3, 2026-08-30 review round 2): a real recovery window, not
+// merely a run count a replayed outage or a rapid force-run can rack up in
+// minutes or seconds.
+const waiverClaimDeferralWindow = 48 * time.Hour
 
 // WaiverReceipt is the season-scoped, team-private resolution ledger for one
 // claim. Player identity is snapshotted so receipts survive pool churn. Team
@@ -423,13 +444,30 @@ func weeklyPointsRank(sch SeasonSchedule, teamIDs []string, week int, seasonRank
 // counter had no production purpose and cost every call an atomic
 // increment (2026-08-30 review, finding 7); only a test that needs to
 // count invocations sets it, and must clear it afterward.
-var performanceBaseOrderCalls func()
+//
+// It is an atomic.Pointer, not a plain package-level func var (2026-08-30
+// review round 2, finding 11): a bare `var f func()` written directly by a
+// test and read directly by performanceBaseOrder is a data race the
+// instant two tests exercising this seam ever run in parallel — setPointer
+// and getFunc make every read and write here a single atomic operation.
+var performanceBaseOrderCalls atomic.Pointer[func()]
+
+// setPerformanceBaseOrderCalls installs fn as the test seam, or clears it
+// when fn is nil — the same "nil in production" contract the plain func
+// var used to carry, now race-proof.
+func setPerformanceBaseOrderCalls(fn func()) {
+	if fn == nil {
+		performanceBaseOrderCalls.Store(nil)
+		return
+	}
+	performanceBaseOrderCalls.Store(&fn)
+}
 
 // performanceBaseOrder derives the post-close base order (section 5.2.1,
 // W >= 1): a season/weekly-rank blend, worst combined performance first.
 func performanceBaseOrder(sch SeasonSchedule, teamIDs []string, cfg Config, week int) []string {
-	if performanceBaseOrderCalls != nil {
-		performanceBaseOrderCalls()
+	if fn := performanceBaseOrderCalls.Load(); fn != nil {
+		(*fn)()
 	}
 	standings := ComputeStandings(sch, teamIDs, TiebreakInputs{SeasonSeed: sch.Seed})
 	seasonRank := make(map[string]int, len(standings))
@@ -477,22 +515,51 @@ func moveToBack(order []string, teamID string) []string {
 	return out
 }
 
+// weekClosedAt looks up week's persisted ScheduleWeek.ClosedAt (2026-08-30
+// review round 2, finding 2), reporting whether that week both exists in
+// sch and carries a non-zero stamp. A zero ClosedAt means either the week
+// has not closed, or it closed before this field existed (a legacy row);
+// either way the caller must not trust it as a settlement instant.
+func weekClosedAt(sch *SeasonSchedule, week int) (time.Time, bool) {
+	if sch == nil {
+		return time.Time{}, false
+	}
+	for _, wk := range sch.Weeks {
+		if wk.Week == week {
+			return wk.ClosedAt, !wk.ClosedAt.IsZero()
+		}
+	}
+	return time.Time{}, false
+}
+
+// weekSettledBoundary resolves the best available already-settled instant
+// for week: its own persisted ClosedAt when present (2026-08-30 review
+// round 2, finding 2 — the true close instant, not an estimate), or, for a
+// legacy row written before ClosedAt existed, its own latest known
+// kickoff — the latest instant by which every one of that week's games
+// had kicked off, and so the earliest instant that week could legitimately
+// have closed. Never a following week's kickoff: the prior design anchored
+// to week+1's kickoff, a future instant relative to every scheduled run
+// right after week `week` closes, which made txn.At.After(boundary) false
+// even for a transaction this exact run just created (At == now) — the
+// in-period penalty was suppressed on every run, letting one team sweep
+// every contested claim (the audited bug).
+func weekSettledBoundary(sch *SeasonSchedule, games []GameInfo, week int) (time.Time, bool) {
+	if closedAt, ok := weekClosedAt(sch, week); ok {
+		return closedAt, true
+	}
+	if boundary, found, kickoffOK := weekCloseLastKickoff(games, week); found && kickoffOK {
+		return boundary, true
+	}
+	return time.Time{}, false
+}
+
 // waiverPenaltyBoundary resolves the wall-clock instant (F1, corrected by
-// the 2026-08-30 review's finding 1) after which a claim transaction
-// counts as "in period" for the section 5.2.1 in-period penalty: a claim
-// WIN that happened after the most recent week-close sends that team to
-// the back for subsequent claims in the same period; the weekly close
-// recomputes the base order from standings.
-//
-// The boundary anchors to lastClosedWeek(sch)'s OWN latest known kickoff
-// — the latest instant by which every one of that week's games has
-// kicked off, and so the earliest instant that week could legitimately
-// have closed — never a following week's kickoff. The prior design
-// anchored to week+1's kickoff, a future instant relative to every
-// scheduled run right after week `week` closes, which made
-// txn.At.After(boundary) false even for a transaction this exact run just
-// created (At == now): the in-period penalty was suppressed on every run,
-// letting one team sweep every contested claim (the audited bug).
+// the 2026-08-30 review's finding 1 and finding 2) after which a claim
+// transaction counts as "in period" for the section 5.2.1 in-period
+// penalty: a claim WIN that happened after the most recent week-close
+// sends that team to the back for subsequent claims in the same period;
+// the weekly close recomputes the base order from standings.
 //
 // now must be the run's own processing instant, not a stored value: a
 // candidate boundary that is not strictly before now cannot yet be
@@ -503,45 +570,45 @@ func moveToBack(order []string, teamID string) []string {
 func waiverPenaltyBoundary(state PersistedState, games []GameInfo, now time.Time) time.Time {
 	week := lastClosedWeek(state.Schedule)
 	if week > 0 {
-		if boundary, found, kickoffOK := weekCloseLastKickoff(games, week); found && kickoffOK && now.After(boundary) {
+		if boundary, ok := weekSettledBoundary(state.Schedule, games, week); ok && now.After(boundary) {
 			return boundary
 		}
 	}
 	return waiverPenaltyFallbackFloor(state)
 }
 
-// waiverPenaltyFallbackFloor is F1's safe-direction floor (bounded per the
-// 2026-08-30 review's finding 2) for when waiverPenaltyBoundary cannot
-// derive a firm, already-past week-close instant: no week has closed yet,
-// the schedule mirror carries no kickoff for lastClosedWeek (a source
-// outage), or a commissioner force-close was made ahead of the mirror
-// catching up. The old fallback treated every claim transaction ever
-// recorded as in period; once the season's final week closed there was
-// never a legitimate boundary again, so that fallback became permanent
-// and replaced the standings base order with all-time win recency.
-// WaiversProcessedThrough — the last run this store actually committed —
-// is the tightest already-settled instant available and bounds the
-// replay to claims at or after it; the schedule's own GeneratedAt (season
-// start) is the floor before any run has ever committed. A truly fresh
-// store with neither returns the zero time, under which every real claim
-// counts as in period — the safe direction this floor exists to bound,
-// not remove.
+// waiverPenaltyFallbackFloor is F1's safe-direction floor (corrected by the
+// 2026-08-30 review round 2's finding 1) for when waiverPenaltyBoundary
+// cannot derive a firm, already-past week-close instant: no week has
+// closed yet, the schedule mirror carries no kickoff for a legacy row
+// missing ClosedAt (a source outage), or a commissioner force-close was
+// made ahead of the mirror catching up.
 //
-// The floor subtracts one nanosecond from whichever instant it picks.
-// applyInPeriodPenalties compares with strict After, and Store.ProcessWaivers
-// sets WaiversProcessedThrough to this exact run's own now — the same
-// instant this run's own freshly created claim Transactions carry as
-// their At. Without the nanosecond, a claim this exact run just resolved
-// would compare equal to, not after, the boundary the SAME run just
-// computed from the PRIOR value of WaiversProcessedThrough, and any read
-// that happens once that new watermark has committed would stop counting
-// it as in period — "at or after," per finding 2, not strictly after.
+// The floor must move only at a recompute — a week actually closing —
+// never on every run. Before any week has closed, it anchors to the
+// schedule's own GeneratedAt (season start): fixed for the whole
+// pre-week-1 period, no matter how many daily runs pass with nothing to
+// recompute against. Once a week has closed, it anchors to that week's
+// own settled boundary (weekSettledBoundary — its ClosedAt, or a legacy
+// row's last kickoff): fixed until the NEXT week closes. The prior design
+// derived this floor from WaiversProcessedThrough, the last run's own
+// commit watermark, which advances on every single run whether or not
+// anything actually recomputed; that let a run-1 winner's penalty survive
+// only into run 2 and then silently lapse by run 3, with the whole
+// post-draft, pre-week-1 period (lastClosedWeek == 0, this floor's only
+// path) exposed to it every season. A truly fresh store with neither a
+// closed week nor a schedule returns the zero time, under which every
+// real claim counts as in period — the safe direction this floor exists
+// to bound, not remove.
 func waiverPenaltyFallbackFloor(state PersistedState) time.Time {
-	if !state.WaiversProcessedThrough.IsZero() {
-		return state.WaiversProcessedThrough.Add(-time.Nanosecond)
+	week := lastClosedWeek(state.Schedule)
+	if week > 0 {
+		if boundary, ok := weekSettledBoundary(state.Schedule, nil, week); ok {
+			return boundary
+		}
 	}
-	if state.Schedule != nil && !state.Schedule.GeneratedAt.IsZero() {
-		return state.Schedule.GeneratedAt.Add(-time.Nanosecond)
+	if state.Schedule != nil {
+		return state.Schedule.GeneratedAt
 	}
 	return time.Time{}
 }
@@ -724,9 +791,11 @@ type WaiverResult struct {
 	// this run or earlier), "failed" (any other re-validation reason),
 	// "deferred" (finding 6: a one-time notice the first time this claim's
 	// AddID sits outside the bounded pool — the claim itself stays open,
-	// unlike every other outcome here), or "expired" (finding 6: the claim
-	// deferred for waiverClaimDeferralLimit consecutive runs and was
-	// removed automatically).
+	// unlike every other outcome here), or "expired" (finding 6, timing
+	// corrected by the 2026-08-30 review round 2's finding 3: the claim
+	// deferred for waiverClaimDeferralLimit consecutive runs, spanning at
+	// least waiverClaimDeferralWindow of real time, and was removed
+	// automatically).
 	Outcome string
 	// Reason carries the exact failure/expiry message for a "failed" or
 	// "expired" outcome.

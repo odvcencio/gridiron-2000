@@ -645,12 +645,20 @@ func Page() Node {
 						<div class="pool-stat"><span>Last processed</span><b class="mono">{data.waivers.processed_through}</b></div>
 						<div class="pool-stat"><span>Run state</span><b class="mono">{data.waivers.run_state}</b></div>
 					</div>
+					<If cond={data.waivers.has_open_claims == false}>
+						<p class="scoring-note">No claims are open right now — there is nothing for a forced run to resolve.</p>
+					</If>
 					<form method="post" action={actionPath("run-waivers")} data-gosx-managed="true" class="clock-controls">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="waiver_run_token" value={data.waivers.run_token}></input>
 						<label class="mono" for="admin-run-waivers-confirm">TYPE RUN WAIVERS NOW //</label>
 						<input id="admin-run-waivers-confirm" class="scoring-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" placeholder="RUN WAIVERS NOW"></input>
-						<button class="button button--ghost" type="submit">Force run waivers now</button>
+						<If cond={data.waivers.has_open_claims == true}>
+							<button class="button button--ghost" type="submit">Force run waivers now</button>
+						</If>
+						<If cond={data.waivers.has_open_claims == false}>
+							<button class="button" type="submit" disabled="disabled">No open claims to run</button>
+						</If>
 					</form>
 					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger. The prior release note that commissioner seeding automation is not wired into this release yet is retired; use PLAYOFF TRUTH below.</p>
 				</section>

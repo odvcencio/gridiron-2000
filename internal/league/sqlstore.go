@@ -68,6 +68,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate005PickemEnteredAt,
 	migrate006WaiverReceipts,
 	migrate007WaiverClaimDeferral,
+	migrate008WaiverClaimDeferralTiming,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -305,12 +306,37 @@ func migrate006WaiverReceipts(tx *sql.Tx) error {
 // outside the bounded player pool. Every existing row defaults to 0 (no
 // deferral history), the same safe reading a claim with no prior runs
 // gets.
+// kv.schema_version's stamped values (this migration's '8' included) are
+// this SQLite migration chain's own historical sequence markers, one per
+// completed dbMigrations step — not the live PersistedState schema, which
+// is currentSchemaVersion (store.go) and travels independently. The two
+// numbers diverging is expected, not a drift bug (2026-08-30 review round
+// 2, finding 6).
 func migrate007WaiverClaimDeferral(tx *sql.Tx) error {
 	if _, err := tx.Exec(`ALTER TABLE waiver_claims ADD COLUMN deferred_streak INTEGER NOT NULL DEFAULT 0`); err != nil {
 		return fmt.Errorf("ALTER TABLE waiver_claims ADD COLUMN deferred_streak: %w", err)
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '8')`); err != nil {
 		return fmt.Errorf("stamp schema_version 8: %w", err)
+	}
+	return nil
+}
+
+// migrate008WaiverClaimDeferralTiming adds the wall-clock anchor for the
+// F6-follow-up deferral expiry (2026-08-30 review round 2, finding 3):
+// waiverClaimDeferralLimit alone counted consecutive Store.ProcessWaivers
+// runs, so a short outage replayed in a burst of catch-up runs (or a
+// commissioner's force-run control pressed repeatedly) could expire a
+// claim within minutes or seconds of real time. Expiry now also requires
+// FirstDeferredAt to be at least waiverClaimDeferralWindow old. Every
+// existing row defaults to empty (no deferral history), the same safe
+// reading a claim with no prior deferral gets.
+func migrate008WaiverClaimDeferralTiming(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE waiver_claims ADD COLUMN first_deferred_at TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("ALTER TABLE waiver_claims ADD COLUMN first_deferred_at: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '9')`); err != nil {
+		return fmt.Errorf("stamp schema_version 9: %w", err)
 	}
 	return nil
 }
@@ -793,12 +819,12 @@ var collectionSpecs = [collectionCount]collectionSpec{
 		tables: []tableDef{{
 			name:    "waiver_claims",
 			keyCols: []string{"ord"},
-			valCols: []string{"id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak"},
+			valCols: []string{"id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak", "first_deferred_at"},
 		}},
 		emit: func(st *PersistedState, sink *rowSink) {
 			for i, c := range st.WaiverClaims {
 				sink.add("waiver_claims", []any{i},
-					c.ID, c.TeamID, c.AddID, c.DropID, c.Bid, c.Priority, encodeTime(c.FiledAt), c.DeferredStreak)
+					c.ID, c.TeamID, c.AddID, c.DropID, c.Bid, c.Priority, encodeTime(c.FiledAt), c.DeferredStreak, encodeTime(c.FirstDeferredAt))
 			}
 		},
 	},
@@ -1658,16 +1684,19 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		return state, err
 	}
 
-	if err := queryRows(db, `SELECT "id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak"
+	if err := queryRows(db, `SELECT "id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak", "first_deferred_at"
 		FROM waiver_claims ORDER BY "ord"`,
 		func(rows *sql.Rows) error {
 			var c WaiverClaim
-			var filedAt string
-			if err := rows.Scan(&c.ID, &c.TeamID, &c.AddID, &c.DropID, &c.Bid, &c.Priority, &filedAt, &c.DeferredStreak); err != nil {
+			var filedAt, firstDeferredAt string
+			if err := rows.Scan(&c.ID, &c.TeamID, &c.AddID, &c.DropID, &c.Bid, &c.Priority, &filedAt, &c.DeferredStreak, &firstDeferredAt); err != nil {
 				return err
 			}
 			var err error
 			if c.FiledAt, err = decodeTime(filedAt); err != nil {
+				return err
+			}
+			if c.FirstDeferredAt, err = decodeTime(firstDeferredAt); err != nil {
 				return err
 			}
 			state.WaiverClaims = append(state.WaiverClaims, c)

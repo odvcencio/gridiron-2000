@@ -587,6 +587,39 @@ func TestAdminRunWaivers(t *testing.T) {
 	})
 }
 
+// TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl pins finding 8
+// of the 2026-08-30 review round 2: has_open_claims was computed and
+// handed to every admin render but nothing ever read it, so the force-run
+// control rendered identically whether or not there was anything for a
+// forced run to resolve. This checks the value itself is correct in both
+// states — app/admin/page.gsx's own render test covers the markup that
+// now gates on it.
+func TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+
+	state := service.store.Snapshot()
+	waivers := service.adminWaiversMap(state, now)
+	if got, ok := waivers["has_open_claims"].(bool); !ok || got {
+		t.Fatalf("has_open_claims = %v, want false with no open claims", waivers["has_open_claims"])
+	}
+	if got, ok := waivers["open_claim_count"].(int); !ok || got != 0 {
+		t.Fatalf("open_claim_count = %v, want 0", waivers["open_claim_count"])
+	}
+
+	if err := service.store.FileClaim(WaiverClaim{ID: "clm-open", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	state = service.store.Snapshot()
+	waivers = service.adminWaiversMap(state, now)
+	if got, ok := waivers["has_open_claims"].(bool); !ok || !got {
+		t.Fatalf("has_open_claims = %v, want true with one open claim", waivers["has_open_claims"])
+	}
+	if got, ok := waivers["open_claim_count"].(int); !ok || got != 1 {
+		t.Fatalf("open_claim_count = %v, want 1", waivers["open_claim_count"])
+	}
+}
+
 // TestDraftIsLive checks that scheduled time and demo mode never replace
 // the persisted commissioner start.
 func TestDraftIsLive(t *testing.T) {

@@ -226,6 +226,11 @@ func (s *Service) closeWeek(week int, now time.Time) (ScheduleWeek, []JoinMiss, 
 		m.AwayScore = awayScore
 		m.Final = true
 	}
+	// ClosedAt (2026-08-30 review round 2, finding 2) is this exact close's
+	// own settlement instant — the waiver penalty boundary anchors to it
+	// instead of the last game's kickoff, so the in-period penalty no
+	// longer spans the gap between kickoff and this close committing.
+	updated.ClosedAt = now
 	if err := s.store.CommitScheduleWeekClose(updated, pins); err != nil {
 		return ScheduleWeek{}, nil, err
 	}
