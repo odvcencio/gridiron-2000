@@ -654,25 +654,28 @@ explicit action, never a batch.
 2. **Deploy `statrelay` first**, to the `gridiron` namespace. Confirm the
    `X-Statrelay-Budget-Remaining` response header on a manual `curl` against
    any relayed endpoint — the header appears only once a budget is set.
-3. **Deploy the app image to Stable Kernel** with `LIVE_SCORING_ENABLED=false`.
-   Confirm `/api/health` and that the Matchups status line reads `LEDGER`.
-4. **Rehearse on Stable Kernel** with `LIVE_REPLAY_FIXTURE` mounted from a
-   ConfigMap, `LIVE_SCORING_ENABLED=true`, and
+3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`
+   (the Stable Kernel league did not form for 2026, so flagship is the only
+   live instance and there is no canary). Confirm `/api/health` and that the
+   Matchups status line reads `LEDGER`.
+4. **Rehearse the replay locally first** (`LIVE_SCORING_ENABLED=true
+   LIVE_REPLAY_FIXTURE=<dir> LIVE_REPLAY_STEP=1s go run .`, watch `/matchups`
+   in a browser), then **on flagship** with `LIVE_REPLAY_FIXTURE` mounted from
+   a ConfigMap, `LIVE_SCORING_ENABLED=true`, and
    `LIVE_REPLAY_ALLOW_PRODUCTION=true` (replay mode refuses to start under a
    production `APP_ENV` without this explicit override, because it replaces
-   the league schedule with the replay's one game) for 15 minutes. Watch a
-   browser on `/matchups`. Remove the fixture afterward.
-5. **Deploy flagship the same way, flag off** (`LIVE_SCORING_ENABLED=false`).
-6. **TNF kill-switch drill.** On the first live regular-season Thursday
-   Night Football kickoff, flip `LIVE_SCORING_ENABLED=true` on Stable Kernel
-   30 minutes before kickoff, and on flagship 15 minutes after that. Record
-   the live `gameStatusCode` from one relay response to confirm the
-   status-code rule (`"2"` final, `"1"` in progress, `"0"`/`""` pre-game, any
-   other code with a non-empty `currentPeriod` treated as in progress). One
-   hour after kickoff, run the kill-switch drill on Stable Kernel: set the
-   flag to `false`, roll the pod, confirm `PAUSED · disabled` on the status
-   line within 60 s, set it back to `true`, confirm `LIVE` within 60 s. Log
-   the drill below.
+   the league schedule with the replay's one game) for 15 minutes, outside
+   any real game window. Remove the fixture and the override afterward and
+   confirm the status line returns to `LEDGER`.
+5. **TNF kill-switch drill.** On the first live regular-season Thursday
+   Night Football kickoff, flip `LIVE_SCORING_ENABLED=true` on flagship
+   30 minutes before kickoff. Record the live `gameStatusCode` from one
+   relay response to confirm the status-code rule (`"2"` final, `"1"` in
+   progress, `"0"`/`""` pre-game, any other code with a non-empty
+   `currentPeriod` treated as in progress). One hour after kickoff, run the
+   kill-switch drill on flagship: set the flag to `false`, roll the pod,
+   confirm `PAUSED · disabled` on the status line within 60 s, set it back
+   to `true`, confirm `LIVE` within 60 s. Log the drill below.
 7. **Watch the relay budget header** on the first live Sunday, at kickoff,
    mid-afternoon, and Sunday Night Football kickoff.
 

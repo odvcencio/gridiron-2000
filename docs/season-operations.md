@@ -245,7 +245,7 @@ Live scoring classifies a game from Tank01's `gameStatusCode`:
 Precondition: the drill only reaches `PAUSED · disabled` when a starter's NFL game is actually in progress at the moment the flag flips off — the precedence above reads a disabled poller as `PAUSED` only for an in-progress starter. Outside a live game window (an off-hours rehearsal, or a bye week) the status line correctly reads `LEDGER` instead, since there is no live signal to pause; that is the expected, correct result, not a failed drill. Run this drill during a live game window.
 
 1. Confirm at least one starter's game is currently in progress (the status line already reads `LIVE` or `PAUSED`, not `LEDGER`).
-2. Set the flag to `false` on Stable Kernel (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod.
+2. Set the flag to `false` on flagship (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod. Flagship is the only live instance for 2026 (the Stable Kernel league did not form).
 3. Within 60 seconds, confirm the Matchups status line reads the `PAUSED` state chip with the source line `Live box scores paused · disabled`.
 4. To resume, set `LIVE_SCORING_ENABLED=true` and roll again; confirm the state chip reads `LIVE` within 60 seconds.
 5. Log the drill (date, times, and confirmed state transitions) in `docs/launch-checklist.md`. The Sep 10 2026 TNF drill (DAL@PHI, kickoff 20:20 EDT) is the first scheduled run: at 21:00 EDT (one hour after kickoff, a game in progress), set the flag to `false` on Stable Kernel, confirm `PAUSED · disabled` within 60 s, set it back to `true`, and confirm `LIVE` within 60 s.
