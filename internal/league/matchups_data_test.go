@@ -32,7 +32,7 @@ func matchupDataFixture(t *testing.T) (*Service, time.Time) {
 			{ID: "week-2", Week: 2, Kickoff: now.Add(8 * 24 * time.Hour)},
 		}
 	})
-	service.feed = newLiveFeed(scheduleProvider{svc: service})
+	service.feed = newLiveFeed(scheduleProvider{svc: service}, service)
 	service.feed.cacheFor = 0
 	return service, now
 }
@@ -46,7 +46,7 @@ func matchupDataRequest(t *testing.T, target string) *http.Request {
 	return request
 }
 
-func matchupLiveState(t *testing.T, data map[string]any) map[string]any {
+func matchupLiveMap(t *testing.T, data map[string]any) map[string]any {
 	t.Helper()
 	live, ok := data["live"].(map[string]any)
 	if !ok {
@@ -84,7 +84,7 @@ func TestMatchupsDataCurrentWeekKeepsLiveStateAndNavigation(t *testing.T) {
 	service, _ := matchupDataFixture(t)
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
 
-	live := matchupLiveState(t, data)
+	live := matchupLiveMap(t, data)
 	if data["week"] != 1 || data["current_week"] != 1 || data["is_current_week"] != true {
 		t.Fatalf("current week selection = week:%v current:%v selected:%v", data["week"], data["current_week"], data["is_current_week"])
 	}
@@ -104,7 +104,7 @@ func TestMatchupsDataFutureWeekIsScheduledAndStopsLivePolling(t *testing.T) {
 	service, _ := matchupDataFixture(t)
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=2"))
 
-	live := matchupLiveState(t, data)
+	live := matchupLiveMap(t, data)
 	if data["week"] != 2 || data["current_week"] != 1 || data["is_current_week"] != false {
 		t.Fatalf("future selection = week:%v current:%v selected:%v", data["week"], data["current_week"], data["is_current_week"])
 	}
@@ -130,7 +130,7 @@ func TestMatchupsDataFinalWeekPreservesFinalTaxonomy(t *testing.T) {
 	}
 
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=3"))
-	live := matchupLiveState(t, data)
+	live := matchupLiveMap(t, data)
 	if data["week"] != 3 || data["is_current_week"] != false {
 		t.Fatalf("final selection = week:%v selected:%v", data["week"], data["is_current_week"])
 	}

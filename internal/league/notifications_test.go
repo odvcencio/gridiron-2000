@@ -22,7 +22,6 @@ func newNotifyTestService(t *testing.T, draftAt, start time.Time) (*Service, *ti
 	clock := start
 	svc := &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
 		draftAt:  draftAt,
 		teams:    defaultTeams(),
 		players:  defaultPlayers(),
@@ -30,6 +29,7 @@ func newNotifyTestService(t *testing.T, draftAt, start time.Time) (*Service, *ti
 		presence: newPresenceTracker(start.Add(-24 * time.Hour)),
 		now:      func() time.Time { return clock },
 	}
+	svc.feed = newLiveFeed(nil, svc)
 	svc.store.draftLifecycleBypass = true
 	queue := notify.New(func(notify.Message) error { return nil }, func(string, ...any) {})
 	svc.SetNotifier(queue, true)

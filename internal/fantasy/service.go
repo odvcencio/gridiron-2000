@@ -397,7 +397,7 @@ func (s *Service) Status() Status {
 		WithADP:   withADP,
 		WithProj:  withProj,
 		WithBye:   withBye,
-		Requests:  s.client.requests,
+		Requests:  int(s.client.requests.Load()),
 		LastSync:  s.lastSync,
 		Age:       age,
 		FreshFor:  s.config.SyncInterval,

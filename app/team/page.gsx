@@ -395,6 +395,7 @@ func Page() Node {
 			data-gosx-region-url={data.lineup_fragment_url}
 			data-gosx-region-interval={data.lineup_fragment_interval}
 			data-gosx-region-signal="$team.lineup.refresh"
+			data-gosx-region-on="scores:changed"
 			aria-label="Authoritative team lineup"
 		>
 			<TeamLineupRegion></TeamLineupRegion>

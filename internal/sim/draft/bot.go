@@ -193,6 +193,20 @@ func (b *Bot) Join(teamName string) error {
 	return err
 }
 
+// SetLineup assigns playerID to slot in week for the caller's own team
+// (POST /team/__actions/lineup-set); an empty playerID clears the slot.
+// The caller must hold the seat and the player must not already be
+// locked (their NFL game must not have kicked off yet) — the server
+// re-validates both, same as MakePick does for an off-clock pick.
+func (b *Bot) SetLineup(week int, slot, playerID string) error {
+	if _, err := b.get("/team"); err != nil { // refresh the session before a /team action
+		return err
+	}
+	return b.simpleAction("/team/__actions/lineup-set", map[string]string{
+		"team_id": b.TeamID, "week": strconv.Itoa(week), "slot": slot, "player_id": playerID,
+	})
+}
+
 // InviteCoManager invites email as the caller's own team's co-manager
 // (POST /team/__actions/co-invite). The caller must already hold a seat
 // (b.TeamID set, normally by Join); the server re-checks that the caller
@@ -243,6 +257,21 @@ func (b *Bot) Undo(previousToken string) error {
 		return err
 	}
 	return b.simpleAction("/admin/__actions/draft-undo", map[string]string{"confirm": "UNDO", "previous_pick_token": previousToken})
+}
+
+// GenerateSchedule publishes the league's first regular-season fantasy
+// matchup schedule (commissioner only) — the AdminGenerateSchedule action,
+// not the real NFL game schedule a live replay installs on its own. weeks
+// is the schedule's length in league weeks, startWeek the first NFL week
+// it maps onto, and seed the deterministic draw (0 lets the server pick
+// one at random).
+func (b *Bot) GenerateSchedule(weeks, startWeek int, seed int64) error {
+	if _, err := b.get("/admin"); err != nil { // refresh the session before an /admin action
+		return err
+	}
+	return b.simpleAction("/admin/__actions/schedule-generate", map[string]string{
+		"weeks": strconv.Itoa(weeks), "start_week": strconv.Itoa(startWeek), "seed": strconv.FormatInt(seed, 10),
+	})
 }
 
 // AddToBoard puts a player on the seat's Big Board (the autopick queue).
@@ -378,12 +407,26 @@ func (b *Bot) NextPick() (string, error) {
 // machinery) into every binary that links this bot package.
 const draftLiveHubPath = "/draft/live"
 
-// Socket subscribes to the draft hub. Origin must match the server host and
-// the session cookie must ride along so the auth gate before the upgrade passes.
-func (b *Bot) Socket(since string) (*websocket.Conn, error) {
+// scoresLiveHubPath mirrors app/matchups.ScoresLiveHubPath, kept as a
+// literal for the same reason draftLiveHubPath is: pulling in app/matchups
+// would drag its own page-program dependency tree into every binary that
+// links this bot package.
+const scoresLiveHubPath = "/scores/live"
+
+// dialHub dials one hub endpoint (draft or scores-live) at pathAndQuery —
+// for example "/draft/live?since=..." or "/scores/live?since=...". Origin
+// must match the server host and the session cookie must ride along so
+// the auth gate before the upgrade passes; Socket and ScoresSocket share
+// this so both hub subscriptions keep exactly one implementation of that
+// handshake.
+func (b *Bot) dialHub(pathAndQuery string) (*websocket.Conn, error) {
 	base, err := url.Parse(b.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse base URL %q: %w", b.BaseURL, err)
+	}
+	relative, err := url.Parse(pathAndQuery)
+	if err != nil {
+		return nil, fmt.Errorf("parse hub path %q: %w", pathAndQuery, err)
 	}
 	target := *base
 	switch base.Scheme {
@@ -392,10 +435,8 @@ func (b *Bot) Socket(since string) (*websocket.Conn, error) {
 	default:
 		target.Scheme = "ws"
 	}
-	target.Path = draftLiveHubPath
-	query := url.Values{}
-	query.Set("since", since)
-	target.RawQuery = query.Encode()
+	target.Path = relative.Path
+	target.RawQuery = relative.RawQuery
 
 	header := http.Header{"Origin": []string{b.BaseURL}, "X-Test-User": []string{b.identity()}}
 	if cookies := b.client.Jar.Cookies(base); len(cookies) > 0 {
@@ -420,6 +461,20 @@ func (b *Bot) Socket(since string) (*websocket.Conn, error) {
 		return nil, fmt.Errorf("dial %s: %w", target.String(), err)
 	}
 	return conn, nil
+}
+
+// Socket subscribes to the draft hub. Origin must match the server host and
+// the session cookie must ride along so the auth gate before the upgrade passes.
+func (b *Bot) Socket(since string) (*websocket.Conn, error) {
+	query := url.Values{}
+	query.Set("since", since)
+	return b.dialHub(draftLiveHubPath + "?" + query.Encode())
+}
+
+// ScoresSocket subscribes to the scores-live hub. since is the poller
+// version the page last rendered (the Task 6 reconnect contract).
+func (b *Bot) ScoresSocket(since int64) (*websocket.Conn, error) {
+	return b.dialHub(scoresLiveHubPath + "?since=" + strconv.FormatInt(since, 10))
 }
 
 // HubEvent is the wire envelope the draft live hub sends.

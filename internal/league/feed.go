@@ -18,9 +18,38 @@ type liveFeed struct {
 	cacheFor time.Duration
 	cachedAt time.Time
 	cached   LiveSnapshot
+	// owner is the Service this feed's cache is keyed against — a
+	// back-pointer, not a copy of a closure, so Service.liveVersionFn
+	// stays the single source of truth (round-2 review of commit
+	// a3bf24a, finding 1: the earlier two-field design, a version
+	// closure stored on both Service and liveFeed, could drift when
+	// s.feed was replaced without re-calling SetLiveVersionSource).
+	// nil owner means live scoring is not wired, so the cache behaves
+	// exactly as before (age only).
+	//
+	// Lock order: Snapshot holds f.mu, then calls owner.liveVersion(),
+	// which takes the owner's poolMu — f.mu, then poolMu, never the
+	// reverse. Nothing in this package may take f.mu while already
+	// holding poolMu (see SetLiveVersionSource's doc comment).
+	owner *Service
+	// cachedVersion is owner.liveVersion()'s value as of the last fetch;
+	// meaningless when owner is nil (current always reads 0 then, so age
+	// alone decides staleness).
+	cachedVersion int64
+	// cachedSchedule is owner.scheduleGeneration()'s value as of the last
+	// fetch (rider R2, round-2 review of Task 9): the poller's own
+	// version has no reason to move just because the persisted fantasy
+	// SeasonSchedule was published or regenerated, so without this a
+	// cached "preseason" snapshot (taken before any schedule existed)
+	// could keep being served for up to cacheFor after a schedule
+	// appears — potentially past kickoff. Folding the schedule's own
+	// generation counter into the cache key busts the cache the instant
+	// a schedule is set, independent of the poller. Meaningless when
+	// owner is nil, same as cachedVersion.
+	cachedSchedule int64
 }
 
-func newLiveFeed(provider scoreProvider) *liveFeed {
+func newLiveFeed(provider scoreProvider, owner *Service) *liveFeed {
 	demo := demoProvider{}
 	if provider == nil {
 		provider = demo
@@ -29,13 +58,22 @@ func newLiveFeed(provider scoreProvider) *liveFeed {
 		provider: provider,
 		fallback: demo,
 		cacheFor: 45 * time.Second,
+		owner:    owner,
 	}
 }
 
 func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor {
+	current := int64(0)
+	currentSchedule := int64(0)
+	if f.owner != nil {
+		if version, ok := f.owner.liveVersion(); ok {
+			current = version
+		}
+		currentSchedule = f.owner.scheduleGeneration()
+	}
+	if !f.cachedAt.IsZero() && now.Sub(f.cachedAt) < f.cacheFor && f.cachedVersion == current && f.cachedSchedule == currentSchedule {
 		return f.cached
 	}
 	snapshot, err := f.provider.Snapshot(ctx, now)
@@ -57,8 +95,7 @@ func (f *liveFeed) Snapshot(ctx context.Context, now time.Time) LiveSnapshot {
 		snapshot.LastUpdated = snapshot.CheckedAt
 	}
 	snapshot.RefreshAfterSeconds = int(DefaultRefreshPeriod.Seconds())
-	f.cached = snapshot
-	f.cachedAt = now
+	f.cached, f.cachedAt, f.cachedVersion, f.cachedSchedule = snapshot, now, current, currentSchedule
 	return snapshot
 }
 
@@ -104,7 +141,7 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 	if !ok {
 		return LiveSnapshot{}, fmt.Errorf("week %d is not in the persisted season schedule", week)
 	}
-	stateLabel, statusLabel, clockLabel := p.weekState(week, wk.Matchups, now)
+	stateLabel, statusLabel, clockLabel, slateLine := p.weekState(week, wk.Matchups, now)
 	// One page render must use one authoritative weekly stat slice. Taking the
 	// snapshot before walking matchups keeps both ledgers, their aggregate
 	// scores, and every matchup on the page on the same source read/timestamp.
@@ -143,14 +180,40 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		if !m.Final && !awayLedger.Known {
 			awayScoreTeam.Score = awayScore
 		}
+		liveState := matchupLiveState(m.Final, weeklyStats.live, weeklyStats.hasLive, append(append([]StarterLedgerRow(nil), homeLedger.Rows...), awayLedger.Rows...))
 		matchups = append(matchups, ScoreMatchup{
-			ID:     m.ID,
-			Home:   homeScoreTeam,
-			Away:   awayScoreTeam,
-			State:  matchupState,
-			Status: status,
-			Clock:  clock,
+			ID:        m.ID,
+			Home:      homeScoreTeam,
+			Away:      awayScoreTeam,
+			State:     matchupState,
+			Status:    status,
+			Clock:     clock,
+			LiveState: liveState,
 		})
+	}
+	pageLiveState := LiveStateLedger
+	for _, candidate := range []string{LiveStatePaused, LiveStateLive, LiveStateFinal, LiveStateLedger} {
+		found := false
+		for _, m := range matchups {
+			if m.LiveState == candidate {
+				found = true
+				break
+			}
+		}
+		if found {
+			pageLiveState = candidate
+			break
+		}
+	}
+	gamesFinal := ""
+	if len(weeklyStats.games) > 0 {
+		final := 0
+		for _, game := range weeklyStats.games {
+			if game.Final {
+				final++
+			}
+		}
+		gamesFinal = fmt.Sprintf("%d of %d games final", final, len(weeklyStats.games))
 	}
 	statsUpdatedAt := p.svc.statsUpdatedAt()
 	lastUpdated := statsUpdatedAt
@@ -171,6 +234,11 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 		WeekLabel:      fmt.Sprintf("Week %d", week),
 		State:          stateLabel,
 		Status:         statusLabel,
+		LiveState:      pageLiveState,
+		SourceLine:     liveSourceLine(pageLiveState, weeklyStats.live, now),
+		GamesFinal:     gamesFinal,
+		SlateLine:      slateLine,
+		LiveCheckedAt:  weeklyStats.live.CheckedAt,
 		LastUpdated:    lastUpdated.UTC(),
 		CheckedAt:      now.UTC(),
 		StatsUpdatedAt: statsUpdatedAt.UTC(),
@@ -179,7 +247,61 @@ func (p scheduleProvider) SnapshotWeek(ctx context.Context, now time.Time, week 
 	}, nil
 }
 
-func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock string) {
+// matchupLiveState resolves exactly one state in the spec's order (A5):
+// posted final -> LEDGER; in-progress starter and degraded poller ->
+// PAUSED; in-progress starter -> LIVE; a live-final row with no ledger row
+// -> FINAL; otherwise LEDGER. inProgress can only ever be true once hasLive
+// already is (it is set from status.Games, which is only consulted when
+// hasLive holds), so an unwired poller (hasLive false) always falls
+// through the switch to LEDGER — there is no separate "!hasLive" case to
+// guard for (round-2 review of commit 8a4ffea, finding 3).
+func matchupLiveState(postedFinal bool, status LiveStatus, hasLive bool, rows []StarterLedgerRow) string {
+	if postedFinal {
+		return LiveStateLedger
+	}
+	inProgress, liveFinal := false, false
+	for _, row := range rows {
+		game, ok := status.Games[row.NFLTeam]
+		if hasLive && ok && game.InProgress {
+			inProgress = true
+		}
+		if row.Source == StatSourceLiveFinal {
+			liveFinal = true
+		}
+	}
+	switch {
+	case inProgress && status.Degraded:
+		return LiveStatePaused
+	case inProgress:
+		return LiveStateLive
+	case liveFinal:
+		return LiveStateFinal
+	}
+	return LiveStateLedger
+}
+
+// liveSourceLine is the one status-line sentence A5/A6 render in place of
+// the old provenance table.
+func liveSourceLine(state string, status LiveStatus, now time.Time) string {
+	switch state {
+	case LiveStateLive:
+		return fmt.Sprintf("Live box scores · checked %d s ago", int(now.Sub(status.CheckedAt).Seconds()))
+	case LiveStatePaused:
+		return "Live box scores paused · " + status.Reason
+	case LiveStateFinal:
+		return "Final box scores · weekly ledger pending"
+	}
+	return "Weekly ledger (nflverse)"
+}
+
+// scheduleGeneration exposes the persisted fantasy schedule's own change
+// counter (Store.ScheduleGeneration) so liveFeed.Snapshot's cache key can
+// fold it in — see cachedSchedule's doc comment.
+func (s *Service) scheduleGeneration() int64 {
+	return s.store.ScheduleGeneration()
+}
+
+func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time.Time) (state, status, clock, slate string) {
 	allFinal := len(matchups) > 0
 	for _, matchup := range matchups {
 		if !matchup.Final {
@@ -188,7 +310,7 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		}
 	}
 	if allFinal {
-		return MatchupStateFinal, fmt.Sprintf("Week %d results are final", week), "FINAL"
+		return MatchupStateFinal, fmt.Sprintf("Week %d results are final", week), "FINAL", "Week complete"
 	}
 	var weekGames []GameInfo
 	for _, game := range p.svc.schedule() {
@@ -197,7 +319,7 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 		}
 	}
 	if len(weekGames) == 0 {
-		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE"
+		return MatchupStateDegraded, "Schedule loaded; kickoff timing is unavailable", "TIMING UNAVAILABLE", ""
 	}
 	earliest := weekGames[0].Kickoff
 	weekStarted := false
@@ -216,12 +338,34 @@ func (p scheduleProvider) weekState(week int, matchups []LeagueMatchup, now time
 	location := p.svc.matchupLocation()
 	if !weekStarted {
 		kickoff := earliest.In(location).Format("Mon Jan 2 · 3:04 PM MST")
-		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff
+		return MatchupStateScheduled, "Fantasy scoring begins " + kickoff, kickoff, earliest.In(location).Format("Monday 3:04 PM") + " slate"
 	}
 	if allNFLFinal {
-		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE"
+		return MatchupStateDegraded, "NFL games are final; fantasy results await week close", "AWAITING CLOSE", now.In(location).Format("Mon Jan 2") + " · games final"
 	}
-	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel
+	return MatchupStateInProgress, "Fantasy scoring is in progress", DefaultMatchupClockLabel, matchupSlateLine(now, location)
+}
+
+// matchupSlateLine is the masthead subtitle's date/slate phrase for an
+// in-progress week ("Sun Sep 13 · late slate in progress", the approved
+// mockup's own copy — warroom/Matchups.dc.html): today's date, then which
+// NFL broadcast window is on, classified from the hour of day in the
+// league's own timezone. This is a coarse, hour-of-day heuristic (not a
+// per-game classification), matching the mockup's own single-phrase
+// scope; it never needs game-level precision because SourceLine (the
+// status line just below it) already carries the authoritative per-game
+// freshness detail.
+func matchupSlateLine(now time.Time, location *time.Location) string {
+	local := now.In(location)
+	hour := local.Hour()
+	slate := "early"
+	switch {
+	case hour >= 19 || hour < 10:
+		slate = "primetime"
+	case hour >= 16:
+		slate = "late"
+	}
+	return local.Format("Mon Jan 2") + " · " + slate + " slate in progress"
 }
 
 func matchupStateCardLabel(state string) string {

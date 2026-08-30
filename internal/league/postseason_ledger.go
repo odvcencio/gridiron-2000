@@ -39,6 +39,22 @@ func (s *Service) playoffRoundResultsFromLedger(state PersistedState, truth Play
 	if roundWeeks < 1 {
 		roundWeeks = 1
 	}
+	// One page render must use one authoritative weekly stat slice per week
+	// (matchupStatsSnapshot's own doc comment; feed.go:148 sets the same
+	// pattern). A bracket round can carry several matchups against the same
+	// week, and every matchup here reads two ledgers (home, away) per week
+	// in its round, so memoize the snapshot per week here too rather than
+	// taking a fresh one for every ledger build (round-2 review of commit
+	// 8a4ffea, finding 1).
+	weekSnapshots := make(map[int]matchupStatsSnapshot)
+	snapshotForWeek := func(week int) matchupStatsSnapshot {
+		snapshot, ok := weekSnapshots[week]
+		if !ok {
+			snapshot = s.matchupStatsSnapshot(week)
+			weekSnapshots[week] = snapshot
+		}
+		return snapshot
+	}
 	results := make([]PlayoffRoundResult, 0, len(active))
 	for _, matchup := range active {
 		homeTotal, awayTotal := 0.0, 0.0
@@ -53,8 +69,9 @@ func (s *Service) playoffRoundResultsFromLedger(state PersistedState, truth Play
 					return nil, fmt.Errorf("playoff matchup %q is waiting for final week %d schedule results", matchup.ID, week)
 				}
 			}
-			home := s.teamWeekLedger(state, matchup.HomeTeamID, week)
-			away := s.teamWeekLedger(state, matchup.AwayTeamID, week)
+			snapshot := snapshotForWeek(week)
+			home := s.teamWeekLedgerFromSnapshot(state, matchup.HomeTeamID, week, snapshot)
+			away := s.teamWeekLedgerFromSnapshot(state, matchup.AwayTeamID, week, snapshot)
 			if err := validatePlayoffLedger(matchup.ID, week, home); err != nil {
 				return nil, err
 			}

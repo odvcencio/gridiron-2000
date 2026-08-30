@@ -14,14 +14,16 @@ func newPostseasonLedgerService(t *testing.T, path string) *Service {
 	store := NewStore(path)
 	store.draftLifecycleBypass = true
 	t.Cleanup(func() { _ = store.Close() })
-	return &Service{
-		store: store, feed: newLiveFeed(nil), draftAt: time.Now().Add(-time.Hour), demoMode: true,
+	svc := &Service{
+		store: store, draftAt: time.Now().Add(-time.Hour), demoMode: true,
 		teams: defaultTeams(), players: []Player{
 			{ID: "home-qb", Name: "Home QB", Position: "QB", NFLTeam: "BUF"},
 			{ID: "away-qb", Name: "Away QB", Position: "QB", NFLTeam: "KC"},
 		}, cfg: DefaultConfig(), avatarRoot: filepath.Join(avatarAnchor, "avatars"),
 		avatarDurableRoot: avatarAnchor, defaultBadgeRoot: filepath.Join(t.TempDir(), "avatar-defaults"),
 	}
+	svc.feed = newLiveFeed(nil, svc)
+	return svc
 }
 
 func playoffLedgerFixture(t *testing.T, roundWeeks int) (*Service, PlayoffState, time.Time) {

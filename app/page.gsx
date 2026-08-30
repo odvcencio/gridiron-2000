@@ -23,6 +23,7 @@ type MiniMatchupProps struct {
 	ID                string
 	ShowLiveIndicator bool
 	LiveIndicator     string
+	LiveState         string
 	Status            string
 	Clock             string
 	Away              MatchupTeamCard
@@ -36,6 +37,7 @@ func MiniMatchup(props MiniMatchupProps) Node {
 				<span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span>
 				<span data-matchup-status data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			</span>
+			<span class="mono" data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span>
 			<span class="mono" data-matchup-clock data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</div>
 		<div class="mini-team">
@@ -384,7 +386,7 @@ func Page() Node {
 			<If cond={data.viewer.is_commissioner}><a href="/admin?section=playoffs#admin-playoffs" data-gosx-link class="access-link">Open commissioner controls →</a></If>
 		</section>
 		<If cond={data.viewer.signed_in && data.has_seat}>
-		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
+		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 			<header class="section-heading section-heading--split">
 				<div>
 					<span class="section-index">01 // MATCHUP PREVIEW</span>

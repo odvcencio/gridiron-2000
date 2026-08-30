@@ -63,7 +63,7 @@ func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 // specifically so a /test/clock request after a Close reinstalls the
 // override instead of being permanently disarmed: not installed ->
 // installed -> closed -> installed again.
-func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager) func() {
+func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager, live *liveScoringRuntime) func() {
 	var mu sync.Mutex
 	offset := time.Duration(0)
 	var fixed *time.Time
@@ -234,6 +234,40 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			to = "/draft"
 		}
 		http.Redirect(w, r, to, http.StatusSeeOther)
+	}))
+
+	// /test/live reports the live poller's health verbatim — Unmatched,
+	// UnmatchedGames, and ListingFailures included, since Health carries
+	// no json tags to drop them (round-2 review of commit 1ddb094 added
+	// those fields; Task 5's execution notes ask that they surface here).
+	// This also serializes Health.LastError, which may name the relay
+	// host a fetch failed against — acceptable here specifically because
+	// this route is loopback-only (testRoutesLoopbackOnly) and harness-only
+	// (mountTestRoutes is wired only when cfg.TestAuth is set, which
+	// AppConfig.validate refuses outside a local environment): a relay
+	// hostname is operational detail, never a credential, and no
+	// production deployment ever serves this route (round-2 review of
+	// commit cdeb7f2, finding 7).
+	// In LIVE_REPLAY_FIXTURE demo mode, out also carries a replay object
+	// with the fake relay's own progress: frame count, the highest frame
+	// index served so far, when that index was first served, the
+	// replay's start instant, and the step between frames.
+	app.Mount("GET /test/live", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
+		out := map[string]any{"version": int64(0), "in_window": 0, "poller": map[string]any{}}
+		if live != nil && live.Poller != nil {
+			health := live.Poller.Health()
+			out["version"] = live.Poller.Version()
+			out["in_window"] = health.InWindow
+			out["poller"] = health
+		}
+		if live != nil && live.Replay != nil {
+			out["replay"] = map[string]any{
+				"frames": live.Replay.FrameCount(), "served_index": live.Replay.ServedIndex(),
+				"served_at": live.Replay.ServedAt(live.Replay.ServedIndex()).UTC(),
+				"start":     live.Replay.Start().UTC(), "step_ms": live.Replay.Step().Milliseconds(),
+			}
+		}
+		writeJSON(w, out)
 	}))
 	return restoreClock
 }

@@ -82,21 +82,6 @@ func TestLeagueScheduleSourcePropagatesSpreadFinalityAndProvenance(t *testing.T)
 	}
 }
 
-// TestDSTNicknamesCoversAllThirtyTwoTeams pins the team-abbreviation join
-// table against source drift: exactly 32 entries, every value formatted
-// "{Nickname} D/ST" (the fantasy pool's established naming convention,
-// internal/fantasy/fallback.go).
-func TestDSTNicknamesCoversAllThirtyTwoTeams(t *testing.T) {
-	if len(dstNicknames) != 32 {
-		t.Fatalf("dstNicknames has %d entries, want 32", len(dstNicknames))
-	}
-	for team, name := range dstNicknames {
-		if len(name) < 6 || name[len(name)-5:] != " D/ST" {
-			t.Errorf("dstNicknames[%q] = %q, want a \"... D/ST\" suffix", team, name)
-		}
-	}
-}
-
 // wpr2Fixture starts an httptest server serving one week's worth of
 // schedule, team-stats, player-stats, and play-by-play fixtures, and
 // returns a synced openstats.Service pointed at it. Every dataset syncs

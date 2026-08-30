@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"gridiron-2000/app/liveaccess"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 )
@@ -30,17 +31,12 @@ func WorkspaceFragmentHandler(service *league.Service) http.Handler {
 	return draftFragmentHandler(draftWorkspaceRegion, draftFragmentAccess(service), service.DraftDataReadOnly)
 }
 
+// draftFragmentAccess is app/liveaccess.SignedInOrDemo under the name the
+// rest of this package already calls it by (round-2 review of commit
+// 917cf4f, finding 4: the predicate itself now lives in one shared place
+// so the draft-live and scores-live hubs cannot drift apart).
 func draftFragmentAccess(service *league.Service) func(*http.Request) bool {
-	return func(request *http.Request) bool {
-		if service == nil {
-			return false
-		}
-		if service.DemoMode() {
-			return true
-		}
-		_, signedIn := service.CurrentUser(request)
-		return signedIn
-	}
+	return liveaccess.SignedInOrDemo(service)
 }
 
 func draftFragmentHandler(

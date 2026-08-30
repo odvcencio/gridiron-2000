@@ -200,15 +200,58 @@ func TestServesStaleOnUpstreamError(t *testing.T) {
 	}
 }
 
-// TestUpstreamErrorWithNoCacheReturnsBadGateway covers the case with no
-// cached copy at all: an upstream failure must surface as an error, not a
-// panic or a silently empty 200.
-func TestUpstreamErrorWithNoCacheReturnsBadGateway(t *testing.T) {
-	upstream := newStubUpstream(`irrelevant`)
-	atomic.StoreInt32(&upstream.status, http.StatusInternalServerError)
+// TestNonOKUpstreamResponsePassesThroughStatusWithoutCaching covers round-2
+// review finding 2: a reachable upstream that replies with a non-200
+// status (RapidAPI rate-limited, forbidden, an internal error, ...) is a
+// definitive answer, not a transport failure — with no cached copy to
+// fall back on, the caller gets that exact status, its body, and
+// X-Statrelay-Upstream-Status, and the reply is never cached in memory or
+// on disk. (When a cached copy does exist, the existing stale-serve path
+// still wins — see TestServesStaleOnUpstreamError — a definitive-but-bad
+// answer is not preferred over a merely-stale good one.)
+func TestNonOKUpstreamResponsePassesThroughStatusWithoutCaching(t *testing.T) {
+	dir := t.TempDir()
+	upstream := newStubUpstream(`{"error":"rate limited"}`)
+	atomic.StoreInt32(&upstream.status, http.StatusTooManyRequests)
 	server := upstream.server()
 	defer server.Close()
+	relay, _ := relayForTest(t, server, dir, "test-key")
+
+	rec := doGet(t, relay, "/getNFLBoxScore?gameID=blocked")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want %d passed through from upstream", rec.Code, http.StatusTooManyRequests)
+	}
+	if got := rec.Header().Get("X-Statrelay-Upstream-Status"); got != "429" {
+		t.Fatalf("X-Statrelay-Upstream-Status = %q, want 429", got)
+	}
+	if rec.Body.String() != `{"error":"rate limited"}` {
+		t.Fatalf("body = %q, want the upstream's own body relayed verbatim", rec.Body.String())
+	}
+
+	relay.mu.RLock()
+	_, cached := relay.cache["/getNFLBoxScore?gameID=blocked"]
+	relay.mu.RUnlock()
+	if cached {
+		t.Fatal("a non-200 upstream response must not be cached in memory")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a non-200 upstream response must not be persisted to disk, found %d files", len(entries))
+	}
+}
+
+// TestUpstreamTransportFailureWithNoCacheReturnsBadGateway covers a
+// genuine transport failure (upstream unreachable — no HTTP response at
+// all, unlike TestNonOKUpstreamResponsePassesThroughStatusWithoutCaching's
+// reachable-but-erroring upstream) with no cached copy: the caller gets a
+// generic 502, since there is no upstream status to relay.
+func TestUpstreamTransportFailureWithNoCacheReturnsBadGateway(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
 	relay, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	server.Close() // now genuinely unreachable
 
 	rec := doGet(t, relay, "/getNFLTeams")
 	if rec.Code != http.StatusBadGateway {
@@ -309,6 +352,46 @@ func TestDiskPersistenceRoundTrip(t *testing.T) {
 	}
 }
 
+// TestShortTTLEntriesAreNotPersistedToDisk covers round-2 review finding
+// 3: a box score's 4s in-progress TTL would already be expired well
+// before any restart could read it back, so it must not be mirrored to
+// disk at all. The 60s pre-game and 24h final buckets still mirror
+// normally, and TestDiskPersistenceRoundTrip already covers a
+// non-box-score endpoint's defaultTTL (6h).
+func TestShortTTLEntriesAreNotPersistedToDisk(t *testing.T) {
+	dir := t.TempDir()
+
+	inProgress := newStubUpstream(`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q1"}}`)
+	inProgressServer := inProgress.server()
+	defer inProgressServer.Close()
+	live, _ := relayForTest(t, inProgressServer, dir, "test-key")
+	if rec := doGet(t, live, "/getNFLBoxScore?gameID=live"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("a 4s in-progress entry must not be persisted, found %d files", len(entries))
+	}
+
+	final := newStubUpstream(`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`)
+	finalServer := final.server()
+	defer finalServer.Close()
+	done, _ := relayForTest(t, finalServer, dir, "test-key")
+	if rec := doGet(t, done, "/getNFLBoxScore?gameID=final"); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("a final (24h TTL) entry must still be persisted, found %d files", len(entries))
+	}
+}
+
 // TestHealthz covers the /healthz endpoint independent of any upstream.
 func TestHealthz(t *testing.T) {
 	relay, _ := relayForTest(t, httptest.NewServer(http.NotFoundHandler()), t.TempDir(), "test-key")
@@ -325,7 +408,7 @@ func TestTTLTableAssignsExpectedBuckets(t *testing.T) {
 		path string
 		want time.Duration
 	}{
-		{"/getNFLBoxScore", 3 * time.Minute},
+		{"/getNFLBoxScore", 4 * time.Second},
 		{"/getNFLGamesForWeek", 24 * time.Hour},
 		{"/getNFLPlayerList", defaultTTL},
 		{"/getNFLADP", defaultTTL},
@@ -354,5 +437,126 @@ func TestQueryStringIsPartOfTheCacheKey(t *testing.T) {
 
 	if got := upstream.count(); got != 2 {
 		t.Fatalf("upstream hits = %d, want 2 (one per distinct query)", got)
+	}
+}
+
+// TestBoxScoreTTLFollowsGameStatus covers ttlForEntry: a final game (code
+// "2", or a Final period) caches for 24h, a pre-game body (code "0" or
+// "", empty period) caches for 60s, and anything else — in progress
+// (code "1"), an unrecognized code with a period, or an unreadable body —
+// follows the live poll cadence (4s). Every other endpoint is unaffected.
+// A non-200 status always returns 0 (never cache), regardless of path or
+// body (round-2 review of commit fe8775f, finding 2).
+func TestBoxScoreTTLFollowsGameStatus(t *testing.T) {
+	cases := []struct {
+		body string
+		want time.Duration
+	}{
+		{`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`, 24 * time.Hour},
+		{`{"statusCode":200,"body":{"gameStatusCode":"0","currentPeriod":""}}`, 60 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"","currentPeriod":""}}`, 60 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q3","gameClock":"8:12"}}`, 4 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"7","currentPeriod":"Q4"}}`, 4 * time.Second},
+		{`not json`, 4 * time.Second},
+	}
+	for _, c := range cases {
+		if got := ttlForEntry("/getNFLBoxScore", http.StatusOK, []byte(c.body)); got != c.want {
+			t.Errorf("ttlForEntry(%s) = %v want %v", c.body, got, c.want)
+		}
+	}
+	if got := ttlForEntry("/getNFLGamesForWeek", http.StatusOK, []byte(`{}`)); got != 24*time.Hour {
+		t.Errorf("games-for-week ttl = %v", got)
+	}
+	for _, status := range []int{http.StatusTooManyRequests, http.StatusForbidden, http.StatusInternalServerError} {
+		if got := ttlForEntry("/getNFLBoxScore", status, []byte(`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`)); got != 0 {
+			t.Errorf("ttlForEntry with upstream status %d = %v, want 0 (never cache a non-200)", status, got)
+		}
+	}
+}
+
+// TestDailyBudgetReturns429AndServesCacheWhenPresent covers
+// STATRELAY_DAILY_BUDGET: an unlimited relay (dailyBudget == 0) never
+// sends the budget header; a limited relay counts fetches, returns 429
+// once exhausted (serving a stale cached copy instead when one exists),
+// and resets on a new UTC day. The header reflects remainingBudget's
+// read-only pre-fetch reading (round-2 review of commit fe8775f, finding
+// 1): the request that performs the real upstream fetch reports what was
+// remaining before its own charge, not after — the next request's header
+// reflects that charge instead.
+func TestDailyBudgetReturns429AndServesCacheWhenPresent(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q1"}}`)
+	server := upstream.server()
+	defer server.Close()
+	unlimited, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	if got := doGet(t, unlimited, "/getNFLBoxScore?gameID=z"); got.Header().Get("X-Statrelay-Budget-Remaining") != "" {
+		t.Fatalf("an unlimited relay must omit the budget header, got %q", got.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	relay, clock := relayForTest(t, server, t.TempDir(), "test-key")
+	relay.dailyBudget = 2
+	first := doGet(t, relay, "/getNFLBoxScore?gameID=a")
+	if first.Code != http.StatusOK || first.Header().Get("X-Statrelay-Budget-Remaining") != "2" {
+		t.Fatalf("first = %d remaining=%q", first.Code, first.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	doGet(t, relay, "/getNFLBoxScore?gameID=b")
+	clock.advance(5 * time.Second)
+	third := doGet(t, relay, "/getNFLBoxScore?gameID=c")
+	if third.Code != http.StatusTooManyRequests || third.Header().Get("X-Statrelay-Budget-Remaining") != "0" {
+		t.Fatalf("over budget = %d remaining=%q", third.Code, third.Header().Get("X-Statrelay-Budget-Remaining"))
+	}
+	stale := doGet(t, relay, "/getNFLBoxScore?gameID=a")
+	if stale.Code != http.StatusOK || stale.Header().Get("X-Statrelay-Stale") != "true" {
+		t.Fatalf("over budget with cache = %d stale=%q", stale.Code, stale.Header().Get("X-Statrelay-Stale"))
+	}
+	if upstream.count() != 3 {
+		t.Fatalf("upstream hits = %d want 3 (one unlimited, two limited)", upstream.count())
+	}
+	clock.advance(24 * time.Hour)
+	if reset := doGet(t, relay, "/getNFLBoxScore?gameID=c"); reset.Code != http.StatusOK {
+		t.Fatalf("budget did not reset on a new UTC day: %d", reset.Code)
+	}
+}
+
+// TestBudgetChargesOncePerCollapsedSingleflightFetch covers round-2
+// review finding 1 directly: N concurrent requests for the same key that
+// the singleflight collapse folds into one real upstream call must spend
+// exactly one budget unit, not N — the budget meters upstream fetches,
+// not client requests.
+func TestBudgetChargesOncePerCollapsedSingleflightFetch(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q1"}}`)
+	upstream.gate = make(chan struct{})
+	server := upstream.server()
+	defer server.Close()
+	relay, _ := relayForTest(t, server, t.TempDir(), "test-key")
+	relay.dailyBudget = 10
+
+	const concurrency = 20
+	var wg sync.WaitGroup
+	codes := make([]int, concurrency)
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			codes[i] = doGet(t, relay, "/getNFLBoxScore?gameID=same").Code
+		}(i)
+	}
+	// Give every goroutine a chance to reach the singleflight map before
+	// releasing the upstream response, the same pattern
+	// TestSingleflightCollapsesConcurrentRequests uses.
+	time.Sleep(50 * time.Millisecond)
+	close(upstream.gate)
+	wg.Wait()
+
+	for i, code := range codes {
+		if code != http.StatusOK {
+			t.Errorf("request %d status = %d, want 200", i, code)
+		}
+	}
+	if got := upstream.count(); got != 1 {
+		t.Fatalf("upstream hits = %d, want 1 (singleflight should collapse)", got)
+	}
+	// Read directly: every goroutine above has already joined via
+	// wg.Wait(), so nothing concurrent remains to race this read.
+	if relay.budgetUsed != 1 {
+		t.Fatalf("budgetUsed = %d, want 1 (one unit per real upstream fetch, not per client request)", relay.budgetUsed)
 	}
 }

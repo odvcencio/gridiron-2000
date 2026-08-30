@@ -630,6 +630,61 @@ kubectl -n gridiron patch secret/gridiron-2000-secrets --type=json \
 
 Never print or fetch any Secret value while performing this maintenance.
 
+## 13. Regular-season live scoring rollout
+
+Regular-season live scoring (`internal/livescore`) ships behind the
+`LIVE_SCORING_ENABLED` kill switch, default `false`. See
+[Game day](season-operations.md#game-day) in the season operations handbook
+for the four states, precedence, and the kill-switch procedure this section's
+drill exercises. Perform these steps in order; each step is a separate,
+explicit action, never a batch.
+
+1. **Move the RapidAPI subscription to the Mega tier and set the budgets.**
+   Before turning the flag on anywhere, the owner sets `LIVE_DAILY_BUDGET`
+   (per app instance) and `STATRELAY_DAILY_BUDGET` (the shared relay) to the
+   Mega tier's daily allowance minus pool-sync and Blitz usage. Arithmetic to
+   check: one relay upstream call per in-progress game per 4 s TTL, so
+   900 calls/h per game (3600 s ÷ 4 s), and a 13-game Sunday costs about
+   13 games × 3.5 h × 900 calls/h ≈ 41,000 relay calls; instance-side fetches every
+   `LIVE_POLL_INTERVAL` never reach upstream when the relay entry is still
+   fresh. `deploy/k8s/statrelay.yaml`'s tracked `STATRELAY_DAILY_BUDGET:
+   "60000"` is a placeholder above that estimate, not a confirmed Mega-tier
+   value; do not apply the manifest as tracked without setting both budgets
+   after the tier change.
+2. **Deploy `statrelay` first**, to the `gridiron` namespace. Confirm the
+   `X-Statrelay-Budget-Remaining` response header on a manual `curl` against
+   any relayed endpoint — the header appears only once a budget is set.
+3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`
+   (the Stable Kernel league did not form for 2026, so flagship is the only
+   live instance and there is no canary). Confirm `/api/health` and that the
+   Matchups status line reads `LEDGER`.
+4. **Rehearse the replay locally first** (`LIVE_SCORING_ENABLED=true
+   LIVE_REPLAY_FIXTURE=<dir> LIVE_REPLAY_STEP=1s go run .`, watch `/matchups`
+   in a browser), then **on flagship** with `LIVE_REPLAY_FIXTURE` mounted from
+   a ConfigMap, `LIVE_SCORING_ENABLED=true`, and
+   `LIVE_REPLAY_ALLOW_PRODUCTION=true` (replay mode refuses to start under a
+   production `APP_ENV` without this explicit override, because it replaces
+   the league schedule with the replay's one game) for 15 minutes, outside
+   any real game window. Remove the fixture and the override afterward and
+   confirm the status line returns to `LEDGER`.
+5. **TNF kill-switch drill.** On the first live regular-season Thursday
+   Night Football kickoff, flip `LIVE_SCORING_ENABLED=true` on flagship
+   30 minutes before kickoff. Record the live `gameStatusCode` from one
+   relay response to confirm the status-code rule (`"2"` final, `"1"` in
+   progress, `"0"`/`""` pre-game, any other code with a non-empty
+   `currentPeriod` treated as in progress). One hour after kickoff, run the
+   kill-switch drill on flagship: set the flag to `false`, roll the pod,
+   confirm `PAUSED · disabled` on the status line within 60 s, set it back
+   to `true`, confirm `LIVE` within 60 s. Log the drill below.
+7. **Watch the relay budget header** on the first live Sunday, at kickoff,
+   mid-afternoon, and Sunday Night Football kickoff.
+
+### Kill-switch drill log
+
+| Date | Kickoff (matchup) | Flag off at | `PAUSED · disabled` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
+| --- | --- | --- | --- | --- | --- | --- |
+| _2026-09-10 (DAL@PHI, 20:20 EDT)_ | | | | | | |
+
 ## Notes on client assets
 
 The image builder runs `gosx build --dev .` with the CLI version pinned to

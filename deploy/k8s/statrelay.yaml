@@ -70,6 +70,14 @@ spec:
               value: "/app/data"
             - name: LISTEN_ADDR
               value: ":8090"
+            # Daily cap on relayed upstream Tank01 calls, shared by every
+            # league instance behind this relay. 0 (the code default) means
+            # unlimited. 60000 is a placeholder above the ~41,000-call
+            # 13-game Sunday estimate (docs/launch-checklist.md's live
+            # scoring rollout section) until the owner confirms it against
+            # the Mega RapidAPI tier's real daily allowance.
+            - name: STATRELAY_DAILY_BUDGET
+              value: "60000"
           volumeMounts:
             - name: data
               mountPath: /app/data

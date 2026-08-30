@@ -17,7 +17,6 @@ func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service,
 	clock := start
 	svc := &Service{
 		store:    NewStore(filepath.Join(t.TempDir(), "state.json")),
-		feed:     newLiveFeed(nil),
 		draftAt:  start.Add(-time.Hour),
 		demoMode: demo,
 		teams:    defaultTeams(),
@@ -26,6 +25,7 @@ func newPresenceTestService(t *testing.T, demo bool, start time.Time) (*Service,
 		presence: newPresenceTracker(start),
 		now:      func() time.Time { return clock },
 	}
+	svc.feed = newLiveFeed(nil, svc)
 	svc.store.draftLifecycleBypass = true
 	return svc, &clock
 }

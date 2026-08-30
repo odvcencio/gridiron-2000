@@ -108,7 +108,7 @@ func TestMatchupsDataSeatlessManagerKeepsNextMatchupHidden(t *testing.T) {
 	if err := service.store.SetSchedule(schedule); err != nil {
 		t.Fatal(err)
 	}
-	service.feed = newLiveFeed(scheduleProvider{svc: service})
+	service.feed = newLiveFeed(scheduleProvider{svc: service}, service)
 
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
 	next := matchupNextState(t, data)

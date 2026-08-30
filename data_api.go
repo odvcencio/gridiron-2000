@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,10 +170,65 @@ func requireLeagueAccessWithPolicy(next http.Handler, demoMode func() bool, sign
 	})
 }
 
+// liveWeekAPIHandler serves the live matchup view with an ETag so a
+// browser poller (default 60 s, or the "checks every 5 s" live cadence
+// once wired) can send If-None-Match and get a bare 304 instead of
+// re-downloading an unchanged body. Cache-Control stays no-store — the
+// ETag is a bandwidth optimization, not a cache directive; every request
+// still reaches the handler and reads the current view.
 func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
 	return protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writeDataJSON(writer, http.StatusOK, league.Default().LiveScoresView(request.Context()))
+		body, err := json.Marshal(league.Default().LiveScoresView(request.Context()))
+		if err != nil {
+			http.Error(writer, "live view unavailable", http.StatusInternalServerError)
+			return
+		}
+		// The same trailing newline json.NewEncoder(w).Encode(v) writes
+		// (and writeDataJSON therefore produces elsewhere): appended here,
+		// before hashing, so the ETag matches the exact bytes this handler
+		// writes rather than the pre-newline json.Marshal output (round-2
+		// review of commit cdeb7f2, finding 6).
+		body = append(body, '\n')
+		sum := sha256.Sum256(body)
+		etag := `"live-` + hex.EncodeToString(sum[:8]) + `"`
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("ETag", etag)
+		if ifNoneMatchHasWeak(request.Header.Get("If-None-Match"), etag) {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
+		// Same Content-Type value writeDataJSON sets, applied by hand here
+		// since the ETag must be computed from the body before any header
+		// is written.
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(body)
 	}))
+}
+
+// ifNoneMatchHasWeak reports whether header — an If-None-Match request
+// header value — matches etag under RFC 9110 section 8.8.3.2's weak
+// comparison, the form GET must use: the "W/" prefix is stripped (weak
+// and strong tags compare equal once stripped), the header may carry a
+// comma-separated list of entity tags and any one matching is enough, and
+// a bare "*" matches unconditionally (round-2 review of commit cdeb7f2,
+// finding 3).
+func ifNoneMatchHasWeak(header, etag string) bool {
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return false
+	}
+	if header == "*" {
+		return true
+	}
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimSpace(candidate)
+		candidate = strings.TrimPrefix(candidate, "W/")
+		if candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 func queryInt(request *http.Request, key string, fallback int) int {

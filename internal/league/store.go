@@ -101,8 +101,20 @@ type Store struct {
 	// lastPersistRows counts the rows the current/latest persistence attempt
 	// wrote or deleted. It backs the incremental-write test and is useful
 	// when diagnosing write amplification.
-	lastPersistRows   int
-	identityUnhealthy bool
+	lastPersistRows int
+	// scheduleGeneration increments on every write to s.state.Schedule —
+	// wholesale (SetSchedule, the ResetLeague/TrimSeats clears,
+	// DrawDraftOrder's created-schedule branch) or in place
+	// (SetScheduleWeek, SetScheduleWeekWithLineups, and so
+	// CommitScheduleWeekClose) — through bumpScheduleGenerationLocked
+	// (round-2 review of commit 8a4ffea, finding 4). The live-feed
+	// cache's key folds this in beside the poller's own version, so
+	// publishing, regenerating, or closing a week of the persisted
+	// fantasy schedule busts a cached "preseason" or stale-week snapshot
+	// immediately instead of waiting up to cacheFor for the unrelated
+	// poller version to move.
+	scheduleGeneration int64
+	identityUnhealthy  bool
 	// identityPreflightHook is a test-only seam that runs after the fast
 	// authority read and before the final Store lock, allowing seat churn to
 	// be exercised deterministically. It is nil in production.
@@ -1639,6 +1651,7 @@ func (s *Store) ResetLeague() error {
 		colSchedule, colPlayoffs, colBadgeClaims, colAvatarRefs, colAutopick, colSentLog, colScalars); err != nil {
 		return s.reconcileResetPersistLocked(previous, cloneState(s.state), previousDirty, err)
 	}
+	s.bumpScheduleGenerationLocked()
 	return nil
 }
 
@@ -1846,6 +1859,9 @@ func (s *Store) DrawDraftOrder(order []string, expectedToken string, schedule *S
 		s.dirty = previousDirty
 		return false, err
 	}
+	if created {
+		s.bumpScheduleGenerationLocked()
+	}
 	return created, nil
 }
 
@@ -1987,6 +2003,7 @@ func (s *Store) TrimUnclaimedSeatsConfirmed(confirmation, token string) (kept []
 		s.dirty = previousDirty
 		return nil, nil, err
 	}
+	s.bumpScheduleGenerationLocked()
 	return kept, removedIDs, nil
 }
 
@@ -2435,7 +2452,26 @@ func (s *Store) SetSchedule(sch SeasonSchedule) error {
 		s.dirty = previousDirty
 		return err
 	}
+	s.bumpScheduleGenerationLocked()
 	return nil
+}
+
+// ScheduleGeneration reports how many times a write has replaced or
+// mutated the persisted schedule. See scheduleGeneration's own doc comment.
+func (s *Store) ScheduleGeneration() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scheduleGeneration
+}
+
+// bumpScheduleGenerationLocked records a real change to s.state.Schedule.
+// Call it once per write, after persistLocked has already succeeded, from
+// every store method that mutates s.state.Schedule; see
+// scheduleGeneration's doc comment for the full call-site list. A method
+// with a genuine no-op path (SetScheduleWeekWithLineups's already-closed
+// idempotent return) must not call this on that path.
+func (s *Store) bumpScheduleGenerationLocked() {
+	s.scheduleGeneration++
 }
 
 // SetScheduleWeek replaces one week's data (matchups, scores, bye) in the
@@ -2461,7 +2497,11 @@ func (s *Store) SetScheduleWeek(week ScheduleWeek) error {
 			stored := week
 			stored.Matchups = append([]LeagueMatchup(nil), week.Matchups...)
 			s.state.Schedule.Weeks[i] = stored
-			return s.persistLocked(colSchedule)
+			if err := s.persistLocked(colSchedule); err != nil {
+				return err
+			}
+			s.bumpScheduleGenerationLocked()
+			return nil
 		}
 	}
 	return fmt.Errorf("week %d is not part of the schedule", week.Week)
@@ -2553,6 +2593,7 @@ func (s *Store) SetScheduleWeekWithLineups(week ScheduleWeek, pins map[string]ma
 		}
 		return err
 	}
+	s.bumpScheduleGenerationLocked()
 	return nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
@@ -321,6 +322,7 @@ func init() {
 			// The Team lineup region's interval/signal refresh is inert unless
 			// the page opts into GoSX's bootstrap runtime.
 			ctx.Runtime().EnableBootstrap()
+			ctx.Runtime().BindHub(matchupspage.ScoresLiveHubName, matchupspage.ScoresLiveBindingPath(), nil)
 			data := prepareTeamData(league.Default().TeamData(ctx.Request), ctx.Request)
 			// Identity mutations stay on the open editor after a native
 			// POST-redirect-GET and after a managed success. GoSX removes the

@@ -182,7 +182,7 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 
 ### During games
 
-- Matchup totals are provisional calculations from effective lineups and the mirrored player ledger. They are not sub-minute official scoring.
+- Matchup totals are provisional calculations from effective lineups and the best available source: the live box-score overlay when `LIVE_SCORING_ENABLED=true` and a player's game is in progress, otherwise the mirrored player ledger. Neither is official, play-by-play scoring — see [Game day](#game-day) for the exact precedence and states.
 - Signal Wire reports are provisional and may inform a manager; they never mutate a lineup, roster, or score.
 - A rostered player whose game has started cannot be dropped until the week closes.
 
@@ -210,6 +210,61 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 5. Repeating close is idempotent: it makes no lineup or scoring change.
 
 `Force close week N` is an exception path. It requires the exact typed confirmation and deliberately bypasses advisory readiness. Before forcing it, record why the upstream schedule or ledger cannot satisfy the normal gate and accept that the current mirrored inputs become the closed result.
+
+## Game day
+
+Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. When on, each instance polls in-progress Tank01 box scores through `statrelay` every `LIVE_POLL_INTERVAL` (default `5s`, up to `LIVE_MAX_INFLIGHT` concurrent game fetches, capped at `LIVE_DAILY_BUDGET` fetches per instance per day) and overlays them onto the mirrored nflverse ledger. The overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+
+### The four states
+
+| State | Meaning | Matchups status line |
+| --- | --- | --- |
+| `LIVE` | The poller has a healthy, in-progress signal for at least one starter's game. | `Live box scores · checked N s ago` |
+| `FINAL` | The poller marked a starter's game final, but the mirrored weekly ledger has not posted that player's corrected stats yet. | `Final box scores · weekly ledger pending` |
+| `LEDGER` | No live signal is authoritative right now — pre-kickoff, the week is closed, or every relevant stat already sits in the mirrored nflverse file. | `Weekly ledger (nflverse)` |
+| `PAUSED` | The live poller itself is degraded (the kill switch is off, the relay returned 429, the daily budget is exhausted, or repeated relay/listing failures) while a starter's game is in progress. | `Live box scores paused · <reason>` |
+
+### Precedence
+
+1. A live row wins while that player's game is in progress and the poller itself is healthy (not degraded).
+2. A ledger row wins once the game is final.
+3. A ledger row wins whenever live has no data for that player (Tank01 omits a player from the box score until their first recorded stat; a starter with no live row yet and no ledger row either still renders an honest `0.0` once the game is known to have started, or a dash before kickoff or during a known poller outage — never an implicit, unlabeled zero).
+4. Once the commissioner closes a week, the posted final score is always authoritative and never changes, regardless of any later live or ledger correction; the mismatch (if any) is called out beside the posted total, not silently absorbed.
+
+### Tank01 game-status code rule
+
+Live scoring classifies a game from Tank01's `gameStatusCode`:
+
+- `"2"` — final.
+- `"1"` — in progress.
+- `"0"` or `""` — pre-game.
+- Any other code paired with a non-empty `currentPeriod` — treated as in progress (a code Gridiron does not otherwise recognize, but the game has clearly started).
+
+### Kill-switch procedure
+
+Precondition: the drill only reaches `PAUSED · disabled` when a starter's NFL game is actually in progress at the moment the flag flips off — the precedence above reads a disabled poller as `PAUSED` only for an in-progress starter. Outside a live game window (an off-hours rehearsal, or a bye week) the status line correctly reads `LEDGER` instead, since there is no live signal to pause; that is the expected, correct result, not a failed drill. Run this drill during a live game window.
+
+1. Confirm at least one starter's game is currently in progress (the status line already reads `LIVE` or `PAUSED`, not `LEDGER`).
+2. Set the flag to `false` on flagship (`LIVE_SCORING_ENABLED=false` on its ConfigMap/Deployment) and roll the pod. Flagship is the only live instance for 2026 (the Stable Kernel league did not form).
+3. Within 60 seconds, confirm the Matchups status line reads the `PAUSED` state chip with the source line `Live box scores paused · disabled`.
+4. To resume, set `LIVE_SCORING_ENABLED=true` and roll again; confirm the state chip reads `LIVE` within 60 seconds.
+5. Log the drill (date, times, and confirmed state transitions) in `docs/launch-checklist.md`. The Sep 10 2026 TNF drill (DAL@PHI, kickoff 20:20 EDT) is the first scheduled run: at 21:00 EDT (one hour after kickoff, a game in progress), set the flag to `false` on Stable Kernel, confirm `PAUSED · disabled` within 60 s, set it back to `true`, and confirm `LIVE` within 60 s.
+
+### Replay harness evidence
+
+`go test . -run 'TestSimReplay' -race -count=1 -timeout 900s` replays the BAL@BUF 2025 play-by-play behind a fake relay end to end (poller, overlay, fingerprint, hub, and browser unchanged) and proves the p95 goal — a point change reaches `/matchups` within 10 s of Tank01 ingestion — without touching production or an upstream vendor. Measured on the harness lane (`gridiron-2000-livescore-20260829`, 2026-08-30, `go1.26.0`, under `-race` and concurrent load from other sessions on the same host):
+
+| Scenario | Measured wall time | Budget |
+| --- | --- | --- |
+| `TestSimReplayScoresFlowThroughOverlayFingerprintAndHub` | 27.4 s | ≤ 30 s |
+| `TestSimReplayWindowClosesFiveHoursAfterKickoff` | 33.4 s (45.0 s including test-binary build), after replacing two fixed 6 s sleeps with `waitForInWindow` polling (15 s cap each) | ≤ 45 s |
+| `TestBrowserReplayScoreReachesMatchupsWithinTenSeconds` | 42.0 s (per-change latency 0.6 s – 2.6 s, all ≤ 10 s) | ≤ 45 s |
+| `TestBrowserMatchupsFitsPhoneWidthAndExpandsScorebugs` | 26.6 s | ≤ 30 s |
+| Whole root run (`go test . -count=1`) | 130.8 s (2:11.5), under concurrent host load from other sessions | "under two minutes" (Goal 6) |
+
+The whole-root-run figure above was measured with several other agents' work running concurrently on the same host (background builds and an unrelated project's test suite); no quiet-host baseline has been recorded yet. Re-run on an otherwise idle host before treating a Goal 6 regression as real.
+
+`perf-budget.json`'s `league` profile (`/`, `/matchups`, `/team`, `/login`) caps `js_total_kb` at 90 on a gzip transfer-byte basis. A signed-out `/` stays at the pre-existing inline navigation enhancer alone (24 KB gzip) — the bootstrap hub bundle Task 6 added loads only for seated pages. A seated page (the GoSX bootstrap runtime plus the scores-live hub chunk) measures 77 KB gzip (`bootstrap-runtime` 40 KB + `bootstrap-feature-hubs` 14 KB + the 24 KB floor), comfortably inside the 90 KB cap.
 
 ## Fleet-scale commissioner operations
 

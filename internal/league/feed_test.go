@@ -188,7 +188,7 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 	if err := svc.store.SetSchedule(schedule); err != nil {
 		t.Fatal(err)
 	}
-	svc.feed = newLiveFeed(scheduleProvider{svc: svc})
+	svc.feed = newLiveFeed(scheduleProvider{svc: svc}, svc)
 	svc.feed.cacheFor = 0
 
 	scheduled := svc.LiveScoresView(context.Background())
@@ -213,14 +213,14 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 			}
 		}
 	}
-	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Checks every 60 sec", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
+	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Push at kickoff · 60 s fallback", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
 	if strings.Contains(scheduled["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("scheduled liveStatus = %q", scheduled["liveStatus"])
 	}
 
 	now = kickoff.Add(time.Minute)
 	active := svc.LiveScoresView(context.Background())
-	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "60 sec", "Live scoring", "Scores update on their own. No need to refresh the page.", "live")
+	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "Push · 60 s fallback", "Live scoring", "Scores push to this page during games. No refresh is needed.", "live")
 	if !strings.Contains(active["status"].(string), "in progress") || !strings.Contains(active["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("active status/liveStatus = %q / %q", active["status"], active["liveStatus"])
 	}
@@ -233,7 +233,7 @@ func (failingScoreProvider) Snapshot(context.Context, time.Time) (LiveSnapshot, 
 }
 
 func TestLiveFeedProviderFailureIsDegradedFallback(t *testing.T) {
-	snapshot := newLiveFeed(failingScoreProvider{}).Snapshot(context.Background(), time.Now())
+	snapshot := newLiveFeed(failingScoreProvider{}, nil).Snapshot(context.Background(), time.Now())
 	if snapshot.State != MatchupStateDegraded || snapshot.Source != "fallback" || snapshot.Warning == "" {
 		t.Fatalf("fallback snapshot = %+v, want explicit degraded fallback", snapshot)
 	}
@@ -264,6 +264,64 @@ func TestDemoProviderUsesConfiguredSeasonStartWeek(t *testing.T) {
 	if snapshot.WeekLabel != "Week 6 · Sundays from September 10" {
 		t.Fatalf("preseason week label = %q, want configured week/date", snapshot.WeekLabel)
 	}
+}
+
+// TestWeekStateSlateLineAcrossPreWeekLiveBetweenGamesAndComplete is rider
+// test (5) (review of ae1a525): scheduleProvider.weekState's fourth
+// return value (the masthead's slate-line phrase) has no direct test
+// covering all four states it can render across a week's lifecycle.
+func TestWeekStateSlateLineAcrossPreWeekLiveBetweenGamesAndComplete(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	provider := scheduleProvider{svc: svc}
+	kickoff := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)
+
+	t.Run("pre-week", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: now.Add(2 * time.Hour)}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateScheduled {
+			t.Fatalf("pre-week state = %q, want scheduled", state)
+		}
+		if !strings.HasSuffix(slate, " slate") || strings.Contains(slate, "in progress") {
+			t.Fatalf("pre-week slate = %q, want a bare upcoming-slate phrase", slate)
+		}
+	})
+
+	t.Run("live", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: kickoff}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateInProgress {
+			t.Fatalf("live state = %q, want in_progress", state)
+		}
+		if !strings.Contains(slate, "slate in progress") {
+			t.Fatalf("live slate = %q, want the in-progress phrase", slate)
+		}
+	})
+
+	t.Run("between games (NFL final, week not closed)", func(t *testing.T) {
+		svc.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{Week: 1, Kickoff: kickoff, Final: true}}
+		})
+		state, _, _, slate := provider.weekState(1, nil, now)
+		if state != MatchupStateDegraded {
+			t.Fatalf("between-games state = %q, want degraded", state)
+		}
+		if !strings.Contains(slate, "games final") {
+			t.Fatalf("between-games slate = %q, want the games-final phrase", slate)
+		}
+	})
+
+	t.Run("complete", func(t *testing.T) {
+		matchups := []LeagueMatchup{{ID: "m1", Week: 1, HomeTeamID: "team-1", AwayTeamID: "team-2", Final: true}}
+		state, _, _, slate := provider.weekState(1, matchups, now)
+		if state != MatchupStateFinal || slate != "Week complete" {
+			t.Fatalf("complete state = %q slate = %q, want final/\"Week complete\"", state, slate)
+		}
+	})
 }
 
 func TestDemoProviderReturnsPreseasonSnapshot(t *testing.T) {
