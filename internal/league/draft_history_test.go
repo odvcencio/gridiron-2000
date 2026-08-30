@@ -102,8 +102,12 @@ func TestDraftDataSkipsHistoryBuildWhenNotIncluded(t *testing.T) {
 	if len(history.Rounds) != 0 || len(history.Picks) != 0 || len(history.Teams) != 0 {
 		t.Fatalf("history = %+v, want the zero value when includeHistory=false", history)
 	}
-	if elapsed > 5*time.Millisecond {
-		t.Fatalf("draftData(includeHistory=false) took %s at %d picks, want well under DraftHistory's own build cost", elapsed, teams*rounds)
+	limit := 5 * time.Millisecond
+	if raceDetectorEnabled {
+		limit = 30 * time.Millisecond
+	}
+	if elapsed > limit {
+		t.Fatalf("draftData(includeHistory=false) took %s at %d picks, want well under %s", elapsed, teams*rounds, limit)
 	}
 }
 
@@ -112,6 +116,12 @@ func TestDraftDataSkipsHistoryBuildWhenNotIncluded(t *testing.T) {
 // full render cost, hydratedTapePicksProps in page.server.go) must stay
 // well under 3ms at a full completed draft's pick count — the pre-fix
 // O(P^2) TeamPicks rescan cost the review clocked at ~8ms at 120 picks.
+// Under -race the limit widens to 25ms (raceDetectorEnabled,
+// race_enabled_test.go): the race detector's own per-access
+// instrumentation legitimately costs several times the un-instrumented
+// runtime on code this allocation-heavy, well short of what the O(P^2)
+// regression this test guards against would still cost even scaled up
+// by the same factor.
 func TestDraftHistoryStaysFastAtFullDraftPickCount(t *testing.T) {
 	service, _, _ := newEventTestService(t)
 	teams := len(service.Teams())
@@ -125,7 +135,11 @@ func TestDraftHistoryStaysFastAtFullDraftPickCount(t *testing.T) {
 		history.Detail(pick.Number)
 	}
 	elapsed := time.Since(start)
-	if elapsed > 3*time.Millisecond {
-		t.Fatalf("DraftHistory + one Detail per pick took %s at %d picks, want well under 3ms", elapsed, total)
+	limit := 3 * time.Millisecond
+	if raceDetectorEnabled {
+		limit = 25 * time.Millisecond
+	}
+	if elapsed > limit {
+		t.Fatalf("DraftHistory + one Detail per pick took %s at %d picks, want well under %s", elapsed, total, limit)
 	}
 }

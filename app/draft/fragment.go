@@ -225,8 +225,12 @@ func attachDraftFragmentSince(data map[string]any, request *http.Request) map[st
 	history.Rounds = filterTapeRoundsSince(history.Rounds, since)
 	// The on-the-clock synthetic row belongs on a full pane render only
 	// (Task 7 Step 4): repeating it on every "?since=" poll would duplicate
-	// it above each newly-arrived round.
+	// it above each newly-arrived round. The same is true of the "NO PICKS
+	// YET" empty-tape message (RoundsEmpty): a "?since=" poll legitimately
+	// returns zero new rounds whenever nothing has changed, which is not
+	// the same fact as "the draft holds no picks at all".
 	history.HasOnClock = false
+	history.RoundsEmpty = false
 	data["history"] = history
 	return data
 }

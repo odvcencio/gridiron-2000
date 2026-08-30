@@ -8652,6 +8652,21 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
+/* T2 (2026-08-30 polish pass): the Board sub-tab expands the history pane
+   the same way S5's completed-draft state does above — the round x team
+   grid needs the width to show every team column at 1440px
+   (PickBoard.dc.html). #history-board sits inside .draft-pane--history
+   (DraftHistoryHead), so :has() at .draft-panes reaches it without a
+   second ancestor hop. The Tape/Teams tabs restore the plain three-pane
+   grid; neither keys off #history-board. */
+.draft-panes:has(#history-board:checked) {
+  grid-template-columns: minmax(0, 1fr) 300px;
+}
+
+.draft-panes:has(#history-board:checked) .draft-pane--available {
+  display: none;
+}
+
 .draft-pane {
   display: flex;
   flex-direction: column;
@@ -9001,8 +9016,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   margin: var(--space-xs) var(--space-md);
 }
 
-/* Tape: a sticky round header (direction, pick-number span, "N of M
-   made") over every round's rows, newest round first (D4). */
+/* Tape: a sticky round header over every round's rows, newest round first
+   (D4). T1 (2026-08-30 polish pass): direction/span and the made-count
+   share ONE line with ROUND's own idx span — white-space: nowrap keeps
+   "ROUND 3" from wrapping its number onto a second line at the pane's
+   fixed 360px width, the bug the pre-polish three-span layout could hit. */
 .tape-round {
   position: sticky;
   top: 0;
@@ -9010,11 +9028,23 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-sm);
-  padding: var(--space-xs) var(--space-md);
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
   border-top: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
   background: var(--color-canvas);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tape-round .idx {
+  flex-shrink: 0;
+}
+
+.tape-round__meta {
+  font-size: .6875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* The history pane is a fixed 360px column at every viewport width (D2's
@@ -9023,7 +9053,13 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    and .tape-row__player (player + position chip) stack in one flexible
    .tape-row__body column instead of claiming two grid tracks of their
    own — two side-by-side narrow columns left the player name squeezed to
-   nothing (S11, the war-room screenshot pass). */
+   nothing (S11, the war-room screenshot pass). This grid template also
+   backs .tape-row__summary below (T3): a made pick's row is now a
+   <details>, and its own content (slot/badge/body/meta) lives in its
+   <summary>, not in this element directly — details.tape-row (below)
+   resets this rule's display/padding back to a plain block for that case,
+   so this declaration keeps serving the by-team pane's plain <article
+   class="tape-row"> rows (DraftByTeam, no detail toggle) unchanged. */
 .tape-row {
   display: grid;
   grid-template-columns: 2.375rem 2.5rem minmax(0, 1fr) auto;
@@ -9042,6 +9078,52 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   color: var(--color-text-muted);
 }
 
+/* T4: the slot label ("3.03") never wraps inside its own narrow 2.125rem
+   grid column — a real bug the T-rider screenshot pass caught at 390px. */
+.tape-row__slot {
+  white-space: nowrap;
+}
+
+/* T3: a made pick's row and its detail panel share one <details> element
+   (class="tape-row pick-detail"); the details box itself just stacks its
+   two children (summary, then the opened .pick-detail__body) rather than
+   inheriting .tape-row's own grid — that grid now lives on
+   .tape-row__summary, its first child, below. */
+details.tape-row {
+  display: block;
+  padding: 0;
+}
+
+/* .tape-row__summary is the whole visible row (T3/T4, 2026-08-30 polish
+   pass): the native <details> disclosure trigger, so the entire ~64px row
+   is the DETAIL toggle — tap anywhere on it, not a separate full-width
+   button — and it clears the 44px (2.75rem) touch baseline on its own
+   height. The native marker triangle is hidden; .pick-detail__chevron
+   (in .tape-row__meta) is the visual affordance instead. */
+.tape-row__summary {
+  display: grid;
+  grid-template-columns: 2.125rem 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tape-row__summary::-webkit-details-marker {
+  display: none;
+}
+
+.tape-row__summary::marker {
+  content: "";
+}
+
+.tape-row__summary:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: -2px;
+}
+
 .tape-row__body {
   display: flex;
   flex-direction: column;
@@ -9049,31 +9131,96 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   min-width: 0;
 }
 
-.tape-row__who,
+/* T4: the player line leads, strongest (bold, the .tape-row strong size
+   above) — name, position chip, and any AUTO/COMM tag share it. */
 .tape-row__player {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: .375rem;
   min-width: 0;
 }
 
+.tape-row__player strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tape-row__player .pos,
+.tape-row__player .tag {
+  flex-shrink: 0;
+}
+
+/* T4: the team+manager+NFL-team+time-to-pick line follows, muted and
+   smaller (13px) than the player line above it — one line, team name
+   only mildly emphasized against the rest. */
+.tape-row__who {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: .3125rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
 .tape-row__who strong,
-.tape-row__who small,
-.tape-row__player strong,
-.tape-row__player small {
-  display: block;
+.tape-row__who small {
+  font-size: .8125rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+/* The team name claims space first (flex: 1 1 auto); the manager/NFL-
+   team/time-to-pick trailer is capped at 45% and shrinks first, so a
+   long team name never gets crowded down to one or two letters by a
+   comparatively unimportant manager name (S12, the T4 screenshot pass —
+   the pre-tuning ratio let "Null Pointers" collapse to "N…"). */
+.tape-row__who strong {
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tape-row__who small {
+  flex: 0 1 auto;
+  max-width: 45%;
+  min-width: 0;
+}
+
+/* T4: the slot label and pick number stay in mono at the row's own two
+   edges — .tape-row__slot (grid column 1) and .tape-row__meta (last
+   column) — matching the mockup. */
 .tape-row__meta {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 2px;
   justify-self: end;
 }
 
-.tape-row .pick-detail {
-  grid-column: 1 / -1;
+/* T3: a decorative marker only (aria-hidden in the markup) — the
+   <summary> itself is the real, accessible toggle; this never claims its
+   own hit target. */
+.pick-detail__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  color: var(--color-text-muted);
+}
+
+.pick-detail__chevron::before {
+  content: "⌄";
+  font-size: .875rem;
+  line-height: 1;
+  display: inline-block;
+  transition: transform .15s ease;
+}
+
+details[open] > .tape-row__summary .pick-detail__chevron::before {
+  transform: rotate(180deg);
 }
 
 /* On-the-clock row (highlighted) and the viewer's own picks (tinted): the
@@ -9093,15 +9240,11 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   background: var(--color-white-faint);
 }
 
-.pick-detail > summary {
-  margin-top: var(--space-xs);
-}
-
 .pick-detail__body {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
-  padding: var(--space-sm) 0 var(--space-xs);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
 }
 
 .pick-detail__stats {
@@ -9126,7 +9269,12 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    with .draft-pane__body. */
 .board-grid {
   display: grid;
-  grid-template-columns: 6rem repeat(var(--board-columns), minmax(7.5rem, 1fr));
+  /* T2 (2026-08-30 polish pass): 6.25rem (not 7.5rem) so all 8 default
+     team columns fit at 1440px without a horizontal scroll once the
+     Board tab expands the history pane (.draft-panes:has(#history-board
+     :checked), above) alongside the still-300px my-team pane — 1fr still
+     grows each column past that floor whenever more room is free. */
+  grid-template-columns: 6rem repeat(var(--board-columns), minmax(6.25rem, 1fr));
   gap: .375rem;
   padding: var(--space-sm);
 }
@@ -9474,16 +9622,16 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     padding-bottom: 4.5rem;
   }
 
-  /* R6: at phone width the banner's one truncated line drops readable
-     text; two lines (still clipped past that) keep more of a pause/
-     rehearsal/offline-pool notice legible without growing the command
-     bar unbounded. title= (page.gsx) covers whatever still clips. */
-  .draft-command__banner {
-    white-space: normal;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-  }
+  /* P6 (2026-08-30 review, superseding this task's own T5 draft): back
+     to the base rule's plain one-line nowrap/ellipsis truncation at
+     phone width too — no override needed at all. The two-line
+     -webkit-box/-webkit-line-clamp attempt this rule held earlier
+     turned out not to clip reliably on a grid item in the engine the
+     screenshot pass measured against (its overflow bled into the tab
+     segment below); a max-height + overflow: hidden fallback fixed the
+     bleed but P6 asks for the simpler one-line shape outright instead.
+     text-overflow: ellipsis (the base rule, unmodified here) never
+     clips mid-glyph; title= (page.gsx) covers whatever still clips. */
 
   .draft-shell:has(#tab-players:checked) .draft-pane--available,
   .draft-shell:has(#tab-queue:checked) .draft-pane--mine,
@@ -9499,6 +9647,21 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
      selector repeats that same ID to win the cascade honestly. */
   .draft-shell--final:has(#tab-players:checked) .draft-pane--available {
     display: none;
+  }
+
+  /* P8 (2026-08-30 review): the phone bottom tab bar's Teams tab and the
+     history pane's own Tape/Board/Teams segment are two independent
+     radio groups — #tab-teams:checked alone only reveals .draft-pane--
+     history (above), not any particular sub-view inside it. Force the
+     Teams sub-view whenever the Teams tab is the one showing the pane,
+     regardless of which sub-view a manager last picked on desktop. */
+  .draft-shell:has(#tab-teams:checked) .draft-history__view--tape,
+  .draft-shell:has(#tab-teams:checked) .draft-history__view--board {
+    display: none;
+  }
+
+  .draft-shell:has(#tab-teams:checked) .draft-history__view--teams {
+    display: block;
   }
 
   .draft-tabbar {

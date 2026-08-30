@@ -126,35 +126,55 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Error("the tape pane must never render the room's one live-dot")
 	}
 
-	// Row 17: the team name and manager precede the player name (D4's "who
-	// picked who" ordering) — isolate row 17's own markup first.
+	// T1: the round header is one mono line — a single "mono muted" span
+	// carrying direction/span AND the made-count together, never the old
+	// three-span shape that could wrap "ROUND" and its number apart.
+	round3HeadStart := strings.Index(body, `data-tape-key="round-3"`)
+	round3HeadEnd := strings.Index(body[round3HeadStart:], "</div>")
+	round3Head := body[round3HeadStart : round3HeadStart+round3HeadEnd]
+	if n := strings.Count(round3Head, `class="mono muted`); n != 1 {
+		t.Errorf("round 3 header has %d \"mono muted\" spans, want exactly 1 (T1: one line, never a three-cell grid): %s", n, round3Head)
+	}
+
+	// Row 17: isolate row 17's own markup (a <details> now: T3 merges the
+	// row and its DETAIL toggle into one native disclosure).
 	row17Start := strings.Index(body, `data-tape-key="pick-17"`)
 	if row17Start < 0 {
 		t.Fatal("row 17 not found")
 	}
-	row17End := strings.Index(body[row17Start:], "</article>")
+	row17End := strings.Index(body[row17Start:], "</details>")
 	if row17End < 0 {
-		t.Fatal("row 17 has no closing </article>")
+		t.Fatal("row 17 has no closing </details>")
 	}
 	row17 := body[row17Start : row17Start+row17End]
 	pick17 := picks[16]
-	teamAt, playerAt := strings.Index(row17, pick17.TeamName), strings.Index(row17, pick17.PlayerName)
-	if teamAt < 0 || playerAt < 0 || teamAt > playerAt {
-		t.Fatalf("row 17: team name (%d) must precede player name (%d): %s", teamAt, playerAt, row17)
+	// T4: the player line leads (strongest, bold) and the team+manager
+	// line follows, muted — the mockup's own row order.
+	playerAt, teamAt := strings.Index(row17, pick17.PlayerName), strings.Index(row17, pick17.TeamName)
+	if teamAt < 0 || playerAt < 0 || playerAt > teamAt {
+		t.Fatalf("row 17: player name (%d) must precede team name (%d): %s", playerAt, teamAt, row17)
 	}
 	if !strings.Contains(row17, pick17.Manager) {
 		t.Errorf("row 17 missing manager %q: %s", pick17.Manager, row17)
 	}
+	if !strings.Contains(row17, `aria-expanded="false"`) {
+		t.Errorf("row 17 missing its DETAIL toggle's aria-expanded: %s", row17)
+	}
 
-	// Row 3: AUTO.
+	// Row 3: AUTO, inline with the player line (T4) — before the
+	// team+manager line, not just present anywhere in the row.
 	row3Start := strings.Index(body, `data-tape-key="pick-3"`)
 	if row3Start < 0 {
 		t.Fatal("row 3 not found")
 	}
-	row3End := strings.Index(body[row3Start:], "</article>")
+	row3End := strings.Index(body[row3Start:], "</details>")
 	row3 := body[row3Start : row3Start+row3End]
 	if !strings.Contains(row3, "AUTO") {
 		t.Errorf("row 3 (auto pick) missing AUTO: %s", row3)
+	}
+	pick3 := picks[2]
+	if autoAt, teamAt := strings.Index(row3, "AUTO"), strings.Index(row3, pick3.TeamName); autoAt < 0 || teamAt < 0 || autoAt > teamAt {
+		t.Errorf("row 3: AUTO (%d) must sit on the player line, before the team+manager line (%d): %s", autoAt, teamAt, row3)
 	}
 
 	// Value labels.
@@ -197,8 +217,121 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 		t.Error("Export CSV must render once the draft is complete")
 	}
 
-	// Every one of the 17 picks carries its own pick-detail accordion.
-	if n := strings.Count(body, `<details class="pick-detail">`); n != made {
-		t.Errorf("pick-detail count = %d, want %d", n, made)
+	// Every one of the 17 picks carries its own pick-detail accordion, and
+	// (T3) its DETAIL toggle is the row itself, not a full-width button.
+	if n := strings.Count(body, `class="tape-row pick-detail"`); n != made {
+		t.Errorf("tape-row pick-detail count = %d, want %d", n, made)
+	}
+	if n := strings.Count(body, `aria-expanded="false"`); n != made {
+		t.Errorf("aria-expanded count = %d, want %d (one DETAIL toggle per pick)", n, made)
+	}
+	if strings.Contains(body, `class="btn btn-sm btn-ghost">Detail<`) {
+		t.Error("DETAIL must no longer render as a separate full-width button (T3)")
+	}
+}
+
+// TestDraftTapeRowOmitsTimeToPickWhenZero is P9 (2026-08-30 review): the
+// tape row's team+manager line drops its trailing time-to-pick segment
+// when a pick carries no meaningful elapsed time (the very first pick off
+// a cold clock), rather than showing a misleading "0:00".
+func TestDraftTapeRowOmitsTimeToPickWhenZero(t *testing.T) {
+	pick := tapePickFixture(1, "manager")
+	pick.TimeToPickSec, pick.TimeToPick = 0, "0:00"
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture([]league.TapePick{pick}, 1, 2, false)
+	body := renderTapeRegion(t, fixture)
+	rowStart := strings.Index(body, `data-tape-key="pick-1"`)
+	if rowStart < 0 {
+		t.Fatal("row 1 not found")
+	}
+	rowEnd := strings.Index(body[rowStart:], "</details>")
+	row := body[rowStart : rowStart+rowEnd]
+	if strings.Contains(row, "0:00") {
+		t.Errorf("row 1 (TimeToPickSec=0) must omit the time-to-pick segment: %s", row)
+	}
+
+	pick.TimeToPickSec, pick.TimeToPick = 49, "0:49"
+	fixture["history"] = fullHistoryFixture([]league.TapePick{pick}, 1, 2, false)
+	body = renderTapeRegion(t, fixture)
+	rowStart = strings.Index(body, `data-tape-key="pick-1"`)
+	rowEnd = strings.Index(body[rowStart:], "</details>")
+	row = body[rowStart : rowStart+rowEnd]
+	if !strings.Contains(row, "0:49") {
+		t.Errorf("row 1 (TimeToPickSec=49) must show its time-to-pick segment: %s", row)
+	}
+}
+
+// TestDraftTapeOnClockRowSharesTheBadgePartial is P10 (2026-08-30 review):
+// the synthetic on-the-clock row renders an avatar image, same as a made
+// row, when the on-clock team carries one — never only the abbreviation
+// fallback a made row without an avatar also uses.
+func TestDraftTapeOnClockRowSharesTheBadgePartial(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["on_clock"] = map[string]any{
+		"abbreviation": "TST", "name": "Test Team", "tone": "cyan",
+		"has_avatar_image": true, "avatar_image_url": "/avatars/test-team.png",
+	}
+	fixture["history"] = fullHistoryFixture(nil, 1, 1, false)
+	body := renderTapeRegion(t, fixture)
+	clockStart := strings.Index(body, `class="tape-row tape-row--clock"`)
+	if clockStart < 0 {
+		t.Fatal("on-clock row not found")
+	}
+	clockEnd := strings.Index(body[clockStart:], "</article>")
+	clockRow := body[clockStart : clockStart+clockEnd]
+	if !strings.Contains(clockRow, `src="/avatars/test-team.png"`) {
+		t.Errorf("on-clock row must render the team's avatar image when it has one: %s", clockRow)
+	}
+}
+
+// TestDraftTapeRendersOnClockAndEmptyMessageBeforeAnyPick is a regression
+// test for a bug the T-rider polish pass found in Task 7's original code
+// (2026-08-30 review): DraftTapeRows gated its on-the-clock synthetic row
+// and "NO PICKS YET" message on len(props.Rounds) == 0, evaluated inside a
+// nested component call — GoSX's route.RenderProgramComponent interpreter
+// does not resolve len() correctly on a slice prop rebound that way, so
+// neither ever rendered before the draft's first pick. The fix threads a
+// RoundsEmpty bool computed in Go instead.
+func TestDraftTapeRendersOnClockAndEmptyMessageBeforeAnyPick(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = true
+	fixture["on_clock"] = map[string]any{"abbreviation": "TST", "name": "Test Team", "tone": "cyan"}
+	fixture["history"] = fullHistoryFixture(nil, 1, 1, false)
+	body := renderTapeRegion(t, fixture)
+	if !strings.Contains(body, "NO PICKS YET") {
+		t.Errorf("the tape must show \"NO PICKS YET\" before any pick is made: %s", body)
+	}
+	if !strings.Contains(body, `class="tape-row tape-row--clock"`) {
+		t.Errorf("the tape must show the on-the-clock row before any pick is made: %s", body)
+	}
+	if !strings.Contains(body, "Test Team") {
+		t.Errorf("the on-clock row must name the on-clock team: %s", body)
+	}
+}
+
+// TestDraftByTeamRendersPicksAndNeeds is P11 (2026-08-30 review): the By
+// Team tab renders a team's own picks (in order) and its roster-needs
+// chips — never just the team header.
+func TestDraftByTeamRendersPicksAndNeeds(t *testing.T) {
+	pick := tapePickFixture(1, "manager")
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	history := fullHistoryFixture([]league.TapePick{pick}, 1, 2, false)
+	history.Teams = []league.TeamColumn{
+		{
+			Team:  map[string]any{"id": pick.TeamID, "name": pick.TeamName, "abbreviation": pick.TeamAbbr, "tone": pick.TeamTone, "manager": pick.Manager, "mine": false},
+			Picks: []league.TapePick{pick},
+			Needs: []map[string]any{{"label": "WR", "filled": 0, "total": 2, "open": true}},
+		},
+	}
+	fixture["history"] = history
+	body := renderTapeRegion(t, fixture)
+	if !strings.Contains(body, pick.PlayerName) {
+		t.Error("By team tab missing the team's own drafted player")
+	}
+	if !strings.Contains(body, "WR 0/2") {
+		t.Errorf("By team tab missing the roster-needs chip \"WR 0/2\": %s", body)
 	}
 }

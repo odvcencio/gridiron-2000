@@ -224,6 +224,13 @@ type draftHistoryView struct {
 	OnClockName string
 	OnClockAbbr string
 	OnClockTone string
+	// OnClockHasAvatarImage/OnClockAvatarImageURL: see page.gsx's
+	// DraftHistoryProps doc comment (P10, 2026-08-30 review).
+	OnClockHasAvatarImage bool
+	OnClockAvatarImageURL string
+	// RoundsEmpty: see page.gsx's DraftHistoryProps doc comment (the
+	// len()-on-a-rebound-slice-prop GoSX limitation, 2026-08-30 review).
+	RoundsEmpty bool
 }
 
 // draftTapePickView is the typed pick/board/team view's row-level entry,
@@ -438,6 +445,8 @@ func buildDraftHistoryView(data map[string]any) draftHistoryView {
 		Complete: complete, Latest: history.Latest, Since: -1,
 		HasOnClock: hasOnClock, NextLabel: nextLabel,
 		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
+		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
+		RoundsEmpty: len(history.Rounds) == 0,
 	}
 }
 

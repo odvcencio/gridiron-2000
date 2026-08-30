@@ -990,6 +990,23 @@ type DraftHistoryProps struct {
 	OnClockName  string
 	OnClockAbbr  string
 	OnClockTone  string
+	// OnClockHasAvatarImage/OnClockAvatarImageURL let the on-the-clock
+	// synthetic row share the same avatar-or-abbreviation badge partial
+	// every made row already uses (P10, 2026-08-30 review), instead of
+	// always falling back to the plain abbreviation.
+	OnClockHasAvatarImage bool
+	OnClockAvatarImageURL string
+	// RoundsEmpty is len(Rounds) == 0, computed in Go (page.server.go) and
+	// passed down as a plain bool rather than evaluated as len(props.Rounds)
+	// inside DraftTapeRows: GoSX's file-program interpreter (the
+	// route.RenderProgramComponent path every fragment renders through)
+	// does not resolve len() correctly on a slice prop rebound into a
+	// nested component call (empirically confirmed 2026-08-30 — the
+	// expression silently evaluates empty rather than 0), while a plain
+	// bool rebinds correctly. False on every "?since=" incremental poll
+	// (attachDraftFragmentSince, fragment.go), matching HasOnClock: the
+	// empty-tape message belongs on a full pane render only.
+	RoundsEmpty bool
 }
 
 type DraftAvailableProps struct {
@@ -1587,20 +1604,51 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 	</div>
 }
 
-// DraftPickDetail is one pick's expanded accordion (Task 7 Step 4): value
-// vs ADP, time to pick, provenance, best available at that pick, and the
-// drafting team's own picks so far, behind a <details>/<summary> disclosure
-// so the tape stays scannable with every row collapsed.
+// DraftPickDetail is one made pick's tape row AND its expanded detail
+// panel together (T3/T4 polish, 2026-08-30 review): the whole row is the
+// <details>'s own <summary>, so the ~64px row itself is the DETAIL
+// toggle — tap or press Enter anywhere on it, no separate full-width
+// button. The player line leads (bold, strongest, with its position chip
+// and any AUTO/COMM tag inline); the team+manager+NFL-team+time-to-pick
+// line sits under it, muted; the slot label and pick number stay in mono
+// at the row's two edges, matching the mockup. .pick-detail__chevron is a
+// decorative marker only (aria-hidden): the summary element itself is the
+// real, natively keyboard-and-screen-reader-accessible toggle, and its
+// aria-expanded state is the browser's own <details> semantics.
 func DraftPickDetail(props TapePick) Node {
-	return <details class="pick-detail">
-		<summary class="btn btn-sm btn-ghost">Detail</summary>
+	return <details class="tape-row pick-detail" data-tape-key={"pick-" + props.Number} data-pick-number={props.Number} data-mine={props.Mine} data-auto={props.IsAuto} data-position={props.Position}>
+		<summary class="tape-row__summary" aria-expanded="false">
+			<span class="mono tape-row__slot">{props.Label}</span>
+			<span class={"team-mark tone-" + props.TeamTone}>
+				<If cond={props.HasAvatarImage}>
+					<img class="avatar-mark__photo" src={props.AvatarImageURL} alt={props.TeamName} loading="lazy" />
+				</If>
+				<If cond={props.HasAvatarImage == false}>{props.TeamAbbr}</If>
+			</span>
+			<div class="tape-row__body">
+				<div class="tape-row__player">
+					<strong>{props.PlayerName}</strong>
+					<span class={"pos pos-" + props.Position}>{props.Position}</span>
+					<If cond={props.IsAuto}><b class="tag tag--auto">AUTO</b></If>
+					<If cond={props.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
+				</div>
+				<div class="tape-row__who">
+					<strong>{props.TeamName}</strong>
+					<small>
+						{props.Manager} · {props.NFLTeam}
+						<If cond={props.TimeToPickSec > 0}> · {props.TimeToPick}</If>
+					</small>
+				</div>
+			</div>
+			<div class="tape-row__meta">
+				<span class="mono">#{props.Number}</span>
+				<span class="pick-detail__chevron" aria-hidden="true"></span>
+			</div>
+		</summary>
 		<div class="pick-detail__body">
 			<div class="pick-detail__stats">
 				<span class="mono">Proj {props.Projection}</span>
 				<If cond={props.HasValue}><span class="mono">vs ADP {props.ValueLabel}</span></If>
-				<span class="mono">Time to pick {props.TimeToPick}</span>
-				<If cond={props.IsAuto}><b class="tag tag--auto">AUTO</b></If>
-				<If cond={props.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
 			</div>
 			<p class="mono muted">Drafted by {props.TeamName} · {props.Manager}</p>
 			<p class="mono muted">Source: {props.Source}</p>
@@ -1622,61 +1670,49 @@ func DraftPickDetail(props TapePick) Node {
 }
 
 // DraftTapeRows is the tape's own body (D4): every round newest first, each
-// with a sticky header (direction, pick-number span, "N of M made"), then
-// one row per pick — team badge, team name + manager, then player + a
-// position chip (the owner's "show who picked who" ask) — newest pick
-// first, each carrying its own DraftPickDetail accordion. It is also the
-// "?since=" fragment body (fragment.go): prepareDraftData/attachDraftFragmentSince
-// pre-filter Rounds to picks numbered above Since before this renders, so
-// the template itself needs no cursor-aware branching.
+// with a sticky one-line header (round, snake direction, pick span, "N of
+// M made" — T1 polish, 2026-08-30 review), then one row per pick, newest
+// pick first, each row doubling as its own DraftPickDetail toggle. It is
+// also the "?since=" fragment body (fragment.go): prepareDraftData/
+// attachDraftFragmentSince pre-filter Rounds to picks numbered above Since
+// before this renders, so the template itself needs no cursor-aware
+// branching.
 func DraftTapeRows(props DraftHistoryProps) Node {
 	return <div class="draft-tape-rows">
 		<Each of={props.Rounds} as="round">
 			<div class="tape-round" data-tape-key={"round-" + round.Round} data-current={round.Current}>
 				<span class="idx">ROUND {round.Round}</span>
-				<span class="mono muted">{round.Direction} picks {round.First}–{round.Last}</span>
-				<span class="mono muted">{round.Made} of {round.Total} made</span>
+				<span class="mono muted tape-round__meta">{round.Direction} picks {round.First}–{round.Last} · {round.Made} of {round.Total} made</span>
 			</div>
 			<If cond={round.Current && props.HasOnClock}>
 				<article class="tape-row tape-row--clock">
 					<span class="mono tape-row__slot">{props.NextLabel}</span>
-					<span class={"team-mark tone-" + props.OnClockTone}>{props.OnClockAbbr}</span>
+					<span class={"team-mark tone-" + props.OnClockTone}>
+						<If cond={props.OnClockHasAvatarImage}>
+							<img class="avatar-mark__photo" src={props.OnClockAvatarImageURL} alt={props.OnClockName} loading="lazy" />
+						</If>
+						<If cond={props.OnClockHasAvatarImage == false}>{props.OnClockAbbr}</If>
+					</span>
 					<div class="tape-row__body"><strong>On the clock</strong><small>{props.OnClockName}</small></div>
 				</article>
 			</If>
 			<Each of={round.Picks} as="pick">
-				<article class="tape-row" data-tape-key={"pick-" + pick.Number} data-pick-number={pick.Number} data-mine={pick.Mine} data-auto={pick.IsAuto} data-position={pick.Position}>
-					<span class="mono tape-row__slot">{pick.Label}</span>
-					<span class={"team-mark tone-" + pick.TeamTone}>
-						<If cond={pick.HasAvatarImage}>
-							<img class="avatar-mark__photo" src={pick.AvatarImageURL} alt={pick.TeamName} loading="lazy" />
-						</If>
-						<If cond={pick.HasAvatarImage == false}>{pick.TeamAbbr}</If>
-					</span>
-					<div class="tape-row__body">
-						<div class="tape-row__who"><strong>{pick.TeamName}</strong><small>{pick.Manager}</small></div>
-						<div class="tape-row__player">
-							<strong>{pick.PlayerName}</strong>
-							<small><span class={"pos pos-" + pick.Position}>{pick.Position}</span> · {pick.NFLTeam} · {pick.TimeToPick}</small>
-						</div>
-					</div>
-					<div class="tape-row__meta">
-						<If cond={pick.IsAuto}><b class="tag tag--auto">AUTO</b></If>
-						<If cond={pick.IsCommissioner}><b class="tag tag--comm">COMM</b></If>
-						<span class="mono">#{pick.Number}</span>
-					</div>
-					<DraftPickDetail {...pick}></DraftPickDetail>
-				</article>
+				<DraftPickDetail {...pick}></DraftPickDetail>
 			</Each>
 		</Each>
-		<If cond={len(props.Rounds) == 0}>
-			<If cond={props.HasOnClock}>
-				<article class="tape-row tape-row--clock">
-					<span class="mono tape-row__slot">{props.NextLabel}</span>
-					<span class={"team-mark tone-" + props.OnClockTone}>{props.OnClockAbbr}</span>
-					<div class="tape-row__body"><strong>On the clock</strong><small>{props.OnClockName}</small></div>
-				</article>
-			</If>
+		<If cond={props.RoundsEmpty && props.HasOnClock}>
+			<article class="tape-row tape-row--clock">
+				<span class="mono tape-row__slot">{props.NextLabel}</span>
+				<span class={"team-mark tone-" + props.OnClockTone}>
+					<If cond={props.OnClockHasAvatarImage}>
+						<img class="avatar-mark__photo" src={props.OnClockAvatarImageURL} alt={props.OnClockName} loading="lazy" />
+					</If>
+					<If cond={props.OnClockHasAvatarImage == false}>{props.OnClockAbbr}</If>
+				</span>
+				<div class="tape-row__body"><strong>On the clock</strong><small>{props.OnClockName}</small></div>
+			</article>
+		</If>
+		<If cond={props.RoundsEmpty}>
 			<div class="empty-tape">
 				<strong>NO PICKS YET</strong>
 				<p>The tape starts moving when the first selection is locked.</p>
@@ -1769,7 +1805,7 @@ func DraftHistory(props DraftHistoryProps) Node {
 		<div class="draft-history__view draft-history__view--tape">
 			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>
 			<div class="tape" id="tape-latest">
-				<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone}></DraftTapeRows>
+				<DraftTapeRows Rounds={props.Rounds} Since={0} HasOnClock={props.HasOnClock} NextLabel={props.NextLabel} OnClockName={props.OnClockName} OnClockAbbr={props.OnClockAbbr} OnClockTone={props.OnClockTone} OnClockHasAvatarImage={props.OnClockHasAvatarImage} OnClockAvatarImageURL={props.OnClockAvatarImageURL} RoundsEmpty={props.RoundsEmpty}></DraftTapeRows>
 			</div>
 		</div>
 		<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
