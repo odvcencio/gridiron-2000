@@ -534,9 +534,6 @@ func Page() Node {
 								<If cond={receipt.has_winner}>
 									<span>Winner: {receipt.winner_name} ({receipt.winner_abbr})</span>
 								</If>
-								<If cond={receipt.has_winning_bid}>
-									<span>Winning bid: {receipt.winning_bid} FAAB</span>
-								</If>
 							</div>
 							<div class="waiver-receipt-order mono">
 								<span>Filed order {receipt.submitted_order}</span>

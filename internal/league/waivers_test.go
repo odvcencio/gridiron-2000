@@ -45,7 +45,7 @@ func TestLastClosedWeekEmptyWeekNeverCounts(t *testing.T) {
 func TestWaiverOrderPreWeek1InverseDraftOrder(t *testing.T) {
 	teamIDs := defaultTeamIDs() // team-1..team-8, config order
 	state := PersistedState{DraftOrder: append([]string(nil), teamIDs...)}
-	order := waiverOrder(state, DefaultConfig(), nil)
+	order := waiverOrder(state, DefaultConfig(), nil, time.Time{})
 	want := reverseStrings(teamIDs)
 	if len(order) != len(want) {
 		t.Fatalf("len(order) = %d, want %d", len(order), len(want))
@@ -59,7 +59,7 @@ func TestWaiverOrderPreWeek1InverseDraftOrder(t *testing.T) {
 
 func TestWaiverOrderPreWeek1FallsBackToDefaultOrderWhenUndrawn(t *testing.T) {
 	state := PersistedState{} // no DraftOrder drawn yet
-	order := waiverOrder(state, DefaultConfig(), nil)
+	order := waiverOrder(state, DefaultConfig(), nil, time.Time{})
 	want := reverseStrings(defaultTeamIDs())
 	for i := range want {
 		if order[i] != want[i] {
@@ -122,7 +122,7 @@ func TestWaiverOrderSeasonWeightDefault60(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 60
 	state := PersistedState{Schedule: &sch}
-	order := waiverOrder(state, cfg, nil)
+	order := waiverOrder(state, cfg, nil, time.Time{})
 	want := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -138,7 +138,7 @@ func TestWaiverOrderPureSeasonAt100(t *testing.T) {
 	sch := weightingFixtureSchedule()
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 100
-	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil)
+	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil, time.Time{})
 	want := []string{"team-8", "team-7", "team-6", "team-5", "team-4", "team-3", "team-2", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -151,7 +151,7 @@ func TestWaiverOrderPureWeeklyAt0(t *testing.T) {
 	sch := weightingFixtureSchedule()
 	cfg := DefaultConfig()
 	cfg.Waivers.SeasonWeightPct = 0
-	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil)
+	order := waiverOrder(PersistedState{Schedule: &sch}, cfg, nil, time.Time{})
 	want := []string{"team-1", "team-2", "team-3", "team-4", "team-5", "team-6", "team-7", "team-8"}
 	for i, id := range want {
 		if order[i] != id {
@@ -237,7 +237,7 @@ func TestApplyInPeriodPenaltyMovesWinnerToBack(t *testing.T) {
 		{Type: "claim", TeamID: "team-1", At: claimAt},
 	}
 	boundary := claimAt.Add(-time.Hour) // the claim resolved after the boundary: in period
-	order := applyInPeriodPenalties(base, transactions, boundary, true)
+	order := applyInPeriodPenalties(base, transactions, boundary)
 	want := []string{"team-2", "team-3", "team-4", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -256,7 +256,7 @@ func TestApplyInPeriodPenaltyExpiresAtNextRecompute(t *testing.T) {
 		{Type: "claim", TeamID: "team-1", At: claimAt},
 	}
 	boundary := claimAt.Add(time.Hour)
-	order := applyInPeriodPenalties(base, transactions, boundary, true)
+	order := applyInPeriodPenalties(base, transactions, boundary)
 	for i, id := range base {
 		if order[i] != id {
 			t.Fatalf("order = %v, want the untouched base %v (penalty expired)", order, base)
@@ -271,7 +271,7 @@ func TestApplyInPeriodPenaltyMultipleWinsReplayInAtOrder(t *testing.T) {
 		{Type: "claim", TeamID: "team-1", At: time.Date(2026, 9, 20, 9, 1, 0, 0, time.UTC)},
 	}
 	boundary := time.Date(2026, 9, 20, 8, 0, 0, 0, time.UTC)
-	order := applyInPeriodPenalties(base, transactions, boundary, true)
+	order := applyInPeriodPenalties(base, transactions, boundary)
 	want := []string{"team-2", "team-4", "team-3", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -280,17 +280,20 @@ func TestApplyInPeriodPenaltyMultipleWinsReplayInAtOrder(t *testing.T) {
 	}
 }
 
-// TestApplyInPeriodPenaltyFallsBackToAlwaysPenalizeWithoutBoundary pins
-// F1's safe fallback: haveBoundary == false (no derivable last-week-close
-// instant — the schedule mirror is empty, or the season's last scheduled
-// week has already closed) must treat every claim as in period, never as
-// exempt, closing the equality loophole the old Week-number comparison had.
-func TestApplyInPeriodPenaltyFallsBackToAlwaysPenalizeWithoutBoundary(t *testing.T) {
+// TestApplyInPeriodPenaltyZeroBoundaryPenalizesEverything pins F1's safe
+// direction at applyInPeriodPenalties' own level: a zero-value boundary
+// (waiverPenaltyFallbackFloor's own last resort, a truly fresh store with
+// neither a committed run nor a schedule) must treat every claim as in
+// period, never as exempt — closing the equality loophole the old
+// Week-number comparison had. waiverPenaltyBoundary's bounded fallback
+// (finding 2 of the 2026-08-30 review) is pinned separately in
+// TestWaiverPenaltyBoundary and TestProcessWaiversFallbackBoundedToRecentClaims.
+func TestApplyInPeriodPenaltyZeroBoundaryPenalizesEverything(t *testing.T) {
 	base := []string{"team-1", "team-2", "team-3", "team-4"}
 	transactions := []Transaction{
 		{Type: "claim", TeamID: "team-1", At: time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)},
 	}
-	order := applyInPeriodPenalties(base, transactions, time.Time{}, false)
+	order := applyInPeriodPenalties(base, transactions, time.Time{})
 	want := []string{"team-2", "team-3", "team-4", "team-1"}
 	for i, id := range want {
 		if order[i] != id {
@@ -370,7 +373,7 @@ func TestProcessWaiversPenaltyAppliesWhenScheduleMirrorIsEmpty(t *testing.T) {
 	}
 	now := time.Date(2026, 9, 15, 9, 0, 0, 0, time.UTC)
 	cfg := processWaiversCfg()
-	order := waiverOrder(store.Snapshot(), cfg, nil)
+	order := waiverOrder(store.Snapshot(), cfg, nil, now)
 	first, rival := order[0], order[1]
 	for _, c := range []WaiverClaim{
 		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
@@ -395,7 +398,7 @@ func TestProcessWaiversPenaltyAppliesWhenScheduleMirrorIsEmpty(t *testing.T) {
 	if wins > 1 {
 		t.Fatalf("%s swept %d claims in one run after an empty schedule mirror; the in-period penalty must apply after its first win", first, wins)
 	}
-	if after := waiverOrder(store.Snapshot(), cfg, nil); after[0] == first {
+	if after := waiverOrder(store.Snapshot(), cfg, nil, now); after[0] == first {
 		t.Fatalf("winner %s stayed at waiver position 1 after winning; no in-period penalty applied (order=%v)", first, after)
 	}
 }
@@ -419,7 +422,7 @@ func TestProcessWaiversPenaltyAppliesAfterForceClose(t *testing.T) {
 		{ID: "gmnf", Week: 1, Kickoff: now.Add(11 * time.Hour), Away: "KC", Home: "LV"}, // MNF, not kicked
 	}
 	cfg := processWaiversCfg()
-	order := waiverOrder(store.Snapshot(), cfg, games)
+	order := waiverOrder(store.Snapshot(), cfg, games, now)
 	first, rival := order[0], order[1]
 	for _, c := range []WaiverClaim{
 		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
@@ -446,11 +449,17 @@ func TestProcessWaiversPenaltyAppliesAfterForceClose(t *testing.T) {
 }
 
 // TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek covers the
-// season's last scheduled week: once it closes there is no following
-// week left in the mirror at all (not merely an outage), so
-// lastWeekClosePenaltyBoundary's fallback must still penalize every
-// winning claim — otherwise the very last week's waiver leader would earn
-// a permanent, un-demotable position 1 for the rest of the franchise's
+// season's last scheduled week: once it closes there is no following week
+// in the mirror at all (not merely an outage). Under the corrected
+// finding-1 design, waiverPenaltyBoundary needs no following week — it
+// anchors to lastClosedWeek's OWN last known kickoff, still present in
+// the mirror here, so this exercises the legitimate anchored boundary,
+// not a fallback. The old design anchored to a following week's kickoff,
+// which never exists once the season ends, making its fallback
+// permanent; that bounded-fallback behavior is covered separately by
+// TestProcessWaiversFallbackBoundedToRecentClaims. Either way the
+// invariant holds: the very last week's waiver leader must not earn a
+// permanent, un-demotable position 1 for the rest of the franchise's
 // history.
 func TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek(t *testing.T) {
 	store := processWaiversFixtureStore(t)
@@ -463,7 +472,7 @@ func TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek(t *testing.T) {
 		{ID: "g1", Week: 1, Kickoff: now.Add(-192 * time.Hour), Away: "PIT", Home: "NYJ", Final: true},
 	} // no week-2 game exists anywhere: the season is over
 	cfg := processWaiversCfg()
-	order := waiverOrder(store.Snapshot(), cfg, games)
+	order := waiverOrder(store.Snapshot(), cfg, games, now)
 	first, rival := order[0], order[1]
 	for _, c := range []WaiverClaim{
 		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
@@ -487,8 +496,179 @@ func TestProcessWaiversPenaltyAppliesAfterFinalScheduledWeek(t *testing.T) {
 	if wins > 1 {
 		t.Fatalf("%s swept %d claims after the season's last scheduled week; a post-season claim must still be penalized", first, wins)
 	}
-	if after := waiverOrder(store.Snapshot(), cfg, games); after[0] == first {
+	if after := waiverOrder(store.Snapshot(), cfg, games, now); after[0] == first {
 		t.Fatal("winner stayed at waiver position 1 after the season's last scheduled week; the post-season fallback must still demote a winner")
+	}
+}
+
+// TestWaiverPenaltyBoundary is a direct table test of the boundary
+// derivation itself (2026-08-30 review, finding 4): every branch of
+// waiverPenaltyBoundary/waiverPenaltyFallbackFloor, including the healthy
+// path finding 1 was missing entirely — every prior F1 test's fixture had
+// no next-week game, so every one of them took the fallback and none
+// exercised a real, already-past anchored boundary.
+func TestWaiverPenaltyBoundary(t *testing.T) {
+	sundayKickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	wednesdayRun := time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC)
+	closedWeek1 := closedWeek1Schedule()
+
+	tests := []struct {
+		name  string
+		state PersistedState
+		games []GameInfo
+		now   time.Time
+		want  time.Time
+	}{
+		{
+			name:  "healthy path: week 1 closed, its own kickoff already past",
+			state: PersistedState{Schedule: &closedWeek1},
+			games: []GameInfo{{ID: "g1", Week: 1, Kickoff: sundayKickoff, Final: true}},
+			now:   wednesdayRun,
+			want:  sundayKickoff,
+		},
+		{
+			name:  "healthy path ignores a later week's kickoff in the mirror",
+			state: PersistedState{Schedule: &closedWeek1},
+			games: []GameInfo{
+				{ID: "g1", Week: 1, Kickoff: sundayKickoff, Final: true},
+				{ID: "g2", Week: 2, Kickoff: sundayKickoff.AddDate(0, 0, 4), Final: false},
+			},
+			now:  wednesdayRun,
+			want: sundayKickoff, // anchored to week 1's own kickoff, not week 2's
+		},
+		{
+			name:  "candidate boundary not yet in the past falls back (force-close ahead of the mirror)",
+			state: PersistedState{Schedule: &closedWeek1},
+			games: []GameInfo{{ID: "g1", Week: 1, Kickoff: sundayKickoff, Final: true}, {ID: "gmnf", Week: 1, Kickoff: wednesdayRun.Add(time.Hour)}},
+			now:   wednesdayRun,
+			want:  time.Time{}, // no WaiversProcessedThrough/GeneratedAt in this fixture either
+		},
+		{
+			name:  "no games for the closed week at all falls back (source outage)",
+			state: PersistedState{Schedule: &closedWeek1},
+			games: nil,
+			now:   wednesdayRun,
+			want:  time.Time{},
+		},
+		{
+			name:  "week 0 (nothing closed yet) falls back",
+			state: PersistedState{},
+			games: []GameInfo{{ID: "g1", Week: 1, Kickoff: sundayKickoff, Final: true}},
+			now:   wednesdayRun,
+			want:  time.Time{},
+		},
+		{
+			name:  "fallback bounds to WaiversProcessedThrough when set",
+			state: PersistedState{Schedule: &closedWeek1, WaiversProcessedThrough: sundayKickoff.Add(48 * time.Hour)},
+			games: nil,
+			now:   wednesdayRun,
+			// One nanosecond before the watermark: a claim resolved AT the
+			// watermark (this exact run's own now, once WaiversProcessedThrough
+			// catches up to it) must still compare "at or after" — see
+			// waiverPenaltyFallbackFloor.
+			want: sundayKickoff.Add(48*time.Hour - time.Nanosecond),
+		},
+		{
+			name:  "fallback bounds to the schedule's GeneratedAt when WaiversProcessedThrough is unset",
+			state: PersistedState{Schedule: &SeasonSchedule{Season: 2026, GeneratedAt: sundayKickoff.Add(-72 * time.Hour), Weeks: closedWeek1.Weeks}},
+			games: nil,
+			now:   wednesdayRun,
+			want:  sundayKickoff.Add(-72*time.Hour - time.Nanosecond),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := waiverPenaltyBoundary(tc.state, tc.games, tc.now)
+			if !got.Equal(tc.want) {
+				t.Fatalf("waiverPenaltyBoundary = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestProcessWaiversHealthyBoundaryDemotesWithinRun ports the 2026-08-30
+// review's reviewer-verified probe for finding 1: week 1 closed with its
+// own kickoffs already in the mirror (the healthy path, not a fallback),
+// the week-2 Thursday game also present, a Wednesday 09:00 run, three
+// teams, two contested claims. The first winner must drop back and must
+// not also win the second contested claim in the same run.
+func TestProcessWaiversHealthyBoundaryDemotesWithinRun(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	if err := store.SetSchedule(closedWeek1Schedule()); err != nil {
+		t.Fatal(err)
+	}
+	sundayKickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
+	thursdayKickoff := sundayKickoff.AddDate(0, 0, 4)
+	now := time.Date(2026, 9, 16, 9, 0, 0, 0, time.UTC) // Wednesday 09:00
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: sundayKickoff, Away: "PIT", Home: "NYJ", Final: true},
+		{ID: "g2", Week: 1, Kickoff: sundayKickoff, Away: "SF", Home: "SEA", Final: true},
+		{ID: "g3", Week: 1, Kickoff: sundayKickoff, Away: "DAL", Home: "PHI", Final: true},
+		{ID: "g4", Week: 1, Kickoff: sundayKickoff, Away: "GB", Home: "CHI", Final: true},
+		{ID: "gwk2", Week: 2, Kickoff: thursdayKickoff}, // week 2's own game, not yet kicked
+	}
+	cfg := processWaiversCfg()
+	order := waiverOrder(store.Snapshot(), cfg, games, now)
+	first, rival, third := order[0], order[1], order[2]
+	for _, c := range []WaiverClaim{
+		{ID: "clm-a", TeamID: first, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-b", TeamID: rival, AddID: "wv-1", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-c", TeamID: first, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+		{ID: "clm-d", TeamID: third, AddID: "wv-2", FiledAt: now.Add(-2 * time.Hour)},
+	} {
+		if err := store.FileClaim(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := store.ProcessWaivers(now, cfg, games, processWaiversFixturePool(), 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wins := 0
+	for _, r := range results {
+		if r.Outcome == "won" && r.Claim.TeamID == first {
+			wins++
+		}
+	}
+	if wins > 1 {
+		t.Fatalf("%s swept %d contested claims in one run on the healthy anchored-boundary path (want at most 1)", first, wins)
+	}
+	if after := waiverOrder(store.Snapshot(), cfg, games, now); after[0] == first {
+		t.Fatalf("winner %s stayed at waiver position 1 after winning on the healthy anchored-boundary path (order=%v)", first, after)
+	}
+}
+
+// TestProcessWaiversFallbackBoundedToRecentClaims pins finding 2 of the
+// 2026-08-30 review: when waiverPenaltyBoundary cannot derive a firm
+// boundary (here, a schedule-source outage after week 1 closed), the
+// fallback must not replay the whole claim-transaction history — only
+// claims at or after the last known settled instant (WaiversProcessedThrough).
+// An ancient win from well before that watermark must stay exempt; a
+// recent one must still be penalized.
+func TestProcessWaiversFallbackBoundedToRecentClaims(t *testing.T) {
+	sch := closedWeek1Schedule()
+	base := []string{"team-1", "team-2", "team-3", "team-4"}
+	watermark := time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
+	state := PersistedState{
+		Schedule:                &sch,
+		WaiversProcessedThrough: watermark,
+		Transactions: []Transaction{
+			// Ancient: long before the watermark. Must not be penalized —
+			// the old, unbounded fallback would have replayed this forever.
+			{Type: "claim", TeamID: "team-1", At: watermark.Add(-30 * 24 * time.Hour)},
+			// Recent: after the watermark. Must still be penalized.
+			{Type: "claim", TeamID: "team-2", At: watermark.Add(time.Hour)},
+		},
+	}
+	// games == nil: no derivable per-week boundary, so this exercises the
+	// bounded fallback specifically, not the healthy anchored path.
+	boundary := waiverPenaltyBoundary(state, nil, watermark.Add(2*time.Hour))
+	order := applyInPeriodPenalties(base, state.Transactions, boundary)
+	if order[0] != "team-1" {
+		t.Fatalf("order = %v, want team-1 (the ancient win) still at position 1 — the fallback must not reach back before WaiversProcessedThrough", order)
+	}
+	if order[len(order)-1] != "team-2" {
+		t.Fatalf("order = %v, want team-2 (the recent win) demoted to the back", order)
 	}
 }
 
@@ -1050,7 +1230,12 @@ func TestProcessWaiversComputesStandingsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	atomic.StoreInt64(&performanceBaseOrderCalls, 0)
+	// F7 (2026-08-30 review): performanceBaseOrderCalls is nil in
+	// production; wire the test seam only for this call, and clear it
+	// afterward so no other test observes it set.
+	var calls int64
+	performanceBaseOrderCalls = func() { atomic.AddInt64(&calls, 1) }
+	defer func() { performanceBaseOrderCalls = nil }()
 	results, err := store.ProcessWaivers(now, processWaiversCfg(), nil, processWaiversFixturePool(), 99)
 	if err != nil {
 		t.Fatal(err)
@@ -1058,7 +1243,7 @@ func TestProcessWaiversComputesStandingsOnce(t *testing.T) {
 	if len(results) != 4 {
 		t.Fatalf("results = %+v, want four outcomes", results)
 	}
-	if got := atomic.LoadInt64(&performanceBaseOrderCalls); got != 1 {
+	if got := atomic.LoadInt64(&calls); got != 1 {
 		t.Fatalf("performanceBaseOrder calls in one run = %d, want exactly 1 (hoisted out of the per-claim loop)", got)
 	}
 }

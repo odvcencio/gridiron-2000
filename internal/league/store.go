@@ -42,7 +42,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 9
+const currentSchemaVersion = 10
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -171,6 +171,14 @@ type Store struct {
 	// test can return an error without committing, or call tx.Commit and then
 	// return an error, so reconciliation proves both possible outcomes.
 	commitTx func(*sql.Tx) error
+	// filingLog backs the F5 filing-rate cooldown (2026-08-30 review,
+	// finding 5): each team's recent FileClaim/FileClaimWithAuthority
+	// filing instants, trimmed to the trailing waiverFilingRateWindow on
+	// every check. Deliberately not persisted — the open-claim count cap
+	// (maxOpenClaimsPerTeam, a LEVEL) already survives a restart; this
+	// bounds the RATE of a live cancel/refile burst, a concern a process
+	// restart naturally resets on its own.
+	filingLog map[string][]time.Time
 }
 
 func NewStore(filePath string) *Store {
@@ -3222,6 +3230,15 @@ func (s *Store) fileClaimWithAuthority(claim WaiverClaim, games []GameInfo, pool
 	if !knownTeam(claim.TeamID) {
 		return fmt.Errorf("unknown team %q", claim.TeamID)
 	}
+	// F5 (2026-08-30 review, finding 5): maxOpenClaimsPerTeam below caps
+	// how many claims a team may hold open at once — a LEVEL — but a
+	// cancel/refile loop never grows that count, so it never trips. This
+	// bounds the RATE of filing attempts instead. now.IsZero() (the plain
+	// FileClaim path, which no production caller uses) skips the check:
+	// there is no run instant to measure a rolling window against.
+	if !now.IsZero() && !s.allowWaiverFilingLocked(claim.TeamID, now) {
+		return fmt.Errorf("you filed too many claims recently; wait before filing another")
+	}
 	owner := rosterOwner(currentRosters(s.state))
 	if owner[claim.AddID] != "" {
 		return fmt.Errorf("that player is already on a roster")
@@ -3269,7 +3286,49 @@ func (s *Store) fileClaimWithAuthority(claim WaiverClaim, games []GameInfo, pool
 		s.state = previous
 		return err
 	}
+	if !now.IsZero() {
+		s.recordWaiverFilingLocked(claim.TeamID, now)
+	}
 	return nil
+}
+
+// waiverFilingRateLimit and waiverFilingRateWindow bound how often one
+// team may file a claim (F5, 2026-08-30 review, finding 5): a generous
+// ceiling — a manager filing this often is not a real workflow — that
+// still closes the cancel/refile spam probe the open-claim-count cap
+// (maxOpenClaimsPerTeam) cannot, because canceling always drops that
+// count back down.
+const (
+	waiverFilingRateLimit  = 20
+	waiverFilingRateWindow = time.Hour
+)
+
+// allowWaiverFilingLocked reports whether teamID may file another claim
+// at now, and prunes teamID's filing log to the trailing
+// waiverFilingRateWindow as a side effect. Must be called with s.mu held.
+func (s *Store) allowWaiverFilingLocked(teamID string, now time.Time) bool {
+	if s.filingLog == nil {
+		s.filingLog = map[string][]time.Time{}
+	}
+	cutoff := now.Add(-waiverFilingRateWindow)
+	kept := s.filingLog[teamID][:0]
+	for _, at := range s.filingLog[teamID] {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	s.filingLog[teamID] = kept
+	return len(kept) < waiverFilingRateLimit
+}
+
+// recordWaiverFilingLocked appends teamID's successful filing instant.
+// Must be called with s.mu held, after allowWaiverFilingLocked already
+// pruned the log for this same call.
+func (s *Store) recordWaiverFilingLocked(teamID string, at time.Time) {
+	if s.filingLog == nil {
+		s.filingLog = map[string][]time.Time{}
+	}
+	s.filingLog[teamID] = append(s.filingLog[teamID], at)
 }
 
 // CancelClaim removes teamID's open claim named by claimID. Removing a
@@ -3390,6 +3449,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 	week := lineupCurrentWeekAt(games, now)
 	pending := append([]WaiverClaim(nil), s.state.WaiverClaims...)
 	var due, notYetDue []WaiverClaim
+	var results []WaiverResult
 	for _, c := range pending {
 		// A catch-up run may use a historical process instant while claims
 		// filed during the downtime already exist in the open list. They
@@ -3397,6 +3457,7 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 		// a receipt whose ResolvedAt precedes FiledAt. Keep them open for
 		// the first cycle at or after FiledAt.
 		if c.FiledAt.After(now) {
+			c.DeferredStreak = 0
 			notYetDue = append(notYetDue, c)
 			continue
 		}
@@ -3408,9 +3469,36 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 			// resolves once the player returns to the pool, or the manager
 			// cancels it themselves. waiverClaimResolutionView (players.go)
 			// surfaces this as "deferred" on the claim's own MY CLAIMS row.
+			//
+			// Left alone, a deferred claim can hold its team's cap slot
+			// forever with no signal (2026-08-30 review, finding 6). Track
+			// consecutive pool-absent runs: notify once on the first
+			// deferral, and expire the claim outright once it has deferred
+			// across waiverClaimDeferralLimit consecutive runs, with a final
+			// notification naming the reason.
+			c.DeferredStreak++
+			if c.DeferredStreak >= waiverClaimDeferralLimit {
+				reason := fmt.Sprintf("this claim deferred for %d consecutive runs because %s never returned to the player pool; it expired automatically", waiverClaimDeferralLimit, c.AddID)
+				results = append(results, WaiverResult{Claim: c, Outcome: "expired", Reason: reason, Week: week})
+				receipt := WaiverReceipt{
+					ClaimID: c.ID, Season: cfg.Season, Week: week, TeamID: c.TeamID,
+					Add: receiptPlayer(poolByID, c.AddID), Bid: c.Bid,
+					SubmittedPriority: c.Priority, Mode: cfg.Waivers.Mode,
+					Outcome: "expired", Reason: reason, FiledAt: c.FiledAt.UTC(), ResolvedAt: now,
+				}
+				if c.DropID != "" {
+					receipt.Drops = []TransactionPlayer{receiptPlayer(poolByID, c.DropID)}
+				}
+				s.state.WaiverReceipts = append(s.state.WaiverReceipts, receipt)
+				continue // expired: drops out of WaiverClaims entirely, unlike an ordinary deferral
+			}
+			if c.DeferredStreak == 1 {
+				results = append(results, WaiverResult{Claim: c, Outcome: "deferred", Week: week})
+			}
 			notYetDue = append(notYetDue, c)
 			continue
 		}
+		c.DeferredStreak = 0
 		player := poolByID[c.AddID]
 		status := playerWaiverStatus(s.state, cfg, games, c.AddID, player.NFLTeam, now)
 		if status.State == AvailabilityOnWaivers {
@@ -3430,12 +3518,11 @@ func (s *Store) ProcessWaivers(now time.Time, cfg Config, games []GameInfo, pool
 	// team, sees the fresh back-of-order penalty before its own turn
 	// resolves (section 5.4 step 3's determinism requirement).
 	base := waiverBaseOrder(s.state, cfg)
-	boundary, haveBoundary := lastWeekClosePenaltyBoundary(s.state.Schedule, games)
+	boundary := waiverPenaltyBoundary(s.state, games, now)
 
-	var results []WaiverResult
 	remaining := due
 	for len(remaining) > 0 {
-		order := applyInPeriodPenalties(base, s.state.Transactions, boundary, haveBoundary)
+		order := applyInPeriodPenalties(base, s.state.Transactions, boundary)
 		var budget map[string]int
 		if cfg.Waivers.Mode == "faab" {
 			budget = faabRemaining(s.state, cfg.Waivers.FAABBudget)

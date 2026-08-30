@@ -165,12 +165,20 @@ func TestProcessWaiversDeferredClaimStaysOpenWhenAddIDLeavesPool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(results) != 0 {
-		t.Fatalf("results = %+v, want no resolution while the player is out of the pool", results)
+	// F6 follow-up (2026-08-30 review, finding 6): the first deferral fires
+	// a one-time "deferred" notice — not a resolution — so the manager is
+	// not left silently waiting on a claim that is quietly holding a cap
+	// slot. It is not a "resolution": no receipt, no transaction, and the
+	// claim itself stays open (checked below).
+	if len(results) != 1 || results[0].Outcome != "deferred" {
+		t.Fatalf("results = %+v, want one deferred notice while the player is out of the pool", results)
 	}
 	state := store.Snapshot()
 	if len(state.WaiverClaims) != 1 || state.WaiverClaims[0].ID != "clm-deferred" {
 		t.Fatalf("WaiverClaims = %+v, want clm-deferred still open", state.WaiverClaims)
+	}
+	if state.WaiverClaims[0].DeferredStreak != 1 {
+		t.Fatalf("DeferredStreak = %d, want 1 after the first deferred run", state.WaiverClaims[0].DeferredStreak)
 	}
 	if len(state.WaiverReceipts) != 0 || len(state.Transactions) != 0 {
 		t.Fatalf("a deferred claim must not produce a receipt or transaction: receipts=%d transactions=%d", len(state.WaiverReceipts), len(state.Transactions))
@@ -190,6 +198,61 @@ func TestProcessWaiversDeferredClaimStaysOpenWhenAddIDLeavesPool(t *testing.T) {
 	state = store.Snapshot()
 	if len(state.WaiverClaims) != 0 || len(state.WaiverReceipts) != 1 {
 		t.Fatalf("claims/receipts after recovery = %d/%d, want 0/1", len(state.WaiverClaims), len(state.WaiverReceipts))
+	}
+}
+
+// TestProcessWaiversExpiresClaimAfterThreeConsecutiveDeferrals pins the
+// rest of finding 6 (2026-08-30 review): a claim that never recovers must
+// not hold its team's cap slot forever. It expires automatically after
+// waiverClaimDeferralLimit (3) consecutive deferred runs, with a final
+// "expired" notification/receipt naming the reason, and no notice fires
+// again for the second, still-silent middle run.
+func TestProcessWaiversExpiresClaimAfterThreeConsecutiveDeferrals(t *testing.T) {
+	store := processWaiversFixtureStore(t)
+	now := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if err := store.FileClaim(WaiverClaim{ID: "clm-stuck", TeamID: "team-3", AddID: "gone-player", FiledAt: now.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	pool := processWaiversFixturePool() // "gone-player" never returns to this pool
+	cfg := processWaiversCfg()
+
+	run1, err := store.ProcessWaivers(now, cfg, nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run1) != 1 || run1[0].Outcome != "deferred" {
+		t.Fatalf("run 1 results = %+v, want one deferred notice", run1)
+	}
+
+	run2At := now.Add(24 * time.Hour)
+	run2, err := store.ProcessWaivers(run2At, cfg, nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run2) != 0 {
+		t.Fatalf("run 2 results = %+v, want none — the second consecutive deferral must stay silent", run2)
+	}
+	if got := store.Snapshot().WaiverClaims[0].DeferredStreak; got != 2 {
+		t.Fatalf("DeferredStreak after run 2 = %d, want 2", got)
+	}
+
+	run3At := run2At.Add(24 * time.Hour)
+	run3, err := store.ProcessWaivers(run3At, cfg, nil, pool, 99)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(run3) != 1 || run3[0].Outcome != "expired" || run3[0].Reason == "" {
+		t.Fatalf("run 3 results = %+v, want one expired outcome naming a reason", run3)
+	}
+	state := store.Snapshot()
+	if len(state.WaiverClaims) != 0 {
+		t.Fatalf("WaiverClaims after the third deferral = %+v, want the claim gone", state.WaiverClaims)
+	}
+	if len(state.WaiverReceipts) != 1 || state.WaiverReceipts[0].Outcome != "expired" {
+		t.Fatalf("WaiverReceipts = %+v, want one expired receipt", state.WaiverReceipts)
+	}
+	if len(state.Transactions) != 0 {
+		t.Fatalf("Transactions = %+v, want none — an expiry is not an award", state.Transactions)
 	}
 }
 

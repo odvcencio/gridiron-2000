@@ -489,16 +489,17 @@ func TestCommissionerForceAutopick(t *testing.T) {
 }
 
 // TestAdminRunWaivers pins F5's commissioner force-run: the same
-// authority/confirmation gates AdminForceAutopick uses, and a resolved
-// run that reuses Store.ProcessWaivers exactly (the ordinary cycle's own
-// resolution path), recording WaiversProcessedThrough at the
+// authority/confirmation gates AdminForceAutopick uses, a matching
+// errAdminActionStale freshness token (2026-08-30 review, finding 10), and
+// a resolved run that reuses Store.ProcessWaivers exactly (the ordinary
+// cycle's own resolution path), recording WaiversProcessedThrough at the
 // commissioner's own clock instant rather than a computed nextRun.
 func TestAdminRunWaivers(t *testing.T) {
 	t.Run("rejected for non-commissioners", func(t *testing.T) {
 		service := newTestService(t, false)
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
 		t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
-		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation); err == nil {
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, "stale"); err == nil {
 			t.Fatal("a non-commissioner request must be rejected")
 		}
 	})
@@ -506,8 +507,50 @@ func TestAdminRunWaivers(t *testing.T) {
 	t.Run("rejected without the exact confirmation", func(t *testing.T) {
 		service := newTestService(t, true) // demo mode grants commissioner
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-		if _, err := service.AdminRunWaivers(request, "wrong"); err == nil {
+		token := waiverRunToken(service.store.Snapshot())
+		if _, err := service.AdminRunWaivers(request, "wrong", token); err == nil {
 			t.Fatal("a missing/incorrect confirmation must be rejected")
+		}
+	})
+
+	t.Run("rejected for a missing or stale token", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, ""); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("empty token = %v, want stale-action rejection", err)
+		}
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, "stale-token"); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("stale token = %v, want stale-action rejection", err)
+		}
+	})
+
+	t.Run("a replayed token after a successful run is rejected", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		if err := service.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.FileClaim(WaiverClaim{ID: "clm-replay", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		token := waiverRunToken(service.store.Snapshot())
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token); err != nil {
+			t.Fatalf("first run: %v", err)
+		}
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token); !errors.Is(err, errAdminActionStale) {
+			t.Fatalf("replayed token after a completed run = %v, want stale-action rejection", err)
 		}
 	})
 
@@ -526,7 +569,8 @@ func TestAdminRunWaivers(t *testing.T) {
 			t.Fatal(err)
 		}
 		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
-		results, err := service.AdminRunWaivers(request, RunWaiversConfirmation)
+		token := waiverRunToken(service.store.Snapshot())
+		results, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token)
 		if err != nil {
 			t.Fatalf("AdminRunWaivers: %v", err)
 		}

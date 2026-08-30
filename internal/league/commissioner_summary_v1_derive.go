@@ -327,10 +327,13 @@ func commissionerV1WaiverRunState(cfg Config, state PersistedState, now time.Tim
 	if state.WaiversProcessedThrough.IsZero() {
 		return "scheduled"
 	}
+	// nextWaiverProcessingRun never returns the zero time here: it always
+	// resolves through firstRunStrictlyAfter/firstRunAtOrAfter, which
+	// construct a real calendar instant from cfg and a non-zero processedThrough
+	// (the WaiversProcessedThrough.IsZero() guard above already returned).
+	// A dead nextRun.IsZero() check used to guard the line below; removed
+	// (2026-08-30 review, finding 9).
 	nextRun := nextWaiverProcessingRun(cfg, state.WaiversProcessedThrough, now)
-	if nextRun.IsZero() {
-		return "scheduled"
-	}
 	if now.After(firstRunStrictlyAfter(cfg, nextRun)) {
 		return "overdue"
 	}

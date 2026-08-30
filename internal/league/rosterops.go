@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -237,13 +238,6 @@ func (s *Service) evalWaiverRun(now time.Time) {
 	}
 }
 
-// RunWaiversConfirmation is the exact typed acknowledgement for the
-// commissioner's force-run waiver action (F5, commissioner oversight): an
-// out-of-cycle run resolves every currently due claim immediately and
-// cannot be undone from this screen, the same irreversibility class as
-// ForceCurrentPickConfirmation.
-const RunWaiversConfirmation = "RUN WAIVERS NOW"
-
 // AdminRunWaivers forces one out-of-cycle waiver processing run (F5:
 // commissioner oversight for a run that is stuck or overdue). It calls
 // Store.ProcessWaivers directly — the exact same resolution path
@@ -253,12 +247,23 @@ const RunWaiversConfirmation = "RUN WAIVERS NOW"
 // committed. now is the run's authoritative resolution instant (the
 // commissioner's own clock), not a computed nextRun: a force-run is by
 // definition out of cycle.
-func (s *Service) AdminRunWaivers(r *http.Request, confirmation string) ([]WaiverResult, error) {
+//
+// expectedToken matches AdminForceAutopick's errAdminActionStale pattern
+// (2026-08-30 review, finding 10): the control's own render computed
+// waiverRunToken(state) and the caller must echo it back unchanged, so a
+// double submit — the confirmation screen still open after an ordinary
+// scheduled run, or another commissioner action, already resolved the
+// same claims — fails closed instead of processing (an empty) run twice.
+func (s *Service) AdminRunWaivers(r *http.Request, confirmation, expectedToken string) ([]WaiverResult, error) {
 	if err := s.requireCommissioner(r); err != nil {
 		return nil, err
 	}
 	if err := requireMutationConfirmation(RunWaiversConfirmation, confirmation); err != nil {
 		return nil, err
+	}
+	token := strings.TrimSpace(expectedToken)
+	if token == "" {
+		return nil, errAdminActionStale
 	}
 	pool := s.pool()
 	if playerPoolIsUnavailable(pool) {
@@ -267,6 +272,10 @@ func (s *Service) AdminRunWaivers(r *http.Request, confirmation string) ([]Waive
 	games := s.schedule()
 	if len(games) == 0 {
 		return nil, fmt.Errorf("the schedule source is unavailable; try again once it refreshes")
+	}
+	state := s.store.Snapshot()
+	if token != waiverRunToken(state) {
+		return nil, errAdminActionStale
 	}
 	now := s.clock()
 	rosterCap := CurrentRoster().Total()

@@ -257,6 +257,105 @@ func TestAdminDraftControlsActionPathFreshnessFixtureProcess(t *testing.T) {
 	}
 }
 
+// TestAdminRunWaiversControlFreshnessFixture pins F5's force-run control
+// (2026-08-30 review, finding 3): AdminRunWaivers existed with zero
+// non-test references before this fix, so nothing ever exercised its wiring
+// end to end. This mirrors TestAdminDraftControlsActionPathFreshnessFixture's
+// wrong-confirmation/missing-token/fresh-run/replayed-token shape for
+// clock-force-autopick.
+func TestAdminRunWaiversControlFreshnessFixture(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminRunWaiversControlFreshnessFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_RUN_WAIVERS_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin run-waivers fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAdminRunWaiversControlFreshnessFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_RUN_WAIVERS_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return adminTaskFixturePool(20), 1, "demo" })
+	service.SetScheduleSource(func() []league.GameInfo {
+		return []league.GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Final: true}}
+	})
+	handler := adminTestHandler(t)
+
+	get := func(cookie *http.Cookie) (*http.Cookie, string) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("GET admin = %d: %s", res.Code, res.Body.String())
+		}
+		next := cookie
+		if cookies := res.Result().Cookies(); len(cookies) > 0 {
+			next = cookies[0]
+		}
+		return next, res.Body.String()
+	}
+	post := func(cookie *http.Cookie, body string, form url.Values) (*http.Cookie, string) {
+		form.Set("csrf_token", adminCSRFToken(t, body))
+		req := httptest.NewRequest(http.MethodPost, "/__actions/run-waivers", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(cookie)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusSeeOther {
+			t.Fatalf("POST run-waivers = %d: %s", res.Code, res.Body.String())
+		}
+		if cookies := res.Result().Cookies(); len(cookies) > 0 {
+			cookie = cookies[0]
+		}
+		return get(cookie)
+	}
+
+	cookie, body := get(nil)
+	token := adminHiddenValue(t, body, "waiver_run_token")
+	if token == "" {
+		t.Fatal("admin render omitted waiver_run_token")
+	}
+
+	cookie, body = post(cookie, body, url.Values{"confirm": {"WRONG"}, "waiver_run_token": {token}})
+	if !strings.Contains(body, "this action requires explicit confirmation") || !strings.Contains(body, `name="confirm" value="WRONG"`) {
+		t.Fatalf("wrong confirmation was not validated and retained: %s", body)
+	}
+	if got := adminHiddenValue(t, body, "waiver_run_token"); got != token {
+		t.Fatalf("wrong confirmation changed the run token from %q to %q", token, got)
+	}
+
+	cookie, body = post(cookie, body, url.Values{"confirm": {league.RunWaiversConfirmation}})
+	if !strings.Contains(body, "this commissioner action is stale") {
+		t.Fatalf("missing run token was not rejected: %s", body)
+	}
+
+	cookie, body = post(cookie, body, url.Values{"confirm": {league.RunWaiversConfirmation}, "waiver_run_token": {token}})
+	if !strings.Contains(body, "Waiver run") {
+		t.Fatalf("a fresh, confirmed run was not reported: %s", body)
+	}
+	tokenAfterRun := adminHiddenValue(t, body, "waiver_run_token")
+	if tokenAfterRun == "" || tokenAfterRun == token {
+		t.Fatalf("a completed run did not advance the run token: before=%q after=%q", token, tokenAfterRun)
+	}
+
+	_, body = post(cookie, body, url.Values{"confirm": {league.RunWaiversConfirmation}, "waiver_run_token": {token}})
+	if !strings.Contains(body, "this commissioner action is stale") {
+		t.Fatalf("replaying the pre-run token after a completed run was not rejected: %s", body)
+	}
+}
+
 func adminHiddenValue(t *testing.T, body, name string) string {
 	t.Helper()
 	re := regexp.MustCompile(`name="` + regexp.QuoteMeta(name) + `" value="([^"]*)"`)
@@ -607,6 +706,12 @@ func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 		`NOT RUNNING`,
 		`Pause unavailable - clock is NOT RUNNING`,
 		`Resume unavailable - NOT RUNNING`,
+		// F5's force-run control (2026-08-30 review, finding 3): wired for
+		// real, with the same typed-confirmation-plus-freshness-token
+		// contract as its peers.
+		`name="waiver_run_token"`,
+		`action="/__actions/run-waivers"`,
+		`RUN WAIVERS NOW`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("admin safety render missing %q", want)

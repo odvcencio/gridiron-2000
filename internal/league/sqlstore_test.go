@@ -808,13 +808,16 @@ func TestV6SQLiteMigratesWaiverReceiptsToV7(t *testing.T) {
 	if err := migrateDB(db); err != nil {
 		t.Fatal(err)
 	}
+	// migrateDB always runs every pending step, not only migrate006: since
+	// the 2026-08-30 review added migrate007WaiverClaimDeferral, a fixture
+	// seeded at user_version 5 lands at currentDBVersion (7), not 6.
 	var userVersion int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil || userVersion != 6 {
-		t.Fatalf("user_version = %d (err %v), want 6", userVersion, err)
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&userVersion); err != nil || userVersion != currentDBVersion {
+		t.Fatalf("user_version = %d (err %v), want %d", userVersion, err, currentDBVersion)
 	}
 	var logicalVersion string
-	if err := db.QueryRow(`SELECT value FROM kv WHERE key = ?`, kvSchemaVersion).Scan(&logicalVersion); err != nil || logicalVersion != "7" {
-		t.Fatalf("logical schema = %q (err %v), want 7", logicalVersion, err)
+	if err := db.QueryRow(`SELECT value FROM kv WHERE key = ?`, kvSchemaVersion).Scan(&logicalVersion); err != nil || logicalVersion != "8" {
+		t.Fatalf("logical schema = %q (err %v), want 8", logicalVersion, err)
 	}
 	var receiptTable string
 	if err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'waiver_receipts'`).Scan(&receiptTable); err != nil {

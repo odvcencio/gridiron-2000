@@ -67,6 +67,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate004PickemMarkets,
 	migrate005PickemEnteredAt,
 	migrate006WaiverReceipts,
+	migrate007WaiverClaimDeferral,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -294,6 +295,22 @@ func migrate006WaiverReceipts(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '7')`); err != nil {
 		return fmt.Errorf("stamp schema_version 7: %w", err)
+	}
+	return nil
+}
+
+// migrate007WaiverClaimDeferral adds the F6-follow-up deferral-streak
+// counter (2026-08-30 review, finding 6): how many consecutive
+// Store.ProcessWaivers runs have deferred a claim because its AddID sat
+// outside the bounded player pool. Every existing row defaults to 0 (no
+// deferral history), the same safe reading a claim with no prior runs
+// gets.
+func migrate007WaiverClaimDeferral(tx *sql.Tx) error {
+	if _, err := tx.Exec(`ALTER TABLE waiver_claims ADD COLUMN deferred_streak INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("ALTER TABLE waiver_claims ADD COLUMN deferred_streak: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '8')`); err != nil {
+		return fmt.Errorf("stamp schema_version 8: %w", err)
 	}
 	return nil
 }
@@ -776,12 +793,12 @@ var collectionSpecs = [collectionCount]collectionSpec{
 		tables: []tableDef{{
 			name:    "waiver_claims",
 			keyCols: []string{"ord"},
-			valCols: []string{"id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at"},
+			valCols: []string{"id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak"},
 		}},
 		emit: func(st *PersistedState, sink *rowSink) {
 			for i, c := range st.WaiverClaims {
 				sink.add("waiver_claims", []any{i},
-					c.ID, c.TeamID, c.AddID, c.DropID, c.Bid, c.Priority, encodeTime(c.FiledAt))
+					c.ID, c.TeamID, c.AddID, c.DropID, c.Bid, c.Priority, encodeTime(c.FiledAt), c.DeferredStreak)
 			}
 		},
 	},
@@ -1641,12 +1658,12 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		return state, err
 	}
 
-	if err := queryRows(db, `SELECT "id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at"
+	if err := queryRows(db, `SELECT "id", "team_id", "add_id", "drop_id", "bid", "priority", "filed_at", "deferred_streak"
 		FROM waiver_claims ORDER BY "ord"`,
 		func(rows *sql.Rows) error {
 			var c WaiverClaim
 			var filedAt string
-			if err := rows.Scan(&c.ID, &c.TeamID, &c.AddID, &c.DropID, &c.Bid, &c.Priority, &filedAt); err != nil {
+			if err := rows.Scan(&c.ID, &c.TeamID, &c.AddID, &c.DropID, &c.Bid, &c.Priority, &filedAt, &c.DeferredStreak); err != nil {
 				return err
 			}
 			var err error

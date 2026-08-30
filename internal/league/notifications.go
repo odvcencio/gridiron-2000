@@ -1754,22 +1754,49 @@ func (s *Service) notifyWaiverResult(result WaiverResult, processedAt time.Time)
 		if member.Email == "" {
 			continue
 		}
-		key := keyWaiverResult(result.Claim.ID, member.Email)
+		key := waiverResultKey(result)(member.Email)
 		s.recordAndSend(state, member.Email, categoryTransactions, key, s.clock(), func() renderedNotification {
 			return s.buildWaiverResult(state, result, member, processedAt)
 		})
 	}
 }
 
+// waiverResultKey returns the idempotency key function for result's
+// outcome. A "deferred" notice (finding 6, 2026-08-30 review) is not a
+// terminal resolution: the claim stays open and may still resolve
+// won/beaten/failed/expired later under the same claim ID, so it needs
+// its own key — reusing keyWaiverResult would let this earlier, unrelated
+// notice suppress that later, genuinely terminal one.
+func waiverResultKey(result WaiverResult) func(email string) string {
+	if result.Outcome == "deferred" {
+		return func(email string) string { return keyWaiverClaimDeferred(result.Claim.ID, email) }
+	}
+	return func(email string) string { return keyWaiverResult(result.Claim.ID, email) }
+}
+
+// keyWaiverClaimDeferred is the F6-follow-up idempotency key for a
+// claim's one-time first-deferral notice: distinct from keyWaiverResult
+// (see waiverResultKey).
+func keyWaiverClaimDeferred(claimID, email string) string {
+	return fmt.Sprintf("waiver-deferred:%s:%s", claimID, normalizeEmail(email))
+}
+
 func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, member Member, processedAt time.Time) renderedNotification {
 	pool := s.pool()
 	addPlayer := pool.byID[result.Claim.AddID]
+	// F6 follow-up: "deferred" and "expired" fire precisely when AddID
+	// sits outside the bounded pool, so the player's name is unknown here
+	// by definition; fall back to the raw ID rather than an empty string.
+	addLabel := addPlayer.Name
+	if addLabel == "" {
+		addLabel = result.Claim.AddID
+	}
 	var dropPlayer Player
 	if result.Claim.DropID != "" {
 		dropPlayer = pool.byID[result.Claim.DropID]
 	}
 	faab := s.cfg.Waivers.Mode == "faab"
-	order := waiverOrder(state, s.cfg, s.schedule())
+	order := waiverOrder(state, s.cfg, s.schedule(), processedAt)
 	n := len(order)
 	winningTeamName := ""
 	if result.WinningTeamID != "" {
@@ -1781,9 +1808,9 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	case "won":
 		title = "THE WIRE DELIVERS."
 		if faab {
-			subject = fmt.Sprintf("CLAIM WON: %s is yours — %s", addPlayer.Name, faabUnits(result.WinningBid))
+			subject = fmt.Sprintf("CLAIM WON: %s is yours — %s", addLabel, faabUnits(result.WinningBid))
 		} else {
-			subject = fmt.Sprintf("CLAIM WON: %s is yours — priority %d of %d", addPlayer.Name, result.Position, n)
+			subject = fmt.Sprintf("CLAIM WON: %s is yours — priority %d of %d", addLabel, result.Position, n)
 		}
 	case "beaten":
 		if faab {
@@ -1792,17 +1819,23 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 			// lost the claim (app/help/content.go's documented "never
 			// expose another team's private bid") — only that they were
 			// outbid. The winner still sees their own bid, below.
-			subject = fmt.Sprintf("OUTBID: %s went to %s", addPlayer.Name, winningTeamName)
+			subject = fmt.Sprintf("OUTBID: %s went to %s", addLabel, winningTeamName)
 		} else {
 			title = "BEATEN TO IT."
-			subject = fmt.Sprintf("MISSED: %s went to %s on priority", addPlayer.Name, winningTeamName)
+			subject = fmt.Sprintf("MISSED: %s went to %s on priority", addLabel, winningTeamName)
 		}
+	case "deferred":
+		title = "CLAIM ON HOLD."
+		subject = fmt.Sprintf("CLAIM DEFERRED: %s is temporarily unavailable in the pool", addLabel)
+	case "expired":
+		title = "CLAIM EXPIRED."
+		subject = fmt.Sprintf("CLAIM EXPIRED: %s — %s", addLabel, result.Reason)
 	default: // failed
 		title = "CLAIM BOUNCED."
-		subject = fmt.Sprintf("CLAIM FAILED: %s — %s", addPlayer.Name, result.Reason)
+		subject = fmt.Sprintf("CLAIM FAILED: %s — %s", addLabel, result.Reason)
 	}
 
-	lede := fmt.Sprintf("You filed for %s", addPlayer.Name)
+	lede := fmt.Sprintf("You filed for %s", addLabel)
 	if dropPlayer.Name != "" {
 		lede += fmt.Sprintf(", dropping %s", dropPlayer.Name)
 	}
@@ -1812,14 +1845,23 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 		lede += "."
 	}
 
-	rows := []emailkit.PanelRow{
-		{Label: "PLAYER", Value: fmt.Sprintf("%s · %s · %s", addPlayer.Name, addPlayer.Position, addPlayer.NFLTeam)},
+	playerRow := emailkit.PanelRow{Label: "PLAYER", Value: addLabel}
+	if addPlayer.Position != "" || addPlayer.NFLTeam != "" {
+		playerRow.Value = fmt.Sprintf("%s · %s · %s", addLabel, addPlayer.Position, addPlayer.NFLTeam)
 	}
+	rows := []emailkit.PanelRow{playerRow}
 	switch {
 	case result.Outcome == "won" && !faab:
 		rows = append(rows,
 			emailkit.PanelRow{Label: "PRIORITY", Value: fmt.Sprintf("you claimed at position %d of %d", result.Position, n)},
-			emailkit.PanelRow{Label: "NEXT", Value: fmt.Sprintf("a win drops you to the back until the week-%d recompute", result.Week+1)},
+			// F8 (2026-08-30 review): the prior copy named a specific
+			// "week-N" recompute — a promise the corrected boundary
+			// (finding 1) cannot always keep, since a bye gap or the
+			// season's final week may never produce that exact week number
+			// again. The penalty clears at the next weekly recompute,
+			// whichever week that turns out to be (configuration.md's
+			// `waivers` section carries this same wording).
+			emailkit.PanelRow{Label: "NEXT", Value: "a win drops you to the back until the next weekly recompute"},
 		)
 	case result.Outcome == "won" && faab:
 		remaining := faabRemaining(state, s.cfg.Waivers.FAABBudget)[result.Claim.TeamID]
@@ -1837,7 +1879,9 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 			emailkit.PanelRow{Label: "BID", Value: fmt.Sprintf("yours: %s", faabUnits(result.Claim.Bid))},
 			emailkit.PanelRow{Label: "BUDGET", Value: fmt.Sprintf("%s remaining", faabUnits(remaining))},
 		)
-	default: // failed
+	case result.Outcome == "deferred":
+		rows = append(rows, emailkit.PanelRow{Label: "STATUS", Value: "The player briefly left the pool. Your claim stays open and resolves once they return, or you cancel it."})
+	default: // failed, expired
 		rows = append(rows, emailkit.PanelRow{Label: "REASON", Value: result.Reason})
 	}
 
@@ -1853,7 +1897,7 @@ func (s *Service) buildWaiverResult(state PersistedState, result WaiverResult, m
 	}
 	text, html := emailkit.Render(shell, blocks)
 	return renderedNotification{
-		Key: keyWaiverResult(result.Claim.ID, member.Email), Category: categoryTransactions,
+		Key: waiverResultKey(result)(member.Email), Category: categoryTransactions,
 		To: member.Email, Subject: subject, Text: text, HTML: html,
 	}
 }

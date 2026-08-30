@@ -314,7 +314,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		}
 	}
 
-	order := waiverOrder(state, s.cfg, games)
+	order := waiverOrder(state, s.cfg, games, now)
 	orderRows := make([]map[string]any, 0, len(order))
 	for index, id := range order {
 		orderRows = append(orderRows, map[string]any{

@@ -633,6 +633,25 @@ func Page() Node {
 							</form>
 						</If>
 					</If>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">SEASON // WAIVER RUN</span>
+							<h2 id="admin-waivers-heading">Force an out-of-cycle waiver run</h2>
+							<p class="scoring-note">The daily processor already resolves every due claim on its own schedule. Use this only when a run is stuck or overdue — it resolves every currently due claim immediately and cannot be undone from this screen.</p>
+						</div>
+					</div>
+					<div class="pool-stats">
+						<div class="pool-stat"><span>Open claims</span><b class="mono">{data.waivers.open_claim_count}</b></div>
+						<div class="pool-stat"><span>Last processed</span><b class="mono">{data.waivers.processed_through}</b></div>
+						<div class="pool-stat"><span>Run state</span><b class="mono">{data.waivers.run_state}</b></div>
+					</div>
+					<form method="post" action={actionPath("run-waivers")} data-gosx-managed="true" class="clock-controls">
+						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<input type="hidden" name="waiver_run_token" value={data.waivers.run_token}></input>
+						<label class="mono" for="admin-run-waivers-confirm">TYPE RUN WAIVERS NOW //</label>
+						<input id="admin-run-waivers-confirm" class="scoring-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" placeholder="RUN WAIVERS NOW"></input>
+						<button class="button button--ghost" type="submit">Force run waivers now</button>
+					</form>
 					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger. The prior release note that commissioner seeding automation is not wired into this release yet is retired; use PLAYOFF TRUTH below.</p>
 				</section>
 				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>

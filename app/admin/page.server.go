@@ -212,7 +212,21 @@ func init() {
 					}
 				}
 			}
-			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct"} {
+			data["waivers_run_confirm"] = ""
+			if view, ok := ctx.ActionState("run-waivers"); ok {
+				if view.Error("admin") != "" {
+					data["waivers_run_confirm"] = view.Value("confirm")
+					if waivers, ok := data["waivers"].(map[string]any); ok {
+						if submitted := strings.TrimSpace(view.Value("waiver_run_token")); submitted != "" {
+							// Keep the submitted token bound to the failed render;
+							// a fresh token here could authorize a stale form —
+							// the same current_pick_token precedent above.
+							waivers["run_token"] = submitted
+						}
+					}
+				}
+			}
+			for _, name := range []string{"invite-add", "invite-send", "invite-remove", "seat-release", "co-detach", "team-rename", "avatar-reset", "draft-start", "draft-reschedule", "draft-reset", "draft-undo", "league-reset", "seat-trim", "order-randomize", "clock-pause", "clock-resume", "clock-force-autopick", "clock-extend", "clock-set-duration", "clock-set-autopick", "roster-shape-apply", "roster-shape-reset", "announcement-post", "announcement-delete", "schedule-generate", "schedule-regenerate", "close-week-ready", "close-week-force", "run-waivers", "playoff-preview", "playoff-publish", "playoff-advance", "playoff-correct"} {
 				if view, ok := ctx.ActionState(name); ok {
 					if message := view.Error("admin"); message != "" {
 						data["has_admin_error"] = true
@@ -329,6 +343,45 @@ func init() {
 					return action.Validation(info.Reason, map[string]string{"admin": info.Reason}, ctx.FormData)
 				}
 				return adminCloseWeek(ctx, week, info.Final)
+			},
+			// run-waivers wires F5's commissioner force-run (2026-08-30
+			// review, finding 3): AdminRunWaivers itself already existed
+			// with zero non-test references, and this docs/season-operations.md
+			// claim ("The commissioner may also force an out-of-cycle run
+			// from /admin") was false until this control existed.
+			"run-waivers": func(ctx *action.Context) error {
+				results, err := league.Default().AdminRunWaivers(ctx.Request, ctx.FormData["confirm"], ctx.FormData["waiver_run_token"])
+				if err != nil {
+					return actionui.Validation(ctx, "admin", "admin", err)
+				}
+				plural := func(n int) string {
+					if n == 1 {
+						return ""
+					}
+					return "s"
+				}
+				// deferred is not a resolution (F6 follow-up): the claim
+				// stays open, so it is counted and named separately from a
+				// won/beaten/failed/expired outcome.
+				resolved, deferred := 0, 0
+				for _, result := range results {
+					if result.Outcome == "deferred" {
+						deferred++
+						continue
+					}
+					resolved++
+				}
+				notice := "Waiver run found no due claims."
+				switch {
+				case resolved > 0 && deferred > 0:
+					notice = fmt.Sprintf("Waiver run resolved %d claim%s and deferred %d.", resolved, plural(resolved), deferred)
+				case resolved > 0:
+					notice = fmt.Sprintf("Waiver run resolved %d claim%s.", resolved, plural(resolved))
+				case deferred > 0:
+					notice = fmt.Sprintf("Waiver run deferred %d claim%s; none resolved.", deferred, plural(deferred))
+				}
+				actionui.RedirectWithNotice(ctx, "/admin", notice)
+				return nil
 			},
 			"playoff-preview": func(ctx *action.Context) error {
 				preview, err := league.Default().AdminPreviewPlayoffs(ctx.Request, time.Now())
