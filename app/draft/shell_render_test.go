@@ -82,12 +82,16 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	}
 	handler := buildDraftAuthenticatedHandler(t)
 	common := []string{
-		`class="draft-shell`, `data-draft-live-mode="fallback"`, `class="draft-command"`,
-		`data-gosx-region-url="/draft/fragment/command"`, `data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
+		`class="draft-shell`, `data-draft-live-mode="target"`, `class="draft-command"`,
+		// Task 8 (target mode, gosx@v0.53.10): the command bar carries no
+		// data-gosx-region of its own any more — a fetchless
+		// data-gosx-live-mode="event" root applies hub payloads directly
+		// (S6's zero-fetch-per-pick budget).
+		`data-gosx-live-mode="event"`, `data-gosx-live-on="draft:pick draft:undo draft:clock draft:state"`,
 		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape?view=tape"`,
 		`id="tab-players"`, `id="tab-picks"`, `class="draft-tabbar"`,
 		`aria-live="polite"`, `aria-live="off"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
-		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // inert on v0.53.9: assert the attributes only
+		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // live on v0.53.10
 		`class="live-dot live-dot--bound" aria-hidden="true"`,
 	}
 	forbidden := []string{"draft-masthead", "THE FUTURE", "REHEARSAL MODE:", "Presence is observational. AUTO is authority.", `class="page draft-page"`, `id="draft-commissioner"`}
@@ -134,7 +138,11 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	postDraftAction(t, handler, shellCommissioner, "draft-start", url.Values{"confirm": {"START"}})
 	live := renderDraftForUser(t, handler, seated)
 	check("live", live)
-	for _, want := range append([]string{`data-gosx-countdown-format="mm:ss"`, `data-pick-clock`, `data-pick-label`, `data-clock-state="RUNNING"`, "make-pick", "ROUND 1"}, panes...) {
+	// "ROUND 1" (Task 8): the command bar's round number sits inside its
+	// own data-gosx-live-bind="pick.round" span now, so the literal text
+	// no longer runs contiguous with "ROUND " — this checks the bound
+	// span's own value instead.
+	for _, want := range append([]string{`data-gosx-countdown-format="mm:ss"`, `data-pick-clock`, `data-pick-label`, `data-clock-state="RUNNING"`, "make-pick", `data-gosx-live-bind="pick.round">1<`}, panes...) {
 		if !strings.Contains(live, want) {
 			t.Errorf("live shell missing %q", want)
 		}

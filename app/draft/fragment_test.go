@@ -517,22 +517,25 @@ func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
 	}
 }
 
-// TestDraftTapeRegionDoesNotYetRequestSinceCursor is item 7's own unit
-// test (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
-// never requests the "?since=" cursor itself — the tape pane's own
-// region carries no "-cursor"/"{cursor}" binding yet, only a static URL
-// (data.history_tape_url). Target mode (Task 8, gosx v0.53.10's region
-// "{cursor}" bind) is the caller that will ask for it; the server-side
-// machinery (draftTapeSinceKey, attachDraftFragmentSince,
-// filterTapeRoundsSince) stays ready for that today.
-func TestDraftTapeRegionDoesNotYetRequestSinceCursor(t *testing.T) {
+// TestDraftTapeRegionRequestsSinceCursorInTargetMode supersedes item 7's
+// earlier "not yet" guard (2026-08-30 review): now that Task 8 pins
+// gosx@v0.53.10, the tape pane's own inner region DOES request the
+// "?since={cursor}" prepend cursor — data-gosx-region-mode="prepend",
+// -key/-cursor naming the same data-tape-key/data-pick-number attributes
+// every tape row and round header already carry.
+func TestDraftTapeRegionRequestsSinceCursorInTargetMode(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"data-gosx-region-cursor", "-cursor={", "since={value}"} {
-		if strings.Contains(string(source), forbidden) {
-			t.Errorf("page.gsx already requests a region cursor (%q) — item 7 expected fallback mode to wait for target mode (Task 8)", forbidden)
+	for _, want := range []string{
+		`data-gosx-region-mode="prepend"`,
+		`data-gosx-region-key="data-tape-key"`,
+		`data-gosx-region-cursor="data-pick-number"`,
+		`data-gosx-region-url="/draft/fragment/tape?since={cursor}"`,
+	} {
+		if !strings.Contains(string(source), want) {
+			t.Errorf("page.gsx must request the tape prepend cursor in target mode (Task 8), missing %q", want)
 		}
 	}
 }
@@ -650,10 +653,18 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(page)
+	// Task 8 (target mode, gosx@v0.53.10): the command bar's own region
+	// (data-gosx-region-url="/draft/fragment/command", -on=...) retired in
+	// favor of a fetchless data-gosx-live-mode="event" root — the whole
+	// point of target mode's zero-fetch-per-pick budget (S6). DraftRoom
+	// and DraftWorkspace still carry the OLD fallback-shaped markup
+	// verbatim (their own /draft/fragment/room|workspace routes stay
+	// mounted, unused by Page()), so this test still pins them by name.
 	for _, want := range []string{
-		`data-gosx-region-url="/draft/fragment/command"`,
-		`data-gosx-region-signal="$draft.state.refresh"`,
-		`data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
+		`data-gosx-live-mode="event"`,
+		`data-gosx-live-src="/draft/live.json"`,
+		`data-gosx-live-hub="draft-live"`,
+		`data-gosx-live-on="draft:pick draft:undo draft:clock draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,

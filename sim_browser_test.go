@@ -73,7 +73,7 @@ func chromePath(t *testing.T) string {
 // never re-registered, and a clock test would report a tick it never had to
 // earn. Build the assets first:
 //
-//	go install m31labs.dev/gosx/cmd/gosx@v0.53.9
+//	go install m31labs.dev/gosx/cmd/gosx@v0.53.10
 //	GOSX_SKIP_VERSION_CHECK=1 gosx build --dev .
 func browserAppRoot(t *testing.T) string {
 	t.Helper()
@@ -97,6 +97,19 @@ func startBrowserDraft(t *testing.T) (*simChild, *simLeague, context.Context) {
 	chrome := chromePath(t)
 	root := browserAppRoot(t)
 	child, league := startSeatedDraft(t, "", true, "GOSX_APP_ROOT="+root)
+	return child, league, newBrowserContext(t, chrome)
+}
+
+// startBrowserDraftWith is startBrowserDraft with extra child-process
+// environment appended after GOSX_APP_ROOT (Task 8) — a scenario that
+// needs, for example, a short PICK_CLOCK to put a countdown cue tier
+// close to a pick's own deadline.
+func startBrowserDraftWith(t *testing.T, extraEnv ...string) (*simChild, *simLeague, context.Context) {
+	t.Helper()
+	chrome := chromePath(t)
+	root := browserAppRoot(t)
+	env := append([]string{"GOSX_APP_ROOT=" + root}, extraEnv...)
+	child, league := startSeatedDraft(t, "", true, env...)
 	return child, league, newBrowserContext(t, chrome)
 }
 

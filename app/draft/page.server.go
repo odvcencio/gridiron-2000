@@ -315,6 +315,20 @@ type draftTapeRoundView struct {
 	Current            bool
 	Made, Total        int
 	Picks              []draftTapePickView
+	// Cursor (Task 8, target mode): the round header's own
+	// data-pick-number, the newest (Picks[0], since Picks is
+	// newest-pick-first) made pick number this round carries — never
+	// round.Last, the round's theoretical final slot, which can exceed
+	// what is actually made and would silently skip real future picks
+	// once used as a "?since=" cursor. The tape's own prepend region
+	// (page.gsx's DraftTapeRows) reads data-gosx-region-cursor off
+	// whichever DIRECT CHILD renders first; at a round boundary that is
+	// this round header, not yet a pick row, so the header needs its own
+	// correct cursor value too — see fragment.go's attachDraftFragmentSince
+	// doc comment for the matching server-side half of this fix. Zero
+	// when Picks is empty (never observed: tapeRoundsProps only builds a
+	// TapeRound entry for a round that already holds at least one pick).
+	Cursor int
 }
 
 type draftBoardCellView struct {
@@ -324,6 +338,15 @@ type draftBoardCellView struct {
 	PlayerName, Position   string
 	NFLTeam                string
 	IsAuto, IsCommissioner bool
+	// CellBindKey/PosBindAttr (Task 8, target mode): pre-formatted
+	// data-gosx-live-bind/-bind-attr values ("cell.<round>.<column>",
+	// "data-pos:cellpos.<round>.<column>") — computed here, in Go, rather
+	// than concatenated from Round/Column ints inside the .gsx template,
+	// matching this package's established rule against relying on
+	// unproven GSX template-side expression shapes (ColumnCount's own
+	// doc comment, DraftHistoryProps.RoundsEmpty's own doc comment).
+	CellBindKey string
+	PosBindAttr string
 }
 
 type draftBoardRowView struct {
@@ -445,10 +468,14 @@ func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []d
 			card.Href = draftHistoryHref(draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
 			picks = append(picks, card)
 		}
+		cursor := 0
+		if len(picks) > 0 {
+			cursor = picks[0].Number
+		}
 		out = append(out, draftTapeRoundView{
 			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
 			Current: round.Current, Made: round.Made, Total: round.Total,
-			Picks: picks,
+			Picks: picks, Cursor: cursor,
 		})
 	}
 	return out
@@ -493,11 +520,14 @@ func capTapeRounds(rounds []draftTapeRoundView) []draftTapeRoundView {
 }
 
 func boardCellProps(cell league.BoardCell) draftBoardCellView {
+	round, column := strconv.Itoa(cell.Round), strconv.Itoa(cell.Column)
 	return draftBoardCellView{
 		Round: cell.Round, Column: cell.Column, Number: cell.Number, Label: cell.Label,
 		Filled: cell.Filled, Mine: cell.Mine, OnClock: cell.OnClock,
 		PlayerName: cell.PlayerName, Position: cell.Position, NFLTeam: cell.NFLTeam,
 		IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
+		CellBindKey: "cell." + round + "." + column,
+		PosBindAttr: "data-pos:cellpos." + round + "." + column,
 	}
 }
 
@@ -749,6 +779,18 @@ func prepareDraftData(data map[string]any) map[string]any {
 	viewData["has_adp"] = boolField(data, "has_adp")
 	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
 	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
+	// yourpick_bind_key (Task 8, target mode): the command bar's "your pick
+	// in N" text binds this whole key, a pre-formatted "yourpick.<team>.
+	// label" string (never a Go int concatenated inside the .gsx template
+	// itself — this file's established rule, ColumnCount's own doc
+	// comment). draftLiveTail (draft_events.go) already emits a full
+	// "your pick in N" / "no more picks" label under this exact per-team
+	// key on every draft:pick/undo/state event, so the bound span's whole
+	// text tracks it with no further field needed. Meaningless (and
+	// unread: the command bar only renders the bound span while
+	// viewer.has_seat) for an unseated viewer, so an empty team id is
+	// safe here.
+	viewData["yourpick_bind_key"] = "yourpick." + stringField(mapField(data, "viewer"), "team_id") + ".label"
 
 	actions := map[string]string{
 		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
@@ -769,9 +811,16 @@ func prepareDraftData(data map[string]any) map[string]any {
 		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
 	}
 	// live_mode/shell_modifier drive the shell root's own attributes
-	// (data-draft-live-mode, the --final class variant); "fallback" is the
-	// only mode until Task 8 pins v0.53.10 and switches to target mode.
-	output["live_mode"] = "fallback"
+	// (data-draft-live-mode, the --final class variant). Task 8 pins
+	// gosx@v0.53.10 and switches the room to "target": the command,
+	// available, and my-team panes apply hub payloads through
+	// data-gosx-live-* binds with no fetch; the tape pane's own inner
+	// region grows through "?since={cursor}" prepend instead of a
+	// whole-pane refetch. "fallback" (data-gosx-region* refetch-and-swap)
+	// stays fully wired in this same markup — every fragment endpoint and
+	// region attribute Task 6/7 built keeps working — should a runtime
+	// ever need it again.
+	output["live_mode"] = "target"
 	output["shell_modifier"] = ""
 	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
 		output["shell_modifier"] = " draft-shell--final"
@@ -859,6 +908,7 @@ func init() {
 			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
 			data := attachDraftRequestState(attachDraftFragmentPick(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request), ctx.Request), ctx.Request)
+			data = suppressStaleTapePlaceholdersForTargetMode(data)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

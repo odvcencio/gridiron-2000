@@ -27,17 +27,16 @@ const (
 	// coincidence only (that one is the hub reconnect's fingerprint cursor,
 	// on a different endpoint); the two never appear on the same request.
 	//
-	// Item 7 (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
-	// never REQUESTS this cursor itself — .draft-pane__body's own
-	// data-gosx-region carries no "-cursor"/"{value}" token wired to a
-	// signal that tracks the latest pick seen, so every region refetch
-	// re-asks for the pane's own full (capped) render instead. The
-	// server-side machinery here (this key, attachDraftFragmentSince,
-	// filterTapeRoundsSince) stays in place and load-bearing regardless:
-	// target mode (Task 8, gosx v0.53.10's region "{cursor}" bind) is the
-	// caller that will start asking for "?since=" on its own, at which
-	// point this same code path answers it with no further change. Until
-	// then it is exercised only by this package's own tests.
+	// Task 8: target mode's own inner tape region (page.gsx's DraftHistory,
+	// the ShowTape branch) requests this cursor on every "draft:pick" —
+	// data-gosx-region-url="/draft/fragment/tape?since={cursor}" in
+	// data-gosx-region-mode="prepend", with data-gosx-region-allow-empty
+	// so the very first pick (no numbered child on the page yet) still
+	// fires the fetch with an empty {cursor}. See
+	// attachDraftFragmentSince's own doc comment for how an EMPTY (but
+	// PRESENT) "?since=" is told apart from an ABSENT one, and
+	// draftTapeRoundView.Cursor's own doc comment (page.server.go) for
+	// the matching round-header fix a round boundary needs.
 	draftTapeSinceKey = "since"
 
 	// draftHistoryViewQueryKey is item 1a's own cursor (2026-08-30 review):
@@ -246,14 +245,34 @@ func draftRegionView(data map[string]any, region string) (any, string, error) {
 // negative, or non-numeric "?since=" leaves Since at prepareDraftData's -1
 // default, so every other fragment (and a plain GET /draft/fragment/tape)
 // keeps rendering the full pane untouched.
+//
+// request.URL.Query().Has, not Get, decides whether "?since=" was given at
+// ALL (Task 8): the target-mode prepend region's own "{cursor}" token
+// substitutes a literal empty string, encodeURIComponent(cursor || ""),
+// the first time it fires — before any numbered row is on the page to read
+// a cursor off (gosx's regions.ts, RegionCursorAttr's own doc comment) —
+// producing a request whose "since" key is PRESENT but empty:
+// "/draft/fragment/tape?since=". Has reports true for that request, so it
+// is treated as "since=0" (every real pick is numbered from 1, so this
+// answers with the full made-picks list as the prepend's first batch),
+// while a request that never asked for "since" at all (every ordinary GET
+// /draft/fragment/tape, and the outer replace-mode region's own "?view="
+// URL) still renders the full pane, exactly as before this fix. Get alone
+// cannot tell these two apart: both read "" from an absent key and a
+// present-but-empty one.
 func attachDraftFragmentSince(data map[string]any, request *http.Request) map[string]any {
-	raw := strings.TrimSpace(request.URL.Query().Get(draftTapeSinceKey))
-	if raw == "" {
+	query := request.URL.Query()
+	if !query.Has(draftTapeSinceKey) {
 		return data
 	}
-	since, err := strconv.Atoi(raw)
-	if err != nil || since < 0 {
-		return data
+	raw := strings.TrimSpace(query.Get(draftTapeSinceKey))
+	since := 0
+	if raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 0 {
+			return data
+		}
+		since = parsed
 	}
 	history, ok := data["history"].(draftHistoryView)
 	if !ok {
@@ -398,6 +417,36 @@ func attachDraftFragmentView(data map[string]any, request *http.Request) map[str
 	data["history_tape_href"] = draftHistoryHref(draftHistoryViewTape, pos, poolQuery, page, nil)
 	data["history_board_href"] = draftHistoryHref(draftHistoryViewBoard, pos, poolQuery, page, nil)
 	data["history_teams_href"] = draftHistoryHref(draftHistoryViewTeams, pos, poolQuery, page, nil)
+	return data
+}
+
+// suppressStaleTapePlaceholdersForTargetMode clears HasOnClock/RoundsEmpty
+// on the ONE initial page render only (Task 8, target mode). The tape
+// pane's inner region only ever grows (data-gosx-region-mode="prepend") —
+// it can never remove a stale child — so the on-the-clock synthetic row
+// and the "NO PICKS YET" message, both "nothing has happened yet"
+// placeholders rendered once at page load, go stale the moment the FIRST
+// "draft:pick" prepends real rows above them (the placeholders' own team
+// name and "no picks" claim never update again) and stay stale for the
+// rest of the draft. The command bar's own always-live on-clock display
+// (DraftCommandBar's onclock.* binds) already carries the same
+// information correctly, so dropping the tape's own copy loses nothing
+// unique. The fragment endpoint's own full re-render
+// (draftRegionView's "DraftHistory" case, reached only by the OUTER
+// replace-mode region's own draft:undo/draft:state refetch) is
+// unaffected: that call path never goes through this function, and a
+// full replace never goes stale in the first place.
+func suppressStaleTapePlaceholdersForTargetMode(data map[string]any) map[string]any {
+	if stringField(data, "live_mode") != "target" {
+		return data
+	}
+	history, ok := data["history"].(draftHistoryView)
+	if !ok {
+		return data
+	}
+	history.HasOnClock = false
+	history.RoundsEmpty = false
+	data["history"] = history
 	return data
 }
 
