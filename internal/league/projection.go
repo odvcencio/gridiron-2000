@@ -23,13 +23,19 @@ var remainingFractionByPeriod = map[string]float64{
 // remaining projection. known is false when the live poller has no
 // affirmative signal for this exact game (no live status source wired at
 // all, or the poller's status simply has no entry for this team yet); in
-// that case — the same as any period this table does not recognize, most
-// notably a game that has not kicked off — the whole projection still
-// applies (fraction 1): the manager-facing total should read as "the
-// player's full week is still ahead of them", not silently drop the
-// projection because the poller has not caught up. A game the schedule or
-// the poller marks Final always contributes zero remaining projection,
-// regardless of known.
+// that case the whole projection still applies (fraction 1): the
+// manager-facing total should read as "the player's full week is still
+// ahead of them", not silently drop the projection because the poller has
+// not caught up. A game the schedule or the poller marks Final always
+// contributes zero remaining projection, regardless of known. Once known
+// and InProgress, an unrecognized period label (for example Tank01's
+// "HALF") is a real live game the table just has no entry for, not the
+// same "nothing has happened yet" claim a pre-kickoff or unwired read is
+// — it reads as 0.5 (round-2 review of commit 133d1d7, finding 6), the
+// same neutral halfway estimate remainingFractionByPeriod already picks
+// for the middle of a normal quarter. A known, not-in-progress,
+// unrecognized period (the pre-kickoff case, Period == "") keeps the
+// full-projection fraction 1.
 func remainingFraction(state LiveGameState, known bool) float64 {
 	if state.Final {
 		return 0
@@ -39,6 +45,9 @@ func remainingFraction(state LiveGameState, known bool) float64 {
 	}
 	if fraction, ok := remainingFractionByPeriod[state.Period]; ok {
 		return fraction
+	}
+	if state.InProgress {
+		return 0.5
 	}
 	return 1
 }
@@ -89,18 +98,22 @@ func stillToPlay(rows []StarterLedgerRow, status LiveStatus) int {
 }
 
 // starterProjections reads each row's player's weekly Tank01 projection
-// from the pool, keyed by PlayerID exactly as projectedTotal expects.
-// Rows with no matching pool entry (an empty slot, or a player the pool
-// no longer carries) are simply absent from the map, which projectedTotal
-// already treats as a zero projection.
-func (s *Service) starterProjections(rows []StarterLedgerRow) map[string]float64 {
-	pool := s.pool()
+// from byID, keyed by PlayerID exactly as projectedTotal expects. byID is
+// the caller's own single s.pool().byID read for the whole render — a
+// render can build a projections map for every side of every matchup
+// (round-2 review of commit 133d1d7, finding 3: about 28 calls for a
+// seven-matchup week), so this takes the pool by reference instead of
+// calling s.pool() (which takes poolMu) once per side. Rows with no
+// matching pool entry (an empty slot, or a player the pool no longer
+// carries) are simply absent from the map, which projectedTotal already
+// treats as a zero projection.
+func starterProjections(rows []StarterLedgerRow, byID map[string]Player) map[string]float64 {
 	out := make(map[string]float64, len(rows))
 	for _, row := range rows {
 		if row.PlayerID == "" {
 			continue
 		}
-		if player, ok := pool.byID[row.PlayerID]; ok {
+		if player, ok := byID[row.PlayerID]; ok {
 			out[row.PlayerID] = player.Projection
 		}
 	}

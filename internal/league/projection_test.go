@@ -30,3 +30,21 @@ func TestWinProbabilityLogistic(t *testing.T) {
 		t.Fatalf("+4.4 = %v want ~0.608", got)
 	}
 }
+
+// TestRemainingFractionUnknownPeriodInProgressReadsHalfway covers round-2
+// review finding 6 (commit 133d1d7): a known, in-progress game whose
+// period label the table does not recognize (Tank01's "HALF", for
+// example) is a real live game, not the same "nothing has happened yet"
+// claim a pre-kickoff or unwired read is, so it reads as the same neutral
+// 0.5 the table's own middle-of-a-quarter entries use — not the full
+// fraction 1 an unrecognized-but-not-in-progress period still gets.
+func TestRemainingFractionUnknownPeriodInProgressReadsHalfway(t *testing.T) {
+	state := LiveGameState{Period: "HALF", InProgress: true}
+	if got := remainingFraction(state, true); got != 0.5 {
+		t.Fatalf("unknown in-progress period = %v want 0.5", got)
+	}
+	notStarted := LiveGameState{Period: "HALF", InProgress: false}
+	if got := remainingFraction(notStarted, true); got != 1 {
+		t.Fatalf("unknown not-in-progress period = %v want 1", got)
+	}
+}

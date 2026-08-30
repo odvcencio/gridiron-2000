@@ -136,6 +136,7 @@ func matchupsPageCards(raw []map[string]any) []MatchupCardData {
 // explicit empty-slot row.
 type StarterCellData struct {
 	HasPlayer  bool
+	Right      bool
 	LiveKey    string
 	PlayerID   string
 	PlayerName string
@@ -150,11 +151,18 @@ type StarterCellData struct {
 	GameState  string
 }
 
-func starterCellData(raw any) StarterCellData {
+// starterCellData converts one side of a FeaturedMatchupPairData row.
+// right marks the "theirs" cell of a pair (round-2 review of commit
+// 133d1d7, finding 5: the plan's skeleton read a precomputed RightClass
+// string, but the six-column slot-row layout only needs to know which
+// side it is — page.gsx composes the CSS from Right through a plain
+// data-right attribute, styled in public/styles.css).
+func starterCellData(raw any, right bool) StarterCellData {
 	row, _ := raw.(map[string]any)
 	nflTeam := stringField(row, "nfl_team")
 	return StarterCellData{
 		HasPlayer:  stringField(row, "player_id") != "",
+		Right:      right,
 		LiveKey:    stringField(row, "live_key"),
 		PlayerID:   stringField(row, "player_id"),
 		PlayerName: stringField(row, "player_name"),
@@ -220,19 +228,22 @@ func featuredTeamData(raw any) FeaturedTeamData {
 // other field at its zero value; a page rendering this must gate on
 // HasMatchup first, the same way data.matchups_empty gates MatchupCard.
 type FeaturedMatchupData struct {
-	HasMatchup     bool
-	IsViewer       bool
-	ID             string
-	Label          string
-	LiveIndicator  string
-	LiveState      string
-	WinProb        string
-	WinProbWidth   string
-	StillToPlay    string
-	NextLineupHref string
-	Mine           FeaturedTeamData
-	Theirs         FeaturedTeamData
-	Pairs          []FeaturedMatchupPairData
+	HasMatchup       bool
+	IsViewer         bool
+	ID               string
+	Label            string
+	LiveIndicator    string
+	LiveState        string
+	WinProb          string
+	WinProbWidth     string
+	StillToPlay      int
+	StillToPlayTotal int
+	NextLineupHref   string
+	NextWeek         int
+	HasNextWeek      bool
+	Mine             FeaturedTeamData
+	Theirs           FeaturedTeamData
+	Pairs            []FeaturedMatchupPairData
 }
 
 func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
@@ -241,24 +252,27 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 	for _, pair := range pairsRaw {
 		pairs = append(pairs, FeaturedMatchupPairData{
 			Slot:   stringField(pair, "slot"),
-			Mine:   starterCellData(pair["mine"]),
-			Theirs: starterCellData(pair["theirs"]),
+			Mine:   starterCellData(pair["mine"], false),
+			Theirs: starterCellData(pair["theirs"], true),
 		})
 	}
 	return FeaturedMatchupData{
-		HasMatchup:     boolField(raw, "has_matchup"),
-		IsViewer:       boolField(raw, "is_viewer"),
-		ID:             stringField(raw, "id"),
-		Label:          stringField(raw, "label"),
-		LiveIndicator:  stringField(raw, "live_indicator"),
-		LiveState:      stringField(raw, "live_state"),
-		WinProb:        stringField(raw, "win_prob"),
-		WinProbWidth:   stringField(raw, "win_prob_width"),
-		StillToPlay:    stringField(raw, "still_to_play"),
-		NextLineupHref: stringField(raw, "next_lineup_href"),
-		Mine:           featuredTeamData(raw["mine"]),
-		Theirs:         featuredTeamData(raw["theirs"]),
-		Pairs:          pairs,
+		HasMatchup:       boolField(raw, "has_matchup"),
+		IsViewer:         boolField(raw, "is_viewer"),
+		ID:               stringField(raw, "id"),
+		Label:            stringField(raw, "label"),
+		LiveIndicator:    stringField(raw, "live_indicator"),
+		LiveState:        stringField(raw, "live_state"),
+		WinProb:          stringField(raw, "win_prob"),
+		WinProbWidth:     stringField(raw, "win_prob_width"),
+		StillToPlay:      intField(raw, "still_to_play"),
+		StillToPlayTotal: intField(raw, "still_to_play_total"),
+		NextLineupHref:   stringField(raw, "next_lineup_href"),
+		NextWeek:         intField(raw, "next_week"),
+		HasNextWeek:      boolField(raw, "has_next_week"),
+		Mine:             featuredTeamData(raw["mine"]),
+		Theirs:           featuredTeamData(raw["theirs"]),
+		Pairs:            pairs,
 	}
 }
 
@@ -296,16 +310,17 @@ func scorebugTeamData(raw any) ScorebugTeamData {
 // MiniMatchup, not a shared component — see that component's own doc
 // comment for why.
 type ScorebugData struct {
-	ID            string
-	LiveState     string
-	LiveIndicator string
-	Status        string
-	Clock         string
-	Away          ScorebugTeamData
-	Home          ScorebugTeamData
-	ProjectedAway string
-	ProjectedHome string
-	StillToPlay   int
+	ID               string
+	LiveState        string
+	LiveIndicator    string
+	Status           string
+	Clock            string
+	Away             ScorebugTeamData
+	Home             ScorebugTeamData
+	ProjectedAway    string
+	ProjectedHome    string
+	StillToPlay      int
+	StillToPlayTotal int
 }
 
 // matchupsPageScorebugs converts MatchupsData's "other_matchups" slice
@@ -317,16 +332,17 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 		away, _ := entry["away"].(map[string]any)
 		home, _ := entry["home"].(map[string]any)
 		out = append(out, ScorebugData{
-			ID:            stringField(entry, "id"),
-			LiveState:     stringField(entry, "live_state"),
-			LiveIndicator: stringField(entry, "live_indicator"),
-			Status:        stringField(entry, "status"),
-			Clock:         stringField(entry, "clock"),
-			Away:          scorebugTeamData(away),
-			Home:          scorebugTeamData(home),
-			ProjectedAway: stringField(entry, "projected_away"),
-			ProjectedHome: stringField(entry, "projected_home"),
-			StillToPlay:   intField(entry, "still_to_play"),
+			ID:               stringField(entry, "id"),
+			LiveState:        stringField(entry, "live_state"),
+			LiveIndicator:    stringField(entry, "live_indicator"),
+			Status:           stringField(entry, "status"),
+			Clock:            stringField(entry, "clock"),
+			Away:             scorebugTeamData(away),
+			Home:             scorebugTeamData(home),
+			ProjectedAway:    stringField(entry, "projected_away"),
+			ProjectedHome:    stringField(entry, "projected_home"),
+			StillToPlay:      intField(entry, "still_to_play"),
+			StillToPlayTotal: intField(entry, "still_to_play_total"),
 		})
 	}
 	return out
