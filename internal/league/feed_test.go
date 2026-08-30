@@ -213,14 +213,14 @@ func TestLiveScoresViewScheduledToInProgressTransitionUpdatesPresentation(t *tes
 			}
 		}
 	}
-	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Checks every 60 sec", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
+	assertPresentation(scheduled, MatchupStateScheduled, "WEEK", "SCHEDULED.", "Push at kickoff · 60 s fallback", "Scheduled scoring", "Scores begin updating after the first NFL kickoff for this fantasy week.", "")
 	if strings.Contains(scheduled["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("scheduled liveStatus = %q", scheduled["liveStatus"])
 	}
 
 	now = kickoff.Add(time.Minute)
 	active := svc.LiveScoresView(context.Background())
-	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "60 sec", "Live scoring", "Scores update on their own. No need to refresh the page.", "live")
+	assertPresentation(active, MatchupStateInProgress, "LIVE", "SIGNAL.", "Push · 60 s fallback", "Live scoring", "Scores push to this page during games. No refresh is needed.", "live")
 	if !strings.Contains(active["status"].(string), "in progress") || !strings.Contains(active["liveStatus"].(string), "Live scores on") {
 		t.Fatalf("active status/liveStatus = %q / %q", active["status"], active["liveStatus"])
 	}

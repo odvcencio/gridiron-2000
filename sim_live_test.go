@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -142,7 +141,13 @@ func startReplayLeague(t *testing.T, step string, extraEnv ...string) (*simChild
 		t.Fatalf("draft completed with %d forced picks unmade: %v", len(pending), pending)
 	}
 
-	advanceClock(t, child.URL, -4*time.Minute)
+	// Rewind the child's clock to just behind the replay's own kickoff
+	// (rider R5), read fresh from /test/live's replay.start rather than a
+	// fixed constant: the fixed 4-minute guess could fall short (leaving
+	// the target team's players still locked, SetLineup below failing) if
+	// the draft above ever takes longer than that to complete.
+	before := readTestLive(t, child)
+	advanceClock(t, child.URL, time.Until(before.Replay.Start.Add(-30*time.Second)))
 	for _, slot := range replayLineupOrder {
 		if err := targetBot.SetLineup(1, slot, replayLineup[slot]); err != nil {
 			t.Fatalf("set %s at %s for %s: %v", replayLineup[slot], slot, targetBot.Email, err)
@@ -356,23 +361,18 @@ func TestSimReplayScoresFlowThroughOverlayFingerprintAndHub(t *testing.T) {
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		view, etag := liveWeek(t, child, viewer)
-		// starterSource/starterGameState/a top-level "LIVE" liveState are
-		// not (yet) part of LiveScoresView's flattened output (grepped:
-		// nothing in internal/league sets StarterLedgerRow.GameState, and
-		// LiveScoresView never copies row.Source into a starterSource
-		// map) — a plan/implementation gap this task does not own fixing
-		// (Task 9's file list is sim_live_test.go, sim_live_browser_
-		// test.go, and bot.go only). starterDetail carries the same
-		// live-vs-ledger distinction as prose (ledgerPlayerDetail,
-		// matchup_ledger.go): "Matched to the live box score; the game is
-		// in progress." is written only when row.Source ==
-		// StatSourceLive. The week's own state is the real key "state"
-		// (LiveSnapshot.State), holding league.MatchupStateInProgress
-		// ("in_progress"), never the literal "LIVE".
-		details, _ := view["starterDetail"].(map[string]any)
+		// Task 10 wires starterSource into LiveScoresView's flattened
+		// output (StarterLedgerRow.Source, copied verbatim), so a live row
+		// is detected by its actual join provenance (league.StatSourceLive)
+		// rather than by matching ledgerPlayerDetail's prose — the prose
+		// stays free to reword without breaking this scenario. The week's
+		// own state is the real key "state" (LiveSnapshot.State), holding
+		// league.MatchupStateInProgress ("in_progress"), never the literal
+		// "LIVE" (that lives in the separate "liveState" A5 field).
+		sources, _ := view["starterSource"].(map[string]any)
 		liveRows := 0
-		for _, detail := range details {
-			if text, ok := detail.(string); ok && strings.Contains(text, "live box score") {
+		for _, source := range sources {
+			if text, ok := source.(string); ok && text == league.StatSourceLive {
 				liveRows++
 			}
 		}
@@ -393,6 +393,10 @@ func TestSimReplayWindowClosesFiveHoursAfterKickoff(t *testing.T) {
 		t.Skip("sim scenario: skipped under -short")
 	}
 	child, _ := startReplayLeague(t, "1h") // frame 0 stays served; the game never reaches final
+	time.Sleep(6 * time.Second)            // one poll interval plus margin, for the poller to pick up the newly published schedule
+	if status := readTestLive(t, child); status.InWindow != 1 {
+		t.Fatalf("in-window games at kickoff = %d, want 1 before the +6 h advance", status.InWindow)
+	}
 	advanceClock(t, child.URL, 6*time.Hour)
 	time.Sleep(6 * time.Second) // one poll interval plus margin
 	if status := readTestLive(t, child); status.InWindow != 0 {

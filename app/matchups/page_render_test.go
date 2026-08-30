@@ -62,7 +62,7 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 				t.Errorf("scheduled fixture omitted persistent card indicator bindings: %s", body)
 			}
 			if fixture.name == "scheduled" {
-				if !strings.Contains(body, "Checks every 60 sec") {
+				if !strings.Contains(body, "Push at kickoff · 60 s fallback") {
 					t.Errorf("current scheduled fixture lost live refresh copy: %s", body)
 				}
 				if strings.Contains(body, "Static week view") {
@@ -114,6 +114,7 @@ func TestMatchupsPageWeekBrowserRoute(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"60 sec",
+		"60 s fallback",
 		"Checks every",
 		"Retrying every",
 		"Scores update on their own",

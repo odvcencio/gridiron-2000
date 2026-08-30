@@ -2634,9 +2634,12 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterProvenance := make(map[string]string)
 	starterJoinState := make(map[string]string)
 	starterDetail := make(map[string]string)
+	starterSource := make(map[string]string)
+	starterGameStateBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
+	matchupLiveStateBind := make(map[string]string, len(live.Matchups))
 	addStarterRow := func(row StarterLedgerRow) {
 		// Keep every visible starter field in a stable, one-level map keyed by
 		// the slot. The page binds all of these fields to the same live key so
@@ -2649,6 +2652,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterProvenance[row.LiveKey] = row.Provenance
 		starterJoinState[row.LiveKey] = row.JoinState
 		starterDetail[row.LiveKey] = row.Detail
+		starterSource[row.LiveKey] = row.Source
+		starterGameStateBind[row.LiveKey] = row.GameState
 	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
@@ -2666,6 +2671,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupStatus[matchup.ID] = status
 		matchupClock[matchup.ID] = matchupClockLabel(matchup.Clock)
 		matchupIndicator[matchup.ID] = liveIndicatorToken(matchup.State)
+		matchupLiveStateBind[matchup.ID] = matchup.LiveState
 	}
 	checkedAt := live.CheckedAt
 	if checkedAt.IsZero() {
@@ -2683,10 +2689,14 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"state":             live.State,
 		"status":            live.Status,
 		"warning":           live.Warning,
+		"liveState":         live.LiveState,
+		"sourceLine":        live.SourceLine,
+		"gamesFinal":        live.GamesFinal,
 		"scores":            scores,
 		"matchupStatus":     matchupStatus,
 		"matchupClock":      matchupClock,
 		"matchupIndicator":  matchupIndicator,
+		"matchupLiveState":  matchupLiveStateBind,
 		"starterPoints":     starterPoints,
 		"starterPlayerName": starterPlayerName,
 		"starterPosition":   starterPosition,
@@ -2694,6 +2704,8 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterProvenance": starterProvenance,
 		"starterJoinState":  starterJoinState,
 		"starterDetail":     starterDetail,
+		"starterSource":     starterSource,
+		"starterGameState":  starterGameStateBind,
 		"liveStatus":        liveStatus,
 		"liveUpdated":       checked,
 		"lastUpdated":       statsUpdated,
@@ -3463,6 +3475,9 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"week_label":          live.WeekLabel,
 		"state":               live.State,
 		"status":              live.Status,
+		"live_state":          live.LiveState,
+		"source_line":         live.SourceLine,
+		"games_final":         live.GamesFinal,
 		"last_updated":        statsUpdatedAt,
 		"checked_at":          s.formatMatchupUpdateOrUnavailable(checkedAt),
 		"stats_updated_at":    statsUpdatedAt,
@@ -3510,14 +3525,14 @@ func matchupPresentation(state string) map[string]string {
 	case MatchupStateScheduled:
 		return map[string]string{
 			"headline_top": "WEEK", "headline_bottom": "SCHEDULED.",
-			"sync_label": "Waiting for kickoff", "refresh_label": "Checks every 60 sec",
+			"sync_label": "Waiting for kickoff", "refresh_label": "Push at kickoff · 60 s fallback",
 			"note_title": "Scheduled scoring", "note_body": "Scores begin updating after the first NFL kickoff for this fantasy week.",
 		}
 	case MatchupStateInProgress:
 		return map[string]string{
 			"headline_top": "LIVE", "headline_bottom": "SIGNAL.",
-			"sync_label": "Live scores on", "refresh_label": "60 sec",
-			"note_title": "Live scoring", "note_body": "Scores update on their own. No need to refresh the page.",
+			"sync_label": "Live scores on", "refresh_label": "Push · 60 s fallback",
+			"note_title": "Live scoring", "note_body": "Scores push to this page during games. No refresh is needed.",
 		}
 	case MatchupStateFinal:
 		return map[string]string{
@@ -3528,7 +3543,7 @@ func matchupPresentation(state string) map[string]string {
 	case MatchupStateDegraded:
 		return map[string]string{
 			"headline_top": "SCHEDULE", "headline_bottom": "STATUS.",
-			"sync_label": "Timing unavailable", "refresh_label": "Retrying every 60 sec",
+			"sync_label": "Timing unavailable", "refresh_label": "Retrying · 60 s fallback",
 			"note_title": "Limited matchup data", "note_body": "Pairings remain visible, but kickoff or scoring status is not currently authoritative.",
 		}
 	default:
@@ -3587,6 +3602,7 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 		out = append(out, map[string]any{
 			"id":                  matchup.ID,
 			"state":               matchup.State,
+			"live_state":          matchup.LiveState,
 			"show_live_indicator": matchup.State == MatchupStateInProgress,
 			"live_indicator":      liveIndicatorToken(matchup.State),
 			"away": map[string]any{
@@ -3613,7 +3629,7 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
-			"detail": row.Detail,
+			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
 		})
 	}
 	return out

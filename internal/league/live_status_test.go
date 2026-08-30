@@ -45,6 +45,38 @@ func TestLiveFeedCacheInvalidatesOnLiveVersion(t *testing.T) {
 	}
 }
 
+// TestLiveFeedCacheInvalidatesWhenScheduleIsPublished covers rider R2
+// (round-2 review of Task 9): publishing the persisted fantasy schedule
+// must bypass the cache immediately, the same as a poller version move,
+// so a "preseason" snapshot taken before the schedule existed cannot go
+// on being served for up to cacheFor (45 s, potentially past kickoff)
+// while the unrelated poller version sits still.
+func TestLiveFeedCacheInvalidatesWhenScheduleIsPublished(t *testing.T) {
+	svc := newTestService(t, true)
+	calls := 0
+	svc.feed = newLiveFeed(providerFunc(func(context.Context, time.Time) (LiveSnapshot, error) {
+		calls++
+		return LiveSnapshot{Source: "test"}, nil
+	}), svc)
+	now := time.Date(2026, 9, 13, 18, 0, 0, 0, time.UTC)
+	svc.feed.Snapshot(context.Background(), now)
+	svc.feed.Snapshot(context.Background(), now.Add(10*time.Second))
+	if calls != 1 {
+		t.Fatalf("calls = %d; the 45 s cache must still hold", calls)
+	}
+	schedule, err := GenerateSchedule(ScheduleParams{Season: 2026, TeamIDs: teamIDList(svc.teams), StartWeek: 1, Weeks: 1, Seed: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	svc.feed.Snapshot(context.Background(), now.Add(11*time.Second))
+	if calls != 2 {
+		t.Fatalf("calls = %d; publishing the schedule must bypass the cache even though the poller version did not move", calls)
+	}
+}
+
 // TestLiveFeedCacheIsAgeOnlyWithNoOwnerAttached covers round-2 review
 // finding 6: with no owning Service at all (the version accessor is
 // simply absent, the same as an owner whose liveVersionFn is nil), the

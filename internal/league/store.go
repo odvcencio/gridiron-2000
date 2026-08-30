@@ -101,8 +101,14 @@ type Store struct {
 	// lastPersistRows counts the rows the current/latest persistence attempt
 	// wrote or deleted. It backs the incremental-write test and is useful
 	// when diagnosing write amplification.
-	lastPersistRows   int
-	identityUnhealthy bool
+	lastPersistRows int
+	// scheduleGeneration increments on every SetSchedule call (rider R2):
+	// the live-feed cache's key folds this in beside the poller's own
+	// version, so publishing or regenerating the persisted fantasy
+	// schedule busts a cached "preseason" snapshot immediately instead of
+	// waiting up to cacheFor for the unrelated poller version to move.
+	scheduleGeneration int64
+	identityUnhealthy  bool
 	// identityPreflightHook is a test-only seam that runs after the fast
 	// authority read and before the final Store lock, allowing seat churn to
 	// be exercised deterministically. It is nil in production.
@@ -2435,7 +2441,16 @@ func (s *Store) SetSchedule(sch SeasonSchedule) error {
 		s.dirty = previousDirty
 		return err
 	}
+	s.scheduleGeneration++
 	return nil
+}
+
+// ScheduleGeneration reports how many times SetSchedule has replaced the
+// persisted schedule. See scheduleGeneration's own doc comment.
+func (s *Store) ScheduleGeneration() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.scheduleGeneration
 }
 
 // SetScheduleWeek replaces one week's data (matchups, scores, bye) in the

@@ -89,6 +89,18 @@ func TestBrowserReplayScoreReachesMatchupsWithinTenSeconds(t *testing.T) {
 		}
 		return strings.TrimSpace(text)
 	}
+	// Rider R7: confirm the selector actually reaches all nine starting
+	// slots before trusting the concatenated read below — a selector typo
+	// or a page-shape change that dropped a slot would otherwise still
+	// "work" (fewer than nine cells changing three times is still three
+	// changes), silently narrowing what this test actually covers.
+	var cellCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('`+selector+`').length`, &cellCount)); err != nil {
+		t.Fatal(err)
+	}
+	if cellCount != 9 {
+		t.Fatalf("starterPoints cell count for team %s = %d, want 9 (one per starting slot)", teamID, cellCount)
+	}
 	loaded := time.Now()
 	last := read()
 	changes := 0

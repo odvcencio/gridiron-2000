@@ -3,20 +3,39 @@ package league
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
+// matchupStatsSnapshot is one week's authoritative read for both the
+// scoring ledger and the A5 truthful-state resolution that rides beside
+// it: games and live/hasLive let starterGameState and matchupLiveState
+// (feed.go) answer "is this starter's game live, final, or not started
+// yet" from the same read the points come from, so a page render can
+// never show a score from one instant and a game-state label from
+// another (round-2 finding 17).
 type matchupStatsSnapshot struct {
 	lines       []WeekStatLine
 	final       bool
 	known       bool
 	sourceState string
 	sourceErr   error
+	games       []GameInfo // this week's NFL games (s.schedule() filtered by Week)
+	live        LiveStatus
+	hasLive     bool
 }
 
 func (s *Service) matchupStatsSnapshot(week int) matchupStatsSnapshot {
 	lines, final, known, sourceState, sourceErr := weekStatsSnapshot(s.weekStatsSource(), week)
+	var games []GameInfo
+	for _, game := range s.schedule() {
+		if game.Week == week {
+			games = append(games, game)
+		}
+	}
+	live, hasLive := s.liveStatus()
 	return matchupStatsSnapshot{
 		lines: lines, final: final, known: known, sourceState: sourceState, sourceErr: sourceErr,
+		games: games, live: live, hasLive: hasLive,
 	}
 }
 
@@ -98,6 +117,59 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 	}
 }
 
+// starterGameState renders one starter's game clock: "Q3 8:12" while the
+// poller sees the game in progress, "FINAL" once final, the kickoff
+// ("SUN 4:25 PM") from the schedule before it starts, else "".
+func starterGameState(team string, snapshot matchupStatsSnapshot, location *time.Location) string {
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			switch {
+			case game.Final:
+				return "FINAL"
+			case game.InProgress && game.Clock != "":
+				return game.Period + " " + game.Clock
+			case game.InProgress:
+				return game.Period
+			}
+		}
+	}
+	for _, game := range snapshot.games {
+		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+			if game.Final {
+				return "FINAL"
+			}
+			return strings.ToUpper(game.Kickoff.In(location).Format("Mon 3:04 PM"))
+		}
+	}
+	return ""
+}
+
+// starterGameNotStarted reports whether team's game is affirmatively
+// known — from the live poller's status or, before the poller has it in
+// its window, from the NFL schedule's kickoff instant — to not have
+// kicked off yet. It answers the same question starterGameState renders
+// as a label, kept as its own bool so the point-value fallback (rider
+// R3: an explicit 0.0 once a starter's game is live even with no line
+// for them yet, an honest "—" only before kickoff) never has to parse
+// GameState's formatted string back apart. Absent any signal at all
+// (no live status wired, no matching scheduled game) it answers false —
+// "not known to be unstarted" is not the same claim as "in progress",
+// but rendering an explicit 0.0 by default is the safer of the two
+// honest options when the starter's game state truly cannot be read.
+func starterGameNotStarted(team string, snapshot matchupStatsSnapshot, now time.Time) bool {
+	if snapshot.hasLive {
+		if game, ok := snapshot.live.Games[team]; ok {
+			return !game.Final && !game.InProgress
+		}
+	}
+	for _, game := range snapshot.games {
+		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+			return !game.Final && now.Before(game.Kickoff)
+		}
+	}
+	return false
+}
+
 // teamWeekLedger is the canonical scoring/ledger calculation. It calls the
 // same scorePlayerPoints helper as MatchupScorer.TeamWeekScore, while adding
 // one row per configured slot and explicit source/join states for rendering.
@@ -138,6 +210,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		row.PlayerName = assignment.Player.Name
 		row.Position = assignment.Player.Position
 		row.NFLTeam = assignment.Player.NFLTeam
+		row.GameState = starterGameState(row.NFLTeam, snapshot, s.matchupLocation())
 		if sourceErr != nil {
 			row.JoinState = "stats-unavailable"
 		} else if len(lines) == 0 {
@@ -155,6 +228,14 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			complete = false
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
+		if row.JoinState != "matched" && starterGameNotStarted(row.NFLTeam, snapshot, s.clock()) {
+			// R3: a starter with no live row yet and no ledger line either
+			// only reads as an honest "—" once the game is known not to
+			// have started; once it is live (or we cannot tell), the
+			// explicit 0.0 above stands — the player is simply scoreless
+			// so far, not unaccounted for.
+			row.PointsText = "—"
+		}
 		ledgerPlayerDetail(&row)
 		rows = append(rows, row)
 	}

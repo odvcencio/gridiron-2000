@@ -469,12 +469,13 @@ type TeamWeekLedger struct {
 
 // ScoreMatchup is a paired fantasy matchup.
 type ScoreMatchup struct {
-	ID     string    `json:"id"`
-	Away   ScoreTeam `json:"away"`
-	Home   ScoreTeam `json:"home"`
-	State  string    `json:"state"`
-	Status string    `json:"status"`
-	Clock  string    `json:"clock"`
+	ID        string    `json:"id"`
+	Away      ScoreTeam `json:"away"`
+	Home      ScoreTeam `json:"home"`
+	State     string    `json:"state"`
+	Status    string    `json:"status"`
+	Clock     string    `json:"clock"`
+	LiveState string    `json:"liveState"` // one of LiveState* (A5 truthful state)
 }
 
 const (
@@ -483,6 +484,19 @@ const (
 	MatchupStateInProgress = "in_progress"
 	MatchupStateFinal      = "final"
 	MatchupStateDegraded   = "degraded"
+)
+
+// LiveState* resolves the spec's A5 precedence to exactly one value per
+// matchup (and, aggregated, per page): a posted final always reads
+// LEDGER; an in-progress starter behind a degraded poller reads PAUSED;
+// an in-progress starter otherwise reads LIVE; a live-final starter row
+// with no ledger row yet reads FINAL; anything else reads LEDGER. See
+// matchupLiveState (feed.go).
+const (
+	LiveStateLive   = "LIVE"
+	LiveStateFinal  = "FINAL"
+	LiveStateLedger = "LEDGER"
+	LiveStatePaused = "PAUSED"
 )
 
 // LiveSnapshot is the stable JSON contract consumed by the score enhancer.
@@ -504,6 +518,20 @@ type LiveSnapshot struct {
 	RefreshAfterSeconds int            `json:"refreshAfterSeconds"`
 	Matchups            []ScoreMatchup `json:"matchups"`
 	Warning             string         `json:"warning,omitempty"`
+	// LiveState is the page-level A5 state: the first of PAUSED, LIVE,
+	// FINAL, LEDGER present in any matchup (LiveStateLedger when none
+	// is, including an empty Matchups slice).
+	LiveState string `json:"liveState,omitempty"`
+	// SourceLine is the one status-line sentence A5/A6 render under the
+	// header in place of the old provenance table (liveSourceLine).
+	SourceLine string `json:"sourceLine,omitempty"`
+	// GamesFinal is "<n> of <m> games final" over the week's NFL
+	// schedule, or "" when the week has no games.
+	GamesFinal string `json:"gamesFinal,omitempty"`
+	// LiveCheckedAt is the live poller's own last-checked instant
+	// (LiveStatus.CheckedAt), distinct from CheckedAt (this snapshot's
+	// own render instant) and StatsUpdatedAt (the ledger's freshness).
+	LiveCheckedAt time.Time `json:"liveCheckedAt,omitzero"`
 }
 
 // activeTeams backs defaultTeams(): the currently active league's team
