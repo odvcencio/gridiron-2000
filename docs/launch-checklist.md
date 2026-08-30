@@ -686,16 +686,33 @@ explicit action, never a batch.
    progress, `"0"`/`""` pre-game, any other code with a non-empty
    `currentPeriod` treated as in progress). One hour after kickoff, run the
    kill-switch drill on flagship: set the flag to `false`, roll the pod,
-   confirm `PAUSED · disabled` on the status line within 60 s, set it back
-   to `true`, confirm `LIVE` within 60 s. Log the drill below.
+   confirm `LEDGER` on the status line within 60 s, set it back to `true`,
+   confirm `LIVE` within 60 s. Log the drill below. The status line reads
+   `LEDGER`, not `PAUSED · disabled`, because the flag is read only at
+   process start: the rolled pod's poller has never ticked, so it has no
+   in-progress game in memory to pause on. See
+   [Kill-switch procedure](season-operations.md#kill-switch-procedure) for
+   the full explanation and the harness evidence (`TestSimGameDayTimeline`).
 7. **Watch the relay budget header** on the first live Sunday, at kickoff,
    mid-afternoon, and Sunday Night Football kickoff.
 
+- **Known display lag:** an already-open Matchups page keeps showing `LIVE`
+  until it next redraws. The `observe` function in `app/matchups/live.go`
+  broadcasts a live update only when the poller's version number moves.
+  The clock-driven window-close correction never moves that version. The
+  page still self-corrects at its next re-render, bounded by the feed
+  cache's 45-second limit.
+
 ### Kill-switch drill log
 
-| Date | Kickoff (matchup) | Flag off at | `PAUSED · disabled` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
+| Date | Kickoff (matchup) | Flag off at | `LEDGER` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-30 | _Bounded rehearsal, flagship (`release-2026.08.30-c655472`), no live kickoff_¹ | rollout² | not checked (boot log only)² | rollout² | not checked² | — |
 | _2026-09-10 (DAL@PHI, 20:20 EDT)_ | | | | | | |
+
+¹ This drill ran outside a live kickoff, in the reverse order of the columns above: flag on, then flag off. It confirmed boot logging on both sides of the flag.
+
+² Flag on, rollout: the enabled poller logged nothing at boot. That silent gap is the finding this commit fixes, with a new `livescore: poller enabled (...)` boot line. Flag off, rollout: within seconds, the log confirmed `livescore: LIVE_SCORING_ENABLED is not true; the live poller stays off`. The kill switch itself already worked. The drill did not re-run against a live game, so it did not check the status line directly. Per the corrected [Kill-switch procedure](season-operations.md#kill-switch-procedure), a boot-time-disabled poller has no in-progress game history to pause on. The expected status-line state is therefore `LEDGER`, not `PAUSED · disabled`.
 
 ## Notes on client assets
 

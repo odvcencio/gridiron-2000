@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,6 +74,16 @@ type Poller struct {
 	budgetUsed       int
 	lastSuccess      time.Time
 	inWindow         int
+	// windowLastOpen is whether any schedule game satisfied inWindow as
+	// of the last tick — tracked separately from inWindow/targets, which
+	// also excludes a game once isFinalDone is set for it. The schedule
+	// window and "there is still something left to fetch" are different
+	// facts: a game that reaches final early is correctly dropped from
+	// targets, but its own kickoff+windowAfter has not necessarily
+	// passed yet, so the window-open/closed log below must key off this
+	// field, or a slate whose last game finals early logs a misleading
+	// "window closed" before the real time-based window has elapsed.
+	windowLastOpen bool
 	// unmatched and unmatchedGames are the in-window games Tick could not
 	// map to a Tank01 listing this tick (round-2 note 1): a schedule row
 	// with no counterpart in matchGames's output, so it is never fetched
@@ -112,6 +123,13 @@ func (p *Poller) Run(ctx context.Context) {
 		p.cfg.Logf("livescore: LIVE_SCORING_ENABLED is not true; the live poller stays off")
 		return
 	}
+	// The mirror of the disabled line above: an operator flipping the
+	// flag on gets no confirmation the poller actually started unless
+	// this fires. A 2026-08-30 flagship drill (release-2026.08.30-
+	// c655472) found the enabled poller logged nothing at boot at all —
+	// see the kill-switch drill log in docs/launch-checklist.md.
+	p.cfg.Logf("livescore: poller enabled (interval=%s, max_inflight=%d, daily_budget=%d, season=%d)",
+		p.cfg.Interval, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
 	ticker := time.NewTicker(p.cfg.Interval)
 	defer ticker.Stop()
 	p.Tick(ctx)
@@ -174,22 +192,63 @@ func (p *Poller) Tick(ctx context.Context) {
 		return
 	}
 	schedule := p.schedule() // no lock held here (see the lock-order note)
+	// windowGames is every schedule game whose time window (inTimeWindow,
+	// a pure clock fact) is open right now, independent of game.Final and
+	// isFinalDone; targets narrows that to the ones Tick will actually
+	// fetch this pass. A game that reaches final early — in the
+	// schedule's own Final flag or via isFinalDone — leaves targets but
+	// stays in windowGames until its own kickoff+windowAfter passes —
+	// see windowLastOpen's doc comment for why the two must be tracked
+	// apart, and inTimeWindow's doc comment for why this loop reads
+	// inTimeWindow here, not inWindow (round-2 review finding 3).
+	var windowGames []Game
 	var targets []Game
 	weeks := map[int]bool{}
 	currentWeek := 0
 	for _, game := range schedule {
-		if inWindow(game, now) && !p.isFinalDone(game.ID) {
-			targets = append(targets, game)
-			weeks[game.Week] = true
-			if currentWeek == 0 || game.Week < currentWeek {
-				currentWeek = game.Week
-			}
+		if !inTimeWindow(game, now) {
+			continue
+		}
+		windowGames = append(windowGames, game)
+		if game.Final || p.isFinalDone(game.ID) {
+			continue
+		}
+		targets = append(targets, game)
+		weeks[game.Week] = true
+		if currentWeek == 0 || game.Week < currentWeek {
+			currentWeek = game.Week
 		}
 	}
 	p.mu.Lock()
 	p.inWindow = len(targets)
+	wasWindowOpen := p.windowLastOpen
+	nowWindowOpen := len(windowGames) > 0
+	p.windowLastOpen = nowWindowOpen
 	p.unmatched, p.unmatchedGames = 0, nil
 	p.mu.Unlock()
+	// Log the schedule-window open/closed transitions only — never once
+	// per tick while the window stays in the same state — so a Sunday
+	// slate does not spam the log every LIVE_POLL_INTERVAL. This keys
+	// off windowGames (the real time-based window), not targets: see
+	// windowLastOpen's doc comment. The read of wasWindowOpen and the
+	// write of p.windowLastOpen above are atomic with each other — both
+	// happen inside the single p.mu hold at lines 219-225 — so two
+	// parallel Ticks can never observe the same transition and double-
+	// log it. The log call itself, below, runs after p.mu is released,
+	// so two parallel Ticks (never done in production — Run's own loop
+	// calls Tick serially; only a test or a future concurrent caller
+	// could) could still log their own distinct transitions out of
+	// order relative to each other.
+	switch {
+	case nowWindowOpen && !wasWindowOpen:
+		ids := make([]string, 0, len(windowGames))
+		for _, game := range windowGames {
+			ids = append(ids, game.ID)
+		}
+		p.cfg.Logf("livescore: window open (%d games: %s)", len(windowGames), strings.Join(ids, ", "))
+	case wasWindowOpen && !nowWindowOpen:
+		p.cfg.Logf("livescore: window closed")
+	}
 	if len(targets) == 0 {
 		return
 	}
@@ -365,13 +424,27 @@ func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
 }
 
 // Snapshot copies the current state under p.mu only; it reads no schedule.
+// A game whose poll window has closed (kickoff+windowAfter has passed) and
+// that never reached final reports InProgress=false here: a stale
+// gameRecord's last-seen box.InProgress=true must not keep the Matchups
+// page reading LIVE hours after the poller itself stopped fetching that
+// game (2026-08-30 finding: a game that never went final still reported
+// InProgress=true indefinitely). Final is left untouched — this only
+// clears the in-progress signal, it never fabricates a final one.
 func (p *Poller) Snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	now := p.cfg.Now()
 	out := Snapshot{Version: p.version, CheckedAt: p.lastSuccess, Weeks: map[int]WeekLines{}, Games: map[string]GameState{}}
 	for _, rec := range p.games {
 		addBoxToSnapshot(&out, rec.game, rec.box, rec.at)
 	}
 	sortSnapshotLines(&out) // round-2 note 36: stable PlayerID order for callers
+	for id, game := range out.Games {
+		if game.InProgress && !game.Final && WindowClosed(game.Kickoff, now) {
+			game.InProgress = false
+			out.Games[id] = game
+		}
+	}
 	return out
 }

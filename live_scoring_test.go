@@ -2,15 +2,19 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/livescore"
+	"gridiron-2000/internal/openstats"
 )
 
 func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
@@ -19,7 +23,7 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Q2", Clock: "3:10", InProgress: true, Kickoff: kickoff},
 	}}
 	health := livescore.Health{Enabled: true, LastSuccess: kickoff.Add(time.Minute)}
-	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot }, func() livescore.Health { return health })()
+	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot }, func() livescore.Health { return health }, func() time.Time { return kickoff.Add(time.Minute) })()
 	if !status.Enabled || status.Degraded || !status.CheckedAt.Equal(health.LastSuccess) {
 		t.Fatalf("status = %+v", status)
 	}
@@ -27,6 +31,213 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 		if game := status.Games[team]; game.Period != "Q2" || !game.InProgress {
 			t.Fatalf("%s = %+v", team, game)
 		}
+	}
+}
+
+// TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot
+// covers item 3's real failure mode: buildLiveScoring's versionedSnapshot
+// memoizes per Poller.Version, and a game whose window has closed gets no
+// further fetches, so its version never moves again — the snapshot func
+// here stands in for that frozen copy, still reporting InProgress=true
+// from whenever the last real fetch happened. liveStatusFromPoller must
+// still report InProgress=false once now is past kickoff+windowAfter,
+// because it reapplies the window-closed rule fresh on every call instead
+// of trusting the (possibly stale) snapshot's own InProgress bit.
+func TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot(t *testing.T) {
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	staleSnapshot := livescore.Snapshot{Version: 3, Games: map[string]livescore.GameState{
+		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Q3", Clock: "2:00", InProgress: true, Final: false, Kickoff: kickoff},
+	}}
+	health := livescore.Health{Enabled: true}
+	source := liveStatusFromPoller(
+		func() livescore.Snapshot { return staleSnapshot }, // never changes: the frozen, post-window-close copy
+		func() livescore.Health { return health },
+		func() time.Time { return kickoff.Add(6 * time.Hour) }, // past kickoff+5h, real time keeps moving
+	)
+	status := source()
+	for _, team := range []string{"BAL", "BUF"} {
+		if game := status.Games[team]; game.InProgress {
+			t.Fatalf("%s = %+v, want InProgress=false once the window has closed, even from a stale snapshot", team, game)
+		} else if game.Final {
+			t.Fatalf("%s = %+v, want Final untouched (false) — this must not fabricate a final", team, game)
+		}
+	}
+}
+
+// TestFreshenSnapshotKeepsMergeLinesOffAStaleLiveRowAfterWindowCloses
+// covers item 1 (coordinator review of 86ebb84 + ea6849b, major finding):
+// the week-stats seam (buildLiveScoring's SetWeekStatsSource closure)
+// feeds livescore.MergeLines from the same memoized current() snapshot
+// liveStatusFromPoller reads, so it has the identical frozen-version
+// failure mode — a game whose window closed with no further fetches
+// leaves current() reporting InProgress=true forever. Without
+// freshenSnapshot applied first, MergeLines would keep letting that
+// stale live row beat the ledger even after the status chip already
+// reads LEDGER.
+func TestFreshenSnapshotKeepsMergeLinesOffAStaleLiveRowAfterWindowCloses(t *testing.T) {
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	frozen := livescore.Snapshot{
+		Version: 5,
+		Weeks: map[int]livescore.WeekLines{
+			1: {Lines: []livescore.Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "BUF", GameID: "g1", Stats: map[string]float64{"passYds": 300}, Final: false},
+			}},
+		},
+		Games: map[string]livescore.GameState{
+			"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", InProgress: true, Final: false, Kickoff: kickoff},
+		},
+	}
+	now := kickoff.Add(6 * time.Hour) // past kickoff+windowAfter (5h); the box score never went final
+	resolve := func(tank01ID, longName string) (league.Player, bool) {
+		return league.Player{Name: "Josh Allen", Position: "QB"}, true
+	}
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 250}, Source: league.StatSourceLedger}}
+
+	// Proves this scenario actually exercises the bug: the raw, un-
+	// freshened frozen snapshot still lets the stale live row win, since
+	// MergeLines trusts its InProgress bit as-is.
+	staleMerged := livescore.MergeLines(base, 1, frozen, resolve)
+	if len(staleMerged) != 1 || staleMerged[0].Source != league.StatSourceLive {
+		t.Fatalf("test setup: expected the unfreshened frozen snapshot to still win live: %+v", staleMerged)
+	}
+
+	// With the fix: freshenSnapshot clears InProgress first, so the
+	// ledger row wins and no row carries StatSourceLive.
+	merged := livescore.MergeLines(base, 1, freshenSnapshot(frozen, now), resolve)
+	if len(merged) != 1 {
+		t.Fatalf("merged = %+v", merged)
+	}
+	if merged[0].Source == league.StatSourceLive || merged[0].Source == league.StatSourceLiveFinal {
+		t.Fatalf("a stale live row still won after the window closed: %+v", merged[0])
+	}
+	if merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 250 {
+		t.Fatalf("the ledger row was not kept authoritative: %+v", merged[0])
+	}
+}
+
+// seamFakeFetcher is a minimal livescore.Fetcher for
+// TestBuildLiveScoringWiresFreshenSnapshotIntoWeekStatsSeam: one listing,
+// one in-progress box score, no failures.
+type seamFakeFetcher struct {
+	listings []fantasy.GameListing
+	boxes    map[string]fantasy.BoxScore
+}
+
+func (f *seamFakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
+	return f.boxes[gameID], nil
+}
+
+func (f *seamFakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error) {
+	return f.listings, nil
+}
+
+// seamTestOpenStats writes one week-1 ledger row for Josh Allen (QB, BUF)
+// to a temp cache directory and loads it through the real openstats CSV
+// parser (NewService reads its cache on construction; no network, no
+// Start/Sync needed) so buildLiveScoring's leagueWeekStatsSource adapter
+// has a real base ledger row to merge against.
+func seamTestOpenStats(t *testing.T, season int) *openstats.Service {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, fmt.Sprintf("stats_player_week_%d.csv", season))
+	csv := "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,fantasy_points,fantasy_points_ppr,passing_yards\n" +
+		fmt.Sprintf("p1,Josh Allen,QB,%d,1,REG,2026_01_BAL_BUF,BUF,BAL,20.5,24.5,250\n", season)
+	if err := os.WriteFile(path, []byte(csv), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := openstats.NewService(openstats.Config{Root: dir, Season: season})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stats
+}
+
+// TestBuildLiveScoringWiresFreshenSnapshotIntoWeekStatsSeam covers item 1
+// (round-2 review, finding 1): the test above calls freshenSnapshot
+// directly, so reverting only buildLiveScoring's wiring (live_scoring.go's
+// SetWeekStatsSource closure, back to MergeLines(base(week), week,
+// current(), resolve), dropping the freshen call) still leaves that test
+// green. This drives the actual installed closure — buildLiveScoring's own
+// SetWeekStatsSource call, read back through league.Service.
+// WeekStatsForTest, the same path matchupStatsSnapshot uses in production
+// — so reverting the wiring fails this test.
+func TestBuildLiveScoringWiresFreshenSnapshotIntoWeekStatsSeam(t *testing.T) {
+	lg := league.Default()
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, eastern)
+
+	clock := kickoff.Add(30 * time.Minute) // inside the poll window
+	lg.SetClockForTest(func() time.Time { return clock })
+	t.Cleanup(func() { lg.SetClockForTest(nil) })
+
+	lg.SetScheduleSource(func() []league.GameInfo {
+		return []league.GameInfo{{ID: "2026_01_BAL_BUF", Week: 1, Kickoff: kickoff, Away: "BAL", Home: "BUF"}}
+	})
+	t.Cleanup(func() { lg.SetScheduleSource(nil) })
+
+	lg.SetPlayerSource(func() ([]league.Player, int64, string) {
+		return []league.Player{{ID: "pool-1", Name: "Josh Allen", Position: "QB", NFLTeam: "BUF"}}, 1, "live"
+	})
+	t.Cleanup(func() { lg.SetPlayerSource(nil) })
+
+	stats := seamTestOpenStats(t, 2026)
+
+	fetcher := &seamFakeFetcher{
+		listings: []fantasy.GameListing{{ID: "20260910_BAL@BUF", Date: "20260910", Away: "BAL", Home: "BUF"}},
+		boxes: map[string]fantasy.BoxScore{
+			"20260910_BAL@BUF": {
+				GameID: "20260910_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", Period: "Q2", InProgress: true,
+				Players: map[string]fantasy.PlayerLine{"tank-1": {Name: "Josh Allen", Team: "BUF", Stats: map[string]float64{"passYards": 300}}},
+			},
+		},
+	}
+
+	rt := &AppRuntime{}
+	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2026}
+	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, rt)
+	t.Cleanup(func() {
+		lg.SetWeekStatsSource(nil)
+		lg.SetLiveStatusSource(nil)
+		lg.SetLiveVersionSource(nil)
+	})
+
+	liveRuntime.Poller.Tick(context.Background())
+	if games := liveRuntime.Poller.Snapshot().Games; len(games) == 0 {
+		t.Fatalf("test setup: Tick recorded no games")
+	}
+
+	// Warm the wired closure's memoized current() at the in-window instant,
+	// locking in InProgress=true — the same "current() can be several
+	// hours stale" scenario freshenSnapshot's own doc comment describes.
+	if lines := lg.WeekStatsForTest(1); len(lines) == 0 {
+		t.Fatalf("test setup: the wired seam returned no lines while the game was in progress: %+v", lines)
+	}
+
+	// Advance the clock past kickoff+windowAfter (5h) with no further
+	// Tick: the poller's own version never moves again, so current()
+	// keeps returning the frozen, InProgress=true copy from the warm-up
+	// call above.
+	clock = kickoff.Add(6 * time.Hour)
+
+	lines := lg.WeekStatsForTest(1)
+	var found bool
+	for _, line := range lines {
+		if line.Key != "joshallen|QB" {
+			continue
+		}
+		found = true
+		if line.Source == league.StatSourceLive || line.Source == league.StatSourceLiveFinal {
+			t.Fatalf("the wired week-stats seam still returned a live source once the window had closed: %+v", line)
+		}
+		if line.Source != league.StatSourceLedger {
+			t.Fatalf("line = %+v, want the ledger source once the window had closed", line)
+		}
+	}
+	if !found {
+		t.Fatalf("lines = %+v, want a joshallen|QB row", lines)
 	}
 }
 
