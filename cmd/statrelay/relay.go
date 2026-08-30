@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -80,11 +81,19 @@ func ttlFor(path string) time.Duration {
 	return defaultTTL
 }
 
-// ttlForEntry is ttlFor made status-aware for box scores. Status-code
-// rule: "2" (or a Final period) never changes (24 h); "0" or "" with no
-// period changes at kickoff (60 s); "1", or any other code with a period,
-// is in progress and follows the live cadence (4 s), as does an unreadable body.
-func ttlForEntry(path string, body []byte) time.Duration {
+// ttlForEntry is ttlFor made status-aware for box scores, and aware of
+// the HTTP status itself: a non-200 upstream reply is never cached and
+// returns 0, the sentinel fetchUpstream reads as "do not cache this"
+// (round-2 review of commit fe8775f, finding 2 — a 429/403/... RapidAPI
+// reply is a definitive answer, not something to mirror). For a 200,
+// box-score status-code rule: "2" (or a Final period) never changes
+// (24 h); "0" or "" with no period changes at kickoff (60 s); "1", or
+// any other code with a period, is in progress and follows the live
+// cadence (4 s), as does an unreadable body.
+func ttlForEntry(path string, status int, body []byte) time.Duration {
+	if status != http.StatusOK {
+		return 0
+	}
 	if !strings.HasPrefix(path, "/getNFLBoxScore") {
 		return ttlFor(path)
 	}
@@ -131,6 +140,23 @@ type sfCall struct {
 	done  chan struct{}
 	entry cacheEntry
 	err   error
+}
+
+// upstreamStatusError reports a non-200 upstream reply that must reach
+// the caller verbatim (status, content type, and body) when no cached
+// copy can be served instead, rather than being folded into the generic
+// "upstream unreachable" 502 path: the relay reached Tank01 and got a
+// definitive answer (429 rate-limited, 403 forbidden, ...), which is a
+// different situation from a transport failure, and is never cached
+// (round-2 review of commit fe8775f, finding 2).
+type upstreamStatusError struct {
+	status      int
+	body        []byte
+	contentType string
+}
+
+func (e *upstreamStatusError) Error() string {
+	return fmt.Sprintf("upstream status %d", e.status)
 }
 
 // Relay forwards GET requests to the Tank01 RapidAPI upstream, injecting
@@ -215,18 +241,25 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		log.Printf("statrelay: cache=miss path=%s", key)
 	}
 
-	remaining, allowed := r.chargeBudget(now)
+	// Read-only: this decides whether Tick may even attempt a fetch, and
+	// fills the header, but never spends a unit itself. The actual charge
+	// happens once, in fetchSingleflight's leader path, right beside the
+	// real upstream call — never here, before singleflight has had a
+	// chance to collapse duplicate concurrent requests for the same key
+	// into that one call (round-2 review of commit fe8775f, finding 1:
+	// the budget must meter upstream fetches, not client requests).
 	if r.dailyBudget > 0 {
+		remaining := r.remainingBudget(now)
 		w.Header().Set("X-Statrelay-Budget-Remaining", strconv.Itoa(remaining))
-	}
-	if !allowed {
-		if haveCache {
-			log.Printf("statrelay: cache=stale path=%s reason=budget", key)
-			writeEntry(w, cached, true)
+		if remaining <= 0 {
+			if haveCache {
+				log.Printf("statrelay: cache=stale path=%s reason=budget", key)
+				writeEntry(w, cached, true)
+				return
+			}
+			http.Error(w, "statrelay: daily budget exhausted", http.StatusTooManyRequests)
 			return
 		}
-		http.Error(w, "statrelay: daily budget exhausted", http.StatusTooManyRequests)
-		return
 	}
 
 	entry, err := r.fetchSingleflight(req.Context(), key)
@@ -234,6 +267,17 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if haveCache {
 			log.Printf("statrelay: cache=stale path=%s upstream_err=%q", key, err)
 			writeEntry(w, cached, true)
+			return
+		}
+		var statusErr *upstreamStatusError
+		if errors.As(err, &statusErr) {
+			log.Printf("statrelay: cache=none path=%s upstream_status=%d", key, statusErr.status)
+			if statusErr.contentType != "" {
+				w.Header().Set("Content-Type", statusErr.contentType)
+			}
+			w.Header().Set("X-Statrelay-Upstream-Status", strconv.Itoa(statusErr.status))
+			w.WriteHeader(statusErr.status)
+			_, _ = w.Write(statusErr.body)
 			return
 		}
 		log.Printf("statrelay: cache=none path=%s upstream_err=%q", key, err)
@@ -244,30 +288,37 @@ func (r *Relay) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.cache[key] = entry
 	r.mu.Unlock()
-	if err := r.persist(entry); err != nil {
-		log.Printf("statrelay: disk persist failed path=%s err=%q", key, err)
+	// A short-lived entry (today, only the 4 s in-progress box-score TTL)
+	// would already be expired well before any restart could read it
+	// back, so mirroring it to disk is pure churn with no benefit
+	// (round-2 review of commit fe8775f, finding 3). The 60 s pre-game
+	// and 24 h final buckets, and every non-box-score TTL, still mirror.
+	if entry.TTL >= time.Minute {
+		if err := r.persist(entry); err != nil {
+			log.Printf("statrelay: disk persist failed path=%s err=%q", key, err)
+		}
 	}
 	writeEntry(w, entry, false)
 }
 
-// chargeBudget spends one unit of today's fetch budget and reports what
-// remains. dailyBudget == 0 means unlimited: it returns (0, true) and
-// counts nothing, so an unlimited relay never takes r.mu on this path.
-// Otherwise it rolls the count over on a new UTC day, then either spends
-// one unit (limit-used, true) or reports exhaustion ((0, false)) without
-// spending — mirrors blitzPoller.chargeBudget (blitz_source.go:652).
-func (r *Relay) chargeBudget(now time.Time) (remaining int, allowed bool) {
+// chargeBudget spends one unit of today's fetch budget, rolling the
+// count over on a new UTC day first. dailyBudget == 0 means unlimited:
+// it is a no-op, so an unlimited relay never takes r.mu on this path.
+// The allow/deny decision is made earlier, in ServeHTTP, by the
+// read-only remainingBudget; chargeBudget's only job is to record that
+// one real upstream fetch happened — called exactly once per
+// fetchSingleflight leader, beside the real fetchUpstream call, never
+// once per incoming client request (round-2 review of commit fe8775f,
+// finding 1). Mirrors blitzPoller.chargeBudget's day-rollover shape
+// (blitz_source.go:652).
+func (r *Relay) chargeBudget(now time.Time) {
 	if r.dailyBudget == 0 {
-		return 0, true
+		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rolloverBudgetLocked(now)
-	if r.budgetUsed >= r.dailyBudget {
-		return 0, false
-	}
 	r.budgetUsed++
-	return r.dailyBudget - r.budgetUsed, true
 }
 
 // remainingBudget is chargeBudget's read-only counterpart for the
@@ -314,6 +365,11 @@ func (r *Relay) fetchSingleflight(ctx context.Context, key string) (cacheEntry, 
 	r.sfCalls[key] = call
 	r.sfMu.Unlock()
 
+	// Charge exactly once per real upstream call, right beside it: N
+	// requests the singleflight collapse above (same key, in flight
+	// together) spend one unit total, not N (round-2 review of commit
+	// fe8775f, finding 1).
+	r.chargeBudget(r.now())
 	call.entry, call.err = r.fetchUpstream(ctx, key)
 	close(call.done)
 
@@ -351,13 +407,17 @@ func (r *Relay) fetchUpstream(ctx context.Context, key string) (cacheEntry, erro
 		return cacheEntry{}, fmt.Errorf("upstream response exceeds %d bytes", maxUpstreamBody)
 	}
 	log.Printf("statrelay: upstream status=%d path=%s", resp.StatusCode, key)
-	if resp.StatusCode != http.StatusOK {
-		return cacheEntry{}, fmt.Errorf("upstream status %d", resp.StatusCode)
-	}
 
 	path := key
 	if idx := strings.IndexByte(key, '?'); idx >= 0 {
 		path = key[:idx]
+	}
+	ttl := ttlForEntry(path, resp.StatusCode, body)
+	if ttl <= 0 {
+		// Non-200: never cached, never persisted. ServeHTTP relays this
+		// status verbatim to the caller when it has no cached copy to
+		// fall back on instead (round-2 review of commit fe8775f, finding 2).
+		return cacheEntry{}, &upstreamStatusError{status: resp.StatusCode, body: body, contentType: resp.Header.Get("Content-Type")}
 	}
 	return cacheEntry{
 		Key:         key,
@@ -365,7 +425,7 @@ func (r *Relay) fetchUpstream(ctx context.Context, key string) (cacheEntry, erro
 		StatusCode:  resp.StatusCode,
 		ContentType: resp.Header.Get("Content-Type"),
 		FetchedAt:   r.now(),
-		TTL:         ttlForEntry(path, body),
+		TTL:         ttl,
 	}, nil
 }
 

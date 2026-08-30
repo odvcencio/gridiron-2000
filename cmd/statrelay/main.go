@@ -32,7 +32,11 @@ func main() {
 	}
 
 	relay := NewRelay(host, apiKey, dataDir, &http.Client{Timeout: 30 * time.Second}, time.Now)
-	relay.dailyBudget = envInt("STATRELAY_DAILY_BUDGET", 0) // 0 = unlimited
+	dailyBudget := envInt("STATRELAY_DAILY_BUDGET", 0)
+	if dailyBudget < 0 { // a negative value reads as unlimited, matching livescore.New's clamp
+		dailyBudget = 0
+	}
+	relay.dailyBudget = dailyBudget // 0 = unlimited
 	relay.LoadDisk()
 
 	server := &http.Server{
