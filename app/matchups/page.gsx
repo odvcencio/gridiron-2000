@@ -171,7 +171,7 @@ func MatchupCard(props MatchupCardProps) Node {
 }
 
 func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 		<header class="page-masthead">
 			<div>
 				<span class="signal-label">

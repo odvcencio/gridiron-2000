@@ -384,7 +384,7 @@ func Page() Node {
 			<If cond={data.viewer.is_commissioner}><a href="/admin?section=playoffs#admin-playoffs" data-gosx-link class="access-link">Open commissioner controls →</a></If>
 		</section>
 		<If cond={data.viewer.signed_in && data.has_seat}>
-		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval}>
+		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 			<header class="section-heading section-heading--split">
 				<div>
 					<span class="section-index">01 // MATCHUP PREVIEW</span>

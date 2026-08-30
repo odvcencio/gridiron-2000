@@ -119,6 +119,8 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
+			ctx.Runtime().EnableBootstrap()
+			ctx.Runtime().BindHub(scoresLiveHubName, ScoresLiveBindingPath(), nil)
 			data := league.Default().MatchupsData(ctx.Request.Context(), ctx.Request)
 			if matchups, ok := data["matchups"].([]map[string]any); ok {
 				data["matchups"] = matchupsPageCards(matchups)

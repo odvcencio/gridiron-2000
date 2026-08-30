@@ -3,6 +3,7 @@ package app
 import (
 	"log"
 
+	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
@@ -156,6 +157,8 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
+			ctx.Runtime().EnableBootstrap()
+			ctx.Runtime().BindHub("scores-live", matchupspage.ScoresLiveBindingPath(), nil)
 			data := league.Default().DashboardData(ctx.Request.Context(), ctx.Request)
 			if featured, ok := data["featured"].([]map[string]any); ok {
 				data["featured"] = dashboardMatchupCards(featured)

@@ -17,6 +17,7 @@ import (
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	matchupspage "gridiron-2000/app/matchups"
 	pickempage "gridiron-2000/app/pickem"
 	playerspage "gridiron-2000/app/players"
 	teampage "gridiron-2000/app/team"
@@ -338,6 +339,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}
 	draftLiveUpdates := draftpage.NewLiveUpdates(leagueFingerprint)
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
+	scoresLive := matchupspage.NewScoresLive(liveRuntime.Poller.Version, leagueFingerprint)
+	rt.starters = append(rt.starters, scoresLive.Start)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends
 	// — only the send step at the end of each tick is itself
@@ -630,6 +633,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
+	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence
 	// bound; managed player mutations signal the same regions immediately while
