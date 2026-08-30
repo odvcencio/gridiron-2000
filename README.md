@@ -236,7 +236,7 @@ curated social + members -> seconds/human provisional alerts -> private Signal W
 open nflverse files      -> slower corrected ledgers         -> scoring/reconciliation source
 ```
 
-The first layer provides the “something just happened” experience without paying a real-time vendor. The second provides reusable structured history and powers schedule-backed fantasy matchups. During an open week, matchup totals are provisional calculations from the current effective lineups and mirrored weekly player statistics; this is **not** official, play-by-play, sub-minute scoring. When the commissioner closes a week, Gridiron records the matchup results and pins every team's effective starters for that week. Later drops, trades, or roster-shape edits cannot rewrite that closed result; a repeated close is an idempotent no-op. The commissioner close remains explicit even when the NFL schedule and corrected-stat freshness checks say the week is ready.
+The first layer provides the “something just happened” experience without paying a real-time vendor. The second provides reusable structured history and powers schedule-backed fantasy matchups. When `LIVE_SCORING_ENABLED=true` (the default is `false`), regular-season live scoring adds a third layer: `internal/livescore` polls in-progress Tank01 box scores through `statrelay` and overlays them onto the mirrored ledger, player by player — the live row wins while that player's game is in progress, the mirrored ledger row wins once the game is final or whenever live has no data for that player. The nflverse file stays the close-week truth regardless: during an open week, matchup totals are provisional calculations from the current effective lineups and the best available source (live or mirrored); this is **not** official scoring. When the commissioner closes a week, Gridiron records the matchup results and pins every team's effective starters for that week. Later drops, trades, or roster-shape edits cannot rewrite that closed result; a repeated close is an idempotent no-op. A posted final score never changes once a week is closed, even if a later source correction disagrees. The commissioner close remains explicit even when the NFL schedule and corrected-stat freshness checks say the week is ready.
 
 ## Private storage and exports
 
@@ -301,6 +301,13 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
 | `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
+| `LIVE_SCORING_ENABLED` | `false` | Kill switch for regular-season live scoring; `internal/livescore` only polls in-progress box scores when this is exactly `true` |
+| `LIVE_POLL_INTERVAL` | `5s` | How often each instance's live poller fetches in-progress box scores through `statrelay` |
+| `LIVE_MAX_INFLIGHT` | `4` | Maximum concurrent in-progress game fetches per instance |
+| `LIVE_DAILY_BUDGET` | `20000` | Per-instance daily cap on live box-score fetches; a placeholder until the owner confirms the Mega RapidAPI tier |
+| `LIVE_REPLAY_FIXTURE` | empty | Directory of a recorded game's play-by-play; when set, live scoring replays it instead of polling Tank01, and replaces the league schedule with the replay's one game |
+| `LIVE_REPLAY_STEP` | `2s` | Wall-clock interval between replayed play-by-play frames |
+| `LIVE_REPLAY_ALLOW_PRODUCTION` | `false` | Required alongside `LIVE_REPLAY_FIXTURE` to run a replay under a non-local `APP_ENV`; refused otherwise, since replay mode replaces the real schedule |
 | `SCORING_FORMAT` | `half_ppr` | ADP type and projection scoring |
 | `FANTASY_SYNC_INTERVAL` | `6h` | Pool refresh interval |
 | `FANTASY_ROOT` | `data/fantasy` | Pool cache directory |

@@ -176,7 +176,7 @@ Empty or unset values are no-ops. A non-empty malformed `DRAFT_AT` or
 with an error naming the environment variable; Gridiron never silently keeps
 the prior JSON/default value after an invalid override.
 
-Other environment variables configure private identity policy, credentials, providers, storage, or runtime behavior; they are not part of the public `league.json` schema. See [`.env.example`](../.env.example) and the README configuration map.
+Other environment variables configure private identity policy, credentials, providers, storage, or runtime behavior; they are not part of the public `league.json` schema. See [`.env.example`](../.env.example) and the README configuration map. This includes the `LIVE_*` regular-season live-scoring variables (`LIVE_SCORING_ENABLED`, `LIVE_POLL_INTERVAL`, `LIVE_MAX_INFLIGHT`, `LIVE_DAILY_BUDGET`, `LIVE_REPLAY_FIXTURE`, `LIVE_REPLAY_STEP`, `LIVE_REPLAY_ALLOW_PRODUCTION`) and `statrelay`'s own `STATRELAY_DAILY_BUDGET` — none override a `league.json` field, so none appear in the table above. See [Game day](season-operations.md#game-day) for the states, precedence, status-code rule, and kill-switch procedure those variables control.
 
 ## Private Commissioner HQ v1 provider
 
