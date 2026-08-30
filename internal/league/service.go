@@ -1126,10 +1126,18 @@ func (s *Service) pool() playerPool {
 }
 
 // ResolveLivePlayer maps one Tank01 box-score row onto a pool player: the
-// Tank01 ID first (the live pool carries it), then the unique normalized
-// name (the demo and offline pools carry synthetic IDs). An ambiguous or
-// unknown name does not resolve, so a live row never lands on the wrong
-// player. The name index is rebuilt only when the pool version moves.
+// Tank01 ID first, then the unique normalized name. The ID path also
+// reaches the embedded fixture players buildPool merges into pool.byID
+// (see buildPool), so a demo or offline pool's synthetic ID still
+// resolves; the name path indexes pool.players only — the sourced players,
+// not the embedded fixtures — by design, since a live report never names a
+// fixture player. An ambiguous or unknown name does not resolve, so a live
+// row never lands on the wrong player. The name index is rebuilt only when
+// the pool version moves, and the rebuild check and the rebuild itself
+// happen under one poolMu hold against the freshest s.poolCache, not the
+// pool snapshot pool() returned earlier: releasing and re-acquiring poolMu
+// between them would let a concurrent pool refresh race the rebuild and
+// leave the index built from a stale snapshot.
 func (s *Service) ResolveLivePlayer(tank01ID, longName string) (Player, bool) {
 	pool := s.pool()
 	if player, ok := pool.byID[strings.TrimSpace(tank01ID)]; ok {
@@ -1140,13 +1148,14 @@ func (s *Service) ResolveLivePlayer(tank01ID, longName string) (Player, bool) {
 		return Player{}, false
 	}
 	s.poolMu.Lock()
-	if s.liveNameIndex == nil || s.liveNameVersion != pool.version {
-		index := make(map[string][]Player, len(pool.players))
-		for _, player := range pool.players {
+	current := s.poolCache
+	if s.liveNameIndex == nil || s.liveNameVersion != current.version {
+		index := make(map[string][]Player, len(current.players))
+		for _, player := range current.players {
 			name := strings.TrimSuffix(normalizePlayerKey(player.Name, ""), "|")
 			index[name] = append(index[name], player)
 		}
-		s.liveNameIndex, s.liveNameVersion = index, pool.version
+		s.liveNameIndex, s.liveNameVersion = index, current.version
 	}
 	matches := s.liveNameIndex[key]
 	s.poolMu.Unlock()

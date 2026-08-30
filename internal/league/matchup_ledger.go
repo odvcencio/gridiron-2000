@@ -111,8 +111,7 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 		sourceState = "unavailable"
 	}
 	values := s.currentScoringValues()
-	byKey := weekStatsByKey(lines)
-	sources := weekStatSourcesByKey(lines)
+	lineByKey := weekStatLinesByKey(lines)
 	lineup, pinned := s.matchupLineup(state, teamID, week)
 	explicit := explicitLineupForWeek(state.Lineups[teamID], week)
 	rows := make([]StarterLedgerRow, 0, len(lineup.Slots))
@@ -143,19 +142,17 @@ func (s *Service) teamWeekLedgerFromSnapshot(state PersistedState, teamID string
 			row.JoinState = "stats-unavailable"
 		} else if len(lines) == 0 {
 			row.JoinState = "stats-empty"
-		} else {
-			points, joined := scorePlayerPoints(assignment.Player, byKey, values)
-			if joined {
-				row.Points = points
-				row.JoinState = "matched"
-				total += points
-			} else {
-				row.JoinState = "missing-join"
-				complete = false
+		} else if line, joined := lineByKey[normalizePlayerKey(assignment.Player.Name, assignment.Player.Position)]; joined {
+			row.Points = scorePlayerStats(line.Stats, values)
+			row.JoinState = "matched"
+			row.Source = line.Source
+			if row.Source == "" {
+				row.Source = StatSourceLedger
 			}
-		}
-		if row.JoinState == "matched" {
-			row.Source = sources[normalizePlayerKey(assignment.Player.Name, assignment.Player.Position)]
+			total += row.Points
+		} else {
+			row.JoinState = "missing-join"
+			complete = false
 		}
 		row.PointsText = fmt.Sprintf("%.1f", row.Points)
 		ledgerPlayerDetail(&row)

@@ -42,20 +42,16 @@ type WeekStatLine struct {
 // ScheduleSource / HistoricalSource pattern.
 type WeekStatsSource func(week int) []WeekStatLine
 
-// weekStatSourcesByKey indexes each WeekStatLine's Source by its player
-// key, defaulting an empty Source to StatSourceLedger so a caller can look
-// up a row's origin without re-checking the empty-string case at every
-// call site.
-func weekStatSourcesByKey(lines []WeekStatLine) map[string]string {
-	out := make(map[string]string, len(lines))
+// weekStatLinesByKey indexes the whole WeekStatLine by player key in one
+// pass over lines. A caller that needs both a line's Stats and its Source
+// together (the starter ledger) reads both off the same entry instead of
+// building two separate maps with two walks over lines.
+func weekStatLinesByKey(lines []WeekStatLine) map[string]WeekStatLine {
+	byKey := make(map[string]WeekStatLine, len(lines))
 	for _, line := range lines {
-		if line.Source == "" {
-			out[line.Key] = StatSourceLedger
-			continue
-		}
-		out[line.Key] = line.Source
+		byKey[line.Key] = line
 	}
-	return out
+	return byKey
 }
 
 // weekStatsSnapshot reads one weekly ledger for a scoring operation. The
@@ -81,6 +77,22 @@ func weekStatsByKey(lines []WeekStatLine) map[string]map[string]float64 {
 	return byKey
 }
 
+// scorePlayerStats applies the league's scoring values to one player's
+// already-resolved rule-keyed stat line. scorePlayerPoints and the starter
+// ledger (matchup_ledger.go, which resolves its own line from
+// weekStatLinesByKey) both call this, so a rendered row's points can never
+// drift from the team's aggregate score.
+func scorePlayerStats(stats map[string]float64, values map[string]float64) float64 {
+	points := 0.0
+	for ruleKey, statValue := range stats {
+		if !finiteScoringPoints(statValue) {
+			continue
+		}
+		points += statValue * scoringPoints(values, ruleKey)
+	}
+	return points
+}
+
 // scorePlayerPoints is the single player-to-points calculation used by both
 // MatchupScorer.TeamWeekScore and the explanatory starter ledger. Keeping the
 // join and rule application here prevents a rendered row from drifting away
@@ -90,14 +102,7 @@ func scorePlayerPoints(player Player, byKey map[string]map[string]float64, value
 	if !ok {
 		return 0, false
 	}
-	points := 0.0
-	for ruleKey, statValue := range line {
-		if !finiteScoringPoints(statValue) {
-			continue
-		}
-		points += statValue * scoringPoints(values, ruleKey)
-	}
-	return points, true
+	return scorePlayerStats(line, values), true
 }
 
 func scorePlayers(players []Player, lines []WeekStatLine, values map[string]float64, week int, teamID string, onMiss func(JoinMiss)) float64 {
