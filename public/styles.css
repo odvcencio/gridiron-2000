@@ -8378,6 +8378,27 @@ body.is-on-clock .draft-clock-panel {
     touch-action: manipulation;
   }
 
+  /* Draft war room (D2, D5): the mobile tab bar's labels are not
+     <button>/<a> elements the rules above already widen, and
+     .button--compact's 2.55rem desktop min-height would otherwise ship
+     below the accessibility baseline inside the drawer on a phone. The
+     !important beats the generic button rule above on min-width — that
+     rule's selector is pinned character-for-character by
+     TestMobileContentControlsKeepTouchBaseline, so it cannot itself gain
+     the specificity these five selectors would need to win the cascade
+     honestly, and its own min-width: 0 is exactly what a .chip or a
+     command-bar icon button must not inherit. */
+  .site-frame .draft-tabbar__tab,
+  .site-frame .chip,
+  .site-frame .draft-command__sound,
+  .site-frame .draft-command button,
+  .site-frame .draft-drawer .button {
+    min-width: 2.75rem !important;
+    min-inline-size: 2.75rem !important;
+    min-height: 2.75rem !important;
+    min-block-size: 2.75rem !important;
+  }
+
   .site-frame input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
   .site-frame select,
   .site-frame textarea {
@@ -9028,4 +9049,1414 @@ body.is-on-clock .draft-clock-panel {
 .mini .pts {
   font-size: 1.25rem;
   text-align: right;
+}
+
+/* Draft war room */
+
+/* Focus mode: the room owns the full viewport height, so the document
+   itself never scrolls — only the command bar's three panes do, each on
+   their own axis. The rail collapses to its icon column rather than
+   disappearing, so a manager can still leave the room in one click. */
+body:has(.draft-shell) { overflow: hidden; }
+
+body:has(.draft-shell) .site-footer {
+  display: none;
+}
+
+body:has(.draft-shell) .site-rail { width: 4rem; }
+
+body:has(.draft-shell) .site-rail .brand-copy,
+body:has(.draft-shell) .site-rail .navigation-group__label {
+  display: none;
+}
+
+body:has(.draft-shell) .site-rail .navigation-link {
+  justify-content: center;
+  padding-inline: 0;
+  font-size: 0;
+}
+
+body:has(.draft-shell) .site-rail .navigation-link__index {
+  margin-right: 0;
+  font-size: var(--type-xs);
+}
+
+/* Below the rail breakpoint the fixed mobile top bar (brand + hamburger)
+   normally reserves --mobile-bar-height of clearance above .site-frame.
+   The draft-shell claims height: 100dvh for itself, so that reserved
+   band would push it past the bottom of the viewport by exactly its own
+   height — the same overflow bug the .site-footer rule above already
+   guards against, on the opposite edge. Both the JS-enhanced fixed bar
+   and its no-JS <details> fallback are hidden. The !important beats the
+   rules being overridden on specificity, not just source order: their
+   :has() argument (script[data-gosx-navigation="true"]) is itself a
+   type-plus-attribute compound selector, which raises html:has(...)
+   above what body:has(.draft-shell) reaches on the class/type count
+   alone. */
+body:has(.draft-shell) .mobile-navigation-enhanced,
+body:has(.draft-shell) .mobile-navigation-static {
+  display: none !important;
+}
+
+body:has(.draft-shell) .site-frame,
+body:has(.draft-shell) .announcement-banner + .site-frame {
+  padding-top: 0 !important;
+}
+
+@media (min-width: 56.25rem) {
+  body:has(.draft-shell) .site-rail ~ .site-frame {
+    width: calc(100% - 4rem);
+    margin-left: 4rem;
+  }
+
+  body:has(#main-content[data-rail-open]) .site-rail {
+    width: var(--rail-width);
+  }
+}
+
+/* Shell: an always-visible command bar plus three independently
+   scrolling panes (pick history/tape, available players, my team). */
+.draft-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100dvh;
+  gap: var(--space-sm);
+}
+
+.draft-notice {
+  padding: 0 var(--space-md);
+}
+
+.draft-command {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 5.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel-glass);
+}
+
+/* The clock and room columns cannot be plain "auto" tracks: CSS Grid sizes
+   an auto track to its item's unwrapped max-content width, and the
+   scheduled-window countdown (days, still years out for a far-future
+   DraftAt) or the room summary's five-part line can both demand far more
+   than their fair share, starving the flexible turn column down to 0 and
+   overlapping the on-clock badge under the clock. minmax(0, ...) makes
+   both share the row's leftover space instead, wrapping their own
+   content when it does not fit rather than resizing the whole grid. */
+.draft-command__inner {
+  display: grid;
+  grid-template-columns: 11.875rem minmax(0, 1fr) minmax(0, 16rem) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-md);
+}
+
+.draft-command__pick {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.draft-command__number {
+  font-size: var(--type-md);
+}
+
+.draft-command__turn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.draft-command__team {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.draft-command__team strong,
+.draft-command__team small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-command__clock {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  animation: clock-pulse 2s ease-out infinite;
+}
+
+[data-clock-state="PAUSED"] .pick-clock {
+  color: var(--color-gold);
+}
+
+@keyframes clock-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px var(--color-accent-haze);
+  }
+}
+
+.draft-command__room {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.draft-command__yourpick {
+  color: var(--color-accent-hot);
+}
+
+.draft-command__sound {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+/* V2: the offline-pool notice (and the paused/rehearsal banners sharing
+   this element, service.go's banner priority chain) is one compact mono
+   line, muted, full width, no card — never the paragraph-sized colored
+   block a bare .mono class left it as. */
+.draft-command__banner {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0 var(--space-md) var(--space-xs);
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Panes: the tape/board/teams pane, the available-players pane, and the
+   my-team pane, each scrolling on its own axis inside a fixed-height
+   shell. */
+.draft-panes {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr) 300px;
+  gap: var(--space-md);
+  min-height: 0;
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+/* S5: the completed draft collapses the available-players pane (nothing
+   left to draft) and gives the tape/board/teams pane the reclaimed width
+   as the ledger's new home. */
+.draft-shell--final .draft-pane--available {
+  display: none;
+}
+
+.draft-shell--final .draft-panes {
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+/* T2 (2026-08-30 polish pass): the Board sub-tab expands the history pane
+   the same way S5's completed-draft state does above — the round x team
+   grid needs the width to show every team column at 1440px
+   (PickBoard.dc.html). Item 1a (2026-08-30 review) replaced the segment's
+   native radios with plain data-gosx-link navigations (DraftHistoryHead's
+   own doc comment), so this keys off data-history-board — a plain
+   attribute Page() sets on .draft-panes itself from the same
+   server-computed ShowBoard flag DraftHistory branches on — rather than
+   a :has() selector reaching for a checked history-segment radio that no
+   longer exists. The Tape/Teams views restore the plain three-pane grid;
+   neither sets the attribute.
+   Item 10 (2026-08-30 review): scoped inside a min-width media query —
+   .draft-panes is a 3-column grid only at this width or wider (the
+   @media (max-width: 56.1875rem) block below switches it to a plain
+   block, tab-gated single pane instead), so an unscoped
+   grid-template-columns override here was dead weight below that width
+   at best, and a needless cascade entry to reason about at worst. */
+@media (min-width: 56.25rem) {
+  .draft-panes[data-history-board="true"] {
+    grid-template-columns: minmax(0, 1fr) 300px;
+  }
+
+  .draft-panes[data-history-board="true"] .draft-pane--available {
+    display: none;
+  }
+}
+
+.draft-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.draft-pane__head,
+.draft-history-head,
+.draft-available-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.draft-pane__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Mockup divergences (2026-08-30 review): draft-history-head now stacks
+   TWO rows instead of the single flex row .draft-pane__head/
+   .draft-available-head share above — the Tape/Board/Teams segment plus
+   the "↓ Latest" jump link (moved here from inside the swapped tape
+   sub-view, so it stays put across every region refresh) on one line,
+   the position/mine filter chips on the next, matching Main.dc.html. */
+.draft-history-head {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.draft-history-head__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.draft-history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-shell .draft-history-filters input:checked + .chip {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+  border-color: var(--color-accent-cyan);
+}
+
+.draft-available-head__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-search {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+/* Rows and chips: the available-pool row, the personal-queue row, the
+   position-color badge, and the roster-need pill. */
+/* S9: chip/pos/need/idx/muted/display/num/btn are common enough words that
+   an unscoped .chip or .num would claim the global class namespace for
+   every other page. Every rule in this shell-utility block below is
+   scoped under .draft-shell, the page's own root, matching the pattern
+   the .site-frame .chip touch-target rule already set (:8391-8398). */
+.draft-shell .chip {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.5rem;
+  min-height: 2rem;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.draft-shell .chip[aria-pressed="true"] {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+  border-color: var(--color-accent-cyan);
+}
+
+.draft-shell .pos {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.5rem;
+  min-height: 1.75rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.draft-shell .pos-QB {
+  color: var(--color-violet);
+}
+
+.draft-shell .pos-RB {
+  color: var(--color-orange);
+}
+
+.draft-shell .pos-WR {
+  color: var(--color-accent-cyan);
+}
+
+.draft-shell .pos-TE {
+  color: var(--color-gold);
+}
+
+.draft-shell .pos-K {
+  color: var(--color-blue);
+}
+
+.draft-shell .pos-DST {
+  color: var(--color-accent-hot);
+}
+
+.avail-row {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 3.25rem 4rem 4.5rem auto;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 3.5rem;
+  padding: var(--space-xs) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.avail-row--head {
+  min-height: auto;
+  padding-block: var(--space-xs);
+  border-top: none;
+}
+
+/* R4: has_adp gates the VS ADP column itself, not just its header text —
+   with no ADP feed the cell would otherwise render an empty grid track.
+   data-has-adp="false" on the pane root (page.gsx) drops the column's own
+   track so the row's five remaining cells still line up with the head row. */
+.draft-available[data-has-adp="false"] .avail-row {
+  grid-template-columns: 2.75rem minmax(0, 1fr) 3.25rem 4rem auto;
+}
+
+/* avail-row__actions (S2): the queue-add and make-pick forms share one
+   grid cell (the row's sixth and last track) instead of each claiming its
+   own, so a seated row still renders exactly six grid children and lines
+   up with the unseated/head row's six labels. */
+.avail-row__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* S4: the markup carries data-taken (page.gsx), never a class — these
+   attribute selectors replace the never-emitted .is-taken/.is-taken. */
+.avail-row[data-taken="true"] {
+  opacity: .45;
+  text-decoration: line-through;
+}
+
+.q-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 3.5rem;
+}
+
+.q-row[data-taken="true"] strong {
+  text-decoration: line-through;
+}
+
+.draft-shell .need {
+  display: inline-flex;
+  gap: .375rem;
+  padding: .375rem .5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.draft-shell .need--open {
+  color: var(--color-accent-hot);
+  border-color: var(--color-accent-hot);
+}
+
+/* Small utilities the shell's typed view models render directly:
+   a muted mono label (.idx), a hot variant for "you are on the clock",
+   a display-face team name, a de-emphasized aside, and a tabular-numeral
+   column. */
+.draft-shell .idx {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.draft-shell .idx--hot {
+  color: var(--color-accent-hot);
+}
+
+.draft-shell .muted {
+  color: var(--color-text-muted);
+}
+
+.draft-shell .display {
+  font-family: var(--font-display);
+  font-size: var(--type-md);
+  letter-spacing: -0.02em;
+}
+
+.draft-shell .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* segment: the pill-shaped toggle strip shared by the history pane's own
+   Tape/Board/Teams segment (item 5, 2026-08-30 review: a plain <nav
+   aria-label="Pick history panels"> of links, not a radiogroup — see
+   the .segment a.segment__option[aria-current] rule below) and the my
+   team pane's Queue/Roster/Room segment (still a real radio group). */
+.segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-panel-deep);
+}
+
+.segment__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  /* Item 1a (2026-08-30 review): the history pane's own three options are
+     now <a> elements (DraftHistoryHead's own doc comment), which carry a
+     default underline .segment's original <label> options never had. */
+  text-decoration: none;
+}
+
+.segment input:checked + .segment__option {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.segment input:focus-visible + .segment__option {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+/* Item 1a (2026-08-30 review): the history pane's own Tape/Board/Teams
+   segment is three plain <a data-gosx-link> navigations, not a radio
+   group (DraftHistoryHead's own doc comment, page.gsx) — the "active"
+   look keys off aria-current, server-computed from the same ShowTape/
+   ShowBoard/ShowTeams flags DraftHistory itself branches on, directly on
+   the element rather than a sibling-selector off a checked radio. The
+   My Team pane's own Queue/Roster/Room segment is unaffected: it is
+   still a real radio group, still styled by the two rules above. */
+.segment a.segment__option[aria-current="true"] {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.segment a.segment__option:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+/* btn: the compact mono action idiom the available/queue rows, the
+   command bar's Sound/Commissioner/Rail buttons, and the drawer's close
+   button share. Every .btn is still a plain <button>, so the touch
+   baseline block above widens it on a phone without a bespoke rule. */
+.draft-shell .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 2.5rem;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.draft-shell .btn:hover {
+  border-color: var(--color-text-secondary);
+  background: var(--color-white-soft);
+}
+
+.draft-shell .btn-sm {
+  min-height: 2.25rem;
+  padding: 0.3rem var(--space-xs);
+}
+
+.draft-shell .btn-primary {
+  border-color: var(--color-accent);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.draft-shell .btn-primary:hover {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-accent-cyan);
+}
+
+.draft-shell .btn-ghost {
+  background: transparent;
+}
+
+.draft-shell .btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-white-faint);
+  cursor: not-allowed;
+}
+
+/* My-team pane: the roster-needs tally and the seat grid beneath the
+   personal queue. */
+.draft-mine__needs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.draft-mine__autopick {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+
+.draft-mine__room {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+/* History pane (D4): the final ledger's CSV export link, and the Tape/
+   Board/Teams view. Item 1a (2026-08-30 review): the server renders
+   exactly one .draft-history__view--X at a time (DraftHistory's own
+   ShowTape/ShowBoard/ShowTeams), so this no longer needs a display:none
+   base rule plus a :has()-driven override to pick the right one out of
+   three — whichever one exists is simply the one to show, and .segment's
+   own links (DraftHistoryHead) are plain data-gosx-link navigations now,
+   not a native radio group a :has() selector could key off in the first
+   place. */
+.draft-history__ledger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+}
+
+/* overflow-x only: vertical scroll stays owned by .draft-pane__body (the
+   shell's one established scroll axis per pane); a second overflow-y here
+   would nest two vertical scrollbars over the same content. */
+.draft-history__view--board,
+.draft-history__view--teams {
+  overflow-x: auto;
+}
+
+/* Mockup divergence (2026-08-30 review): "↓ Latest" now sits inline in
+   draft-history-head__row, next to the Tape/Board/Teams segment, rather
+   than sticky inside the scrolling tape sub-view — it never scrolls out
+   of view either way, since the head itself is outside .draft-pane__body,
+   the shell's one scrolling axis per pane. flex-shrink: 0 keeps it from
+   losing its own width to the segment when the row gets tight. */
+.draft-history__jump {
+  flex-shrink: 0;
+}
+
+/* Mockup divergence, item 1's own filter chips (2026-08-30 review): a
+   plain radio group in draft-history-head (outside the swapped pane
+   body, so the selection survives every region refresh) — CSS alone
+   hides a non-matching row, client-side, once its :checked state
+   changes. Scoped to .draft-history__view--tape's own rows only:
+   DraftByTeam's per-team rows (.team-column__picks .tape-row) carry
+   neither data-position nor data-mine and stay unaffected regardless of
+   which filter chip is active. */
+.draft-pane--history:has(#tape-filter-qb:checked) .draft-history__view--tape .tape-row:not([data-position="QB"]),
+.draft-pane--history:has(#tape-filter-rb:checked) .draft-history__view--tape .tape-row:not([data-position="RB"]),
+.draft-pane--history:has(#tape-filter-wr:checked) .draft-history__view--tape .tape-row:not([data-position="WR"]),
+.draft-pane--history:has(#tape-filter-te:checked) .draft-history__view--tape .tape-row:not([data-position="TE"]),
+.draft-pane--history:has(#tape-filter-mine:checked) .draft-history__view--tape .tape-row:not([data-mine="true"]) {
+  display: none;
+}
+
+/* Tape: a sticky round header over every round's rows, newest round first
+   (D4). T1 (2026-08-30 polish pass): direction/span and the made-count
+   share ONE line with ROUND's own idx span — white-space: nowrap keeps
+   "ROUND 3" from wrapping its number onto a second line at the pane's
+   fixed 360px width, the bug the pre-polish three-span layout could hit. */
+.tape-round {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-canvas);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.tape-round .idx {
+  flex-shrink: 0;
+}
+
+.tape-round__meta {
+  font-size: .6875rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The history pane is a fixed 360px column at every viewport width (D2's
+   three-pane shell, .draft-panes), so .tape-row is ALWAYS a narrow-column
+   layout, never just a phone-width concern: .tape-row__who (team + manager)
+   and .tape-row__player (player + position chip) stack in one flexible
+   .tape-row__body column instead of claiming two grid tracks of their
+   own — two side-by-side narrow columns left the player name squeezed to
+   nothing (S11, the war-room screenshot pass). This grid template also
+   backs .tape-row__summary below (T3): a made pick's row is now a
+   <details>, and its own content (slot/badge/body/meta) lives in its
+   <summary>, not in this element directly — details.tape-row (below)
+   resets this rule's display/padding back to a plain block for that case,
+   so this declaration keeps serving the by-team pane's plain <article
+   class="tape-row"> rows (DraftByTeam, no detail toggle) unchanged. */
+.tape-row {
+  display: grid;
+  grid-template-columns: 2.375rem 2.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.tape-row strong {
+  font-size: .9375rem;
+}
+
+.tape-row small {
+  font-size: .75rem;
+  color: var(--color-text-muted);
+}
+
+/* T4: the slot label ("3.03") never wraps inside its own narrow 2.125rem
+   grid column — a real bug the T-rider screenshot pass caught at 390px. */
+.tape-row__slot {
+  white-space: nowrap;
+}
+
+/* Item 1 (2026-08-30 review): a made pick's row and its (once open)
+   detail panel share one <article class="tape-row tape-row--detail">
+   — replacing the pre-fix <details class="tape-row pick-detail">, whose
+   <summary data-gosx-set> never actually opened (gosx@v0.53.9's
+   capture-phase click handler cancels a <summary>'s own native toggle
+   under any data-gosx-set ancestor). The article itself just stacks its
+   children (the .tape-row__summary link, then — only when open — the
+   .pick-detail__body) rather than inheriting .tape-row's own grid; that
+   grid now lives on .tape-row__summary, its first child, below. */
+.tape-row--detail {
+  display: block;
+  padding: 0;
+}
+
+/* .tape-row__summary is the whole visible row (T3/T4 polish pass, item 1
+   2026-08-30 review): a plain <a data-gosx-link>, so the entire ~64px
+   row is the DETAIL toggle — tap anywhere on it, not a separate
+   full-width button — and it clears the 44px (2.75rem) touch baseline
+   on its own height. .pick-detail__chevron (in .tape-row__meta) is the
+   open/closed affordance, driven by the wrapping article's own
+   data-open attribute (below), never a native disclosure marker. */
+.tape-row__summary {
+  display: grid;
+  grid-template-columns: 2.125rem 2.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 2.75rem;
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tape-row__summary:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: -2px;
+}
+
+/* The open row (item 1): a subtle accent tint on its own link, matching
+   the mockup's expanded-row treatment, distinct from .tape-row[data-
+   mine="true"]'s own tint below. */
+.tape-row--detail[data-open="true"] > .tape-row__summary {
+  background: var(--color-accent-haze);
+}
+
+.tape-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: .1875rem;
+  min-width: 0;
+}
+
+/* T4: the player line leads, strongest (bold, the .tape-row strong size
+   above) — name, position chip, and any AUTO/COMM tag share it. */
+.tape-row__player {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: .375rem;
+  min-width: 0;
+}
+
+.tape-row__player strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.tape-row__player .pos,
+.tape-row__player .tag {
+  flex-shrink: 0;
+}
+
+/* T4/item 5 (2026-08-30 review): the team+manager+NFL-team+time-to-pick
+   line follows, muted and smaller (13px) than the player line above it —
+   ONE run, ONE ellipsis, not a bold team name plus a separately-capped
+   trailer (the pre-item-5 shape, S12's own screenshot-pass fix): running
+   two elements with different overflow rules let the NFL team and
+   time-to-pick get squeezed out of a merely 45%-wide trailer even when
+   the team name itself had room to spare. A single <small> truncates
+   together, so whichever piece is missing at 360px is whichever one the
+   whole line ran out of room for, not always the same two. */
+.tape-row__who {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tape-row__who small {
+  font-size: .8125rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* T4: the slot label and pick number stay in mono at the row's own two
+   edges — .tape-row__slot (grid column 1) and .tape-row__meta (last
+   column) — matching the mockup. */
+.tape-row__meta {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+}
+
+/* T3: a decorative marker only (aria-hidden in the markup) — the
+   <summary> itself is the real, accessible toggle; this never claims its
+   own hit target. */
+.pick-detail__chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  color: var(--color-text-muted);
+}
+
+.pick-detail__chevron::before {
+  content: "⌄";
+  font-size: .875rem;
+  line-height: 1;
+  display: inline-block;
+  transition: transform .15s ease;
+}
+
+.tape-row--detail[data-open="true"] > .tape-row__summary .pick-detail__chevron::before {
+  transform: rotate(180deg);
+}
+
+/* On-the-clock row (highlighted) and the viewer's own picks (tinted): the
+   command bar already owns the authoritative --color-accent treatment, so
+   the tape reuses --color-accent-haze at low opacity rather than a new
+   token. */
+.tape-row--clock {
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+.tape-row--clock .team-mark {
+  color: var(--color-accent);
+}
+
+.tape-row[data-mine="true"] {
+  background: var(--color-white-faint);
+}
+
+.pick-detail__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md) var(--space-md);
+}
+
+.pick-detail__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.pick-detail__best,
+.pick-detail__team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* "Older rounds ↓" (item 3, 2026-08-30 review): sits at the tape's own
+   foot, a full-width row so it clears the 44px touch baseline without a
+   bespoke min-height rule (the generic .site-frame a[data-gosx-link]
+   touch-target block, public/styles.css, already covers a bare .btn). */
+.draft-tape-older {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: var(--space-sm) var(--space-md);
+}
+
+/* Board (D4): round x team grid, one sticky team-column header row, then
+   one sticky round header plus one board-cell row per round. The pane
+   itself (.draft-history__view--board, above) owns overflow-x: auto, so
+   the grid scrolls horizontally at phone width; vertical scroll stays
+   with .draft-pane__body. */
+.board-grid {
+  display: grid;
+  /* T2 (2026-08-30 polish pass): 6.25rem (not 7.5rem) so all 8 default
+     team columns fit at 1440px without a horizontal scroll once the
+     Board tab expands the history pane (.draft-panes:has(#history-board
+     :checked), above) alongside the still-300px my-team pane — 1fr still
+     grows each column past that floor whenever more room is free. */
+  grid-template-columns: 6rem repeat(var(--board-columns), minmax(6.25rem, 1fr));
+  gap: .375rem;
+  padding: var(--space-sm);
+}
+
+.board-grid__corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 6;
+  background: var(--color-canvas);
+}
+
+.board-grid__team {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  overflow: hidden;
+  background: var(--color-canvas);
+}
+
+.board-grid__team[data-mine="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+/* Mockup divergence (2026-08-30 review): the team's full name wraps over
+   up to two lines instead of truncating to one ellipsized line
+   ("Kern…"). max-height (not -webkit-line-clamp) caps it: P6's own
+   comment above (.draft-command__banner) already found line-clamp did
+   not clip reliably on a CSS grid item in the engine the screenshot pass
+   measured against, and .board-grid__team is exactly that, a
+   .board-grid grid item — the max-height + overflow: hidden shape is the
+   same fallback that fixed the bleed there. */
+.board-grid__name {
+  overflow: hidden;
+  white-space: normal;
+  line-height: 1.15;
+  max-height: 2.3em;
+}
+
+.board-grid__round {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-xs);
+  background: var(--color-canvas);
+}
+
+.board-cell {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .125rem;
+  min-height: 3rem;
+  padding: var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.board-cell strong,
+.board-cell small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.board-cell.c-QB {
+  border-color: var(--color-violet);
+}
+
+.board-cell.c-RB {
+  border-color: var(--color-orange);
+}
+
+.board-cell.c-WR {
+  border-color: var(--color-accent-cyan);
+}
+
+.board-cell.c-TE {
+  border-color: var(--color-gold);
+}
+
+.board-cell.c-K {
+  border-color: var(--color-blue);
+}
+
+.board-cell.c-DST {
+  border-color: var(--color-accent-hot);
+}
+
+.board-cell[data-mine="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.board-cell[data-clock="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-haze);
+}
+
+/* By team (D4): one column per franchise, its own picks, then its
+   roster-needs chips. */
+.team-columns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.team-column {
+  flex: 1 1 16rem;
+  min-width: 16rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.team-column[data-mine="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.team-column__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.team-column__picks .tape-row {
+  grid-template-columns: 2.5rem minmax(0, 1fr);
+}
+
+/* Item 7 (2026-08-30 review): the By Team tab's own compact rows stack
+   the player name over its "POS · NFL" line — .tape-row__player's own
+   base rule (above) is a flex ROW now (T4: the main tape row's player
+   name, position chip, and any AUTO/COMM tag share one line), which
+   left this narrower, two-column context's player name and its
+   "POS · NFL" small crowded onto that same single line instead of the
+   stacked shape they had before .tape-row__player became flex. */
+.team-column__picks .tape-row__player {
+  display: block;
+}
+
+.team-column__needs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+/* My team pane (D2): the Queue/Roster/Room segment (DraftMyTeam) switches
+   its own three view containers the same way the history pane's segment
+   does above, anchored at .draft-mine (its own root, unlike the history
+   pane's separate head component). */
+.draft-mine__view {
+  display: none;
+}
+
+.draft-mine:has(#mine-queue:checked) .draft-mine__view--queue,
+.draft-mine:has(#mine-roster:checked) .draft-mine__view--roster,
+.draft-mine:has(#mine-room:checked) .draft-mine__view--room {
+  display: block;
+}
+
+/* Commissioner drawer: a right-docked panel, not a centered modal, so it
+   never covers the pick clock a commissioner still needs to watch. */
+.draft-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(28rem, 100%);
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+}
+
+.draft-drawer__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.draft-drawer__head h2 {
+  margin: 0;
+  font-size: var(--type-md);
+}
+
+.draft-drawer__body {
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-md);
+}
+
+.draft-drawer__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-drawer__presets form {
+  display: inline-flex;
+}
+
+.draft-drawer__help {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+.draft-tabbar {
+  display: none;
+}
+
+.draft-pickbar {
+  display: none;
+}
+
+/* Wider-than-phone mobile: the shell collapses to one visible pane at a
+   time, chosen by the bottom tab bar's checked radio, with the pick bar
+   docked above it while the viewer is on the clock. */
+@media (max-width: 56.1875rem) {
+  /* The shell's DOM order is notice, command, tabbar, panes, pickbar
+     (the tab bar sits right after the command bar in markup, for a
+     sensible reading/tab order), but the visual order needs the panes
+     to own the flexible middle with the tab bar pinned under the pick
+     bar at the very bottom. grid-template-rows assigns tracks by
+     order-modified document position, not by selector, so .draft-tabbar
+     gets pushed past every default-order sibling into the last of five
+     explicit tracks below. Without this, the tab bar (only visible at
+     this width) claims the row meant for the panes, the panes fall
+     back to an implicit auto row sized to their full content height,
+     and the document scrolls — the D5 contract this shell exists to
+     keep. */
+  .draft-shell {
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  }
+
+  .draft-tabbar {
+    order: 2;
+  }
+
+  /* V5: row 1 is the pick label (left) and the clock (right); row 2 is
+     the on-clock team (badge + name + "Next: ..."); row 3 is the room
+     summary + sound toggle. .draft-command__pick, __turn, __clock, and
+     __room are direct children of __inner in DOM order pick/turn/clock/
+     room (not pick/clock/turn/room), so each needs an explicit
+     grid-column/grid-row below rather than relying on auto-placement,
+     which would otherwise pair pick with turn (both first in document
+     order) instead of pick with clock. turn and room each keep their own
+     full-width row rather than sharing row 2 half-and-half: splitting
+     390px in half left even less room for "8/8 here · 8/8 ready" than
+     today, undercutting this rider's other requirement that it fit
+     un-truncated. Ready/autopick and the seat controls left the command
+     bar for pane 3's Room tab and the mobile pick bar (V1); nothing else
+     stacks here. */
+  .draft-command {
+    min-height: 0;
+  }
+
+  /* The clock column cannot be plain "auto": the pre-draft scheduled-
+     window countdown can read many digits wide (a far-future DraftAt) and
+     an auto track sizes to that unwrapped max-content width, squeezing
+     the pick label into (or under) it — the same failure mode the
+     desktop grid's own comment above documents. */
+  .draft-command__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 11rem);
+    align-items: center;
+    gap: var(--space-xs) var(--space-sm);
+    padding: var(--space-sm);
+  }
+
+  .draft-command__pick {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .draft-command__clock {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .draft-command__clock .pick-clock {
+    font-size: var(--type-lg);
+  }
+
+  .draft-command__turn {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
+
+  /* S3: at this width .draft-command__inner is a grid (above), not a
+     flex row, so the room summary's own track only needs to stop
+     right-aligning against a now-absent sibling column. */
+  .draft-command__room {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .draft-command__room > span.idx {
+    display: none;
+  }
+
+  .draft-command__room > span.mono {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-command__room > button {
+    flex: 0 0 auto;
+  }
+
+  /* "N auto" and "your pick in N" both drop at phone width so "8/8 here ·
+     8/8 ready" always fits on the one line V5 asks for; the pick bar
+     (.draft-pickbar, below) already carries the on-clock/ready/autopick
+     prompt this room line would otherwise compete with. */
+  .draft-command__auto,
+  .draft-command__yourpick {
+    display: none;
+  }
+
+  .draft-command__rail {
+    display: none;
+  }
+
+  .draft-panes {
+    display: block;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .draft-pane {
+    display: none;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  /* R7: the mobile pick bar docks above the tab bar (.draft-pickbar,
+     below) and would otherwise clip the last visible row of whichever
+     pane is showing; padding-bottom reserves its own height. */
+  .draft-pane__body {
+    padding-bottom: 4.5rem;
+  }
+
+  /* P6 (2026-08-30 review, superseding this task's own T5 draft): back
+     to the base rule's plain one-line nowrap/ellipsis truncation at
+     phone width too — no override needed at all. The two-line
+     -webkit-box/-webkit-line-clamp attempt this rule held earlier
+     turned out not to clip reliably on a grid item in the engine the
+     screenshot pass measured against (its overflow bled into the tab
+     segment below); a max-height + overflow: hidden fallback fixed the
+     bleed but P6 asks for the simpler one-line shape outright instead.
+     text-overflow: ellipsis (the base rule, unmodified here) never
+     clips mid-glyph; title= (page.gsx) covers whatever still clips. */
+
+  .draft-shell:has(#tab-players:checked) .draft-pane--available,
+  .draft-shell:has(#tab-queue:checked) .draft-pane--mine,
+  .draft-shell:has(#tab-picks:checked) .draft-pane--history,
+  .draft-shell:has(#tab-teams:checked) .draft-pane--history {
+    display: flex;
+  }
+
+  /* S5 at phone width: the completed draft's available pane stays hidden
+     even on the Players tab (nothing left to draft); the #tab-players
+     :has() rule above carries an ID inside :has(), giving it more
+     specificity than a plain .draft-shell--final override would, so this
+     selector repeats that same ID to win the cascade honestly. */
+  .draft-shell--final:has(#tab-players:checked) .draft-pane--available {
+    display: none;
+  }
+
+  /* P8/item 1a (2026-08-30 review): the pre-item-1a fix forced the Teams
+     sub-view via CSS whenever the phone bottom tab bar's Teams tab
+     showed the pane, since #tab-teams:checked and the desktop segment
+     were two independent radio groups that could disagree. Item 1a
+     removed the need: #tab-teams's own checked state (DraftMobileTabs,
+     page.gsx) is now driven by the SAME server-computed ShowTeams flag
+     that decided which one .draft-history__view--X the server rendered
+     in the first place, so the two can no longer disagree — whichever
+     view exists in the DOM is already the right one, with no CSS
+     override needed here at all. */
+  .draft-tabbar {
+    display: flex;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .draft-tabbar__tab {
+    flex: 1 1 0;
+    min-height: 3.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    /* Item 1a (2026-08-30 review): the Teams tab is an <a> now
+       (DraftMobileTabs' own doc comment, page.gsx), which carries a
+       default underline the other three <label> tabs never had. */
+    text-decoration: none;
+  }
+
+  .draft-tabbar input:focus-visible + .draft-tabbar__tab {
+    outline: 2px solid var(--color-accent-cyan);
+  }
+
+  .draft-tabbar input:checked + .draft-tabbar__tab {
+    color: var(--color-accent);
+  }
+
+  /* V1: the pick bar itself decides what to show (a Draft prompt on the
+     clock, otherwise the ready/autopick prompt) — its visibility here no
+     longer depends on data-can-pick, which never covered the ready/
+     autopick states this bar now also carries. */
+  .draft-pickbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
+    border-top: 1px solid var(--color-accent);
+    background: var(--color-surface);
+  }
+
+  /* S10: seven position chips wrapping to a third row would push the
+     search field and the pool itself further down a phone's first
+     screen; one scrollable row keeps them reachable without growing the
+     head. */
+  .draft-available-head__chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+
+  /* The available-pool row carries six grid children (rank, name, pos,
+     proj, vs-adp, actions) at desktop width. A phone keeps only the four
+     that fit without crowding the action buttons under the touch
+     baseline: rank and vs-adp drop, matching the row header below. */
+  .avail-row {
+    grid-template-columns: minmax(0, 1fr) 2.375rem 3rem 6rem;
+  }
+
+  .avail-row > :first-child,
+  .avail-row > :nth-child(5) {
+    display: none;
+  }
+
+  .avail-row__actions {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .avail-row__actions form {
+    display: flex;
+  }
+
+  .avail-row__actions form button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-command__clock {
+    animation: none;
+  }
 }

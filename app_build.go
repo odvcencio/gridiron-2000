@@ -165,6 +165,7 @@ func (r *AppRuntime) Close() {
 		if r.restoreClock != nil {
 			r.restoreClock()
 		}
+		league.Default().StopDraftEvents()
 		for _, closer := range r.closers {
 			closer()
 		}
@@ -355,6 +356,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		return league.Default().StateFingerprint(poolVersion)
 	}
 	draftLiveUpdates := draftpage.NewLiveUpdates(leagueFingerprint)
+	draftLiveUpdates.SetRepairView(func() map[string]any { return league.Default().DraftLiveView(nil) })
+	draftLiveUpdates.SetDraftEventSink(league.Default())
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
 	scoresLive := matchupspage.NewScoresLive(liveRuntime.Poller.Version, leagueFingerprint)
 	rt.starters = append(rt.starters, scoresLive.Start)
@@ -649,6 +652,15 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /admin/fragment", adminpage.AdminAttentionFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))
 	app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/command", draftpage.CommandFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/tape", draftpage.TapeFragmentHandler(league.Default()))
+	// Stays mounted for gosx v0.53.10's target mode (Task 8), which binds a per-pick click region straight to it.
+	app.Mount("GET /draft/fragment/pick/{n}", draftpage.PickDetailFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))
+	app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))
+	app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))
+	app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))
+	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.

@@ -11,7 +11,7 @@ const (
 	// DefaultPickClock, MinPickClock, and MaxPickClock bound the pick-clock
 	// duration. PICK_CLOCK and the commissioner's ClockDurationSec override
 	// both clamp into [MinPickClock, MaxPickClock].
-	DefaultPickClock = 90 * time.Second
+	DefaultPickClock = 120 * time.Second
 	MinPickClock     = 10 * time.Second
 	MaxPickClock     = 10 * time.Minute
 
@@ -101,7 +101,9 @@ func (s *Service) bootRecoverClock(now time.Time) {
 	}
 	if err := s.store.ArmClock(now.Add(grace)); err != nil {
 		log.Printf("draft clock: restart recovery failed: %v", err)
+		return
 	}
+	s.emitDraftClock(s.store.Snapshot())
 }
 
 // clockTick is the whole enforcement decision for one instant, pure over a
@@ -114,15 +116,31 @@ func (s *Service) clockTick(now time.Time) {
 		return
 	}
 
-	// 1-2. Draft complete: clear a leftover deadline once, then idle.
+	// 1-2. Draft complete: clear a leftover deadline once, then idle. In
+	// normal operation MakePick and clockTick's own autopick branch below
+	// already zero the clock fields on the pick that completes the draft
+	// (and emit draft:state themselves, via maybeEmitDraftComplete), so this
+	// branch's condition is false right after a real completion and it does
+	// nothing; it exists as a defensive fallback for a state that reaches
+	// "complete" with the clock fields still dirty some other way (a
+	// restored backup, a rounds/roster-shape change that retroactively
+	// completes an in-progress draft).
 	if len(state.Picks) >= totalPicks {
 		if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
 			if err := s.store.ClearClock(); err != nil {
 				log.Printf("draft clock: clear on completion failed: %v", err)
+			} else {
+				s.emitDraftState(s.store.Snapshot(), now, true, true)
 			}
 		}
 		return
 	}
+
+	// Presence keeps updating every tick from here on, regardless of the
+	// pick clock's own paused/armed state below: a manager's HERE/IDLE/AWAY
+	// status is independent of whether the pick clock itself is running, so
+	// pausing the clock must not also freeze the room's presence chips.
+	s.emitPresenceTransitions(state, now)
 
 	// 3. Paused: the timer and auto-pick stop; picks stay allowed through
 	// the manual path.
@@ -135,6 +153,8 @@ func (s *Service) clockTick(now time.Time) {
 	if state.ClockDeadline.IsZero() {
 		if err := s.store.ArmClock(now.Add(s.pickClock(state))); err != nil {
 			log.Printf("draft clock: arm failed: %v", err)
+		} else {
+			s.emitDraftClock(s.store.Snapshot())
 		}
 		return
 	}
@@ -177,6 +197,9 @@ func (s *Service) clockTick(now time.Time) {
 		}
 		return
 	}
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
 	// N6: notify the seat's manager that a pick fired on their behalf,
 	// skipping a manager who was CONNECTED at pick time (spec section 3,
 	// N6). state is the pre-fire snapshot already read above, matching the

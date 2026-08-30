@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -33,7 +34,7 @@ const (
 // TestSimReconnectReceivesRepairEventWithLiveFingerprint proves the draft
 // hub repairs a client that missed a pick. A socket that reconnects with a
 // since token older than the current state must receive one targeted
-// draft:changed carrying the live fingerprint.
+// draft:state carrying the live fingerprint and the repair flag.
 func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -85,11 +86,21 @@ func TestSimReconnectReceivesRepairEventWithLiveFingerprint(t *testing.T) {
 		t.Fatalf("the reconnected socket opened with %q, want __welcome", event.Event)
 	}
 	repair := simReadEvent(t, reconnected, simEventWait, "the reconnect repair event")
-	if repair.Event != simDraftChangedEvent {
-		t.Fatalf("the reconnect delivered %q, want %s", repair.Event, simDraftChangedEvent)
+	if repair.Event != simDraftStateEvent {
+		t.Fatalf("the reconnect delivered %q, want %s", repair.Event, simDraftStateEvent)
 	}
-	if got := simEventFingerprint(t, repair); got != current {
-		t.Fatalf("the repair event carries fingerprint %q, want the live %q (stale token %q)", got, current, stale)
+	var payload struct {
+		Fingerprint string `json:"fingerprint"`
+		Repair      bool   `json:"repair"`
+	}
+	if err := json.Unmarshal(repair.Data, &payload); err != nil {
+		t.Fatalf("decode %s payload: %v", simDraftStateEvent, err)
+	}
+	if !payload.Repair {
+		t.Fatal("the reconnect event did not mark itself as a repair")
+	}
+	if payload.Fingerprint != current {
+		t.Fatalf("the repair event carries fingerprint %q, want the live %q (stale token %q)", payload.Fingerprint, current, stale)
 	}
 }
 

@@ -167,6 +167,14 @@ type draftPlayerCardView struct {
 	MatchupChip     string
 	MatchupDetail   string
 	CanDraft        bool
+	// Taken marks a personal-queue entry someone else already drafted (the
+	// row still shows, struck through client-side, rather than silently
+	// disappearing). Always false for an available-pool entry, which
+	// excludes drafted players by construction.
+	Taken bool
+	// HasValue/ValueLabel back the available pane's VS ADP cell (R4).
+	HasValue   bool
+	ValueLabel string
 }
 
 type draftRoomView struct {
@@ -181,6 +189,418 @@ type draftWorkspaceView struct {
 	Players        []draftPlayerCardView
 	CSRF           string
 	MakePickAction string
+}
+
+// draftCommandView backs the always-visible command bar region: the
+// on-clock team, the pick clock, the room summary, the sound and
+// commissioner controls, and (while seated) the ready/autopick controls.
+type draftCommandView struct {
+	Data          map[string]any
+	CSRF          string
+	Actions       map[string]string
+	StatusSummary string
+}
+
+// draftHistoryView backs the pick-tape pane's Tape/Board/Teams tabs (D4):
+// the same field set page.gsx's DraftHistoryProps declares, so this one
+// value renders through either "DraftHistory" (fragment.go's
+// draftRegionView, Since < 0) or "DraftTapeRows" (Since >= 0) — the
+// established pattern every other shell view (room/workspace/command/
+// available/queue) already uses, a page-level Go type distinct from but
+// structurally covering its GSX prop counterpart. Since is the "?since="
+// tape cursor (draftTapeSinceKey, fragment.go): -1 means "unset", the
+// pane's full render; a non-negative value switches draftRegionView to
+// DraftTapeRows and attachDraftFragmentSince below has already trimmed
+// Rounds to picks numbered above it.
+type draftHistoryView struct {
+	Rounds   []draftTapeRoundView
+	Board    draftBoardView
+	Teams    []draftTeamColumnView
+	Complete bool
+	Latest   int
+	Since    int
+	// View/ShowTape/ShowBoard/ShowTeams: item 1a (2026-08-30 review). View
+	// is one of "tape"/"board"/"teams" (attachDraftFragmentView,
+	// fragment.go, normalizes any "?view=" to one of these, defaulting to
+	// tape); the three ShowX bools are what DraftHistory's own template
+	// actually branches on (page.gsx renders only the selected sub-view's
+	// markup, never all three at once — the tape sub-view alone eagerly
+	// carried far more bytes than the D3 refresh-budget's 4 KB ceiling
+	// allows once all three views rendered together on every poll).
+	View        string
+	ShowTape    bool
+	ShowBoard   bool
+	ShowTeams   bool
+	HasOnClock  bool
+	NextLabel   string
+	OnClockName string
+	OnClockAbbr string
+	OnClockTone string
+	// OnClockHasAvatarImage/OnClockAvatarImageURL: see page.gsx's
+	// DraftHistoryProps doc comment (P10, 2026-08-30 review).
+	OnClockHasAvatarImage bool
+	OnClockAvatarImageURL string
+	// RoundsEmpty: see page.gsx's DraftHistoryProps doc comment. len()
+	// never resolves correctly in a .gsx expression through
+	// route.RenderProgramComponent (any shape — direct or nested, slice
+	// or string, 2026-08-30 review), so every length this page needs
+	// inside a template is computed here in Go and passed down as a
+	// plain field instead.
+	RoundsEmpty bool
+	// HasOlderRounds/OlderHref: item 3 (2026-08-30 review), the "Older
+	// rounds ↓" link at the tape's foot. HasOlderRounds is true only on a
+	// full render (Since < 0) whose UNCAPPED round count exceeds
+	// draftTapeMaxRenderedRounds and whose request did not already carry
+	// "?rounds=all" — attachDraftFragmentView (fragment.go) computes both
+	// alongside the cap itself. OlderHref always targets "?rounds=all",
+	// carrying the viewer's own pool q/pos/page (item 6).
+	HasOlderRounds bool
+	OlderHref      string
+	// detail resolves one pick's full accordion content on demand (item 1,
+	// 2026-08-30 review): attachDraftFragmentPick (fragment.go) calls this
+	// exactly once, for the single pick number a "?pick=" query names, and
+	// only when that pick's row is actually present in Rounds — never
+	// eagerly for every row (internal/league's DraftHistoryView.Detail is
+	// already a cheap on-demand closure, not a precomputed map; see its own
+	// doc comment). Unexported: fragment.go reads it directly since both
+	// files share this package.
+	detail func(number int) league.PickDetail
+}
+
+// draftTapePickView is the typed pick/board/team view's row-level entry,
+// structurally covering page.gsx's TapePick (the tier-2 spread boundary
+// DraftTeamCard's doc comment above describes) under a distinct name so
+// gosx build's strict-component check never sees two TapePick
+// declarations when it merges this file with page.gsx.
+type draftTapePickView struct {
+	Number, Round, Slot, Column                   int
+	Label                                         string
+	TeamID, TeamName, TeamAbbr, TeamTone, Manager string
+	HasAvatarImage                                bool
+	AvatarImageURL                                string
+	PlayerID, PlayerName, Position, NFLTeam       string
+	MadeBy                                        string
+	IsAuto, IsCommissioner, Mine                  bool
+	TimeToPickSec                                 int
+	TimeToPick                                    string
+	HasValue                                      bool
+	Value                                         int
+	ValueLabel                                    string
+	MadeAt                                        string
+	Projection                                    string
+	Source                                        string
+	BestAvailable                                 []draftBestAvailableView
+	TeamPicks                                     []draftTapePickView
+	// Open/Href: item 1 (2026-08-30 review). Href is this row's own
+	// soft-navigation target — "/draft?view=tape&pick=N&..." to open it,
+	// or (once Open) the same URL with "pick" dropped, to close it — built
+	// server-side (tapeRoundsProps/attachDraftFragmentPick, carrying the
+	// viewer's own pool q/pos/page, item 6) rather than a client-side
+	// write: gosx@v0.53.9's capture-phase click handler cancels a
+	// <summary>'s native toggle under any data-gosx-set ancestor, so the
+	// prior <details><summary data-gosx-set> row never actually opened.
+	// Open is true for exactly the one pick "?pick=" named, when that
+	// pick's row survived the tape's own newest-3-round cap.
+	Open bool
+	Href string
+}
+
+type draftBestAvailableView struct {
+	Name, Position, NFLTeam string
+}
+
+type draftTapeRoundView struct {
+	Round, First, Last int
+	Direction          string
+	Current            bool
+	Made, Total        int
+	Picks              []draftTapePickView
+}
+
+type draftBoardCellView struct {
+	Round, Column, Number  int
+	Label                  string
+	Filled, Mine, OnClock  bool
+	PlayerName, Position   string
+	NFLTeam                string
+	IsAuto, IsCommissioner bool
+}
+
+type draftBoardRowView struct {
+	Round     int
+	Direction string
+	Cells     []draftBoardCellView
+}
+
+type draftBoardView struct {
+	Columns     []map[string]any
+	Rows        []draftBoardRowView
+	ColumnCount string
+}
+
+// draftBoardTeamView mirrors page.gsx's DraftBoardTeam.
+type draftBoardTeamView struct {
+	ID             string
+	Name           string
+	Abbreviation   string
+	Tone           string
+	Manager        string
+	HasAvatarImage bool
+	AvatarImageURL string
+	Mine           bool
+}
+
+type draftTeamColumnView struct {
+	Team  draftBoardTeamView
+	Picks []draftTapePickView
+	Needs []map[string]any
+}
+
+func boardTeamProps(team map[string]any) draftBoardTeamView {
+	return draftBoardTeamView{
+		ID: stringField(team, "id"), Name: stringField(team, "name"), Abbreviation: stringField(team, "abbreviation"),
+		Tone: stringField(team, "tone"), Manager: stringField(team, "manager"),
+		HasAvatarImage: boolField(team, "has_avatar_image"), AvatarImageURL: stringField(team, "avatar_image_url"),
+		Mine: boolField(team, "mine"),
+	}
+}
+
+// tapePickProps converts one league.TapePick into its page-level mirror:
+// field-for-field, the same conversion boundary draftTeamProps/
+// draftPlayerProps already use for teams/players.
+func tapePickProps(pick league.TapePick) draftTapePickView {
+	return draftTapePickView{
+		Number: pick.Number, Round: pick.Round, Slot: pick.Slot, Column: pick.Column,
+		Label:    pick.Label,
+		TeamID:   pick.TeamID,
+		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: pick.Manager,
+		HasAvatarImage: pick.HasAvatarImage, AvatarImageURL: pick.AvatarImageURL,
+		PlayerID: pick.PlayerID, PlayerName: pick.PlayerName, Position: pick.Position, NFLTeam: pick.NFLTeam,
+		MadeBy: pick.MadeBy, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,
+		TimeToPickSec: pick.TimeToPickSec, TimeToPick: pick.TimeToPick,
+		HasValue: pick.HasValue, Value: pick.Value, ValueLabel: pick.ValueLabel, MadeAt: pick.MadeAt,
+	}
+}
+
+func tapePicksProps(picks []league.TapePick) []draftTapePickView {
+	out := make([]draftTapePickView, 0, len(picks))
+	for _, pick := range picks {
+		out = append(out, tapePickProps(pick))
+	}
+	return out
+}
+
+// bestAvailableProps converts a pick detail's best-available snapshot into
+// its page-level mirror.
+func bestAvailableProps(items []league.BestAvailablePick) []draftBestAvailableView {
+	out := make([]draftBestAvailableView, 0, len(items))
+	for _, item := range items {
+		out = append(out, draftBestAvailableView{Name: item.Name, Position: item.Position, NFLTeam: item.NFLTeam})
+	}
+	return out
+}
+
+// draftHistoryHref builds one "/draft?view=..." navigation target,
+// carrying the viewer's own pool q/pos/page (item 6, 2026-08-30 review)
+// plus any extra key/value pairs one specific link needs ("pick", the
+// open tape row; "rounds", the "Older rounds ↓" link). Every Tape/Board/
+// Teams segment link (DraftHistoryHead), the phone Picks/Teams tabs
+// (DraftMobileTabs), a tape row's own open/close link, and the older-
+// rounds link all resolve through this one function, so the pool state
+// — and, for a row's own link, the open pick — travels with every one of
+// them, never silently dropped by a link built ad hoc.
+func draftHistoryHref(view, pos, query string, page int, extra map[string]string) string {
+	values := url.Values{}
+	values.Set(draftHistoryViewQueryKey, view)
+	if pos != "" {
+		values.Set("pos", pos)
+	}
+	if query != "" {
+		values.Set("q", query)
+	}
+	if page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	for key, value := range extra {
+		if value != "" {
+			values.Set(key, value)
+		}
+	}
+	return "/draft?" + values.Encode()
+}
+
+// tapeRoundsProps converts league's newest-first rounds into their
+// page-level mirror, with each pick's own Href set to its open target
+// (item 1/6, 2026-08-30 review). Detail hydration (Projection, Source,
+// BestAvailable, TeamPicks) is NOT eager here — attachDraftFragmentPick
+// (fragment.go) hydrates the single "?pick="-named row after the fact —
+// so every row's own struct build stays O(1), not one Detail lookup per
+// row on every render regardless of whether a viewer ever opens it.
+func tapeRoundsProps(rounds []league.TapeRound, pos, query string, page int) []draftTapeRoundView {
+	out := make([]draftTapeRoundView, 0, len(rounds))
+	for _, round := range rounds {
+		picks := make([]draftTapePickView, 0, len(round.Picks))
+		for _, pick := range round.Picks {
+			card := tapePickProps(pick)
+			card.Href = draftHistoryHref(draftHistoryViewTape, pos, query, page, map[string]string{draftHistoryPickKey: strconv.Itoa(pick.Number)})
+			picks = append(picks, card)
+		}
+		out = append(out, draftTapeRoundView{
+			Round: round.Round, First: round.First, Last: round.Last, Direction: round.Direction,
+			Current: round.Current, Made: round.Made, Total: round.Total,
+			Picks: picks,
+		})
+	}
+	return out
+}
+
+// draftTapeMaxRenderedRounds is item 1's own final lever (2026-08-30
+// review), the fallback the plan pre-approves once item 1a
+// (single-view-per-response) and 1b (lazy per-pick detail) alone still
+// left the tape sub-view over the D3 refresh budget's 4 KB gzip ceiling
+// at a full 120-pick draft (measured ~5 KB, item 1a+1b alone — the pick
+// number's own repetition across data-tape-key/data-pick-number/the slot
+// label/#N/the two lazy-region attributes is genuine per-row entropy
+// gzip cannot compress away, unlike the surrounding boilerplate it
+// already collapses to a handful of bytes per repeat). Capping the FULL
+// pane render (Since < 0) to the newest 3 rounds keeps the live tail's
+// own "?since=" catch-up unaffected (it only ever asks for picks newer
+// than an already-seen cursor, always inside this window in practice),
+// while a viewer wanting the complete historical record still has the
+// Board/Teams tabs (unaffected: neither reads Rounds) and, once the
+// draft finishes, the CSV export.
+const draftTapeMaxRenderedRounds = 3
+
+// capTapeRounds keeps at most the newest draftTapeMaxRenderedRounds
+// entries of rounds (already newest-first, league.DraftHistory's own
+// ordering) — a no-op once a draft holds three rounds or fewer.
+//
+// Item 2 (2026-08-30 review): the caller (attachDraftFragmentView,
+// fragment.go) applies this ONLY on a full render (history.Since < 0),
+// and only after attachDraftFragmentSince (which runs first in
+// draftFragmentHandler) has already filtered Rounds down to picks above
+// its own "?since=" cursor. Capping first and filtering second — the
+// pre-fix order, when this ran unconditionally inside
+// buildDraftHistoryView before Since was even known — silently dropped
+// any pick that fell outside the newest-3-round window: "?since=39" at
+// 60 picks lost pick 40, because pick 40's round had already been
+// sliced away by the cap before the since-filter ever saw it.
+func capTapeRounds(rounds []draftTapeRoundView) []draftTapeRoundView {
+	if len(rounds) <= draftTapeMaxRenderedRounds {
+		return rounds
+	}
+	return rounds[:draftTapeMaxRenderedRounds]
+}
+
+func boardCellProps(cell league.BoardCell) draftBoardCellView {
+	return draftBoardCellView{
+		Round: cell.Round, Column: cell.Column, Number: cell.Number, Label: cell.Label,
+		Filled: cell.Filled, Mine: cell.Mine, OnClock: cell.OnClock,
+		PlayerName: cell.PlayerName, Position: cell.Position, NFLTeam: cell.NFLTeam,
+		IsAuto: cell.IsAuto, IsCommissioner: cell.IsCommissioner,
+	}
+}
+
+func boardRowsProps(rows []league.BoardRow) []draftBoardRowView {
+	out := make([]draftBoardRowView, 0, len(rows))
+	for _, row := range rows {
+		cells := make([]draftBoardCellView, 0, len(row.Cells))
+		for _, cell := range row.Cells {
+			cells = append(cells, boardCellProps(cell))
+		}
+		out = append(out, draftBoardRowView{Round: row.Round, Direction: row.Direction, Cells: cells})
+	}
+	return out
+}
+
+func boardViewProps(board league.BoardView) draftBoardView {
+	return draftBoardView{Columns: board.Columns, Rows: boardRowsProps(board.Rows), ColumnCount: strconv.Itoa(len(board.Columns))}
+}
+
+func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
+	out := make([]draftTeamColumnView, 0, len(teams))
+	for _, team := range teams {
+		out = append(out, draftTeamColumnView{Team: boardTeamProps(team.Team), Picks: tapePicksProps(team.Picks), Needs: team.Needs})
+	}
+	return out
+}
+
+// buildDraftHistoryView reads data["history"] (a league.DraftHistoryView,
+// set by internal/league's draftData — see service.go) and converts it
+// into the page-level draftHistoryView above. A fixture that never sets
+// "history" (every non-league test fixture in this package) type-asserts
+// to the zero value, so the pane still renders — empty, never a panic.
+func buildDraftHistoryView(data map[string]any) draftHistoryView {
+	history, _ := data["history"].(league.DraftHistoryView)
+	complete := boolField(mapField(data, "draft"), "complete")
+	onClock := mapField(data, "on_clock")
+	hasOnClock := !complete
+	nextLabel := ""
+	if hasOnClock {
+		if teams := len(history.Board.Columns); teams > 0 {
+			pickNumber := intField(data, "pick_number")
+			round := (pickNumber-1)/teams + 1
+			slot := (pickNumber-1)%teams + 1
+			nextLabel = fmt.Sprintf("%d.%02d", round, slot)
+		}
+	}
+	pos := stringField(data, "pool_position")
+	query := stringField(data, "pool_query")
+	page := intField(data, "pool_page")
+	return draftHistoryView{
+		// Rounds is UNCAPPED here (item 2, 2026-08-30 review):
+		// attachDraftFragmentView (fragment.go) applies capTapeRounds
+		// itself, once it knows whether this is a full render (Since < 0)
+		// or a "?since=" poll — see capTapeRounds' own doc comment for why
+		// the old unconditional cap here lost picks on a since-poll.
+		Rounds: tapeRoundsProps(history.Rounds, pos, query, page), Board: boardViewProps(history.Board), Teams: teamColumnsProps(history.Teams),
+		// Complete comes from data["draft"]["complete"] (the same signal
+		// draftRoomStatus/DraftCommandBar already read), not history.Complete:
+		// a fixture that never sets data["history"] (every non-league test
+		// fixture in this package) would otherwise always see complete=false.
+		Complete: complete, Latest: history.Latest, Since: -1,
+		// View defaults to tape here (the initial full-page render,
+		// Page()'s own inline <DraftHistory>, and every non-fragment
+		// caller): fragment.go's attachDraftFragmentView overwrites this
+		// per-request from "?view=" for the tape pane's own region
+		// fetches. Defaulting the SSR render to tape too, rather than
+		// rendering all three sub-views inline, keeps the very first
+		// paint consistent with every refresh afterward — a viewer who
+		// has never touched the segment sees the same single-view shape
+		// before and after the first draft:pick.
+		View: draftHistoryViewTape, ShowTape: true, ShowBoard: false, ShowTeams: false,
+		HasOnClock: hasOnClock, NextLabel: nextLabel,
+		OnClockName: stringField(onClock, "name"), OnClockAbbr: stringField(onClock, "abbreviation"), OnClockTone: stringField(onClock, "tone"),
+		OnClockHasAvatarImage: boolField(onClock, "has_avatar_image"), OnClockAvatarImageURL: stringField(onClock, "avatar_image_url"),
+		RoundsEmpty: len(history.Rounds) == 0,
+		detail:      history.Detail,
+	}
+}
+
+// draftAvailableView backs the available-players pane: the pool list plus
+// the make-pick and queue-add actions every eligible row's buttons post to.
+// Actions also backs DraftPickBar's mobile ready/autopick prompt (V1): the
+// pick bar and the available pane already share this one view.
+type draftAvailableView struct {
+	Data           map[string]any
+	Players        []draftPlayerCardView
+	CSRF           string
+	MakePickAction string
+	QueueAddAction string
+	Actions        map[string]string
+}
+
+// draftQueueView backs the "my team" pane: the viewer's full personal
+// queue (including already-taken entries, Task 5a's DraftMyTeam), the
+// roster-needs tally, the queue-remove action a taken row's Clear button
+// posts to, and (V1) the Room segment's own ready/autopick controls, which
+// moved here off the command bar.
+type draftQueueView struct {
+	Data              map[string]any
+	Queue             []draftPlayerCardView
+	CSRF              string
+	QueueRemoveAction string
+	Actions           map[string]string
 }
 
 func draftBreakdownProps(raw []map[string]any) []draftBreakdownRowView {
@@ -226,6 +646,9 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			MatchupChip:     stringField(player, "matchup_chip"),
 			MatchupDetail:   stringField(player, "matchup_detail"),
 			CanDraft:        boolField(player, "draft_eligible"),
+			Taken:           boolField(player, "taken"),
+			HasValue:        boolField(player, "has_value"),
+			ValueLabel:      stringField(player, "value_label"),
 		})
 	}
 	return out
@@ -289,35 +712,83 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 	return out
 }
 
+// prepareDraftData never writes back into its data parameter: every
+// derived field lands on viewData or output, two maps built fresh on each
+// call. A caller that hands the same map to two requests in a row (the
+// service always builds a fresh one per request, but a repeated-fixture
+// test — TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline —
+// deliberately does not) must keep reading the same raw teams/available/
+// queue lists on the second call, not the first call's typed leftovers.
 func prepareDraftData(data map[string]any) map[string]any {
 	teams, _ := data["teams"].([]map[string]any)
 	players, _ := data["available"].([]map[string]any)
+	queueRaw, _ := data["queue"].([]map[string]any)
 	typedTeams := draftTeamProps(teams)
 	typedPlayers := draftPlayerProps(players)
-	data["teams"] = typedTeams
-	data["seat_controls"] = draftSeatControlProps(teams)
-	data["available"] = typedPlayers
+	typedQueue := draftPlayerProps(queueRaw)
 
-	viewData := make(map[string]any, len(data)+1)
+	// viewData is the one map every view's Data field shares (room,
+	// workspace, command, history, available, queue below). It must never
+	// itself gain one of those keys: draftRegionETag's json.Marshal of
+	// semanticDraftRegionView's copy would otherwise walk a cycle back
+	// through that key's own nested .Data. output, built after it, is the
+	// top-level map prepareDraftData actually returns; nothing ETags
+	// output itself, so it is free to carry them.
+	viewData := make(map[string]any, len(data)+4)
 	for key, value := range data {
 		viewData[key] = value
 	}
-	workspaceURL := draftWorkspaceFragmentURL(data)
-	viewData["workspace_fragment_url"] = workspaceURL
-	data["workspace_fragment_url"] = workspaceURL
-	room := draftRoomView{Data: viewData, Actions: map[string]string{
+	viewData["teams"] = typedTeams
+	viewData["seat_controls"] = draftSeatControlProps(teams)
+	// has_adp gates the available pane's whole VS ADP column, header and
+	// cell alike (R4): service.go's draftData sets it once the pool source
+	// carries real ADP figures. The pane root's data-has-adp="false"
+	// attribute (page.gsx) is the matching CSS hook (R4's five-track
+	// .draft-available[data-has-adp="false"] .avail-row rule) so the
+	// column's grid track drops with it, never an empty cell.
+	viewData["has_adp"] = boolField(data, "has_adp")
+	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
+	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
+
+	actions := map[string]string{
 		"draft_start": draftActionPath("draft-start"), "toggle_ready": draftActionPath("toggle-ready"),
 		"toggle_autopick": draftActionPath("toggle-autopick"), "clock_pause": draftActionPath("clock-pause"),
 		"clock_resume": draftActionPath("clock-resume"), "clock_extend": draftActionPath("clock-extend"),
 		"clock_duration": draftActionPath("clock-set-duration"), "clock_autopick": draftActionPath("clock-force-autopick"),
 		"seat_autopick": draftActionPath("seat-autopick"), "seat_ready": draftActionPath("seat-ready"),
-	}}
+	}
+	room := draftRoomView{Data: viewData, Actions: actions}
 	room.StatusSummary = draftRoomStatus(viewData)
-	data["room"] = room
-	data["workspace"] = draftWorkspaceView{
+
+	output := make(map[string]any, len(viewData)+8)
+	for key, value := range viewData {
+		output[key] = value
+	}
+	output["room"] = room
+	output["workspace"] = draftWorkspaceView{
 		Data: viewData, Players: typedPlayers, MakePickAction: draftActionPath("make-pick"),
 	}
-	return data
+	// live_mode/shell_modifier drive the shell root's own attributes
+	// (data-draft-live-mode, the --final class variant); "fallback" is the
+	// only mode until Task 8 pins v0.53.10 and switches to target mode.
+	output["live_mode"] = "fallback"
+	output["shell_modifier"] = ""
+	if complete, _ := mapField(data, "draft")["complete"].(bool); complete {
+		output["shell_modifier"] = " draft-shell--final"
+	}
+	output["command"] = draftCommandView{Data: viewData, Actions: actions, StatusSummary: room.StatusSummary}
+	// Since defaults to -1 ("unset"): draftRegionView (fragment.go) renders
+	// the full DraftHistory pane until attachDraftFragmentSince overwrites
+	// it with a "?since=" request's cursor and precomputed Rows.
+	output["history"] = buildDraftHistoryView(data)
+	output["available"] = draftAvailableView{
+		Data: viewData, Players: typedPlayers,
+		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,
+	}
+	output["queue"] = draftQueueView{
+		Data: viewData, Queue: typedQueue, QueueRemoveAction: draftActionPath("queue-remove"), Actions: actions,
+	}
+	return output
 }
 
 func draftWorkspaceFragmentURL(data map[string]any) string {
@@ -355,9 +826,15 @@ func draftRoomStatus(data map[string]any) string {
 func attachDraftRequestState(data map[string]any, request *http.Request) map[string]any {
 	room, _ := data["room"].(draftRoomView)
 	workspace, _ := data["workspace"].(draftWorkspaceView)
+	command, _ := data["command"].(draftCommandView)
+	available, _ := data["available"].(draftAvailableView)
+	queue, _ := data["queue"].(draftQueueView)
 	token := session.Token(request)
 	room.CSRF = token
 	workspace.CSRF = token
+	command.CSRF = token
+	available.CSRF = token
+	queue.CSRF = token
 	seats, _ := room.Data["seat_controls"].([]DraftSeatControlCard)
 	for i := range seats {
 		seats[i].CSRF = token
@@ -366,6 +843,9 @@ func attachDraftRequestState(data map[string]any, request *http.Request) map[str
 	workspace.Data["seat_controls"] = seats
 	data["room"] = room
 	data["workspace"] = workspace
+	data["command"] = command
+	data["available"] = available
+	data["queue"] = queue
 	return data
 }
 
@@ -378,7 +858,7 @@ func init() {
 			// The initial page view is an attendance claim. The body heartbeat
 			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
-			data := attachDraftRequestState(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request)
+			data := attachDraftRequestState(attachDraftFragmentPick(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request), ctx.Request), ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
@@ -508,6 +988,26 @@ func init() {
 					return actionui.Validation(ctx, "draft", "player_id", err)
 				}
 				return draftActionSuccess(ctx, draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), fmt.Sprintf("Pick %d: %s selects %s.", pick.Number, team.Name, player.Name))
+			},
+			// queue-add/queue-remove back the shell's own Big Board controls
+			// (the available pane's "+ Queue" button and the my-team pane's
+			// "Clear" button on a taken row): BoardAdd/BoardRemove already
+			// carry the ownership and validation rules, so these are routing
+			// only, the same shape as make-pick above.
+			"queue-add": func(ctx *action.Context) error {
+				player, err := league.Default().BoardAdd(ctx.Request, ctx.FormData["player_id"])
+				if err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				return draftActionSuccess(ctx, target, fmt.Sprintf("%s added to your queue.", player.Name))
+			},
+			"queue-remove": func(ctx *action.Context) error {
+				if err := league.Default().BoardRemove(ctx.Request, ctx.FormData["player_id"]); err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				return draftActionSuccess(ctx, target, "Removed from your queue.")
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])

@@ -27,18 +27,14 @@ var simTeamNames = []string{
 }
 
 const (
-	// simDraftChangedEvent is the one event the draft hub broadcasts.
-	simDraftChangedEvent = "draft:changed"
+	// simDraftStateEvent is the sink's reconnect repair: a stale-token join
+	// receives one draft:state carrying the full bind object plus the live
+	// fingerprint.
+	simDraftStateEvent = "draft:state"
 	// simEventWait bounds how long a scenario waits for the event a pick
-	// must produce. The hub's change detector polls twice a second, so a
-	// wait this long only ever ends in a real failure.
+	// must produce. The sink broadcasts at commit, so this is an honest
+	// latency bound, not a detector poll period.
 	simEventWait = 10 * time.Second
-	// simEventSettle bounds the extra look for a better match after a
-	// coalesced event arrived. It is short because the only event that can
-	// still be in flight was broadcast by the same detector tick.
-	simEventSettle = 250 * time.Millisecond
-	// simEventReads caps how many events one wait examines.
-	simEventReads = 4
 	// simSocketReadWait is the reader goroutine's own deadline. It is long
 	// on purpose: gorilla/websocket keeps the first read error forever, so
 	// a deadline that expires would break the socket for the rest of the
@@ -262,70 +258,32 @@ func openSockets(t *testing.T, l *simLeague) []*simSocket {
 	return sockets
 }
 
-// simEventFingerprint reads a draft:changed payload's fingerprint.
-func simEventFingerprint(t *testing.T, event draft.HubEvent) string {
+// awaitPick waits for the draft:pick carrying number, bounded by simEventWait
+// alone: every other frame is discarded without counting against the wait.
+// The sink emits at commit, so 250 ms is the honest latency bound.
+func awaitPick(t *testing.T, socket *simSocket, number int) draft.HubEvent {
 	t.Helper()
-	var payload struct {
-		Fingerprint string `json:"fingerprint"`
-	}
-	if err := json.Unmarshal(event.Data, &payload); err != nil {
-		t.Fatalf("decode %s payload: %v", simDraftChangedEvent, err)
-	}
-	return payload.Fingerprint
-}
-
-// awaitChange waits for the event the pick just made and reports how many
-// events it discarded as older than the pick. sent is the instant the pick
-// request went out: an event that arrived before it was queued by an
-// earlier generation and cannot report this pick, so it is dropped rather
-// than timed, which is what keeps a latency sample from going negative.
-//
-// want is the fingerprint read straight after the pick returned, and an
-// event carrying it is the exact match this returns at once. The detector
-// polls twice a second, so one tick can instead publish a later generation
-// that folds a presence change over the pick; such an event is kept and
-// returned only after a short look for a better one. An event carrying the
-// pre-pick fingerprint is stale and never accepted.
-func awaitChange(t *testing.T, socket *simSocket, sent time.Time, before, want string) (draft.HubEvent, int) {
-	t.Helper()
-	var coalesced draft.HubEvent
-	found := false
-	dropped := 0
-	for read := 1; read <= simEventReads; read++ {
-		timeout := simEventWait
-		if found {
-			timeout = simEventSettle
+	deadline := time.Now().Add(simEventWait)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("%s saw no draft:pick %d within %s (reader stopped: %v)", socket.email, number, simEventWait, socket.lastReadErr())
 		}
-		event, ok := socket.next(timeout)
+		event, ok := socket.next(remaining)
 		if !ok {
-			if found {
-				return coalesced, dropped
-			}
-			t.Fatalf("%s saw no %s within %s (reader stopped: %v)",
-				socket.email, simDraftChangedEvent, timeout, socket.lastReadErr())
+			t.Fatalf("%s saw no draft:pick %d within %s (reader stopped: %v)", socket.email, number, simEventWait, socket.lastReadErr())
 		}
-		if event.Event != simDraftChangedEvent {
+		if event.Event != "draft:pick" {
 			continue
 		}
-		if event.At.Before(sent) {
-			dropped++
-			continue // queued before this pick went out
+		var payload struct {
+			Number int `json:"number"`
 		}
-		fingerprint := simEventFingerprint(t, event)
-		if fingerprint == before {
-			continue // a stale generation from before this pick
+		_ = json.Unmarshal(event.Data, &payload)
+		if payload.Number == number {
+			return event
 		}
-		if fingerprint == want {
-			return event, dropped
-		}
-		coalesced, found = event, true
 	}
-	if found {
-		return coalesced, dropped
-	}
-	t.Fatalf("%s saw no %s carrying a new fingerprint within %d events (reader stopped: %v)",
-		socket.email, simDraftChangedEvent, simEventReads, socket.lastReadErr())
-	return draft.HubEvent{}, dropped
 }
 
 // simSnakeTeamIndex returns the seat index that owns pick number, counting
@@ -376,9 +334,9 @@ func simPercentile(sorted []time.Duration, fraction float64) time.Duration {
 
 // TestSimFullDraftOverHTTP runs a complete eight-manager snake draft
 // against a real server process. Every pick travels over HTTP, and every
-// manager's WebSocket must observe every pick. The latency bound is one
-// second because the hub's change detector polls twice a second; a typed
-// event would tighten it.
+// manager's WebSocket must observe every pick. The sink broadcasts
+// draft:pick at commit, so the latency bound is the room's 250 ms budget,
+// not the fingerprint detector's poll period.
 func TestSimFullDraftOverHTTP(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -397,46 +355,26 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 
 	latencies := make([]time.Duration, 0, 1024)
 	picks := 0
-	// coalesced counts the events that carried a generation later than the
-	// pick's own, which is what one detector tick folding a presence change
-	// over the pick looks like from here. dropped counts the events that
-	// arrived before their pick went out, which awaitChange discards.
-	coalesced := 0
-	dropped := 0
 	for {
-		state, err := league.commish.State()
+		draftState, err := league.commish.State()
 		if err != nil {
 			t.Fatalf("read draft state: %v", err)
 		}
-		if state.Complete {
+		if draftState.Complete {
 			break
 		}
-		if !state.Started {
+		if !draftState.Started {
 			t.Fatal("the draft reports itself not started after draft-start")
 		}
-		before, err := league.commish.Fingerprint()
-		if err != nil {
-			t.Fatalf("read fingerprint: %v", err)
-		}
-		_, sent := league.pickOnClock(t)
+		state, sent := league.pickOnClock(t)
 		picks++
-		// Read straight after the pick landed: this is the generation the
-		// detector's next tick should publish.
-		want, err := league.commish.Fingerprint()
-		if err != nil {
-			t.Fatalf("read fingerprint after pick %d: %v", picks, err)
-		}
 		for _, socket := range sockets {
-			event, skipped := awaitChange(t, socket, sent, before, want)
-			dropped += skipped
-			if simEventFingerprint(t, event) != want {
-				coalesced++
-			}
+			event := awaitPick(t, socket, state.PickNumber)
 			latencies = append(latencies, event.At.Sub(sent))
 		}
 		// The league's own shape sets the cap; the margin only keeps a
 		// runaway loop from running to the test timeout.
-		if maxPicks := len(state.Teams)*state.Rounds + 40; picks > maxPicks {
+		if maxPicks := len(draftState.Teams)*draftState.Rounds + 40; picks > maxPicks {
 			t.Fatalf("the draft did not complete within %d picks", maxPicks)
 		}
 	}
@@ -467,16 +405,16 @@ func TestSimFullDraftOverHTTP(t *testing.T) {
 
 	sort.Slice(latencies, func(a, b int) bool { return latencies[a] < latencies[b] })
 	// A negative sample would mean an event that predates its own pick was
-	// timed as that pick's, which awaitChange's sent filter exists to stop.
+	// timed as that pick's.
 	if len(latencies) > 0 && latencies[0] < 0 {
 		t.Fatalf("a hub latency sample is negative (%s); an event older than its pick was timed", latencies[0])
 	}
 	p50 := simPercentile(latencies, 0.50)
 	p99 := simPercentile(latencies, 0.99)
 	wall := time.Since(startedAt)
-	t.Logf("picks=%d rounds=%d observations=%d coalesced=%d dropped=%d p50=%s p99=%s wall=%s",
-		picks, final.Rounds, len(latencies), coalesced, dropped, p50, p99, wall)
-	if p99 > time.Second {
-		t.Fatalf("hub p99 = %s, want <= 1s", p99)
+	t.Logf("picks=%d rounds=%d observations=%d p50=%s p99=%s wall=%s",
+		picks, final.Rounds, len(latencies), p50, p99, wall)
+	if p99 > 250*time.Millisecond {
+		t.Fatalf("hub p99 = %s, want <= 250ms", p99)
 	}
 }

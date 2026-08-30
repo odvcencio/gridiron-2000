@@ -954,7 +954,14 @@ func (s *Service) AdminResetDraft(r *http.Request, confirmation string) error {
 	if err := requireMutationConfirmation(ResetDraftConfirmation, confirmation); err != nil {
 		return err
 	}
-	return s.store.ResetDraft()
+	if err := s.store.ResetDraft(); err != nil {
+		return err
+	}
+	// A reset always leaves the draft incomplete; re-arm the completion
+	// latch so a later pick that completes the new draft emits draft:state.
+	s.draftCompleteEmitted.Store(false)
+	s.emitDraftState(s.store.Snapshot(), s.clock(), false, false)
+	return nil
 }
 
 // AdminRescheduleDraft updates the informational pre-draft meeting. It is
@@ -1137,7 +1144,11 @@ func (s *Service) AdminPauseClock(r *http.Request) error {
 	if state.ClockDeadline.IsZero() || state.ClockPaused {
 		return errors.New("the clock is not running")
 	}
-	return s.store.PauseClock(s.clock())
+	if err := s.store.PauseClock(s.clock()); err != nil {
+		return err
+	}
+	s.emitDraftClock(s.store.Snapshot())
+	return nil
 }
 
 // AdminResumeClock restarts the pick clock from its stored remaining time,
@@ -1158,7 +1169,11 @@ func (s *Service) AdminResumeClock(r *http.Request) error {
 	if !state.ClockDeadline.IsZero() && !state.ClockPaused {
 		return errors.New("the clock is already running")
 	}
-	return s.store.ResumeClock(s.clock(), s.pickClock(state))
+	if err := s.store.ResumeClock(s.clock(), s.pickClock(state)); err != nil {
+		return err
+	}
+	s.emitDraftClock(s.store.Snapshot())
+	return nil
 }
 
 // AdminStartDraft deliberately opens the draft and starts pick one's clock.
@@ -1176,7 +1191,19 @@ func (s *Service) AdminStartDraft(r *http.Request) (bool, error) {
 	if err := draftStartReadiness(pool, s.demoMode, required); err != nil {
 		return false, err
 	}
-	return s.store.StartDraft(s.clock(), s.pickClock(state))
+	started, err := s.store.StartDraft(s.clock(), s.pickClock(state))
+	if err != nil || !started {
+		return started, err
+	}
+	// A fresh draft is never complete; re-arm the completion latch so a
+	// later pick that completes it emits draft:state (mirrors
+	// AdminResetDraft's identical guard).
+	s.draftCompleteEmitted.Store(false)
+	now := s.clock()
+	snapshot := s.store.Snapshot()
+	s.emitDraftState(snapshot, now, true, false)
+	s.emitDraftClock(snapshot)
+	return started, nil
 }
 
 func draftStartReadiness(pool playerPool, demo bool, required int) error {
@@ -1216,7 +1243,29 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	if token == "" || token != draftPreviousPickToken(state) {
 		return errAdminActionStale
 	}
-	return s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token)
+	// draftPreviousPickToken returns "" for zero picks (confirmations.go),
+	// which the check above already rejects (token == "" fails it before
+	// ever comparing), so this can never fire today. Kept as a defensive
+	// assertion, not dead code: a future change to that token function must
+	// not turn a stale-token rejection into an index panic on the next line.
+	if len(state.Picks) == 0 {
+		return errors.New("no picks to undo")
+	}
+	removed := state.Picks[len(state.Picks)-1]
+	if err := s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token); err != nil {
+		return err
+	}
+	snapshot := s.store.Snapshot()
+	s.emitDraftUndo(snapshot, removed, now)
+	if draftComplete(state) && !draftComplete(snapshot) {
+		// The undo reopened the final slot: draft:undo alone only describes
+		// the reopened cell, never the started/complete flags, so the room
+		// also needs the lifecycle transition. Clearing the latch lets a
+		// later pick that re-completes the draft emit draft:state again.
+		s.draftCompleteEmitted.Store(false)
+		s.emitDraftState(snapshot, now, true, false)
+	}
+	return nil
 }
 
 // AdminExtendClock adds secs to the running deadline, clamped to
@@ -1230,7 +1279,11 @@ func (s *Service) AdminExtendClock(r *http.Request, secs int, expectedToken stri
 	if token == "" || token != draftCurrentPickToken(s.store.Snapshot()) {
 		return errAdminActionStale
 	}
-	return s.store.ExtendClockIfCurrent(s.clock(), time.Duration(secs)*time.Second, token)
+	if err := s.store.ExtendClockIfCurrent(s.clock(), time.Duration(secs)*time.Second, token); err != nil {
+		return err
+	}
+	s.emitDraftClock(s.store.Snapshot())
+	return nil
 }
 
 // AdminSetClockSeconds overrides the persisted pick-clock duration,
@@ -1241,7 +1294,16 @@ func (s *Service) AdminSetClockSeconds(r *http.Request, secs int) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.SetClockDuration(secs)
+	before := s.store.Snapshot()
+	if err := s.store.SetClockDuration(secs); err != nil {
+		return err
+	}
+	after := s.store.Snapshot()
+	if after.ClockDurationSec == before.ClockDurationSec {
+		return nil
+	}
+	s.emitDraftClock(after)
+	return nil
 }
 
 // AdminSetAutopick toggles any seat's Autopick flag on the commissioner's
@@ -1250,7 +1312,17 @@ func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) erro
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.SetAutopickIfClaimed(strings.TrimSpace(teamID), on)
+	teamID = strings.TrimSpace(teamID)
+	before := s.store.Snapshot()
+	if err := s.store.SetAutopickIfClaimed(teamID, on); err != nil {
+		return err
+	}
+	after := s.store.Snapshot()
+	if after.Autopick[teamID] == before.Autopick[teamID] {
+		return nil
+	}
+	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
+	return nil
 }
 
 // AdminSetReady assigns any seat's Ready flag on the commissioner's
@@ -1262,7 +1334,16 @@ func (s *Service) AdminSetReady(r *http.Request, teamID string, on bool) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.SetReady(teamID, on)
+	before := s.store.Snapshot()
+	if err := s.store.SetReady(teamID, on); err != nil {
+		return err
+	}
+	after := s.store.Snapshot()
+	if after.Ready[teamID] == before.Ready[teamID] {
+		return nil
+	}
+	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
+	return nil
 }
 
 // AdminForceAutopick fires an immediate auto-pick for the on-clock seat,
@@ -1289,7 +1370,7 @@ func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToke
 	if token != draftCurrentPickToken(state) {
 		return DraftPick{}, Player{}, Team{}, errAdminActionStale
 	}
-	totalPicks := len(s.Teams()) * CurrentDraftRounds()
+	totalPicks := draftTeamCount() * CurrentDraftRounds()
 	number := len(state.Picks) + 1
 	if number > totalPicks {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft is complete")
@@ -1305,6 +1386,9 @@ func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToke
 	if err != nil {
 		return DraftPick{}, Player{}, Team{}, err
 	}
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
 	// N6: notify the seat's manager that a pick fired on their behalf,
 	// skipping a manager who was CONNECTED at pick time (spec section 3,
 	// N6). state is the pre-fire snapshot already read above, matching the

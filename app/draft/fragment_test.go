@@ -1,14 +1,104 @@
 package draft
 
 import (
+	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+
+	"gridiron-2000/internal/league"
 )
+
+// fixtureTeams matches pickFixture's eight-team draft order.
+var fixtureTeams = []string{"Kernel Panic", "Segfault City", "Null Pointers", "Garbage Collectors", "Race Condition", "Big Endians", "Stack Overflow", "Hot Path"}
+
+// pickFixture renders picks[i] the way pickMaps does (service.go): the
+// team and player nested maps carry the same keys teamMap/playerMap build,
+// so a template reading pick.team.abbreviation or pick.player.name sees a
+// realistic row. madeBy is "manager", "auto", or "commissioner".
+func pickFixture(number int, madeBy string) map[string]any {
+	teams := len(fixtureTeams)
+	round := (number-1)/teams + 1
+	column := (number - 1) % teams
+	if round%2 == 0 {
+		column = teams - 1 - column
+	}
+	positions := []string{"WR", "RB", "QB", "TE"}
+	name := fixtureTeams[column]
+	return map[string]any{
+		"number": number, "round": round,
+		"team": map[string]any{
+			"id": fmt.Sprintf("team-%d", column+1), "name": name, "abbreviation": strings.ToUpper(name[:2]), "division": "EAST",
+			"manager": "Manager " + name, "claimed": true, "tone": "cyan", "has_avatar": false, "has_avatar_image": false, "avatar_image_url": "",
+		},
+		"player": map[string]any{
+			"id": fmt.Sprintf("player-%03d", number), "name": fmt.Sprintf("Fixture Player %03d", number), "position": positions[number%len(positions)], "nfl_team": "CIN",
+			"projection": "12.0", "points": "0.0", "status": "Drafted", "news": "", "rank": fmt.Sprintf("%03d", number), "detail": "CIN · BYE 10",
+			"headshot": "", "has_headshot": false, "jersey": "", "has_breakdown": false, "breakdown": []map[string]any{}, "breakdown_total": "",
+			"has_hist": false, "hist": "", "search": "fixture", "is_rookie": false, "draft_capital": "", "has_draft_capital": false,
+		},
+		"made_by": madeBy, "is_auto": madeBy == "auto", "is_commissioner": madeBy == "commissioner",
+	}
+}
+
+// tapePickFixture builds one league.TapePick by hand, mirroring pickFixture's
+// eight-team draft order and snake math (internal/league's own pickColumn/
+// pickSlot/pickLabel are unexported, so this test package cannot call
+// them directly).
+func tapePickFixture(number int, madeBy string) league.TapePick {
+	teams := len(fixtureTeams)
+	round := (number-1)/teams + 1
+	slot := (number-1)%teams + 1
+	column := slot
+	if round%2 == 0 {
+		column = teams - slot + 1
+	}
+	positions := []string{"WR", "RB", "QB", "TE"}
+	name := fixtureTeams[column-1]
+	return league.TapePick{
+		Number: number, Round: round, Slot: slot, Column: column,
+		Label:  fmt.Sprintf("%d.%02d", round, slot),
+		TeamID: fmt.Sprintf("team-%d", column), TeamName: name, TeamAbbr: strings.ToUpper(name[:2]), TeamTone: "cyan", Manager: "Manager " + name,
+		PlayerID: fmt.Sprintf("player-%03d", number), PlayerName: fmt.Sprintf("Fixture Player %03d", number), Position: positions[number%len(positions)], NFLTeam: "CIN",
+		MadeBy: madeBy, IsAuto: madeBy == "auto", IsCommissioner: madeBy == "commissioner",
+		TimeToPickSec: 30, TimeToPick: "0:30", MadeAt: "2026-01-01T00:00:00Z",
+	}
+}
+
+// tapeHistoryFixture groups picks into league.TapeRound entries the way
+// Service.DraftHistory does (draft_history.go): newest round first, each
+// round's picks newest-number first.
+func tapeHistoryFixture(picks []league.TapePick) league.DraftHistoryView {
+	teams := len(fixtureTeams)
+	byRound := map[int][]league.TapePick{}
+	for _, pick := range picks {
+		byRound[pick.Round] = append(byRound[pick.Round], pick)
+	}
+	roundNumbers := make([]int, 0, len(byRound))
+	for round := range byRound {
+		roundNumbers = append(roundNumbers, round)
+	}
+	sort.Sort(sort.Reverse(sort.IntSlice(roundNumbers)))
+	rounds := make([]league.TapeRound, 0, len(roundNumbers))
+	for _, round := range roundNumbers {
+		roundPicks := append([]league.TapePick(nil), byRound[round]...)
+		sort.Slice(roundPicks, func(i, j int) bool { return roundPicks[i].Number > roundPicks[j].Number })
+		direction := "→"
+		if round%2 == 0 {
+			direction = "←"
+		}
+		rounds = append(rounds, league.TapeRound{
+			Round: round, First: (round-1)*teams + 1, Last: round * teams, Direction: direction,
+			Made: len(roundPicks), Total: teams, Picks: roundPicks,
+		})
+	}
+	return league.DraftHistoryView{Rounds: rounds, Picks: picks}
+}
 
 func draftFragmentFixture() map[string]any {
 	return map[string]any{
@@ -168,6 +258,10 @@ func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
 	}{
 		{region: draftRoomRegion, path: "/draft/fragment/room", class: "draft-live-room"},
 		{region: draftWorkspaceRegion, path: "/draft/fragment/workspace", class: "draft-live-workspace"},
+		{region: draftCommandRegion, path: "/draft/fragment/command", class: "draft-command__inner"},
+		{region: draftTapeRegion, path: "/draft/fragment/tape", class: "draft-history"},
+		{region: draftAvailableRegion, path: "/draft/fragment/available", class: "draft-available"},
+		{region: draftQueueRegion, path: "/draft/fragment/queue", class: "draft-mine"},
 	}
 	for _, test := range tests {
 		t.Run(test.region, func(t *testing.T) {
@@ -221,8 +315,11 @@ func TestDraftFragmentsRenderScopedHTMLAndReturnBodyless304(t *testing.T) {
 }
 
 func TestDraftFragmentFixtureIsFreshForEachRender(t *testing.T) {
-	prepared := draftFragmentFixture()
-	prepareDraftData(prepared)
+	// prepareDraftData never writes back into its argument (page.server.go):
+	// its raw input stays a plain fixture, so the test must read the
+	// prepared view off prepareDraftData's return value, not the map it
+	// was handed.
+	prepared := prepareDraftData(draftFragmentFixture())
 
 	fresh := draftFragmentFixture()
 	available, ok := fresh["available"].([]map[string]any)
@@ -232,8 +329,9 @@ func TestDraftFragmentFixtureIsFreshForEachRender(t *testing.T) {
 	if got := stringField(available[0], "name"); got != "Test Player" {
 		t.Fatalf("fresh fixture player name = %q, want Test Player", got)
 	}
-	if _, ok := prepared["available"].([]draftPlayerCardView); !ok {
-		t.Fatalf("prepared fixture available = %T, want prepared player cards", prepared["available"])
+	preparedView, ok := prepared["available"].(draftAvailableView)
+	if !ok || len(preparedView.Players) != 1 {
+		t.Fatalf("prepared fixture available = %#v, want one prepared player card", prepared["available"])
 	}
 }
 
@@ -267,6 +365,285 @@ func TestDraftRegionETagIgnoresWallClockTextButTracksLeagueState(t *testing.T) {
 	}
 }
 
+// TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline is execution
+// note 1 (Task 5a review): semanticDraftRegionView must cover the four new
+// shell view types, not just draftRoomView/draftWorkspaceView, so a
+// wall-clock-only tick on the command fragment still answers a bodyless
+// 304 and a real deadline change still busts the ETag.
+func TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline(t *testing.T) {
+	fixture := draftFragmentFixture()
+	clock := fixture["clock"].(map[string]any)
+	clock["armed"], clock["state"], clock["effective_deadline"], clock["remaining_label"] = true, "RUNNING", "2026-09-06T17:01:30Z", "1:30"
+	handler := draftFragmentHandler(draftCommandRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	etagFor := func() string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/command", nil))
+		return response.Header().Get("ETag")
+	}
+	first := etagFor()
+	clock["remaining_label"], clock["remaining_seconds"] = "1:29", 89
+	if etagFor() != first {
+		t.Fatal("a tick must not change the ETag")
+	}
+	clock["effective_deadline"] = "2026-09-06T17:03:00Z"
+	if etagFor() == first {
+		t.Fatal("a new deadline must change the ETag")
+	}
+}
+
+// TestTapeFragmentSinceReturnsOnlyNewerRows proves attachDraftFragmentSince
+// and filterTapeRoundsSince (fragment.go): "?since=N" switches the tape
+// fragment to DraftTapeRows, every pick above N alone, each preceded by
+// its round header once.
+func TestTapeFragmentSinceReturnsOnlyNewerRows(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape?since=2", nil))
+	body := response.Body.String()
+	if !strings.Contains(body, `data-tape-key="pick-3"`) || strings.Contains(body, `data-tape-key="pick-2"`) || strings.Contains(body, `class="draft-history"`) {
+		t.Fatalf("since=2 must render rows newer than 2 only: %s", body)
+	}
+	if !strings.Contains(body, `data-tape-key="round-1"`) {
+		t.Fatalf("since=2 must carry the round header its rows belong to: %s", body)
+	}
+}
+
+// TestTapeFragmentSinceSurvivesTheRoundCap is item 2's own regression test
+// (2026-08-30 review): the pre-fix code applied capTapeRounds INSIDE
+// buildDraftHistoryView, before Since was even known, so a "?since="
+// cursor whose own picks fell outside the newest-3-round cap window lost
+// them — "since=39" at 60 picks (8 teams: round 5 covers picks 33-40,
+// outside the newest-3-round window of rounds 6-8/picks 41-60) silently
+// dropped pick 40, the ONE pick in round 5 above the cursor. The fix
+// (attachDraftFragmentView) applies the cap only when Since < 0, so a
+// since-poll's Rounds reach the template exactly as
+// attachDraftFragmentSince's own filter left them.
+func TestTapeFragmentSinceSurvivesTheRoundCap(t *testing.T) {
+	const made = 60
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture(picks)
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/tape?since=39", nil))
+	body := response.Body.String()
+	want := made - 39
+	if n := strings.Count(body, `data-tape-key="pick-`); n != want {
+		t.Fatalf("since=39 at %d picks: %d rows, want %d (picks 40..%d)", made, n, want, made)
+	}
+	if !strings.Contains(body, `data-tape-key="pick-40"`) {
+		t.Error("since=39 at 60 picks must still include pick 40 — its own round (5) fell outside the newest-3-round cap window")
+	}
+	if strings.Contains(body, `data-tape-key="pick-39"`) {
+		t.Error("since=39 must exclude pick 39 itself")
+	}
+	if !strings.Contains(body, `data-tape-key="pick-60"`) {
+		t.Error("since=39 must include the latest pick, 60")
+	}
+}
+
+// TestDraftHistoryLinksPreserveThePoolState is item 6's own test
+// (2026-08-30 review): the desktop segment's three navigation targets
+// and a tape row's own open link all carry the viewer's current pool
+// q/pos/page, built server-side (draftHistoryHref), so switching Tape/
+// Board/Teams or opening a pick's detail never resets a filtered/paged
+// pool search.
+func TestDraftHistoryLinksPreserveThePoolState(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["pool_position"] = "RB"
+	fixture["pool_query"] = "mahomes"
+	fixture["pool_page"] = 3
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager")})
+	fixture["picks_empty"] = false
+
+	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft/fragment/tape", nil))
+	for key, want := range map[string]string{
+		"history_tape_href":  "/draft?page=3&pos=RB&q=mahomes&view=tape",
+		"history_board_href": "/draft?page=3&pos=RB&q=mahomes&view=board",
+		"history_teams_href": "/draft?page=3&pos=RB&q=mahomes&view=teams",
+	} {
+		if got, _ := prepared[key].(string); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	history, ok := prepared["history"].(draftHistoryView)
+	if !ok || len(history.Rounds) == 0 || len(history.Rounds[0].Picks) == 0 {
+		t.Fatal("prepared history has no picks to check")
+	}
+	href := history.Rounds[0].Picks[0].Href
+	for _, want := range []string{"page=3", "pos=RB", "q=mahomes", "pick=1"} {
+		if !strings.Contains(href, want) {
+			t.Errorf("tape row href = %q, missing %q", href, want)
+		}
+	}
+}
+
+// TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh is the
+// 2026-08-30 follow-up's own test: a request that already carries
+// "?rounds=all" must see that cursor echoed back into history_tape_url,
+// exactly as "?pick=" already was, so the pane stays expanded across the
+// region's own draft:pick/draft:undo/draft:state refresh instead of
+// silently recollapsing to the newest three rounds while the address bar
+// still reads "?rounds=all". The tape fragment at the same query must
+// also actually render every round, not just the newest three.
+func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
+	const made = 40 // 5 rounds at 8 teams
+	picks := make([]league.TapePick, 0, made)
+	for n := 1; n <= made; n++ {
+		picks = append(picks, tapePickFixture(n, "manager"))
+	}
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	fixture["history"] = fullHistoryFixture(picks, 5, made+1, false)
+
+	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft?view=tape&rounds=all", nil))
+	tapeURL, _ := prepared["history_tape_url"].(string)
+	if !strings.Contains(tapeURL, "rounds=all") {
+		t.Errorf("history_tape_url = %q, must carry rounds=all when the request did", tapeURL)
+	}
+
+	body := renderTapeRegionPath(t, fixture, "/draft/fragment/tape?view=tape&rounds=all")
+	for _, round := range []string{"round-1", "round-2", "round-3", "round-4", "round-5"} {
+		if !strings.Contains(body, `data-tape-key="`+round+`"`) {
+			t.Errorf("?view=tape&rounds=all must render every round, missing %s: %s", round, body)
+		}
+	}
+}
+
+// TestDraftTapeRegionDoesNotYetRequestSinceCursor is item 7's own unit
+// test (2026-08-30 review): fallback mode (gosx@v0.53.9, this room)
+// never requests the "?since=" cursor itself — the tape pane's own
+// region carries no "-cursor"/"{cursor}" binding yet, only a static URL
+// (data.history_tape_url). Target mode (Task 8, gosx v0.53.10's region
+// "{cursor}" bind) is the caller that will ask for it; the server-side
+// machinery (draftTapeSinceKey, attachDraftFragmentSince,
+// filterTapeRoundsSince) stays ready for that today.
+func TestDraftTapeRegionDoesNotYetRequestSinceCursor(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"data-gosx-region-cursor", "-cursor={", "since={value}"} {
+		if strings.Contains(string(source), forbidden) {
+			t.Errorf("page.gsx already requests a region cursor (%q) — item 7 expected fallback mode to wait for target mode (Task 8)", forbidden)
+		}
+	}
+}
+
+// TestTapeFragmentWithoutSinceRendersTheFullPane proves a plain GET (no
+// "?since=") and an invalid one both fall back to DraftHistory, the pane's
+// ordinary full render — draftHistoryView.Since defaults to -1
+// (prepareDraftData) precisely so a request that never asks for a cursor
+// keeps getting the whole tape, not an empty DraftTapeRows partial.
+func TestTapeFragmentWithoutSinceRendersTheFullPane(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	for _, path := range []string{"/draft/fragment/tape", "/draft/fragment/tape?since=nope", "/draft/fragment/tape?since=-1"} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		if !strings.Contains(response.Body.String(), `class="draft-history"`) {
+			t.Errorf("%s must render the full DraftHistory pane: %s", path, response.Body.String())
+		}
+	}
+}
+
+// TestTapeFragmentETagChangesWithTheSinceCursor is the Task 6 review's R1
+// fix: "/draft/fragment/tape", "?since=0", and "?since=2" against the SAME
+// underlying picks must hash to three different ETags — one per distinct
+// DraftTapeRows/DraftHistory body — so a client that switches its cursor
+// never gets served a bodyless 304 carrying the wrong rows.
+func TestTapeFragmentETagChangesWithTheSinceCursor(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager"), tapePickFixture(2, "manager"), tapePickFixture(3, "auto")})
+	fixture["picks_empty"] = false
+	handler := draftFragmentHandler(draftTapeRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	etagFor := func(path string) string {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		return response.Header().Get("ETag")
+	}
+	full := etagFor("/draft/fragment/tape")
+	since0 := etagFor("/draft/fragment/tape?since=0")
+	since2 := etagFor("/draft/fragment/tape?since=2")
+	if full == since0 || full == since2 || since0 == since2 {
+		t.Fatalf("tape ETags must differ per cursor: full=%s since=0:%s since=2:%s", full, since0, since2)
+	}
+}
+
+// TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted is execution
+// note 2 (Task 5a review): count(data-gosx-action-signal) + count(forms in
+// an explicit signal-free allowlist) == count(<form method="post"), so an
+// added post form can never silently omit both the manual refresh signal
+// and a considered reason not to carry one.
+func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Scoped to the app shell (D2, D5, Page()'s own component tree): the
+	// legacy DraftRoom/DraftWorkspace components above this marker keep
+	// every form signaled until Task 8 retires the two of them (they are
+	// unreachable from Page() already), and happen to reuse the same
+	// props.Actions.toggle_ready/toggle_autopick action expressions the
+	// shell's own signal-free forms below the marker use.
+	if marker := strings.Index(string(source), "// --- The app shell (D2, D5)"); marker >= 0 {
+		source = source[marker:]
+	}
+	// Pick-mutation forms (make-pick, queue-add, queue-remove) and the
+	// seated manager's own ready/autopick forms (the command bar until
+	// V1 moved them into the my-team pane's Room tab and the mobile pick
+	// bar) all rely on the typed hub events their own region already
+	// listens to (draft:pick/undo/state/seat, Page()), not a manual
+	// refresh-signal poke.
+	allowlist := []string{
+		`action={props.MakePickAction}`,
+		`action={props.QueueAddAction}`,
+		`action={props.QueueRemoveAction}`,
+		`action={props.Actions.toggle_ready}`,
+		`action={props.Actions.toggle_autopick}`,
+	}
+	var signaled, signalFree, total int
+	for _, line := range strings.Split(string(source), "\n") {
+		if !strings.Contains(line, `<form method="post"`) {
+			continue
+		}
+		total++
+		hasSignal := strings.Contains(line, "data-gosx-action-signal")
+		allowed := false
+		for _, marker := range allowlist {
+			if strings.Contains(line, marker) {
+				allowed = true
+				break
+			}
+		}
+		switch {
+		case hasSignal && allowed:
+			t.Errorf("form carries both a refresh signal and an allowlisted signal-free action; keep only one: %s", strings.TrimSpace(line))
+		case hasSignal:
+			signaled++
+		case allowed:
+			signalFree++
+		default:
+			t.Errorf("form neither carries data-gosx-action-signal nor matches the signal-free allowlist: %s", strings.TrimSpace(line))
+		}
+	}
+	if total == 0 {
+		t.Fatal(`no <form method="post"> found in page.gsx`)
+	}
+	if signaled+signalFree != total {
+		t.Fatalf("post forms = %d, signaled %d + allowlisted %d = %d", total, signaled, signalFree, signaled+signalFree)
+	}
+}
+
 func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	page, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -274,14 +651,14 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	}
 	source := string(page)
 	for _, want := range []string{
-		`data-gosx-region-url="/draft/fragment/room"`,
+		`data-gosx-region-url="/draft/fragment/command"`,
 		`data-gosx-region-signal="$draft.state.refresh"`,
-		`data-gosx-region-on="draft:changed"`,
+		`data-gosx-region-on="draft:pick draft:undo draft:clock draft:state"`,
 		`data-gosx-action-signal="$draft.state.refresh"`,
 		`data-gosx-countdown={props.Data.clock.effective_deadline}`,
 		`data-gosx-countdown-format="mm:ss"`,
-		`<DraftRoom {...data.room}></DraftRoom>`,
-		`<DraftWorkspace {...data.workspace}></DraftWorkspace>`,
+		`func DraftRoom(props DraftRoomProps) Node {`,
+		`func DraftWorkspace(props DraftWorkspaceProps) Node {`,
 		`aria-live="polite"`,
 	} {
 		if !strings.Contains(source, want) {
@@ -293,8 +670,18 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 			t.Errorf("draft page retains refresh-driven behavior %q", forbidden)
 		}
 	}
-	if got, want := strings.Count(source, `data-gosx-action-signal="$draft.state.refresh"`), strings.Count(source, `<form method="post"`); got != want {
-		t.Fatalf("managed action signals = %d, POST forms = %d; every draft mutation must refresh in place", got, want)
+	// Pick-mutation forms (make-pick, queue-add, queue-remove) rely on the
+	// typed hub events the command/available/queue regions already listen
+	// to, not a manual refresh-signal poke; a commissioner form still
+	// carries the signal as an explicit nudge (its own region does not
+	// listen to every event a commissioner action can produce).
+	for _, forbiddenAction := range []string{`action={props.QueueAddAction} data-gosx-managed="true" data-gosx-action-signal`, `action={props.QueueRemoveAction} data-gosx-managed="true" data-gosx-action-signal`, `action={props.MakePickAction} data-gosx-managed="true" data-gosx-action-signal`} {
+		if strings.Contains(source, forbiddenAction) {
+			t.Errorf("a pick-mutation form still carries a manual refresh-signal poke: %q", forbiddenAction)
+		}
+	}
+	if !strings.Contains(source, `action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh"`) {
+		t.Error("the commissioner draft-start form dropped its refresh-signal nudge")
 	}
 
 	serverSource, err := os.ReadFile("page.server.go")
@@ -315,6 +702,13 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	for _, want := range []string{
 		`app.Mount("GET /draft/fragment/room", draftpage.RoomFragmentHandler(league.Default()))`,
 		`app.Mount("GET /draft/fragment/workspace", draftpage.WorkspaceFragmentHandler(league.Default()))`,
+		`app.Mount("GET /draft/fragment/command", draftpage.CommandFragmentHandler(league.Default()))`,
+		`app.Mount("GET /draft/fragment/tape", draftpage.TapeFragmentHandler(league.Default()))`,
+		`app.Mount("GET /draft/fragment/available", draftpage.AvailableFragmentHandler(league.Default()))`,
+		`app.Mount("GET /draft/fragment/queue", draftpage.QueueFragmentHandler(league.Default()))`,
+		`app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))`,
+		`app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))`,
+		`app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))`,
 		`app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))`,
 	} {
 		if !strings.Contains(buildSource, want) {
@@ -348,4 +742,84 @@ func rootPackageSource(t *testing.T) string {
 		t.Fatal("root package sources not found")
 	}
 	return sources.String()
+}
+
+// TestQueueAddAndQueueRemoveCarryThePoolStateInputs is execution note 7
+// (Task 5a review): queue-add and queue-remove redirect through
+// draftRedirectTarget(pos, q, page) on a native (no-JS) submit, so both
+// forms must carry the same three hidden pool-state inputs make-pick
+// already does — otherwise a manager who queues or clears a player from
+// page 3 of a filtered search lands back on page 1, unfiltered.
+func TestQueueAddAndQueueRemoveCarryThePoolStateInputs(t *testing.T) {
+	fixture := draftFragmentFixture()
+	viewer := fixture["viewer"].(map[string]any)
+	viewer["has_seat"] = true
+	fixture["queue"] = []map[string]any{
+		{
+			"id": "player-taken", "name": "Taken Player", "position": "RB", "nfl_team": "TST",
+			"projection": "0.0", "rank": "001", "detail": "RB · TST", "taken": true,
+			"headshot": "", "has_headshot": false, "jersey": "", "has_breakdown": false, "breakdown": []map[string]any{}, "breakdown_total": "",
+			"has_hist": false, "hist": "", "search": "taken player", "has_draft_capital": false, "draft_capital": "",
+		},
+	}
+	load := func(*http.Request) map[string]any { return fixture }
+	for _, test := range []struct {
+		region string
+		path   string
+	}{
+		{region: draftAvailableRegion, path: "/draft/fragment/available"},
+		{region: draftQueueRegion, path: "/draft/fragment/queue"},
+	} {
+		handler := draftFragmentHandler(test.region, func(*http.Request) bool { return true }, load)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+		body := response.Body.String()
+		for _, want := range []string{`name="pos"`, `name="q"`, `name="page"`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s must carry a %s hidden input on its queue form: %s", test.path, want, body)
+			}
+		}
+	}
+}
+
+// TestAvailableFragmentNeverRendersALockedChip is V3 (owner review): a row
+// shows + QUEUE always and DRAFT only when the viewer is on the clock; when
+// the viewer cannot currently pick the DRAFT control is simply absent, not
+// a disabled "Locked" button.
+func TestAvailableFragmentNeverRendersALockedChip(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["can_pick"] = false
+	viewer := fixture["viewer"].(map[string]any)
+	viewer["has_seat"] = true
+	handler := draftFragmentHandler(draftAvailableRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/available", nil))
+	body := response.Body.String()
+	if strings.Contains(strings.ToUpper(body), "LOCKED") {
+		t.Fatalf("the available fragment must never render a LOCKED chip: %s", body)
+	}
+	if !strings.Contains(body, "+ Queue") {
+		t.Fatalf("a seated viewer must still see + Queue when not on the clock: %s", body)
+	}
+}
+
+// TestQueueFragmentRendersDataTakenForATakenQueuedPlayer is S4 (Task 5a
+// review): the CSS strike-through targets [data-taken="true"] because
+// that is what the markup actually emits, never an .is-taken class.
+func TestQueueFragmentRendersDataTakenForATakenQueuedPlayer(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["queue"] = []map[string]any{
+		{
+			"id": "player-taken", "name": "Taken Player", "position": "RB", "nfl_team": "TST",
+			"projection": "0.0", "rank": "001", "detail": "RB · TST", "taken": true,
+			"headshot": "", "has_headshot": false, "jersey": "", "has_breakdown": false, "breakdown": []map[string]any{}, "breakdown_total": "",
+			"has_hist": false, "hist": "", "search": "taken player", "has_draft_capital": false, "draft_capital": "",
+		},
+	}
+	handler := draftFragmentHandler(draftQueueRegion, func(*http.Request) bool { return true }, func(*http.Request) map[string]any { return fixture })
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/draft/fragment/queue", nil))
+	if !strings.Contains(response.Body.String(), `data-taken="true"`) {
+		t.Fatalf("a taken queued player must render data-taken=\"true\": %s", response.Body.String())
+	}
 }

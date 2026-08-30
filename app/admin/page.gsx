@@ -1026,7 +1026,32 @@ func Page() Node {
 						</If>
 						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input class="scoring-input" type="number" name="seconds" placeholder="90" min="10" max="600"></input>
+							<input type="hidden" name="seconds" value="60"></input>
+							<button class="button button--compact" type="submit">1:00</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="seconds" value="90"></input>
+							<button class="button button--compact" type="submit">1:30</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="seconds" value="120"></input>
+							<button class="button button--compact" type="submit">2:00</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="seconds" value="180"></input>
+							<button class="button button--compact" type="submit">3:00</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="seconds" value="300"></input>
+							<button class="button button--compact" type="submit">5:00</button>
+						</form>
+						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
 							<button class="button" type="submit">Set duration</button>
 						</form>
 						<details class="draft-destructive-control">

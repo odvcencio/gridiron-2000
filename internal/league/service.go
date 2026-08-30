@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -37,6 +38,12 @@ type playerPool struct {
 	label   string
 	players []Player
 	byID    map[string]Player
+	// byADP is players sorted ADP-ascending, a player with no meaningful ADP
+	// (<=0) sorted last: built once per pool version (buildPool), not
+	// per-request. draft_history.go's "best available at this pick" snapshot
+	// reads this order directly (P1 perf fix, 2026-08-30) rather than
+	// re-sorting the whole pool on every DraftHistory call.
+	byADP []Player
 	// unavailable is set when an explicitly wired production source has no
 	// authoritative rows. It keeps the embedded resolution players out of
 	// the lookup map as well as the ordered pool, so a stale player ID cannot
@@ -178,6 +185,51 @@ type Service struct {
 	// tintedBadgePNG.
 	motifRoot string
 	badgeArt  badgeArtCache
+
+	// draftQueue is the single-consumer dispatch channel SetDraftEventSink
+	// installs and StopDraftEvents tears down; nil until a sink is wired,
+	// which makes emitDraft a silent no-op in every test that does not opt
+	// in. draftQueueCancel stops draftEventDrain's goroutine. Both are
+	// guarded by poolMu, alongside lastPresence below.
+	draftQueue chan DraftEvent
+	// draftRepairSignal is emitDraft's drop notifier: buffered to exactly
+	// one slot, so a burst of drops coalesces into at most one pending
+	// repair; see draftRepairLoop.
+	draftRepairSignal chan struct{}
+	// draftRepairQueue is the repair's own single-slot delivery channel
+	// (P2 perf fix, 2026-08-30 review): draftEventDrain selects on it
+	// alongside draftQueue, so draftRepairLoop's blocking send
+	// (emitDraftEventBlocking) never shares draftQueue with — and can never
+	// stall behind the drain rate of — a real producer's own non-blocking
+	// emitDraftEvent.
+	draftRepairQueue chan DraftEvent
+	draftQueueCancel context.CancelFunc
+	// draftEmitMu serializes emitDraft's "assign the next generation" with
+	// "push onto draftQueue" as one step, so two concurrent producers (an
+	// HTTP pick and the clock ticker's autopick, say) can never enqueue out
+	// of generation order; see draft_events.go.
+	draftEmitMu sync.Mutex
+	// draftGeneration is draft:*'s monotonic ordering key, one process-wide
+	// counter shared by every event name so a client can total-order a mix
+	// of draft:pick, draft:clock, and draft:seat.
+	draftGeneration atomic.Uint64
+	// draftDropped counts events emitDraft discarded because draftQueue was
+	// full; draftFullBinds surfaces it as dropped_events on every
+	// draft:state so a client can tell a repair is authoritative rather
+	// than a delta.
+	draftDropped atomic.Uint64
+	// draftCompleteEmitted is maybeEmitDraftComplete's single-emit latch:
+	// CompareAndSwap(false, true) makes "was the completion draft:state
+	// already sent" atomic across every call site (MakePick, clockTick's
+	// autopick, AdminForceAutopick), which can race each other independently
+	// of the store's own per-pick serialization. AdminResetDraft and an
+	// AdminUndoPick that reopens the final slot reset it to false.
+	draftCompleteEmitted atomic.Bool
+	// lastPresence is clockTick's and RecordPresence's shared memory of each
+	// seat's last-announced presence label, guarded by poolMu. It exists so
+	// emitPresenceTransitions (and RecordPresence's own transition check)
+	// emit one draft:seat per real change, never once per tick or poll.
+	lastPresence map[string]string
 }
 
 // clock returns the service's current instant, in three-way precedence
@@ -198,8 +250,23 @@ func (s *Service) clock() time.Time {
 
 var (
 	defaultOnce sync.Once
-	defaultSvc  *Service
+	// defaultMu guards defaultSvc's assignment below against any read that
+	// does not go through Default() itself — sync.Once only orders callers
+	// of Do, and applyActiveConfig (config.go) reads defaultSvc directly
+	// (also from every test that calls applyActiveConfig without ever
+	// calling Default()). currentDefaultService is the one sanctioned
+	// direct read.
+	defaultMu  sync.Mutex
+	defaultSvc *Service
 )
+
+// currentDefaultService safely reads defaultSvc outside Default()'s own
+// sync.Once-ordered goroutine — see defaultMu's doc comment above.
+func currentDefaultService() *Service {
+	defaultMu.Lock()
+	defer defaultMu.Unlock()
+	return defaultSvc
+}
 
 // Default builds (once) the process-wide Service, loading league.json (or
 // the neutral built-in default when none is found) through LoadConfig —
@@ -254,6 +321,7 @@ func Default() *Service {
 			// zero state and later overwrites a good database.
 			log.Fatalf("league persistence startup failed: %v", err)
 		}
+		defaultMu.Lock()
 		defaultSvc = &Service{
 			store:             store,
 			identityResolver:  resolver,
@@ -264,12 +332,13 @@ func Default() *Service {
 			players:           defaultPlayers(),
 			cfg:               cfg,
 			presence:          newPresenceTracker(time.Now()),
-			pickClockDefault:  parsePickClock(os.Getenv("PICK_CLOCK")),
+			pickClockDefault:  resolvePickClockDefault(os.Getenv("PICK_CLOCK"), cfg.PickClockSeconds),
 			avatarRoot:        avatarEnvString("AVATAR_ROOT", filepath.Join("data", "avatars")),
 			avatarDurableRoot: avatarEnvString("AVATAR_DURABLE_ROOT", "data"),
 			defaultBadgeRoot:  avatarEnvString("AVATAR_DEFAULTS_ROOT", filepath.Join("public", "avatars", "defaults")),
 			motifRoot:         avatarEnvString("AVATAR_MOTIFS_ROOT", filepath.Join("public", "avatars", "motifs")),
 		}
+		defaultMu.Unlock()
 		// scheduleProvider reads the persisted league schedule once one has
 		// been generated; until then it defers to the honest preseason
 		// snapshot (feed.go). This replaces the always-empty demoProvider
@@ -481,6 +550,19 @@ func parsePickClock(value string) time.Duration {
 	return clampPickClock(duration)
 }
 
+// resolvePickClockDefault applies the documented precedence: PICK_CLOCK
+// (environment) over draft.pick_clock_seconds (league.json) over
+// DefaultPickClock. Every result clamps to [MinPickClock, MaxPickClock].
+func resolvePickClockDefault(env string, configSeconds int) time.Duration {
+	if strings.TrimSpace(env) != "" {
+		return parsePickClock(env)
+	}
+	if configSeconds > 0 {
+		return clampPickClock(time.Duration(configSeconds) * time.Second)
+	}
+	return DefaultPickClock
+}
+
 // pickClock resolves the pick-clock duration for state: the commissioner's
 // persisted override when set, otherwise the PICK_CLOCK environment
 // default (or DefaultPickClock when the service was built without one, as
@@ -673,8 +755,65 @@ func (s *Service) viewerKey(r *http.Request) string {
 // anonymous, non-demo request carries no viewer key and is skipped. Call it
 // before computing a fingerprint the same requester will read, so the
 // poller's own transition to CONNECTED is visible in that response.
+//
+// It also emits draft:seat when this heartbeat moves the requester's own
+// presence label (never a team-wide rescan — that is clockTick's
+// emitPresenceTransitions, guarded by the same lastPresence map): read the
+// key's presenceStateSince before and after record, and, when the key
+// belongs to a claimed seat, emit only on a real change.
 func (s *Service) RecordPresence(r *http.Request, now time.Time) {
-	s.presence.record(s.viewerKey(r), now)
+	key := s.viewerKey(r)
+	if key == "" {
+		return
+	}
+	seenAt, seen := s.presence.seen(key)
+	before := presenceStateSince(seenAt, seen, now, s.presence.startedAt)
+	s.presence.record(key, now)
+	after := presenceStateSince(now, true, now, s.presence.startedAt)
+	if after == before {
+		return
+	}
+	// Only a heartbeat's own key transitioned so far; the snapshot and the
+	// team-aggregate lookup below cost a store read, so they wait until
+	// that much is established. Every non-transitioning poll (the common
+	// case, one every PollPeriod) returns above without either.
+	state := s.store.Snapshot()
+	teamID := s.teamForPresenceKey(state, key)
+	if teamID == "" {
+		return
+	}
+	label, _, _ := s.teamPresence(state, teamID, now)
+	s.poolMu.Lock()
+	if s.lastPresence == nil {
+		s.lastPresence = map[string]string{}
+	}
+	previous, seenTeam := s.lastPresence[teamID]
+	// A co-manager can already hold the seat's aggregate at label (teamPresence
+	// takes the strongest of every operator assigned to the seat), even
+	// though this key's own state just moved: the room's rendered presence
+	// has not changed, so this poll must emit nothing, the same rule
+	// emitPresenceTransitions enforces on the ticker side.
+	if seenTeam && previous == label {
+		s.poolMu.Unlock()
+		return
+	}
+	s.lastPresence[teamID] = label
+	s.poolMu.Unlock()
+	s.emitDraft("draft:seat", s.seatBinds(state, teamID, now))
+}
+
+// teamForPresenceKey returns the seat key belongs to, or "" when it is not
+// assigned to any seat (an unclaimed viewer, or a commissioner with no
+// team).
+func (s *Service) teamForPresenceKey(state PersistedState, key string) string {
+	for _, team := range s.Teams() {
+		for _, candidate := range s.presenceKeysForTeam(state, team.ID) {
+			if candidate == key {
+				return team.ID
+			}
+		}
+	}
+	return ""
 }
 
 // boardKeyForTeam resolves the deterministic shared Big Board owner for one
@@ -1219,7 +1358,19 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 		annotated[index] = s.withHistorical(player)
 		byID[annotated[index].ID] = annotated[index]
 	}
-	return playerPool{version: version, label: label, players: annotated, byID: byID}
+	byADP := make([]Player, len(annotated))
+	copy(byADP, annotated)
+	sort.SliceStable(byADP, func(i, j int) bool {
+		left, right := byADP[i].ADP, byADP[j].ADP
+		if left <= 0 {
+			left = math.MaxFloat64
+		}
+		if right <= 0 {
+			right = math.MaxFloat64
+		}
+		return left < right
+	})
+	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP}
 }
 
 // withHistorical fills a player's previous-season line from the attached
@@ -2350,17 +2501,28 @@ func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
-	return s.draftData(r, false)
+	return s.draftData(r, false, true)
 }
 
 // DraftDataReadOnly returns the same authoritative draft view without
 // provisioning a signed-in member. Fragment polling is a read path: opening a
 // draft tab must never create membership or rewrite league persistence.
 func (s *Service) DraftDataReadOnly(r *http.Request) map[string]any {
-	return s.draftData(r, true)
+	return s.draftData(r, true, true)
 }
 
-func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
+// DraftDataReadOnlyOptions is DraftDataReadOnly with control over whether
+// the response builds DraftHistory (P1 perf fix, 2026-08-30 review):
+// draftData runs on every one of app/draft's six fragment polls, but only
+// the tape region ever renders history, so app/draft's other five fragment
+// loaders (command, available, queue, room, workspace) pass
+// includeHistory=false and skip a cost that otherwise scaled with the
+// draft's pick count on every poll regardless of what the client asked for.
+func (s *Service) DraftDataReadOnlyOptions(r *http.Request, includeHistory bool) map[string]any {
+	return s.draftData(r, true, includeHistory)
+}
+
+func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool) map[string]any {
 	now := s.clock()
 	var viewer map[string]any
 	var state PersistedState
@@ -2411,7 +2573,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	displayPickNumber := nextNumber
 	round := pickRound(activeTeamCount(state.DraftOrder), nextNumber)
 	onClockID := ""
-	onClockMap := map[string]any{"abbreviation": ""}
+	onClockMap := blankTeamMap()
 	if !complete {
 		onClockID = teamOnClock(state.DraftOrder, nextNumber)
 		onClockMap = s.teamMap(s.teamView(state, onClockID))
@@ -2425,33 +2587,165 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 	if s.demoMode && draftOpen {
 		canPick = true
 	}
+	boardKey := boardKeyForViewer(state, s.viewerKey(r))
+	boardOrder := state.Boards[boardKey]
 	boardPanel := make([]map[string]any, 0, 5)
-	for _, id := range state.Boards[boardKeyForViewer(state, s.viewerKey(r))] {
-		if picked[id] {
+	// queuePanel is the shell's full personal-queue view (D2): every board
+	// entry, in order, each carrying taken so a drafted target still shows
+	// (struck through, client-side) rather than silently vanishing.
+	// boardPanel stays the pre-existing 5-item undrafted "peek" the legacy
+	// DraftWorkspace sidebar reads; both share one playerMap build per id.
+	queuePanel := make([]map[string]any, 0, len(boardOrder))
+	for _, id := range boardOrder {
+		player, ok := pool.byID[id]
+		if !ok {
 			continue
 		}
-		if player, ok := pool.byID[id]; ok {
-			boardPanel = append(boardPanel, playerMap(player, scoringValues, matchup))
-			if len(boardPanel) == 5 {
+		item := playerMap(player, scoringValues, matchup)
+		item["taken"] = picked[id]
+		queuePanel = append(queuePanel, item)
+		if !picked[id] && len(boardPanel) < 5 {
+			boardPanel = append(boardPanel, item)
+		}
+	}
+	// rosterNeeds tallies the viewer's own drafted players by exact
+	// position against the active roster preset's starter slots (a simple
+	// per-position count, not the FLEX-aware bipartite match
+	// maximumDraftStarterFill uses for legality): display only, so a
+	// player who could also cover a flex slot still counts under their
+	// primary position here.
+	rosterNeeds := make([]map[string]any, 0, 8)
+	if viewerTeam != "" {
+		preset := CurrentRoster()
+		filledByPosition := map[string]int{}
+		for _, pick := range state.Picks {
+			if pick.TeamID != viewerTeam {
+				continue
+			}
+			if player, ok := pool.byID[pick.PlayerID]; ok {
+				filledByPosition[player.Position]++
+			}
+		}
+		slotNames := make([]string, 0, len(preset.Slots))
+		for name := range preset.Slots {
+			slotNames = append(slotNames, name)
+		}
+		sort.Strings(slotNames)
+		for _, name := range slotNames {
+			required := preset.Slots[name]
+			have := filledByPosition[name]
+			if have > required {
+				have = required
+			}
+			rosterNeeds = append(rosterNeeds, map[string]any{
+				"label": name, "filled": have, "total": required, "open": have < required,
+			})
+		}
+	}
+	// nextQueued is the viewer's own top still-draftable board target — the
+	// pick bar's "Draft" shortcut reads it so a phone never needs to
+	// scroll to the available pane to take the queue's #1 pick.
+	nextQueued := map[string]any{"has": false}
+	if len(boardPanel) > 0 {
+		top := boardPanel[0]
+		nextQueued = map[string]any{
+			"has": true, "id": top["id"], "name": top["name"],
+			"position": top["position"], "nfl_team": top["nfl_team"],
+		}
+	}
+	// hasADP gates the available pane's whole VS ADP column (header and
+	// cell, R4): the built-in offline pool carries no real ADP figures, so
+	// showing a column of empty/meaningless deltas would be worse than no
+	// column at all. valueVsADP is "if drafted right now" — nextNumber
+	// (the upcoming pick) minus the player's rounded ADP — the same sign
+	// convention TapePick.ValueLabel uses for a made pick (draft_history.go).
+	hasADP := pool.label != "offline"
+	availableMaps := playerMapsWithScoring(pagedAvailable, scoringValues, matchup)
+	for index, player := range pagedAvailable {
+		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
+		hasValue := hasADP && player.ADP > 0
+		availableMaps[index]["has_value"] = hasValue
+		availableMaps[index]["value_label"] = ""
+		if hasValue {
+			availableMaps[index]["value_label"] = valueVsADPLabel(nextNumber, player.ADP)
+		}
+	}
+	readyManagerCount, managerCount := s.draftSeatCounts(state)
+	// The command bar's room summary and the shell's per-viewer turn math
+	// both read the same team maps draftTeamMaps already builds for
+	// "teams" below; computed once here and reused, not rebuilt.
+	teamMaps := s.draftTeamMaps(state, onClockID)
+	hereCount, autoCount := 0, 0
+	for _, team := range teamMaps {
+		if presence, _ := team["presence"].(string); presence == "here" {
+			hereCount++
+		}
+		if auto, _ := team["autopick"].(bool); auto {
+			autoCount++
+		}
+	}
+	picksTotal := draftTeamCount() * CurrentDraftRounds()
+	nextTeamMap := blankTeamMap()
+	if nextNumber+1 <= picksTotal {
+		nextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+1)))
+	}
+	afterNextTeamMap := blankTeamMap()
+	if nextNumber+2 <= picksTotal {
+		afterNextTeamMap = s.teamMap(s.teamView(state, teamOnClock(state.DraftOrder, nextNumber+2)))
+	}
+	// yourPickIn counts picks until the viewer's own next turn: 0 when on
+	// the clock right now, -1 when seatless or when no future turn remains
+	// (mirrors yourPickBinds' convention in draft_events.go).
+	yourPickIn := -1
+	if viewerTeam != "" {
+		for number := nextNumber; number <= picksTotal; number++ {
+			if teamOnClock(state.DraftOrder, number) == viewerTeam {
+				yourPickIn = number - nextNumber
 				break
 			}
 		}
 	}
-	availableMaps := playerMapsWithScoring(pagedAvailable, scoringValues, matchup)
-	for index, player := range pagedAvailable {
-		availableMaps[index]["draft_eligible"] = !complete && onClockID != "" && draftCandidateKeepsRosterViable(state, pool.byID, onClockID, player.ID)
+	poolStatusMap := s.poolFreshnessMap(pool)
+	// banner is the command bar's one-line status strip: paused takes
+	// priority over rehearsal, which takes priority over an honest pool
+	// freshness notice, so a manager never sees more than one competing
+	// claim about why the room looks the way it does.
+	banner := ""
+	switch {
+	case state.ClockPaused:
+		banner = "Clock paused — picks stay open"
+	case s.demoMode:
+		banner = "Rehearsal mode"
+	default:
+		if hasNotice, _ := poolStatusMap["has_notice"].(bool); hasNotice {
+			banner, _ = poolStatusMap["detail"].(string)
+		}
 	}
-	readyManagerCount, managerCount := s.draftSeatCounts(state)
+	// history is the typed pick-tape/board/by-team view (draft_history.go):
+	// page.server.go's prepareDraftData reads it directly (a Service method
+	// result stashed in this otherwise-untyped map, the same pattern teams/
+	// picks/available already use for their own typed-conversion boundary).
+	// Built only when includeHistory (P1 perf fix): the zero DraftHistoryView
+	// otherwise stashed here already renders an empty pane for free —
+	// buildDraftHistoryView (page.server.go) has treated a missing "history"
+	// key this way since Task 7, the same fallback every non-league test
+	// fixture in app/draft relies on.
+	var history DraftHistoryView
+	if includeHistory {
+		history = s.DraftHistory(state, viewerTeam)
+	}
 	return map[string]any{
 		"viewer":               viewer,
 		"public_entry":         publicEntryData(publicEntry),
 		"draft":                s.draftSummary(now),
-		"teams":                s.draftTeamMaps(state, onClockID),
+		"history":              history,
+		"has_adp":              hasADP,
+		"teams":                teamMaps,
 		"picks":                s.pickMaps(state, pool.byID, scoringValues),
 		"available":            availableMaps,
 		"board":                boardPanel,
 		"board_count":          len(boardPanel),
-		"pool_status":          s.poolFreshnessMap(pool),
+		"pool_status":          poolStatusMap,
 		"pool_count":           len(pool.players),
 		"available_count":      len(available),
 		"pool_query":           rawQuery,
@@ -2495,6 +2789,19 @@ func (s *Service) draftData(r *http.Request, readOnly bool) map[string]any {
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
+		"picks_total":          picksTotal,
+		"snake_direction":      snakeDirection(activeTeamCount(state.DraftOrder), nextNumber),
+		"next_team":            nextTeamMap,
+		"after_next_team":      afterNextTeamMap,
+		"viewer_on_clock":      viewerTeam != "" && viewerTeam == onClockID,
+		"your_pick_in":         yourPickIn,
+		"here_count":           hereCount,
+		"auto_count":           autoCount,
+		"banner":               banner,
+		"queue":                queuePanel,
+		"queue_empty":          len(queuePanel) == 0,
+		"next_queued":          nextQueued,
+		"roster_needs":         rosterNeeds,
 	}
 }
 
@@ -2546,6 +2853,7 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"remaining_seconds":  remaining,
 		"remaining_label":    countdownMMSSLabel(remaining),
 		"duration_seconds":   int(s.pickClock(state).Seconds()),
+		"duration_label":     countdownMMSSLabel(int(s.pickClock(state).Seconds())),
 		"server_now":         now.UTC().Format(time.RFC3339),
 		// These opaque values are form contracts, not authorization
 		// credentials. current_pick_token covers the on-clock seat and
@@ -2774,7 +3082,11 @@ func (s *Service) ToggleReady(r *http.Request, requestedTeam string) (bool, stri
 		return false, "", err
 	}
 	ready, err := s.store.ToggleReady(teamID)
-	return ready, s.teamByID(teamID).Name, err
+	if err != nil {
+		return ready, s.teamByID(teamID).Name, err
+	}
+	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
+	return ready, s.teamByID(teamID).Name, nil
 }
 
 func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (DraftPick, Player, Team, error) {
@@ -2809,13 +3121,19 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
 	// pick — pause freezes the timer, not the draft — and the final pick
 	// leaves the clock unarmed for good.
-	totalPicks := len(s.Teams()) * CurrentDraftRounds()
+	totalPicks := draftTeamCount() * CurrentDraftRounds()
 	nextDeadline := time.Time{}
 	if !state.ClockPaused && len(state.Picks)+1 < totalPicks {
 		nextDeadline = now.Add(s.pickClock(state))
 	}
 	pick, err := s.store.MakePick(teamID, playerID, "manager", now, nextDeadline)
-	return pick, player, s.teamByID(teamID), err
+	if err != nil {
+		return DraftPick{}, Player{}, Team{}, err
+	}
+	snapshot := s.store.Snapshot()
+	s.emitDraft("draft:pick", s.draftPickPayload(snapshot, pick, now))
+	s.maybeEmitDraftComplete(state, snapshot, now)
+	return pick, player, s.teamByID(teamID), nil
 }
 
 // ToggleAutopick flips the acting seat's away-mode auto-pick flag. A
@@ -2830,6 +3148,7 @@ func (s *Service) ToggleAutopick(r *http.Request, requestedTeam string) (bool, s
 	if err := s.store.SetAutopick(teamID, on); err != nil {
 		return false, "", err
 	}
+	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
 	return on, s.teamByID(teamID).Name, nil
 }
 
@@ -3918,6 +4237,21 @@ func (s *Service) teamView(state PersistedState, id string) Team {
 		}
 	}
 	return s.Teams()[0]
+}
+
+// blankTeamMap carries the same keys as teamMap, every one at its zero
+// value: the command bar's on-clock badge and its next/after-next labels
+// (next_team.name, after_next_team.name) read straight off whichever of
+// the two a request gets, with no separate has-a-team branch in the
+// template, so a missing key here (rather than an empty match) would read
+// back as a template error instead of the intended blank/neutral display.
+func blankTeamMap() map[string]any {
+	return map[string]any{
+		"id": "", "name": "", "abbreviation": "", "division": "",
+		"manager": "", "claimed": false, "record": "", "points_for": "",
+		"rank": "", "rank_number": 0, "streak": 0, "tone": "",
+		"has_avatar": false, "has_avatar_image": false, "avatar_image_url": "",
+	}
 }
 
 func (s *Service) teamMap(team Team) map[string]any {

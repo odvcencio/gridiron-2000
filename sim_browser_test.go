@@ -15,12 +15,13 @@ import (
 	"github.com/chromedp/chromedp"
 )
 
-// browserPickClockSelector names the live pick clock in the draft room.
-// app/draft/page.gsx renders exactly one countdown in this format: the
-// mm:ss strong element inside the draft region. The scheduled-window
-// countdown beside it uses the dhms format and only renders before the
-// draft starts, so this selector cannot match it.
-const browserPickClockSelector = `[data-gosx-countdown-format="mm:ss"]`
+// browserPickClockSelector names the live pick clock in the command bar.
+// app/draft/page.gsx's DraftCommandBar renders exactly one element with
+// this shape at a time: data-pick-clock, present in every started state
+// (running, paused, or complete), narrowed to the mm:ss format so the
+// pre-draft scheduled-window countdown (dhms, only before the draft
+// starts) cannot match it.
+const browserPickClockSelector = `[data-pick-clock][data-gosx-countdown-format="mm:ss"]`
 
 // browserClockTickWait bounds a wait for one countdown repaint. The
 // countdown repaints once a second, so this window spans at least two, and
@@ -177,9 +178,8 @@ func evalPickClock(t *testing.T, ctx context.Context, read string) string {
 // the clock, so a change to it proves that fragment was replaced.
 func readDraftPickLabel(t *testing.T, ctx context.Context) string {
 	t.Helper()
-	expression := `(function(){var spans=document.querySelectorAll('.draft-clock-meta span');` +
-		`for(var i=0;i<spans.length;i++){var text=(spans[i].textContent||'').trim();` +
-		`if(text.indexOf('Pick #')===0)return text}return ''})()`
+	expression := `(function(){var e=document.querySelector('[data-pick-label]');` +
+		`if(!e)return '';return (e.textContent||'').trim()})()`
 	var label string
 	if err := chromedp.Run(ctx, chromedp.Evaluate(expression, &label)); err != nil {
 		t.Fatalf("read the draft pick label: %v", err)
