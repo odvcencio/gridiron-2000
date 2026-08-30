@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -112,6 +113,13 @@ func (p *Poller) Run(ctx context.Context) {
 		p.cfg.Logf("livescore: LIVE_SCORING_ENABLED is not true; the live poller stays off")
 		return
 	}
+	// The mirror of the disabled line above: an operator flipping the
+	// flag on gets no confirmation the poller actually started unless
+	// this fires. A 2026-08-30 flagship drill (release-2026.08.30-
+	// c655472) found the enabled poller logged nothing at boot at all —
+	// see the kill-switch drill log in docs/launch-checklist.md.
+	p.cfg.Logf("livescore: poller enabled (interval=%s, max_inflight=%d, daily_budget=%d, season=%d)",
+		p.cfg.Interval, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
 	ticker := time.NewTicker(p.cfg.Interval)
 	defer ticker.Stop()
 	p.Tick(ctx)
@@ -187,9 +195,24 @@ func (p *Poller) Tick(ctx context.Context) {
 		}
 	}
 	p.mu.Lock()
+	wasOpen := p.inWindow > 0
 	p.inWindow = len(targets)
+	nowOpen := p.inWindow > 0
 	p.unmatched, p.unmatchedGames = 0, nil
 	p.mu.Unlock()
+	// Log the window open/closed transitions only — never once per tick
+	// while the window stays in the same state — so a Sunday slate does
+	// not spam the log every LIVE_POLL_INTERVAL.
+	switch {
+	case nowOpen && !wasOpen:
+		ids := make([]string, 0, len(targets))
+		for _, game := range targets {
+			ids = append(ids, game.ID)
+		}
+		p.cfg.Logf("livescore: window open (%d games: %s)", len(targets), strings.Join(ids, ", "))
+	case wasOpen && !nowOpen:
+		p.cfg.Logf("livescore: window closed")
+	}
 	if len(targets) == 0 {
 		return
 	}
@@ -365,13 +388,27 @@ func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
 }
 
 // Snapshot copies the current state under p.mu only; it reads no schedule.
+// A game whose poll window has closed (kickoff+windowAfter has passed) and
+// that never reached final reports InProgress=false here: a stale
+// gameRecord's last-seen box.InProgress=true must not keep the Matchups
+// page reading LIVE hours after the poller itself stopped fetching that
+// game (2026-08-30 finding: a game that never went final still reported
+// InProgress=true indefinitely). Final is left untouched — this only
+// clears the in-progress signal, it never fabricates a final one.
 func (p *Poller) Snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	now := p.cfg.Now()
 	out := Snapshot{Version: p.version, CheckedAt: p.lastSuccess, Weeks: map[int]WeekLines{}, Games: map[string]GameState{}}
 	for _, rec := range p.games {
 		addBoxToSnapshot(&out, rec.game, rec.box, rec.at)
 	}
 	sortSnapshotLines(&out) // round-2 note 36: stable PlayerID order for callers
+	for id, game := range out.Games {
+		if game.InProgress && !game.Final && windowClosed(game.Kickoff, now) {
+			game.InProgress = false
+			out.Games[id] = game
+		}
+	}
 	return out
 }

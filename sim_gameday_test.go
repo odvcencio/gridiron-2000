@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +233,27 @@ func waitForLiveState(t *testing.T, child *simChild, bot *draft.Bot, want string
 	}
 }
 
+// waitForLogLine polls child's own captured stderr tail (sim_child_test.go's
+// tailBuffer, mirrored from the child process's log output) until it
+// contains substr or deadline passes. It exists to observe a log line the
+// child wrote at boot — the poller-enabled line (item 1) fires once,
+// asynchronously, right after Start, so a single immediate read can race
+// it; polling avoids that.
+func waitForLogLine(t *testing.T, child *simChild, substr string, deadline time.Duration) string {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	for {
+		tail := child.stderr.String()
+		if strings.Contains(tail, substr) {
+			return tail
+		}
+		if time.Now().After(end) {
+			t.Fatalf("child log never contained %q within %s; captured tail:\n%s", substr, deadline, tail)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
 // TestSimGameDayTimeline rehearses the whole Sep 10 2026 TNF (DAL@PHI,
 // kickoff 20:20 EDT) game-day sequence end to end in the harness, using
 // the same replay fixture as the game (sim_live_test.go's BAL@BUF
@@ -289,6 +311,11 @@ func TestSimGameDayTimeline(t *testing.T) {
 	// Step 2: flip the flag on 30 minutes before kickoff (a pod roll in
 	// production). The window has not opened; the poller must stay idle.
 	child = restartGameDayChild(t, child, l, dataFile, fixtures, true)
+	// Item 1 / the 2026-08-30 flagship drill finding: an enabled poller
+	// used to log nothing at boot, leaving an operator flipping the flag
+	// with no confirmation it started. Assert the new boot line is
+	// actually there, in this same flag-ON child's own captured log.
+	waitForLogLine(t, child, "livescore: poller enabled (interval=", 10*time.Second)
 	setClockAtKickoffOffset(t, child, -30*time.Minute)
 	preWindow := waitForInWindow(t, child, 0, 10*time.Second)
 	if !preWindow.Poller.Enabled || preWindow.Poller.Degraded {
@@ -348,11 +375,39 @@ func TestSimGameDayTimeline(t *testing.T) {
 	resumedView := waitForLiveState(t, child, viewer, league.LiveStateLive, 60*time.Second)
 	t.Logf("STEP 5 [resume, flag ON]: liveState=%s", resumedView["liveState"])
 
-	// Step 6: advance past kickoff+5h. The window closes.
+	// Step 6: advance past kickoff+5h. The window closes. The BAL@BUF
+	// stand-in game never reaches final within this scenario's own real
+	// wall-clock run (gameDayStep's own doc comment), so this also
+	// exercises item 3: a game whose poll window closed without ever
+	// going final must stop reporting InProgress, or liveState would
+	// keep reading LIVE indefinitely from the poller's last stale
+	// record. matchupLiveState's precedence (feed.go) then has
+	// inProgress=false (item 3's fix) and liveFinal=false (the box score
+	// truly never went final, so no row ever carried
+	// league.StatSourceLiveFinal) — falling through to LEDGER, not
+	// FINAL.
 	setClockAtKickoffOffset(t, child, 6*time.Hour)
 	closed := waitForInWindow(t, child, 0, 15*time.Second)
-	closedView, _ := liveWeek(t, child, viewer)
-	t.Logf("STEP 6 [T+5h, window closed]: liveState=%s in_window=%d", closedView["liveState"], closed.InWindow)
+	deadline := time.Now().Add(30 * time.Second)
+	var closedView map[string]any
+	var closedState string
+	for {
+		closedView, _ = liveWeek(t, child, viewer)
+		closedState, _ = closedView["liveState"].(string)
+		if closedState != league.LiveStateLive || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if closedState == league.LiveStateLive {
+		t.Fatalf("T+5h window closed: liveState = %q, want anything but %q (a stale InProgress from before the window closed must not keep the page LIVE)",
+			closedState, league.LiveStateLive)
+	}
+	if closedState != league.LiveStateLedger {
+		t.Fatalf("T+5h window closed, game never final: liveState = %q, want %q per matchupLiveState's precedence (item 3)",
+			closedState, league.LiveStateLedger)
+	}
+	t.Logf("STEP 6 [T+5h, window closed]: liveState=%s in_window=%d", closedState, closed.InWindow)
 
 	t.Logf("TestSimGameDayTimeline wall time: %s", time.Since(wallStart))
 }

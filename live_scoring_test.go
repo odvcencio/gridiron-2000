@@ -19,13 +19,43 @@ func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
 		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Q2", Clock: "3:10", InProgress: true, Kickoff: kickoff},
 	}}
 	health := livescore.Health{Enabled: true, LastSuccess: kickoff.Add(time.Minute)}
-	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot }, func() livescore.Health { return health })()
+	status := liveStatusFromPoller(func() livescore.Snapshot { return snapshot }, func() livescore.Health { return health }, func() time.Time { return kickoff.Add(time.Minute) })()
 	if !status.Enabled || status.Degraded || !status.CheckedAt.Equal(health.LastSuccess) {
 		t.Fatalf("status = %+v", status)
 	}
 	for _, team := range []string{"BAL", "BUF"} {
 		if game := status.Games[team]; game.Period != "Q2" || !game.InProgress {
 			t.Fatalf("%s = %+v", team, game)
+		}
+	}
+}
+
+// TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot
+// covers item 3's real failure mode: buildLiveScoring's versionedSnapshot
+// memoizes per Poller.Version, and a game whose window has closed gets no
+// further fetches, so its version never moves again — the snapshot func
+// here stands in for that frozen copy, still reporting InProgress=true
+// from whenever the last real fetch happened. liveStatusFromPoller must
+// still report InProgress=false once now is past kickoff+windowAfter,
+// because it reapplies the window-closed rule fresh on every call instead
+// of trusting the (possibly stale) snapshot's own InProgress bit.
+func TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot(t *testing.T) {
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	staleSnapshot := livescore.Snapshot{Version: 3, Games: map[string]livescore.GameState{
+		"g1": {ID: "g1", Away: "BAL", Home: "BUF", Period: "Q3", Clock: "2:00", InProgress: true, Final: false, Kickoff: kickoff},
+	}}
+	health := livescore.Health{Enabled: true}
+	source := liveStatusFromPoller(
+		func() livescore.Snapshot { return staleSnapshot }, // never changes: the frozen, post-window-close copy
+		func() livescore.Health { return health },
+		func() time.Time { return kickoff.Add(6 * time.Hour) }, // past kickoff+5h, real time keeps moving
+	)
+	status := source()
+	for _, team := range []string{"BAL", "BUF"} {
+		if game := status.Games[team]; game.InProgress {
+			t.Fatalf("%s = %+v, want InProgress=false once the window has closed, even from a stale snapshot", team, game)
+		} else if game.Final {
+			t.Fatalf("%s = %+v, want Final untouched (false) — this must not fabricate a final", team, game)
 		}
 	}
 }

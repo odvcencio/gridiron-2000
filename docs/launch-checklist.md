@@ -700,7 +700,12 @@ explicit action, never a batch.
 
 | Date | Kickoff (matchup) | Flag off at | `LEDGER` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-30 | _Bounded rehearsal, flagship (`release-2026.08.30-c655472`), no live kickoff_¹ | rollout² | confirmed within seconds² | rollout² | not confirmed²; final state `LEDGER` expected per the corrected [Kill-switch procedure](season-operations.md#kill-switch-procedure) | — |
 | _2026-09-10 (DAL@PHI, 20:20 EDT)_ | | | | | | |
+
+¹ This drill ran outside a live kickoff, in the reverse order of the columns above: flag on, then flag off. It confirmed boot logging on both sides of the flag.
+
+² Flag on, rollout: the enabled poller logged nothing at boot. That silent gap is the finding this commit fixes, with a new `livescore: poller enabled (...)` boot line. Flag off, rollout: within seconds, the log confirmed `livescore: LIVE_SCORING_ENABLED is not true; the live poller stays off`. The kill switch itself already worked. The drill did not re-run against a live game, so it did not check the status line directly. Per the corrected [Kill-switch procedure](season-operations.md#kill-switch-procedure), a boot-time-disabled poller has no in-progress game history to pause on. The expected status-line state is therefore `LEDGER`, not `PAUSED · disabled`.
 
 ## Notes on client assets
 

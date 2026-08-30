@@ -389,3 +389,162 @@ func TestListingFailuresDegradeIndependentlyOfBoxScoreSuccesses(t *testing.T) {
 		t.Fatalf("listing failures leaked into the box-score failure counter: %+v", h)
 	}
 }
+
+// TestRunLogsPollerEnabledOnceAtBoot covers the 2026-08-30 flagship drill
+// finding: an enabled poller logged nothing at boot. Run must log a
+// distinct "poller enabled" line, mirroring the existing disabled line,
+// exactly once before it starts ticking.
+func TestRunLogsPollerEnabledOnceAtBoot(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	cfg := Config{Enabled: true, Interval: 5 * time.Millisecond, MaxInflight: 3, DailyBudget: 4242, Season: 2025}
+	cfg.Now = func() time.Time { return now }
+	var mu sync.Mutex
+	var logs []string
+	cfg.Logf = func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}
+	poller := New(cfg, fetcher, func() []Game { return fixtureSchedule() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		poller.Run(ctx)
+		close(done)
+	}()
+	time.Sleep(30 * time.Millisecond) // let Run log and tick at least once
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after its context was canceled")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	count, want := 0, "livescore: poller enabled (interval=5ms, max_inflight=3, daily_budget=4242, season=2025)"
+	for _, line := range logs {
+		if line == want {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("%q logged %d times, want 1: %v", want, count, logs)
+	}
+}
+
+// TestWindowOpenAndClosedLogOncePerTransition covers item 2: Tick logs
+// "window open"/"window closed" only on the open<->empty transition,
+// never once per tick while the window stays in the same state.
+func TestWindowOpenAndClosedLogOncePerTransition(t *testing.T) {
+	now := kickoff.Add(-5 * time.Hour) // before either fixture game's own window opens
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	cfg := Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2025}
+	cfg.Now = func() time.Time { return now }
+	var mu sync.Mutex
+	var logs []string
+	cfg.Logf = func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		logs = append(logs, fmt.Sprintf(format, args...))
+	}
+	poller := New(cfg, fetcher, func() []Game { return fixtureSchedule() })
+
+	count := func(substr string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		n := 0
+		for _, line := range logs {
+			if strings.Contains(line, substr) {
+				n++
+			}
+		}
+		return n
+	}
+	lastMatching := func(substr string) string {
+		mu.Lock()
+		defer mu.Unlock()
+		last := ""
+		for _, line := range logs {
+			if strings.Contains(line, substr) {
+				last = line
+			}
+		}
+		return last
+	}
+
+	poller.Tick(context.Background()) // both games are outside their own windows: no transition
+	if n := count("livescore: window"); n != 0 {
+		t.Fatalf("a tick with no games in window logged a transition: %v", logs)
+	}
+
+	now = kickoff.Add(30 * time.Minute) // BAL@BUF and HOU@LAR both enter the window
+	for i := 0; i < 3; i++ {
+		poller.Tick(context.Background())
+	}
+	if n := count("livescore: window open"); n != 1 {
+		t.Fatalf("window open logged %d times across 3 ticks with the window staying open, want 1: %v", n, logs)
+	}
+	if n := count("livescore: window closed"); n != 0 {
+		t.Fatalf("window closed logged while the window was still open: %v", logs)
+	}
+	openLine := lastMatching("livescore: window open")
+	if !strings.Contains(openLine, "2 games:") || !strings.Contains(openLine, "2025_01_BAL_BUF") || !strings.Contains(openLine, "2025_01_HOU_LA") {
+		t.Fatalf("window open line missing the game count/ids: %q", openLine)
+	}
+
+	now = kickoff.Add(windowAfter + time.Minute) // both games past their own window, neither ever final
+	for i := 0; i < 2; i++ {
+		poller.Tick(context.Background())
+	}
+	if n := count("livescore: window closed"); n != 1 {
+		t.Fatalf("window closed logged %d times across 2 ticks with the window staying empty, want 1: %v", n, logs)
+	}
+	if n := count("livescore: window open"); n != 1 {
+		t.Fatalf("window open logged again on the close transition: %v", logs)
+	}
+}
+
+// TestSnapshotClearsStaleInProgressAfterWindowCloses covers item 3: a
+// game that never went final still has its poll window close
+// (kickoff+windowAfter). Snapshot must stop reporting InProgress for it —
+// a stale gameRecord's last-seen box.InProgress=true must not keep
+// rendering LIVE indefinitely — while leaving Final untouched (this is
+// not a fabricated final).
+func TestSnapshotClearsStaleInProgressAfterWindowCloses(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q3", Clock: "2:00"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q4"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background())
+
+	inside := poller.Snapshot().Games["2025_01_BAL_BUF"]
+	if !inside.InProgress || inside.Final {
+		t.Fatalf("game inside its window = %+v, want InProgress=true Final=false", inside)
+	}
+
+	now = kickoff.Add(windowAfter + time.Minute) // past its own window; the box score never went final
+	after := poller.Snapshot().Games["2025_01_BAL_BUF"]
+	if after.InProgress {
+		t.Fatalf("game past its closed window and never final still reports InProgress=true: %+v", after)
+	}
+	if after.Final {
+		t.Fatalf("windowClosed must not fabricate Final: %+v", after)
+	}
+	// Version and the rest of the record must not otherwise change:
+	// this is a display-time correction of one field, not a rewrite of
+	// what the poller actually recorded.
+	if after.Period != inside.Period || after.Clock != inside.Clock {
+		t.Fatalf("windowClosed changed unrelated fields: before=%+v after=%+v", inside, after)
+	}
+}
