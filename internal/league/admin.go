@@ -957,6 +957,9 @@ func (s *Service) AdminResetDraft(r *http.Request, confirmation string) error {
 	if err := s.store.ResetDraft(); err != nil {
 		return err
 	}
+	// A reset always leaves the draft incomplete; re-arm the completion
+	// latch so a later pick that completes the new draft emits draft:state.
+	s.draftCompleteEmitted.Store(false)
 	s.emitDraftState(s.store.Snapshot(), s.clock(), false, false)
 	return nil
 }
@@ -1248,7 +1251,16 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 	if err := s.store.UndoLastPickIfCurrent(now, s.pickClock(state), token); err != nil {
 		return err
 	}
-	s.emitDraftUndo(s.store.Snapshot(), removed, now)
+	snapshot := s.store.Snapshot()
+	s.emitDraftUndo(snapshot, removed, now)
+	if draftComplete(state) && !draftComplete(snapshot) {
+		// The undo reopened the final slot: draft:undo alone only describes
+		// the reopened cell, never the started/complete flags, so the room
+		// also needs the lifecycle transition. Clearing the latch lets a
+		// later pick that re-completes the draft emit draft:state again.
+		s.draftCompleteEmitted.Store(false)
+		s.emitDraftState(snapshot, now, true, false)
+	}
 	return nil
 }
 
@@ -1354,7 +1366,7 @@ func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToke
 	if token != draftCurrentPickToken(state) {
 		return DraftPick{}, Player{}, Team{}, errAdminActionStale
 	}
-	totalPicks := len(s.Teams()) * CurrentDraftRounds()
+	totalPicks := draftTeamCount() * CurrentDraftRounds()
 	number := len(state.Picks) + 1
 	if number > totalPicks {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("the draft is complete")

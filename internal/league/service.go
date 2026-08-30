@@ -171,8 +171,12 @@ type Service struct {
 	// which makes emitDraft a silent no-op in every test that does not opt
 	// in. draftQueueCancel stops draftEventDrain's goroutine. Both are
 	// guarded by poolMu, alongside lastPresence below.
-	draftQueue       chan DraftEvent
-	draftQueueCancel context.CancelFunc
+	draftQueue chan DraftEvent
+	// draftRepairSignal is emitDraft's drop notifier: buffered to exactly
+	// one slot, so a burst of drops coalesces into at most one pending
+	// repair; see draftRepairLoop.
+	draftRepairSignal chan struct{}
+	draftQueueCancel  context.CancelFunc
 	// draftEmitMu serializes emitDraft's "assign the next generation" with
 	// "push onto draftQueue" as one step, so two concurrent producers (an
 	// HTTP pick and the clock ticker's autopick, say) can never enqueue out
@@ -187,6 +191,13 @@ type Service struct {
 	// draft:state so a client can tell a repair is authoritative rather
 	// than a delta.
 	draftDropped atomic.Uint64
+	// draftCompleteEmitted is maybeEmitDraftComplete's single-emit latch:
+	// CompareAndSwap(false, true) makes "was the completion draft:state
+	// already sent" atomic across every call site (MakePick, clockTick's
+	// autopick, AdminForceAutopick), which can race each other independently
+	// of the store's own per-pick serialization. AdminResetDraft and an
+	// AdminUndoPick that reopens the final slot reset it to false.
+	draftCompleteEmitted atomic.Bool
 	// lastPresence is clockTick's and RecordPresence's shared memory of each
 	// seat's last-announced presence label, guarded by poolMu. It exists so
 	// emitPresenceTransitions (and RecordPresence's own transition check)
@@ -2799,7 +2810,7 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
 	// pick — pause freezes the timer, not the draft — and the final pick
 	// leaves the clock unarmed for good.
-	totalPicks := len(s.Teams()) * CurrentDraftRounds()
+	totalPicks := draftTeamCount() * CurrentDraftRounds()
 	nextDeadline := time.Time{}
 	if !state.ClockPaused && len(state.Picks)+1 < totalPicks {
 		nextDeadline = now.Add(s.pickClock(state))

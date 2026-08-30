@@ -22,37 +22,43 @@ type DraftEvent struct {
 // repair can report it (see draftFullBinds's dropped_events field).
 const draftEventQueueSize = 256
 
-// SetDraftEventSink installs the hub adapter and starts the one goroutine
-// that serializes dispatch. internal/league cannot import app/draft, so the
-// hub adapter registers itself here at boot, next to SetPlayerSource.
+// SetDraftEventSink installs the hub adapter and starts the two goroutines
+// that serialize dispatch and repair. internal/league cannot import
+// app/draft, so the hub adapter registers itself here at boot, next to
+// SetPlayerSource.
 //
 // emitDraft assigns each event's generation and pushes it onto the queue
-// under draftEmitMu, so wire order always matches generation order; the
-// drain goroutine below — never the caller's own request or ticker
+// under draftEmitMu, so wire order always matches generation order;
+// draftEventDrain below — never the caller's own request or ticker
 // goroutine — pays for fn's cost (the fingerprint stamp, the JSON marshal,
 // and the websocket fan-out inside hub.Broadcast). A second call replaces
-// the sink and restarts the goroutine against a fresh queue; StopDraftEvents
-// (wired into AppRuntime.Close) is the only other way to stop it.
+// the sink and restarts both goroutines against a fresh queue and signal;
+// StopDraftEvents (wired into AppRuntime.Close) is the only other way to
+// stop them.
 func (s *Service) SetDraftEventSink(fn func(DraftEvent)) {
 	s.poolMu.Lock()
 	if s.draftQueueCancel != nil {
 		s.draftQueueCancel()
 	}
 	queue := make(chan DraftEvent, draftEventQueueSize)
+	signal := make(chan struct{}, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	s.draftQueue = queue
+	s.draftRepairSignal = signal
 	s.draftQueueCancel = cancel
 	s.poolMu.Unlock()
 	go draftEventDrain(ctx, queue, fn)
+	go s.draftRepairLoop(ctx, signal)
 }
 
-// StopDraftEvents halts the dispatch goroutine SetDraftEventSink started, if
-// any. main.go's AppRuntime.Close calls it at shutdown; safe to call when no
+// StopDraftEvents halts the goroutines SetDraftEventSink started, if any.
+// main.go's AppRuntime.Close calls it at shutdown; safe to call when no
 // sink was ever installed, and safe to call more than once.
 func (s *Service) StopDraftEvents() {
 	s.poolMu.Lock()
 	cancel := s.draftQueueCancel
 	s.draftQueue = nil
+	s.draftRepairSignal = nil
 	s.draftQueueCancel = nil
 	s.poolMu.Unlock()
 	if cancel != nil {
@@ -77,18 +83,62 @@ func draftEventDrain(ctx context.Context, queue chan DraftEvent, fn func(DraftEv
 	}
 }
 
+// draftRepairLoop is the one goroutine that answers emitDraft's drop
+// signal with a coalesced draft:state: the room's regions listen to
+// draft:state alongside the typed events (page.gsx's data-gosx-region-on),
+// so one full resync repairs whatever a drop lost. signal is buffered to
+// exactly one slot, so a burst of drops that lands while this loop is busy
+// building and enqueueing the previous repair (or itself gets dropped, in
+// which case this loop simply waits for the next signal rather than
+// retrying) coalesces into at most one more repair, never one per dropped
+// event. It runs on its own goroutine for the same reason draftEventDrain
+// does: the snapshot and bind work below must never land on a caller's own
+// request or ticker goroutine.
+func (s *Service) draftRepairLoop(ctx context.Context, signal chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-signal:
+			now := s.clock()
+			state := s.store.Snapshot()
+			payload := s.draftFullBinds(state, now)
+			payload["started"] = state.DraftStarted
+			payload["complete"] = draftComplete(state)
+			payload["repair"] = true
+			// signalOnDrop is false here on purpose: a repair that itself
+			// gets dropped must not requeue another signal for its own
+			// failure, or a sustained backlog would make this loop retry
+			// itself indefinitely instead of waiting for the next real
+			// producer drop. The room's plain reconnect repair
+			// (syncJoiningClient) is the backstop for a repair that never
+			// gets through.
+			s.emitDraftEvent("draft:state", payload, false)
+		}
+	}
+}
+
 // emitDraft assigns the next generation and enqueues payload for the drain
-// goroutine, never blocking: draftEmitMu serializes "assign the generation"
-// with "push onto the queue" as one step, so two producers can never
-// enqueue out of generation order, and a full queue drops the event (and
-// counts it) rather than stall the caller.
+// goroutine; see emitDraftEvent.
 func (s *Service) emitDraft(name string, payload map[string]any) {
+	s.emitDraftEvent(name, payload, true)
+}
+
+// emitDraftEvent is emitDraft's shared core, never blocking: draftEmitMu
+// serializes "assign the generation" with "push onto the queue" as one
+// step, so two producers can never enqueue out of generation order, and a
+// full queue drops the event (and counts it) rather than stall the caller.
+// signalOnDrop controls whether that drop also pings draftRepairSignal
+// (also never blocking); see draftRepairLoop for why its own call passes
+// false.
+func (s *Service) emitDraftEvent(name string, payload map[string]any, signalOnDrop bool) {
 	s.draftEmitMu.Lock()
-	defer s.draftEmitMu.Unlock()
 	s.poolMu.Lock()
 	queue := s.draftQueue
+	signal := s.draftRepairSignal
 	s.poolMu.Unlock()
 	if queue == nil {
+		s.draftEmitMu.Unlock()
 		return
 	}
 	generation := s.draftGeneration.Add(1)
@@ -99,7 +149,14 @@ func (s *Service) emitDraft(name string, payload map[string]any) {
 	case queue <- event:
 	default:
 		s.draftDropped.Add(1)
+		if signalOnDrop && signal != nil {
+			select {
+			case signal <- struct{}{}:
+			default:
+			}
+		}
 	}
+	s.draftEmitMu.Unlock()
 }
 
 // draftTeamCount is the denominator every draft completion and pick-count
@@ -352,18 +409,26 @@ func (s *Service) emitDraftState(state PersistedState, now time.Time, started, c
 // maybeEmitDraftComplete emits draft:state{complete:true} the instant a
 // commit crosses an incomplete draft into a complete one. before is the
 // snapshot taken prior to the commit; after is the post-commit snapshot.
-// The store refuses any pick once the draft is complete (store.go's
-// MakePick/AutoPick length checks), so a successful commit that leaves the
-// draft complete is, by construction, the one commit that just made it so;
-// comparing before/after here is belt-and-suspenders against that
-// invariant ever weakening, not the only thing preventing a double emit.
 //
 // This exists because Store.MakePick already zeroes the clock fields on the
 // pick that completes the draft (the "final pick" branch), so clockTick's
 // own leftover-clock-clear branch — which is what used to emit this — never
 // finds dirty clock fields to clear and never runs.
+//
+// draftCompleteEmitted is the actual single-emit guarantee: each call site
+// (MakePick, clockTick's autopick, AdminForceAutopick) reads its own before
+// snapshot before the store call and its own after snapshot afterward, on
+// its own goroutine, so two such reads can race each other independently of
+// the store's own per-pick serialization. The CompareAndSwap makes "was the
+// completion draft:state already sent" atomic across every caller, not just
+// provably-unreachable-today reasoning about the store's guards.
+// AdminResetDraft and AdminUndoPick (when an undo reopens the final slot)
+// clear it, so a later completion can emit again.
 func (s *Service) maybeEmitDraftComplete(before, after PersistedState, now time.Time) {
 	if draftComplete(before) || !draftComplete(after) {
+		return
+	}
+	if !s.draftCompleteEmitted.CompareAndSwap(false, true) {
 		return
 	}
 	s.emitDraftState(after, now, true, true)

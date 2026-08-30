@@ -1,6 +1,7 @@
 package league
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -345,6 +346,7 @@ func TestConcurrentPicksAndTickerEmitIncreasingGenerations(t *testing.T) {
 				return
 			default:
 				service.clockTick(service.clock())
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}()
@@ -362,11 +364,13 @@ func TestConcurrentPicksAndTickerEmitIncreasingGenerations(t *testing.T) {
 					return
 				}
 				if teamOnClock(state.DraftOrder, len(state.Picks)+1) != teamID {
+					time.Sleep(time.Millisecond)
 					continue
 				}
 				if _, _, _, err := service.MakePick(requests[teamID], teamID, playerFor[teamID]); err == nil {
 					return
 				}
+				time.Sleep(time.Millisecond)
 			}
 			t.Errorf("%s never landed its pick", teamID)
 		}()
@@ -410,5 +414,186 @@ func TestAdminSetReadyIsANoOpWhenAlreadySet(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if got := recorder.len(); got != 1 {
 		t.Fatalf("events = %+v after a no-op AdminSetReady, want still 1", recorder.snapshot())
+	}
+}
+
+// TestMaybeEmitDraftCompleteLatchIsRaceSafe proves draftCompleteEmitted's
+// CompareAndSwap is the actual single-emit guarantee, not an artifact of the
+// store's own per-pick serialization (each call site reads its own before
+// and after snapshots on its own goroutine, outside any store lock, so two
+// such reads can race each other even though the store itself only ever
+// lets one commit be "the" pick that completes the draft). Two goroutines
+// racing the identical before-incomplete/after-complete transition must
+// still produce exactly one draft:state{complete:true}.
+func TestMaybeEmitDraftCompleteLatchIsRaceSafe(t *testing.T) {
+	service, recorder, _ := newEventTestService(t)
+	before := PersistedState{}
+	after := service.store.Snapshot()
+	// The latch, not draftComplete's own arithmetic, is what this test
+	// exercises: force after into "complete" directly instead of playing
+	// out draftTeamCount()*CurrentDraftRounds() real picks.
+	after.Picks = make([]DraftPick, draftTeamCount()*CurrentDraftRounds())
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			defer wg.Done()
+			service.maybeEmitDraftComplete(before, after, time.Now())
+		}()
+	}
+	wg.Wait()
+
+	waitForDraftComplete(t, recorder)
+	time.Sleep(50 * time.Millisecond)
+	count := 0
+	for _, event := range recorder.snapshot() {
+		if event.Name == "draft:state" && event.Payload["complete"] == true {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("draft:state complete events = %d, want exactly 1", count)
+	}
+}
+
+// TestAdminUndoPickReopeningACompletedDraftEmitsLifecycleState proves
+// undo's reopen-the-final-slot case: draft:undo alone only describes the
+// reopened cell, never the started/complete flags, so a room that just
+// watched the draft finish needs a second, explicit draft:state to learn
+// it is playable again. It also proves the completion latch clears: a
+// fresh pick that re-completes the reopened draft must emit
+// draft:state{complete:true} a second time.
+func TestAdminUndoPickReopeningACompletedDraftEmitsLifecycleState(t *testing.T) {
+	t.Cleanup(clearRosterShape)
+	setRosterShape(RosterPreset{Name: "undo-complete-fixture", Slots: map[string]int{}, Bench: 1})
+	service, recorder, requests := newFullySeatedEventTestService(t)
+	teams := service.Teams()
+	for made := 0; made < len(teams); made++ {
+		state := service.store.Snapshot()
+		teamID := teamOnClock(state.DraftOrder, len(state.Picks)+1)
+		playerID := fmt.Sprintf("pool-%03d", made+1)
+		if _, _, _, err := service.MakePick(requests[teamID], teamID, playerID); err != nil {
+			t.Fatalf("pick %d for %s: %v", made+1, teamID, err)
+		}
+	}
+	waitForDraftComplete(t, recorder)
+	if !service.draftCompleteEmitted.Load() {
+		t.Fatal("the completion latch did not arm")
+	}
+
+	t.Setenv("COMMISSIONER_EMAILS", "boss@example.com")
+	commish := authenticatedJourneyRequest(t, "boss@example.com", "Commissioner", "/admin")
+	token := draftPreviousPickToken(service.store.Snapshot())
+	if err := service.AdminUndoPick(commish, token); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForNamedCount(t, recorder, "draft:undo", 1)
+	deadline := time.Now().Add(2 * time.Second)
+	var reopened []DraftEvent
+	for {
+		reopened = nil
+		for _, event := range recorder.snapshot() {
+			if event.Name == "draft:state" && event.Payload["started"] == true && event.Payload["complete"] == false {
+				reopened = append(reopened, event)
+			}
+		}
+		if len(reopened) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if len(reopened) != 1 {
+		t.Fatalf("draft:state{started:true,complete:false} events = %+v, want exactly 1", reopened)
+	}
+	if service.draftCompleteEmitted.Load() {
+		t.Fatal("the completion latch did not clear after the undo reopened the final slot")
+	}
+
+	state := service.store.Snapshot()
+	teamID := teamOnClock(state.DraftOrder, len(state.Picks)+1)
+	playerID := fmt.Sprintf("pool-%03d", len(teams)+1)
+	if _, _, _, err := service.MakePick(requests[teamID], teamID, playerID); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(2 * time.Second)
+	var completions int
+	for {
+		completions = 0
+		for _, event := range recorder.snapshot() {
+			if event.Name == "draft:state" && event.Payload["complete"] == true {
+				completions++
+			}
+		}
+		if completions > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if completions != 1 {
+		t.Fatalf("draft:state complete events after the redo = %d, want exactly 1 (the latch clear must allow exactly one more)", completions)
+	}
+}
+
+// TestDropPathSchedulesOneCoalescedRepair fills the dispatch queue to
+// capacity by hand (no consumer running yet, so the fill is atomic and
+// leaves no room to race a real drain goroutine), forces exactly one
+// emitDraft drop against that full queue, and only then starts the drain
+// and repair-loop goroutines. One producer drop must produce exactly one
+// draft:state carrying repair: true, delivered once the backlog clears.
+func TestDropPathSchedulesOneCoalescedRepair(t *testing.T) {
+	service, _, _ := newEventTestService(t) // draft setup only; replace its sink below
+	service.StopDraftEvents()
+
+	queue := make(chan DraftEvent, draftEventQueueSize)
+	for i := 0; i < draftEventQueueSize; i++ {
+		queue <- DraftEvent{Name: "draft:seat", Payload: map[string]any{"filler": i}}
+	}
+	signal := make(chan struct{}, 1)
+	service.poolMu.Lock()
+	service.draftQueue = queue
+	service.draftRepairSignal = signal
+	service.poolMu.Unlock()
+
+	// The queue is full and nothing is consuming it yet: this drop is
+	// deterministic, not a race against a consumer goroutine.
+	service.emitDraft("draft:seat", map[string]any{"probe": true})
+	if service.draftDropped.Load() != 1 {
+		t.Fatalf("draftDropped = %d, want exactly 1", service.draftDropped.Load())
+	}
+
+	var recorder draftEventRecorder
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go draftEventDrain(ctx, queue, recorder.record)
+	go service.draftRepairLoop(ctx, signal)
+
+	deadline := time.Now().Add(2 * time.Second)
+	var repairs []DraftEvent
+	for {
+		repairs = nil
+		for _, event := range recorder.snapshot() {
+			if event.Name == "draft:state" && event.Payload["repair"] == true {
+				repairs = append(repairs, event)
+			}
+		}
+		if len(repairs) > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if len(repairs) == 0 {
+		t.Fatal("no repair draft:state arrived after the drop")
+	}
+	time.Sleep(50 * time.Millisecond)
+	repairs = nil
+	for _, event := range recorder.snapshot() {
+		if event.Name == "draft:state" && event.Payload["repair"] == true {
+			repairs = append(repairs, event)
+		}
+	}
+	if len(repairs) != 1 {
+		t.Fatalf("repair draft:state events = %d, want exactly 1", len(repairs))
 	}
 }
