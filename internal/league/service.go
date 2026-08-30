@@ -165,6 +165,21 @@ type Service struct {
 	// tintedBadgePNG.
 	motifRoot string
 	badgeArt  badgeArtCache
+
+	// draftSink is the one function every committed draft change calls
+	// exactly once; see SetDraftEventSink and emitDraft in draft_events.go.
+	// nil in every test that does not opt in — the sink call becomes a
+	// silent no-op, so no test needs to install one to stay green.
+	draftSink func(DraftEvent)
+	// draftGeneration is draft:*'s monotonic ordering key, one process-wide
+	// counter shared by every event name so a client can total-order a mix
+	// of draft:pick, draft:clock, and draft:seat.
+	draftGeneration atomic.Uint64
+	// lastPresence is clockTick's and RecordPresence's shared memory of each
+	// seat's last-announced presence label, guarded by poolMu alongside
+	// draftSink. It exists so emitPresenceTransitions emits one draft:seat
+	// per real transition, never once per tick.
+	lastPresence map[string]string
 }
 
 // clock returns the service's current instant, in three-way precedence
@@ -660,8 +675,51 @@ func (s *Service) viewerKey(r *http.Request) string {
 // anonymous, non-demo request carries no viewer key and is skipped. Call it
 // before computing a fingerprint the same requester will read, so the
 // poller's own transition to CONNECTED is visible in that response.
+//
+// It also emits draft:seat when this heartbeat moves the requester's own
+// presence label (never a team-wide rescan — that is clockTick's
+// emitPresenceTransitions, guarded by the same lastPresence map): read the
+// key's presenceStateSince before and after record, and, when the key
+// belongs to a claimed seat, emit only on a real change.
 func (s *Service) RecordPresence(r *http.Request, now time.Time) {
-	s.presence.record(s.viewerKey(r), now)
+	key := s.viewerKey(r)
+	if key == "" {
+		return
+	}
+	state := s.store.Snapshot()
+	seenAt, seen := s.presence.seen(key)
+	before := presenceStateSince(seenAt, seen, now, s.presence.startedAt)
+	s.presence.record(key, now)
+	after := presenceStateSince(now, true, now, s.presence.startedAt)
+	if after == before {
+		return
+	}
+	teamID := s.teamForPresenceKey(state, key)
+	if teamID == "" {
+		return
+	}
+	label, _, _ := s.teamPresence(state, teamID, now)
+	s.poolMu.Lock()
+	if s.lastPresence == nil {
+		s.lastPresence = map[string]string{}
+	}
+	s.lastPresence[teamID] = label
+	s.poolMu.Unlock()
+	s.emitDraft("draft:seat", s.seatBinds(state, teamID, now))
+}
+
+// teamForPresenceKey returns the seat key belongs to, or "" when it is not
+// assigned to any seat (an unclaimed viewer, or a commissioner with no
+// team).
+func (s *Service) teamForPresenceKey(state PersistedState, key string) string {
+	for _, team := range s.Teams() {
+		for _, candidate := range s.presenceKeysForTeam(state, team.ID) {
+			if candidate == key {
+				return team.ID
+			}
+		}
+	}
+	return ""
 }
 
 // boardKeyForTeam resolves the deterministic shared Big Board owner for one
@@ -2477,6 +2535,7 @@ func (s *Service) clockView(state PersistedState, now time.Time) map[string]any 
 		"remaining_seconds":  remaining,
 		"remaining_label":    countdownMMSSLabel(remaining),
 		"duration_seconds":   int(s.pickClock(state).Seconds()),
+		"duration_label":     countdownMMSSLabel(int(s.pickClock(state).Seconds())),
 		"server_now":         now.UTC().Format(time.RFC3339),
 		// These opaque values are form contracts, not authorization
 		// credentials. current_pick_token covers the on-clock seat and
@@ -2662,7 +2721,11 @@ func (s *Service) ToggleReady(r *http.Request, requestedTeam string) (bool, stri
 		return false, "", err
 	}
 	ready, err := s.store.ToggleReady(teamID)
-	return ready, s.teamByID(teamID).Name, err
+	if err != nil {
+		return ready, s.teamByID(teamID).Name, err
+	}
+	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
+	return ready, s.teamByID(teamID).Name, nil
 }
 
 func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (DraftPick, Player, Team, error) {
@@ -2703,7 +2766,11 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 		nextDeadline = now.Add(s.pickClock(state))
 	}
 	pick, err := s.store.MakePick(teamID, playerID, "manager", now, nextDeadline)
-	return pick, player, s.teamByID(teamID), err
+	if err != nil {
+		return DraftPick{}, Player{}, Team{}, err
+	}
+	s.emitDraft("draft:pick", s.draftPickPayload(s.store.Snapshot(), pick, now))
+	return pick, player, s.teamByID(teamID), nil
 }
 
 // ToggleAutopick flips the acting seat's away-mode auto-pick flag. A
@@ -2718,6 +2785,7 @@ func (s *Service) ToggleAutopick(r *http.Request, requestedTeam string) (bool, s
 	if err := s.store.SetAutopick(teamID, on); err != nil {
 		return false, "", err
 	}
+	s.emitDraft("draft:seat", s.seatBinds(s.store.Snapshot(), teamID, s.clock()))
 	return on, s.teamByID(teamID).Name, nil
 }
 

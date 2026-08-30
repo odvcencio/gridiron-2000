@@ -101,7 +101,9 @@ func (s *Service) bootRecoverClock(now time.Time) {
 	}
 	if err := s.store.ArmClock(now.Add(grace)); err != nil {
 		log.Printf("draft clock: restart recovery failed: %v", err)
+		return
 	}
+	s.emitDraftClock(s.store.Snapshot())
 }
 
 // clockTick is the whole enforcement decision for one instant, pure over a
@@ -119,6 +121,8 @@ func (s *Service) clockTick(now time.Time) {
 		if !state.ClockDeadline.IsZero() || state.ClockPaused || state.ClockRemainingSec != 0 {
 			if err := s.store.ClearClock(); err != nil {
 				log.Printf("draft clock: clear on completion failed: %v", err)
+			} else {
+				s.emitDraftState(s.store.Snapshot(), now, true, true)
 			}
 		}
 		return
@@ -135,6 +139,8 @@ func (s *Service) clockTick(now time.Time) {
 	if state.ClockDeadline.IsZero() {
 		if err := s.store.ArmClock(now.Add(s.pickClock(state))); err != nil {
 			log.Printf("draft clock: arm failed: %v", err)
+		} else {
+			s.emitDraftClock(s.store.Snapshot())
 		}
 		return
 	}
@@ -145,6 +151,7 @@ func (s *Service) clockTick(now time.Time) {
 	// spec's "timing honesty" note. Guarded internally by notifyReady, so
 	// this is a no-op when notifications are not wired.
 	s.evalOnTheClock(state, now)
+	s.emitPresenceTransitions(state, now)
 
 	// 6. Not yet due.
 	effective, reason := s.effectiveDeadline(state, now)
@@ -177,6 +184,7 @@ func (s *Service) clockTick(now time.Time) {
 		}
 		return
 	}
+	s.emitDraft("draft:pick", s.draftPickPayload(s.store.Snapshot(), pick, now))
 	// N6: notify the seat's manager that a pick fired on their behalf,
 	// skipping a manager who was CONNECTED at pick time (spec section 3,
 	// N6). state is the pre-fire snapshot already read above, matching the

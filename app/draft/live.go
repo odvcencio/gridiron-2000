@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/league"
+
 	"m31labs.dev/gosx/hub"
 )
 
@@ -16,6 +17,7 @@ const (
 	DraftLiveHubPath       = "/draft/live"
 	draftLiveHubName       = "draft-live"
 	draftLiveEvent         = "draft:changed"
+	draftStateEvent        = "draft:state"
 	draftLiveCheckInterval = 500 * time.Millisecond
 	draftLiveSinceKey      = "since"
 )
@@ -36,6 +38,12 @@ type LiveUpdates struct {
 	mu        sync.Mutex
 	last      string
 	startOnce sync.Once
+
+	// repair supplies the full bind object a stale reconnect receives; see
+	// SetRepairView. nil until app_build.go wires league.Default's
+	// DraftLiveView, so tests that never call SetRepairView still get a
+	// valid (empty) repair payload.
+	repair func() map[string]any
 }
 
 func newLiveUpdates(fingerprint func() string) *LiveUpdates {
@@ -138,8 +146,39 @@ func (updates *LiveUpdates) syncJoiningClient(ctx *hub.Context) {
 	if strings.TrimSpace(since) == current {
 		return
 	}
-	ctx.Hub.Send(ctx.Client.ID, draftLiveEvent, draftLivePayload{Fingerprint: current})
+	payload := map[string]any{}
+	if updates.repair != nil {
+		if view := updates.repair(); view != nil {
+			payload = view
+		}
+	}
+	payload["fingerprint"] = current
+	payload["repair"] = true
+	ctx.Hub.Send(ctx.Client.ID, draftStateEvent, payload)
 }
+
+// Sink returns the function BuildApp installs with Service.SetDraftEventSink.
+// It stamps the ordering key and the live fingerprint, baselines the change
+// detector so the same commit never also produces a draft:changed, and
+// broadcasts once.
+func (updates *LiveUpdates) Sink() func(league.DraftEvent) {
+	return func(event league.DraftEvent) {
+		current := updates.currentFingerprint()
+		payload := event.Payload
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		payload["generation"] = event.Generation
+		payload["fingerprint"] = current
+		updates.mu.Lock()
+		updates.last = current
+		updates.mu.Unlock()
+		updates.hub.Broadcast(event.Name, payload)
+	}
+}
+
+// SetRepairView installs the full bind object a stale reconnect receives.
+func (updates *LiveUpdates) SetRepairView(view func() map[string]any) { updates.repair = view }
 
 // Handler accepts only authenticated league viewers (or rehearsal mode), then
 // attaches the SSR fingerprint as immutable connection metadata. A reconnect

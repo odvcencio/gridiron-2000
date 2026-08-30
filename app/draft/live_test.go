@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"gridiron-2000/internal/league"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -97,8 +99,41 @@ func TestDraftLiveHubPushesChangesAndRepairsAStaleReconnect(t *testing.T) {
 	reconnected := dialDraftLive(t, server.URL, "generation-2")
 	defer reconnected.Close()
 	readDraftHubEvent(t, reconnected, "__welcome")
-	if got := readDraftHubEvent(t, reconnected, draftLiveEvent); got != "generation-3" {
+	if got := readDraftHubEvent(t, reconnected, draftStateEvent); got != "generation-3" {
 		t.Fatalf("reconnect event fingerprint = %q, want generation-3", got)
+	}
+}
+
+func TestSinkBroadcastsEachEventOnceAndQuietsTheDetector(t *testing.T) {
+	var fingerprint atomic.Value
+	fingerprint.Store("generation-1")
+	updates := newLiveUpdates(func() string { return fingerprint.Load().(string) })
+	updates.observe(false)
+	server := httptest.NewServer(updates.handler(func(*http.Request) bool { return true }))
+	defer server.Close()
+	conn := dialDraftLive(t, server.URL, "generation-1")
+	defer conn.Close()
+	readDraftHubEvent(t, conn, "__welcome")
+	fingerprint.Store("generation-2") // the commit moved the fingerprint
+	// A hand-built event with an empty payload still carries the ordering key.
+	updates.Sink()(league.DraftEvent{Name: "draft:pick", Generation: 7})
+	if updates.observe(true) {
+		t.Fatal("the detector must not broadcast draft:changed for a generation the sink already sent")
+	}
+	var message struct {
+		Event string         `json:"event"`
+		Data  map[string]any `json:"data"`
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := conn.ReadJSON(&message); err != nil {
+		t.Fatal(err)
+	}
+	if message.Event != "draft:pick" || message.Data["fingerprint"] != "generation-2" || message.Data["generation"] != float64(7) {
+		t.Fatalf("message = %+v", message)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(700 * time.Millisecond))
+	if err := conn.ReadJSON(&message); err == nil {
+		t.Fatalf("a second frame arrived: %+v", message)
 	}
 }
 
