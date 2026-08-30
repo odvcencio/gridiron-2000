@@ -27,6 +27,7 @@ import (
 	"gridiron-2000/internal/commissionerhq/v1provider"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
+	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/mailer"
 	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
@@ -100,6 +101,7 @@ type AppRuntime struct {
 	AppName      string
 	Port         string
 	HQV1         *commissionerHQV1Runtime
+	Live         *liveScoringRuntime
 	restoreClock func() // nil unless cfg.TestAuth mounted the harness clock override
 }
 
@@ -275,7 +277,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		return openStats.Status().PlayerStats.LastUpdated
 	})
 	league.Default().SetHistoricalSource(historicalSource(openStats))
-	league.Default().SetWeekStatsSource(leagueWeekStatsSource(openStats))
+	liveRuntime := buildLiveScoring(livescore.ConfigFromEnv(), fantasyPool.BoxScoreClient(), openStats, league.Default(), rt)
+	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
 	rt.starters = append(rt.starters, func(ctx context.Context) {
 		startBlitzPoller(ctx, fantasyPool, league.Default())
@@ -636,7 +639,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}))
 
 	if cfg.TestAuth {
-		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager)
+		rt.restoreClock = mountTestRoutes(app, league.Default(), authManager, rt.Live)
 	}
 
 	rootHandler, err := router.BuildChecked()

@@ -63,7 +63,7 @@ func testRoutesLoopbackOnly(next http.HandlerFunc) http.HandlerFunc {
 // specifically so a /test/clock request after a Close reinstalls the
 // override instead of being permanently disarmed: not installed ->
 // installed -> closed -> installed again.
-func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager) func() {
+func mountTestRoutes(app *server.App, service *league.Service, authManager *auth.Manager, live *liveScoringRuntime) func() {
 	var mu sync.Mutex
 	offset := time.Duration(0)
 	var fixed *time.Time
@@ -234,6 +234,22 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 			to = "/draft"
 		}
 		http.Redirect(w, r, to, http.StatusSeeOther)
+	}))
+
+	// /test/live reports the live poller's health verbatim — Unmatched,
+	// UnmatchedGames, and ListingFailures included, since Health carries
+	// no json tags to drop them (round-2 review of commit 1ddb094 added
+	// those fields; Task 5's execution notes ask that they surface here).
+	// Task 8 adds a replay object to out.
+	app.Mount("GET /test/live", testRoutesLoopbackOnly(func(w http.ResponseWriter, r *http.Request) {
+		out := map[string]any{"version": int64(0), "in_window": 0, "poller": map[string]any{}}
+		if live != nil && live.Poller != nil {
+			health := live.Poller.Health()
+			out["version"] = live.Poller.Version()
+			out["in_window"] = health.InWindow
+			out["poller"] = health
+		}
+		writeJSON(w, out)
 	}))
 	return restoreClock
 }

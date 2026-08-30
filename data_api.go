@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -169,9 +170,33 @@ func requireLeagueAccessWithPolicy(next http.Handler, demoMode func() bool, sign
 	})
 }
 
+// liveWeekAPIHandler serves the live matchup view with an ETag so a
+// browser poller (default 60 s, or the "checks every 5 s" live cadence
+// once wired) can send If-None-Match and get a bare 304 instead of
+// re-downloading an unchanged body. Cache-Control stays no-store — the
+// ETag is a bandwidth optimization, not a cache directive; every request
+// still reaches the handler and reads the current view.
 func liveWeekAPIHandler(protect func(http.Handler) http.Handler) http.Handler {
 	return protect(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		writeDataJSON(writer, http.StatusOK, league.Default().LiveScoresView(request.Context()))
+		body, err := json.Marshal(league.Default().LiveScoresView(request.Context()))
+		if err != nil {
+			http.Error(writer, "live view unavailable", http.StatusInternalServerError)
+			return
+		}
+		sum := sha256.Sum256(body)
+		etag := `"live-` + hex.EncodeToString(sum[:8]) + `"`
+		writer.Header().Set("Cache-Control", "no-store")
+		writer.Header().Set("ETag", etag)
+		if request.Header.Get("If-None-Match") == etag {
+			writer.WriteHeader(http.StatusNotModified)
+			return
+		}
+		// Same Content-Type value writeDataJSON sets, applied by hand here
+		// since the ETag must be computed from the body before any header
+		// is written.
+		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+		writer.WriteHeader(http.StatusOK)
+		_, _ = writer.Write(body)
 	}))
 }
 
