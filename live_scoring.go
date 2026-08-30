@@ -81,6 +81,41 @@ func liveScheduleSource(schedule league.ScheduleSource) livescore.ScheduleSource
 	}
 }
 
+// freshenSnapshot returns a copy of s whose Games map has
+// livescore.WindowClosed reapplied against now, clearing InProgress for
+// any game whose poll window has closed without ever going final. It
+// never mutates s.Games: that map is buildLiveScoring's current()
+// (a versionedSnapshot) own shared copy for its current Poller.Version,
+// read by every caller of current() until the version next moves — see
+// current's own doc comment in buildLiveScoring below.
+//
+// Every render-path caller downstream of current() must go through this
+// before trusting GameState.InProgress: liveStatusFromPoller and the
+// week-stats seam (buildLiveScoring's SetWeekStatsSource closure, which
+// feeds livescore.MergeLines) both read Games, and both are reached
+// through current()'s memoized copy. A game whose window has closed gets
+// no further fetches, so its Poller.Version stops advancing — Poller.
+// Snapshot's own windowClosed correction (poller.go) only ever runs at
+// the instant a real fetch (or the last one before the window closed)
+// happened to call it, and current() then freezes that exact copy
+// indefinitely. Without reapplying the rule here, on every call, against
+// a freshly read clock, a stale InProgress=true keeps outliving the
+// poller's last real fetch by however long the window stayed closed
+// with no new version — MergeLines would then keep letting a stale live
+// row beat the ledger even after liveStatusFromPoller (which already did
+// this) correctly reports the chip as LEDGER.
+func freshenSnapshot(s livescore.Snapshot, now time.Time) livescore.Snapshot {
+	games := make(map[string]livescore.GameState, len(s.Games))
+	for id, game := range s.Games {
+		if game.InProgress && !game.Final && livescore.WindowClosed(game.Kickoff, now) {
+			game.InProgress = false
+		}
+		games[id] = game
+	}
+	s.Games = games
+	return s
+}
+
 // liveStatusFromPoller adapts Health plus Snapshot to league.LiveStatus,
 // keyed by both teams of every polled game. The render path calls it; the
 // fingerprint uses Poller.Version instead. Reason carries Health's own
@@ -89,27 +124,18 @@ func liveScheduleSource(schedule league.ScheduleSource) livescore.ScheduleSource
 // reaches the render path exactly as Health.Reason phrases it — no
 // separate mapping is needed here.
 //
-// now is read fresh on every call and reapplies livescore.WindowClosed on
-// top of whatever InProgress the snapshot carries. This is deliberately
-// not left to Poller.Snapshot alone: snapshot here is buildLiveScoring's
-// versionedSnapshot, memoized per Poller.Version, and a game whose window
-// has closed gets no further fetches — so its version stops advancing and
-// a memoized copy would freeze InProgress at whatever it read the last
-// time the version actually moved, however much real time then passes.
+// now is read fresh on every call and passed to freshenSnapshot: see its
+// doc comment for why a memoized snapshot cannot be trusted here as-is.
 // liveStatusFromPoller itself is never memoized (matchupStatsSnapshot
 // calls it fresh every render, league/live_status.go's liveStatus), so
-// this is the one place guaranteed to see the current clock every time.
+// this is one of the two places (with the week-stats seam below)
+// guaranteed to see the current clock every time.
 func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() livescore.Health, now func() time.Time) league.LiveStatusSource {
 	return func() league.LiveStatus {
-		h, s := health(), snapshot()
-		at := now()
+		h, s := health(), freshenSnapshot(snapshot(), now())
 		games := make(map[string]league.LiveGameState, len(s.Games)*2)
 		for _, game := range s.Games {
-			inProgress := game.InProgress
-			if inProgress && !game.Final && livescore.WindowClosed(game.Kickoff, at) {
-				inProgress = false
-			}
-			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: inProgress, Kickoff: game.Kickoff}
+			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff}
 			games[game.Away], games[game.Home] = state, state
 		}
 		return league.LiveStatus{Enabled: h.Enabled, Degraded: h.Degraded, Reason: h.Reason, CheckedAt: h.LastSuccess, Games: games}
@@ -187,7 +213,12 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 	// callers must treat them as read-only.
 	current := versionedSnapshot(poller.Version, poller.Snapshot)
 	lg.SetWeekStatsSource(func(week int) []league.WeekStatLine {
-		return livescore.MergeLines(base(week), week, current(), lg.ResolveLivePlayer)
+		// freshenSnapshot: current() can be several hours stale for a
+		// closed-window game once its Poller.Version stops advancing —
+		// see freshenSnapshot's own doc comment. Without it, MergeLines
+		// would keep letting that stale InProgress=true beat the ledger
+		// long after the poller's own last real fetch.
+		return livescore.MergeLines(base(week), week, freshenSnapshot(current(), lg.ClockForTest()), lg.ResolveLivePlayer)
 	})
 	lg.SetLiveVersionSource(poller.Version)
 	lg.SetLiveStatusSource(liveStatusFromPoller(current, poller.Health, lg.ClockForTest))

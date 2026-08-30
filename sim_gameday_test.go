@@ -325,8 +325,10 @@ func TestSimGameDayTimeline(t *testing.T) {
 	t.Logf("STEP 2 [T-30m, flag ON]: enabled=%v degraded=%v in_window=%d served_index frozen at %d over %s (zero box-score fetches)",
 		preWindow.Poller.Enabled, preWindow.Poller.Degraded, preWindow.InWindow, idle.Replay.ServedIndex, gameDayIdleWindow)
 
-	// Step 3: advance to 5 minutes before kickoff. The window opens and
-	// frames flow.
+	// Step 3: advance to 4 minutes before kickoff (inside the window,
+	// which opens at kickoff-5m; a 1-minute margin absorbs real-time
+	// jitter around the boundary itself). The window opens and frames
+	// flow.
 	setClockAtKickoffOffset(t, child, -4*time.Minute)
 	inWindow := waitForInWindow(t, child, 1, 15*time.Second)
 	liveView := waitForLiveState(t, child, viewer, league.LiveStateLive, 60*time.Second)
@@ -334,21 +336,8 @@ func TestSimGameDayTimeline(t *testing.T) {
 		liveView["liveState"], inWindow.InWindow, liveView["scores"])
 
 	// Step 4: the kill-switch drill — restart with the flag off an hour
-	// after kickoff, a game in progress. A boot-time-disabled poller
-	// settles at once (poller.go's Health computes Degraded live on
-	// every call, with no tick required), so one read suffices; no wait
-	// loop is needed or possible (there is no positive transition to
-	// wait for here — see the finding below).
-	child = restartGameDayChild(t, child, l, dataFile, fixtures, false)
-	setClockAtKickoffOffset(t, child, 1*time.Hour)
-	killSwitchLive := readTestLive(t, child)
-	killSwitchView, _ := liveWeek(t, child, viewer)
-	killState, _ := killSwitchView["liveState"].(string)
-	t.Logf("STEP 4 [T+1h restart, flag OFF, kill switch]: liveState=%s poller.Enabled=%v poller.Degraded=%v poller.Reason=%q",
-		killState, killSwitchLive.Poller.Enabled, killSwitchLive.Poller.Degraded, killSwitchLive.Poller.Reason)
-	if killSwitchLive.Poller.Enabled || !killSwitchLive.Poller.Degraded || killSwitchLive.Poller.Reason != "disabled" {
-		t.Fatalf("T+1h kill switch: poller = %+v, want disabled and degraded with reason \"disabled\"", killSwitchLive.Poller)
-	}
+	// after kickoff, a game in progress.
+	//
 	// FINDING: the docs (season-operations.md's kill-switch procedure,
 	// launch-checklist.md step 13.5) promise "PAUSED · disabled" here.
 	// The real, measured result is LEDGER, not PAUSED: matchupLiveState
@@ -360,12 +349,25 @@ func TestSimGameDayTimeline(t *testing.T) {
 	// never ticking, when cfg.Enabled is false), flipping it off always
 	// means a fresh process with an empty, never-ticked Games map, so
 	// matchupLiveState's inProgress can never become true and the state
-	// falls through to LEDGER instead. This assertion is the harness
-	// evidence for that finding; the doc fix accompanying this test
-	// corrects both runbooks to say LEDGER.
-	if killState != league.LiveStateLedger {
-		t.Fatalf("T+1h kill switch: liveState = %q, want %q (a boot-time-disabled poller has no in-progress game history to pause on)",
-			killState, league.LiveStateLedger)
+	// falls through to LEDGER instead. waitForLiveState below (asserting
+	// LiveStateLedger) is the harness evidence for that finding; the doc
+	// fix accompanying this test corrects both runbooks to say LEDGER.
+	//
+	// A boot-time-disabled poller's Health settles at once (poller.go's
+	// Health computes Degraded live on every call, with no tick
+	// required); this still uses the same waitFor*-style loop the other
+	// steps use, for consistency and to absorb any read race right
+	// after a restart, even though the expected value is not itself a
+	// transition this step drives.
+	child = restartGameDayChild(t, child, l, dataFile, fixtures, false)
+	setClockAtKickoffOffset(t, child, 1*time.Hour)
+	killSwitchLive := readTestLive(t, child)
+	killSwitchView := waitForLiveState(t, child, viewer, league.LiveStateLedger, 10*time.Second)
+	killState, _ := killSwitchView["liveState"].(string)
+	t.Logf("STEP 4 [T+1h restart, flag OFF, kill switch]: liveState=%s poller.Enabled=%v poller.Degraded=%v poller.Reason=%q",
+		killState, killSwitchLive.Poller.Enabled, killSwitchLive.Poller.Degraded, killSwitchLive.Poller.Reason)
+	if killSwitchLive.Poller.Enabled || !killSwitchLive.Poller.Degraded || killSwitchLive.Poller.Reason != "disabled" {
+		t.Fatalf("T+1h kill switch: poller = %+v, want disabled and degraded with reason \"disabled\"", killSwitchLive.Poller)
 	}
 
 	// Step 5: flip the flag on again. LIVE resumes.

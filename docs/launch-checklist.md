@@ -700,7 +700,7 @@ explicit action, never a batch.
 
 | Date | Kickoff (matchup) | Flag off at | `LEDGER` confirmed at | Flag on at | `LIVE` confirmed at | Operator |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2026-08-30 | _Bounded rehearsal, flagship (`release-2026.08.30-c655472`), no live kickoff_¹ | rollout² | confirmed within seconds² | rollout² | not confirmed²; final state `LEDGER` expected per the corrected [Kill-switch procedure](season-operations.md#kill-switch-procedure) | — |
+| 2026-08-30 | _Bounded rehearsal, flagship (`release-2026.08.30-c655472`), no live kickoff_¹ | rollout² | not checked (boot log only)² | rollout² | not checked² | — |
 | _2026-09-10 (DAL@PHI, 20:20 EDT)_ | | | | | | |
 
 ¹ This drill ran outside a live kickoff, in the reverse order of the columns above: flag on, then flag off. It confirmed boot logging on both sides of the flag.

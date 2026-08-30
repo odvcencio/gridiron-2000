@@ -60,6 +60,57 @@ func TestLiveStatusSourceClearsInProgressAfterWindowClosesEvenFromAStaleSnapshot
 	}
 }
 
+// TestFreshenSnapshotKeepsMergeLinesOffAStaleLiveRowAfterWindowCloses
+// covers item 1 (coordinator review of 86ebb84 + ea6849b, major finding):
+// the week-stats seam (buildLiveScoring's SetWeekStatsSource closure)
+// feeds livescore.MergeLines from the same memoized current() snapshot
+// liveStatusFromPoller reads, so it has the identical frozen-version
+// failure mode — a game whose window closed with no further fetches
+// leaves current() reporting InProgress=true forever. Without
+// freshenSnapshot applied first, MergeLines would keep letting that
+// stale live row beat the ledger even after the status chip already
+// reads LEDGER.
+func TestFreshenSnapshotKeepsMergeLinesOffAStaleLiveRowAfterWindowCloses(t *testing.T) {
+	kickoff := time.Date(2026, 9, 10, 20, 20, 0, 0, time.UTC)
+	frozen := livescore.Snapshot{
+		Version: 5,
+		Weeks: map[int]livescore.WeekLines{
+			1: {Lines: []livescore.Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "BUF", GameID: "g1", Stats: map[string]float64{"passYds": 300}, Final: false},
+			}},
+		},
+		Games: map[string]livescore.GameState{
+			"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", InProgress: true, Final: false, Kickoff: kickoff},
+		},
+	}
+	now := kickoff.Add(6 * time.Hour) // past kickoff+windowAfter (5h); the box score never went final
+	resolve := func(tank01ID, longName string) (league.Player, bool) {
+		return league.Player{Name: "Josh Allen", Position: "QB"}, true
+	}
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 250}, Source: league.StatSourceLedger}}
+
+	// Proves this scenario actually exercises the bug: the raw, un-
+	// freshened frozen snapshot still lets the stale live row win, since
+	// MergeLines trusts its InProgress bit as-is.
+	staleMerged := livescore.MergeLines(base, 1, frozen, resolve)
+	if len(staleMerged) != 1 || staleMerged[0].Source != league.StatSourceLive {
+		t.Fatalf("test setup: expected the unfreshened frozen snapshot to still win live: %+v", staleMerged)
+	}
+
+	// With the fix: freshenSnapshot clears InProgress first, so the
+	// ledger row wins and no row carries StatSourceLive.
+	merged := livescore.MergeLines(base, 1, freshenSnapshot(frozen, now), resolve)
+	if len(merged) != 1 {
+		t.Fatalf("merged = %+v", merged)
+	}
+	if merged[0].Source == league.StatSourceLive || merged[0].Source == league.StatSourceLiveFinal {
+		t.Fatalf("a stale live row still won after the window closed: %+v", merged[0])
+	}
+	if merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 250 {
+		t.Fatalf("the ledger row was not kept authoritative: %+v", merged[0])
+	}
+}
+
 // TestVersionedSnapshotCallsSnapshotOnceAtOneVersion covers round-2
 // review finding 1 (commit 8a4ffea): N ledger builds reading at one
 // poller version must cost exactly one Snapshot() call, whether they

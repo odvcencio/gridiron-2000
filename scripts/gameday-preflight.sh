@@ -43,7 +43,7 @@ section() {
 require_command() {
 	if ! command -v "$1" >/dev/null 2>&1; then
 		echo "FAIL: required command '$1' is not on PATH" >&2
-		fail=1
+		exit 1
 	fi
 }
 
@@ -57,7 +57,7 @@ if [ "$health_ok" -ne 1 ]; then
 	echo "FAIL: curl https://${HOST}/api/health failed: ${health_body}" >&2
 	fail=1
 else
-	compatible="$(printf '%s' "$health_body" | jq -r '.stateSchema.compatible // "null"')"
+	compatible="$(printf '%s' "$health_body" | jq -r '.stateSchema.compatible // "null"')" || compatible=""
 	printf '  appVersion:             %s\n' "$(printf '%s' "$health_body" | jq -r '.appVersion // "?"')"
 	printf '  gitSHA:                 %s\n' "$(printf '%s' "$health_body" | jq -r '.gitSHA // "?"')"
 	printf '  buildDate:              %s\n' "$(printf '%s' "$health_body" | jq -r '.buildDate // "?"')"
@@ -79,7 +79,7 @@ cleanup_port_forward() {
 	fi
 	rm -f "$pf_log"
 }
-trap cleanup_port_forward EXIT
+trap cleanup_port_forward EXIT INT TERM HUP
 
 kubectl -n "$RELAY_NAMESPACE" port-forward "svc/${RELAY_SERVICE}" "${RELAY_LOCAL_PORT}:80" >"$pf_log" 2>&1 &
 pf_pid=$!
@@ -105,19 +105,33 @@ if [ "$ready" -ne 1 ]; then
 	cat "$pf_log" >&2
 	fail=1
 else
-	relay_headers="$(curl -sS -D - -o /dev/null \
+	# curl's own transport outcome, the relay's HTTP status, and the
+	# budget-header check are kept apart (item 5): a relay outage (curl
+	# fails, or the relay answers with a non-200) must FAIL with its own
+	# distinct message, not read as "no budget configured."
+	relay_headers="$(curl -sS -D - -o /dev/null -w 'HTTPSTATUS:%{http_code}\n' \
 		"http://127.0.0.1:${RELAY_LOCAL_PORT}/getNFLGamesForWeek?week=${WEEK}&seasonType=reg&season=${SEASON}" \
-		2>/dev/null | tr -d '\r')"
-	remaining="$(printf '%s\n' "$relay_headers" | grep -i '^X-Statrelay-Budget-Remaining:' | awk '{print $2}')"
-	if [ -z "$remaining" ]; then
-		echo "FAIL: the relay response carried no X-Statrelay-Budget-Remaining header (a budget must be set: STATRELAY_DAILY_BUDGET)" >&2
+		2>&1)" && curl_ok=1 || curl_ok=0
+	relay_headers="$(printf '%s' "$relay_headers" | tr -d '\r')"
+	http_status="$(printf '%s\n' "$relay_headers" | sed -n 's/^HTTPSTATUS://p')"
+	if [ "$curl_ok" -ne 1 ]; then
+		echo "FAIL: curl to the relay failed: ${relay_headers}" >&2
+		fail=1
+	elif [ "$http_status" != "200" ]; then
+		echo "FAIL: the relay responded with HTTP ${http_status:-?} (not 200); check svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE}" >&2
 		fail=1
 	else
-		printf '  X-Statrelay-Budget-Remaining: %s\n' "$remaining"
+		remaining="$(printf '%s\n' "$relay_headers" | grep -i '^X-Statrelay-Budget-Remaining:' | awk '{print $2}')"
+		if [ -z "$remaining" ]; then
+			echo "FAIL: the relay responded 200 with no X-Statrelay-Budget-Remaining header (a budget must be set: STATRELAY_DAILY_BUDGET)" >&2
+			fail=1
+		else
+			printf '  X-Statrelay-Budget-Remaining: %s\n' "$remaining"
+		fi
 	fi
 fi
 cleanup_port_forward
-trap - EXIT
+trap - EXIT INT TERM HUP
 
 section "3/4 live-scoring flag (${DEPLOYMENT_MANIFEST})"
 if [ -f "$DEPLOYMENT_MANIFEST" ]; then

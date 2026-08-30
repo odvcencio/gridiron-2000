@@ -55,8 +55,14 @@ func TestSimChildProcess(t *testing.T) {
 }
 
 // simChildStderrTail is how much of a child's standard error the parent
-// keeps for a failure report.
-const simChildStderrTail = 2 << 10
+// keeps for a failure report. sim_gameday_test.go's waitForLogLine also
+// reads this same tail live (not only on failure) to find the
+// poller-enabled boot line, so this must stay well clear of a full
+// child's own boot-log volume — 2 KB (the previous value) left only
+// about 78 bytes of headroom against a real boot's log lines by the time
+// that assertion ran, close enough to risk the boot line being pushed
+// out by later lines before the assertion could see it.
+const simChildStderrTail = 32 << 10
 
 // tailBuffer keeps only the last limit bytes written to it. The parent
 // mirrors a child's standard error to its own so a failure is visible

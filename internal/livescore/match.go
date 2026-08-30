@@ -33,27 +33,20 @@ func inWindow(game Game, now time.Time) bool {
 	return !now.Before(game.Kickoff.Add(-windowBefore)) && !now.After(game.Kickoff.Add(windowAfter))
 }
 
-// windowClosed reports whether kickoff+windowAfter has passed. Poller.
-// Snapshot uses it: a game that never reached final by the time its own
-// poll window closed (a relay dropout, a postponement, a fixture that
-// simply runs out of frames) must stop reporting InProgress, or the
-// Matchups page can keep showing LIVE for hours after the poller itself
-// stopped fetching that game. A zero kickoff (no schedule row) never
-// counts as closed — there is nothing to have closed yet.
-func windowClosed(kickoff, now time.Time) bool {
-	return !kickoff.IsZero() && now.After(kickoff.Add(windowAfter))
-}
-
-// WindowClosed exports windowClosed's rule for main.go's
-// liveStatusFromPoller, which must reapply it against a freshly read
-// clock on every call: the Snapshot it reads through versionedSnapshot
-// (live_scoring.go) is memoized per Poller.Version, and a game whose
-// window has already closed causes no further fetches, so its version
-// stops advancing — Poller.Snapshot's own correction would otherwise be
-// computed once, at whatever "now" the last real fetch happened to see,
-// and then frozen right along with that stale cached copy.
+// WindowClosed reports whether kickoff+windowAfter has passed. Every
+// caller downstream of a poller snapshot needs this: Poller.Snapshot
+// itself, and main.go's liveStatusFromPoller and its week-stats seam
+// (buildLiveScoring's SetWeekStatsSource closure), which both reapply it
+// against a freshly read clock on every call rather than trusting a
+// snapshot's own InProgress bit — the Snapshot they read through
+// versionedSnapshot (live_scoring.go) is memoized per Poller.Version, and
+// a game whose window has already closed causes no further fetches, so
+// its version stops advancing and a memoized copy would otherwise freeze
+// InProgress at whatever "now" the last real fetch happened to see,
+// however much real time then passes. A zero kickoff (no schedule row)
+// never counts as closed — there is nothing to have closed yet.
 func WindowClosed(kickoff, now time.Time) bool {
-	return windowClosed(kickoff, now)
+	return !kickoff.IsZero() && now.After(kickoff.Add(windowAfter))
 }
 
 // matchGames maps schedule game IDs to Tank01 game IDs by the Eastern date

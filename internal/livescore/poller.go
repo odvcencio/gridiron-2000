@@ -74,6 +74,16 @@ type Poller struct {
 	budgetUsed       int
 	lastSuccess      time.Time
 	inWindow         int
+	// windowLastOpen is whether any schedule game satisfied inWindow as
+	// of the last tick — tracked separately from inWindow/targets, which
+	// also excludes a game once isFinalDone is set for it. The schedule
+	// window and "there is still something left to fetch" are different
+	// facts: a game that reaches final early is correctly dropped from
+	// targets, but its own kickoff+windowAfter has not necessarily
+	// passed yet, so the window-open/closed log below must key off this
+	// field, or a slate whose last game finals early logs a misleading
+	// "window closed" before the real time-based window has elapsed.
+	windowLastOpen bool
 	// unmatched and unmatchedGames are the in-window games Tick could not
 	// map to a Tank01 listing this tick (round-2 note 1): a schedule row
 	// with no counterpart in matchGames's output, so it is never fetched
@@ -182,35 +192,55 @@ func (p *Poller) Tick(ctx context.Context) {
 		return
 	}
 	schedule := p.schedule() // no lock held here (see the lock-order note)
+	// windowGames is every schedule game whose time window (inWindow) is
+	// open right now, independent of isFinalDone; targets narrows that
+	// to the ones Tick will actually fetch this pass. A game that
+	// reaches final early leaves targets but stays in windowGames until
+	// its own kickoff+windowAfter passes — see windowLastOpen's doc
+	// comment for why the two must be tracked apart.
+	var windowGames []Game
 	var targets []Game
 	weeks := map[int]bool{}
 	currentWeek := 0
 	for _, game := range schedule {
-		if inWindow(game, now) && !p.isFinalDone(game.ID) {
-			targets = append(targets, game)
-			weeks[game.Week] = true
-			if currentWeek == 0 || game.Week < currentWeek {
-				currentWeek = game.Week
-			}
+		if !inWindow(game, now) {
+			continue
+		}
+		windowGames = append(windowGames, game)
+		if p.isFinalDone(game.ID) {
+			continue
+		}
+		targets = append(targets, game)
+		weeks[game.Week] = true
+		if currentWeek == 0 || game.Week < currentWeek {
+			currentWeek = game.Week
 		}
 	}
 	p.mu.Lock()
-	wasOpen := p.inWindow > 0
 	p.inWindow = len(targets)
-	nowOpen := p.inWindow > 0
+	wasWindowOpen := p.windowLastOpen
+	nowWindowOpen := len(windowGames) > 0
+	p.windowLastOpen = nowWindowOpen
 	p.unmatched, p.unmatchedGames = 0, nil
 	p.mu.Unlock()
-	// Log the window open/closed transitions only — never once per tick
-	// while the window stays in the same state — so a Sunday slate does
-	// not spam the log every LIVE_POLL_INTERVAL.
+	// Log the schedule-window open/closed transitions only — never once
+	// per tick while the window stays in the same state — so a Sunday
+	// slate does not spam the log every LIVE_POLL_INTERVAL. This keys
+	// off windowGames (the real time-based window), not targets: see
+	// windowLastOpen's doc comment. Tick is not safe to call
+	// concurrently with itself (this read-then-log of p.windowLastOpen
+	// is not atomic with the write), but production never does — Run's
+	// own loop calls it serially; only a test or a future caller
+	// invoking Tick from multiple goroutines at once could double-log a
+	// transition.
 	switch {
-	case nowOpen && !wasOpen:
-		ids := make([]string, 0, len(targets))
-		for _, game := range targets {
+	case nowWindowOpen && !wasWindowOpen:
+		ids := make([]string, 0, len(windowGames))
+		for _, game := range windowGames {
 			ids = append(ids, game.ID)
 		}
-		p.cfg.Logf("livescore: window open (%d games: %s)", len(targets), strings.Join(ids, ", "))
-	case wasOpen && !nowOpen:
+		p.cfg.Logf("livescore: window open (%d games: %s)", len(windowGames), strings.Join(ids, ", "))
+	case wasWindowOpen && !nowWindowOpen:
 		p.cfg.Logf("livescore: window closed")
 	}
 	if len(targets) == 0 {
@@ -405,7 +435,7 @@ func (p *Poller) Snapshot() Snapshot {
 	}
 	sortSnapshotLines(&out) // round-2 note 36: stable PlayerID order for callers
 	for id, game := range out.Games {
-		if game.InProgress && !game.Final && windowClosed(game.Kickoff, now) {
+		if game.InProgress && !game.Final && WindowClosed(game.Kickoff, now) {
 			game.InProgress = false
 			out.Games[id] = game
 		}
