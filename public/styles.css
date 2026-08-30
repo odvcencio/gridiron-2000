@@ -8378,6 +8378,27 @@ body.is-on-clock .draft-clock-panel {
     touch-action: manipulation;
   }
 
+  /* Draft war room (D2, D5): the mobile tab bar's labels are not
+     <button>/<a> elements the rules above already widen, and
+     .button--compact's 2.55rem desktop min-height would otherwise ship
+     below the accessibility baseline inside the drawer on a phone. The
+     !important beats the generic button rule above on min-width — that
+     rule's selector is pinned character-for-character by
+     TestMobileContentControlsKeepTouchBaseline, so it cannot itself gain
+     the specificity these five selectors would need to win the cascade
+     honestly, and its own min-width: 0 is exactly what a .chip or a
+     command-bar icon button must not inherit. */
+  .site-frame .draft-tabbar__tab,
+  .site-frame .chip,
+  .site-frame .draft-command__sound,
+  .site-frame .draft-command button,
+  .site-frame .draft-drawer .button {
+    min-width: 2.75rem !important;
+    min-inline-size: 2.75rem !important;
+    min-height: 2.75rem !important;
+    min-block-size: 2.75rem !important;
+  }
+
   .site-frame input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]),
   .site-frame select,
   .site-frame textarea {
@@ -8415,5 +8436,732 @@ body.is-on-clock .draft-clock-panel {
   .site-frame input[type="file"]::file-selector-button:hover {
     border-color: var(--color-accent-cyan);
     background: var(--color-white-soft);
+  }
+}
+
+/* Draft war room */
+
+/* Focus mode: the room owns the full viewport height, so the document
+   itself never scrolls — only the command bar's three panes do, each on
+   their own axis. The rail collapses to its icon column rather than
+   disappearing, so a manager can still leave the room in one click. */
+body:has(.draft-shell) { overflow: hidden; }
+
+body:has(.draft-shell) .site-footer {
+  display: none;
+}
+
+body:has(.draft-shell) .site-rail { width: 4rem; }
+
+body:has(.draft-shell) .site-rail .brand-copy,
+body:has(.draft-shell) .site-rail .navigation-group__label {
+  display: none;
+}
+
+body:has(.draft-shell) .site-rail .navigation-link {
+  justify-content: center;
+  padding-inline: 0;
+  font-size: 0;
+}
+
+body:has(.draft-shell) .site-rail .navigation-link__index {
+  margin-right: 0;
+  font-size: var(--type-xs);
+}
+
+/* Below the rail breakpoint the fixed mobile top bar (brand + hamburger)
+   normally reserves --mobile-bar-height of clearance above .site-frame.
+   The draft-shell claims height: 100dvh for itself, so that reserved
+   band would push it past the bottom of the viewport by exactly its own
+   height — the same overflow bug the .site-footer rule above already
+   guards against, on the opposite edge. Both the JS-enhanced fixed bar
+   and its no-JS <details> fallback are hidden. The !important beats the
+   rules being overridden on specificity, not just source order: their
+   :has() argument (script[data-gosx-navigation="true"]) is itself a
+   type-plus-attribute compound selector, which raises html:has(...)
+   above what body:has(.draft-shell) reaches on the class/type count
+   alone. */
+body:has(.draft-shell) .mobile-navigation-enhanced,
+body:has(.draft-shell) .mobile-navigation-static {
+  display: none !important;
+}
+
+body:has(.draft-shell) .site-frame,
+body:has(.draft-shell) .announcement-banner + .site-frame {
+  padding-top: 0 !important;
+}
+
+@media (min-width: 56.25rem) {
+  body:has(.draft-shell) .site-rail ~ .site-frame {
+    width: calc(100% - 4rem);
+    margin-left: 4rem;
+  }
+
+  body:has(#main-content[data-rail-open]) .site-rail {
+    width: var(--rail-width);
+  }
+}
+
+/* Shell: an always-visible command bar plus three independently
+   scrolling panes (pick history/tape, available players, my team). */
+.draft-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100dvh;
+  gap: var(--space-sm);
+}
+
+.draft-notice {
+  padding: 0 var(--space-md);
+}
+
+.draft-command {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 5.25rem;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-panel-glass);
+}
+
+.draft-command__inner {
+  display: grid;
+  grid-template-columns: 11.875rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-md);
+}
+
+.draft-command__pick {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.draft-command__number {
+  font-size: var(--type-md);
+}
+
+.draft-command__turn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.draft-command__team {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.draft-command__team strong,
+.draft-command__team small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.draft-command__clock {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-md);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-canvas);
+  animation: clock-pulse 2s ease-out infinite;
+}
+
+[data-clock-state="PAUSED"] .pick-clock {
+  color: var(--color-gold);
+}
+
+@keyframes clock-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px var(--color-accent-haze);
+  }
+}
+
+.draft-command__room {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.draft-command__yourpick {
+  color: var(--color-accent-hot);
+}
+
+.draft-command__sound {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+}
+
+.draft-command__banner {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: var(--space-xs) var(--space-md);
+  color: var(--color-accent-hot);
+}
+
+.draft-command .manager-draft-control {
+  grid-column: 1 / -1;
+}
+
+/* Panes: the tape/board/teams pane, the available-players pane, and the
+   my-team pane, each scrolling on its own axis inside a fixed-height
+   shell. */
+.draft-panes {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr) 320px;
+  gap: var(--space-md);
+  min-height: 0;
+  padding: 0 var(--space-md) var(--space-md);
+}
+
+.draft-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.draft-pane__head,
+.draft-history-head,
+.draft-available-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.draft-pane__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.draft-available-head__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-search {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+/* Rows and chips: the available-pool row, the personal-queue row, the
+   position-color badge, and the roster-need pill. */
+.chip {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.5rem;
+  min-height: 2rem;
+  padding: 0 var(--space-xs);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.chip[aria-pressed="true"] {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+  border-color: var(--color-accent-cyan);
+}
+
+.pos {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2.5rem;
+  min-height: 1.75rem;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.pos-QB {
+  color: var(--color-violet);
+}
+
+.pos-RB {
+  color: var(--color-orange);
+}
+
+.pos-WR {
+  color: var(--color-accent-cyan);
+}
+
+.pos-TE {
+  color: var(--color-gold);
+}
+
+.pos-K {
+  color: var(--color-blue);
+}
+
+.pos-DST {
+  color: var(--color-accent-hot);
+}
+
+.avail-row {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr) 3.25rem 4rem 4.5rem auto;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: 3.5rem;
+  padding: var(--space-xs) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.avail-row--head {
+  min-height: auto;
+  padding-block: var(--space-xs);
+  border-top: none;
+}
+
+.avail-row.is-taken {
+  opacity: .45;
+  text-decoration: line-through;
+}
+
+.q-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 3.5rem;
+}
+
+.q-row.is-taken strong {
+  text-decoration: line-through;
+}
+
+.need {
+  display: inline-flex;
+  gap: .375rem;
+  padding: .375rem .5rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.need--open {
+  color: var(--color-accent-hot);
+  border-color: var(--color-accent-hot);
+}
+
+/* Small utilities the shell's typed view models render directly:
+   a muted mono label (.idx), a hot variant for "you are on the clock",
+   a display-face team name, a de-emphasized aside, and a tabular-numeral
+   column. */
+.idx {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.idx--hot {
+  color: var(--color-accent-hot);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.display {
+  font-family: var(--font-display);
+  font-size: var(--type-md);
+  letter-spacing: -0.02em;
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* segment: the Tape/Board/Teams and Queue/Roster/Room radiogroup toggles
+   inside the history and my-team panes. */
+.segment {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-panel-deep);
+}
+
+.segment__option {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0 var(--space-sm);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.segment input:checked + .segment__option {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.segment input:focus-visible + .segment__option {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+/* btn: the compact mono action idiom the available/queue rows, the
+   command bar's Sound/Commissioner/Rail buttons, and the drawer's close
+   button share. Every .btn is still a plain <button>, so the touch
+   baseline block above widens it on a phone without a bespoke rule. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: 2.5rem;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--color-text-secondary);
+  background: var(--color-white-soft);
+}
+
+.btn-sm {
+  min-height: 2.25rem;
+  padding: 0.3rem var(--space-xs);
+}
+
+.btn-primary {
+  border-color: var(--color-accent);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent);
+}
+
+.btn-primary:hover {
+  border-color: var(--color-accent-cyan);
+  background: var(--color-accent-cyan);
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+.btn:disabled {
+  color: var(--color-text-muted);
+  background: var(--color-white-faint);
+  cursor: not-allowed;
+}
+
+/* My-team pane: the roster-needs tally and the seat grid beneath the
+   personal queue. */
+.draft-mine__needs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.draft-mine__autopick {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+
+.draft-mine__room {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+/* History pane: the LIVE LOG / FINAL LEDGER state label and the final
+   ledger's CSV export link. */
+.draft-history__state {
+  display: block;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.draft-history__ledger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-md);
+}
+
+/* Commissioner drawer: a right-docked panel, not a centered modal, so it
+   never covers the pick clock a commissioner still needs to watch. */
+.draft-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(28rem, 100%);
+  z-index: 40;
+  overflow-y: auto;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+}
+
+.draft-drawer__head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.draft-drawer__head h2 {
+  margin: 0;
+  font-size: var(--type-md);
+}
+
+.draft-drawer__body {
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-md);
+}
+
+.draft-drawer__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+
+.draft-drawer__presets form {
+  display: inline-flex;
+}
+
+.draft-drawer__help {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-sm);
+}
+
+.draft-tabbar {
+  display: none;
+}
+
+.draft-pickbar {
+  display: none;
+}
+
+/* Wider-than-phone mobile: the shell collapses to one visible pane at a
+   time, chosen by the bottom tab bar's checked radio, with the pick bar
+   docked above it while the viewer is on the clock. */
+@media (max-width: 56.1875rem) {
+  /* The shell's DOM order is notice, command, tabbar, panes, pickbar
+     (the tab bar sits right after the command bar in markup, for a
+     sensible reading/tab order), but the visual order needs the panes
+     to own the flexible middle with the tab bar pinned under the pick
+     bar at the very bottom. grid-template-rows assigns tracks by
+     order-modified document position, not by selector, so .draft-tabbar
+     gets pushed past every default-order sibling into the last of five
+     explicit tracks below. Without this, the tab bar (only visible at
+     this width) claims the row meant for the panes, the panes fall
+     back to an implicit auto row sized to their full content height,
+     and the document scrolls — the D5 contract this shell exists to
+     keep. */
+  .draft-shell {
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  }
+
+  .draft-tabbar {
+    order: 2;
+  }
+
+  /* The desktop command bar's three-column grid (pick / turn+clock /
+     room stats) has no room to breathe at phone widths: the room
+     column alone carries a live dot, three ready/here/auto counts, and
+     the sound and commissioner buttons. Stack the three groups instead
+     of forcing them to share one row, and drop the rail toggle — the
+     site rail itself is already display: none below this breakpoint
+     (see the rule at :662), so the toggle has nothing left to open. */
+  .draft-command {
+    min-height: 0;
+  }
+
+  .draft-command__inner {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+  }
+
+  .draft-command__room {
+    flex-wrap: nowrap;
+    justify-content: space-between;
+  }
+
+  .draft-command__room > span.mono {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .draft-command__room > button {
+    flex: 0 0 auto;
+  }
+
+  .draft-command__rail {
+    display: none;
+  }
+
+  /* The seated manager's ready/autopick status rows are a full desktop
+     panel (label, explanatory sentence, full-width button) — reasonable
+     beside a three-pane desktop command bar, but at phone width they
+     alone can crowd every pane below the fold. Collapse each to one
+     compact row; the explanatory sentence stays in the DOM (still read
+     by assistive tech) but drops out of the visual layout here, since
+     the same guidance is repeated in the pre-draft checklist pane. */
+  .draft-command .manager-draft-control {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .draft-command .manager-draft-control > small {
+    display: none;
+  }
+
+  .draft-command .manager-draft-control form,
+  .draft-command .manager-draft-control .button {
+    width: auto;
+  }
+
+  .draft-panes {
+    display: block;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .draft-pane {
+    display: none;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .draft-shell:has(#tab-players:checked) .draft-pane--available,
+  .draft-shell:has(#tab-queue:checked) .draft-pane--mine,
+  .draft-shell:has(#tab-picks:checked) .draft-pane--history,
+  .draft-shell:has(#tab-teams:checked) .draft-pane--history {
+    display: flex;
+  }
+
+  .draft-tabbar {
+    display: flex;
+    border-top: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .draft-tabbar__tab {
+    flex: 1 1 0;
+    min-height: 3.5rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    letter-spacing: .12em;
+    text-transform: uppercase;
+  }
+
+  .draft-tabbar input:focus-visible + .draft-tabbar__tab {
+    outline: 2px solid var(--color-accent-cyan);
+  }
+
+  .draft-tabbar input:checked + .draft-tabbar__tab {
+    color: var(--color-accent);
+  }
+
+  .draft-shell[data-can-pick="true"] .draft-pickbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: var(--space-xs) var(--space-md);
+    border-top: 1px solid var(--color-accent);
+    background: var(--color-surface);
+  }
+
+  /* The available-pool row carries six grid children (rank, name, pos,
+     proj, vs-adp, action) at desktop width. A phone keeps only the four
+     that fit without crowding the action buttons under the touch
+     baseline: rank and vs-adp drop, matching the row header below. */
+  .avail-row {
+    grid-template-columns: minmax(0, 1fr) 2.375rem 3rem 6rem;
+  }
+
+  .avail-row > :first-child,
+  .avail-row > :nth-child(5) {
+    display: none;
+  }
+
+  .avail-row form {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .avail-row form button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-command__clock {
+    animation: none;
   }
 }

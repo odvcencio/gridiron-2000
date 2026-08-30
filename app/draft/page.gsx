@@ -1032,59 +1032,105 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 }
 
 // DraftCommissionerDrawer holds the commissioner-only clock and lifecycle
-// controls (draft-start, pause/resume/extend/duration, force-autopick):
-// the same actions the legacy DraftRoom's commissioner panel exposed,
-// behind the command bar's Commissioner disclosure toggle. Task 5b styles
-// this drawer; the markup and every action here are load-bearing now.
+// controls (draft-start, pause/resume/extend/duration presets, undo,
+// force-autopick) and every claimed seat's presence override, behind the
+// command bar's Commissioner disclosure toggle. The start form stays
+// visible for the whole draft, not just before it starts: AdminStartDraft
+// is idempotent (a repeat call reports "Draft was already live" and
+// leaves the clock untouched), so keeping it up costs nothing and saves a
+// commissioner from a dead end if the room ever needs a manual restart.
 func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
-	return <div id="draft-commissioner" class="draft-commissioner-drawer" data-gosx-disclosure hidden>
-		<header>
-			<span class="section-index">COMMISSIONER // CLOCK</span>
-			<span class="mono">{props.Data.clock.reason}</span>
+	return <aside id="draft-commissioner" class="draft-drawer" data-gosx-disclosure data-gosx-disclosure-modal hidden role="dialog" aria-modal="true" aria-labelledby="draft-commissioner-title">
+		<header class="draft-drawer__head">
+			<h2 id="draft-commissioner-title">Commissioner</h2>
+			<button type="button" class="btn btn-sm" aria-label="Close commissioner controls" data-gosx-disclosure-close="#draft-commissioner" data-gosx-disclosure-initial-focus>✕</button>
 		</header>
-		<If cond={props.Data.draft.started == false}>
-			<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh" class="clock-controls">
-				<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-				<label class="mono" for="draft-start-confirm">TYPE START //</label>
-				<input id="draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
-				<button class="button button--primary" type="submit">Start draft + pick clock</button>
-			</form>
-		</If>
-		<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
-			<div class="clock-controls">
-				<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+		<div class="draft-drawer__body">
+			<If cond={props.Data.draft.complete == false}>
+				<form method="post" action={props.Actions.draft_start} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh" class="clock-controls">
 					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<button class="button button--compact" type="submit">Pause clock</button>
+					<label class="mono" for="draft-start-confirm">TYPE START //</label>
+					<input id="draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
+					<button class="button button--primary" type="submit">Start draft + pick clock</button>
 				</form>
-				<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<button class="button button--compact button--primary" type="submit">Resume clock</button>
-				</form>
-				<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-					<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
-					<button class="button button--compact" type="submit">Extend pick</button>
-				</form>
-				<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
-					<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-					<input class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
-					<button class="button button--compact" type="submit">Set duration</button>
-				</form>
-				<details class="draft-destructive-control">
-					<summary class="button button--compact button--ghost">Force current pick now</summary>
-					<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+			</If>
+			<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
+				<div class="clock-controls">
+					<form method="post" action={props.Actions.clock_pause} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<button class="button button--compact" type="submit">Pause clock</button>
+					</form>
+					<form method="post" action={props.Actions.clock_resume} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<button class="button button--compact button--primary" type="submit">Resume clock</button>
+					</form>
+					<form method="post" action={props.Actions.clock_extend} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 						<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
-						<p>This immediately consumes the on-clock seat's Big Board target, or the best available player when its board is empty. It advances the draft even if the clock is paused.</p>
-						<label class="mono" for="draft-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
-						<input id="draft-force-current-pick-confirm" class="scoring-input" type="text" name="confirm" value={props.Data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
-						<button class="button button--compact button--ghost" type="submit">Confirm force current pick</button>
+						<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+						<button class="button button--compact" type="submit">Extend pick</button>
 					</form>
-				</details>
-			</div>
-		</If>
-	</div>
+					<div class="draft-drawer__presets" aria-label="Pick clock presets">
+						<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="seconds" value="60"></input>
+							<button class="button button--compact" type="submit">1:00</button>
+						</form>
+						<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="seconds" value="90"></input>
+							<button class="button button--compact" type="submit">1:30</button>
+						</form>
+						<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="seconds" value="120"></input>
+							<button class="button button--compact" type="submit">2:00</button>
+						</form>
+						<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="seconds" value="180"></input>
+							<button class="button button--compact" type="submit">3:00</button>
+						</form>
+						<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="seconds" value="300"></input>
+							<button class="button button--compact" type="submit">5:00</button>
+						</form>
+					</div>
+					<form method="post" action={props.Actions.clock_duration} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+						<input class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
+						<button class="button button--compact" type="submit">Set duration</button>
+					</form>
+					<details class="draft-destructive-control">
+						<summary class="button button--compact button--ghost">Force current pick now</summary>
+						<form method="post" action={props.Actions.clock_autopick} data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="current_pick_token" value={props.Data.current_pick_token}></input>
+							<p>This immediately consumes the on-clock seat's Big Board target, or the best available player when its board is empty. It advances the draft even if the clock is paused.</p>
+							<label class="mono" for="draft-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
+							<input id="draft-force-current-pick-confirm" class="scoring-input" type="text" name="confirm" value={props.Data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
+							<button class="button button--compact button--ghost" type="submit">Confirm force current pick</button>
+						</form>
+					</details>
+					<details class="draft-destructive-control">
+						<summary class="button button--compact button--ghost">Undo last pick</summary>
+						<form method="post" action="/admin/__actions/draft-undo" data-gosx-managed="true" data-gosx-action-signal="$draft.state.refresh">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="previous_pick_token" value={props.Data.previous_pick_token}></input>
+							<label class="mono" for="draft-undo-confirm">TYPE UNDO //</label>
+							<input id="draft-undo-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="UNDO" required="required"></input>
+							<button class="button button--compact button--ghost" type="submit">Confirm undo</button>
+						</form>
+					</details>
+				</div>
+			</If>
+			<section class="draft-seat-controls" aria-label="Commissioner seat coverage">
+				<p class="draft-drawer__help">Presence is observational. AUTO is authority. HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
+				<Each of={props.Data.seat_controls} as="seat"><DraftSeatControl {...seat}></DraftSeatControl></Each>
+			</section>
+		</div>
+	</aside>
 }
 
 // DraftMobileTabs is the bottom radio-driven tab bar (mobile only, hidden
@@ -1325,8 +1371,8 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		<div class="draft-mine__needs">
 			<span class="idx">Roster needs</span>
 			<Each of={props.Data.roster_needs} as="need">
-				<If cond={need.open}><span class="need need-open">{need.label} {need.filled}/{need.total}</span></If>
-				<If cond={need.open == false}><span class="need need-full">{need.label} {need.filled}/{need.total}</span></If>
+				<If cond={need.open}><span class="need need--open">{need.label} {need.filled}/{need.total}</span></If>
+				<If cond={need.open == false}><span class="need need--full">{need.label} {need.filled}/{need.total}</span></If>
 			</Each>
 			<span class="mono draft-mine__autopick">
 				<If cond={props.Data.viewer_autopick}>AUTOPICK · ON</If>
