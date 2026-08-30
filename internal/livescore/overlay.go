@@ -19,25 +19,34 @@ type Resolver func(tank01ID, longName string) (league.Player, bool)
 func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve Resolver) []league.WeekStatLine {
 	live, ok := snapshot.Weeks[week]
 	if !ok {
-		return base
+		return append([]league.WeekStatLine(nil), base...) // a copy: never return the caller's own slice
 	}
 	inProgress := map[string]bool{}
+	inProgressGame := map[string]bool{}
 	for _, game := range snapshot.Games {
 		if game.Week == week && game.InProgress && !game.Final {
 			inProgress[game.Away], inProgress[game.Home] = true, true
+			inProgressGame[game.ID] = true
 		}
 	}
 	index := make(map[string]int, len(base))
 	out := make([]league.WeekStatLine, len(base))
 	copy(out, base)
 	for i, line := range out {
-		index[line.Key] = i
+		index[line.Key] = i // ledger sources deduplicate by key already; a duplicate key here would just leave the earlier row stale and unreachable
 	}
-	apply := func(key, team string, stats map[string]float64, final bool) {
+	apply := func(key, team, gameID string, stats map[string]float64, final bool) {
+		// Tank01 sometimes omits teamAbv, leaving team empty (round-2
+		// note 3); fall back to the game's own in-progress state so an
+		// empty team never reads as "not in progress" by default.
+		inProgressNow := inProgress[team]
+		if team == "" {
+			inProgressNow = inProgressGame[gameID]
+		}
 		line := league.WeekStatLine{Key: key, Stats: league.RuleStatsFromTank01(stats, final), Source: sourceFor(final)}
 		if at, seen := index[key]; seen {
 			switch {
-			case inProgress[team]:
+			case inProgressNow:
 				// live wins while the game runs
 			case final && ledgerBehind(out[at].Stats, line.Stats):
 				// the live side is final but the ledger mirror still holds a
@@ -52,19 +61,22 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 		index[key] = len(out)
 		out = append(out, line)
 	}
-	for _, line := range live.Lines {
-		player, ok := resolve(line.PlayerID, line.Name)
+	for _, row := range live.Lines {
+		player, ok := resolve(row.PlayerID, row.Name)
 		if !ok {
 			continue
 		}
-		apply(openstats.NormalizePlayerKey(player.Name, player.Position), line.Team, line.Stats, line.Final)
+		apply(openstats.NormalizePlayerKey(player.Name, player.Position), row.Team, row.GameID, row.Stats, row.Final)
 	}
 	for team, unit := range live.DST {
 		name, ok := DSTName(team)
 		if !ok {
 			continue
 		}
-		apply(openstats.NormalizePlayerKey(name, "DST"), team, unit.Stats, unit.Final)
+		// A D/ST unit's team comes from the box score's own map key, so
+		// it is never empty; the gameID fallback above never triggers,
+		// hence the empty literal here.
+		apply(openstats.NormalizePlayerKey(name, "DST"), team, "", unit.Stats, unit.Final)
 	}
 	return out
 }

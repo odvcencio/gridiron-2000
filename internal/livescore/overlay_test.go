@@ -39,8 +39,15 @@ func TestMergeLinesLiveWinsWhileTheGameIsInProgress(t *testing.T) {
 	if allen := byKey["joshallen|QB"]; allen.Source != league.StatSourceLive || allen.Stats["passYards"] != 55 || allen.Stats["passTD"] != 1 {
 		t.Fatalf("a stale zero ledger row beat the live row: %+v", allen)
 	}
-	if dst := byKey["billsdst|DST"]; dst.Source != league.StatSourceLive || dst.Stats["dstSack"] != 2 || dst.Stats["dstShutout"] != 0 {
+	dst := byKey["billsdst|DST"]
+	if dst.Source != league.StatSourceLive || dst.Stats["dstSack"] != 2 {
 		t.Fatalf("D/ST = %+v", dst)
+	}
+	// The comma-ok form proves the in-progress gate actually withholds
+	// the shutout key, rather than merely reading a map-miss zero value
+	// that would pass this check either way (round-2 note 12).
+	if _, ok := dst.Stats["dstShutout"]; ok {
+		t.Fatalf("an in-progress D/ST unit must not carry a shutout key: %+v", dst)
 	}
 	if _, ok := byKey["nobodyknown|QB"]; ok || len(merged) != 2 {
 		t.Fatalf("an unresolved name leaked or rows duplicated: %+v", merged)
@@ -93,5 +100,25 @@ func TestMergeLinesFinalLiveRowBeatsAPartialLedgerRow(t *testing.T) {
 	merged = MergeLines(complete, 1, finalSnapshot(300, 1), overlayResolver)
 	if len(merged) != 1 || merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 394 {
 		t.Fatalf("a stale-looking final live row beat a complete ledger row: %+v", merged)
+	}
+}
+
+// TestMergeLinesFallsBackToGameIDWhenTeamIsEmpty covers round-2 note 3:
+// Tank01 sometimes omits teamAbv, leaving Line.Team empty. The overlay
+// must still recognize the player's game as in progress by GameID, or a
+// stale ledger row would win by default.
+func TestMergeLinesFallsBackToGameIDWhenTeamIsEmpty(t *testing.T) {
+	snapshot := Snapshot{Version: 1,
+		Weeks: map[int]WeekLines{1: {
+			Lines: []Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "", GameID: "g1", Stats: map[string]float64{"passYds": 55}, Final: false},
+			},
+		}},
+		Games: map[string]GameState{"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", Period: "Q2", InProgress: true, Final: false}},
+	}
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 0}, Source: league.StatSourceLedger}}
+	merged := MergeLines(base, 1, snapshot, overlayResolver)
+	if len(merged) != 1 || merged[0].Source != league.StatSourceLive || merged[0].Stats["passYards"] != 55 {
+		t.Fatalf("an empty-team live line lost to a stale ledger row: %+v", merged)
 	}
 }

@@ -7,11 +7,16 @@ import (
 	"gridiron-2000/internal/fantasy"
 )
 
-// Line is one live player row in Tank01 stat keys.
+// Line is one live player row in Tank01 stat keys. GameID is the schedule
+// game ID (Game.ID, the same key snapshot.Games uses): Tank01 sometimes
+// omits teamAbv, leaving Team empty, so the overlay's in-progress decision
+// needs a fallback that does not depend on Team being set (round-2 note
+// 3).
 type Line struct {
 	PlayerID string
 	Name     string
-	Team     string // nflverse abbreviation
+	Team     string // nflverse abbreviation; may be empty (Tank01 sometimes omits teamAbv)
+	GameID   string // Game.ID / GameState key, for the empty-Team fallback
 	Stats    map[string]float64
 	Final    bool
 }
@@ -58,12 +63,19 @@ type Health struct {
 	Degraded         bool
 	Reason           string
 	Failures         int
+	ListingFailures  int
 	BudgetUsed       int
 	BudgetLimit      int
 	CircuitOpenUntil time.Time
 	LastSuccess      time.Time
 	LastError        string
 	InWindow         int
+	// Unmatched and UnmatchedGames are the in-window games the last tick
+	// could not map to a Tank01 listing (round-2 note 1) — a schedule row
+	// with no counterpart in the fetched listing, so it was never
+	// fetched at all.
+	Unmatched      int
+	UnmatchedGames []string
 }
 
 // SnapshotFromBoxScores builds the shape Poller.Snapshot returns from parsed
@@ -88,7 +100,7 @@ func addBoxToSnapshot(out *Snapshot, game Game, box fantasy.BoxScore, at time.Ti
 		for k, v := range line.Stats {
 			stats[k] = v
 		}
-		week.Lines = append(week.Lines, Line{PlayerID: playerID, Name: line.Name, Team: NormalizeTeam(line.Team), Stats: stats, Final: box.Final})
+		week.Lines = append(week.Lines, Line{PlayerID: playerID, Name: line.Name, Team: NormalizeTeam(line.Team), GameID: game.ID, Stats: stats, Final: box.Final})
 	}
 	for team, unit := range box.DST {
 		stats := make(map[string]float64, len(unit))

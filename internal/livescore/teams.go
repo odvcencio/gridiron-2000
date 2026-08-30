@@ -14,9 +14,11 @@ func NormalizeTeam(abbr string) string {
 	return upper
 }
 
-// dstNames maps an nflverse abbreviation to the pool's D/ST display name
-// (moved here from main.go's dstNicknames so the overlay and the render
-// fixtures share one table; no import cycle: league never imports this).
+// dstNames maps an nflverse abbreviation to the pool's D/ST display name.
+// This is a duplicate, not a move (round-2 review of commit 914549a
+// corrected that claim): main.go:400-411 (dstNicknames) keeps its own
+// copy until Task 5 switches dstWeekStatLines to call DSTName instead and
+// deletes it.
 var dstNames = map[string]string{
 	"ARI": "Cardinals D/ST", "ATL": "Falcons D/ST", "BAL": "Ravens D/ST", "BUF": "Bills D/ST",
 	"CAR": "Panthers D/ST", "CHI": "Bears D/ST", "CIN": "Bengals D/ST", "CLE": "Browns D/ST",

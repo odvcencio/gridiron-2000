@@ -23,7 +23,13 @@ type Fetcher interface {
 const (
 	circuitOpenFor   = 60 * time.Second
 	failureThreshold = 3
-	listingCacheFor  = 24 * time.Hour
+	// listingCacheFor is short (round-2 note 1): a week's listing can gain
+	// a game (a flex move, a postponement) while that week is still being
+	// polled, and 24h was long enough to hide that for an entire live
+	// Sunday. Every call site only ever asks for a week with a game
+	// currently inside the poll window (see Tick's weeks set), so this
+	// applies exactly while note 1 says it should.
+	listingCacheFor = 15 * time.Minute
 )
 
 type gameRecord struct {
@@ -46,19 +52,33 @@ type Poller struct {
 	schedule ScheduleSource
 	eastern  *time.Location
 
-	mu          sync.Mutex
-	version     int64
-	games       map[string]gameRecord // schedule game ID -> last box score
-	finalDone   map[string]bool       // schedule game ID -> final fetched
-	listings    map[int][]fantasy.GameListing
-	listingsAt  map[int]time.Time
-	failures    int
-	circuitOpen time.Time
-	budgetDate  string
-	budgetUsed  int
-	lastSuccess time.Time
-	lastError   string
-	inWindow    int
+	mu         sync.Mutex
+	version    int64
+	games      map[string]gameRecord // schedule game ID -> last box score
+	finalDone  map[string]bool       // schedule game ID -> final fetched
+	listings   map[int][]fantasy.GameListing
+	listingsAt map[int]time.Time
+	// failures counts consecutive FetchBoxScore errors; listingFailures
+	// counts consecutive FetchGamesForWeek errors, kept apart (round-2
+	// note 7) so a relay that keeps serving boxes but keeps failing every
+	// listing still reports degraded — record()'s reset on a successful
+	// box fetch would otherwise mask a persistently broken listing
+	// endpoint every time a box fetch happened to succeed in between.
+	failures         int
+	lastError        string
+	listingFailures  int
+	lastListingError string
+	circuitOpen      time.Time
+	budgetDate       string
+	budgetUsed       int
+	lastSuccess      time.Time
+	inWindow         int
+	// unmatched and unmatchedGames are the in-window games Tick could not
+	// map to a Tank01 listing this tick (round-2 note 1): a schedule row
+	// with no counterpart in matchGames's output, so it is never fetched
+	// at all. That is silent unless surfaced through Health.
+	unmatched      int
+	unmatchedGames []string
 }
 
 func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
@@ -73,6 +93,9 @@ func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = 4
+	}
+	if cfg.DailyBudget < 0 { // round-2 note 4: a negative budget reads as unlimited, same as 0
+		cfg.DailyBudget = 0
 	}
 	eastern, err := time.LoadLocation("America/New_York")
 	if err != nil {
@@ -113,8 +136,10 @@ func (p *Poller) Health() Health {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := p.cfg.Now()
-	h := Health{Enabled: p.cfg.Enabled, Failures: p.failures, BudgetUsed: p.budgetUsed, BudgetLimit: p.cfg.DailyBudget,
-		CircuitOpenUntil: p.circuitOpen, LastSuccess: p.lastSuccess, LastError: p.lastError, InWindow: p.inWindow}
+	h := Health{Enabled: p.cfg.Enabled, Failures: p.failures, ListingFailures: p.listingFailures,
+		BudgetUsed: p.budgetUsed, BudgetLimit: p.cfg.DailyBudget,
+		CircuitOpenUntil: p.circuitOpen, LastSuccess: p.lastSuccess, LastError: p.lastError,
+		InWindow: p.inWindow, Unmatched: p.unmatched, UnmatchedGames: append([]string(nil), p.unmatchedGames...)}
 	switch {
 	case !p.cfg.Enabled:
 		h.Degraded, h.Reason = true, "disabled"
@@ -124,6 +149,10 @@ func (p *Poller) Health() Health {
 		h.Degraded, h.Reason = true, "daily budget exhausted"
 	case p.failures >= failureThreshold:
 		h.Degraded, h.Reason = true, fmt.Sprintf("%d relay failures in a row", p.failures)
+	case p.listingFailures >= failureThreshold:
+		h.Degraded, h.Reason = true, fmt.Sprintf("%d listing failures in a row", p.listingFailures)
+	case p.unmatched > 0:
+		h.Degraded, h.Reason = true, fmt.Sprintf("%d games in window have no Tank01 listing", p.unmatched)
 	}
 	return h
 }
@@ -157,21 +186,28 @@ func (p *Poller) Tick(ctx context.Context) {
 	}
 	p.mu.Lock()
 	p.inWindow = len(targets)
+	p.unmatched, p.unmatchedGames = 0, nil
 	p.mu.Unlock()
 	if len(targets) == 0 {
 		return
 	}
-	// listingsFor's FetchGamesForWeek calls are not charged against
-	// chargeBudget: the daily budget models the box-score fetch volume a
-	// live Sunday drives (one per in-window game per tick), while a week
-	// listing is cached for listingCacheFor and, bounded by weeks in
-	// play, is fetched at most a handful of times a day regardless of
-	// tick cadence.
 	var listings []fantasy.GameListing
 	for week := range weeks {
 		listings = append(listings, p.listingsFor(ctx, week, now)...)
 	}
 	matched := matchGames(targets, listings, p.eastern)
+	var unmatchedGames []string
+	for _, game := range targets {
+		if _, ok := matched[game.ID]; !ok {
+			unmatchedGames = append(unmatchedGames, game.ID)
+		}
+	}
+	if len(unmatchedGames) > 0 {
+		p.cfg.Logf("livescore: %d games in window have no Tank01 listing: %v", len(unmatchedGames), unmatchedGames)
+	}
+	p.mu.Lock()
+	p.unmatched, p.unmatchedGames = len(unmatchedGames), unmatchedGames
+	p.mu.Unlock()
 	sem := make(chan struct{}, p.cfg.MaxInflight)
 	var wg sync.WaitGroup
 	changed := false
@@ -181,7 +217,7 @@ func (p *Poller) Tick(ctx context.Context) {
 		if !ok {
 			continue
 		}
-		if !p.chargeBudget(now) {
+		if !p.budgetRemaining(now) {
 			break
 		}
 		wg.Add(1)
@@ -194,7 +230,13 @@ func (p *Poller) Tick(ctx context.Context) {
 				p.recordFailure(err, now)
 				return
 			}
-			if p.record(game, box, now) {
+			// Charge the budget only once the fetch is actually recorded
+			// (round-2 note 2): a relay outage must not burn the day's
+			// budget on failed attempts and mask the real fault behind a
+			// false "daily budget exhausted" reason.
+			recordChanged := p.record(game, box, now)
+			p.chargeBudget(now)
+			if recordChanged {
 				changedMu.Lock()
 				changed = true
 				changedMu.Unlock()
@@ -232,41 +274,77 @@ func (p *Poller) listingsFor(ctx context.Context, week int, now time.Time) []fan
 	if len(cached) > 0 && now.Sub(at) < listingCacheFor {
 		return cached
 	}
+	// "reg": the live poller only ever polls regular-season weeks.
 	fetched, err := p.fetcher.FetchGamesForWeek(ctx, "reg", fmt.Sprint(week))
 	if err != nil {
-		p.recordFailure(err, now)
+		p.recordListingFailure(err, now)
 		return cached
 	}
 	p.mu.Lock()
 	p.listings[week], p.listingsAt[week] = fetched, now
+	p.listingFailures, p.lastListingError = 0, ""
 	p.mu.Unlock()
 	return fetched
 }
 
-func (p *Poller) chargeBudget(now time.Time) bool {
+// budgetRemaining reports whether today's fetch budget still has room,
+// rolling the counter over first if the UTC date has changed. It never
+// charges: chargeBudget does that, and only after a fetch is recorded
+// (round-2 note 2), so this is a read-only gate on whether Tick should
+// even attempt another fetch this pass.
+func (p *Poller) budgetRemaining(now time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.rolloverBudget(now)
+	return p.cfg.DailyBudget <= 0 || p.budgetUsed < p.cfg.DailyBudget
+}
+
+// chargeBudget records one successful, recorded fetch against today's
+// budget. Callers must call it only after record succeeds, never merely
+// after a fetch is attempted.
+func (p *Poller) chargeBudget(now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.rolloverBudget(now)
+	p.budgetUsed++
+}
+
+// rolloverBudget resets the daily counter when the UTC day has changed.
+// Callers hold p.mu already.
+func (p *Poller) rolloverBudget(now time.Time) {
 	today := now.UTC().Format("20060102")
 	if p.budgetDate != today {
 		p.budgetDate, p.budgetUsed = today, 0
 	}
-	if p.cfg.DailyBudget > 0 && p.budgetUsed >= p.cfg.DailyBudget {
-		return false
-	}
-	p.budgetUsed++
-	return true
 }
 
+// recordFailure tracks one failed FetchBoxScore call.
 func (p *Poller) recordFailure(err error, now time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.failures++
 	p.lastError = err.Error()
+	p.openCircuitOnRateLimit(err, now)
+	p.cfg.Logf("livescore: fetch failed: %v", err)
+}
+
+// recordListingFailure tracks one failed FetchGamesForWeek call, apart
+// from box-score failures (round-2 note 7); see the Poller field comment.
+func (p *Poller) recordListingFailure(err error, now time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.listingFailures++
+	p.lastListingError = err.Error()
+	p.openCircuitOnRateLimit(err, now)
+	p.cfg.Logf("livescore: listing fetch failed: %v", err)
+}
+
+// openCircuitOnRateLimit opens the 429 circuit. Callers hold p.mu already.
+func (p *Poller) openCircuitOnRateLimit(err error, now time.Time) {
 	var status *fantasy.HTTPStatusError
 	if errors.As(err, &status) && status.Status == 429 {
 		p.circuitOpen = now.Add(circuitOpenFor)
 	}
-	p.cfg.Logf("livescore: fetch failed: %v", err)
 }
 
 // record stores one box score and reports whether its content changed.

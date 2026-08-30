@@ -3,6 +3,7 @@ package livescore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,13 +22,14 @@ func mustEastern() *time.Location {
 }
 
 type fakeFetcher struct {
-	mu       sync.Mutex
-	boxes    map[string]fantasy.BoxScore
-	listings []fantasy.GameListing
-	err      error
-	calls    int
-	inflight int
-	peak     int
+	mu         sync.Mutex
+	boxes      map[string]fantasy.BoxScore
+	listings   []fantasy.GameListing
+	err        error
+	listingErr error
+	calls      int
+	inflight   int
+	peak       int
 }
 
 func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
@@ -50,7 +52,13 @@ func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy
 }
 
 func (f *fakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error) {
-	return f.listings, nil
+	f.mu.Lock()
+	err, listings := f.listingErr, f.listings
+	f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return listings, nil
 }
 
 func (f *fakeFetcher) count() int {
@@ -189,8 +197,16 @@ func TestBudgetCircuitAndKillSwitch(t *testing.T) {
 	if h := poller.Health(); !h.Degraded || h.Failures < 3 || !strings.HasSuffix(h.Reason, "relay failures in a row") {
 		t.Fatalf("health after failures = %+v", h)
 	}
+	// Budget is now charged only after a successful record (round-2 note
+	// 2), so none of the 429/failure ticks above moved BudgetUsed. One
+	// successful tick establishes a real, nonzero BudgetUsed to cap.
 	fetcher.err = nil
-	poller.cfg.DailyBudget = fetcher.count()
+	poller.Tick(context.Background())
+	usedAfterOneTick := poller.Health().BudgetUsed
+	if usedAfterOneTick == 0 {
+		t.Fatalf("a successful tick did not charge the budget: %+v", poller.Health())
+	}
+	poller.cfg.DailyBudget = usedAfterOneTick
 	poller.Tick(context.Background())
 	if h := poller.Health(); !h.Degraded || h.Reason != "daily budget exhausted" {
 		t.Fatalf("health at budget = %+v", h)
@@ -257,14 +273,119 @@ func TestRunStopsEveryGoroutineWhenItsContextIsCanceled(t *testing.T) {
 		t.Fatal("Run did not return after its context was canceled")
 	}
 
+	// A small positive slack (round-2 note 5) absorbs goroutines runtime
+	// bookkeeping (GC workers, the test binary's own background work) may
+	// transiently add around this point; the done-channel wait above is
+	// what actually proves Run's own goroutines stopped.
 	deadline := time.Now().Add(time.Second)
 	for {
 		runtime.GC()
-		if after := runtime.NumGoroutine(); after <= before {
+		if after := runtime.NumGoroutine(); after <= before+2 {
 			return
 		} else if time.Now().After(deadline) {
 			t.Fatalf("goroutines leaked after Run returned: before=%d after=%d", before, after)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestUnmatchedInWindowGameIsCountedAndClearsOnRefresh covers round-2
+// note 1: a game inside the poll window with no counterpart in the
+// fetched Tank01 listing is counted, reported through Health, and clears
+// once a refreshed listing picks it up.
+func TestUnmatchedInWindowGameIsCountedAndClearsOnRefresh(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{
+		listings: []fantasy.GameListing{{ID: "20250907_HOU@LAR", Date: "20250907", Away: "HOU", Home: "LAR"}},
+		boxes: map[string]fantasy.BoxScore{
+			"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+		},
+	}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background())
+	h := poller.Health()
+	if h.Unmatched != 1 || len(h.UnmatchedGames) != 1 || h.UnmatchedGames[0] != "2025_01_BAL_BUF" {
+		t.Fatalf("unmatched after a listing omits a game = %+v", h)
+	}
+	if !h.Degraded || h.Reason != "1 games in window have no Tank01 listing" {
+		t.Fatalf("health did not report the unmatched game: %+v", h)
+	}
+
+	now = now.Add(16 * time.Minute) // past the 15-minute listing cache
+	fetcher.listings = fixtureListings()
+	fetcher.boxes["20250907_BAL@BUF"] = fantasy.BoxScore{GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}
+	poller.Tick(context.Background())
+	if h := poller.Health(); h.Unmatched != 0 || len(h.UnmatchedGames) != 0 {
+		t.Fatalf("unmatched did not clear after the listing caught up: %+v", h)
+	}
+}
+
+// TestBudgetIsChargedOnlyAfterASuccessfulRecord covers round-2 note 2: a
+// relay outage must not burn the day's budget on attempts that never
+// succeed, and a falsely exhausted budget must not block a real attempt.
+func TestBudgetIsChargedOnlyAfterASuccessfulRecord(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), err: errors.New("relay unavailable")}
+	cfg := Config{Enabled: true, MaxInflight: 2, DailyBudget: 1, Season: 2025, Now: func() time.Time { return now }}
+	poller := New(cfg, fetcher, func() []Game { return fixtureSchedule() })
+
+	poller.Tick(context.Background())
+	if h := poller.Health(); h.BudgetUsed != 0 {
+		t.Fatalf("a relay outage charged the budget: %+v", h)
+	}
+	if fetcher.count() != 2 {
+		t.Fatalf("a falsely exhausted budget blocked an attempt: calls = %d", fetcher.count())
+	}
+
+	fetcher.err = nil
+	poller.Tick(context.Background())
+	if h := poller.Health(); h.BudgetUsed == 0 {
+		t.Fatal("a successful record did not charge the budget")
+	}
+}
+
+// TestNewClampsANegativeDailyBudgetToUnlimited covers round-2 note 4.
+func TestNewClampsANegativeDailyBudgetToUnlimited(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	cfg := Config{Enabled: true, MaxInflight: 2, DailyBudget: -5, Season: 2025, Now: func() time.Time { return now }}
+	poller := New(cfg, fetcher, func() []Game { return fixtureSchedule() })
+	poller.Tick(context.Background())
+	if h := poller.Health(); h.Degraded || h.BudgetLimit != 0 {
+		t.Fatalf("a negative daily budget was not clamped to unlimited: %+v", h)
+	}
+	if fetcher.count() != 2 {
+		t.Fatalf("a negative daily budget blocked fetches: calls = %d", fetcher.count())
+	}
+}
+
+// TestListingFailuresDegradeIndependentlyOfBoxScoreSuccesses covers
+// round-2 note 7: a relay that keeps serving box scores must still report
+// degraded if its listing endpoint keeps failing, even though a
+// successful box-score record resets the box-score failure counter every
+// time.
+func TestListingFailuresDegradeIndependentlyOfBoxScoreSuccesses(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background()) // primes a working, cached listing
+
+	fetcher.listingErr = errors.New("listing outage")
+	now = now.Add(16 * time.Minute) // past the 15-minute listing cache; listingsAt never advances on failure
+	for i := 0; i < 3; i++ {
+		poller.Tick(context.Background())
+	}
+	h := poller.Health()
+	if !h.Degraded || h.ListingFailures < 3 || h.Reason != fmt.Sprintf("%d listing failures in a row", h.ListingFailures) {
+		t.Fatalf("a persistently failing listing endpoint did not degrade even though box fetches kept succeeding: %+v", h)
+	}
+	if h.Failures != 0 {
+		t.Fatalf("listing failures leaked into the box-score failure counter: %+v", h)
 	}
 }
