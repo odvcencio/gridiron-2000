@@ -651,25 +651,33 @@ for the four states, precedence, and the kill-switch procedure this section's
 drill exercises. Perform these steps in order; each step is a separate,
 explicit action, never a batch.
 
-1. **Move the RapidAPI subscription to the Mega tier and set the budgets.**
-   Before turning the flag on anywhere, the owner sets `LIVE_DAILY_BUDGET`
-   (per app instance) and `STATRELAY_DAILY_BUDGET` (the shared relay) to the
-   Mega tier's daily allowance minus pool-sync and Blitz usage. Arithmetic to
-   check: one relay upstream call per in-progress game per 4 s TTL, so
-   900 calls/h per game (3600 s ÷ 4 s), and a 13-game Sunday costs about
-   13 games × 3.5 h × 900 calls/h ≈ 41,000 relay calls; instance-side fetches every
-   `LIVE_POLL_INTERVAL` never reach upstream when the relay entry is still
-   fresh. `deploy/k8s/statrelay.yaml`'s tracked `STATRELAY_DAILY_BUDGET:
-   "60000"` is a placeholder above that estimate, not a confirmed Mega-tier
-   value; do not apply the manifest as tracked without setting both budgets
-   after the tier change.
+1. **Verified Ultra quota and the layered budgets.** The RapidAPI Tank01
+   Ultra listing (the plan ceiling; no higher tier) caps at 15,000
+   requests/day, soft-limited — RapidAPI bills overage at $0.01/request
+   instead of blocking, and returns no `429` on overage, so the app's own
+   429 circuit breaker never fires there; `STATRELAY_DAILY_BUDGET` is the
+   real wallet guard. The three-layer polling design
+   (season-operations.md's Game day section) replaces the old blanket
+   per-game poll: a scoreboard tick (`LIVE_SCOREBOARD_INTERVAL`, default
+   `10s`, only while a game is inside its own poll window) resolves Tank01
+   IDs; a baseline (`LIVE_BOX_BASELINE`, default `60s`) fetches each
+   in-progress game's box at minimum; a Signal Wire trigger fetches a
+   named team's game at once, bounded to one triggered fetch per game per
+   10s. The tracked defaults are: `LIVE_DAILY_BUDGET=5000` per app
+   instance (box-score fetches only — a games-list call is never charged
+   against it) and `STATRELAY_DAILY_BUDGET=10000` on the shared relay
+   (`deploy/k8s/statrelay.yaml`), both real values against the verified
+   quota, not placeholders. `LIVE_POLL_INTERVAL` is the deprecated alias
+   for `LIVE_SCOREBOARD_INTERVAL`; no tracked manifest sets it.
 2. **Deploy `statrelay` first**, to the `gridiron` namespace. Confirm the
    `X-Statrelay-Budget-Remaining` response header on a manual `curl` against
    any relayed endpoint — the header appears only once a budget is set.
-3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`
-   (the Stable Kernel league did not form for 2026, so flagship is the only
-   live instance and there is no canary). Confirm `/api/health` and that the
-   Matchups status line reads `LEDGER`.
+3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`.
+   The Stable Kernel league did not form for 2026, so flagship is the only
+   live instance; its own canary is temporal, not a second instance — step 5
+   enables it for the Thursday Night Football window first, watched closely,
+   before the full Sunday slate. Confirm `/api/health` and that the Matchups
+   status line reads `LEDGER`.
 4. **Rehearse the replay locally first** (`LIVE_SCORING_ENABLED=true
    LIVE_REPLAY_FIXTURE=<dir> LIVE_REPLAY_STEP=1s go run .`, watch `/matchups`
    in a browser), then **on flagship** with `LIVE_REPLAY_FIXTURE` mounted from
@@ -679,13 +687,17 @@ explicit action, never a batch.
    the league schedule with the replay's one game) for 15 minutes, outside
    any real game window. Remove the fixture and the override afterward and
    confirm the status line returns to `LEDGER`.
-5. **TNF kill-switch drill.** On the first live regular-season Thursday
-   Night Football kickoff, flip `LIVE_SCORING_ENABLED=true` on flagship
-   30 minutes before kickoff. Record the live `gameStatusCode` from one
-   relay response to confirm the status-code rule (`"2"` final, `"1"` in
-   progress, `"0"`/`""` pre-game, any other code with a non-empty
-   `currentPeriod` treated as in progress). One hour after kickoff, run the
-   kill-switch drill on flagship: set the flag to `false`, roll the pod,
+5. **TNF window as the canary, then the kill-switch drill.** On the first
+   live regular-season Thursday Night Football kickoff, flip
+   `LIVE_SCORING_ENABLED=true` on flagship 30 minutes before kickoff. This
+   Thursday window is flagship's own canary — a bounded, watched enablement
+   before the full Sunday slate — standing in for the Stable Kernel canary
+   the design originally assumed, since that second instance did not form
+   for 2026. Record the live `gameStatusCode` from one relay response to
+   confirm the status-code rule (`"2"` final, `"1"` in progress, `"0"`/`""`
+   pre-game, any other code with a non-empty `currentPeriod` treated as in
+   progress). One hour after kickoff, run the kill-switch drill on flagship:
+   set the flag to `false`, roll the pod,
    confirm `LEDGER` on the status line within 60 s, set it back to `true`,
    confirm `LIVE` within 60 s. Log the drill below. The status line reads
    `LEDGER`, not `PAUSED · disabled`, because the flag is read only at
