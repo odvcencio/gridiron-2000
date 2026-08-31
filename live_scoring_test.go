@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/openstats"
+	"gridiron-2000/internal/wire"
 )
 
 func TestLiveStatusSourceMapsGamesToBothTeams(t *testing.T) {
@@ -197,7 +199,7 @@ func TestBuildLiveScoringWiresFreshenSnapshotIntoWeekStatsSeam(t *testing.T) {
 
 	rt := &AppRuntime{}
 	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2026}
-	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, rt)
+	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, nil, rt)
 	t.Cleanup(func() {
 		lg.SetWeekStatsSource(nil)
 		lg.SetLiveStatusSource(nil)
@@ -508,4 +510,186 @@ func TestLiveScoringInputsUsesReplayInLocalAppEnv(t *testing.T) {
 	if rt.Live == nil || rt.Live.Replay == nil {
 		t.Fatalf("a local APP_ENV must run replay mode without any override: %+v", rt.Live)
 	}
+}
+
+// wireTriggerFakeFetcher counts FetchBoxScore calls per Tank01 game ID so
+// the wire-trigger tests below can assert a triggered fetch actually
+// reached the fetcher, and reached only the named game.
+type wireTriggerFakeFetcher struct {
+	mu       sync.Mutex
+	listings []fantasy.GameListing
+	boxes    map[string]fantasy.BoxScore
+	calls    map[string]int
+}
+
+func (f *wireTriggerFakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
+	f.mu.Lock()
+	if f.calls == nil {
+		f.calls = map[string]int{}
+	}
+	f.calls[gameID]++
+	f.mu.Unlock()
+	return f.boxes[gameID], nil
+}
+
+func (f *wireTriggerFakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error) {
+	return f.listings, nil
+}
+
+func (f *wireTriggerFakeFetcher) count(gameID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[gameID]
+}
+
+// waitForCount polls until fetcher has recorded at least want calls for
+// gameID, or fails the test after a short deadline. TriggerBoxFetch's
+// wire-trigger caller (wireBoxFetchTrigger) fires in its own goroutine,
+// so the fetch is never guaranteed to have landed the instant the
+// callback returns.
+func waitForCount(t *testing.T, fetcher *wireTriggerFakeFetcher, gameID string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if fetcher.count(gameID) >= want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s calls = %d, want at least %d", gameID, fetcher.count(gameID), want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// wireTriggerFixtureSchedule matches poller_test.go's own fixtureSchedule
+// shape (one in-window BAL@BUF game) closely enough for these tests
+// without importing the internal/livescore test file.
+func wireTriggerFixtureSchedule(kickoff time.Time) []livescore.Game {
+	return []livescore.Game{{ID: "2026_01_BAL_BUF", Week: 1, Kickoff: kickoff, Away: "BAL", Home: "BUF"}}
+}
+
+// wireTriggerListingDate formats kickoff the same way matchGames
+// (internal/livescore/match.go) does internally — America/New_York, not
+// the test process's own local zone — so the fixture listing's Date
+// always matches regardless of where `go test` runs.
+func wireTriggerListingDate(kickoff time.Time) string {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		eastern = time.UTC
+	}
+	return kickoff.In(eastern).Format("20060102")
+}
+
+// TestWireBoxFetchTriggerFetchesTheNamedTeamsGame covers the seam's happy
+// path: a Touchdown-category signal naming a team with a game in progress
+// (livescore.TeamMentioned's alias match) triggers exactly one box fetch
+// for that game.
+func TestWireBoxFetchTriggerFetchesTheNamedTeamsGame(t *testing.T) {
+	kickoff := time.Now().Add(-30 * time.Minute)
+	fetcher := &wireTriggerFakeFetcher{
+		listings: []fantasy.GameListing{{ID: "tank-BAL-BUF", Date: wireTriggerListingDate(kickoff), Away: "BAL", Home: "BUF"}},
+		boxes:    map[string]fantasy.BoxScore{"tank-BAL-BUF": {GameID: "tank-BAL-BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}},
+	}
+	cfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year(), Now: time.Now}
+	poller := livescore.New(cfg, fetcher, func() []livescore.Game { return wireTriggerFixtureSchedule(kickoff) })
+	poller.Tick(context.Background()) // resolves tank01ID/trackedGame
+
+	trigger := wireBoxFetchTrigger(poller)
+	trigger(wire.Signal{Category: wire.CategoryTouchdown, Text: "TOUCHDOWN Bills!!"})
+	waitForCount(t, fetcher, "tank-BAL-BUF", 2) // 1 from Tick's own first sighting, 1 from the trigger
+}
+
+// TestWireBoxFetchTriggerIgnoresANonTriggerCategory covers the category
+// boundary: a signal outside triggerCategories (an injury report naming
+// the same in-progress team) must never reach the fetcher.
+func TestWireBoxFetchTriggerIgnoresANonTriggerCategory(t *testing.T) {
+	kickoff := time.Now().Add(-30 * time.Minute)
+	fetcher := &wireTriggerFakeFetcher{
+		listings: []fantasy.GameListing{{ID: "tank-BAL-BUF", Date: wireTriggerListingDate(kickoff), Away: "BAL", Home: "BUF"}},
+		boxes:    map[string]fantasy.BoxScore{"tank-BAL-BUF": {GameID: "tank-BAL-BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}},
+	}
+	cfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year(), Now: time.Now}
+	poller := livescore.New(cfg, fetcher, func() []livescore.Game { return wireTriggerFixtureSchedule(kickoff) })
+	poller.Tick(context.Background())
+	before := fetcher.count("tank-BAL-BUF")
+
+	trigger := wireBoxFetchTrigger(poller)
+	trigger(wire.Signal{Category: "injury", Text: "Bills WR questionable"})
+	time.Sleep(50 * time.Millisecond) // give a wrongly-spawned goroutine a chance to land
+	if got := fetcher.count("tank-BAL-BUF"); got != before {
+		t.Fatalf("a non-trigger category reached the fetcher: calls = %d, want %d", got, before)
+	}
+}
+
+// TestWireBoxFetchTriggerIgnoresATeamWithNoGameInProgress covers the
+// team-resolution boundary: a Touchdown signal naming a team with no
+// tracked in-progress game must never reach the fetcher.
+func TestWireBoxFetchTriggerIgnoresATeamWithNoGameInProgress(t *testing.T) {
+	kickoff := time.Now().Add(-30 * time.Minute)
+	fetcher := &wireTriggerFakeFetcher{
+		listings: []fantasy.GameListing{{ID: "tank-BAL-BUF", Date: wireTriggerListingDate(kickoff), Away: "BAL", Home: "BUF"}},
+		boxes:    map[string]fantasy.BoxScore{"tank-BAL-BUF": {GameID: "tank-BAL-BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}},
+	}
+	cfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year(), Now: time.Now}
+	poller := livescore.New(cfg, fetcher, func() []livescore.Game { return wireTriggerFixtureSchedule(kickoff) })
+	poller.Tick(context.Background())
+	before := fetcher.count("tank-BAL-BUF")
+
+	trigger := wireBoxFetchTrigger(poller)
+	trigger(wire.Signal{Category: wire.CategoryTouchdown, Text: "Chiefs punch it in"})
+	time.Sleep(50 * time.Millisecond)
+	if got := fetcher.count("tank-BAL-BUF"); got != before {
+		t.Fatalf("a signal naming an untracked team reached the fetcher: calls = %d, want %d", got, before)
+	}
+}
+
+// TestBuildLiveScoringRegistersTheWireTriggerEndToEnd covers the full
+// seam wired through buildLiveScoring: a real wire.Service ingests a
+// jetstream touchdown post naming the in-progress game's team, and the
+// registered callback reaches the poller's fetcher without any direct
+// call between the two packages in the test itself.
+func TestBuildLiveScoringRegistersTheWireTriggerEndToEnd(t *testing.T) {
+	lg := league.Default()
+	kickoff := time.Now().Add(-30 * time.Minute)
+	lg.SetScheduleSource(func() []league.GameInfo {
+		return []league.GameInfo{{ID: "2026_01_BAL_BUF", Week: 1, Kickoff: kickoff, Away: "BAL", Home: "BUF"}}
+	})
+	t.Cleanup(func() { lg.SetScheduleSource(nil) })
+	stats := seamTestOpenStats(t, time.Now().Year())
+
+	fetcher := &wireTriggerFakeFetcher{
+		listings: []fantasy.GameListing{{ID: "tank-BAL-BUF", Date: wireTriggerListingDate(kickoff), Away: "BAL", Home: "BUF"}},
+		boxes:    map[string]fantasy.BoxScore{"tank-BAL-BUF": {GameID: "tank-BAL-BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}},
+	}
+	signalFeed, err := wire.NewService(wire.Config{Root: t.TempDir(), Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rt := &AppRuntime{}
+	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year()}
+	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, signalFeed, rt)
+	t.Cleanup(func() {
+		lg.SetWeekStatsSource(nil)
+		lg.SetLiveStatusSource(nil)
+		lg.SetLiveVersionSource(nil)
+	})
+	liveRuntime.Poller.Tick(context.Background()) // resolves tank01ID/trackedGame
+
+	create := fmt.Sprintf(`{
+		"did":"did:plc:reporter",
+		"time_us":%d,
+		"kind":"commit",
+		"commit":{
+			"operation":"create",
+			"collection":"app.bsky.feed.post",
+			"rkey":"post1",
+			"cid":"cid1",
+			"record":{"$type":"app.bsky.feed.post","text":"TOUCHDOWN Buffalo!","createdAt":"%s"}
+		}
+	}`, time.Now().UnixMicro(), time.Now().UTC().Format(time.RFC3339))
+	if _, err := signalFeed.IngestJSON([]byte(create)); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	waitForCount(t, fetcher, "tank-BAL-BUF", 2) // 1 from Tick's own first sighting, 1 from the trigger
 }
