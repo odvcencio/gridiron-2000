@@ -224,6 +224,7 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 - The player pool shows an `H###` label beside the market rank, for example `H001` for the top house-ranked player.
 - A zero-projection player carries no house rank and shows no `H###` label.
 - Autopick selects from house order. The player pool and the draft-room board still sort by market ADP.
+- Autopick fills open starter slots first, best player available by house rank. It takes a kicker, a defense/special teams unit, or a punter only when its remaining picks require one.
 - The house-rank model counts starter demand only. It carries no bench-depth term.
 
 ### Trades

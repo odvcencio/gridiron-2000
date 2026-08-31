@@ -255,3 +255,59 @@ func TestAutopickScarcityGuardAcrossSixSupplyShapes(t *testing.T) {
 		}
 	}
 }
+
+// TestAutopickDefersSpecialistsUntilRosterMathRequiresThem is the owner
+// directive's own regression test (2026-08-31: "auto pick late should
+// pick BPA ... according to remaining holes"): a full board-less
+// forced-autopick draft under gridiron-house/8, over shape 2's own pool
+// (the offline demo pool topped up with a punter supply, scarcityProbeShapes'
+// "OfflinePool raw x gridiron-house/8"). For every seat, every K/DST/P
+// selection must happen only once no non-specialist (QB/RB/WR/TE) was
+// still legally draftable (draftCandidateKeepsRosterViable) for that seat
+// at the instant of the pick — equivalently, only in that seat's final
+// required picks. Revert proof: with Pass C's deferral removed (letting
+// Pass A/B admit specialists too), the earliest specialist pick moves
+// into the draft's middle, well before any seat's roster math requires
+// one, and this test fails.
+func TestAutopickDefersSpecialistsUntilRosterMathRequiresThem(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, false)
+	pool := probeConvertFantasyPlayers(fantasy.OfflinePool())
+	pool = append(pool, probeFillerPlayers("p", "P", 12, 7.0, 0.05)...)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	poolSnapshot := service.pool()
+	state := PersistedState{}
+	total := probeTeamCount * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		teamID := teamOnClock(nil, number)
+		playerID, ok := service.autopickChoice(state, teamID)
+		if !ok {
+			t.Fatalf("autopickChoice stalled at pick %d of %d", number, total)
+		}
+		player := poolSnapshot.byID[playerID]
+		if isSpecialistPosition(player.Position) {
+			for _, candidate := range poolSnapshot.players {
+				if isSpecialistPosition(candidate.Position) {
+					continue
+				}
+				alreadyPicked := false
+				for _, prior := range state.Picks {
+					if prior.PlayerID == candidate.ID {
+						alreadyPicked = true
+						break
+					}
+				}
+				if alreadyPicked {
+					continue
+				}
+				if draftCandidateKeepsRosterViable(state, poolSnapshot.byID, teamID, candidate.ID) {
+					t.Fatalf("pick %d took specialist %s (%s) for %s while non-specialist %s (%s) was still viable",
+						number, player.Name, player.Position, teamID, candidate.Name, candidate.Position)
+				}
+			}
+		}
+		state.Picks = append(state.Picks, DraftPick{Number: number, Round: pickRound(probeTeamCount, number), TeamID: teamID, PlayerID: playerID})
+	}
+}

@@ -491,6 +491,106 @@ func TestAutopickBigBoardStillWinsOverHouseOrder(t *testing.T) {
 	}
 }
 
+// TestAutopickBigBoardKWinsOverSpecialistDeferral is autopick test (c)'s
+// sibling for the owner's specialist-deferral directive (2026-08-31): a
+// seat's Big Board still wins outright even when its head is a specialist
+// (K) that pure house order (autopickHouseWalk's Pass C) would otherwise
+// defer behind every skill hole — the deferral applies only to the
+// house-ordered POOL walks, never to the Big Board pass ahead of them.
+func TestAutopickBigBoardKWinsOverSpecialistDeferral(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, false)
+	pool := houseRankFixturePool()
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	member, _, err := service.store.AssignMember("boarder-k@example.com", "BoarderK")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// K-01 is a specialist that Pass C would defer behind every open skill
+	// hole on an empty roster; the board must still take it immediately.
+	if err := service.store.BoardAdd(member.Email, "K-01"); err != nil {
+		t.Fatal(err)
+	}
+	state := service.store.Snapshot()
+	got, ok := service.autopickChoice(state, member.TeamID)
+	if !ok || got != "K-01" {
+		t.Fatalf("autopickChoice = %q, %v, want K-01 (Big Board head, no specialist deferral)", got, ok)
+	}
+}
+
+// TestAutopickPrefersHoleFillingBPAOverHigherVORPBenchPick is autopick
+// test (d), Pass A's own pinning test for the owner's directive
+// (2026-08-31: "auto pick late should pick BPA ... according to remaining
+// holes"): team-1's first seven picks fill every gridiron-standard starter
+// slot except both WR slots (QB, three RBs covering RB1/RB2/FLEX, TE,
+// DST, K), leaving WR its only open hole. decoy-rb carries far higher raw
+// VORP than target-wr (its Projection towers over the flat RB filler
+// supply, so house order's own top-VORP pick would be decoy-rb), yet
+// team-1's RB requirement (2 native slots + FLEX) is already fully
+// covered by its three drafted RBs, so decoy-rb fills no hole — Pass A
+// must skip it and take target-wr, the only Pass A candidate that
+// actually raises team-1's maximum starter fill. Revert proof: with Pass
+// A's hole predicate removed (autopickHouseWalk always admitting every
+// non-specialist), the walk falls straight to decoy-rb's higher VORP and
+// this test fails.
+func TestAutopickPrefersHoleFillingBPAOverHigherVORPBenchPick(t *testing.T) {
+	setRosterShape(rosterPresets["standard"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, false)
+
+	// team-1's seven prior picks: QB, three RBs (two native + one FLEX),
+	// TE, DST, K — every standard starter slot filled except both WR
+	// slots. Low, uniform Projections: these are already drafted, so
+	// their own rank never matters, only their positions do.
+	prior := []Player{
+		{ID: "t1-qb", Name: "Team1 QB", Position: "QB", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-rb1", Name: "Team1 RB1", Position: "RB", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-rb2", Name: "Team1 RB2", Position: "RB", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-rb3", Name: "Team1 RB3 Flex", Position: "RB", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-te", Name: "Team1 TE", Position: "TE", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-dst", Name: "Team1 DST", Position: "DST", NFLTeam: "TST", Projection: 5},
+		{ID: "t1-k", Name: "Team1 K", Position: "K", NFLTeam: "TST", Projection: 5},
+	}
+
+	pool := append([]Player{}, prior...)
+	// Generous, flat filler supply at every position so demand/replacement
+	// resolve normally and the league-wide scarcity guard never blocks
+	// anything this test cares about (every position's undrafted supply
+	// is far larger than the 7 other seats that could still need it).
+	pool = append(pool, probeFillerPlayers("qbf", "QB", 20, 8.0, 0.02)...)
+	pool = append(pool, probeFillerPlayers("rbf", "RB", 20, 8.0, 0.02)...)
+	pool = append(pool, probeFillerPlayers("wrf", "WR", 20, 8.0, 0.02)...)
+	pool = append(pool, probeFillerPlayers("tef", "TE", 20, 8.0, 0.02)...)
+	pool = append(pool, probeFillerPlayers("dstf", "DST", 20, 8.0, 0.02)...)
+	pool = append(pool, probeFillerPlayers("kf", "K", 20, 8.0, 0.02)...)
+
+	// decoy-rb: a non-specialist candidate whose Projection towers over
+	// every filler, so house order ranks it far above target-wr by raw
+	// VORP alone — yet team-1's RB requirement is already fully covered,
+	// so it fills no hole and Pass A must never choose it.
+	decoyRB := Player{ID: "decoy-rb", Name: "Decoy RB", Position: "RB", NFLTeam: "TST", Projection: 50}
+	pool = append(pool, decoyRB)
+
+	// target-wr: the best available WR — team-1's only open position —
+	// ranked well below decoy-rb by raw VORP, but the only Pass A
+	// candidate that actually raises team-1's maximum starter fill.
+	targetWR := Player{ID: "target-wr", Name: "Target WR", Position: "WR", NFLTeam: "TST", Projection: 15}
+	pool = append(pool, targetWR)
+
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	state := service.store.Snapshot()
+	for i, player := range prior {
+		state.Picks = append(state.Picks, DraftPick{Number: i + 1, TeamID: "team-1", PlayerID: player.ID})
+	}
+
+	got, ok := service.autopickChoice(state, "team-1")
+	if !ok || got != targetWR.ID {
+		t.Fatalf("autopickChoice = %q, %v, want %q (the hole-filling WR, over decoy-rb's higher-VORP bench pick)", got, ok, targetWR.ID)
+	}
+}
+
 // TestHouseRankMemoizedPerPoolVersionNotPerCall is the memoization test:
 // applyHouseRanks (via buildPool) runs once per pool version, not once
 // per s.pool() call — the same "nil in production, atomic counter test
