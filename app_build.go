@@ -321,6 +321,12 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// projections at all. SetPunterProjections also re-normalizes whatever
 	// pool NewService already loaded, so a cache boot is never rankless.
 	fantasyPool.SetPunterProjections(league.PunterProjection)
+	// Also wired before fantasyPool.Start (GC-1 fix 1): the current NFL
+	// week, derived from the mirrored nflverse schedule (openStats is
+	// already constructed above). SyncNow reads this on every sync, so a
+	// week-N sync requests week-N Tank01 projections instead of the old
+	// hard-coded week 1.
+	fantasyPool.SetCurrentWeek(currentNFLWeekFunc(openStats))
 	rt.starters = append(rt.starters, signalFeed.Start, openStats.Start, fantasyPool.Start)
 	// The harness may ask for the offline pool relabelled "live" so a
 	// simulated draft can start without a live upstream; every other run

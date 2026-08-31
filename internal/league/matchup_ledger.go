@@ -103,6 +103,8 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 			row.Detail = "Matched to the live box score; the game is in progress."
 		case StatSourceLiveFinal:
 			row.Detail = "Matched to the final box score; the weekly ledger is not posted yet."
+		case StatSourceLedgerLive:
+			row.Detail = "Matched to the mirrored player-stat ledger, plus a category (for example a return touchdown) only the final box score reported."
 		default:
 			row.Detail = "Matched to the mirrored player-stat ledger."
 		}

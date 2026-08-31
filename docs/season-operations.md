@@ -220,7 +220,7 @@ A player's `Hist` line shows their previous season, scored under this league's o
 - DST carries no `Hist` line. The open-data mirror keeps no previous-season team-defense file to rescore from.
 - Punters keep their own embedded 2025 line (see "Punter rankings" above). That line was already rescored under the league's punting rules before this feature existed.
 - A rookie or a player absent from the previous season's mirror shows no `Hist` line at all, never a fabricated one.
-- The weekly mirror carries no two-point conversion columns (pass, rush, or catch) and no return-touchdown column, so the `Hist` line can never credit those four scoring rules, even though the league's own rulebook prices them. This is the same gap live weekly scoring has for those same four rules — not a `Hist`-only shortfall.
+- The weekly mirror carries no return-touchdown column, so the `Hist` line can never credit the `returnTD` rule, even though the league's own rulebook prices it: that rule scores only from a live Tank01 box score, which historical rescoring has no access to. This is the same gap live weekly scoring has once a week closes (see `internal/livescore/overlay.go`'s close-week merge, which keeps a live-scored return touchdown from vanishing during the current season — a past season's `Hist` line has no such live row to draw from). The weekly mirror's two-point conversion columns are credited under the single `twoPt` rule, the same as current-season weekly scoring.
 
 ### House rank
 

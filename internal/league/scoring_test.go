@@ -117,3 +117,37 @@ func TestPuntingBreakdownSkipsZeroStats(t *testing.T) {
 		t.Fatalf("total = %q, want 0.0", total)
 	}
 }
+
+// TestMigrateLegacyTwoPointOverridesFoldsHighestIntoTwoPt pins the GC-1
+// fix 3 migration: a legacy typed override (pass2pt/rush2pt/rec2pt, the
+// rules defaultScoringRules dropped in favor of "twoPt") folds into
+// "twoPt" at the highest recorded value, and the legacy keys never
+// resurface as a phantom override for a rule that no longer exists.
+func TestMigrateLegacyTwoPointOverridesFoldsHighestIntoTwoPt(t *testing.T) {
+	scoring := map[string]float64{"pass2pt": 3, "rush2pt": 5, "rec2pt": 1}
+	migrateLegacyTwoPointOverrides(scoring)
+	if len(scoring) != 1 || scoring["twoPt"] != 5 {
+		t.Fatalf("migrated scoring = %+v, want only twoPt=5", scoring)
+	}
+}
+
+// TestMigrateLegacyTwoPointOverridesNoOpWhenAbsent checks the common case:
+// a league that never touched the dormant legacy rules is left untouched.
+func TestMigrateLegacyTwoPointOverridesNoOpWhenAbsent(t *testing.T) {
+	scoring := map[string]float64{"reception": 1.0}
+	migrateLegacyTwoPointOverrides(scoring)
+	if len(scoring) != 1 || scoring["reception"] != 1.0 {
+		t.Fatalf("scoring changed unexpectedly: %+v", scoring)
+	}
+}
+
+// TestMigrateLegacyTwoPointOverridesKeepsExistingTwoPt checks that an
+// already-recorded "twoPt" override always wins over a folded-in legacy
+// value, rather than being silently replaced.
+func TestMigrateLegacyTwoPointOverridesKeepsExistingTwoPt(t *testing.T) {
+	scoring := map[string]float64{"pass2pt": 9, "twoPt": 3}
+	migrateLegacyTwoPointOverrides(scoring)
+	if len(scoring) != 1 || scoring["twoPt"] != 3 {
+		t.Fatalf("existing twoPt override must win: %+v", scoring)
+	}
+}

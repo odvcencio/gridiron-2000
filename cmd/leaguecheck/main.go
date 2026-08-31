@@ -35,6 +35,14 @@ type leagueSummary struct {
 	Timezone      string `json:"timezone"`
 	PublicURL     string `json:"publicUrl"`
 	ScoringFormat string `json:"scoringFormat"`
+	// ReceptionPoints (GC-1 fix 2) is the reception rule value
+	// scoring_format implies — the value a fresh league seeds at first
+	// boot (league.ReceptionPointsForScoringFormat). leaguecheck never
+	// opens the state database (see this command's own doc comment), so
+	// it cannot see whether a commissioner already edited scoring; a
+	// mismatch against the shipped default (see the warnings below)
+	// still means "check Scoring Settings."
+	ReceptionPoints float64 `json:"receptionPoints"`
 }
 
 type draftSummary struct {
@@ -137,6 +145,7 @@ func summarize(cfg league.Config) configSummary {
 			Name: cfg.Name, ShortCode: cfg.ShortCode, Mode: cfg.ModeLabel,
 			Season: cfg.Season, Teams: len(cfg.Teams), Timezone: cfg.Timezone,
 			PublicURL: cfg.URL, ScoringFormat: cfg.ScoringFormat,
+			ReceptionPoints: league.ReceptionPointsForScoringFormat(cfg.ScoringFormat),
 		},
 		Draft: draftSummary{Meeting: meeting, Rounds: cfg.Rounds, Format: cfg.FormatLabel},
 		Roster: rosterSummary{
@@ -157,7 +166,7 @@ func summarize(cfg league.Config) configSummary {
 func writeText(output io.Writer, summary configSummary) {
 	fmt.Fprintf(output, "OK %s (%s)\n", summary.League.Name, summary.League.ShortCode)
 	fmt.Fprintf(output, "source: %s\n", summary.Source)
-	fmt.Fprintf(output, "league: %d teams · %s · %d · %s\n", summary.League.Teams, summary.League.Mode, summary.League.Season, summary.League.ScoringFormat)
+	fmt.Fprintf(output, "league: %d teams · %s · %d · %s (reception %g)\n", summary.League.Teams, summary.League.Mode, summary.League.Season, summary.League.ScoringFormat, summary.League.ReceptionPoints)
 	fmt.Fprintf(output, "public URL: %s\n", summary.League.PublicURL)
 	fmt.Fprintf(output, "draft meeting: %s · %s · %d rounds\n", summary.Draft.Meeting, summary.League.Timezone, summary.Draft.Rounds)
 	fmt.Fprintf(output, "roster: %d starters + %d bench + %d reserve = %d draftable per team; %d league slots; %d IR\n", summary.Roster.Starters, summary.Roster.Bench, summary.Roster.Reserve, summary.Roster.Draftable, summary.Roster.LeagueCapacity, summary.Roster.IR)

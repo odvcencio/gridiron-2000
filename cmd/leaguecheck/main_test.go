@@ -62,6 +62,41 @@ func TestRunJSONIsMachineReadableAndAppliesRuntimeOverrides(t *testing.T) {
 	}
 }
 
+// TestRunReportsReceptionValueAndWarnsOnMismatch pins GC-1 fix 2:
+// leaguecheck reports the effective reception value in both text and JSON
+// output, and warns on stderr when scoring_format's implied reception
+// value disagrees with the shipped default reception rule.
+func TestRunReportsReceptionValueAndWarnsOnMismatch(t *testing.T) {
+	clearConfigOverrides(t)
+	t.Setenv("SCORING_FORMAT", "standard")
+	file := filepath.Join("..", "..", "config", "league.json.example")
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--file", file}, &stdout, &stderr); code != 0 {
+		t.Fatalf("run code = %d; stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "reception 0") {
+		t.Errorf("text output omitted the effective reception value:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "reception") {
+		t.Errorf("stderr missing the scoring_format/reception mismatch warning: %q", stderr.String())
+	}
+
+	var stdoutJSON, stderrJSON bytes.Buffer
+	if code := run([]string{"--file", file, "--format", "json"}, &stdoutJSON, &stderrJSON); code != 0 {
+		t.Fatalf("run code = %d; stderr: %s", code, stderrJSON.String())
+	}
+	var summary configSummary
+	if err := json.Unmarshal(stdoutJSON.Bytes(), &summary); err != nil {
+		t.Fatalf("decode JSON: %v\n%s", err, stdoutJSON.String())
+	}
+	if summary.League.ReceptionPoints != 0 {
+		t.Fatalf("ReceptionPoints = %v, want 0 for standard scoring", summary.League.ReceptionPoints)
+	}
+	if !strings.Contains(stderrJSON.String(), "reception") {
+		t.Errorf("json-mode stderr missing the mismatch warning: %q", stderrJSON.String())
+	}
+}
+
 func TestRunFailsClosedOnInvalidConfig(t *testing.T) {
 	clearConfigOverrides(t)
 	file := filepath.Join(t.TempDir(), "league.json")

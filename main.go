@@ -345,6 +345,59 @@ func leagueScheduleSource(stats *openstats.Service) league.ScheduleSource {
 	}
 }
 
+// currentNFLWeekFunc adapts the mirrored nflverse schedule into the
+// fantasy pool sync's "which NFL week is current" signal (GC-1 fix 1):
+// internal/fantasy must not import internal/openstats (an inverted
+// dependency — see fantasy.Service.SetCurrentWeek's doc comment), so
+// app_build.go wires this closure in instead, the same injection pattern
+// SetPunterProjections already uses for league.PunterProjection.
+func currentNFLWeekFunc(stats *openstats.Service) func() int {
+	return func() int {
+		return currentNFLWeekAt(stats.ScheduleSnapshot().Games, time.Now())
+	}
+}
+
+// currentNFLWeekAt is currentNFLWeekFunc's pure core: the smallest week
+// with a game kicking off within the last four hours or later, or the
+// largest week when every game has already passed that window — the same
+// upcoming-or-latest rule internal/league's own pickemWeekAt uses, evaluated
+// here over openstats.ScheduleGame rows instead of league.GameInfo (fantasy
+// cannot import league either; this package already adapts the same raw
+// rows to league.GameInfo elsewhere — see leagueGamesFromScheduleSnapshot).
+// A schedule with no REG rows for the active season (before that season's
+// games.csv is published) reports week 1, matching the spec's own rule:
+// "before NFL week 1, keep week 1."
+func currentNFLWeekAt(games []openstats.ScheduleGame, now time.Time) int {
+	eastern := openStatsEastern()
+	cutoff := now.Add(-4 * time.Hour)
+	largestWeek := 0
+	upcomingWeek := 0
+	haveUpcoming := false
+	for _, game := range games {
+		if game.GameType != "REG" || game.Week <= 0 {
+			continue
+		}
+		kickoff, ok := openStatsKickoff(game, eastern)
+		if !ok {
+			continue
+		}
+		if game.Week > largestWeek {
+			largestWeek = game.Week
+		}
+		if kickoff.After(cutoff) && (!haveUpcoming || game.Week < upcomingWeek) {
+			upcomingWeek = game.Week
+			haveUpcoming = true
+		}
+	}
+	if haveUpcoming {
+		return upcomingWeek
+	}
+	if largestWeek == 0 {
+		return 1
+	}
+	return largestWeek
+}
+
 // openStatsEastern resolves the league's game-time zone, falling back to
 // UTC when the tzdata lookup fails (the same fallback leagueScheduleSource
 // used inline before this helper existed).
@@ -556,9 +609,17 @@ func offenseStatLine(row openstats.PlayerWeekStat) map[string]float64 {
 		"recYards":   row.ReceivingYards,
 		"recTD":      row.ReceivingTDs,
 		"fumbleLost": row.FumblesLost,
-		"fgMade":     row.FGMade,
-		"fgMissed":   row.FGMissed,
-		"xpMade":     row.XPMade,
+		// twoPt (GC-1 fix 3) sums every two-point conversion type from the
+		// mirrored nflverse ledger. This is the only source that ever
+		// feeds it: Tank01's live box score carries no per-player
+		// two-point field at all (see scoring.go's twoPt rule doc comment
+		// and internal/fantasy's preseasonPlayerStats), so twoPt scores at
+		// week close only, the same closed-week-only pattern several
+		// PUNTING keys already follow.
+		"twoPt":    row.PassingTwoPt + row.RushingTwoPt + row.ReceivingTwoPt,
+		"fgMade":   row.FGMade,
+		"fgMissed": row.FGMissed,
+		"xpMade":   row.XPMade,
 	}
 }
 
@@ -666,6 +727,7 @@ func fantasyPoolStatus(pool *fantasy.Service) league.PoolStatusSource {
 			WithADP:         status.WithADP,
 			WithProjection:  status.WithProj,
 			WithBye:         status.WithBye,
+			ProjectionWeek:  status.ProjectionWeek,
 			Requests:        status.Requests,
 			LastSuccess:     status.LastSync,
 			FreshnessWindow: status.FreshFor,

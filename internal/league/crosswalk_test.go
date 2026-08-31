@@ -7,8 +7,8 @@ import (
 )
 
 func TestRuleStatsFromTank01CrosswalkAndDST(t *testing.T) {
-	got := RuleStatsFromTank01(map[string]float64{"passYds": 250, "int": 3, "passInt": 1, "receptions": 5, "recYds": 60, "fumblesLost": 1, "carries": 9}, false)
-	want := map[string]float64{"passYards": 250, "passInt": 1, "reception": 5, "recYards": 60, "fumbleLost": 1}
+	got := RuleStatsFromTank01(map[string]float64{"passYds": 250, "int": 3, "passInt": 1, "receptions": 5, "recYds": 60, "fumblesLost": 1, "carries": 9, "twoPt": 2}, false)
+	want := map[string]float64{"passYards": 250, "passInt": 1, "reception": 5, "recYards": 60, "fumbleLost": 1, "twoPt": 2}
 	if len(got) != len(want) {
 		t.Fatalf("got %v want %v", got, want)
 	}

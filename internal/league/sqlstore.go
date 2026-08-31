@@ -2075,6 +2075,7 @@ func normalizeState(state *PersistedState) {
 		state.Scoring = map[string]float64{}
 	}
 	normalizeScoringValues(state.Scoring)
+	migrateLegacyTwoPointOverrides(state.Scoring)
 	if state.Pickems == nil {
 		state.Pickems = map[string]map[string]string{}
 	}

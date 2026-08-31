@@ -743,6 +743,23 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 			"leagues above %d teams thin the player pool; the deep-league preset (superflex, smaller bench) keeps them viable",
 			teamCountWarnAbove))
 	}
+	// GC-1 fix 2: warn when scoring_format's implied reception value
+	// disagrees with defaultScoringRules' shipped reception default
+	// (0.5, half_ppr's value — the only value baked into the rule table
+	// literal). A fresh league seeds "reception" from scoring_format at
+	// first boot (Store.InitReceptionFromScoringFormat), but this warning
+	// fires for every non-half_ppr league regardless: it is a config
+	// sanity signal, not a claim about what any particular league's
+	// persisted state currently holds — leaguecheck never opens the state
+	// database (see its own doc comment) and cannot see a commissioner's
+	// own edit either way.
+	if rule, ok := scoringRuleByKey("reception"); ok {
+		if implied := ReceptionPointsForScoringFormat(cfg.ScoringFormat); implied != rule.Points {
+			warnings = append(warnings, fmt.Sprintf(
+				"scoring_format %q implies a %g-point reception rule, but the shipped default reception rule is %g; a fresh league seeds reception from scoring_format at first boot — check Scoring Settings for any league that already has commissioner-edited scoring",
+				cfg.ScoringFormat, implied, rule.Points))
+		}
+	}
 	return warnings, nil
 }
 

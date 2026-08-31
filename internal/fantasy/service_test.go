@@ -145,6 +145,126 @@ func TestSyncNowBuildsPersistsAndReloads(t *testing.T) {
 	}
 }
 
+// TestProjectionWeekFallsBackToOneWhenUnwiredOrNonPositive pins GC-1 fix
+// 1's fallback rule: week 1 with no SetCurrentWeek wiring, and week 1
+// again if the wired func ever reports a non-positive week (the spec's
+// "before NFL week 1, keep week 1" rule) — a wired, positive week wins
+// otherwise.
+func TestProjectionWeekFallsBackToOneWhenUnwiredOrNonPositive(t *testing.T) {
+	service, err := NewService(Config{Root: t.TempDir(), Season: 2026})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if week := service.projectionWeek(); week != 1 {
+		t.Fatalf("unwired projectionWeek = %d, want 1", week)
+	}
+	service.SetCurrentWeek(func() int { return 0 })
+	if week := service.projectionWeek(); week != 1 {
+		t.Fatalf("zero-week projectionWeek = %d, want 1 (fallback)", week)
+	}
+	service.SetCurrentWeek(func() int { return 7 })
+	if week := service.projectionWeek(); week != 7 {
+		t.Fatalf("wired projectionWeek = %d, want 7", week)
+	}
+}
+
+// TestSyncNowRequestsCurrentWeekProjections pins GC-1 fix 1's end-to-end
+// behavior: SyncNow requests Tank01 projections for the wired current
+// week, not the old hard-coded week 1, records that week on the service
+// and the persisted cache, and a reload from cache recovers it.
+func TestSyncNowRequestsCurrentWeekProjections(t *testing.T) {
+	root := t.TempDir()
+	var gotWeek string
+	payloads := map[string]string{
+		"/getNFLPlayerList":  `{"statusCode":200,"body":[{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN"}]}`,
+		"/getNFLADP":         `{"statusCode":200,"body":{"adpList":[]}}`,
+		"/getNFLProjections": `{"statusCode":200,"body":{"playerProjections":{}}}`,
+		"/getNFLNews":        `{"statusCode":200,"body":[]}`,
+		"/getNFLTeams":       `{"statusCode":200,"body":[]}`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/getNFLProjections" {
+			gotWeek = r.URL.Query().Get("week")
+		}
+		payload, ok := payloads[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	service := newTestService(t, root, server, "test-key")
+	service.SetCurrentWeek(func() int { return 4 })
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	if gotWeek != "4" {
+		t.Fatalf("getNFLProjections week param = %q, want 4", gotWeek)
+	}
+	if status := service.Status(); status.ProjectionWeek != 4 {
+		t.Fatalf("status.ProjectionWeek = %d, want 4", status.ProjectionWeek)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(root, "players.json"))
+	if err != nil {
+		t.Fatalf("cache not persisted: %v", err)
+	}
+	var cache poolCache
+	if err := json.Unmarshal(raw, &cache); err != nil {
+		t.Fatalf("cache decode: %v", err)
+	}
+	if cache.ProjectionWeek != 4 {
+		t.Fatalf("cache.ProjectionWeek = %d, want 4", cache.ProjectionWeek)
+	}
+
+	reloaded := newTestService(t, root, server, "test-key")
+	if status := reloaded.Status(); status.ProjectionWeek != 4 {
+		t.Fatalf("reloaded status.ProjectionWeek = %d, want 4 (loaded from cache)", status.ProjectionWeek)
+	}
+}
+
+// TestSyncNowDefaultsToWeekOneWithoutWiring checks the pre-fix-compatible
+// default: a service that never calls SetCurrentWeek still requests week
+// 1, exactly as SyncNow always did before GC-1 fix 1.
+func TestSyncNowDefaultsToWeekOneWithoutWiring(t *testing.T) {
+	root := t.TempDir()
+	var gotWeek string
+	payloads := map[string]string{
+		"/getNFLPlayerList":  `{"statusCode":200,"body":[{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN"}]}`,
+		"/getNFLADP":         `{"statusCode":200,"body":{"adpList":[]}}`,
+		"/getNFLProjections": `{"statusCode":200,"body":{"playerProjections":{}}}`,
+		"/getNFLNews":        `{"statusCode":200,"body":[]}`,
+		"/getNFLTeams":       `{"statusCode":200,"body":[]}`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/getNFLProjections" {
+			gotWeek = r.URL.Query().Get("week")
+		}
+		payload, ok := payloads[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	service := newTestService(t, root, server, "test-key")
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	if gotWeek != "1" {
+		t.Fatalf("getNFLProjections week param = %q, want 1 (no SetCurrentWeek wiring)", gotWeek)
+	}
+	if status := service.Status(); status.ProjectionWeek != 1 {
+		t.Fatalf("status.ProjectionWeek = %d, want 1", status.ProjectionWeek)
+	}
+}
+
 func TestNoKeyServesOfflinePool(t *testing.T) {
 	service, err := NewService(Config{Root: t.TempDir(), Season: 2026})
 	if err != nil {

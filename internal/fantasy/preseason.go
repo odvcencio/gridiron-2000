@@ -272,6 +272,16 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 // value; dropping the zero row costs the overlay nothing, since a caller
 // that finds no live row simply keeps its ledger row instead, the same
 // outcome as if this returned a present-but-zero map.
+//
+// Two-point conversions (GC-1 fix 3) score at week close only: Tank01's
+// box score carries no per-player two-point field at all (verified
+// against testdata/preseason-boxscore-sample.json and
+// testdata/box-20250904_DAL-PHI.json — the only twoPointConversions field
+// either fixture carries is a team-level total under teamStats, not
+// attributable to a player), so this function has no source to read it
+// from. The league's "twoPt" rule scores from the closed-week nflverse
+// ledger instead (main.go's offenseStatLine), the same closed-week-only
+// pattern several PUNTING keys already follow.
 func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 	stats := map[string]float64{}
 	addGroup := func(groupKey string, keyMap map[string]string) {

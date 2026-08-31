@@ -46,16 +46,16 @@ func parseSchedules(path string, season int) ([]ScheduleGame, error) {
 		spreadLine, spreadLinePresent := optionalFloatValue(cell(row, index, "spread_line"))
 		result := cell(row, index, "result")
 		game := ScheduleGame{
-			GameID:    cell(row, index, "game_id"),
-			Season:    rowSeason,
-			GameType:  cell(row, index, "game_type"),
-			Week:      intValue(cell(row, index, "week")),
-			GameDay:   cell(row, index, "gameday"),
-			GameTime:  cell(row, index, "gametime"),
-			AwayTeam:  cell(row, index, "away_team"),
+			GameID:           cell(row, index, "game_id"),
+			Season:           rowSeason,
+			GameType:         cell(row, index, "game_type"),
+			Week:             intValue(cell(row, index, "week")),
+			GameDay:          cell(row, index, "gameday"),
+			GameTime:         cell(row, index, "gametime"),
+			AwayTeam:         cell(row, index, "away_team"),
 			AwayScore:        awayScore,
 			AwayScorePresent: awayScorePresent,
-			HomeTeam:  cell(row, index, "home_team"),
+			HomeTeam:         cell(row, index, "home_team"),
 			HomeScore:        homeScore,
 			HomeScorePresent: homeScorePresent,
 			Result:           result,
@@ -122,6 +122,12 @@ func parsePlayerStats(path string, season int) ([]PlayerWeekStat, error) {
 				floatValue(cell(row, index, "sack_fumbles_lost")),
 			FantasyPoints:    floatValue(cell(row, index, "fantasy_points")),
 			FantasyPointsPPR: floatValue(cell(row, index, "fantasy_points_ppr")),
+			// Two-point conversion columns (GC-1 fix 3) are optional, same
+			// backward-compatibility rule as the kicking/punting columns
+			// below: absent on a pre-release row, decodes to an honest zero.
+			PassingTwoPt:   floatValue(cell(row, index, "passing_2pt_conversions")),
+			RushingTwoPt:   floatValue(cell(row, index, "rushing_2pt_conversions")),
+			ReceivingTwoPt: floatValue(cell(row, index, "receiving_2pt_conversions")),
 			// Kicking and punting columns (WP-R2) are optional: absent on
 			// every row before this release added them, and absent on
 			// every non-K/P row within a release that has them. cell()

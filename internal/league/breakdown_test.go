@@ -142,6 +142,22 @@ func TestScoreBreakdownCommissionerOverride(t *testing.T) {
 	}
 }
 
+// TestScoreBreakdownTwoPointConversionScores pins GC-1 fix 3: the untyped
+// "twoPt" rule scores from a plain "twoPt" stat key at its default 2.0
+// points, whether that key came from the closed-week ledger (main.go's
+// offenseStatLine, summed from three nflverse columns) or a live Tank01
+// box score (RuleStatsFromTank01, see crosswalk_test.go) — both converge
+// on this same rule key, so the breakdown and its total never care which
+// source produced it.
+func TestScoreBreakdownTwoPointConversionScores(t *testing.T) {
+	service := newTestService(t, true)
+	stats := map[string]float64{"twoPt": 2}
+	rows, total := service.scoreBreakdown(stats)
+	if len(rows) != 1 || rows[0]["label"] != "2-pt conversion" || rows[0]["points"] != "+4.0" || total != "4.0" {
+		t.Fatalf("twoPt scoring wrong: rows=%+v total=%q", rows, total)
+	}
+}
+
 func TestProjectionScoringFallsBackFromNonFiniteRuleValues(t *testing.T) {
 	player := Player{ID: "p1", Name: "Projected", Position: "QB", ProjStats: map[string]float64{"passTD": 2}}
 	for _, points := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {

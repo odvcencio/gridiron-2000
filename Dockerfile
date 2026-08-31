@@ -61,6 +61,60 @@ RUN go build -trimpath -ldflags="-s -w -X main.appVersion=${APP_VERSION} -X main
 # consumer adopts a bounded-multipart contract.
 RUN go install m31labs.dev/gosx/cmd/gosx@v0.53.10 && GOSX_SKIP_VERSION_CHECK=1 /go/bin/gosx build --dev .
 
+# Prune build-only and duplicate assets from dist/ before it is COPY'd into
+# the runtime stage (GC-3 app lane).
+#
+# Always removed: dist/server/app is a duplicate, unstripped server binary
+# (the image ENTRYPOINT runs the stripped /out/gridiron-2000 binary, copied
+# separately below as /app/server) and dist/assets/runtime/*.map are dev
+# source maps that no emitted JS references via a sourceMappingURL trailer
+# and that dist/build.json never names, so the runtime image can never
+# resolve them.
+#
+# Removed ONLY when dist/build.json proves no island program shipped
+# ("islands": null): the WASM runtime variants, both wasm_exec JS shims, and
+# the scene3d/hls/stripe-bridge/relay/textlayout feature bundles. If islands
+# is ever non-null, a live island program may load one of these assets by
+# URL, so the guard below fails the build loudly instead of silently
+# shipping a broken chunk. bootstrap.js and its .gz/.br sidecars are always
+# kept: the lite/runtime fallback chain in the GoSX island/server code can
+# still reach it, as are bootstrap-runtime, bootstrap-lite, and the
+# bootstrap-feature-hubs/islands/engines/controllers bundles.
+RUN set -eu; \
+    RUNTIME_DIR=dist/assets/runtime; \
+    BUILD_JSON=dist/build.json; \
+    APP_BIN=dist/server/app; \
+    before=$(du -sb dist | cut -f1); \
+    app_bytes=0; \
+    if [ -f "$APP_BIN" ]; then app_bytes=$(stat -c%s "$APP_BIN"); rm -f "$APP_BIN"; fi; \
+    map_bytes=0; \
+    for f in "$RUNTIME_DIR"/*.map; do \
+        [ -e "$f" ] || continue; \
+        map_bytes=$((map_bytes + $(stat -c%s "$f"))); \
+        rm -f "$f"; \
+    done; \
+    echo "prune: dist/server/app=${app_bytes} bytes, *.map=${map_bytes} bytes (always-delete)"; \
+    islands_line=$(grep -m1 '"islands"' "$BUILD_JSON" || true); \
+    case "$islands_line" in \
+        *'"islands": null'*) \
+            guarded_bytes=0; \
+            for pattern in 'gosx-runtime*.wasm' 'wasm_exec.*' 'standard-go-wasm_exec.*' 'bootstrap-feature-scene3d*' 'hls.min.*' 'stripe-bridge*' 'relay*' 'bootstrap-feature-textlayout*'; do \
+                for f in "$RUNTIME_DIR"/$pattern; do \
+                    [ -e "$f" ] || continue; \
+                    guarded_bytes=$((guarded_bytes + $(stat -c%s "$f"))); \
+                    rm -f "$f"; \
+                done; \
+            done; \
+            echo "prune: guarded runtime assets=${guarded_bytes} bytes (islands: null confirmed)"; \
+            ;; \
+        *) \
+            echo "REFUSING to prune $RUNTIME_DIR: dist/build.json does not report \"islands\": null (found: ${islands_line:-<missing key>}); a live island program may need the WASM runtime and feature bundles this step would delete. Update this guard (Dockerfile) before shipping island builds." >&2; \
+            exit 1; \
+            ;; \
+    esac; \
+    after=$(du -sb dist | cut -f1); \
+    echo "prune: dist/ total before=${before} bytes after=${after} bytes reduced=$((before - after)) bytes"
+
 # Runtime data directory. The PVC mount in Kubernetes covers /app/data in
 # production; this pre-created, owner-only directory lets the same image
 # run standalone (for example `docker run`) without a mounted volume.

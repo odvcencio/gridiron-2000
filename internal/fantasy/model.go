@@ -120,11 +120,15 @@ type Status struct {
 	WithADP   int            `json:"withAdp"`
 	WithProj  int            `json:"withProjection"`
 	WithBye   int            `json:"withBye"`
-	Requests  int            `json:"requestsUsed"`
-	LastSync  time.Time      `json:"lastSync,omitzero"`
-	Age       time.Duration  `json:"-"`
-	FreshFor  time.Duration  `json:"-"`
-	LastError string         `json:"lastError,omitempty"`
+	// ProjectionWeek (GC-1 fix 1) is the NFL week the current pool's
+	// projections were requested for — zero before the first sync (or a
+	// cache written before this field existed) ever completes.
+	ProjectionWeek int           `json:"projectionWeek,omitempty"`
+	Requests       int           `json:"requestsUsed"`
+	LastSync       time.Time     `json:"lastSync,omitzero"`
+	Age            time.Duration `json:"-"`
+	FreshFor       time.Duration `json:"-"`
+	LastError      string        `json:"lastError,omitempty"`
 }
 
 // Config controls the sync service. Zero values fall back to safe defaults.

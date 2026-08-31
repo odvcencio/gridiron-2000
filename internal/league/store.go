@@ -2063,6 +2063,44 @@ func (s *Store) SetScoringValue(key string, points float64, editedAt ...time.Tim
 	return nil
 }
 
+// InitReceptionFromScoringFormat seeds the "reception" scoring rule from
+// scoring_format on a genuinely fresh league (GC-1 fix 2): the shipped
+// default (0.5, half_ppr — defaultScoringRules' literal) otherwise
+// silently overrides a standard or full-PPR scoring_format until a
+// commissioner happens to open Scoring Settings and notice. Runs only
+// when Scoring is still completely empty — the same "no commissioner
+// edit yet" signal every other scoring reader already uses — and is a
+// no-op once points already matches the shipped default. Deliberately
+// bypasses SetScoringValue: routing this seed through it would set
+// ScoringChangedAt and arm evalScoringChanges' N10 "scoring changed"
+// notification, mailing the whole league 15 minutes after every first
+// boot — this is a seed, not a commissioner edit. Callers must never
+// overwrite a commissioner's own edit after the fact (see the caller in
+// service.go's Default()).
+func (s *Store) InitReceptionFromScoringFormat(points float64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if len(s.state.Scoring) != 0 {
+		return nil
+	}
+	rule, ok := scoringRuleByKey("reception")
+	if !ok || !finiteScoringPoints(points) || points == rule.Points {
+		return nil
+	}
+	before := cloneState(s.state)
+	beforeDirty := s.dirty
+	s.state.Scoring["reception"] = points
+	if err := s.persistLocked(colScoring); err != nil {
+		s.state = before
+		s.dirty = beforeDirty
+		return err
+	}
+	return nil
+}
+
 // ResetScoring clears every scoring override, restoring the default rules.
 // The optional instant follows SetScoringValue's deterministic clock seam.
 func (s *Store) ResetScoring(editedAt ...time.Time) error {
