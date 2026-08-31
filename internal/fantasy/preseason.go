@@ -14,6 +14,17 @@ import (
 // normalized for the Preseason Blitz feature (design spec section 5.1).
 // Label carries the raw gameWeek text; slate identity is a label match, not
 // the request's week param (P1) — see SelectPreseasonGames.
+//
+// GC-2 investigated adding a live score/period/clock to this type so the
+// live poller's scoreboard tick (internal/livescore) could change-gate a
+// game's box fetch off this one games-list call alone. No fixture, test
+// data, or recorded relay payload in this repo confirms Tank01's
+// getNFLGamesForWeek response actually carries those fields (only
+// getNFLBoxScore is confirmed to), so GC-2 shipped without them: the
+// scoreboard tick still fetches this call every LIVE_SCOREBOARD_INTERVAL
+// for Tank01 ID resolution, but box fetches are gated by LIVE_BOX_BASELINE
+// and the wire trigger alone, not a score/period/clock delta. Add the
+// fields here once the payload is verified.
 type PreseasonGame struct {
 	ID         string
 	Label      string

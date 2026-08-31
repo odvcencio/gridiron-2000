@@ -348,7 +348,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// credentials of its own, so its presence stands in for
 	// fantasyPool.Enabled() when deciding whether buildLiveScoring may
 	// leave the poller on (see buildLiveScoring's fantasyEnabled doc).
-	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), rt)
+	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), signalFeed, rt)
 	liveRuntime.Replay = replayServer
 	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))

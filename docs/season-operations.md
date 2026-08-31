@@ -257,7 +257,19 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 
 ## Game day
 
-Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. When on, each instance polls in-progress Tank01 box scores through `statrelay` every `LIVE_POLL_INTERVAL` (default `5s`, up to `LIVE_MAX_INFLIGHT` concurrent game fetches, capped at `LIVE_DAILY_BUDGET` fetches per instance per day) and overlays them onto the mirrored nflverse ledger. The overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. It overlays live data onto the mirrored nflverse ledger; the overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+
+### Polling architecture
+
+Live scoring fetches Tank01 in three layers instead of blanket-polling every in-progress game's box score on one cadence:
+
+1. **Scoreboard tick.** Every `LIVE_SCOREBOARD_INTERVAL` (default `10s`, floor `5s`) the poller fetches one games-list call through `statrelay`, but only while at least one schedule game is inside its own poll window (kickoff minus 5 minutes through kickoff plus 5 hours); an idle day, with no game anywhere near that window, costs zero calls.
+2. **Baseline box fetch.** Every in-progress game's box score is fetched at least once per `LIVE_BOX_BASELINE` (default `60s`) regardless of the scoreboard, so yardage and reception stats keep flowing between scoring plays. GC-2 shipped without a finer scoreboard-delta gate: no fixture or recorded Tank01 payload confirms the games-list response carries a live score, period, or clock to gate against (only `getNFLBoxScore` is confirmed to). Add one once that payload is verified.
+3. **Signal Wire trigger.** When `internal/wire` classifies a `touchdown`, `turnover`, `big_play`, or `kicking` signal whose text names a team with a game currently tracked as in progress, the poller fetches that game's box at once, bounded to one triggered fetch per game per 10 seconds. The trigger affects only fetch timing: it can never add, remove, or alter a stat, a score, or a scoring line, and a disabled or unconfigured wire produces zero triggers.
+
+`LIVE_MAX_INFLIGHT` still bounds concurrent box fetches, and `LIVE_DAILY_BUDGET` still caps box-score fetches per instance per day (a games-list call is never charged against it). `LIVE_POLL_INTERVAL` is the deprecated alias for `LIVE_SCOREBOARD_INTERVAL`; a tracked deploy manifest never sets it, but a self-hosted instance that still does gets it read as `LIVE_SCOREBOARD_INTERVAL`, with a startup log line naming the mapping.
+
+**The verified Ultra quota:** the RapidAPI Tank01 Ultra listing caps at 15,000 requests per day, soft-limited — RapidAPI bills overage at $0.01/request instead of blocking, and returns no `429` on quota exhaustion, so the app's own 429 circuit breaker never fires on overage. `STATRELAY_DAILY_BUDGET` (default `10000`, on the shared relay) is therefore the real wallet guard; `LIVE_DAILY_BUDGET` (default `5000` per app instance, box fetches only) sits under it with headroom held back for other instances and endpoints sharing the relay.
 
 ### The four states
 

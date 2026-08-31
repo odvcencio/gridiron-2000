@@ -56,19 +56,26 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 }
 
 // TestLiveScoringDeploymentValuesArePinnedAndMirrored is rider item 12
-// (review of ff2a9b3): the four LIVE_* env values must be present, with
+// (review of ff2a9b3): the live-scoring env values must be present, with
 // the kill switch off, on both the flagship and Stable Kernel app
-// manifests — SK is the canary the live-scoring rollout deploys to
-// first (docs/launch-checklist.md section 13), so its manifest must
-// carry the same tracked values, not just the flagship's — and
-// STATRELAY_DAILY_BUDGET must be pinned on the shared relay's own
-// manifest.
+// manifests. The Stable Kernel league did not form for the 2026 season —
+// flagship is the only live instance, enabled behind a replay rehearsal
+// and the Thursday-night kill-switch watch (docs/launch-checklist.md) —
+// so deploy/k8s/sk/deployment.yaml is not a live canary today; it stays
+// tracked as the template a future second live instance rolls from, and
+// its values still must not drift from the flagship's. Neither manifest
+// may carry the deprecated LIVE_POLL_INTERVAL: a stale tracked 5s value
+// would silently restore the pre-GC-2 blanket-polling cadence the moment
+// someone re-added it, even though the code still accepts it as a
+// self-hoster's alias. STATRELAY_DAILY_BUDGET must be pinned on the
+// shared relay's own manifest.
 func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 	liveScoringEnv := []string{
 		"name: LIVE_SCORING_ENABLED\n              value: \"false\"",
-		"name: LIVE_POLL_INTERVAL\n              value: \"5s\"",
+		"name: LIVE_SCOREBOARD_INTERVAL\n              value: \"10s\"",
+		"name: LIVE_BOX_BASELINE\n              value: \"60s\"",
 		"name: LIVE_MAX_INFLIGHT\n              value: \"4\"",
-		"name: LIVE_DAILY_BUDGET\n              value: \"20000\"",
+		"name: LIVE_DAILY_BUDGET\n              value: \"5000\"",
 	}
 	for _, path := range []string{"deploy/k8s/deployment.yaml", "deploy/k8s/sk/deployment.yaml"} {
 		t.Run(path, func(t *testing.T) {
@@ -82,6 +89,9 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 					t.Errorf("%s omitted %q", path, want)
 				}
 			}
+			if strings.Contains(manifest, "name: LIVE_POLL_INTERVAL") {
+				t.Errorf("%s still sets the deprecated LIVE_POLL_INTERVAL; use LIVE_SCOREBOARD_INTERVAL", path)
+			}
 		})
 	}
 
@@ -89,7 +99,7 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "name: STATRELAY_DAILY_BUDGET\n              value: \"60000\""; !strings.Contains(string(relay), want) {
+	if want := "name: STATRELAY_DAILY_BUDGET\n              value: \"10000\""; !strings.Contains(string(relay), want) {
 		t.Errorf("deploy/k8s/statrelay.yaml omitted %q", want)
 	}
 }
