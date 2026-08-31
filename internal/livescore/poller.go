@@ -24,13 +24,22 @@ type Fetcher interface {
 const (
 	circuitOpenFor   = 60 * time.Second
 	failureThreshold = 3
-	// listingCacheFor is short (round-2 note 1): a week's listing can gain
-	// a game (a flex move, a postponement) while that week is still being
-	// polled, and 24h was long enough to hide that for an entire live
-	// Sunday. Every call site only ever asks for a week with a game
-	// currently inside the poll window (see Tick's weeks set), so this
-	// applies exactly while note 1 says it should.
-	listingCacheFor = 15 * time.Minute
+	// listingCacheFor collapses only truly-simultaneous listingsFor calls
+	// for the same week within one Tick pass; it is not a real cache
+	// layer. It was 15 minutes before GC-2 (round-2 note 1 already flagged
+	// that as long enough to hide a whole live Sunday's flex move or
+	// postponement); GC-2 lowers it further still, to well under
+	// scoreboardFloor, because Tick's own cadence (ScoreboardInterval, 5s
+	// floor) is now the real, and only, throttle on how often
+	// listingsFor's underlying network call happens — a second,
+	// independent cache here would let a stale listing silently outlive
+	// several scoreboard ticks.
+	listingCacheFor = time.Second
+	// triggerCooldown bounds a wire-triggered box fetch (GC-2 layer 3,
+	// TriggerBoxFetch) to at most one per game every 10 seconds — fixed,
+	// not environment-tunable: the spec's own acceptance criterion names
+	// this exact number (spec.gridiron.gap-closure GC-2).
+	triggerCooldown = 10 * time.Second
 )
 
 type gameRecord struct {
@@ -90,6 +99,20 @@ type Poller struct {
 	// at all. That is silent unless surfaced through Health.
 	unmatched      int
 	unmatchedGames []string
+	// tank01ID and trackedGame are the current tick's own view of "what
+	// can be fetched right now" (GC-2 layer 3): the Tank01 ID and
+	// schedule Game for every target Tick's listing fetch actually
+	// matched this pass. TriggerBoxFetch (the wire seam) reads both to
+	// resolve a bare gameID into something it can fetch, between ticks.
+	// Tick fully replaces both maps every pass — never merges — so a game
+	// that drops out of the target set (finaled, window closed) stops
+	// being triggerable on the very next tick.
+	tank01ID    map[string]string
+	trackedGame map[string]Game
+	// lastTrigger is TriggerBoxFetch's own per-game cooldown (GC-2 layer
+	// 3, triggerCooldown): a second call for the same gameID inside the
+	// cooldown of the first is a silent no-op.
+	lastTrigger map[string]time.Time
 }
 
 func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
@@ -99,8 +122,21 @@ func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
 	if cfg.Logf == nil {
 		cfg.Logf = log.Printf
 	}
-	if cfg.Interval <= 0 {
-		cfg.Interval = 5 * time.Second
+	if cfg.ScoreboardInterval <= 0 {
+		// The deprecated Interval field (LIVE_POLL_INTERVAL) is the
+		// fallback source when a caller builds Config directly instead of
+		// through ConfigFromEnv (which already resolves this itself, floor
+		// included — see scoreboardIntervalFromEnv). New() applies no
+		// floor here: an explicit Interval/ScoreboardInterval a caller
+		// sets directly (tests, a replay harness) is honored as given.
+		if cfg.Interval > 0 {
+			cfg.ScoreboardInterval = cfg.Interval
+		} else {
+			cfg.ScoreboardInterval = 10 * time.Second
+		}
+	}
+	if cfg.BoxBaseline <= 0 {
+		cfg.BoxBaseline = 60 * time.Second
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = 4
@@ -114,7 +150,8 @@ func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
 	}
 	return &Poller{cfg: cfg, fetcher: fetcher, schedule: schedule, eastern: eastern,
 		games: map[string]gameRecord{}, finalDone: map[string]bool{},
-		listings: map[int][]fantasy.GameListing{}, listingsAt: map[int]time.Time{}}
+		listings: map[int][]fantasy.GameListing{}, listingsAt: map[int]time.Time{},
+		tank01ID: map[string]string{}, trackedGame: map[string]Game{}, lastTrigger: map[string]time.Time{}}
 }
 
 // Run ticks until ctx ends. A disabled poller returns at once.
@@ -128,9 +165,9 @@ func (p *Poller) Run(ctx context.Context) {
 	// this fires. A 2026-08-30 flagship drill (release-2026.08.30-
 	// c655472) found the enabled poller logged nothing at boot at all —
 	// see the kill-switch drill log in docs/launch-checklist.md.
-	p.cfg.Logf("livescore: poller enabled (interval=%s, max_inflight=%d, daily_budget=%d, season=%d)",
-		p.cfg.Interval, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
-	ticker := time.NewTicker(p.cfg.Interval)
+	p.cfg.Logf("livescore: poller enabled (scoreboard_interval=%s, box_baseline=%s, max_inflight=%d, daily_budget=%d, season=%d)",
+		p.cfg.ScoreboardInterval, p.cfg.BoxBaseline, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
+	ticker := time.NewTicker(p.cfg.ScoreboardInterval)
 	defer ticker.Stop()
 	p.Tick(ctx)
 	for {
@@ -250,6 +287,13 @@ func (p *Poller) Tick(ctx context.Context) {
 		p.cfg.Logf("livescore: window closed")
 	}
 	if len(targets) == 0 {
+		// Nothing to fetch or trigger this pass: drop the previous pass's
+		// trigger lookup so a stale gameID (finaled, or the whole window
+		// closed) cannot still be triggered — see the field doc comments
+		// on tank01ID/trackedGame.
+		p.mu.Lock()
+		p.tank01ID, p.trackedGame = nil, nil
+		p.mu.Unlock()
 		return
 	}
 	var listings []fantasy.GameListing
@@ -266,18 +310,48 @@ func (p *Poller) Tick(ctx context.Context) {
 	if len(unmatchedGames) > 0 {
 		p.cfg.Logf("livescore: %d games in window have no Tank01 listing: %v", len(unmatchedGames), unmatchedGames)
 	}
+	// tank01ID/trackedGame: GC-2 layer 3's own lookup for TriggerBoxFetch,
+	// fully replaced every tick (never merged) — see the field doc
+	// comments.
+	tank01ByGame := make(map[string]string, len(matched))
+	for gameID, tank01ID := range matched {
+		tank01ByGame[gameID] = tank01ID
+	}
+	trackedGame := make(map[string]Game, len(targets))
+	for _, game := range targets {
+		trackedGame[game.ID] = game
+	}
 	p.mu.Lock()
 	p.unmatched, p.unmatchedGames = len(unmatchedGames), unmatchedGames
+	p.tank01ID, p.trackedGame = tank01ByGame, trackedGame
 	p.mu.Unlock()
+
+	// boxTargets narrows targets to GC-2 layer 2's own gate: a box score
+	// is fetched when it has gone at least cfg.BoxBaseline without a
+	// successful fetch (including never yet fetched at all) — the slow
+	// safety net that keeps yardage and reception stats flowing between
+	// scoring plays. This tick has no scoreboard-delta gate layered on
+	// top (see ScoreboardInterval's own doc comment): GC-2 shipped
+	// without one, for lack of a verified live score/period/clock field
+	// on the games-list response itself. A wire-triggered fetch
+	// (TriggerBoxFetch) reaches the same fetcher/record/budget path
+	// independently of this loop, between ticks.
+	var boxTargets []Game
+	for _, game := range targets {
+		if _, ok := matched[game.ID]; !ok {
+			continue
+		}
+		if p.boxFetchDue(game.ID, now) {
+			boxTargets = append(boxTargets, game)
+		}
+	}
+
 	sem := make(chan struct{}, p.cfg.MaxInflight)
 	var wg sync.WaitGroup
 	changed := false
 	var changedMu sync.Mutex
-	for _, game := range targets {
-		tank01ID, ok := matched[game.ID]
-		if !ok {
-			continue
-		}
+	for _, game := range boxTargets {
+		tank01ID := matched[game.ID]
 		if !p.budgetRemaining(now) {
 			break
 		}
@@ -322,6 +396,109 @@ func (p *Poller) isFinalDone(id string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.finalDone[id]
+}
+
+// boxFetchDue reports whether id's box score has gone at least
+// cfg.BoxBaseline without a successful fetch — including a game never yet
+// fetched at all, which is always due (GC-2 layer 2). A negative elapsed
+// duration (cfg.Now went backward relative to the last successful fetch —
+// never true of a real production clock, but a real possibility for a
+// harness that can set an arbitrary clock override, sim_gameday_test.go's
+// /test/clock chief among them) is treated as due too: there is no
+// meaningful sense in which a fetch is still "fresh" against a now that
+// precedes it, and the alternative — waiting for the clock to naturally
+// catch back up to that stale timestamp — could silently stall fetching
+// far longer than cfg.BoxBaseline ever promises. Callers hold no lock; it
+// takes its own.
+func (p *Poller) boxFetchDue(id string, now time.Time) bool {
+	p.mu.Lock()
+	rec, seen := p.games[id]
+	p.mu.Unlock()
+	if !seen {
+		return true
+	}
+	elapsed := now.Sub(rec.at)
+	return elapsed < 0 || elapsed >= p.cfg.BoxBaseline
+}
+
+// TriggerBoxFetch requests one immediate, out-of-band box-score fetch for
+// gameID, ahead of the next scoreboard tick — GC-2 layer 3, the Signal
+// Wire trigger burst. It is the entire surface through which a wire
+// signal can affect live scoring, and it affects ONLY fetch timing: a
+// call here can make an existing game's next box fetch happen sooner, and
+// it can never add, remove, alter, or invent a stat, a score, or a
+// scoring line — every value this can ever cause to appear still comes
+// from the same fetcher.FetchBoxScore call, the identical authoritative
+// Tank01 endpoint the baseline layer already uses. live_scoring.go is the
+// only caller (through the internal/wire subscription seam); a disabled
+// or unconfigured wire service registers no callback, so a disabled wire
+// produces zero calls here, silently.
+//
+// A call is a silent no-op when: the poller is disabled; the relay
+// circuit is open; gameID is not one of the current tick's own targets
+// (unmatched to a Tank01 ID, out of window, or already final — see
+// tank01ID/trackedGame's own doc comment); or gameID was already
+// triggered within triggerCooldown (10s). Every other guard Tick's own
+// fetch loop applies — the daily budget, failure/circuit tracking —
+// applies here too, through the same shared budgetRemaining/
+// chargeBudget/record/recordFailure methods.
+func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
+	now := p.cfg.Now()
+	p.mu.Lock()
+	if !p.cfg.Enabled || now.Before(p.circuitOpen) {
+		p.mu.Unlock()
+		return
+	}
+	tank01ID, trackedID := p.tank01ID[gameID]
+	game, trackedGame := p.trackedGame[gameID]
+	if !trackedID || !trackedGame || p.finalDone[gameID] {
+		p.mu.Unlock()
+		return
+	}
+	if last, ok := p.lastTrigger[gameID]; ok && now.Sub(last) < triggerCooldown {
+		p.mu.Unlock()
+		return
+	}
+	if p.lastTrigger == nil {
+		p.lastTrigger = map[string]time.Time{}
+	}
+	p.lastTrigger[gameID] = now
+	p.mu.Unlock()
+
+	if !p.budgetRemaining(now) {
+		return
+	}
+	box, err := p.fetcher.FetchBoxScore(ctx, tank01ID)
+	if err != nil {
+		p.recordFailure(err, now)
+		return
+	}
+	changed := p.record(game, box, now)
+	p.chargeBudget(now)
+	if changed {
+		p.mu.Lock()
+		p.version++
+		p.mu.Unlock()
+	}
+}
+
+// InProgressGameByTeam returns the current tick's schedule game ID for
+// every team (nflverse abbreviation, both away and home) whose game is
+// presently a fetch target and not yet final. It exists solely for the
+// wire-trigger seam (live_scoring.go) to resolve a signal's team mention
+// to a gameID for TriggerBoxFetch; it reads no score or stat data.
+func (p *Poller) InProgressGameByTeam() map[string]string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	out := make(map[string]string, len(p.trackedGame)*2)
+	for id, game := range p.trackedGame {
+		if p.finalDone[id] {
+			continue
+		}
+		out[game.Away] = id
+		out[game.Home] = id
+	}
+	return out
 }
 
 // listingsFor returns one week's game listing, cached for listingCacheFor.
