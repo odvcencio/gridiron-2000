@@ -48,7 +48,17 @@ func gameDayEnv(fixtures string, enabled bool) []string {
 		"LIVE_REPLAY_FIXTURE=" + fixtures,
 		"LIVE_REPLAY_STEP=" + gameDayStep,
 		"LIVE_SCORING_ENABLED=" + strconv.FormatBool(enabled),
-		"LIVE_POLL_INTERVAL=5s",
+		// A test-configured tick faster than production's 10s default
+		// (LIVE_SCOREBOARD_INTERVAL), and a box baseline far under
+		// production's 60s default (LIVE_BOX_BASELINE): GC-2's box-fetch
+		// gate is baseline-only (see internal/livescore/poller.go's own
+		// doc comment on ScoreboardInterval), so this scenario's own
+		// liveState transitions and served_index/served_at checks need a
+		// short baseline to observe a box-score change inside this
+		// scenario's real wall-clock run, mirroring
+		// startReplayLeague's identical override (sim_live_test.go).
+		"LIVE_SCOREBOARD_INTERVAL=5s",
+		"LIVE_BOX_BASELINE=2s",
 		"LIVE_MAX_INFLIGHT=2",
 		"LIVE_DAILY_BUDGET=100000",
 	}
@@ -233,6 +243,38 @@ func waitForLiveState(t *testing.T, child *simChild, bot *draft.Bot, want string
 	}
 }
 
+// waitForLiveStateAdvancingClock is waitForLiveState for a step whose
+// target state (LiveStateLive) can only appear from a box fetch that
+// actually happens more than once: setClockAtKickoffOffset pins the
+// harness clock at one fixed instant, and GC-2's box-fetch baseline
+// (LIVE_BOX_BASELINE) gates a re-fetch on that same clock — every other
+// poller timing check already reads it (window matching, the circuit
+// breaker, budget rollover), so a truly frozen clock lets the poller
+// fetch exactly once and then never again, no matter how many real
+// seconds elapse or how far the replay server's own real-time-driven
+// frame index moves in the meantime. Nudging the frozen instant forward
+// by one second on every poll iteration (still deterministic and
+// test-controlled, never real wall time) keeps it moving just enough for
+// the baseline to keep firing, without giving up setClockAtKickoffOffset's
+// own reproducible-reference-point guarantee elsewhere in this scenario.
+func waitForLiveStateAdvancingClock(t *testing.T, child *simChild, bot *draft.Bot, want string, deadline time.Duration) map[string]any {
+	t.Helper()
+	end := time.Now().Add(deadline)
+	var view map[string]any
+	for {
+		advanceClock(t, child.URL, time.Second)
+		view, _ = liveWeek(t, child, bot)
+		if got, _ := view["liveState"].(string); got == want {
+			return view
+		}
+		if time.Now().After(end) {
+			t.Fatalf("liveState never reached %q within %s (last observed %v, poller %+v)",
+				want, deadline, view["liveState"], readTestLive(t, child).Poller)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // waitForLogLine polls child's own captured stderr tail (sim_child_test.go's
 // tailBuffer, mirrored from the child process's log output) until it
 // contains substr or deadline passes. It exists to observe a log line the
@@ -315,7 +357,7 @@ func TestSimGameDayTimeline(t *testing.T) {
 	// used to log nothing at boot, leaving an operator flipping the flag
 	// with no confirmation it started. Assert the new boot line is
 	// actually there, in this same flag-ON child's own captured log.
-	waitForLogLine(t, child, "livescore: poller enabled (interval=", 10*time.Second)
+	waitForLogLine(t, child, "livescore: poller enabled (scoreboard_interval=", 10*time.Second)
 	setClockAtKickoffOffset(t, child, -30*time.Minute)
 	preWindow := waitForInWindow(t, child, 0, 10*time.Second)
 	if !preWindow.Poller.Enabled || preWindow.Poller.Degraded {
@@ -331,7 +373,7 @@ func TestSimGameDayTimeline(t *testing.T) {
 	// flow.
 	setClockAtKickoffOffset(t, child, -4*time.Minute)
 	inWindow := waitForInWindow(t, child, 1, 15*time.Second)
-	liveView := waitForLiveState(t, child, viewer, league.LiveStateLive, 60*time.Second)
+	liveView := waitForLiveStateAdvancingClock(t, child, viewer, league.LiveStateLive, 60*time.Second)
 	t.Logf("STEP 3 [T-5m..kickoff, flag ON]: liveState=%s in_window=%d scores=%v",
 		liveView["liveState"], inWindow.InWindow, liveView["scores"])
 
@@ -374,7 +416,7 @@ func TestSimGameDayTimeline(t *testing.T) {
 	child = restartGameDayChild(t, child, l, dataFile, fixtures, true)
 	setClockAtKickoffOffset(t, child, 30*time.Second)
 	waitForInWindow(t, child, 1, 15*time.Second)
-	resumedView := waitForLiveState(t, child, viewer, league.LiveStateLive, 60*time.Second)
+	resumedView := waitForLiveStateAdvancingClock(t, child, viewer, league.LiveStateLive, 60*time.Second)
 	t.Logf("STEP 5 [resume, flag ON]: liveState=%s", resumedView["liveState"])
 
 	// Step 6: advance past kickoff+5h. The window closes. The BAL@BUF

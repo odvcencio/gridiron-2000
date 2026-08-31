@@ -34,6 +34,8 @@ var harnessSensitiveEnv = []string{
 	// commit cdeb7f2, finding 1).
 	"LIVE_SCORING_ENABLED",
 	"LIVE_POLL_INTERVAL",
+	"LIVE_SCOREBOARD_INTERVAL",
+	"LIVE_BOX_BASELINE",
 	"LIVE_DAILY_BUDGET",
 	"LIVE_MAX_INFLIGHT",
 	"LIVE_REPLAY_FIXTURE",
