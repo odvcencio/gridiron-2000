@@ -98,6 +98,15 @@ type Player struct {
 	// reasoning," the same principle Preseason Blitz's pre1 evidence line
 	// already follows).
 	DraftCapital string `json:"draftCapital,omitempty"`
+	// PunterRank is a Position "P" player's house rank, 1..N, assigned by
+	// internal/fantasy's pool build from the league's own embedded 2025
+	// punter rescoring (main.go's fantasyPlayerSource carries it through
+	// from fantasy.Player.PunterRank untouched). Zero for every non-punter,
+	// and for a punter the embedded projection lookup missed. playerMap
+	// (service.go) renders it as the "P##" rank label whenever ADPRank is
+	// zero — market ADP never covers punters (blitz.go reads ADPRank>0 as
+	// a market-ADP signal, so PunterRank must never feed it).
+	PunterRank int `json:"punterRank,omitempty"`
 }
 
 // BlitzEntry is one member's 5-player slate entry for Preseason Blitz

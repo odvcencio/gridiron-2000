@@ -272,6 +272,10 @@ func offlinePoolAsLive() league.PlayerSource {
 			Status:       "Available",
 			Rookie:       player.IsRookie(),
 			DraftCapital: player.DraftCapitalLabel(),
+			// OfflinePool carries zero Position "P" entries today (see its
+			// doc comment), so PunterRank is always zero here — mapped for
+			// correctness, matching fantasyPlayerSource (main.go).
+			PunterRank: player.PunterRank,
 		})
 	}
 	return func() ([]league.Player, int64, string) {
@@ -309,6 +313,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// Wired before fantasyPool.Start below (and before the cache-loaded
+	// pool from fantasy.Default's NewService could otherwise sit rankless
+	// until the next sync): league.PunterProjection is the league's own
+	// embedded 2025 punter rescoring — Tank01 carries no punter ADP or
+	// projections at all. SetPunterProjections also re-normalizes whatever
+	// pool NewService already loaded, so a cache boot is never rankless.
+	fantasyPool.SetPunterProjections(league.PunterProjection)
 	rt.starters = append(rt.starters, signalFeed.Start, openStats.Start, fantasyPool.Start)
 	// The harness may ask for the offline pool relabelled "live" so a
 	// simulated draft can start without a live upstream; every other run

@@ -78,6 +78,49 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	}
 }
 
+// TestDraftDataAvailablePosPFiltersAndOrdersByPunterRank checks the Draft
+// Room available-pool fragment's ?pos=P behavior: DraftData never re-sorts
+// (it only filters pool order, matching the players-page fragment's own
+// contract — internal/fantasy's normalizePool already produced the order),
+// so punters come back projection-ordered with "P##" rank labels, and a
+// punter the embedded projection lookup missed renders "—".
+func TestDraftDataAvailablePosPFiltersAndOrdersByPunterRank(t *testing.T) {
+	service := newTestService(t, true)
+	pool := []Player{
+		{ID: "wr1", Name: "Some Receiver", Position: "WR", NFLTeam: "PIT", ADPRank: 1, Projection: 15},
+		{ID: "p-high", Name: "High Punter", Position: "P", NFLTeam: "HOU", Projection: 9.0, PunterRank: 1},
+		{ID: "p-low", Name: "Low Punter", Position: "P", NFLTeam: "DAL", Projection: 6.0, PunterRank: 2},
+		{ID: "p-missed", Name: "Unmatched Punter", Position: "P", NFLTeam: "NYJ"},
+	}
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft?pos=P", nil)
+	data := service.DraftData(request)
+	available, ok := data["available"].([]map[string]any)
+	if !ok || len(available) != 3 {
+		t.Fatalf("available = %+v, want 3 punter rows", data["available"])
+	}
+	wantOrder := []struct {
+		id   string
+		rank string
+	}{
+		{"p-high", "P01"},
+		{"p-low", "P02"},
+		{"p-missed", "—"},
+	}
+	for i, want := range wantOrder {
+		if available[i]["id"] != want.id {
+			t.Fatalf("row %d id = %v, want %v (rows: %+v)", i, available[i]["id"], want.id, available)
+		}
+		if available[i]["rank"] != want.rank {
+			t.Fatalf("row %d rank = %v, want %v", i, available[i]["rank"], want.rank)
+		}
+	}
+	if data["pool_position"] != "P" {
+		t.Errorf("pool_position = %v, want P", data["pool_position"])
+	}
+}
+
 // TestCachedPoolIsReportedAsUsableSnapshot proves the production regression:
 // a healthy on-disk snapshot is not live, but it is also not offline. Every
 // manager pool surface gets the same cached state, useful-content promise,
@@ -1027,6 +1070,51 @@ func TestPlayerMapEmitsRookieAndDraftCapitalKeys(t *testing.T) {
 	}
 	if veteranEntry["has_draft_capital"] != false {
 		t.Errorf("has_draft_capital = %v, want false", veteranEntry["has_draft_capital"])
+	}
+}
+
+// TestPlayerMapRankCellPrefersADPThenPunterRankThenDash checks the rank
+// cell's precedence (service.go's playerMap): a real market ADPRank always
+// wins; failing that, a punter's house PunterRank renders as "P##" (zero
+// padded to two digits); failing both — an unranked non-punter, or a
+// punter the embedded projection lookup missed — the cell falls back to
+// "—". Market ADP never covers punters (roster-ops spec section 4.1.2), so
+// PunterRank is the only rank most punters ever carry.
+func TestPlayerMapRankCellPrefersADPThenPunterRankThenDash(t *testing.T) {
+	service := newTestService(t, true)
+	values := service.currentScoringValues()
+
+	adpRanked := Player{ID: "adp1", Name: "Market Starter", Position: "WR", NFLTeam: "CIN", ADPRank: 7}
+	if entry := playerMap(adpRanked, values, matchupIndex{}); entry["rank"] != "007" {
+		t.Errorf("ADP-ranked rank = %v, want 007", entry["rank"])
+	}
+
+	punterOne := Player{ID: "p1", Name: "Top Punter", Position: "P", NFLTeam: "HOU", PunterRank: 1}
+	if entry := playerMap(punterOne, values, matchupIndex{}); entry["rank"] != "P01" {
+		t.Errorf("PunterRank 1 rank = %v, want P01", entry["rank"])
+	}
+
+	punterTwelve := Player{ID: "p12", Name: "Deep Punter", Position: "P", NFLTeam: "DAL", PunterRank: 12}
+	if entry := playerMap(punterTwelve, values, matchupIndex{}); entry["rank"] != "P12" {
+		t.Errorf("PunterRank 12 rank = %v, want P12", entry["rank"])
+	}
+
+	// A punter with both ADPRank and PunterRank (should never happen in
+	// practice — punters carry no market ADP) still prefers ADPRank, the
+	// same precedence every other position follows.
+	bothRanked := Player{ID: "p-both", Name: "Improbable Punter", Position: "P", NFLTeam: "MIA", ADPRank: 3, PunterRank: 1}
+	if entry := playerMap(bothRanked, values, matchupIndex{}); entry["rank"] != "003" {
+		t.Errorf("ADP+PunterRank rank = %v, want 003 (ADP wins)", entry["rank"])
+	}
+
+	missedPunter := Player{ID: "p-missed", Name: "Unmatched Punter", Position: "P", NFLTeam: "NYJ"}
+	if entry := playerMap(missedPunter, values, matchupIndex{}); entry["rank"] != "—" {
+		t.Errorf("hook-missed punter rank = %v, want —", entry["rank"])
+	}
+
+	unrankedNonPunter := Player{ID: "wr-unranked", Name: "Deep Bench WR", Position: "WR", NFLTeam: "SEA"}
+	if entry := playerMap(unrankedNonPunter, values, matchupIndex{}); entry["rank"] != "—" {
+		t.Errorf("unranked non-punter rank = %v, want —", entry["rank"])
 	}
 }
 

@@ -30,6 +30,15 @@ type Service struct {
 	mode     string
 	lastSync time.Time
 	lastErr  string
+	// punterProjections resolves a Position "P" player's per-game
+	// projection from the league's own embedded 2025 punter rescoring
+	// (internal/league.PunterProjection) — the live Tank01 feed carries no
+	// punter projections at all. requireTeam, computed by the enrichment
+	// walk itself (see enrichPunters), forces an exact team match whenever
+	// more than one live "P" player shares a last name — the live-pool
+	// surname-collision guard. Nil until SetPunterProjections wires it
+	// (app_build.go, right after Default()). See normalizePool.
+	punterProjections func(name, team string, requireTeam bool) (float64, bool)
 }
 
 var (
@@ -101,6 +110,31 @@ func NewService(config Config) (*Service, error) {
 // also count as "can sync" — otherwise a relay-only league instance would
 // stay stuck in offline mode forever despite a reachable, working relay.
 func (s *Service) Enabled() bool { return s.config.APIKey != "" || s.config.BaseURL != "" }
+
+// SetPunterProjections installs the league's own punter-projection lookup
+// (internal/league.PunterProjection — the embedded 2025 rescoring; the
+// live Tank01 feed carries no punter projections at all). Every future
+// sync (SyncNow) consults it. It also immediately re-normalizes whatever
+// pool is already installed: NewService loads a cached pool from disk
+// (loadCache) before this setter can possibly run, so without this
+// re-normalize a cache-loaded punter would stay rankless until the next
+// sync, hours later. Callers wire this once, right after Default()/
+// NewService, before Start(ctx) — see app_build.go.
+func (s *Service) SetPunterProjections(fn func(name, team string, requireTeam bool) (float64, bool)) {
+	s.mu.Lock()
+	s.punterProjections = fn
+	// normalizePool mutates its argument's Player elements in place
+	// (enrichPunters, the rank-assignment pass). s.players may already be
+	// the exact backing array a concurrent Players() call handed to a
+	// reader that is still ranging over it outside this lock, so this
+	// copies before normalizing rather than mutating the shared array —
+	// otherwise that reader would race with this write (finding 1; a
+	// -race regression test pins this in punters_test.go).
+	next := append([]Player(nil), s.players...)
+	s.players = normalizePool(next, fn)
+	s.version++
+	s.mu.Unlock()
+}
 
 // Start launches the background sync loop when a key is configured.
 func (s *Service) Start(ctx context.Context) {
@@ -227,7 +261,10 @@ func (s *Service) SyncNow(ctx context.Context) error {
 		byes = parseTeamByes(raw, s.config.Season)
 	}
 
-	pool := mergePool(base, adp, projections, news, byes, s.config.PoolLimit)
+	s.mu.RLock()
+	punterProjection := s.punterProjections
+	s.mu.RUnlock()
+	pool := mergePool(base, adp, projections, news, byes, s.config.PoolLimit, punterProjection)
 	if len(pool) == 0 {
 		return s.recordError(fmt.Errorf("merged pool is empty"))
 	}
@@ -264,7 +301,18 @@ func (s *Service) SyncNow(ctx context.Context) error {
 // the branch above and can never be displaced by a rookie's draft slot. ADP
 // entries missing from the player list (defenses, kickers on some feeds) are
 // synthesized when they carry enough identity to draft.
-func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int) []Player {
+//
+// punterProjection (nil-safe) enriches every Position "P" candidate — via
+// the shared enrichPunters helper, see its doc comment — BEFORE the
+// rest-tier sort and the pool-limit truncation below, not after (finding
+// 2 of the punter-rankings review): enriching only the already-truncated,
+// already-sorted final slice let ScaledPoolLimit's 200-entry floor
+// truncate away every live punter on a deep enough ADP/rest list before
+// any of them ever got a projection, leaving zero punters in the pool and
+// pausing the draft clock for any roster with a P slot. Enriching first
+// means an enriched punter's real projection decides whether it survives
+// the cut, exactly like every other position.
+func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int, punterProjection func(name, team string, requireTeam bool) (float64, bool)) []Player {
 	ranked := make([]Player, 0, len(adp))
 	seen := map[string]bool{}
 	for _, entry := range adp {
@@ -302,22 +350,191 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 	for _, id := range ids {
 		rest = append(rest, base[id])
 	}
-	sort.SliceStable(rest, func(i, j int) bool {
-		left, right := projections[rest[i].ID].Points, projections[rest[j].ID].Points
+
+	// rankedCount marks the boundary inside pool below: [0:rankedCount] is
+	// the ADP-ranked head (market order, untouched by the rest-tier sort),
+	// [rankedCount:] is the rest tier. Combining into one slice up front —
+	// rather than assigning fields and enriching ranked and rest
+	// separately — lets enrichPunters see every live "P" candidate in one
+	// pass, so its surname-collision guard (finding 3) can never miss a
+	// collision split across the two.
+	rankedCount := len(ranked)
+	pool := append(ranked, rest...)
+
+	// Projection/ProjStats/ByeWeek/News do not depend on final pool
+	// position, so every candidate gets them up front, before
+	// enrichPunters and the rest-tier sort below — not after the
+	// pool-limit truncation, per this function's own doc comment.
+	for index := range pool {
+		player := &pool[index]
+		player.Projection = projections[player.ID].Points
+		player.ProjStats = projections[player.ID].Stats
+		player.ByeWeek = byes[player.NFLTeam]
+		if headline, ok := news[player.ID]; ok {
+			player.News = headline
+		} else if headline, ok := news[player.Name]; ok {
+			player.News = headline
+		}
+	}
+	enrichPunters(pool, punterProjection)
+
+	rest = pool[rankedCount:]
+	sort.SliceStable(rest, restLess(rest))
+
+	if len(pool) > limit {
+		pool = pool[:limit]
+	}
+	for index := range pool {
+		if pool[index].ADP > 0 {
+			pool[index].ADPRank = index + 1
+		}
+	}
+	assignPunterRanks(pool)
+	return pool
+}
+
+// enrichPunters applies punterProjection to every Position "P" player in
+// pool that does not already carry a nonzero Projection — the ONE
+// enrichment pass mergePool (before its own rest-tier sort and pool-limit
+// truncation — see its doc comment) and normalizePool (an already-
+// installed pool: the cache-load and SetPunterProjections paths) both
+// call, so the two paths can never drift apart. requireTeam is computed
+// once per call, from the SAME pool slice about to be walked
+// (puntersNeedingTeamMatch): true for any last name shared by more than
+// one live "P" player already in pool — a live-pool surname collision
+// (finding 3 of the punter-rankings review; the embedded asset's own 35
+// surnames are unique, but common surnames like Taylor or Martin genuinely
+// recur among real live punters) — false for a last name unique in pool,
+// so a punter who has since changed teams still resolves by last name
+// alone. A nil punterProjection is a no-op: normalizePool's caller-side
+// ranking pass still runs over whatever punters already carry a nonzero
+// Projection.
+//
+// mergePool calls this on the wider, pre-truncation merge output;
+// normalizePool calls this on an already-final, previously-truncated
+// installed pool. Because puntersNeedingTeamMatch, below, is always
+// computed from the exact slice its caller hands it — never from a
+// separately tracked set — this is the single code path finding 2 of the
+// punter-rankings review asks for, not two implementations that could
+// drift apart. A punter cut by an earlier truncation cannot be a live
+// collision partner for a caller that never sees it again either, so this
+// scope difference changes no visible rank.
+func enrichPunters(pool []Player, punterProjection func(name, team string, requireTeam bool) (float64, bool)) {
+	if punterProjection == nil {
+		return
+	}
+	collisions := puntersNeedingTeamMatch(pool)
+	for index := range pool {
+		player := &pool[index]
+		if player.Position != "P" || player.Projection != 0 {
+			continue
+		}
+		requireTeam := collisions[punterSurname(player.Name)]
+		if perGame, ok := punterProjection(player.Name, player.NFLTeam, requireTeam); ok {
+			player.Projection = perGame
+		}
+	}
+}
+
+// puntersNeedingTeamMatch returns the set of last names (upper-cased)
+// shared by more than one Position "P" player in pool — enrichPunters'
+// live-pool surname-collision guard.
+func puntersNeedingTeamMatch(pool []Player) map[string]bool {
+	counts := map[string]int{}
+	for _, player := range pool {
+		if player.Position != "P" {
+			continue
+		}
+		surname := punterSurname(player.Name)
+		if surname == "" {
+			continue
+		}
+		counts[surname]++
+	}
+	collisions := make(map[string]bool, len(counts))
+	for surname, count := range counts {
+		if count > 1 {
+			collisions[surname] = true
+		}
+	}
+	return collisions
+}
+
+// punterSuffixes lists the trailing generational/name suffixes
+// punterSurname strips before taking the last token, with or without a
+// trailing period (for example both "III" and "III."), case-insensitive
+// — the EXACT mirror of internal/league/punters_hist.go's own
+// punterSuffixes var and lastWord loop. Keep the two lists and loops
+// identical by hand: TestPunterSurnameStripsGenerationalSuffix here and
+// league's TestLastWordAgreesWithPunterSurnameSuffixTable pin both against
+// the same table literal (finding 1 of the punter-rankings review).
+var punterSuffixes = map[string]bool{
+	"JR": true, "SR": true, "II": true, "III": true, "IV": true,
+}
+
+// punterSurname extracts a player's collision key: the last
+// space-separated, upper-cased token of name, skipping a trailing
+// generational suffix (see punterSuffixes) — enrichPunters' own collision
+// key, and the EXACT mirror of internal/league/punters_hist.go's lastWord.
+// This package has no dependency on internal/league (app_build.go wires
+// the two together at the top), so the live-pool collision check needs
+// its own minimal tokenization rather than importing league's lastWord —
+// but that tokenization must strip the same suffixes lastWord does.
+// Before this suffix strip, "AJ Cole III" tokenized as "III", not "COLE":
+// a second live Cole on another team shared no collision key with him at
+// all (no collision flagged, so the second Cole silently inherited the
+// first Cole's projection and rank), and an unrelated "Bo Taylor III"
+// collided with him falsely on "III" (a moved punter lost his own rank) —
+// finding 1 of the punter-rankings review. A drift between this loop and
+// lastWord's is exactly the bug the two sides' lockstep tests exist to
+// catch.
+func punterSurname(name string) string {
+	fields := strings.Fields(name)
+	for len(fields) > 0 {
+		last := strings.ToUpper(strings.TrimSuffix(fields[len(fields)-1], "."))
+		if !punterSuffixes[last] {
+			break
+		}
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.ToUpper(fields[len(fields)-1])
+}
+
+// assignPunterRanks assigns PunterRank 1..N, in final pool order, to every
+// Position "P" player carrying a real (nonzero) Projection — shared by
+// mergePool and normalizePool so the two paths can never disagree on
+// where a punter's rank comes from. A hook-missed punter has nothing to
+// rank by, sits in the same anonymous zero/zero tier as any other
+// stats-less camp body, and keeps PunterRank at zero so playerMap
+// (internal/league) renders "—" for it rather than a falsely precise
+// number.
+func assignPunterRanks(pool []Player) {
+	punterRank := 0
+	for index := range pool {
+		if pool[index].Position == "P" && pool[index].Projection > 0 {
+			punterRank++
+			pool[index].PunterRank = punterRank
+		}
+	}
+}
+
+// restLess builds mergePool's (and normalizePool's) rest-tier comparator:
+// projection descending, and — on a true zero/zero tie only — a rookie's
+// NFL draft capital ahead of the alphabetical fallback (see mergePool's doc
+// comment for the full rationale). Both callers assign Player.Projection to
+// every rest-tier candidate — including a punter enrichPunters just
+// resolved — before this runs, so there is exactly one comparator reading
+// exactly one field; the two sorts can never silently drift apart.
+func restLess(rest []Player) func(i, j int) bool {
+	return func(i, j int) bool {
+		left, right := rest[i].Projection, rest[j].Projection
 		if left != right {
 			return left > right
 		}
 		if left == 0 {
-			// Both players carry no ADP and no projection at all — the true
-			// zero/zero tier (this branch never runs for a tie on a real,
-			// nonzero projection). A rookie's NFL draft capital is a real,
-			// market-set signal of presumed usage; it breaks the tie here,
-			// ahead of the alphabetical fallback below, so a first-round
-			// rookie no longer lands wherever his NAME happens to fall among
-			// hundreds of camp bodies. A non-rookie, or a rookie Tank01
-			// reports no draft slot for (an undrafted free agent), carries no
-			// capital and falls straight through to that same alphabetical
-			// order, unchanged from before this tiebreak existed.
 			leftPick, leftHasCapital := rest[i].DraftCapital()
 			rightPick, rightHasCapital := rest[j].DraftCapital()
 			if leftHasCapital != rightHasCapital {
@@ -331,25 +548,50 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 			return rest[i].Name < rest[j].Name
 		}
 		return rest[i].ID < rest[j].ID
-	})
-	pool := append(ranked, rest...)
-	if len(pool) > limit {
-		pool = pool[:limit]
 	}
-	for index := range pool {
-		player := &pool[index]
+}
+
+// normalizePool applies the punter-projection hook to any pool about to be
+// installed as the live pool — an existing pool re-normalized the moment
+// SetPunterProjections wires the hook (covering a cache load, which
+// happens before that setter can run — see its doc comment). It shares
+// enrichPunters, restLess, and assignPunterRanks with mergePool (finding 2
+// of the punter-rankings review) so the sync path and the cache/setter
+// path can never drift apart: a Position "P" player carrying no
+// projection gets one from punterProjection, on the SAME per-game scale
+// every other position's Projection already carries (Tank01's
+// getNFLProjections is called with week=1 — see SyncNow — so Projection is
+// always one week's worth of points, never a season total; PunterProjection's
+// TotalPts/Games division matches that scale). The rest tier is then
+// re-sorted so an enriched punter takes its earned place ahead of the true
+// zero/zero camp-body tier instead of staying wherever the pre-enrichment
+// alphabetical order put it. Finally, PunterRank is assigned 1..N. ADPRank
+// — no punter ever carries real ADP — and every other field are left
+// untouched. A nil punterProjection still runs the ranking pass (over
+// whatever punters already carry a nonzero Projection), so a pool built
+// before the hook existed still gets its punters labeled once this runs.
+func normalizePool(pool []Player, punterProjection func(name, team string, requireTeam bool) (float64, bool)) []Player {
+	enrichPunters(pool, punterProjection)
+
+	ranked := make([]Player, 0, len(pool))
+	rest := make([]Player, 0, len(pool))
+	for _, player := range pool {
+		// ADP > 0, not ADPRank > 0: the same predicate mergePool's own
+		// ranked head is built from (its rankedCount boundary comes from
+		// every ADP entry, and parseADP drops any adp <= 0), so the two
+		// splits are equivalent by construction (finding 3 of the
+		// punter-rankings review) — and unlike ADPRank, ADP > 0 already
+		// holds before a caller has assigned any rank at all.
 		if player.ADP > 0 {
-			player.ADPRank = index + 1
-		}
-		player.Projection = projections[player.ID].Points
-		player.ProjStats = projections[player.ID].Stats
-		player.ByeWeek = byes[player.NFLTeam]
-		if headline, ok := news[player.ID]; ok {
-			player.News = headline
-		} else if headline, ok := news[player.Name]; ok {
-			player.News = headline
+			ranked = append(ranked, player)
+		} else {
+			rest = append(rest, player)
 		}
 	}
+	sort.SliceStable(rest, restLess(rest))
+	pool = append(ranked, rest...)
+
+	assignPunterRanks(pool)
 	return pool
 }
 

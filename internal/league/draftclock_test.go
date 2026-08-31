@@ -1,11 +1,15 @@
 package league
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"gridiron-2000/internal/fantasy"
 )
 
 // newClockTestService builds a Service with a fake clock, a fresh Store on
@@ -393,6 +397,206 @@ func TestDraftSelectionCannotStrandRequiredStarter(t *testing.T) {
 	roster, _ := service.rosterForTeam(service.store.Snapshot(), targetTeam)
 	if filled := maximumDraftStarterFill(roster, CurrentRoster()); filled != CurrentRoster().Starters() {
 		t.Fatalf("completed target roster fills %d/%d starters", filled, CurrentRoster().Starters())
+	}
+}
+
+// TestAutopickForcedPunterTakesProjectionTopNotAlphabetical is item 6's own
+// regression test (design: "No code change expected — autopickChoice
+// walks pool order"): once every other required starter slot is filled, a
+// team's final pick can only be legally completed by a punter (the
+// gridiron-house preset's own startable P slot). autopickChoice's
+// best-available fallback then walks pool.players in POOL ORDER — the
+// order internal/fantasy's mergePool/normalizePool now produce, punters
+// ranked by real projection — and must take the projection-top punter
+// ("Zed Punter", pool-order-first) rather than the alphabetically-first
+// one ("Aaron Punter"), proving the historical bug (all-zero punter
+// projections tie-breaking to alphabetical order) is fixed upstream, with
+// no change needed here. The two punters are driven through fantasy's
+// own SetPunterProjections (real enrichment, real re-sort, real
+// PunterRank assignment — see fantasyEnrichedPunterPool below), not
+// hand-assigned a pre-sorted Projection/PunterRank, so deleting that
+// upstream enrichment logic fails this test instead of going unnoticed.
+func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"]) // Starters()=11 incl. P; Total()=17
+	t.Cleanup(clearRosterShape)
+	draftAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, _ := newClockTestService(t, true, draftAt, draftAt) // demo mode: empty board key "demo-guest"
+	const targetTeam = "team-1"
+
+	// Ten players that, between them, fill every gridiron-house starter
+	// slot EXCEPT P (QB, RB x2, WR x2, TE, FLEX via a 3rd RB, SUPERFLEX via
+	// a 2nd QB, K, DST — 10 of the preset's 11 starter slots).
+	filled := []Player{
+		{ID: "fq1", Name: "Filled QB1", Position: "QB", NFLTeam: "TEST"},
+		{ID: "fq2", Name: "Filled QB2", Position: "QB", NFLTeam: "TEST"},
+		{ID: "fr1", Name: "Filled RB1", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fr2", Name: "Filled RB2", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fr3", Name: "Filled RB3", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fw1", Name: "Filled WR1", Position: "WR", NFLTeam: "TEST"},
+		{ID: "fw2", Name: "Filled WR2", Position: "WR", NFLTeam: "TEST"},
+		{ID: "ft1", Name: "Filled TE1", Position: "TE", NFLTeam: "TEST"},
+		{ID: "fk1", Name: "Filled K1", Position: "K", NFLTeam: "TEST"},
+		{ID: "fd1", Name: "Filled DST1", Position: "DST", NFLTeam: "TEST"},
+	}
+	// Six more bench fillers (any non-P position) so the target team's
+	// prior pick count reaches 16 — one short of gridiron-house's 17
+	// rounds, so this is the team's final pick.
+	bench := make([]Player, 0, 6)
+	for i := 1; i <= 6; i++ {
+		bench = append(bench, Player{ID: fmt.Sprintf("bench-%d", i), Name: fmt.Sprintf("Bench WR %d", i), Position: "WR", NFLTeam: "TEST"})
+	}
+	priorPicks := append(append([]Player{}, filled...), bench...)
+	if len(priorPicks) != 16 {
+		t.Fatalf("prior pick fixture = %d players, want 16", len(priorPicks))
+	}
+
+	// An unpicked, non-P camp body: it must fail roster viability (the
+	// target team has no starter deficit left except P) and so must never
+	// be chosen, however early it sits in pool order.
+	extraCampBody := Player{ID: "extra-camp", Name: "Extra Camp Body", Position: "WR", NFLTeam: "TEST"}
+
+	// The two punters start out exactly as fantasy.mergePool/normalizePool
+	// would see them pre-enrichment — zero Projection, zero PunterRank —
+	// fed in ALPHABETICAL (Aaron-before-Zed) raw order, deliberately the
+	// wrong order for this test's assertion. fantasyEnrichedPunterPool
+	// drives them through fantasy's real SetPunterProjections pipeline;
+	// only the real enrichment and re-sort can put "Zed Punter" (the
+	// higher-projection one) ahead of "Aaron Punter" in the returned pool
+	// order.
+	enrichedPunters := fantasyEnrichedPunterPool(t,
+		[]fantasy.Player{
+			{ID: "aaron-punter", Name: "Aaron Punter", Position: "P", NFLTeam: "DAL"},
+			{ID: "zed-punter", Name: "Zed Punter", Position: "P", NFLTeam: "HOU"},
+		},
+		map[string]float64{"Zed Punter": 9.0, "Aaron Punter": 6.0},
+	)
+	var zedID, aaronID string
+	pool := append([]Player{}, priorPicks...)
+	pool = append(pool, extraCampBody)
+	for _, p := range enrichedPunters {
+		pool = append(pool, Player{ID: p.ID, Name: p.Name, Position: p.Position, NFLTeam: p.NFLTeam, Projection: p.Projection, PunterRank: p.PunterRank})
+		switch p.Name {
+		case "Zed Punter":
+			zedID = p.ID
+		case "Aaron Punter":
+			aaronID = p.ID
+		}
+	}
+	if zedID == "" || aaronID == "" {
+		t.Fatalf("enriched punter fixture missing an expected punter: %+v", enrichedPunters)
+	}
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	picks := make([]DraftPick, 0, len(priorPicks))
+	for i, player := range priorPicks {
+		picks = append(picks, DraftPick{Number: i + 1, TeamID: targetTeam, PlayerID: player.ID, MadeAt: draftAt})
+	}
+	service.store.mu.Lock()
+	service.store.state.Picks = picks
+	service.store.state.DraftStarted = true
+	persistErr := service.store.persistLocked(colPicks, colBoards, colScalars)
+	service.store.mu.Unlock()
+	if persistErr != nil {
+		t.Fatalf("persist forced-punter fixture: %v", persistErr)
+	}
+
+	state := service.store.Snapshot()
+	got, ok := service.autopickChoice(state, targetTeam)
+	if !ok {
+		t.Fatal("autopickChoice reported no legal candidate, want the top punter")
+	}
+	if got != zedID {
+		t.Fatalf("autopickChoice = %q, want %q (projection-top punter, not %q the alphabetically-first one)", got, zedID, aaronID)
+	}
+}
+
+// fantasyEnrichedPunterPool drives raw, pre-enrichment fantasy.Player
+// punters through fantasy's real SetPunterProjections ranking pipeline (a
+// cache-loaded fantasy.Service, mirroring
+// TestSetPunterProjectionsEnrichesACacheLoadedPool in
+// internal/fantasy/punters_test.go) so a caller gets back the actual
+// mergePool/normalizePool pool order and Projection/PunterRank values —
+// not a hand-picked stand-in — for a test whose assertion depends on that
+// real ordering (finding 6, autopick's punter-ranking regression test).
+// hook resolves a raw punter's per-game projection by exact Name, and the
+// returned hook ignores requireTeam: this fixture's punter names are
+// unique, so no live-pool surname collision applies.
+func fantasyEnrichedPunterPool(t *testing.T, raw []fantasy.Player, hook map[string]float64) []fantasy.Player {
+	t.Helper()
+	return fantasyEnrichedPunterPoolWithHook(t, raw, func(name, team string, requireTeam bool) (float64, bool) {
+		perGame, ok := hook[name]
+		return perGame, ok
+	})
+}
+
+// fantasyEnrichedPunterPoolWithHook is fantasyEnrichedPunterPool's shared
+// core: it takes the punter-projection hook directly, in fantasy's own
+// func(name, team string, requireTeam bool) (float64, bool) shape, rather
+// than a name-keyed stub. This lets a caller drive the pool through the
+// REAL PunterProjection (this package, no stub) for finding 7's own
+// lockstep regression test, below — the only way to exercise
+// SetPunterProjections' real requireTeam wiring exactly as app_build.go
+// sets it up, rather than a fixture that ignores requireTeam entirely.
+func fantasyEnrichedPunterPoolWithHook(t *testing.T, raw []fantasy.Player, hook func(name, team string, requireTeam bool) (float64, bool)) []fantasy.Player {
+	t.Helper()
+	root := t.TempDir()
+	cacheFile := struct {
+		SchemaVersion int              `json:"schemaVersion"`
+		Provider      string           `json:"provider"`
+		Scoring       string           `json:"scoring"`
+		Players       []fantasy.Player `json:"players"`
+	}{
+		SchemaVersion: fantasy.SchemaVersion,
+		Provider:      "tank01",
+		Scoring:       "half_ppr",
+		Players:       raw,
+	}
+	encoded, err := json.Marshal(cacheFile)
+	if err != nil {
+		t.Fatalf("marshal fantasy cache fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "players.json"), encoded, 0o600); err != nil {
+		t.Fatalf("write fantasy cache fixture: %v", err)
+	}
+	service, err := fantasy.NewService(fantasy.Config{Root: root, Season: 2026, ScoringFormat: "half_ppr"})
+	if err != nil {
+		t.Fatalf("fantasy.NewService: %v", err)
+	}
+	service.SetPunterProjections(hook)
+	players, _ := service.Players()
+	return players
+}
+
+// TestFantasyEnrichmentAgreesWithLeaguePunterProjectionOnSuffixedSurname is
+// finding 1's own lockstep regression test (finding 7 of the
+// punter-rankings review): it drives fantasy's REAL SetPunterProjections
+// pipeline with PunterProjection itself as the hook — no stub — over a
+// pool holding "AJ Cole III" (LV), a second, unrelated live Cole on
+// another team, and a moved punter with a unique-in-pool surname.
+// punterSurname (internal/fantasy) and lastWord (this package) must
+// tokenize "AJ Cole III" to the same "COLE" key or this fails: before
+// finding 1's fix, punterSurname kept "III" as the key, so the two Coles
+// shared no collision key at all and the second Cole silently inherited
+// the first Cole's LV projection.
+func TestFantasyEnrichmentAgreesWithLeaguePunterProjectionOnSuffixedSurname(t *testing.T) {
+	raw := []fantasy.Player{
+		{ID: "lv-cole", Name: "AJ Cole III", Position: "P", NFLTeam: "LV"},
+		{ID: "other-cole", Name: "Bo Cole", Position: "P", NFLTeam: "DAL"},
+		{ID: "moved-townsend", Name: "Tommy Townsend", Position: "P", NFLTeam: "NYJ"},
+	}
+	out := fantasyEnrichedPunterPoolWithHook(t, raw, PunterProjection)
+	byID := make(map[string]fantasy.Player, len(out))
+	for _, p := range out {
+		byID[p.ID] = p
+	}
+	if byID["lv-cole"].Projection <= 0 {
+		t.Errorf("AJ Cole III (LV) must enrich from the embedded Cole/LV entry: %+v", byID["lv-cole"])
+	}
+	if byID["other-cole"].Projection != 0 {
+		t.Errorf("a second live Cole on another team must NOT inherit LV Cole's projection: %+v", byID["other-cole"])
+	}
+	if byID["moved-townsend"].Projection <= 0 {
+		t.Errorf("a moved punter with a unique-in-pool surname must still resolve by last name alone: %+v", byID["moved-townsend"])
 	}
 }
 

@@ -52,6 +52,15 @@ type Player struct {
 	// THIS season versus a stale artifact of a past draft class.
 	DraftRound int `json:"draftRound,omitempty"`
 	DraftPick  int `json:"draftPick,omitempty"`
+	// PunterRank is a Position "P" player's house rank, 1..N in pool order,
+	// assigned by normalizePool once the league's own embedded 2025 punter
+	// rescoring (SetPunterProjections' hook, internal/league.PunterProjection)
+	// fills in Projection — the live Tank01 feed carries no punter ADP or
+	// projections at all, so ADPRank stays zero for every punter (blitz.go
+	// reads ADPRank>0 as a market-ADP signal) and this is the only rank a
+	// punter ever carries. Zero for every non-punter, and for a punter the
+	// hook missed.
+	PunterRank int `json:"punterRank,omitempty"`
 }
 
 // IsRookie reports whether Tank01's raw player list marked p a rookie:

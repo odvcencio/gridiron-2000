@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -267,5 +268,20 @@ func TestReleaseChecklistRequiresSchemaAwareRollbackAdjudication(t *testing.T) {
 	}
 	if !strings.Contains(deploy, "does not require off-node backups") {
 		t.Error("deploy README omitted the no-off-node-backup boundary")
+	}
+}
+
+// TestSeasonOperationsDocPinsPunterGamesFloor is finding 4's own
+// regression test: docs/season-operations.md states the punter rank
+// games floor as a literal number, for readers, rather than a computed
+// value — so this test ties that literal to
+// league.MinPunterGamesForRank directly. A future change to the constant
+// that leaves the doc's number untouched fails here instead of silently
+// misleading an operator.
+func TestSeasonOperationsDocPinsPunterGamesFloor(t *testing.T) {
+	doc := readDocumentationFile(t, filepath.Join("docs", "season-operations.md"))
+	want := fmt.Sprintf("fewer than %d games shows no rank", league.MinPunterGamesForRank)
+	if !strings.Contains(doc, want) {
+		t.Errorf("season-operations.md omitted the current punter games floor %q", want)
 	}
 }
