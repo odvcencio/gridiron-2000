@@ -37,6 +37,17 @@ func main() {
 		dailyBudget = 0
 	}
 	relay.dailyBudget = dailyBudget // 0 = unlimited
+	// boxLiveTTL/scoreboardTTL (relay.go): read once, at boot, before the
+	// server starts serving — see their own doc comment. A non-positive
+	// override is ignored, keeping the 10s default, the same "invalid
+	// reads as default" idiom envInt/envDuration already use elsewhere in
+	// this package.
+	if v := envDuration("STATRELAY_BOX_LIVE_TTL", boxLiveTTL); v > 0 {
+		boxLiveTTL = v
+	}
+	if v := envDuration("STATRELAY_SCOREBOARD_TTL", scoreboardTTL); v > 0 {
+		scoreboardTTL = v
+	}
 	relay.LoadDisk()
 
 	server := &http.Server{
@@ -78,6 +89,15 @@ func envString(key, fallback string) string {
 // fallback when unset, blank, or unparsable.
 func envInt(key string, fallback int) int {
 	if parsed, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key))); err == nil {
+		return parsed
+	}
+	return fallback
+}
+
+// envDuration reads key from the environment as a Go duration, falling
+// back to fallback when unset, blank, or unparsable.
+func envDuration(key string, fallback time.Duration) time.Duration {
+	if parsed, err := time.ParseDuration(strings.TrimSpace(os.Getenv(key))); err == nil {
 		return parsed
 	}
 	return fallback

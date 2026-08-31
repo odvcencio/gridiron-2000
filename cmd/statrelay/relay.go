@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -38,29 +39,48 @@ type ttlRule struct {
 	ttl    time.Duration
 }
 
+// boxLiveTTL and scoreboardTTL are STATRELAY_BOX_LIVE_TTL and
+// STATRELAY_SCOREBOARD_TTL (main.go), each defaulting to 10s: aligned
+// with the app's own LIVE_SCOREBOARD_INTERVAL default (internal/livescore
+// Config.ScoreboardInterval) so the relay never serves an in-progress box
+// score, or a live regular-season scoreboard listing, staler than the
+// app's own fetch cadence. main.go overwrites these package vars once,
+// at boot, before the server starts serving; ttlTable and ttlForEntry
+// read them on every request after that.
+var (
+	boxLiveTTL    = 10 * time.Second
+	scoreboardTTL = 10 * time.Second
+)
+
 // ttlTable maps a request path prefix to how long the relay caches its
 // response, derived from this app's own refresh cadences
 // (internal/fantasy). Rules are checked in order; the first prefix match
-// wins. A path matching no rule falls back to defaultTTL.
-var ttlTable = []ttlRule{
-	{
-		// This is the base/fallback box-score TTL ttlForEntry uses once a
-		// game is actually in progress (or its status is unreadable): the
-		// live poller's own cadence, LIVE_POLL_INTERVAL (internal/livescore
-		// Config.Interval), defaults to 5s, so 4s here means the relay
-		// never serves a score staler than the poller would have fetched
-		// on its own. A pre-game or final box score gets a much longer TTL
-		// instead — see ttlForEntry, which this rule backs.
-		prefix: "/getNFLBoxScore",
-		ttl:    4 * time.Second,
-	},
-	{
-		// The preseason schedule (one week's game list) changes at most
-		// once a day: blitz_source.go's refreshSchedulesIfDue refetches
-		// it on a 24h-per-slate cadence.
-		prefix: "/getNFLGamesForWeek",
-		ttl:    24 * time.Hour,
-	},
+// wins. A path matching no rule falls back to defaultTTL. It is
+// evaluated fresh on every call (not built once at package init) because
+// boxLiveTTL can change after main.go reads the environment.
+func currentTTLTable() []ttlRule {
+	return []ttlRule{
+		{
+			// The base/fallback box-score TTL ttlForEntry uses once a game
+			// is actually in progress (or its status is unreadable) — see
+			// ttlForEntry, which this rule backs. A pre-game or final box
+			// score gets a much longer TTL instead.
+			prefix: "/getNFLBoxScore",
+			ttl:    boxLiveTTL,
+		},
+		{
+			// The preseason schedule (one week's game list) changes at
+			// most once a day: blitz_source.go's refreshSchedulesIfDue
+			// refetches it on a 24h-per-slate cadence. This is the
+			// fallback for that path only — ttlForEntry intercepts the
+			// live regular-season scoreboard query (seasonType=reg)
+			// before this rule is ever consulted, so a live poller tick
+			// can never be served a stale schedule-cadence response; see
+			// its own doc comment.
+			prefix: "/getNFLGamesForWeek",
+			ttl:    24 * time.Hour,
+		},
+	}
 }
 
 // defaultTTL covers every other Tank01 endpoint this app calls today:
@@ -70,10 +90,11 @@ var ttlTable = []ttlRule{
 // (internal/fantasy/model.go ConfigFromEnv), 6 hours.
 const defaultTTL = 6 * time.Hour
 
-// ttlFor returns the cache TTL for a request path: the first ttlTable
-// prefix match, or defaultTTL when nothing matches.
+// ttlFor returns the cache TTL for a request path (no query string): the
+// first currentTTLTable prefix match, or defaultTTL when nothing
+// matches.
 func ttlFor(path string) time.Duration {
-	for _, rule := range ttlTable {
+	for _, rule := range currentTTLTable() {
 		if strings.HasPrefix(path, rule.prefix) {
 			return rule.ttl
 		}
@@ -81,18 +102,57 @@ func ttlFor(path string) time.Duration {
 	return defaultTTL
 }
 
-// ttlForEntry is ttlFor made status-aware for box scores, and aware of
-// the HTTP status itself: a non-200 upstream reply is never cached and
-// returns 0, the sentinel fetchUpstream reads as "do not cache this"
-// (round-2 review of commit fe8775f, finding 2 — a 429/403/... RapidAPI
-// reply is a definitive answer, not something to mirror). For a 200,
-// box-score status-code rule: "2" (or a Final period) never changes
-// (24 h); "0" or "" with no period changes at kickoff (60 s); "1", or
-// any other code with a period, is in progress and follows the live
-// cadence (4 s), as does an unreadable body.
-func ttlForEntry(path string, status int, body []byte) time.Duration {
+// isRegularSeasonScoreboardQuery reports whether a getNFLGamesForWeek
+// query string is the live poller's own regular-season scoreboard call
+// (internal/livescore Poller.listingsFor, always seasonType=reg) as
+// opposed to Blitz's preseason schedule call (seasonType=pre): the two
+// share one Tank01 endpoint but need very different cache lifetimes —
+// see ttlForEntry.
+func isRegularSeasonScoreboardQuery(rawQuery string) bool {
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return false
+	}
+	return query.Get("seasonType") == "reg"
+}
+
+// ttlForEntry is ttlFor made status- and query-aware, for the two paths
+// whose correct TTL cannot be read off the path prefix alone: a non-200
+// upstream reply is never cached and returns 0, the sentinel
+// fetchUpstream reads as "do not cache this" (round-2 review of commit
+// fe8775f, finding 2 — a 429/403/... RapidAPI reply is a definitive
+// answer, not something to mirror).
+//
+// getNFLGamesForWeek: a regular-season query (seasonType=reg — the live
+// poller's own scoreboard tick) gets scoreboardTTL; every other query
+// (Blitz's own seasonType=pre) keeps ttlFor's 24h schedule-cadence rule.
+// The two callers share one Tank01 endpoint, so they were never at risk
+// of colliding on the same cache entry (the full path+query is already
+// the cache key, ServeHTTP) — only of sharing one flat TTL rule that fit
+// neither well. currentTTLTable/ttlFor stay pure path-prefix matchers,
+// unchanged in mechanism; this split is a query check ahead of that
+// fallback, the same shape ttlForEntry already uses for getNFLBoxScore's
+// status-code cases below — no new matcher, no wider change than this
+// function.
+//
+// getNFLBoxScore: status-code rule — "2" (or a Final period) never
+// changes (24h); "0" or "" with no period changes at kickoff (60s); "1",
+// or any other code with a period, is in progress and follows
+// boxLiveTTL, as does an unreadable body.
+//
+// key is the full request key (path, optionally "?"+query, ServeHTTP's
+// own cache-key form) — not just the path — so both rules above can read
+// the query string they need.
+func ttlForEntry(key string, status int, body []byte) time.Duration {
 	if status != http.StatusOK {
 		return 0
+	}
+	path, rawQuery, _ := strings.Cut(key, "?")
+	if strings.HasPrefix(path, "/getNFLGamesForWeek") {
+		if isRegularSeasonScoreboardQuery(rawQuery) {
+			return scoreboardTTL
+		}
+		return ttlFor(path)
 	}
 	if !strings.HasPrefix(path, "/getNFLBoxScore") {
 		return ttlFor(path)
@@ -408,11 +468,7 @@ func (r *Relay) fetchUpstream(ctx context.Context, key string) (cacheEntry, erro
 	}
 	log.Printf("statrelay: upstream status=%d path=%s", resp.StatusCode, key)
 
-	path := key
-	if idx := strings.IndexByte(key, '?'); idx >= 0 {
-		path = key[:idx]
-	}
-	ttl := ttlForEntry(path, resp.StatusCode, body)
+	ttl := ttlForEntry(key, resp.StatusCode, body)
 	if ttl <= 0 {
 		// Non-200: never cached, never persisted. ServeHTTP relays this
 		// status verbatim to the caller when it has no cached copy to
