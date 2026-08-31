@@ -243,7 +243,7 @@ func databaseHasStateRows(db *sql.DB) (bool, error) {
 		"notify_prefs", "notify_pref_owners", "badge_claims", "avatar_refs",
 		"announcements", "lineups", "lineup_weeks", "lineup_teams", "transactions",
 		"waiver_claims", "waiver_receipts", "trade_offers", "roster_zones", "roster_zone_teams", "schedule",
-		"playoffs",
+		"playoffs", "locker_posts",
 	} {
 		var present int
 		query := `SELECT 1 FROM "` + table + `" LIMIT 1`

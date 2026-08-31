@@ -238,6 +238,34 @@ type Service struct {
 	// emitPresenceTransitions (and RecordPresence's own transition check)
 	// emit one draft:seat per real change, never once per tick or poll.
 	lastPresence map[string]string
+
+	// lockerEventSink is the locker-live hub's broadcast hook (GC-4;
+	// internal/league cannot import app/locker, the same constraint
+	// SetDraftEventSink already documents). nil in every test Service
+	// literal and until app_build.go calls SetLockerEventSink; every
+	// PostLockerPost/RemoveLockerPost commit calls it, nil-safe, right
+	// after its own store write succeeds — locker mutations are
+	// synchronous HTTP requests, not an external async source, so no
+	// queue/generation machinery is needed the way draft's own sink uses.
+	lockerEventSink func()
+}
+
+// SetLockerEventSink installs the hook PostLockerPost/RemoveLockerPost call
+// after every successful commit (GC-4). fn is nil-safe to call through;
+// passing nil restores the no-op default.
+func (s *Service) SetLockerEventSink(fn func()) {
+	s.poolMu.Lock()
+	s.lockerEventSink = fn
+	s.poolMu.Unlock()
+}
+
+func (s *Service) emitLockerChanged() {
+	s.poolMu.Lock()
+	fn := s.lockerEventSink
+	s.poolMu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // clock returns the service's current instant, in three-way precedence

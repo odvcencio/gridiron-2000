@@ -50,7 +50,8 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// now; native submissions still call RedirectWithNotice through them.
 	// 2026-08-30 review, finding 3: run-waivers (app/admin) adds one.
 	// UI pass 2026-08-30 (P1-6): settings/page.server.go's setDensityPreference adds one.
-	const wantRedirects = 48
+	// GC-4: locker/page.server.go's locker-post and locker-remove actions add two.
+	const wantRedirects = 50
 	const wantRedirectBacks = 12
 	redirects := 0
 	redirectBacks := 0

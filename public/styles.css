@@ -5291,6 +5291,77 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-sm);
 }
 
+/* Locker Room (GC-4): one flat post per card, one level of flat replies
+   indented beneath it. */
+.locker-feed {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.locker-post {
+  padding: var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+
+.locker-post__meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.locker-post__meta strong {
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  font-size: var(--type-sm);
+}
+
+.locker-post__body {
+  margin: var(--space-xs) 0 var(--space-sm);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.locker-post__reply-form,
+.locker-post__remove {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.locker-post__reply-form textarea {
+  flex: 1 1 12rem;
+  min-height: 2.75rem;
+}
+
+.locker-replies {
+  margin-top: var(--space-sm);
+  padding-left: var(--space-md);
+  border-left: 2px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.locker-reply {
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: 0.5rem;
+  background: var(--color-surface-raised);
+}
+
+.locker-notice:empty {
+  display: none;
+}
+
 .pick-row {
   padding: var(--space-sm) 0;
   display: grid;
