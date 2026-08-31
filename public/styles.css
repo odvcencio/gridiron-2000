@@ -7444,7 +7444,7 @@ body.is-on-clock .draft-clock-panel {
   padding: 0.15rem 0.35rem;
   border: 1px solid currentColor;
   border-radius: 999px;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
