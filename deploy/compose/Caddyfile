@@ -1,0 +1,9 @@
+# Production Caddyfile: used only by `docker compose --profile domain up -d`.
+# Caddy requests and renews a Let's Encrypt certificate for {$DOMAIN}
+# automatically, with no extra flags. Point your domain's DNS A/AAAA
+# record at this server before you start this profile.
+
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8080
+}

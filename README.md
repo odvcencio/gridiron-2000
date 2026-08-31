@@ -73,6 +73,10 @@ DEMO_MODE=false
 
 An authenticated manager claims the first open seat. The allowlist should contain one account per configured team before exposing the app outside your home network. Production needs HTTPS, a strong random `SESSION_SECRET`, and the production callback URL registered with Google.
 
+## Run with Docker Compose
+
+Self-hosters who want a running league without a Kubernetes cluster can use [`deploy/compose/compose.yaml`](deploy/compose/compose.yaml). It runs the app container, a data volume, and a Caddy sidecar for automatic HTTPS. An HTTP-only profile also runs a domain-free local trial. Follow [`docs/quickstart.md`](docs/quickstart.md) for the full ten-minute walkthrough, including OAuth client registration and first sign-in.
+
 ## Author and publish a fleet
 
 Multi-instance operators can keep public topology in a strict fleet document.

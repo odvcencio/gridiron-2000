@@ -1,0 +1,101 @@
+# Gridiron 2000 -- one-command self-host deploy.
+#
+# Two independent ways to run this file. Both share the same "app" service
+# and the same .env file:
+#
+#   Try it now, no domain needed (plain HTTP on localhost):
+#     docker compose --profile localhost up -d
+#
+#   Run it for real, with your own domain and automatic HTTPS:
+#     docker compose --profile domain up -d
+#
+# See docs/quickstart.md for the full walkthrough and
+# deploy/compose/.env.example for the settings each profile needs.
+#
+# Self-hosters who want to build the image from this checkout instead of
+# pulling the published one: set GRIDIRON_IMAGE in .env to a plain local
+# tag (Docker refuses to tag a build with someone else's digest), for
+# example GRIDIRON_IMAGE=gridiron-2000:local, then run
+# `docker compose build app` before `up`. The app service's build: block
+# compiles the repository's own Dockerfile.
+#
+# The app image is distroless and runs as uid/gid 65532 (nonroot). The
+# named data volume below starts out owned by that same uid/gid, because
+# Docker copies /app/data's baked-in ownership from the image into a new
+# volume the first time it mounts -- no extra chown step is needed.
+
+services:
+  app:
+    image: ${GRIDIRON_IMAGE:-harbor.draco.quest/orchard/gridiron-2000@sha256:ab646811af28b5abaf2135dc13c51cdd4a06ae307017a7a3407019afc30a3ab2}
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PORT: "8080"
+    volumes:
+      - gridiron_data:/app/data
+    networks:
+      - gridiron
+
+  # --- Try it now: plain HTTP on localhost, no domain, no TLS. ---
+  caddy-local:
+    image: caddy:2-alpine
+    profiles: ["localhost"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "${LOCALHOST_PORT:-8080}:80"
+    volumes:
+      - ./Caddyfile.localhost:/etc/caddy/Caddyfile:ro
+    networks:
+      - gridiron
+
+  # --- Run it for real: your domain, automatic Let's Encrypt HTTPS. ---
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["domain"]
+    restart: unless-stopped
+    depends_on:
+      - app
+    env_file:
+      - .env
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - gridiron
+
+  # --- Optional: a shared Tank01 relay for a host running more than one
+  # league (docker compose --profile relay up -d). The app works without
+  # it -- see deploy/README.md's "Shared Tank01 relay" section for the
+  # same pattern this project's own fleet uses, and docs/quickstart.md
+  # for the two variables this profile needs in .env. Off by default. ---
+  statrelay:
+    build:
+      context: ../..
+      dockerfile: deploy/statrelay.Dockerfile
+    profiles: ["relay"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - statrelay_data:/app/data
+    networks:
+      - gridiron
+
+volumes:
+  gridiron_data:
+  caddy_data:
+  caddy_config:
+  statrelay_data:
+
+networks:
+  gridiron:

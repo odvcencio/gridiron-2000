@@ -1,0 +1,8 @@
+# Localhost trial Caddyfile: used only by
+# `docker compose --profile localhost up -d`. Plain HTTP, no domain, no
+# certificate request -- for trying the app on your own machine before you
+# have a domain to point at it.
+
+:80 {
+	reverse_proxy app:8080
+}

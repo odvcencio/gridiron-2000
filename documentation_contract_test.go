@@ -285,3 +285,57 @@ func TestSeasonOperationsDocPinsPunterGamesFloor(t *testing.T) {
 		t.Errorf("season-operations.md omitted the current punter games floor %q", want)
 	}
 }
+
+// envExampleKeys reads a dotenv-style file and returns the set of variable
+// names it assigns, ignoring blank lines, comments, and any line without
+// an "=". It does not validate values, only the key names on the left.
+func envExampleKeys(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	body := readDocumentationFile(t, path)
+	keys := map[string]bool{}
+	for _, line := range strings.Split(body, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, _, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		keys[strings.TrimSpace(key)] = true
+	}
+	return keys
+}
+
+// TestComposeEnvExampleStaysInSyncWithAppContract is the one-command-deploy
+// lane's drift gate: deploy/compose/.env.example must not silently diverge
+// from the app's real environment contract in the repository root's
+// .env.example. Every variable name it forwards into the app container
+// must exist in the canonical file. The named exceptions are Docker
+// Compose orchestration inputs (the published image reference, the
+// public domain, and the local-trial host port) that Compose itself
+// consumes for variable substitution and never forwards into the app
+// container's process environment, so they have no entry in the app's own
+// contract.
+func TestComposeEnvExampleStaysInSyncWithAppContract(t *testing.T) {
+	canonical := envExampleKeys(t, ".env.example")
+	compose := envExampleKeys(t, filepath.Join("deploy", "compose", ".env.example"))
+
+	composeOnlyOrchestrationKeys := map[string]bool{
+		"GRIDIRON_IMAGE": true,
+		"DOMAIN":         true,
+		"LOCALHOST_PORT": true,
+	}
+
+	if len(compose) == 0 {
+		t.Fatal("deploy/compose/.env.example named no variables")
+	}
+	for key := range compose {
+		if composeOnlyOrchestrationKeys[key] {
+			continue
+		}
+		if !canonical[key] {
+			t.Errorf("deploy/compose/.env.example names %q, which the canonical .env.example does not contain", key)
+		}
+	}
+}

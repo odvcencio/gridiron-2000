@@ -1,0 +1,57 @@
+# Gridiron 2000 -- Fly.io launch template.
+#
+# Fly.io is an alternative to deploy/compose/compose.yaml, the primary
+# supported self-host path (see docs/quickstart.md). Use this template if
+# you already run other apps on Fly and want the same workflow here.
+#
+# Files and docs only: nothing in this repository creates a Fly account,
+# provisions a Fly app, or deploys anything on your behalf. Run every
+# command below yourself, from the repository root, after installing the
+# flyctl CLI and signing in.
+#
+#   fly launch --config deploy/fly/fly.toml --no-deploy
+#   fly volumes create gridiron_data --region iad --size 1
+#   fly secrets set \
+#     SESSION_SECRET="$(openssl rand -base64 48)" \
+#     GOOGLE_CLIENT_ID=your-client-id \
+#     GOOGLE_CLIENT_SECRET=your-client-secret \
+#     COMMISSIONER_EMAILS=commissioner@example.com \
+#     DEMO_MODE=false
+#   fly deploy --config deploy/fly/fly.toml
+#
+# Edit `app` to a name you control, and edit GOOGLE_REDIRECT_URL below and
+# on the Google OAuth client to match the resulting *.fly.dev hostname (or
+# your own custom domain, once you attach one with `fly certs add`).
+
+app = "gridiron-2000"
+primary_region = "iad"
+
+[build]
+  # Deploy the published image directly. Self-hosters who want to build
+  # from source instead can delete this line and add:
+  #   dockerfile = "Dockerfile"
+  # (run fly deploy from the repository root in that case, since the
+  # Dockerfile's build context is the whole checkout, not this directory).
+  image = "harbor.draco.quest/orchard/gridiron-2000@sha256:ab646811af28b5abaf2135dc13c51cdd4a06ae307017a7a3407019afc30a3ab2"
+
+[env]
+  PORT = "8080"
+  APP_ENV = "production"
+  DEMO_MODE = "false"
+  DATA_FILE = "/app/data/league-state.json"
+  GOOGLE_REDIRECT_URL = "https://gridiron-2000.fly.dev/auth/google/callback"
+
+[[mounts]]
+  source = "gridiron_data"
+  destination = "/app/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
