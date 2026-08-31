@@ -70,6 +70,8 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate007WaiverClaimDeferral,
 	migrate008WaiverClaimDeferralTiming,
 	migrate009LockerPosts,
+	migrate010SetupState,
+	migrate011SetupDraftAndInviteLinks,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -351,6 +353,63 @@ func migrate009LockerPosts(tx *sql.Tx) error {
 	}
 	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '10')`); err != nil {
 		return fmt.Errorf("stamp schema_version 10: %w", err)
+	}
+	return nil
+}
+
+// migrate010SetupState adds the durable first-boot-wizard completion marker
+// (setup-wizard design section 3.2). It is a single, id=1-locked row: the
+// process writes it exactly once, inside the wizard's atomic commit
+// transaction, and never again. Its presence (without a resolvable
+// league.json) is the boot state machine's fail-closed signal — a mount
+// failure, not a fresh instance — so this table is deliberately independent
+// of the PersistedState collection/shadow-diff system every other table
+// above belongs to: it is read once at boot, before any Service exists.
+func migrate010SetupState(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE setup_state (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		completed_at TEXT NOT NULL,
+		completed_by TEXT NOT NULL,
+		config_sha256 TEXT NOT NULL,
+		app_version TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("CREATE TABLE setup_state: %w", err)
+	}
+	return nil
+}
+
+// migrate011SetupDraftAndInviteLinks adds the wizard's non-secret draft
+// persistence (setup-wizard design section 4.4: one row, resumable across a
+// restart) and the Tier 0 invite-link table (section 6.2). Both are
+// independent of the PersistedState collection/shadow-diff system: the draft
+// is wizard-only scratch state that never becomes league state, and
+// invite_links' single-use consume is a direct conditional UPDATE under the
+// store's one-writer discipline (sqlstore.go's connection-pool cap already
+// serializes it), not a snapshot-diffed collection.
+func migrate011SetupDraftAndInviteLinks(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE setup_draft (
+		id INTEGER PRIMARY KEY CHECK (id = 1),
+		draft_json TEXT NOT NULL,
+		step_status_json TEXT NOT NULL,
+		updated_at TEXT NOT NULL
+	)`); err != nil {
+		return fmt.Errorf("CREATE TABLE setup_draft: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE TABLE invite_links (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		email TEXT NOT NULL,
+		token_hash TEXT NOT NULL UNIQUE,
+		created_by TEXT NOT NULL,
+		created_at TEXT NOT NULL,
+		expires_at TEXT NOT NULL,
+		consumed_at TEXT NOT NULL DEFAULT '',
+		consumed_email TEXT NOT NULL DEFAULT '',
+		revoked_at TEXT NOT NULL DEFAULT ''
+	)`); err != nil {
+		return fmt.Errorf("CREATE TABLE invite_links: %w", err)
+	}
+	if _, err := tx.Exec(`CREATE INDEX invite_links_email_idx ON invite_links (email)`); err != nil {
+		return fmt.Errorf("CREATE INDEX invite_links_email_idx: %w", err)
 	}
 	return nil
 }

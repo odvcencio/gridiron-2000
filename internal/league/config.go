@@ -377,6 +377,24 @@ func finishConfigLoad(cfg Config, withEnvOverrides bool) (Config, []string, erro
 	return cfg, warnings, nil
 }
 
+// ConfigFileResolves reports whether a league.json resolves via the normal
+// lookup order (resolveConfigPath), without reading or validating its
+// contents. The setup-wizard boot state machine (DetermineBootState) uses
+// this to decide SETUP vs CONFIGURED before constructing the process-wide
+// Service singleton or its Store.
+func ConfigFileResolves() (path string, found bool, err error) {
+	path, err = resolveConfigPath()
+	return path, path != "", err
+}
+
+// DataFilePath is the exported form of dataFilePath: the state-file path
+// Default() resolves from DATA_FILE (or its own built-in default). The
+// setup-wizard boot state machine opens its Store at this same path so a
+// wizard-written database is exactly the one Default() finds after restart.
+func DataFilePath() string {
+	return dataFilePath()
+}
+
 // resolveConfigPath implements the spec section 3.3 lookup order: an
 // explicit $LEAGUE_FILE (fatal if missing), then the app root, then
 // <app root>/config, then the directory holding DATA_FILE. "" with a nil
