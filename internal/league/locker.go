@@ -91,13 +91,20 @@ func (s *Service) lockerRequireWriter(r *http.Request) (email, name, teamID stri
 
 // PostLockerPost records a new top-level Locker Room post, or — when
 // parentID names an existing top-level post — a one-level-flat reply,
-// under the acting request's own admitted, non-demo identity.
+// under the acting request's own admitted, non-demo identity. A
+// successful commit calls emitLockerChanged so the locker-live hub
+// broadcasts at once — no interval poll ever discovers a post.
 func (s *Service) PostLockerPost(r *http.Request, parentID, body string) (LockerPost, error) {
 	email, name, teamID, err := s.lockerRequireWriter(r)
 	if err != nil {
 		return LockerPost{}, err
 	}
-	return s.store.PostLocker(parentID, body, email, name, teamID, s.clock())
+	post, err := s.store.PostLocker(parentID, body, email, name, teamID, s.clock())
+	if err != nil {
+		return LockerPost{}, err
+	}
+	s.emitLockerChanged()
+	return post, nil
 }
 
 // RemoveLockerPost soft-deletes one post: its author may remove their own
@@ -126,7 +133,11 @@ func (s *Service) RemoveLockerPost(r *http.Request, id string) error {
 	default:
 		return fmt.Errorf("you may remove only your own posts")
 	}
-	return s.store.RemoveLockerPost(id, role, s.clock())
+	if err := s.store.RemoveLockerPost(id, role, s.clock()); err != nil {
+		return err
+	}
+	s.emitLockerChanged()
+	return nil
 }
 
 // lockerPostByID finds a post by ID in a read snapshot (never touches

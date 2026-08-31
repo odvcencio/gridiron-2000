@@ -27,6 +27,7 @@
     {"url": "/matchups", "profile": "league"},
     {"url": "/team", "profile": "league"},
     {"url": "/login", "profile": "league"},
+    {"url": "/locker", "profile": "league"},
     {"url": "/draft", "profile": "draft"}
   ]
 }
