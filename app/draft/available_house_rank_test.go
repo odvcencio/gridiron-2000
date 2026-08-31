@@ -63,12 +63,26 @@ func TestAvailableFragmentRowsShowHouseRankLabelFixtureProcess(t *testing.T) {
 		return ""
 	}
 
+	// A house-ranked player's row must carry all three UI-pass and
+	// house-rank features at once: the market rank ("040", from
+	// ADPRank: 40), the "H001" house-rank label beside it, and the
+	// middot-separated avail-row__player name/team structure — none of
+	// the three may crowd out another in the merged markup.
 	topRow := rowFor(t, "Top Quarterback")
+	if !strings.Contains(topRow, "040") {
+		t.Errorf("top quarterback's row missing its market rank (040): %s", topRow)
+	}
 	if !strings.Contains(topRow, `class="house-rank"`) {
 		t.Errorf("top quarterback's row missing the house-rank label markup: %s", topRow)
 	}
 	if !strings.Contains(topRow, "H001") {
 		t.Errorf("top ranked player's row must render H001: %s", topRow)
+	}
+	if !strings.Contains(topRow, `class="avail-row__player"`) {
+		t.Errorf("top quarterback's row lost the avail-row__player name/team structure: %s", topRow)
+	}
+	if !strings.Contains(topRow, "· BUF") {
+		t.Errorf("top quarterback's row lost the middot-separated team detail: %s", topRow)
 	}
 
 	campRow := rowFor(t, "Zero Camp Body")

@@ -199,6 +199,9 @@ func TestDraftPoolHeaderExplainsRKPROJVSADP(t *testing.T) {
 	if !strings.Contains(source, `<abbr title="value if drafted right now`) {
 		t.Error("VS ADP header carries no <abbr title>")
 	}
+	if !strings.Contains(source, `H### — this league's own rank, from your scoring and roster rules.`) {
+		t.Error("pool legend omitted the H### house-rank explanation")
+	}
 }
 
 // TestTapeRowManagerDropsTeamNameDuplication is P3-22's own unit test

@@ -4401,7 +4401,7 @@ body.is-on-clock .draft-clock-panel {
 .house-rank {
   display: block;
   margin-top: 1px;
-  font-size: 0.85em;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   opacity: .75;
 }

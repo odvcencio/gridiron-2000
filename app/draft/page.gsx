@@ -1454,7 +1454,7 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 		</div>
 		<details class="pool-legend">
 			<summary>What do RK, PROJ, and VS ADP mean?</summary>
-			<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>). PROJ — projected points per game. VS ADP — value if drafted right now, versus <abbr title="average draft position">ADP</abbr>. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+			<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>). PROJ — projected points per game. VS ADP — value if drafted right now, versus <abbr title="average draft position">ADP</abbr>. H### — this league's own rank, from your scoring and roster rules. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
 		</details>
 	</div>
 }
