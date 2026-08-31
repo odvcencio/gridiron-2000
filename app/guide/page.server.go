@@ -55,7 +55,7 @@ func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time, postures .
 		"roster_spots":            rosterSpots,
 		"roster_capacity":         capacity,
 		"draft_at":                draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST"),
-		"draft_timezone":          cfg.Timezone,
+		"draft_timezone":          league.FriendlyTimezoneLabel(cfg.Timezone),
 		"membership_label":        posture.Label(),
 		"membership_detail":       posture.Detail(),
 		"pool_target":             target,

@@ -287,7 +287,7 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 		"mode_label":   s.cfg.ModeLabel,
 		"season":       s.cfg.Season,
 		"team_count":   len(s.Teams()),
-		"timezone":     s.cfg.Timezone,
+		"timezone":     FriendlyTimezoneLabel(s.cfg.Timezone),
 		"draft_date":   s.EffectiveDraftAt(s.store.Snapshot()).In(location).Format("Monday, January 2, 2006"),
 		"season_start": s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006"),
 	}
@@ -379,7 +379,7 @@ func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]
 		"long_date":     draft["long_date"],
 		"time":          draft["time"],
 		"format":        draft["format"],
-		"timezone":      s.cfg.Timezone,
+		"timezone":      FriendlyTimezoneLabel(s.cfg.Timezone),
 		"clock_seconds": int(s.pickClock(state).Seconds()),
 	}
 }

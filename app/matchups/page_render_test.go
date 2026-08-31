@@ -91,6 +91,36 @@ func TestMatchupsPagePreseasonAndScheduledCopyIsNotLive(t *testing.T) {
 	}
 }
 
+// TestMatchupsEmptyStateOffersNextAction is P2-16's own render test (UI
+// pass 2026-08-30): "NO MATCHUPS YET" alone left a manager with nothing
+// to do before the season starts; the empty state now names a next
+// action.
+func TestMatchupsEmptyStateOffersNextAction(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"MATCHUPS_RENDER_FIXTURE=preseason",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true", "GOOGLE_CLIENT_ID=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	if !strings.Contains(body, "NO MATCHUPS YET") {
+		t.Fatalf("preseason fixture lost the empty-matchups state: %s", body)
+	}
+	emptyStart := strings.Index(body, "NO MATCHUPS YET")
+	emptyEnd := strings.Index(body[emptyStart:], "</section>")
+	if emptyEnd < 0 {
+		t.Fatal("empty matchups state has no closing </section>")
+	}
+	emptyState := body[emptyStart : emptyStart+emptyEnd]
+	if !strings.Contains(emptyState, "<a href=") {
+		t.Errorf("empty matchups state carries no next-action anchor: %s", emptyState)
+	}
+}
+
 // TestMatchupsPageWeekBrowserRoute's required strings were updated for
 // Task 11b's page rewrite: the old "SEASON SCHEDULE // WEEK 2" /
 // "WEEK 2 VIEW" / "Static schedule snapshot" copy lived in the retired

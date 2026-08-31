@@ -62,7 +62,7 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 		"LEAGUE DRAFT",
 		"Wednesday, December 31, 2098",
 		"7:00 PM EST",
-		"America/New_York",
+		"Eastern Time",
 		"SCHEDULED WINDOW",
 	} {
 		if !strings.Contains(valid, want) {

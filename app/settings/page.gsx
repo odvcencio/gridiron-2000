@@ -113,6 +113,44 @@ func Page() Node {
 			</If>
 		</div>
 
+		<section class="player-pool notification-settings-panel" aria-labelledby="density-settings-heading">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">00 // DISPLAY</span>
+					<h2 id="density-settings-heading">Data density</h2>
+				</div>
+			</div>
+			<p class="notification-settings-note">
+				Comfortable keeps every number and label at an easy-to-read size. Compact shrinks data text to fit more rows on screen, for a manager who wants the old dense view back.
+			</p>
+			<fieldset class="notification-preference" data-notification-category="density">
+				<legend>Data text size</legend>
+				<div class="notification-preference__body">
+					<div>
+						<p>Comfortable is the default across every page. Compact applies everywhere until you switch back.</p>
+					</div>
+					<div class="notification-choice-group" role="group" aria-label="Data density setting">
+						<form method="post" action={data.density_action} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="density" value="comfortable"></input>
+							<button class="notification-choice" type="submit" aria-pressed={data.density_comfortable} data-current={data.density_comfortable}>Comfortable</button>
+							<If cond={data.density_comfortable}>
+								<span class="notification-choice__current"><span aria-hidden="true">✓</span> CURRENT</span>
+							</If>
+						</form>
+						<form method="post" action={data.density_action} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<input type="hidden" name="density" value="compact"></input>
+							<button class="notification-choice" type="submit" aria-pressed={data.density_compact} data-current={data.density_compact}>Compact</button>
+							<If cond={data.density_compact}>
+								<span class="notification-choice__current"><span aria-hidden="true">✓</span> CURRENT</span>
+							</If>
+						</form>
+					</div>
+				</div>
+			</fieldset>
+		</section>
+
 		<section class="player-pool notification-settings-panel" aria-labelledby="notification-settings-heading">
 			<div class="pool-toolbar">
 				<div>

@@ -376,7 +376,7 @@ func Page() Node {
 						<span class="mono">Team waiver position {data.my_waiver_position} of {data.waiver_team_count}</span>
 					</If>
 					<If cond={data.waivers_faab}>
-						<span class="mono">Budget {data.my_faab_remaining} FAAB</span>
+						<span class="mono">Budget {data.my_faab_remaining} <abbr title="Free Agent Acquisition Budget">FAAB</abbr></span>
 					</If>
 				</If>
 			</div>

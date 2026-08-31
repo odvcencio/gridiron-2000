@@ -140,3 +140,27 @@ func TestGlossaryIncludesStateAndRuntimeTerms(t *testing.T) {
 		}
 	}
 }
+
+// TestGlossaryExpandsCommonJargon is P1-7/P3-20's own render test (UI
+// pass 2026-08-30): ADP, snake, FLEX, SUPERFLEX, PF, and IR were entirely
+// absent, and FAAB (already present as "FAAB units") was never spelled
+// out. A newbie drafting on a phone should not have to guess any of them.
+func TestGlossaryExpandsCommonJargon(t *testing.T) {
+	entries := Glossary()
+	byLowerTerm := make(map[string]GlossaryEntry, len(entries))
+	for _, entry := range entries {
+		byLowerTerm[strings.ToLower(entry.Term)] = entry
+	}
+	for _, term := range []string{"adp", "snake draft", "flex", "superflex", "pf", "ir"} {
+		if _, ok := byLowerTerm[term]; !ok {
+			t.Errorf("glossary omitted %q", term)
+		}
+	}
+	faab, ok := byLowerTerm["faab units"]
+	if !ok {
+		t.Fatal("glossary omitted \"FAAB units\"")
+	}
+	if !strings.Contains(faab.Definition, "Free Agent Acquisition Budget") {
+		t.Errorf("FAAB units definition never spells out Free Agent Acquisition Budget: %q", faab.Definition)
+	}
+}

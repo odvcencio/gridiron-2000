@@ -5,8 +5,9 @@
   --font-body: "Plus Jakarta Sans", sans-serif;
   --font-mono: "IBM Plex Mono", monospace;
 
-  --type-xs: clamp(0.75rem, 0.66rem + 0.10vw, 0.75rem);
-  --type-sm: clamp(0.78rem, 0.75rem + 0.14vw, 0.875rem);
+  --type-xs: clamp(0.8125rem, 0.78rem + 0.16vw, 0.875rem);
+  --type-sm: clamp(0.875rem, 0.86rem + 0.10vw, 0.9375rem);
+  --type-2xs: var(--type-xs);
   --type-base: clamp(0.94rem, 0.90rem + 0.20vw, 1rem);
   --type-md: clamp(1.08rem, 1rem + 0.38vw, 1.25rem);
   --type-lg: clamp(1.30rem, 1.15rem + 0.72vw, 1.563rem);
@@ -77,6 +78,37 @@
   --rail-width: 15.5rem;
   --rail-breakpoint: 56.25rem;
   --mobile-bar-height: 3.75rem;
+
+  /* UI pass 2026-08-30 (P1-4): tokens the stylesheet referenced but never
+     defined, some with an inline fallback and some without. Defined here
+     from the existing palette/scale so every var() reference resolves and
+     the intended contrast (for example the urgent marker) actually shows. */
+  --color-panel: var(--color-surface);
+  --color-panel-soft: var(--color-surface-soft);
+  --color-accent-lime: var(--color-accent);
+  --color-accent-red: var(--color-danger);
+  --color-accent-magenta: #ff5ec4;
+  --color-warning: var(--color-gold);
+  --color-black-faint: rgba(0, 0, 0, 0.14);
+  --muted: var(--color-text-muted);
+  --space-2xs: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --board-columns: 8;
+  --badge-tone: var(--color-accent);
+}
+
+/* Density toggle (P1-6): compact trades comfortable reading size for more
+   rows on screen. Comfortable (the default) is the accessible baseline;
+   compact restores --type-xs, --type-2xs, and --type-sm to their exact
+   pre-UI-pass sizes for readers who ask for it: a flat 12px for xs/2xs,
+   and sm's old 12.48px-14px clamp (both raised at :8-9 above by this UI
+   pass). Set by the settings page, persisted as a cookie, and read back
+   onto <body data-density="compact"> at render time (see density.go). */
+body[data-density="compact"] {
+  --type-xs: 0.75rem;
+  --type-2xs: 0.75rem;
+  --type-sm: clamp(0.78rem, 0.75rem + 0.14vw, 0.875rem);
 }
 
 /* PX-1 help center: the corpus is intentionally dense, so keep the first
@@ -232,7 +264,6 @@ html {
 
 body {
   margin: 0;
-  min-width: 20rem;
   min-height: 100vh;
   overflow-x: hidden;
   color: var(--color-text-primary);
@@ -263,6 +294,28 @@ textarea {
   font: inherit;
 }
 
+/* P3-21 (UI pass 2026-08-30): the UA default (small { font-size: smaller },
+   ~80% of the parent) put an unclassed hint like /wire's "(optional)"
+   under 12px. This type-selector floor is easy for any of the many
+   classed .foo small rules elsewhere in this file to override (author
+   styles beat the UA default regardless of selector weight, and a class
+   still wins a same-origin specificity tie); it only ever reaches a
+   <small> with no more specific rule of its own. */
+small {
+  font-size: var(--type-xs);
+}
+
+/* P1-7 (UI pass 2026-08-30): the abbreviation itself keeps its column's
+   own case/weight (an underline alone should not look like a link); the
+   dotted underline plus help cursor is the only signal a definition is
+   one tap/hover away. */
+abbr[title] {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.15em;
+  cursor: help;
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
@@ -270,6 +323,38 @@ a {
 
 a {
   color: inherit;
+}
+
+/* P1-9 (UI pass 2026-08-30): an in-prose action link (a call-to-action
+   sentence inside a <p> or an <li>, e.g. the empty-state links item 16
+   adds and the help checklist's own "Open help/action" links) sizes to
+   its one line of text, ~19-23px tall, well under the 44px baseline the
+   generic anchor rule ("Mobile interaction baseline", below) explicitly
+   does not touch (:not(p a):not(li a)) so an ordinary paragraph/list
+   link's own text flow is not disturbed. padding-block grows the tap
+   box; the matching negative margin-block cancels it back out of the
+   surrounding line spacing, so the visible layout does not shift. 0.75rem
+   (not the smaller value an earlier pass here used) clears 44px even
+   against this app's smallest line-height, not only its most common one.
+*/
+#main-content p a,
+#main-content li a {
+  display: inline-block;
+  padding-block: 0.75rem;
+  margin-block: -0.75rem;
+}
+
+/* Finding 13 (2026-08-31 review): the rule above only grows the block
+   (height) axis, so it clears the 44px baseline for most in-prose
+   links, but /guide's own route-name links ("/admin", "/board", "/team",
+   and the rest) are short enough mono text that the box still measures
+   only 42px wide at 390px — under the inline (width) axis of the same
+   baseline. min-width closes that gap; it does not touch line-height or
+   padding-block, so this rule's own 48px height (already passing) does
+   not change. */
+.guide-page p a,
+.guide-page li a {
+  min-width: 2.75rem;
 }
 
 button:focus-visible,
@@ -577,7 +662,7 @@ button.access-link {
   margin: 0;
   padding: 0 var(--space-md) var(--space-xs);
   color: var(--color-accent-cyan);
-  font-size: 0.66rem;
+  font-size: var(--type-xs);
   font-weight: 700;
   letter-spacing: 0.16em;
 }
@@ -827,6 +912,38 @@ button.access-link {
     font-size: var(--type-md);
   }
 
+  /* P2-15 (UI pass 2026-08-30): the phone nav dialog reuses the desktop
+     rail's PrimaryNavigation component verbatim (app/layout.gsx), so its
+     link labels inherited --type-sm's pre-fix 12.5px floor; even after
+     that floor rose (P1-6), a dialog a manager taps through blind on
+     draft night on a phone gets its own explicit bump to 16px, at the
+     top of the audit's 15-16px ask rather than the floor of it. The
+     "Notification settings" / "Sign out" footer links are not <nav>
+     items sized by that same rule, so they get their own 44px row. */
+  .mobile-navigation-dialog .navigation-link {
+    font-size: 1rem;
+  }
+
+  .mobile-navigation-dialog .navigation-account .access-link {
+    min-height: 2.75rem;
+  }
+
+  /* P3-22 (UI pass 2026-08-30): SIGN OUT sat directly beside "Notification
+     settings" in the same wrapped flex row, close enough for a mis-tap on
+     a phone to sign a manager out reaching for their notification
+     preferences. A full-width row of its own, set off by a rule, still
+     reads as one account panel but removes the accidental adjacency. */
+  .mobile-navigation-dialog .navigation-account {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mobile-navigation-dialog .navigation-account form {
+    margin-top: var(--space-xs);
+    padding-top: var(--space-sm);
+    border-top: 1px solid var(--color-border);
+  }
+
   @media (scripting: enabled) {
     html:has(script[data-gosx-navigation="true"]) body:has(#primary-navigation-dialog:not([hidden])) {
       overflow: hidden;
@@ -839,6 +956,18 @@ button.access-link {
     html:has(script[data-gosx-navigation="true"]) .announcement-banner + .site-frame {
       padding-top: var(--space-lg);
     }
+  }
+
+  /* P2-18 (UI pass 2026-08-30): #main-content's own top offset above is
+     conditional on the enhanced bar's fixed positioning (both gated by
+     the identical :has() check, so a normal page load is never
+     mismatched) — but a skip-link activation or any other in-page anchor
+     jump scrolls the TARGET element flush to the viewport top and does
+     not consult an ancestor's padding at all. scroll-margin-top is
+     unconditional on purpose, so /join's first step (or any other
+     #main-content landing) still clears the fixed bar even then. */
+  #main-content {
+    scroll-margin-top: var(--mobile-bar-height);
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1936,6 +2065,21 @@ button.badge-option:hover {
   gap: var(--space-sm);
 }
 
+/* P2-11 (UI pass 2026-08-30): .guide-next's own grid item sizing (below)
+   otherwise holds this flex row to its un-wrapped min-content width — a
+   single-column-collapsed 1fr track still respects a grid item's default
+   auto minimum, so .guide-actions (and the page around it) overflowed
+   the phone viewport by ~14px at /help and /guide. min-width: 0 lets it
+   shrink and actually wrap; overflow-wrap covers a link whose own text
+   is still too long for one line at that width. */
+.guide-actions {
+  min-width: 0;
+}
+
+.guide-actions a {
+  overflow-wrap: anywhere;
+}
+
 .minimal-actions {
   justify-content: flex-end;
 }
@@ -2034,6 +2178,16 @@ button.badge-option:hover {
   margin: 0;
   color: var(--color-text-secondary);
   line-height: 1.65;
+}
+
+/* P2-11 (UI pass 2026-08-30): the corpus receipt line's own source SHA
+   (data.source_sha, app/help/page.gsx) is one unbroken 40-character
+   token; white-space: normal only ever breaks at a space or hyphen, so
+   it forced this whole paragraph 47px past its own container at a phone
+   width — the actual scrollWidth source behind /help's 404 > 390
+   overflow, once minmax(0, 1fr) above ruled the grid track itself out. */
+.guide-next p {
+  overflow-wrap: anywhere;
 }
 
 .guide-steps,
@@ -2265,8 +2419,9 @@ button.badge-option:hover {
   margin: 0 0 var(--space-3);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-warning);
+  border-radius: var(--radius-sm);
   color: var(--color-warning);
-  font-size: 0.72rem;
+  font-size: var(--type-sm);
   letter-spacing: 0.06em;
   overflow-wrap: anywhere;
 }
@@ -2278,7 +2433,7 @@ button.badge-option:hover {
 .draft-manual-refresh {
   margin: var(--space-3) 0 0;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--type-sm);
   letter-spacing: 0.06em;
   text-align: right;
 }
@@ -3898,6 +4053,34 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-md);
 }
 
+/* P2-13 (UI pass 2026-08-30): /scoring's sections are <details open> (the
+   .guide-toc sticky jump-list above jumps straight to one). This scopes
+   to .scoring-page so the shared .pool-toolbar/.player-pool classes keep
+   their exact desktop-card look on every other page that uses them. */
+.scoring-page .player-pool {
+  scroll-margin-top: 7.5rem;
+}
+
+.scoring-page summary.pool-toolbar {
+  list-style: none;
+  cursor: pointer;
+}
+
+.scoring-page summary.pool-toolbar::-webkit-details-marker {
+  display: none;
+}
+
+.scoring-page summary.pool-toolbar::after {
+  content: "\25BE";
+  margin-left: auto;
+  color: var(--color-text-muted);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.scoring-page details:not([open]) > summary.pool-toolbar::after {
+  transform: rotate(-90deg);
+}
+
 .pool-count-bar {
   margin-bottom: var(--space-md);
   text-align: right;
@@ -3957,6 +4140,29 @@ body.is-on-clock .draft-clock-panel {
 
 .pool-toolbar h2 {
   margin: 0.35rem 0 0;
+}
+
+/* Finding 10 (2026-08-31 review): <summary> only accepts phrasing content
+   (or exactly one heading element alone, not a heading plus other
+   content) — /scoring's <div><span/><h2/></div> wrapper broke that
+   content model and dropped the heading from the accessibility tree's
+   heading navigation. .pool-toolbar__label (a <span>, phrasing content)
+   replaces the wrapper div; .pool-toolbar__heading (role="heading"
+   aria-level="2" on a <span>, also phrasing content) replaces the <h2>
+   and restores the same heading-level-2 semantics through ARIA instead.
+   This rule reproduces the h2 element selector's visual rules by hand
+   since a <span> gets none of them for free; the danger-zone section's
+   OWN .pool-toolbar (a plain <div>, not <summary>, so it kept its real
+   <h2> and needs no ARIA substitute) still uses the h2 rule above. */
+.pool-toolbar__heading {
+  display: block;
+  margin: 0.35rem 0 0;
+  color: var(--color-text-primary);
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  font-size: var(--type-xl);
+  line-height: 1;
+  letter-spacing: -0.045em;
 }
 
 .position-filters {
@@ -4195,7 +4401,7 @@ body.is-on-clock .draft-clock-panel {
 .house-rank {
   display: block;
   margin-top: 1px;
-  font-size: 0.85em;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
   opacity: .75;
 }
@@ -5370,7 +5576,16 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-sm);
 }
 
+/* P1-9 (UI pass 2026-08-30): the mobile touch baseline's :not(.site-footer
+   a) exclusion (public/styles.css, "Mobile interaction baseline") leaves
+   the footer to size its own links; a bare 19px line is under the 44px
+   target at every width, not only on a phone, so this rule is unscoped
+   rather than a max-width override. */
 .site-footer nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
+  padding-inline: 0.15rem;
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
@@ -5966,11 +6181,20 @@ body.is-on-clock .draft-clock-panel {
     grid-template-columns: 1fr;
   }
 
+  /* P2-11 (UI pass 2026-08-30): minmax(0, 1fr), not a bare 1fr — a bare
+     1fr keyword still respects each grid item's automatic min-content
+     minimum, so .guide-next's own two un-wrapped children (.guide-actions
+     among them) forced this "single" column back out to their combined
+     min-content width and overflowed the phone viewport by ~14px at
+     /help and /guide, even after they collapsed out of the two-column
+     desktop layout below. minmax(0, ...) removes that floor, matching
+     the minmax(0, 1fr) pattern the desktop grids elsewhere in this file
+     already use for the same reason. */
   .guide-card-grid--three,
   .guide-card-grid--two,
   .guide-compare,
   .guide-next {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .guide-next {
@@ -6228,6 +6452,7 @@ body.is-on-clock .draft-clock-panel {
   }
 
   .guide-toc {
+    top: calc(var(--mobile-bar-height) + var(--space-sm));
     margin-bottom: var(--space-xl);
   }
 
@@ -6433,6 +6658,15 @@ body.is-on-clock .draft-clock-panel {
     animation-duration: 1ms;
     animation-iteration-count: 1;
     transition-duration: 1ms;
+  }
+
+  /* P3-19 (UI pass 2026-08-30): the blanket 1ms rule above still plays
+     .page's own page-enter keyframe (its fill-mode: both can hold an
+     off-state, e.g. opacity/translate, for that 1ms), which is a
+     perceptible flash rather than the "no motion" reduced-motion asks
+     for. animation: none removes the keyframe outright. */
+  .page {
+    animation: none;
   }
 }
 
@@ -6760,6 +6994,60 @@ body.is-on-clock .draft-clock-panel {
   letter-spacing: 0.06em;
 }
 
+/* Destructive-action confirmation (P1-5, UI pass 2026-08-30): the collapsed
+   gate in front of every drop / add-and-drop / trade accept-approve-veto
+   submit (app/players/page.gsx, app/trades/page.gsx). The checkbox stays a
+   real, keyboard- and screen-reader-native input; the label around it,
+   not the 13x13px box alone, is the 44px tap target. */
+.action-confirmation {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-white-faint);
+}
+
+.action-confirmation summary {
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-weight: 700;
+  font-size: var(--type-sm);
+}
+
+.action-confirmation summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0.25rem;
+}
+
+.action-confirmation p {
+  margin: var(--space-sm) 0;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+}
+
+.action-confirmation label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 2.75rem;
+  padding-block: var(--space-xs);
+  color: var(--color-text-primary);
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.action-confirmation input[type="checkbox"] {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--color-accent);
+}
+
+.action-confirmation button {
+  margin-top: var(--space-xs);
+  font-size: 1rem;
+}
+
 /* ===== PICK'EM HQ: week record strip, week navigation, per-game consensus
    bar, picked/unpicked row state, the two-leaderboard layout, and the
    seatless-member home dashboard panel (app/pickem/page.gsx, app/page.gsx).
@@ -7074,7 +7362,7 @@ body.is-on-clock .draft-clock-panel {
   padding: 0.15rem 0.35rem;
   border: 1px solid currentColor;
   border-radius: 999px;
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
 }
@@ -8407,6 +8695,28 @@ body.is-on-clock .draft-clock-panel {
     overflow-wrap: anywhere;
   }
 
+  /* Home action card (P1-1, UI pass 2026-08-30): the anchor selector above
+     is pinned character-for-character by
+     TestMobileContentControlsKeepTouchBaseline, so it cannot itself carve
+     out an exception. The #main-content ancestor gives this rule enough
+     specificity to win honestly instead. The card is a two-line grid
+     layout, not an inline control, and long task copy must wrap at word
+     boundaries, not mid-word. */
+  .site-frame #main-content .home-action-center__task {
+    display: grid;
+    overflow-wrap: normal;
+  }
+
+  /* Position filter chips (P1-2, UI pass 2026-08-30): re-assert the 44px
+     target the generic anchor rule above zeroes out, the same way the
+     content-paging rule below re-asserts it for pager links. */
+  .site-frame #main-content .position-filters > .filter-button {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+    min-height: 2.75rem;
+    min-block-size: 2.75rem;
+  }
+
   /* Content paging stays a real control even when its anchors are grouped
      inside a semantic nav. The global rail/footer exclusions above do not
      apply to these page-owned navigation surfaces. */
@@ -8417,6 +8727,19 @@ body.is-on-clock .draft-clock-panel {
     min-height: 2.75rem;
     min-block-size: 2.75rem;
     justify-content: center;
+  }
+
+  /* Touch-target sweep (UI pass 2026-08-30): the generic button selector
+     above (min-width: 0, by design — most buttons rely on their own
+     content width) is more specific than .lineup-week-form button's
+     earlier min-width: 2.75rem (this file, the week-navigator rule), so
+     it silently re-won the short "Go" button back down to its 2-character
+     content width. Same fix as the pool-pagination re-add just above:
+     #main-content gives this re-assert enough specificity to win
+     honestly instead of needing !important. */
+  .site-frame #main-content .lineup-week-form button {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
   }
 
   /* GoSX owns pointer and keyboard reorder gestures. Keep its handle
@@ -9409,6 +9732,32 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   gap: var(--space-xs);
 }
 
+/* P1-7 (UI pass 2026-08-30): a one-line collapsible legend for the pool
+   header's own RK/PROJ/VS ADP abbreviations — collapsed by default (a
+   die-hard skips it every time; an elder newbie taps it once). */
+.pool-legend {
+  margin-top: var(--space-xs);
+}
+
+.pool-legend summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.pool-legend summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0.25rem;
+}
+
+.pool-legend p {
+  margin: var(--space-xs) 0 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
 .draft-search {
   flex: 1 1 12rem;
   min-width: 8rem;
@@ -9488,6 +9837,19 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   min-height: auto;
   padding-block: var(--space-xs);
   border-top: none;
+}
+
+/* P2-12 (UI pass 2026-08-30): player.Detail (internal/league/service.go)
+   leads with the bare NFL team code ("LAR"); this cell's <strong> name
+   and <small> detail carried no separator at all between them ("Puka
+   NacuaLAR"), which also gave the browser no line-break opportunity at
+   that join, so a long name + detail run could refuse to wrap and bleed
+   into the neighboring POS grid column at a larger root font size. The
+   middot in the markup (page.gsx) supplies both the visible separator
+   and that break opportunity; min-width: 0 lets this grid item actually
+   shrink to its track instead of pushing the row wider.  */
+.avail-row__player {
+  min-width: 0;
 }
 
 /* R4: has_adp gates the VS ADP column itself, not just its header text —
@@ -9711,6 +10073,24 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   border-top: 1px solid var(--color-border);
 }
 
+/* Room status shorthand (P2-17, UI pass 2026-08-30): comfortable density
+   spells out "8 of 8 managers online · 8 ready · 0 on autopick" for a
+   newbie who has never seen "8/8" mean attendance; compact keeps the
+   original dense form. Both variants render on every request (the
+   density is a server-read body attribute, not a client toggle), so only
+   one CSS rule ever needs to flip. */
+.draft-mine__room-summary--compact {
+  display: none;
+}
+
+body[data-density="compact"] .draft-mine__room-summary--comfortable {
+  display: none;
+}
+
+body[data-density="compact"] .draft-mine__room-summary--compact {
+  display: inline;
+}
+
 /* History pane (D4): the final ledger's CSV export link, and the Tape/
    Board/Teams view. Item 1a (2026-08-30 review): the server renders
    exactly one .draft-history__view--X at a time (DraftHistory's own
@@ -9788,7 +10168,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 .tape-round__meta {
-  font-size: .6875rem;
+  font-size: 0.75rem;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -9820,7 +10200,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 .tape-row small {
-  font-size: .75rem;
+  font-size: var(--type-xs);
   color: var(--color-text-muted);
 }
 
@@ -10325,6 +10705,36 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
     min-height: 0;
   }
 
+  /* P1-10 (UI pass 2026-08-30): a phone has no hover, so the base rule's
+     title= attribute (the only way the rest of a truncated banner was
+     readable) was unreachable at this width, and the one-line nowrap/
+     ellipsis clipped mid-sentence. max-height + overflow: hidden (not
+     -webkit-line-clamp) is the same two-line fallback the board-grid team
+     name comment above already found reliable, where line-clamp was not,
+     on a CSS grid item in the engine the screenshot pass measured
+     against. Desktop keeps the base rule's one line untouched.
+
+     Finding 7 (2026-08-31 review): the base rule's white-space: nowrap +
+     text-overflow: ellipsis pair only draws on a single unwrapped line;
+     wrapping to two lines here made that ellipsis inert (nothing stays
+     on one line for it to clip), so text-overflow: clip replaces it
+     honestly instead of keeping a rule that never fires. The mask
+     gradient below is this rule's own truncation cue: a banner short
+     enough to fit in the two-line cap fades nothing visible near its
+     end; one that still overflows past 2.6em fades its last ~15%
+     instead of cutting off content mid-glyph with no sign more text
+     follows. .draft-command grows 242px to 251px between a one-line and
+     a wrapped two-line banner; accepted, since the clock lives in its
+     own grid column above and does not move. */
+  .draft-command__banner {
+    white-space: normal;
+    line-height: 1.3;
+    max-height: 2.6em;
+    text-overflow: clip;
+    mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 85%, transparent 100%);
+  }
+
   /* The clock column cannot be plain "auto": the pre-draft scheduled-
      window countdown can read many digits wide (a far-future DraftAt) and
      an auto track sizes to that unwrapped max-content width, squeezing
@@ -10506,10 +10916,23 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   /* S10: seven position chips wrapping to a third row would push the
      search field and the pool itself further down a phone's first
      screen; one scrollable row keeps them reachable without growing the
-     head. */
+     head. P2-14 (UI pass 2026-08-30): the plain overflow-x: auto above
+     gave that row no visible sign it scrolls — the last chip (DST) sat
+     partly cut off at the viewport edge and read as clipped, not
+     scrollable (also P1-8's "chips clip at 260-375px" symptom). The mask
+     fades the trailing edge instead of hard-cutting it, and snap gives a
+     swipe a resting position on a whole chip rather than a half-visible
+     one. */
   .draft-available-head__chips {
     flex-wrap: nowrap;
     overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
+  }
+
+  .draft-available-head__chips > .chip {
+    scroll-snap-align: start;
   }
 
   /* The available-pool row carries six grid children (rank, name, pos,

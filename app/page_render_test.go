@@ -75,7 +75,7 @@ func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 		"LEAGUE DRAFT",
 		"Saturday, August 29, 2026",
 		"4:00 PM EDT",
-		"America/New_York",
+		"Eastern Time",
 		"SCHEDULED WINDOW",
 		"The commissioner controls when the room opens.",
 	} {

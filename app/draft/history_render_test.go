@@ -386,6 +386,50 @@ func TestDraftTapeRowWhoOmitsLeadingSeparatorWhenManagerIsEmpty(t *testing.T) {
 	}
 }
 
+// TestDraftPickDetailBodyOmitsDanglingSeparatorWhenManagerIsEmpty is
+// finding 4 (2026-08-31 review): DraftPickDetailBody's "Drafted by
+// {TeamName} · {Manager}" line rendered its middot unguarded, unlike the
+// tape row above it (item 12's own fix). An unclaimed seat's autopick
+// leaves Manager blank, so the detail body must drop the middot with it,
+// the same as .tape-row__who already does.
+func TestDraftPickDetailBodyOmitsDanglingSeparatorWhenManagerIsEmpty(t *testing.T) {
+	pick := tapePickFixture(7, "auto")
+	pick.Manager = ""
+
+	load := func(r *http.Request, number int) (draftTapePickView, bool) {
+		if number != 7 {
+			return draftTapePickView{}, false
+		}
+		view := tapePickProps(pick)
+		view.Projection, view.Source = "18.4", "queue #2"
+		return view, true
+	}
+	handler := pickDetailFragmentHandler(func(*http.Request) bool { return true }, load)
+	request := httptest.NewRequest(http.MethodGet, "/draft/fragment/pick/7", nil)
+	request.SetPathValue("n", "7")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d; body: %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	draftedStart := strings.Index(body, "Drafted by")
+	if draftedStart < 0 {
+		t.Fatal("missing \"Drafted by\" line")
+	}
+	draftedEnd := strings.Index(body[draftedStart:], "</p>")
+	if draftedEnd < 0 {
+		t.Fatal("\"Drafted by\" line missing its closing </p>")
+	}
+	drafted := body[draftedStart : draftedStart+draftedEnd]
+	if strings.Contains(drafted, "·") {
+		t.Errorf("\"Drafted by\" line has a dangling separator with no Manager to follow it: %s", drafted)
+	}
+	if !strings.Contains(drafted, pick.TeamName) {
+		t.Errorf("\"Drafted by\" line missing team name: %s", drafted)
+	}
+}
+
 // TestDraftTapeOnClockRowSharesTheBadgePartial is P10 (2026-08-30 review):
 // the synthetic on-the-clock row renders an avatar image, same as a made
 // row, when the on-clock team carries one — never only the abbreviation

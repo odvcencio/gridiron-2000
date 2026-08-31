@@ -51,7 +51,7 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
 	}
-	timezone := s.matchupLocation().String()
+	timezone := FriendlyTimezoneLabel(s.matchupLocation().String())
 	return map[string]any{
 		"timezone":           timezone,
 		"viewer":             s.Viewer(r),

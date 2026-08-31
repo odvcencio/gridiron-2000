@@ -26,6 +26,7 @@ import (
 	"gridiron-2000/internal/commissionerhq"
 	"gridiron-2000/internal/commissionerhq/v1fleet"
 	"gridiron-2000/internal/commissionerhq/v1provider"
+	"gridiron-2000/internal/density"
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
@@ -514,6 +515,14 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
 			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
 		)
+		// Data density (P1-6, UI pass 2026-08-30): a viewer's session-carried
+		// preference (internal/density) becomes a body attribute every route
+		// picks up automatically, the same way the heartbeat attributes above
+		// do — public/styles.css's body[data-density="compact"] block is the
+		// only reader.
+		if density.IsCompact(ctx.Request) {
+			ctx.BodyAttrs(gosx.Attr("data-density", density.Compact))
+		}
 		return server.HTMLDocument(ctx.Document(appName, body))
 	})
 	// Authentication and onboarding redirects belong to the file routes

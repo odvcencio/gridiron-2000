@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"gridiron-2000/internal/actionui"
+	"gridiron-2000/internal/density"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/route"
@@ -84,6 +85,9 @@ func init() {
 					data["settings_error"] = message
 				}
 			}
+			data["density_action"] = ctx.ActionPath("density-set")
+			data["density_compact"] = density.IsCompact(ctx.Request)
+			data["density_comfortable"] = !density.IsCompact(ctx.Request)
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
@@ -94,6 +98,7 @@ func init() {
 		},
 		Actions: route.FileActions{
 			"notification-set": setNotificationPreference,
+			"density-set":      setDensityPreference,
 		},
 	}); err != nil {
 		log.Fatal(err)
@@ -126,5 +131,24 @@ func setNotificationPreference(ctx *action.Context) error {
 	}
 	message := notificationPreferenceSavedMessage(enabled, deliveryReady)
 	actionui.RedirectWithNotice(ctx, "/settings", message)
+	return nil
+}
+
+// setDensityPreference stores the viewer's data-density choice on their
+// session (internal/density), not the league's per-manager notification
+// store: unlike an email preference, density has to apply to a signed-out
+// or demo viewer too, and every page reads it back on its very next
+// request through app_build.go's router.SetLayout body attribute.
+func setDensityPreference(ctx *action.Context) error {
+	value := ctx.FormData["density"]
+	if value != density.Compact && value != density.Comfortable {
+		return actionui.Validation(ctx, "settings", "settings", fmt.Errorf("density must be exactly compact or comfortable"))
+	}
+	density.Set(ctx.Request, value)
+	label := "Comfortable"
+	if value == density.Compact {
+		label = "Compact"
+	}
+	actionui.RedirectWithNotice(ctx, "/settings", "Data density set to "+label+".")
 	return nil
 }

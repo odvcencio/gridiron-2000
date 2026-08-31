@@ -187,16 +187,17 @@ func TestDraftByTeamPlayerNameStacksOverPosAndNFL(t *testing.T) {
 	}
 }
 
-// TestDraftPhoneNoticeStaysOneLine is P6 (2026-08-30 review, superseding
-// this task's own T5 draft): the offline-pool/paused/rehearsal banner
-// stays a single nowrap/ellipsis line at every width, phone included — no
-// phone-width override reintroduces wrapping or a multi-line clamp (a
-// two-line -webkit-line-clamp attempt earlier in this same pass did not
-// reliably clip on a grid item and let its overflow bleed into the tab
-// segment below it; P6's one-line shape sidesteps that engine quirk
-// entirely). The base (non-media) rule is the one and only source of
-// truth for this now.
-func TestDraftPhoneNoticeStaysOneLine(t *testing.T) {
+// TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth is P1-10 (UI pass
+// 2026-08-30 review), superseding P6 above: a phone has no hover, so P6's
+// one-line nowrap/ellipsis banner left its title= attribute (the only
+// place the rest of a truncated notice was readable) unreachable at
+// phone width. The base (desktop) rule keeps P6's one-line shape;
+// a phone-width override now allows a second line instead, via
+// max-height + overflow: hidden — the same two-line fallback
+// .board-grid__name already uses, not -webkit-line-clamp, since P6's own
+// comment already found line-clamp unreliable on a CSS grid item in the
+// engine the screenshot pass measured against.
+func TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth(t *testing.T) {
 	raw, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
 		t.Fatal(err)
@@ -210,23 +211,27 @@ func TestDraftPhoneNoticeStaysOneLine(t *testing.T) {
 	rule := css[ruleStart : ruleStart+ruleEnd]
 	for _, want := range []string{"white-space: nowrap", "overflow: hidden", "text-overflow: ellipsis"} {
 		if !strings.Contains(rule, want) {
-			t.Errorf(".draft-command__banner must set %q (P6, one line, never clipped mid-glyph): %s", want, rule)
+			t.Errorf("the base .draft-command__banner rule must still set %q (one line at desktop): %s", want, rule)
 		}
 	}
 	last := strings.LastIndex(css, "@media (max-width: 56.1875rem)")
 	if last < 0 {
 		t.Fatal("stylesheet missing the phone/tablet @media (max-width: 56.1875rem) block")
 	}
-	// Bounded by the next top-level "@media" (or EOF): good enough to prove
-	// no SECOND .draft-command__banner rule reappears inside this block,
-	// the same imprecise-but-sufficient bound TestDraftPhoneTeamsTabSelects
-	// TheTeamsSubView above already relies on.
 	block := css[last:]
 	if next := strings.Index(block[len("@media (max-width: 56.1875rem)"):], "\n@media"); next >= 0 {
 		block = block[:next+len("@media (max-width: 56.1875rem)")]
 	}
-	if strings.Contains(block, ".draft-command__banner {") {
-		t.Error("P6: no phone-width override of .draft-command__banner may remain (it must inherit the base one-line rule unchanged)")
+	overrideStart := strings.Index(block, ".draft-command__banner {")
+	if overrideStart < 0 {
+		t.Fatal("P1-10: the phone/tablet media block must override .draft-command__banner to allow a second line")
+	}
+	overrideEnd := strings.Index(block[overrideStart:], "}")
+	override := block[overrideStart : overrideStart+overrideEnd]
+	for _, want := range []string{"white-space: normal", "max-height"} {
+		if !strings.Contains(override, want) {
+			t.Errorf("the phone-width .draft-command__banner override must set %q: %s", want, override)
+		}
 	}
 }
 

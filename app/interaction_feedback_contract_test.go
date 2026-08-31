@@ -49,7 +49,8 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// Lineup mutations and the live Draft Room share managed-success helpers
 	// now; native submissions still call RedirectWithNotice through them.
 	// 2026-08-30 review, finding 3: run-waivers (app/admin) adds one.
-	const wantRedirects = 47
+	// UI pass 2026-08-30 (P1-6): settings/page.server.go's setDensityPreference adds one.
+	const wantRedirects = 48
 	const wantRedirectBacks = 12
 	redirects := 0
 	redirectBacks := 0

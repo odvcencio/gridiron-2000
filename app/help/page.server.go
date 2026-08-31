@@ -42,7 +42,7 @@ func runtimeProjection() map[string]any {
 	}
 	draftAt := svc.DraftAt().In(location)
 	return map[string]any{
-		"league_name": cfg.Name, "mode": mode, "phase": phase, "timezone": zone,
+		"league_name": cfg.Name, "mode": mode, "phase": phase, "timezone": league.FriendlyTimezoneLabel(zone),
 		"draft_at":     draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST"),
 		"runtime_note": "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime.",
 	}
