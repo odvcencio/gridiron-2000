@@ -17,6 +17,7 @@ import (
 	adminpage "gridiron-2000/app/admin"
 	commissionerpage "gridiron-2000/app/commissioner"
 	draftpage "gridiron-2000/app/draft"
+	lockerpage "gridiron-2000/app/locker"
 	matchupspage "gridiron-2000/app/matchups"
 	pickempage "gridiron-2000/app/pickem"
 	playerspage "gridiron-2000/app/players"
@@ -321,6 +322,12 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// projections at all. SetPunterProjections also re-normalizes whatever
 	// pool NewService already loaded, so a cache boot is never rankless.
 	fantasyPool.SetPunterProjections(league.PunterProjection)
+	// Also wired before fantasyPool.Start (GC-1 fix 1): the current NFL
+	// week, derived from the mirrored nflverse schedule (openStats is
+	// already constructed above). SyncNow reads this on every sync, so a
+	// week-N sync requests week-N Tank01 projections instead of the old
+	// hard-coded week 1.
+	fantasyPool.SetCurrentWeek(currentNFLWeekFunc(openStats))
 	rt.starters = append(rt.starters, signalFeed.Start, openStats.Start, fantasyPool.Start)
 	// The harness may ask for the offline pool relabelled "live" so a
 	// simulated draft can start without a live upstream; every other run
@@ -342,7 +349,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// credentials of its own, so its presence stands in for
 	// fantasyPool.Enabled() when deciding whether buildLiveScoring may
 	// leave the poller on (see buildLiveScoring's fantasyEnabled doc).
-	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), rt)
+	liveRuntime := buildLiveScoring(liveCfg, liveFetcher, fantasyPool.Enabled() || replayServer != nil, openStats, league.Default(), signalFeed, rt)
 	liveRuntime.Replay = replayServer
 	rt.Live = liveRuntime
 	league.Default().SetInjuryDesignationSource(leagueInjuryDesignationSource(openStats))
@@ -373,6 +380,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	rt.starters = append(rt.starters, draftLiveUpdates.Start)
 	scoresLive := matchupspage.NewScoresLive(liveRuntime.Poller.Version, leagueFingerprint)
 	rt.starters = append(rt.starters, scoresLive.Start)
+	// lockerLive (GC-4) runs no Start ticker of its own — see LockerLive's
+	// doc comment: a Locker Room mutation is always a synchronous HTTP
+	// request, so its own success (SetLockerEventSink's hook) is already
+	// the one broadcast trigger, unlike draftLiveUpdates/scoresLive's own
+	// external draft-event queue and live-score poller above.
+	lockerLive := lockerpage.NewLockerLive(league.Default().LockerVersion)
+	league.Default().SetLockerEventSink(lockerLive.Broadcast)
 	// StartRosterOps always runs, mail wired or not: waiver processing
 	// (and WP-R5's trade execution/expiry) are state mutations, not sends
 	// — only the send step at the end of each tick is itself
@@ -687,6 +701,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
+	app.Mount(lockerpage.LockerLiveHubPath, lockerLive.Handler(league.Default()))
 	// Player-pool/waiver and transaction regions are read-only projections.
 	// Their shared 4-second interval is the declared cross-client convergence
 	// bound; managed player mutations signal the same regions immediately while
@@ -696,6 +711,10 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("GET /activity/fragment", activitypage.ActivityFragmentHandler(league.Default()))
 	app.Mount("GET /team/fragment", teampage.TeamLineupFragmentHandler(league.Default()))
 	app.Mount("GET /trades/fragment", tradespage.TradeDeskFragmentHandler(league.Default()))
+	// Locker Room (GC-4): the board region refetches only on the
+	// locker-live hub's locker:changed event above — no interval, unlike
+	// every fragment in this block.
+	app.Mount("GET /locker/fragment", lockerpage.LockerFragmentHandler(league.Default()))
 	// Pick'em's selected-week region polls the authoritative per-game lock,
 	// market, result, and sheet-scoring projection. Managed picks signal an
 	// immediate refresh; the native POST-redirect-GET fallback remains intact.

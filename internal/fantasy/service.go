@@ -24,12 +24,24 @@ type Service struct {
 	now       func() time.Time
 	startOnce sync.Once
 
-	mu       sync.RWMutex
-	players  []Player
-	version  int64
-	mode     string
-	lastSync time.Time
-	lastErr  string
+	mu           sync.RWMutex
+	players      []Player
+	version      int64
+	mode         string
+	lastSync     time.Time
+	lastErr      string
+	projectionWk int
+	// currentWeek resolves the NFL week SyncNow requests Tank01 projections
+	// for (GC-1 fix 1): a closure over the mirrored nflverse schedule
+	// (internal/openstats), wired once by main.go's app wiring — see
+	// SetCurrentWeek. This package must not import openstats directly (an
+	// inverted dependency: fantasy is a lower-level package openstats-aware
+	// code sits above), so main.go supplies the resolved week through this
+	// func, the same injection pattern SetPunterProjections already uses
+	// for league.PunterProjection. Nil until wired; projectionWeek() then
+	// falls back to week 1, matching the pre-fix behavior and the spec's
+	// own rule ("before NFL week 1, keep week 1").
+	currentWeek func() int
 	// punterProjections resolves a Position "P" player's per-game
 	// projection from the league's own embedded 2025 punter rescoring
 	// (internal/league.PunterProjection) — the live Tank01 feed carries no
@@ -136,6 +148,33 @@ func (s *Service) SetPunterProjections(fn func(name, team string, requireTeam bo
 	s.mu.Unlock()
 }
 
+// SetCurrentWeek installs the callback SyncNow consults for the NFL week
+// to request Tank01 projections for (GC-1 fix 1; see the currentWeek
+// field's doc comment). Call once, before Start(ctx) — the same wiring
+// order SetPunterProjections already follows (app_build.go).
+func (s *Service) SetCurrentWeek(fn func() int) {
+	s.mu.Lock()
+	s.currentWeek = fn
+	s.mu.Unlock()
+}
+
+// projectionWeek resolves the week SyncNow requests Tank01 projections
+// for: currentWeek() when wired and it reports a real (>= 1) week, or
+// week 1 otherwise — the pre-fix default, and also the spec's own rule
+// for before the season's first week is published.
+func (s *Service) projectionWeek() int {
+	s.mu.RLock()
+	fn := s.currentWeek
+	s.mu.RUnlock()
+	if fn == nil {
+		return 1
+	}
+	if week := fn(); week >= 1 {
+		return week
+	}
+	return 1
+}
+
 // Start launches the background sync loop when a key is configured.
 func (s *Service) Start(ctx context.Context) {
 	s.startOnce.Do(func() {
@@ -234,9 +273,15 @@ func (s *Service) SyncNow(ctx context.Context) error {
 		adp = parseADP(raw)
 	}
 
+	// week (GC-1 fix 1) is the current NFL week, resolved from the mirrored
+	// nflverse schedule (see the currentWeek field's doc comment) rather
+	// than the old hard-coded "1" — a week-N sync now requests week-N
+	// projections. Week 1 stays the request before the season's first
+	// week is published (projectionWeek's own fallback rule).
+	week := s.projectionWeek()
 	projections := map[string]projEntry{}
 	if raw, err := s.client.get(ctx, "getNFLProjections", map[string]string{
-		"week":               "1",
+		"week":               strconv.Itoa(week),
 		"archiveSeason":      strconv.Itoa(s.config.Season),
 		"pointsPerReception": pointsPerReception(s.config.ScoringFormat),
 	}); err != nil {
@@ -276,10 +321,11 @@ func (s *Service) SyncNow(ctx context.Context) error {
 	s.mode = "live"
 	s.lastSync = now
 	s.lastErr = joinedErrors(problems)
+	s.projectionWk = week
 	version := s.version
 	s.mu.Unlock()
 
-	if err := s.persist(pool, now, version); err != nil {
+	if err := s.persist(pool, now, version, week); err != nil {
 		problems = append(problems, fmt.Errorf("persist: %w", err))
 		s.mu.Lock()
 		s.lastErr = joinedErrors(problems)
@@ -628,22 +674,23 @@ func (s *Service) Status() Status {
 		}
 	}
 	return Status{
-		Enabled:   s.Enabled(),
-		Provider:  "Tank01 (RapidAPI)",
-		Mode:      s.mode,
-		State:     playerPoolState(s.mode, len(s.players), s.lastSync, s.lastErr, now, s.config.SyncInterval),
-		Scoring:   s.config.ScoringFormat,
-		Players:   len(s.players),
-		PoolLimit: s.config.PoolLimit,
-		Positions: positions,
-		WithADP:   withADP,
-		WithProj:  withProj,
-		WithBye:   withBye,
-		Requests:  int(s.client.requests.Load()),
-		LastSync:  s.lastSync,
-		Age:       age,
-		FreshFor:  s.config.SyncInterval,
-		LastError: s.lastErr,
+		Enabled:        s.Enabled(),
+		Provider:       "Tank01 (RapidAPI)",
+		Mode:           s.mode,
+		State:          playerPoolState(s.mode, len(s.players), s.lastSync, s.lastErr, now, s.config.SyncInterval),
+		Scoring:        s.config.ScoringFormat,
+		Players:        len(s.players),
+		PoolLimit:      s.config.PoolLimit,
+		Positions:      positions,
+		WithADP:        withADP,
+		WithProj:       withProj,
+		WithBye:        withBye,
+		ProjectionWeek: s.projectionWk,
+		Requests:       int(s.client.requests.Load()),
+		LastSync:       s.lastSync,
+		Age:            age,
+		FreshFor:       s.config.SyncInterval,
+		LastError:      s.lastErr,
 	}
 }
 
@@ -706,6 +753,11 @@ type poolCache struct {
 	Scoring       string    `json:"scoring"`
 	SyncedAt      time.Time `json:"syncedAt"`
 	Players       []Player  `json:"players"`
+	// ProjectionWeek (GC-1 fix 1) is the NFL week this snapshot's
+	// projections were requested for. Purely additive: a cache written
+	// before this field existed decodes it to zero, which loadCache below
+	// treats as honestly unknown rather than guessing week 1.
+	ProjectionWeek int `json:"projectionWeek,omitempty"`
 }
 
 func (s *Service) cachePath() string {
@@ -729,16 +781,18 @@ func (s *Service) loadCache() {
 	s.version++
 	s.mode = "cache"
 	s.lastSync = cache.SyncedAt
+	s.projectionWk = cache.ProjectionWeek
 	s.mu.Unlock()
 }
 
-func (s *Service) persist(pool []Player, syncedAt time.Time, _ int64) error {
+func (s *Service) persist(pool []Player, syncedAt time.Time, _ int64, projectionWeek int) error {
 	encoded, err := json.MarshalIndent(poolCache{
-		SchemaVersion: SchemaVersion,
-		Provider:      "tank01",
-		Scoring:       s.config.ScoringFormat,
-		SyncedAt:      syncedAt,
-		Players:       pool,
+		SchemaVersion:  SchemaVersion,
+		Provider:       "tank01",
+		Scoring:        s.config.ScoringFormat,
+		SyncedAt:       syncedAt,
+		Players:        pool,
+		ProjectionWeek: projectionWeek,
 	}, "", "  ")
 	if err != nil {
 		return err

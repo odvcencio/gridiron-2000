@@ -13,9 +13,13 @@ type Resolver func(tank01ID, longName string) (league.Player, bool)
 // not hide live points). A ledger row wins once the game is final, or
 // when live has no data for it — unless the ledger row is itself a
 // partial mirror of the final live row (ledgerBehind), in which case the
-// final live row wins until the ledger catches up. A live row with no
-// ledger row is added. The D/ST key comes from DSTName and the pool's
-// "{Nickname} D/ST" naming.
+// final live row wins until the ledger catches up. When the ledger wins
+// outright (final and not behind), it still absorbs any category the
+// final live row carries that the ledger's own stat mapping never
+// reports at all (mergeLedgerOnlyCategories, GC-1 fix 4) — otherwise a
+// scored return touchdown would vanish the moment the ledger posts. A
+// live row with no ledger row is added. The D/ST key comes from DSTName
+// and the pool's "{Nickname} D/ST" naming.
 func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve Resolver) []league.WeekStatLine {
 	live, ok := snapshot.Weeks[week]
 	if !ok {
@@ -52,8 +56,25 @@ func MergeLines(base []league.WeekStatLine, week int, snapshot Snapshot, resolve
 				// the live side is final but the ledger mirror still holds a
 				// partial (or all-zero) row; a final live row is never below
 				// the truth, so it wins until the ledger catches up
+			case final:
+				// The ledger is complete and wins for every category it
+				// reports (see ledgerBehind above). But the ledger's own
+				// stat mapping (main.go's offenseStatLine) never carries
+				// some live-only categories at all — returnTD is the one in
+				// production today (breakdown.go's returnTD row doc
+				// comment). Without this, a scored return touchdown a live
+				// game reported would silently vanish the moment the ledger
+				// posts (GC-1 fix 4). mergeLedgerOnlyCategories copies in
+				// only the categories genuinely absent from the ledger row;
+				// every category the ledger DOES report keeps its own
+				// value untouched, so the ledger stays close-week truth for
+				// everything it actually measures.
+				if merged, ok := mergeLedgerOnlyCategories(out[at], line.Stats); ok {
+					out[at] = merged
+				}
+				return
 			default:
-				return // ledger wins: the game is final and the ledger is complete, or live has no clock for it
+				return // ledger wins: live has no clock for it
 			}
 			out[at] = line
 			return
@@ -113,4 +134,35 @@ func ledgerBehind(ledger, live map[string]float64) bool {
 		return true
 	}
 	return anyLower
+}
+
+// mergeLedgerOnlyCategories returns a copy of ledger with every stat key
+// live carries but ledger.Stats itself does not — merged in — plus ok
+// reporting whether it merged anything (GC-1 fix 4). A key the ledger
+// already reports, even at a different value, keeps its own ledger value:
+// only a category genuinely absent from the ledger row is ever copied
+// from live. ledger.Stats is never mutated in place: out is a shallow
+// copy of base (MergeLines above), so out[i].Stats and base[i].Stats
+// start as the same map, and writing into it here would silently mutate
+// the caller's own base slice.
+func mergeLedgerOnlyCategories(ledger league.WeekStatLine, live map[string]float64) (league.WeekStatLine, bool) {
+	var merged map[string]float64
+	for key, value := range live {
+		if _, exists := ledger.Stats[key]; exists {
+			continue
+		}
+		if merged == nil {
+			merged = make(map[string]float64, len(ledger.Stats)+1)
+			for k, v := range ledger.Stats {
+				merged[k] = v
+			}
+		}
+		merged[key] = value
+	}
+	if merged == nil {
+		return ledger, false
+	}
+	ledger.Stats = merged
+	ledger.Source = league.StatSourceLedgerLive
+	return ledger, true
 }

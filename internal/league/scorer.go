@@ -22,6 +22,15 @@ const (
 	StatSourceLedger    = "ledger"     // nflverse weekly file
 	StatSourceLive      = "live"       // Tank01 box score, game in progress
 	StatSourceLiveFinal = "live-final" // Tank01 box score, game final, ledger not posted yet
+	// StatSourceLedgerLive marks a closed-week line that is mostly the
+	// nflverse ledger, supplemented with a category the ledger's own stat
+	// mapping never carries at all (returnTD is the one in production
+	// today — see internal/league/breakdown.go's returnTD row doc
+	// comment) but a final Tank01 box score did report (GC-1 fix 4).
+	// livescore.MergeLines copies only that missing category in; every
+	// category the ledger DOES report keeps its own ledger value, so the
+	// ledger stays close-week truth for everything it actually measures.
+	StatSourceLedgerLive = "ledger+live"
 )
 
 // WeekStatLine is one player's weekly totals, keyed by scoring rule keys

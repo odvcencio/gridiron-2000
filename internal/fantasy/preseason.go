@@ -14,6 +14,17 @@ import (
 // normalized for the Preseason Blitz feature (design spec section 5.1).
 // Label carries the raw gameWeek text; slate identity is a label match, not
 // the request's week param (P1) — see SelectPreseasonGames.
+//
+// GC-2 investigated adding a live score/period/clock to this type so the
+// live poller's scoreboard tick (internal/livescore) could change-gate a
+// game's box fetch off this one games-list call alone. No fixture, test
+// data, or recorded relay payload in this repo confirms Tank01's
+// getNFLGamesForWeek response actually carries those fields (only
+// getNFLBoxScore is confirmed to), so GC-2 shipped without them: the
+// scoreboard tick still fetches this call every LIVE_SCOREBOARD_INTERVAL
+// for Tank01 ID resolution, but box fetches are gated by LIVE_BOX_BASELINE
+// and the wire trigger alone, not a score/period/clock delta. Add the
+// fields here once the payload is verified.
 type PreseasonGame struct {
 	ID         string
 	Label      string
@@ -150,6 +161,19 @@ type BoxScore struct {
 	InProgress bool                          // code "1", or any non-final code with a non-empty period
 	Players    map[string]PlayerLine         // Tank01 playerID -> line
 	DST        map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
+	// Raw is the decoded top-level getNFLBoxScore body, kept only for a
+	// tolerant downstream seam this package does not itself model:
+	// internal/livescore's GC-2b possession extraction (ExtractPossession)
+	// reads it for the "lineScore.{away,home}.currentlyInPossession" shape
+	// verified against testdata/box-20250904_DAL-PHI.json and
+	// testdata/preseason-boxscore-sample.json (both completed games, so
+	// both sides read "False" there — the shape is real, a live "True" is
+	// not yet observed), plus a short list of speculative fallback keys.
+	// No scoring rule may ever read this field; every scored value comes
+	// from the typed fields above. It rides along in poller.go's
+	// change-detection hash on purpose: a possession flip with no other
+	// stat change still counts as new content worth a version bump.
+	Raw map[string]any
 }
 
 // PlayerLine is one player's box-score row with the identity fields the
@@ -195,6 +219,7 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 	box.Clock = strings.TrimSpace(flexString(body["gameClock"]))
 	box.Final = preseasonFinal(box.Status, box.StatusCode) || strings.EqualFold(box.Period, "final")
 	box.InProgress = !box.Final && (box.StatusCode == "1" || (box.StatusCode != "0" && box.StatusCode != "" && box.Period != ""))
+	box.Raw = body
 	playerStats, _ := body["playerStats"].(map[string]any)
 	for playerID, rawEntry := range playerStats {
 		entry, ok := rawEntry.(map[string]any)
@@ -272,6 +297,16 @@ func parsePreseasonBoxScore(raw json.RawMessage) (map[string]map[string]float64,
 // value; dropping the zero row costs the overlay nothing, since a caller
 // that finds no live row simply keeps its ledger row instead, the same
 // outcome as if this returned a present-but-zero map.
+//
+// Two-point conversions (GC-1 fix 3) score at week close only: Tank01's
+// box score carries no per-player two-point field at all (verified
+// against testdata/preseason-boxscore-sample.json and
+// testdata/box-20250904_DAL-PHI.json — the only twoPointConversions field
+// either fixture carries is a team-level total under teamStats, not
+// attributable to a player), so this function has no source to read it
+// from. The league's "twoPt" rule scores from the closed-week nflverse
+// ledger instead (main.go's offenseStatLine), the same closed-week-only
+// pattern several PUNTING keys already follow.
 func preseasonPlayerStats(entry map[string]any) map[string]float64 {
 	stats := map[string]float64{}
 	addGroup := func(groupKey string, keyMap map[string]string) {

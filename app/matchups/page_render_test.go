@@ -382,6 +382,7 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 		"data-gosx-live-bind={\"starterJoinState.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterDetail.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterGameState.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterPossession.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterSource.\" + props.LiveKey}",
 		"data-gosx-live-bind=\"sourceLine\"",
 		"data-gosx-live-bind=\"statsUpdatedAt\"",
@@ -408,6 +409,51 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 	for _, want := range []string{".matchup-ledger__row", ".slot-row"} {
 		if !strings.Contains(string(styles), want) {
 			t.Fatalf("matchup starter-ledger styles are missing %q", want)
+		}
+	}
+}
+
+// TestStarterCellDataPossessionKnownUnknownTruthfulness is GC-2b's own
+// view-model contract: starterCellData carries the raw "possession"
+// field through verbatim, and starterStateClass's own truthful-state
+// counterpart — an empty Possession string — renders no chip at all
+// (public/styles.css's .possession-chip:empty rule, exercised by
+// TestMatchupsPossessionChipRenderContract below).
+func TestStarterCellDataPossessionKnownUnknownTruthfulness(t *testing.T) {
+	known := starterCellData(map[string]any{"player_id": "p-09", "possession": "ON OFFENSE"}, false)
+	if known.Possession != "ON OFFENSE" {
+		t.Fatalf("known possession = %q, want ON OFFENSE", known.Possession)
+	}
+	unknown := starterCellData(map[string]any{"player_id": "p-09"}, false)
+	if unknown.Possession != "" {
+		t.Fatalf("unknown/absent possession = %q, want \"\"", unknown.Possession)
+	}
+}
+
+// TestMatchupsPossessionChipRenderContract covers GC-2b's own render
+// contract: the possession chip site exists exactly once in StarterCell,
+// carries the truthful-state live-bind key, and the stylesheet's
+// :empty rule (the same pattern .state-chip:empty already establishes)
+// keeps an unknown/not-relevant starter's chip invisible without
+// removing its live-bind target.
+func TestMatchupsPossessionChipRenderContract(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	want := `<span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span>`
+	if count := strings.Count(source, want); count != 1 {
+		t.Fatalf("possession-chip render site count = %d, want exactly 1: %s", count, want)
+	}
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stylesheet := string(styles)
+	for _, want := range []string{".possession-chip {", ".possession-chip:empty {"} {
+		if !strings.Contains(stylesheet, want) {
+			t.Fatalf("stylesheet missing possession-chip truthful-state rule %q", want)
 		}
 	}
 }

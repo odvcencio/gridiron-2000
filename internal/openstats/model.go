@@ -47,21 +47,21 @@ type Status struct {
 }
 
 type ScheduleGame struct {
-	GameID            string   `json:"game_id"`
-	Season            int      `json:"season"`
-	GameType          string   `json:"game_type"`
-	Week              int      `json:"week"`
-	GameDay           string   `json:"gameday"`
-	GameTime          string   `json:"gametime,omitempty"`
-	AwayTeam          string   `json:"away_team"`
-	AwayScore         float64  `json:"away_score,omitempty"`
-	AwayScorePresent  bool     `json:"away_score_present,omitempty"`
-	HomeTeam          string   `json:"home_team"`
-	HomeScore         float64  `json:"home_score,omitempty"`
-	HomeScorePresent  bool     `json:"home_score_present,omitempty"`
-	Result            string   `json:"result,omitempty"`
-	ResultPresent     bool     `json:"result_present,omitempty"`
-	SpreadLine        *float64 `json:"spread_line,omitempty"`
+	GameID           string   `json:"game_id"`
+	Season           int      `json:"season"`
+	GameType         string   `json:"game_type"`
+	Week             int      `json:"week"`
+	GameDay          string   `json:"gameday"`
+	GameTime         string   `json:"gametime,omitempty"`
+	AwayTeam         string   `json:"away_team"`
+	AwayScore        float64  `json:"away_score,omitempty"`
+	AwayScorePresent bool     `json:"away_score_present,omitempty"`
+	HomeTeam         string   `json:"home_team"`
+	HomeScore        float64  `json:"home_score,omitempty"`
+	HomeScorePresent bool     `json:"home_score_present,omitempty"`
+	Result           string   `json:"result,omitempty"`
+	ResultPresent    bool     `json:"result_present,omitempty"`
+	SpreadLine       *float64 `json:"spread_line,omitempty"`
 }
 
 // HasFinalScore reports whether the source supplied both scores. The
@@ -83,11 +83,11 @@ func (game ScheduleGame) HasResult() bool {
 // update, and provenance stay available to callers without coupling the
 // league package to openstats.
 type ScheduleSnapshot struct {
-	Games       []ScheduleGame `json:"games"`
-	ObservedAt  time.Time      `json:"observed_at,omitzero"`
-	UpdatedAt   time.Time      `json:"updated_at,omitzero"`
-	SourceURL   string         `json:"source_url,omitempty"`
-	Provenance  string         `json:"provenance,omitempty"`
+	Games      []ScheduleGame `json:"games"`
+	ObservedAt time.Time      `json:"observed_at,omitzero"`
+	UpdatedAt  time.Time      `json:"updated_at,omitzero"`
+	SourceURL  string         `json:"source_url,omitempty"`
+	Provenance string         `json:"provenance,omitempty"`
 }
 
 // PlayerWeekStat is the compact, provider-neutral fantasy ledger retained by
@@ -113,6 +113,18 @@ type PlayerWeekStat struct {
 	FumblesLost          float64 `json:"fumbles_lost"`
 	FantasyPoints        float64 `json:"fantasy_points"`
 	FantasyPointsPPR     float64 `json:"fantasy_points_ppr"`
+	// Two-point conversion columns (GC-1 fix 3): sourced from the same
+	// stats_player_week release's passing_2pt_conversions/rushing_2pt_
+	// conversions/receiving_2pt_conversions columns. main.go's
+	// offenseStatLine sums all three into the single "twoPt" scoring rule
+	// (internal/league/scoring.go), which scores at week close only —
+	// Tank01's live box score carries no per-player two-point field at
+	// all, verified against internal/fantasy's box-score fixtures. Absent
+	// on a pre-release row, like every other optional column here; see
+	// parsePlayerStats.
+	PassingTwoPt   float64 `json:"passing_2pt_conversions"`
+	RushingTwoPt   float64 `json:"rushing_2pt_conversions"`
+	ReceivingTwoPt float64 `json:"receiving_2pt_conversions"`
 	// Kicking fields (WP-R2): sourced from the same stats_player_week
 	// release's fg_made/fg_missed/pat_made columns, present on K-position
 	// rows. defaultScoringRules' KICKING group carries no FG distance

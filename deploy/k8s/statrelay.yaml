@@ -72,12 +72,29 @@ spec:
               value: ":8090"
             # Daily cap on relayed upstream Tank01 calls, shared by every
             # league instance behind this relay. 0 (the code default) means
-            # unlimited. 60000 is a placeholder above the ~41,000-call
-            # 13-game Sunday estimate (docs/launch-checklist.md's live
-            # scoring rollout section) until the owner confirms it against
-            # the Mega RapidAPI tier's real daily allowance.
+            # unlimited. 13000 is GC-2b's wallet guard against the verified
+            # Ultra quota (15,000 requests/day, soft-limited — RapidAPI
+            # bills overage at $0.01/request instead of blocking, and
+            # returns no 429, so the app-side circuit breaker never fires
+            # on overage; this budget is what actually protects the
+            # wallet). GC-2b's own arithmetic (docs/season-operations.md's
+            # Game day section): a 13-game Sunday's box fetches run from
+            # about 9.6k (64%) to about 12.3k (82%) of the 15,000 daily
+            # quota depending on the relevant-possession fraction, so this
+            # tripwire never fires below the all-fast extreme.
             - name: STATRELAY_DAILY_BUDGET
-              value: "60000"
+              value: "13000"
+            # In-progress getNFLBoxScore cache TTL, aligned with the app's
+            # own LIVE_SCOREBOARD_INTERVAL default (10s) — see
+            # cmd/statrelay/relay.go's ttlForEntry.
+            - name: STATRELAY_BOX_LIVE_TTL
+              value: "10s"
+            # getNFLGamesForWeek cache TTL for the live regular-season
+            # scoreboard query (seasonType=reg) only; Blitz's own
+            # preseason schedule query (seasonType=pre) keeps its 24h TTL
+            # regardless of this value — see ttlForEntry.
+            - name: STATRELAY_SCOREBOARD_TTL
+              value: "10s"
           volumeMounts:
             - name: data
               mountPath: /app/data

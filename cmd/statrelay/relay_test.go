@@ -402,13 +402,18 @@ func TestHealthz(t *testing.T) {
 }
 
 // TestTTLTableAssignsExpectedBuckets pins the TTL table's documented
-// values so a future edit that silently changes a cadence fails loudly.
+// default values (boxLiveTTL/scoreboardTTL at their package defaults, no
+// env override) so a future edit that silently changes a cadence fails
+// loudly. getNFLGamesForWeek here carries no query string, so it falls
+// through to the 24h schedule-cadence default; see
+// TestScoreboardTTLAppliesOnlyToTheRegularSeasonQuery for the
+// seasonType=reg override.
 func TestTTLTableAssignsExpectedBuckets(t *testing.T) {
 	cases := []struct {
 		path string
 		want time.Duration
 	}{
-		{"/getNFLBoxScore", 4 * time.Second},
+		{"/getNFLBoxScore", boxLiveTTL},
 		{"/getNFLGamesForWeek", 24 * time.Hour},
 		{"/getNFLPlayerList", defaultTTL},
 		{"/getNFLADP", defaultTTL},
@@ -444,9 +449,10 @@ func TestQueryStringIsPartOfTheCacheKey(t *testing.T) {
 // "2", or a Final period) caches for 24h, a pre-game body (code "0" or
 // "", empty period) caches for 60s, and anything else — in progress
 // (code "1"), an unrecognized code with a period, or an unreadable body —
-// follows the live poll cadence (4s). Every other endpoint is unaffected.
-// A non-200 status always returns 0 (never cache), regardless of path or
-// body (round-2 review of commit fe8775f, finding 2).
+// follows boxLiveTTL, the live poll cadence (10s by default). Every other
+// endpoint is unaffected. A non-200 status always returns 0 (never
+// cache), regardless of path or body (round-2 review of commit fe8775f,
+// finding 2).
 func TestBoxScoreTTLFollowsGameStatus(t *testing.T) {
 	cases := []struct {
 		body string
@@ -455,9 +461,9 @@ func TestBoxScoreTTLFollowsGameStatus(t *testing.T) {
 		{`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`, 24 * time.Hour},
 		{`{"statusCode":200,"body":{"gameStatusCode":"0","currentPeriod":""}}`, 60 * time.Second},
 		{`{"statusCode":200,"body":{"gameStatusCode":"","currentPeriod":""}}`, 60 * time.Second},
-		{`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q3","gameClock":"8:12"}}`, 4 * time.Second},
-		{`{"statusCode":200,"body":{"gameStatusCode":"7","currentPeriod":"Q4"}}`, 4 * time.Second},
-		{`not json`, 4 * time.Second},
+		{`{"statusCode":200,"body":{"gameStatusCode":"1","currentPeriod":"Q3","gameClock":"8:12"}}`, boxLiveTTL},
+		{`{"statusCode":200,"body":{"gameStatusCode":"7","currentPeriod":"Q4"}}`, boxLiveTTL},
+		{`not json`, boxLiveTTL},
 	}
 	for _, c := range cases {
 		if got := ttlForEntry("/getNFLBoxScore", http.StatusOK, []byte(c.body)); got != c.want {
@@ -465,12 +471,46 @@ func TestBoxScoreTTLFollowsGameStatus(t *testing.T) {
 		}
 	}
 	if got := ttlForEntry("/getNFLGamesForWeek", http.StatusOK, []byte(`{}`)); got != 24*time.Hour {
-		t.Errorf("games-for-week ttl = %v", got)
+		t.Errorf("games-for-week ttl (no query, not seasonType=reg) = %v, want the 24h schedule default", got)
+	}
+	if got := ttlForEntry("/getNFLGamesForWeek?week=1&seasonType=pre&season=2026", http.StatusOK, []byte(`{}`)); got != 24*time.Hour {
+		t.Errorf("games-for-week ttl (seasonType=pre, Blitz) = %v, want the 24h schedule default", got)
+	}
+	if got := ttlForEntry("/getNFLGamesForWeek?week=1&seasonType=reg&season=2026", http.StatusOK, []byte(`{}`)); got != scoreboardTTL {
+		t.Errorf("games-for-week ttl (seasonType=reg, live scoreboard) = %v, want scoreboardTTL", got)
 	}
 	for _, status := range []int{http.StatusTooManyRequests, http.StatusForbidden, http.StatusInternalServerError} {
 		if got := ttlForEntry("/getNFLBoxScore", status, []byte(`{"statusCode":200,"body":{"gameStatusCode":"2","currentPeriod":"Final"}}`)); got != 0 {
 			t.Errorf("ttlForEntry with upstream status %d = %v, want 0 (never cache a non-200)", status, got)
 		}
+	}
+}
+
+// TestScoreboardTTLAppliesOnlyToTheRegularSeasonQuery covers the two-
+// caller split on one Tank01 endpoint: the live poller's own
+// getNFLGamesForWeek query (seasonType=reg) gets scoreboardTTL end to
+// end through the relay, while Blitz's preseason query (seasonType=pre)
+// still gets the 24h schedule-cadence TTL — proving the split holds
+// through ServeHTTP's real cache-and-expire path, not just ttlForEntry
+// in isolation.
+func TestScoreboardTTLAppliesOnlyToTheRegularSeasonQuery(t *testing.T) {
+	upstream := newStubUpstream(`{"statusCode":200,"body":[]}`)
+	server := upstream.server()
+	defer server.Close()
+	relay, clock := relayForTest(t, server, t.TempDir(), "test-key")
+
+	doGet(t, relay, "/getNFLGamesForWeek?week=1&seasonType=reg&season=2026")
+	clock.advance(scoreboardTTL + time.Second)
+	doGet(t, relay, "/getNFLGamesForWeek?week=1&seasonType=reg&season=2026")
+	if got := upstream.count(); got != 2 {
+		t.Fatalf("regular-season scoreboard query upstream hits = %d, want 2 (expired past scoreboardTTL)", got)
+	}
+
+	doGet(t, relay, "/getNFLGamesForWeek?week=1&seasonType=pre&season=2026")
+	clock.advance(scoreboardTTL + time.Second) // well past scoreboardTTL, nowhere near 24h
+	doGet(t, relay, "/getNFLGamesForWeek?week=1&seasonType=pre&season=2026")
+	if got := upstream.count(); got != 3 {
+		t.Fatalf("preseason schedule query upstream hits = %d, want 3 (still cached, 24h TTL)", got)
 	}
 }
 
@@ -498,7 +538,7 @@ func TestDailyBudgetReturns429AndServesCacheWhenPresent(t *testing.T) {
 		t.Fatalf("first = %d remaining=%q", first.Code, first.Header().Get("X-Statrelay-Budget-Remaining"))
 	}
 	doGet(t, relay, "/getNFLBoxScore?gameID=b")
-	clock.advance(5 * time.Second)
+	clock.advance(boxLiveTTL + time.Second) // expire "a"'s cache entry so the stale-serve check below is real
 	third := doGet(t, relay, "/getNFLBoxScore?gameID=c")
 	if third.Code != http.StatusTooManyRequests || third.Header().Get("X-Statrelay-Budget-Remaining") != "0" {
 		t.Fatalf("over budget = %d remaining=%q", third.Code, third.Header().Get("X-Statrelay-Budget-Remaining"))

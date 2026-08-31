@@ -41,6 +41,14 @@ type GameState struct {
 	InProgress bool
 	Kickoff    time.Time
 	FetchedAt  time.Time
+	// Possession and PossessionKnown are GC-2b's display seam: the
+	// nflverse abbreviation of the team ExtractPossession last resolved as
+	// currently on offense, and whether that resolution is actually known.
+	// Both are always their zero value unless InProgress was true at fetch
+	// time — possession has no honest meaning otherwise (addBoxToSnapshot
+	// gates the extraction call on box.InProgress).
+	Possession      string
+	PossessionKnown bool
 }
 
 // WeekLines groups one week's live rows.
@@ -110,8 +118,17 @@ func addBoxToSnapshot(out *Snapshot, game Game, box fantasy.BoxScore, at time.Ti
 		week.DST[NormalizeTeam(team)] = DSTLine{Stats: stats, Final: box.Final}
 	}
 	out.Weeks[game.Week] = week
+	// Possession only appears while the game is live (GC-2b): a pre-game
+	// or final box's raw payload is never even consulted, so a stale or
+	// coincidentally-shaped field there can never leak a fabricated
+	// possession onto a game that has not started or has already ended.
+	possession, possessionKnown := "", false
+	if box.InProgress {
+		possession, possessionKnown = ExtractPossession(box.Raw)
+	}
 	out.Games[game.ID] = GameState{ID: game.ID, Tank01ID: box.GameID, Week: game.Week, Away: NormalizeTeam(box.Away), Home: NormalizeTeam(box.Home),
-		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, Final: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at}
+		Period: box.Period, Clock: box.Clock, AwayPoints: box.AwayPoints, HomePoints: box.HomePoints, Final: box.Final, InProgress: box.InProgress, Kickoff: game.Kickoff, FetchedAt: at,
+		Possession: possession, PossessionKnown: possessionKnown}
 }
 
 // sortSnapshotLines orders every week's Lines by PlayerID (round-2 note

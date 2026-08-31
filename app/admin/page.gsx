@@ -953,6 +953,10 @@ func Page() Node {
 							<b class="mono">{data.pool.with_proj}</b>
 						</div>
 						<div class="pool-stat">
+							<span>Projection week</span>
+							<b class="mono">{data.pool.projection_week}</b>
+						</div>
+						<div class="pool-stat">
 							<span>Byes</span>
 							<b class="mono">{data.pool.with_bye}</b>
 						</div>

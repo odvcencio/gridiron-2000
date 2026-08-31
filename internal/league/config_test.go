@@ -463,6 +463,39 @@ func TestValidateConfigTwelveTeamsNoWarning(t *testing.T) {
 	}
 }
 
+// TestValidateConfigScoringFormatReceptionMismatchWarns pins GC-1 fix 2's
+// leaguecheck signal: a scoring_format whose implied reception value
+// (ReceptionPointsForScoringFormat) disagrees with the shipped default
+// reception rule (0.5, half_ppr's value) produces exactly one warning
+// naming both values. half_ppr, the shipped default's own format, warns
+// about nothing.
+func TestValidateConfigScoringFormatReceptionMismatchWarns(t *testing.T) {
+	for _, tc := range []struct {
+		format      string
+		wantWarning bool
+	}{
+		{"half_ppr", false},
+		{"standard", true},
+		{"ppr", true},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.ScoringFormat = tc.format
+			warnings, err := validateConfig(&cfg)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tc.wantWarning {
+				if len(warnings) != 1 || !strings.Contains(warnings[0], "reception") {
+					t.Fatalf("warnings = %v, want exactly one naming reception", warnings)
+				}
+			} else if len(warnings) != 0 {
+				t.Fatalf("warnings = %v, want none for half_ppr", warnings)
+			}
+		})
+	}
+}
+
 // TestResolveRosterBlockAbsentFallsBackToGridironHouse pins the roster-ops
 // spec section 10 rule: a config *file* that omits the roster block
 // entirely resolves to gridiron-house, not the compiled neutral default.

@@ -91,19 +91,23 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="navigation-link__index mono">11</span>
 					Activity
 				</Link>
-				<Link href="/scoring" class="navigation-link">
+				<Link href="/locker" class="navigation-link">
 					<span class="navigation-link__index mono">12</span>
+					Locker Room
+				</Link>
+				<Link href="/scoring" class="navigation-link">
+					<span class="navigation-link__index mono">13</span>
 					Rules &amp; scoring
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="help">
 				<p class="navigation-group__label mono">HELP</p>
 				<Link href="/guide" class="navigation-link navigation-link--guide">
-					<span class="navigation-link__index mono">13</span>
+					<span class="navigation-link__index mono">14</span>
 					Manager guide
 				</Link>
 				<Link href="/help" class="navigation-link navigation-link--guide">
-					<span class="navigation-link__index mono">14</span>
+					<span class="navigation-link__index mono">15</span>
 					Help center
 				</Link>
 			</div>
@@ -111,11 +115,11 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<div class="navigation-group" data-navigation-group="commissioner">
 					<p class="navigation-group__label mono">COMMISSIONER</p>
 					<Link href="/commissioner" class="navigation-link">
-						<span class="navigation-link__index mono">15</span>
+						<span class="navigation-link__index mono">16</span>
 						All leagues
 					</Link>
 					<Link href="/admin" class="navigation-link">
-						<span class="navigation-link__index mono">16</span>
+						<span class="navigation-link__index mono">17</span>
 						League settings
 					</Link>
 				</div>

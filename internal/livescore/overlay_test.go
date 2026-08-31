@@ -55,7 +55,11 @@ func TestMergeLinesLiveWinsWhileTheGameIsInProgress(t *testing.T) {
 }
 
 func TestMergeLinesLedgerWinsOnceTheGameIsFinal(t *testing.T) {
-	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 300}, Source: league.StatSourceLedger}}
+	// passTD is included so the ledger row already reports every category
+	// the final live row carries (see overlaySnapshot: passYds, passTD) —
+	// otherwise GC-1 fix 4's merge-in-missing-categories step would kick
+	// in and relabel this row's Source, which is not what this test pins.
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 300, "passTD": 2}, Source: league.StatSourceLedger}}
 	merged := MergeLines(base, 1, overlaySnapshot(false), overlayResolver)
 	if len(merged) != 2 {
 		t.Fatalf("merged = %+v", merged)
@@ -96,10 +100,98 @@ func TestMergeLinesFinalLiveRowBeatsAPartialLedgerRow(t *testing.T) {
 		t.Fatalf("a final live row did not beat a partial ledger row: %+v", merged)
 	}
 
-	complete := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 394}, Source: league.StatSourceLedger}}
+	// passTD is included so the ledger already reports every category the
+	// final live row carries (see finalSnapshot: passYds, passTD) — the
+	// same reason TestMergeLinesLedgerWinsOnceTheGameIsFinal's fixture
+	// carries it: otherwise GC-1 fix 4's merge-in-missing-categories step
+	// would relabel this row, which is not what this test pins.
+	complete := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 394, "passTD": 3}, Source: league.StatSourceLedger}}
 	merged = MergeLines(complete, 1, finalSnapshot(300, 1), overlayResolver)
-	if len(merged) != 1 || merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 394 {
+	if len(merged) != 1 || merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 394 || merged[0].Stats["passTD"] != 3 {
 		t.Fatalf("a stale-looking final live row beat a complete ledger row: %+v", merged)
+	}
+}
+
+// TestMergeLinesFinalLedgerKeepsALiveOnlyCategory pins GC-1 fix 4: a
+// return touchdown only ever arrives on a live Tank01 row (breakdown.go's
+// returnTD row doc comment; the nflverse weekly ledger mapping,
+// offenseStatLine in main.go, never emits it). Once the ledger posts and
+// wins on every category it DOES report, the merged line must still
+// carry the live-only returnTD rather than discard it — while every
+// category the ledger reports keeps the ledger's own value untouched.
+func TestMergeLinesFinalLedgerKeepsALiveOnlyCategory(t *testing.T) {
+	snapshot := Snapshot{Version: 1,
+		Weeks: map[int]WeekLines{1: {
+			Lines: []Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "BUF", Stats: map[string]float64{"passYds": 300, "passTD": 1, "returnTD": 1}, Final: true},
+			},
+		}},
+		Games: map[string]GameState{"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", Period: "Final", InProgress: false, Final: true}},
+	}
+	// The ledger already reports passYards and passTD (offenseStatLine
+	// always emits both, even at zero) with values matching or exceeding
+	// live, so ledgerBehind is false — the ledger wins for everything it
+	// measures.
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 350, "passTD": 2}, Source: league.StatSourceLedger}}
+	merged := MergeLines(base, 1, snapshot, overlayResolver)
+	if len(merged) != 1 {
+		t.Fatalf("merged = %+v", merged)
+	}
+	line := merged[0]
+	if line.Stats["passYards"] != 350 || line.Stats["passTD"] != 2 {
+		t.Fatalf("ledger categories must keep their own value: %+v", line)
+	}
+	if line.Stats["returnTD"] != 1 {
+		t.Fatalf("a live-only category (returnTD) must survive week close: %+v", line)
+	}
+	if line.Source != league.StatSourceLedgerLive {
+		t.Fatalf("a merged line must label its mixed source: got %q", line.Source)
+	}
+}
+
+// TestMergeLinesFinalLedgerWithNoMissingCategoryStaysLedger checks the
+// no-op path: when the ledger already reports every category the final
+// live row carries, the line is untouched — GC-1 fix 4 must not relabel
+// a line that needed no merge at all.
+func TestMergeLinesFinalLedgerWithNoMissingCategoryStaysLedger(t *testing.T) {
+	snapshot := Snapshot{Version: 1,
+		Weeks: map[int]WeekLines{1: {
+			Lines: []Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "BUF", Stats: map[string]float64{"passYds": 300, "passTD": 1}, Final: true},
+			},
+		}},
+		Games: map[string]GameState{"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", Period: "Final", InProgress: false, Final: true}},
+	}
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 350, "passTD": 2}, Source: league.StatSourceLedger}}
+	merged := MergeLines(base, 1, snapshot, overlayResolver)
+	if len(merged) != 1 || merged[0].Source != league.StatSourceLedger || merged[0].Stats["passYards"] != 350 {
+		t.Fatalf("an already-complete ledger row must not be relabeled: %+v", merged)
+	}
+}
+
+// TestMergeLinesNeverMutatesTheCallersBaseStatsMap guards against an
+// aliasing hazard the merge path could otherwise reintroduce: out is a
+// shallow copy of base (MergeLines), so out[i].Stats and base[i].Stats
+// start as the SAME map. mergeLedgerOnlyCategories must build a fresh map
+// rather than writing into that shared one, or a caller still holding its
+// own base slice would see its row silently gain a live-only key.
+func TestMergeLinesNeverMutatesTheCallersBaseStatsMap(t *testing.T) {
+	snapshot := Snapshot{Version: 1,
+		Weeks: map[int]WeekLines{1: {
+			Lines: []Line{
+				{PlayerID: "3918298", Name: "Josh Allen", Team: "BUF", Stats: map[string]float64{"passYds": 300, "returnTD": 1}, Final: true},
+			},
+		}},
+		Games: map[string]GameState{"g1": {ID: "g1", Week: 1, Away: "BAL", Home: "BUF", Period: "Final", InProgress: false, Final: true}},
+	}
+	base := []league.WeekStatLine{{Key: "joshallen|QB", Stats: map[string]float64{"passYards": 350}, Source: league.StatSourceLedger}}
+	before := len(base[0].Stats)
+	merged := MergeLines(base, 1, snapshot, overlayResolver)
+	if len(base[0].Stats) != before {
+		t.Fatalf("MergeLines mutated the caller's base Stats map in place: %+v", base[0].Stats)
+	}
+	if merged[0].Stats["returnTD"] != 1 {
+		t.Fatalf("the merged output must still carry returnTD: %+v", merged[0])
 	}
 }
 

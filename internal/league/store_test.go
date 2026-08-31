@@ -469,6 +469,58 @@ func TestSetScoringValueRollsBackOnPersistenceFailure(t *testing.T) {
 	}
 }
 
+// TestInitReceptionFromScoringFormat pins GC-1 fix 2's seed: a genuinely
+// fresh league (Scoring still empty) records the reception override
+// scoring_format implies, and the seed must never set ScoringChangedAt —
+// doing so would arm evalScoringChanges' N10 "scoring changed"
+// notification and mail the whole league 15 minutes after every first
+// boot, which is not a commissioner edit.
+func TestInitReceptionFromScoringFormat(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.InitReceptionFromScoringFormat(1.0); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Scoring["reception"]; got != 1.0 {
+		t.Fatalf("seeded reception = %v, want 1.0", got)
+	}
+	if changed := store.Snapshot().ScoringChangedAt; !changed.IsZero() {
+		t.Fatalf("seeding must not set ScoringChangedAt: %v", changed)
+	}
+}
+
+// TestInitReceptionFromScoringFormatNoOpAtShippedDefault checks that a
+// scoring_format implying the shipped default (half_ppr's 0.5) records no
+// override at all — the reception rule already reads correctly with an
+// empty Scoring map, so seeding a redundant entry would only look like a
+// commissioner edit later.
+func TestInitReceptionFromScoringFormatNoOpAtShippedDefault(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.InitReceptionFromScoringFormat(0.5); err != nil {
+		t.Fatal(err)
+	}
+	if got := store.Snapshot().Scoring; len(got) != 0 {
+		t.Fatalf("matching the shipped default must record no override: %v", got)
+	}
+}
+
+// TestInitReceptionFromScoringFormatNeverOverwritesAnExistingEdit checks
+// the "no commissioner edit yet" gate: any existing scoring override,
+// even on an unrelated rule, means this is not a fresh league, so the
+// reception rule is left exactly as the commissioner's configuration
+// already has it.
+func TestInitReceptionFromScoringFormatNeverOverwritesAnExistingEdit(t *testing.T) {
+	store := newTestStore(t)
+	if err := store.SetScoringValue("passTD", 5); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.InitReceptionFromScoringFormat(1.0); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Snapshot().Scoring["reception"]; ok {
+		t.Fatal("a league with any existing scoring edit must not be seeded")
+	}
+}
+
 func TestNormalizeStateDropsNonFiniteScoringValues(t *testing.T) {
 	state := PersistedState{Scoring: map[string]float64{
 		"passTD":    math.NaN(),

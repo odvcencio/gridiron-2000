@@ -128,7 +128,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"AssignMember", "EnsureMember", "AddInvite", "RemoveInvite",
 		"releaseSeat", "InviteCoManager", "BindCoManager", "DetachCoManager",
 		"ResetDraft", "ResetLeague", "SetDraftAtOverride", "SetTeamName", "SetDraftOrder", "DrawDraftOrder",
-		"TrimUnclaimedSeatsConfirmed", "SetScoringValue", "ResetScoring",
+		"TrimUnclaimedSeatsConfirmed", "SetScoringValue", "ResetScoring", "InitReceptionFromScoringFormat",
 		"BoardAdd", "BoardMove", "BoardMoveTo", "BoardRemove", "BoardClear",
 		"SetPickem", "BackfillPickemEnteredAt", "BlitzSetEntry", "FirstSend", "FirstSendBatch",
 		"PruneSentLog", "SetNotifyPref", "SetSchedule", "SetScheduleWeek",
@@ -139,7 +139,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"CounterTradeOffer", "DeclineTradeOffer", "WithdrawTradeOffer",
 		"AcceptTradeOffer", "ExecuteTradeOffer", "CommissionerVetoTradeOffer",
 		"FileTradeVetoOffer", "ExpireTradeOffer", "PostAnnouncement",
-		"DeleteAnnouncement",
+		"DeleteAnnouncement", "PostLocker", "RemoveLockerPost",
 	}
 	expected := make(map[persistCallerID]struct{}, len(names)+4)
 	for _, name := range names {

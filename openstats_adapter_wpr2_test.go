@@ -31,6 +31,46 @@ func TestOpenStatsGameFinalUsesSourceResultPresence(t *testing.T) {
 	}
 }
 
+// TestCurrentNFLWeekAt pins GC-1 fix 1's week resolver: the smallest week
+// with a game kicking off within the last four hours or later (mirroring
+// internal/league's own pickemWeekAt rule, evaluated here over
+// openstats.ScheduleGame instead of league.GameInfo), or the largest week
+// when every game has already passed that window. No REG rows for the
+// active season — the spec's "before NFL week 1" case — reports week 1.
+func TestCurrentNFLWeekAt(t *testing.T) {
+	eastern := openStatsEastern()
+	now := time.Date(2026, 9, 20, 18, 0, 0, 0, eastern) // a Sunday afternoon mid-week-3
+
+	if week := currentNFLWeekAt(nil, now); week != 1 {
+		t.Fatalf("empty schedule = %d, want 1", week)
+	}
+
+	preseasonOnly := []openstats.ScheduleGame{
+		{GameType: "PRE", Week: 1, GameDay: "2026-08-14", GameTime: "19:00"},
+	}
+	if week := currentNFLWeekAt(preseasonOnly, now); week != 1 {
+		t.Fatalf("preseason-only schedule = %d, want 1 (no REG rows yet)", week)
+	}
+
+	mixed := []openstats.ScheduleGame{
+		{GameType: "REG", Week: 1, GameDay: "2026-09-10", GameTime: "20:15"}, // long past
+		{GameType: "REG", Week: 2, GameDay: "2026-09-17", GameTime: "20:15"}, // past the 4h window
+		{GameType: "REG", Week: 3, GameDay: "2026-09-20", GameTime: "16:25"}, // within the 4h window
+		{GameType: "REG", Week: 4, GameDay: "2026-09-27", GameTime: "13:00"}, // further upcoming
+	}
+	if week := currentNFLWeekAt(mixed, now); week != 3 {
+		t.Fatalf("mixed schedule = %d, want 3 (earliest game still current or upcoming)", week)
+	}
+
+	allPast := []openstats.ScheduleGame{
+		{GameType: "REG", Week: 1, GameDay: "2026-09-10", GameTime: "20:15"},
+		{GameType: "REG", Week: 2, GameDay: "2026-09-14", GameTime: "13:00"},
+	}
+	if week := currentNFLWeekAt(allPast, now); week != 2 {
+		t.Fatalf("all-past schedule = %d, want 2 (largest played week)", week)
+	}
+}
+
 // TestPointsAllowedByTeamOmitsUnplayedGames checks the honesty guard: a
 // final game's opponent score feeds both teams' points-allowed entries; a
 // non-final (unplayed or in-progress) game contributes nothing at all, so

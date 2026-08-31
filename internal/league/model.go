@@ -426,6 +426,15 @@ type PersistedState struct {
 	// nil slice decodes safely on an old file, and the store normalizes it
 	// in load/NewStore/cloneState.
 	TrimmedTeamIDs []string `json:"trimmedTeamIds,omitempty"`
+
+	// LockerPosts is the Locker Room league message board (GC-4): every
+	// top-level post and one-level-flat reply, oldest first. A removed
+	// post stays in the slice as a tombstone (Body cleared, RemovedAt/
+	// RemovedByRole set) rather than being deleted, so a reply already
+	// nested under it keeps its context. Additive under schema version 2
+	// — the WaiverClaims precedent above: a nil slice decodes safely on an
+	// old file, and the store normalizes it in load/NewStore/cloneState.
+	LockerPosts []LockerPost `json:"lockerPosts,omitempty"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-
@@ -436,6 +445,29 @@ type Announcement struct {
 	Body     string    `json:"body"`
 	PostedAt time.Time `json:"postedAt"`
 	PostedBy string    `json:"postedBy"`
+}
+
+// LockerPost is one Locker Room league-board post or reply (GC-4). ParentID
+// is empty for a top-level post; a non-empty ParentID names the top-level
+// post this reply nests under — one level flat, never a reply to a reply
+// (Store.PostLocker enforces this). AuthorEmail is the canonical identity a
+// removal-authority check and the per-minute rate limit key on; AuthorName
+// and AuthorTeamID are a display snapshot taken at post time, the same
+// "freeze the actor's own identity at the moment of the action" shape
+// DraftPick.MadeBy/TeamID already use. RemovedAt zero means the post is
+// still live; once removed, Body is cleared and RemovedByRole ("author" or
+// "commissioner") is the whole metadata-only audit trail — no separate
+// audit log retains the removed text.
+type LockerPost struct {
+	ID            string    `json:"id"`
+	ParentID      string    `json:"parentId,omitempty"`
+	Body          string    `json:"body"`
+	AuthorEmail   string    `json:"authorEmail"`
+	AuthorName    string    `json:"authorName"`
+	AuthorTeamID  string    `json:"authorTeamId,omitempty"`
+	PostedAt      time.Time `json:"postedAt"`
+	RemovedAt     time.Time `json:"removedAt,omitzero"`
+	RemovedByRole string    `json:"removedByRole,omitempty"`
 }
 
 // ScoreTeam is the live score representation returned to browsers.
@@ -471,7 +503,11 @@ type StarterLedgerRow struct {
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "FINAL", "SUN 4:25 PM", ""
-	Detail     string  `json:"detail"`
+	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
+	// ON FIELD", or "" — starterPossessionLabel's own doc comment). Empty
+	// renders no chip at all: possession only appears when known.
+	Possession string `json:"possession,omitempty"`
+	Detail     string `json:"detail"`
 }
 
 // TeamWeekLedger is the one scoring calculation shared by the live matchup

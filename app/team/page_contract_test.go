@@ -369,3 +369,40 @@ func TestPreDraftRosterPreviewOffersNextAction(t *testing.T) {
 		t.Errorf("pre-draft roster preview carries no next-action anchor: %s", block)
 	}
 }
+
+// TestLineupSlotPossessionChipRenderContract is GC-2b's own Team-view
+// render contract: the possession chip sits inside the starting-slot
+// chip row (lineup-slot__chips, beside auto/warning/lock), gated on the
+// server-computed has_possession bool — never rendered by default, and
+// never a placeholder for an unknown or not-relevant starter (the
+// truthful-state rule: league.starterPossessionLabel only ever returns a
+// positive, known label).
+func TestLineupSlotPossessionChipRenderContract(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	chipsStart := strings.Index(page, `class="lineup-slot__chips"`)
+	if chipsStart < 0 {
+		t.Fatal("lineup-slot__chips block not found in page.gsx")
+	}
+	chipsEnd := strings.Index(page[chipsStart:], "</div>")
+	if chipsEnd < 0 {
+		t.Fatal("lineup-slot__chips block has no closing </div>")
+	}
+	block := page[chipsStart : chipsStart+chipsEnd]
+	if !strings.Contains(block, `<If cond={slot.has_possession}>`) {
+		t.Errorf("lineup-slot__chips does not gate the possession chip on slot.has_possession: %s", block)
+	}
+	if !strings.Contains(block, `<span class="possession-chip">{slot.possession_label}</span>`) {
+		t.Errorf("lineup-slot__chips is missing the possession chip render site: %s", block)
+	}
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(styles), ".possession-chip {") {
+		t.Fatal("stylesheet is missing the shared .possession-chip rule the team and matchups pages both use")
+	}
+}

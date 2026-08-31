@@ -127,6 +127,11 @@ func ConfigFromEnv() Config {
 	}
 }
 
+// SignalCallback receives every signal this service classifies as
+// Relevant, after trust assessment — never an Ignored/noise post. See
+// Service.OnSignal for the boundary this exists to keep.
+type SignalCallback func(Signal)
+
 type Service struct {
 	config         Config
 	store          *Store
@@ -141,7 +146,12 @@ type Service struct {
 	feedValidators map[string]feedValidator
 	feedSeen       map[string]string
 
-	mu                 sync.RWMutex
+	mu sync.RWMutex
+	// signalCallbacks is OnSignal's own registration list, guarded by mu
+	// alongside every other field below (registration can happen any time
+	// after construction, unlike feedSources and its siblings above,
+	// which are set once in NewService and never mutated again).
+	signalCallbacks    []SignalCallback
 	configured         bool
 	blueskyConfigured  bool
 	running            bool
@@ -451,7 +461,45 @@ func (service *Service) IngestJSON(payload []byte) (bool, error) {
 		OccurredAt:    occurredAt,
 		ObservedAt:    observedAt,
 	}
+	service.notifySignal(signal)
 	return service.store.Apply(signal, event.Commit.Operation, cursor)
+}
+
+// OnSignal registers cb to run, synchronously and in the ingest goroutine,
+// for every future signal this service classifies as Relevant — never for
+// an Ignored/noise post, and never for a delete. It exists solely so a
+// narrow, read-only consumer outside this package (GC-2's live-scoring
+// box-fetch trigger, live_scoring.go) can react to a signal's category and
+// text without this package knowing anything about live scoring, matchups,
+// or scoring rules: wire classifies language, nothing more, and this seam
+// carries that classification outward — it carries no path back in. A
+// callback can therefore only ever cause a side effect outside this
+// package; it can never change what wire itself stores, classifies, or
+// reports.
+//
+// Registering no callback (the default) costs nothing extra. Multiple
+// callbacks may be registered; each runs for every relevant signal, in
+// registration order. A callback must not block: it runs inline on the
+// jetstream/feed ingest path (IngestJSON), so slow work here throttles
+// every signal ingested after it — dispatch to a goroutine yourself if
+// the work can take more than a few microseconds (see
+// wireBoxFetchTrigger in live_scoring.go, which does exactly that).
+func (service *Service) OnSignal(cb SignalCallback) {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	service.signalCallbacks = append(service.signalCallbacks, cb)
+}
+
+// notifySignal runs every registered OnSignal callback for one relevant
+// signal, holding no lock while callbacks run — only while it copies the
+// slice.
+func (service *Service) notifySignal(signal Signal) {
+	service.mu.RLock()
+	callbacks := service.signalCallbacks
+	service.mu.RUnlock()
+	for _, cb := range callbacks {
+		cb(signal)
+	}
 }
 
 func (service *Service) Recent(limit int, category string) []Signal {

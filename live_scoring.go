@@ -14,6 +14,7 @@ import (
 	"gridiron-2000/internal/livescore"
 	"gridiron-2000/internal/openstats"
 	"gridiron-2000/internal/sim/replay"
+	"gridiron-2000/internal/wire"
 )
 
 // liveScoringRuntime is what BuildApp wires for A1-A3 and what /test/live
@@ -155,7 +156,8 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 		h, s := health(), freshenSnapshot(snapshot(), now())
 		games := make(map[string]league.LiveGameState, len(s.Games)*2)
 		for _, game := range s.Games {
-			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff}
+			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff,
+				Possession: game.Possession, PossessionKnown: game.PossessionKnown}
 			games[game.Away], games[game.Home] = state, state
 		}
 		return league.LiveStatus{Enabled: h.Enabled, Degraded: h.Degraded, Reason: h.Reason, CheckedAt: h.LastSuccess, Games: games}
@@ -192,29 +194,106 @@ func versionedSnapshot(version func() int64, snapshot func() livescore.Snapshot)
 // the exact same string (round-2 review of commit cdeb7f2, finding 2).
 const fantasyPoolDisabledReason = "fantasy pool disabled: no Tank01 key or relay"
 
-// buildLiveScoring wires the poller, the overlay, and the two seams, and
-// appends the poller loop to rt.starters — the same background-loop
-// registration every other rt.starters entry uses (startBlitzPoller,
-// StartDraftClock, StartRosterOps, ...), with one addition: it also joins
-// rt.wg so AppRuntime.Close can wait for the goroutine to actually return
-// (see Close's doc comment) rather than merely firing it and forgetting
-// it. fetcher and liveCfg are parameters so liveScoringInputs's replay
-// mode can substitute a fake relay for the shared Tank01 client.
-// fantasyEnabled gates the poller on whether it has a real way to reach
-// Tank01: BuildApp passes fantasy.Service.Enabled() (no TANK01_API_KEY
-// and no TANK01_BASE_URL forces the poller off, recording why so
-// /test/live and the status line show the real cause instead of a bare
-// "disabled", and so the poller never dials Tank01 unauthenticated) OR'd
-// with "a replay server is active" — a self-contained fake relay needs no
-// Tank01 credentials of its own, so it must not be blocked by a guard
-// that exists only to keep an unauthenticated client off the real one.
-func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fantasyEnabled bool, stats *openstats.Service, lg *league.Service, rt *AppRuntime) *liveScoringRuntime {
+// triggerCategories is the closed set of wire.Signal.Category values
+// (internal/wire/signal_rules.arb's Classify rules) fast enough, and
+// fantasy-relevant enough, to justify an out-of-band box fetch ahead of
+// the next scoreboard tick (GC-2 layer 3). Every other category (injury,
+// role, weather, market, practice, ...) stays provisional-only and never
+// reaches wireBoxFetchTrigger's fetch path.
+var triggerCategories = map[string]bool{
+	wire.CategoryTouchdown:   true,
+	wire.CategoryTurnover:    true,
+	wire.CategoryBigPlay:     true,
+	wire.CategoryKickingPlay: true,
+}
+
+// wireTriggerTimeout bounds one triggered box fetch's own context, so a
+// slow or hung relay call can never accumulate unbounded goroutines
+// behind a burst of matching signals.
+const wireTriggerTimeout = 8 * time.Second
+
+// wireBoxFetchTrigger builds the wire.SignalCallback buildLiveScoring
+// registers with the wire service (wire.Service.OnSignal). It is the
+// ENTIRE surface through which a Bluesky or RSS signal can affect live
+// scoring, and it affects ONLY fetch timing: matching a signal's free
+// text to a team with a game currently in progress
+// (livescore.TeamMentioned, a static city/nickname alias table — wire.
+// Signal carries no structured team field) can only make that one game's
+// next box fetch happen sooner. It never reads or writes a stat, a
+// score, or a scoring line — poller.TriggerBoxFetch schedules a fetch of
+// the same authoritative Tank01 endpoint the baseline layer already
+// uses, nothing else; a wire signal can never add, remove, or alter a
+// point, and this function computes no score itself. A signal outside
+// triggerCategories, or one naming no team with a game presently in
+// progress, is a silent no-op — as is every call when the wire service
+// is disabled or unconfigured, since Service.Start then never subscribes
+// to anything and this callback is simply never invoked.
+//
+// The callback itself never blocks the wire's own ingest path
+// (Service.OnSignal's own requirement): the actual fetch runs in its own
+// short-lived goroutine, bounded by wireTriggerTimeout.
+func wireBoxFetchTrigger(poller *livescore.Poller) wire.SignalCallback {
+	return func(signal wire.Signal) {
+		text := strings.TrimSpace(signal.Text)
+		if !triggerCategories[signal.Category] || text == "" {
+			return
+		}
+		for team, gameID := range poller.InProgressGameByTeam() {
+			if !livescore.TeamMentioned(team, text) {
+				continue
+			}
+			go func(gameID string) {
+				ctx, cancel := context.WithTimeout(context.Background(), wireTriggerTimeout)
+				defer cancel()
+				poller.TriggerBoxFetch(ctx, gameID)
+			}(gameID)
+			return
+		}
+	}
+}
+
+// buildLiveScoring wires the poller, the overlay, and the three seams
+// (week-stats, live-status, and the wire trigger), and appends the
+// poller loop to rt.starters — the same background-loop registration
+// every other rt.starters entry uses (startBlitzPoller, StartDraftClock,
+// StartRosterOps, ...), with one addition: it also joins rt.wg so
+// AppRuntime.Close can wait for the goroutine to actually return (see
+// Close's doc comment) rather than merely firing it and forgetting it.
+// fetcher and liveCfg are parameters so liveScoringInputs's replay mode
+// can substitute a fake relay for the shared Tank01 client. signalFeed is
+// wire.Default(): buildLiveScoring registers wireBoxFetchTrigger with it
+// unconditionally — see that function's own doc comment for why a
+// disabled or unconfigured wire service still produces zero triggered
+// fetches. fantasyEnabled gates the poller on whether it has a real way
+// to reach Tank01: BuildApp passes fantasy.Service.Enabled() (no
+// TANK01_API_KEY and no TANK01_BASE_URL forces the poller off, recording
+// why so /test/live and the status line show the real cause instead of a
+// bare "disabled", and so the poller never dials Tank01 unauthenticated)
+// OR'd with "a replay server is active" — a self-contained fake relay
+// needs no Tank01 credentials of its own, so it must not be blocked by a
+// guard that exists only to keep an unauthenticated client off the real
+// one.
+func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fantasyEnabled bool, stats *openstats.Service, lg *league.Service, signalFeed *wire.Service, rt *AppRuntime) *liveScoringRuntime {
 	liveCfg.Now = lg.ClockForTest // wall time unless the harness overrides it
 	if !fantasyEnabled {
 		liveCfg.Enabled = false
 		liveCfg.DisabledReason = fantasyPoolDisabledReason
 	}
+	if liveCfg.Relevance == nil {
+		// GC-2b's adaptive-cadence callback seam. Every real caller
+		// (main.go, through liveScoringInputs's livescore.ConfigFromEnv)
+		// always arrives here with liveCfg.Relevance unset, so wiring the
+		// real league-backed source is unconditional in production; a
+		// test that wants pre-GC-2b's flat, always-relevant cadence
+		// instead of modeling a real roster sets its own stub directly on
+		// the Config it builds (see live_scoring_test.go), and that value
+		// is respected rather than clobbered here.
+		liveCfg.Relevance = liveRelevanceSource(lg)
+	}
 	poller := livescore.New(liveCfg, fetcher, liveScheduleSource(lg.ScheduleSourceForLive()))
+	if signalFeed != nil {
+		signalFeed.OnSignal(wireBoxFetchTrigger(poller))
+	}
 	base := leagueWeekStatsSource(stats)
 	// weekStatsSnapshot runs once per team per matchup render (scorer.go:165,
 	// :213), and liveStatusFromPoller runs once per matchupStatsSnapshot on
@@ -253,3 +332,16 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 }
 
 var _ livescore.Fetcher = (*fantasy.BoxScoreClient)(nil)
+
+// liveRelevanceSource adapts league.Service.TeamRelevanceFor to
+// livescore.RelevanceSource — GC-2b's adaptive-cadence callback seam,
+// the poller's own analog of the WeekStatsSource pattern this file
+// already uses above. The two TeamRelevance types are deliberately
+// distinct (internal/league must not import internal/livescore); this
+// closure is the entire, one-field-at-a-time adaptation between them.
+func liveRelevanceSource(lg *league.Service) livescore.RelevanceSource {
+	return func(team string) livescore.TeamRelevance {
+		r := lg.TeamRelevanceFor(team)
+		return livescore.TeamRelevance{OffensiveStarter: r.OffensiveStarter, DSTStarter: r.DSTStarter}
+	}
+}

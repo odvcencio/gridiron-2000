@@ -185,8 +185,8 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 		{Name: "today", Links: []string{"/|01 Home", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
 		{Name: "my-team"},
 		{Name: "game-day", Links: []string{"/draft|08 Draft", "/blitz|09 Preseason Blitz"}},
-		{Name: "league", Links: []string{"/wire|10 Signal Wire", "/activity|11 Activity", "/scoring|12 Rules & scoring"}},
-		{Name: "help", Links: []string{"/guide|13 Manager guide", "/help|14 Help center"}},
+		{Name: "league", Links: []string{"/wire|10 Signal Wire", "/activity|11 Activity", "/locker|12 Locker Room", "/scoring|13 Rules & scoring"}},
+		{Name: "help", Links: []string{"/guide|14 Manager guide", "/help|15 Help center"}},
 	}
 	team := &groups[1].Links
 	switch {
@@ -206,8 +206,8 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	}
 	if viewer.commissioner {
 		groups = append(groups, renderedNavigationGroup{Name: "commissioner", Links: []string{
-			"/commissioner|15 All leagues",
-			"/admin|16 League settings",
+			"/commissioner|16 All leagues",
+			"/admin|17 League settings",
 		}})
 	}
 	return groups

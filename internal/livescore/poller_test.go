@@ -28,6 +28,7 @@ type fakeFetcher struct {
 	err        error
 	listingErr error
 	calls      int
+	callsByID  map[string]int
 	inflight   int
 	peak       int
 }
@@ -35,6 +36,10 @@ type fakeFetcher struct {
 func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
 	f.mu.Lock()
 	f.calls++
+	if f.callsByID == nil {
+		f.callsByID = map[string]int{}
+	}
+	f.callsByID[gameID]++
 	f.inflight++
 	if f.inflight > f.peak {
 		f.peak = f.inflight
@@ -65,6 +70,14 @@ func (f *fakeFetcher) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+// callsFor is keyed by the Tank01 gameID (fixtureListings' own IDs), not
+// the schedule game ID.
+func (f *fakeFetcher) callsFor(tank01ID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.callsByID[tank01ID]
 }
 
 var kickoff = time.Date(2025, 9, 7, 20, 20, 0, 0, mustEastern())
@@ -145,12 +158,25 @@ func TestTickFetchesInWindowGamesConcurrentlyAndVersionsChanges(t *testing.T) {
 	if first.Weeks[1].Lines[0].Team != "BUF" || first.Games["2025_01_HOU_LA"].Home != "LA" {
 		t.Fatalf("teams must be normalized: %+v", first)
 	}
+	// GC-2's baseline gate (BoxBaseline, default 60s) means a tick at the
+	// same instant as the last successful fetch attempts nothing at all —
+	// neither game is due yet — so the count and the version both stay
+	// exactly where the first tick left them.
 	poller.Tick(context.Background())
-	if poller.Version() != 1 {
-		t.Fatalf("an unchanged box score moved the version to %d", poller.Version())
+	if fetcher.count() != 2 {
+		t.Fatalf("a tick inside BoxBaseline re-fetched: calls = %d, want still 2", fetcher.count())
 	}
+	if poller.Version() != 1 {
+		t.Fatalf("a tick with nothing due moved the version to %d", poller.Version())
+	}
+	// Advancing past BoxBaseline makes both games due again; a changed
+	// box score for one of them still moves the version exactly once.
+	now = now.Add(61 * time.Second)
 	fetcher.boxes["20250907_BAL@BUF"].Players["3918298"].Stats["passYds"] = 55
 	poller.Tick(context.Background())
+	if fetcher.count() != 4 {
+		t.Fatalf("a tick past BoxBaseline did not re-fetch both games: calls = %d, want 4", fetcher.count())
+	}
 	if poller.Version() != 2 {
 		t.Fatalf("a changed box score did not move the version: %d", poller.Version())
 	}
@@ -311,7 +337,7 @@ func TestUnmatchedInWindowGameIsCountedAndClearsOnRefresh(t *testing.T) {
 		t.Fatalf("health did not report the unmatched game: %+v", h)
 	}
 
-	now = now.Add(16 * time.Minute) // past the 15-minute listing cache
+	now = now.Add(16 * time.Minute) // well past listingCacheFor and BoxBaseline, so the next tick both re-lists and re-fetches
 	fetcher.listings = fixtureListings()
 	fetcher.boxes["20250907_BAL@BUF"] = fantasy.BoxScore{GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"}
 	poller.Tick(context.Background())
@@ -377,7 +403,7 @@ func TestListingFailuresDegradeIndependentlyOfBoxScoreSuccesses(t *testing.T) {
 	poller.Tick(context.Background()) // primes a working, cached listing
 
 	fetcher.listingErr = errors.New("listing outage")
-	now = now.Add(16 * time.Minute) // past the 15-minute listing cache; listingsAt never advances on failure
+	now = now.Add(16 * time.Minute) // well past listingCacheFor and BoxBaseline; listingsAt never advances on failure
 	for i := 0; i < 3; i++ {
 		poller.Tick(context.Background())
 	}
@@ -400,7 +426,7 @@ func TestRunLogsPollerEnabledOnceAtBoot(t *testing.T) {
 		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
 		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
 	}}
-	cfg := Config{Enabled: true, Interval: 5 * time.Millisecond, MaxInflight: 3, DailyBudget: 4242, Season: 2025}
+	cfg := Config{Enabled: true, Interval: 5 * time.Millisecond, BoxBaseline: 45 * time.Second, MaxInflight: 3, DailyBudget: 4242, Season: 2025}
 	cfg.Now = func() time.Time { return now }
 	var mu sync.Mutex
 	var logs []string
@@ -427,7 +453,7 @@ func TestRunLogsPollerEnabledOnceAtBoot(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	count, want := 0, "livescore: poller enabled (interval=5ms, max_inflight=3, daily_budget=4242, season=2025)"
+	count, want := 0, "livescore: poller enabled (scoreboard_interval=5ms, box_baseline=45s, box_fast=20s, max_inflight=3, daily_budget=4242, season=2025)"
 	for _, line := range logs {
 		if line == want {
 			count++
@@ -519,7 +545,11 @@ func TestWindowOpenAndClosedLogOncePerTransition(t *testing.T) {
 	// below still fetches them (isFinalDone is checked at the start of a
 	// tick), a later tick drops them from targets (isFinalDone now
 	// true) — but the schedule window has not elapsed, so "window
-	// closed" must not log.
+	// closed" must not log. now advances past BoxBaseline (default 60s)
+	// first, or GC-2's baseline gate would find both games not due yet
+	// (they were just fetched at the same now three ticks ago) and never
+	// attempt the fetch that sets isFinalDone at all.
+	now = now.Add(61 * time.Second)
 	fetcher.boxes["20250907_BAL@BUF"] = fantasy.BoxScore{GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "2", Final: true, Period: "Final"}
 	fetcher.boxes["20250907_HOU@LAR"] = fantasy.BoxScore{GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "2", Final: true, Period: "Final"}
 	for i := 0; i < 3; i++ {
@@ -648,5 +678,138 @@ func TestSnapshotClearsStaleInProgressAfterWindowCloses(t *testing.T) {
 	// what the poller actually recorded.
 	if after.Period != inside.Period || after.Clock != inside.Clock {
 		t.Fatalf("windowClosed changed unrelated fields: before=%+v after=%+v", inside, after)
+	}
+}
+
+// TestBoxFetchOnlyRepeatsAtTheBoxBaseline is GC-2 layer 2's own gating
+// test: with no wire trigger, a game's box is fetched once per
+// BoxBaseline, never once per tick. This is the fallback design (see
+// ScoreboardInterval's own doc comment): no fixture or recorded payload
+// in this repo confirms Tank01's games-list response carries a live
+// score, period, or clock to change-gate against, so BoxBaseline is the
+// only cadence that drives an untriggered box fetch.
+func TestBoxFetchOnlyRepeatsAtTheBoxBaseline(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	cfg := Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: 30 * time.Second, Season: 2025, Now: func() time.Time { return now }}
+	poller := New(cfg, fetcher, func() []Game { return fixtureSchedule() })
+
+	poller.Tick(context.Background()) // both games unseen: both due
+	if got := fetcher.count(); got != 2 {
+		t.Fatalf("first sighting calls = %d, want 2", got)
+	}
+
+	now = now.Add(10 * time.Second) // well short of the 30s baseline
+	poller.Tick(context.Background())
+	if got := fetcher.count(); got != 2 {
+		t.Fatalf("a tick before BoxBaseline re-fetched: calls = %d, want still 2", got)
+	}
+
+	now = now.Add(25 * time.Second) // 35s since the last fetch: past the 30s baseline
+	poller.Tick(context.Background())
+	if got := fetcher.count(); got != 4 {
+		t.Fatalf("a tick past BoxBaseline did not re-fetch: calls = %d, want 4", got)
+	}
+}
+
+// TestTriggerBoxFetchBoundedOncePerGamePerTenSeconds covers GC-2 layer 3's
+// own cooldown: two TriggerBoxFetch calls for the same game inside 10s
+// collapse to one fetch; a call past the cooldown fetches again.
+func TestTriggerBoxFetchBoundedOncePerGamePerTenSeconds(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background()) // resolves tank01ID/trackedGame for both games
+	before := fetcher.count()
+
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF")
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF")
+	if got := fetcher.count() - before; got != 1 {
+		t.Fatalf("two triggers within 10s produced %d fetches, want 1", got)
+	}
+
+	now = now.Add(11 * time.Second)
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF")
+	if got := fetcher.count() - before; got != 2 {
+		t.Fatalf("a trigger past the 10s cooldown produced %d total fetches, want 2", got)
+	}
+}
+
+// TestTriggerBoxFetchIgnoresAnUntrackedOrFinalGame covers the seam's
+// no-op paths: a gameID the current tick never matched, and a gameID
+// whose game has already gone final, must never reach the fetcher.
+func TestTriggerBoxFetchIgnoresAnUntrackedOrFinalGame(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "2", Final: true, Period: "Final"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background()) // BAL@BUF gets its one last fetch and is marked finalDone
+	before := fetcher.count()
+
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF") // already final: no-op
+	poller.TriggerBoxFetch(context.Background(), "no-such-game")    // never tracked: no-op
+	if got := fetcher.count(); got != before {
+		t.Fatalf("a final or untracked game reached the fetcher: calls = %d, want %d", got, before)
+	}
+}
+
+// TestTriggerBoxFetchNoOpWhenDisabledOrCircuitOpen covers the kill-switch
+// and circuit-breaker boundaries: a disabled poller, and one whose 429
+// circuit is open, must never let a trigger reach the fetcher.
+func TestTriggerBoxFetchNoOpWhenDisabledOrCircuitOpen(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "1", InProgress: true, Period: "Q1"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background())
+	before := fetcher.count()
+
+	poller.cfg.Enabled = false
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF")
+	if got := fetcher.count(); got != before {
+		t.Fatalf("a disabled poller's trigger reached the fetcher: calls = %d, want %d", got, before)
+	}
+	poller.cfg.Enabled = true
+
+	poller.mu.Lock()
+	poller.circuitOpen = now.Add(time.Minute)
+	poller.mu.Unlock()
+	poller.TriggerBoxFetch(context.Background(), "2025_01_BAL_BUF")
+	if got := fetcher.count(); got != before {
+		t.Fatalf("a trigger while the circuit is open reached the fetcher: calls = %d, want %d", got, before)
+	}
+}
+
+// TestInProgressGameByTeamExcludesFinalGames covers the wire-trigger
+// seam's own team lookup: every tracked, non-final game's two teams
+// resolve to its gameID; a game already marked final drops out.
+func TestInProgressGameByTeamExcludesFinalGames(t *testing.T) {
+	now := kickoff.Add(30 * time.Minute)
+	fetcher := &fakeFetcher{listings: fixtureListings(), boxes: map[string]fantasy.BoxScore{
+		"20250907_BAL@BUF": {GameID: "20250907_BAL@BUF", Away: "BAL", Home: "BUF", StatusCode: "2", Final: true, Period: "Final"},
+		"20250907_HOU@LAR": {GameID: "20250907_HOU@LAR", Away: "HOU", Home: "LAR", StatusCode: "1", InProgress: true, Period: "Q1"},
+	}}
+	poller := newTestPoller(fetcher, &now)
+	poller.Tick(context.Background())
+
+	teams := poller.InProgressGameByTeam()
+	if teams["HOU"] != "2025_01_HOU_LA" || teams["LA"] != "2025_01_HOU_LA" {
+		t.Fatalf("in-progress game teams = %+v, want HOU/LA -> 2025_01_HOU_LA", teams)
+	}
+	if _, ok := teams["BAL"]; ok {
+		t.Fatalf("a final game's team must not resolve: %+v", teams)
+	}
+	if _, ok := teams["BUF"]; ok {
+		t.Fatalf("a final game's team must not resolve: %+v", teams)
 	}
 }

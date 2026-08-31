@@ -220,7 +220,7 @@ A player's `Hist` line shows their previous season, scored under this league's o
 - DST carries no `Hist` line. The open-data mirror keeps no previous-season team-defense file to rescore from.
 - Punters keep their own embedded 2025 line (see "Punter rankings" above). That line was already rescored under the league's punting rules before this feature existed.
 - A rookie or a player absent from the previous season's mirror shows no `Hist` line at all, never a fabricated one.
-- The weekly mirror carries no two-point conversion columns (pass, rush, or catch) and no return-touchdown column, so the `Hist` line can never credit those four scoring rules, even though the league's own rulebook prices them. This is the same gap live weekly scoring has for those same four rules — not a `Hist`-only shortfall.
+- The weekly mirror carries no return-touchdown column, so the `Hist` line can never credit the `returnTD` rule, even though the league's own rulebook prices it: that rule scores only from a live Tank01 box score, which historical rescoring has no access to. This is the same gap live weekly scoring has once a week closes (see `internal/livescore/overlay.go`'s close-week merge, which keeps a live-scored return touchdown from vanishing during the current season — a past season's `Hist` line has no such live row to draw from). The weekly mirror's two-point conversion columns are credited under the single `twoPt` rule, the same as current-season weekly scoring.
 
 ### House rank
 
@@ -257,7 +257,24 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 
 ## Game day
 
-Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. When on, each instance polls in-progress Tank01 box scores through `statrelay` every `LIVE_POLL_INTERVAL` (default `5s`, up to `LIVE_MAX_INFLIGHT` concurrent game fetches, capped at `LIVE_DAILY_BUDGET` fetches per instance per day) and overlays them onto the mirrored nflverse ledger. The overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+Regular-season live scoring (`internal/livescore`) is gated by `LIVE_SCORING_ENABLED`, defaulting to `false`. It overlays live data onto the mirrored nflverse ledger; the overlay never changes which source is *authoritative for a closed week* — only how an *open* week's provisional total is computed while games are in progress.
+
+### Polling architecture
+
+Live scoring fetches Tank01 in three layers instead of blanket-polling every in-progress game's box score on one cadence:
+
+1. **Scoreboard tick.** Every `LIVE_SCOREBOARD_INTERVAL` (default `10s`, floor `5s`) the poller fetches one games-list call through `statrelay`, but only while at least one schedule game is inside its own poll window (kickoff minus 5 minutes through kickoff plus 5 hours); an idle day, with no game anywhere near that window, costs zero calls.
+2. **Adaptive box fetch (GC-2b).** Each in-progress game's box score is fetched on one of three cadences, decided fresh every scoreboard tick from the poller's own last-known possession and a relevance callback over the league's current effective starters:
+   - **Fast (`LIVE_BOX_FAST`, default `20s`, floor `10s`).** The game's currently known possession is itself relevant — the possessing team fields a league offensive starter, or the defending team's DST is started.
+   - **Baseline (`LIVE_BOX_BASELINE`, default `30s`).** The flat fallback: possession is unknown (including every game before the Thursday capture pins the real Tank01 field), or a fast-tier game has been backed off by a break-state guard (a halftime/clock-stopped intermission, which runs about 13 minutes — there is nothing to catch while the clock is not running) or an unchanged-payload guard (two consecutive fast-tier fetches returned identical content — likely a TV timeout; the next fetch whose content actually differs snaps the game back to the fast tier).
+   - **Idle (at most once).** Neither team fields a single league starter this week at all: the poller fetches its box exactly once, on the game's first sighting (so the snapshot itself, and a later relevance re-check, both have something to build on), and never again after — the shared scoreboard call keeps its score/period/final state current enough for free from then on, and repeated box polling would add nothing any league team could ever see. On a bye-heavy week this is where most of the savings comes from — an irrelevant game costs one bounded fetch plus its own share of the shared scoreboard call, never the repeated baseline/fast cadence.
+
+   A Signal Wire trigger (below) always fires immediately regardless of the break-state or unchanged-payload backoff — a matching signal is exactly the "something changed" event those backoffs exist to defer to — but still skips an idle-tier game.
+3. **Signal Wire trigger.** When `internal/wire` classifies a `touchdown`, `turnover`, `big_play`, or `kicking` signal whose text names a team with a game currently tracked as in progress, the poller fetches that game's box at once, bounded to one triggered fetch per game per 10 seconds. The trigger affects only fetch timing: it can never add, remove, or alter a stat, a score, or a scoring line, and a disabled or unconfigured wire produces zero triggers.
+
+`LIVE_MAX_INFLIGHT` still bounds concurrent box fetches, and `LIVE_DAILY_BUDGET` still caps box-score fetches per instance per day (a games-list call is never charged against it). `LIVE_POLL_INTERVAL` is the deprecated alias for `LIVE_SCOREBOARD_INTERVAL`; a tracked deploy manifest never sets it, but a self-hosted instance that still does gets it read as `LIVE_SCOREBOARD_INTERVAL`, with a startup log line naming the mapping.
+
+**The verified Ultra quota:** the RapidAPI Tank01 Ultra listing caps at 15,000 requests per day, soft-limited — RapidAPI bills overage at $0.01/request instead of blocking, and returns no `429` on quota exhaustion, so the app's own 429 circuit breaker never fires on overage. `STATRELAY_DAILY_BUDGET` (default `13000`, on the shared relay) is therefore the real wallet guard; `LIVE_DAILY_BUDGET` (default `9000` per app instance, box fetches only) sits under it with headroom held back for other instances and endpoints sharing the relay. GC-2b's own arithmetic: box fetches per 13-game Sunday run about 9.6k (64%) to about 12.3k (82%) of the 15,000 daily quota depending on the relevant-possession fraction across the slate; every case bills $0.
 
 ### The four states
 

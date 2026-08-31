@@ -238,6 +238,34 @@ type Service struct {
 	// emitPresenceTransitions (and RecordPresence's own transition check)
 	// emit one draft:seat per real change, never once per tick or poll.
 	lastPresence map[string]string
+
+	// lockerEventSink is the locker-live hub's broadcast hook (GC-4;
+	// internal/league cannot import app/locker, the same constraint
+	// SetDraftEventSink already documents). nil in every test Service
+	// literal and until app_build.go calls SetLockerEventSink; every
+	// PostLockerPost/RemoveLockerPost commit calls it, nil-safe, right
+	// after its own store write succeeds — locker mutations are
+	// synchronous HTTP requests, not an external async source, so no
+	// queue/generation machinery is needed the way draft's own sink uses.
+	lockerEventSink func()
+}
+
+// SetLockerEventSink installs the hook PostLockerPost/RemoveLockerPost call
+// after every successful commit (GC-4). fn is nil-safe to call through;
+// passing nil restores the no-op default.
+func (s *Service) SetLockerEventSink(fn func()) {
+	s.poolMu.Lock()
+	s.lockerEventSink = fn
+	s.poolMu.Unlock()
+}
+
+func (s *Service) emitLockerChanged() {
+	s.poolMu.Lock()
+	fn := s.lockerEventSink
+	s.poolMu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // clock returns the service's current instant, in three-way precedence
@@ -328,6 +356,14 @@ func Default() *Service {
 			// process-start failure, never a published service that renders
 			// zero state and later overwrites a good database.
 			log.Fatalf("league persistence startup failed: %v", err)
+		}
+		// GC-1 fix 2: seed the reception scoring rule from scoring_format
+		// on a genuinely fresh league (Scoring still empty). A non-fatal
+		// persistence hiccup here must not block boot — the shipped
+		// half_ppr default still serves correctly, just possibly
+		// mismatched with scoring_format until the next successful write.
+		if err := store.InitReceptionFromScoringFormat(ReceptionPointsForScoringFormat(cfg.ScoringFormat)); err != nil {
+			log.Printf("league config: reception scoring seed from scoring_format failed: %v", err)
 		}
 		defaultMu.Lock()
 		defaultSvc = &Service{
@@ -1072,15 +1108,18 @@ func (s *Service) StateFingerprint(poolVersion int64) string {
 // saved snapshot is live, cached, stale, degraded, offline, or unavailable.
 // main.go adapts internal/fantasy into this shape to avoid an import cycle.
 type PlayerPoolStatus struct {
-	Provider        string
-	Mode            string
-	State           string
-	Players         int
-	Target          int
-	Positions       map[string]int
-	WithADP         int
-	WithProjection  int
-	WithBye         int
+	Provider       string
+	Mode           string
+	State          string
+	Players        int
+	Target         int
+	Positions      map[string]int
+	WithADP        int
+	WithProjection int
+	WithBye        int
+	// ProjectionWeek (GC-1 fix 1) is the NFL week the current pool's
+	// projections were requested for; zero before the first sync.
+	ProjectionWeek  int
 	Requests        int
 	LastSuccess     time.Time
 	FreshnessWindow time.Duration
@@ -1243,6 +1282,13 @@ func (s *Service) poolStatusMap() map[string]any {
 	if status.LastError != "" {
 		errorMessage = "The latest player-pool refresh reported a source problem. The saved snapshot remains available while the integration recovers."
 	}
+	// projectionWeek (GC-1 fix 1) labels which NFL week the current pool's
+	// projections were requested for. A truthful "—" before the first sync
+	// ever completes, never a fabricated "Week 1".
+	projectionWeek := "—"
+	if status.ProjectionWeek > 0 {
+		projectionWeek = fmt.Sprintf("Week %d", status.ProjectionWeek)
+	}
 	return map[string]any{
 		"state":           status.State,
 		"mode":            playerPoolStateLabel(status.State),
@@ -1254,6 +1300,7 @@ func (s *Service) poolStatusMap() map[string]any {
 		"with_adp":        status.WithADP,
 		"with_proj":       status.WithProjection,
 		"with_bye":        status.WithBye,
+		"projection_week": projectionWeek,
 		"requests":        status.Requests,
 		"last_sync":       lastSync,
 		"error":           errorMessage,
@@ -3002,6 +3049,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterDetail := make(map[string]string)
 	starterSource := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
+	starterPossessionBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
@@ -3037,6 +3085,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterDetail[row.LiveKey] = row.Detail
 		starterSource[row.LiveKey] = row.Source
 		starterGameStateBind[row.LiveKey] = row.GameState
+		starterPossessionBind[row.LiveKey] = row.Possession
 	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
@@ -3103,6 +3152,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterDetail":     starterDetail,
 		"starterSource":     starterSource,
 		"starterGameState":  starterGameStateBind,
+		"starterPossession": starterPossessionBind,
 		"liveStatus":        liveStatus,
 		"liveUpdated":       checked,
 		"lastUpdated":       statsUpdated,
@@ -4039,6 +4089,7 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
+			"possession": row.Possession,
 		})
 	}
 	return out

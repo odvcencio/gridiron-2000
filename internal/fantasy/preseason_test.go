@@ -78,6 +78,26 @@ func TestParsePreseasonBoxScoreSmithMarsetteNoKickerLeak(t *testing.T) {
 	}
 }
 
+// TestPreseasonPlayerStatsNeverFabricatesTwoPt pins GC-1 fix 3's live-side
+// boundary: Tank01's box score carries no per-player two-point field at
+// all (verified against both fixtures this file uses — the only
+// twoPointConversions field either carries is a team-level total, not
+// attributable to a player), so preseasonPlayerStats must never invent a
+// "twoPt" stat key, even from a look-alike field name a future response
+// shape could carry. The rule scores from the closed-week ledger only
+// (main.go's offenseStatLine); see this function's own doc comment.
+func TestPreseasonPlayerStatsNeverFabricatesTwoPt(t *testing.T) {
+	entry := map[string]any{
+		"longName":            "Example Runner",
+		"teamAbv":             "BUF",
+		"Rushing":             map[string]any{"rushYds": "12", "carries": "3", "rushTD": "1"},
+		"twoPointConversions": "1", // a team-level field name; must not leak into a player row
+	}
+	if _, present := preseasonPlayerStats(entry)["twoPt"]; present {
+		t.Fatalf("preseasonPlayerStats must never fabricate a twoPt key: %+v", preseasonPlayerStats(entry))
+	}
+}
+
 // TestParsePreseasonBoxScoreDropsDefenseOnlyRow checks that a defense-only
 // row (Eku Leota, playerID 4361272) never appears in the output: it has no
 // scored group, so it is dropped rather than emitted as an empty map — the

@@ -32,6 +32,19 @@ var breakdownRows = []breakdownRow{
 	{statKey: "recYds", label: "Rec yds", ruleKey: "recYards"},
 	{statKey: "recTD", label: "Rec TD", ruleKey: "recTD"},
 	{statKey: "fumblesLost", label: "Fum lost", ruleKey: "fumbleLost"},
+	// twoPt (GC-1 fix 3) scores at week close only: a projection stat line
+	// never emits it (internal/fantasy's projectionStats has no twoPt
+	// entry), and neither does a live Tank01 box score — Tank01 carries no
+	// per-player two-point field at all (internal/fantasy's
+	// preseasonPlayerStats doc comment). It populates only from the
+	// closed-week ledger (main.go's offenseStatLine, summed from the
+	// mirror's three typed nflverse columns), the same closed-week-only
+	// pattern several PUNTING keys already follow. This row still lets
+	// RuleStatsFromTank01 translate a "twoPt" key if one is ever present
+	// on a Tank01-shaped map, so a future Tank01 field would not need a
+	// second table entry — but nothing in this package populates one
+	// today.
+	{statKey: "twoPt", label: "2-pt conversion", ruleKey: "twoPt"},
 	// The four rows below are additive for Preseason Blitz (WP-B1, design
 	// spec section 4.3). A projection stat line never emits these keys —
 	// kicker and defense projections carry no groups at all

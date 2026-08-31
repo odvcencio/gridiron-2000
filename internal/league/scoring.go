@@ -77,15 +77,26 @@ func defaultScoringRules() []ScoringRule {
 		{Group: "PASSING", Key: "passYards", Label: "Passing yards (per yard)", Points: 0.04},
 		{Group: "PASSING", Key: "passTD", Label: "Passing TD", Points: 4},
 		{Group: "PASSING", Key: "passInt", Label: "Interception thrown", Points: -2},
-		{Group: "PASSING", Key: "pass2pt", Label: "Two-point pass", Points: 2},
 		{Group: "RUSHING", Key: "rushYards", Label: "Rushing yards (per yard)", Points: 0.1},
 		{Group: "RUSHING", Key: "rushTD", Label: "Rushing TD", Points: 6},
-		{Group: "RUSHING", Key: "rush2pt", Label: "Two-point rush", Points: 2},
 		{Group: "RECEIVING", Key: "reception", Label: "Reception", Points: 0.5},
 		{Group: "RECEIVING", Key: "recYards", Label: "Receiving yards (per yard)", Points: 0.1},
 		{Group: "RECEIVING", Key: "recTD", Label: "Receiving TD", Points: 6},
-		{Group: "RECEIVING", Key: "rec2pt", Label: "Two-point catch", Points: 2},
 		{Group: "MISC", Key: "fumbleLost", Label: "Fumble lost", Points: -2},
+		// twoPt (GC-1 fix 3) replaces the old typed pass2pt/rush2pt/rec2pt
+		// rules, which never scored anything: no source ever mapped a stat
+		// to them. Tank01's live box score carries no per-player two-point
+		// field at all (verified against internal/fantasy's box-score
+		// fixtures — the only twoPointConversions field either carries is a
+		// team-level total, not attributable to a player), so this rule
+		// scores at week close only, from the mirrored nflverse ledger
+		// (main.go's offenseStatLine, summed from three typed columns) —
+		// the same closed-week-only pattern several PUNTING keys above
+		// already follow. One untyped rule, not three, because the ledger
+		// itself reports the three types separately but Tank01 never will,
+		// so a typed rule could never be verified consistent between the
+		// two sources anyway.
+		{Group: "MISC", Key: "twoPt", Label: "Two-point conversion", Points: 2},
 		{Group: "MISC", Key: "returnTD", Label: "Kick or punt return TD", Points: 6},
 		// KICKING (WP-R2). Fed from the openstats weekly player ledger's
 		// fg_made/fg_missed/pat_made columns (main.go's
@@ -147,6 +158,62 @@ func scoringRuleByKey(key string) (ScoringRule, bool) {
 		}
 	}
 	return ScoringRule{}, false
+}
+
+// ReceptionPointsForScoringFormat maps scoring_format (validateConfig
+// accepts only "standard", "ppr", or "half_ppr") to the reception rule's
+// value: standard 0, ppr 1.0, half_ppr (and any other value, defensively)
+// 0.5 — GC-1 fix 2's derivation. Store.InitReceptionFromScoringFormat
+// seeds a fresh league's reception rule from this; leaguecheck
+// (cmd/leaguecheck) calls it too, to report the effective reception value
+// and warn when defaultScoringRules' shipped reception default disagrees
+// with it (see validateConfig's scoring_format warning below). Exported
+// so both call sites share one derivation, never two.
+func ReceptionPointsForScoringFormat(format string) float64 {
+	switch format {
+	case "standard":
+		return 0
+	case "ppr":
+		return 1.0
+	default:
+		return 0.5
+	}
+}
+
+// legacyTwoPointRuleKeys are the pre-GC-1 typed two-point rules
+// (pass2pt/rush2pt/rec2pt), dropped from defaultScoringRules in favor of
+// the single "twoPt" rule (see its doc comment above): they never scored
+// anything, but the Scoring Settings page rendered every rule in
+// defaultScoringRules regardless, so a commissioner could still have
+// recorded an override on one.
+var legacyTwoPointRuleKeys = []string{"pass2pt", "rush2pt", "rec2pt"}
+
+// migrateLegacyTwoPointOverrides folds the highest override still
+// recorded under a legacy typed two-point key into the replacement
+// "twoPt" key, then deletes the legacy keys so they never resurface as a
+// phantom override for a rule defaultScoringRules no longer lists. A
+// league that never touched these dormant rules — the overwhelming case,
+// since they never scored anything — sees no change. Runs on every state
+// load (normalizeState), the same self-healing discipline every other
+// nil/legacy-shape guard there follows, so it is idempotent and needs no
+// separate one-time migration step.
+func migrateLegacyTwoPointOverrides(scoring map[string]float64) {
+	best, found := 0.0, false
+	for _, key := range legacyTwoPointRuleKeys {
+		if value, ok := scoring[key]; ok {
+			if !found || value > best {
+				best = value
+			}
+			found = true
+			delete(scoring, key)
+		}
+	}
+	if !found {
+		return
+	}
+	if _, alreadySet := scoring["twoPt"]; !alreadySet {
+		scoring["twoPt"] = best
+	}
 }
 
 // seasonStartAt resolves the season kickoff instant from SEASON_START_AT,

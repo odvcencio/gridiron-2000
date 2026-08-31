@@ -870,6 +870,10 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		location, _ = time.LoadLocation(DefaultDraftTZ)
 	}
 	matchup := s.matchupIndexFor(games, lineup.Week)
+	// live/hasLive back GC-2b's possession chip only — read once for the
+	// whole slot list, the same one-read-per-render discipline
+	// matchupStatsSnapshot's own live/hasLive pair follows.
+	live, hasLive := s.liveStatus()
 	out := make([]map[string]any, 0, len(lineup.Slots))
 	for _, a := range lineup.Slots {
 		row := map[string]any{
@@ -885,6 +889,9 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 			for k, v := range playerMap(a.Player, scoringValues, matchup) {
 				row[k] = v
 			}
+			label := starterPossessionLabel(a.Player, live, hasLive)
+			row["has_possession"] = label != ""
+			row["possession_label"] = label
 			if a.Locked {
 				if kickoff, ok := playerLockAt(games, lineup.Week, a.Player.NFLTeam); ok && !kickoff.IsZero() {
 					row["lock_label"] = "LOCKED · " + kickoff.In(location).Format("3:04 PM MST")

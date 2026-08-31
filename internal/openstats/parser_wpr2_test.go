@@ -214,3 +214,38 @@ func TestParsePlayerStatsFeedsKickingAndPuntingBoxScoreColumns(t *testing.T) {
 		t.Fatalf("old-release row must decode kicking columns to zero: %+v", oldStats[0])
 	}
 }
+
+// TestParsePlayerStatsFeedsTwoPointConversionColumns checks the GC-1 fix 3
+// source mapping (passing_2pt_conversions, rushing_2pt_conversions,
+// receiving_2pt_conversions), plus the same backward-compatibility
+// guarantee: a row from a release that predates these columns decodes to
+// honest zeros, never an error.
+func TestParsePlayerStatsFeedsTwoPointConversionColumns(t *testing.T) {
+	const header = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,fantasy_points,fantasy_points_ppr,passing_2pt_conversions,rushing_2pt_conversions,receiving_2pt_conversions\n"
+	const row = "00-301,Example Quarterback,QB,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,20.0,20.0,1,2,0\n"
+	path := writeFixture(t, "twopt_stats.csv", header+row)
+	stats, err := parsePlayerStats(path, 2026)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("stats = %d rows, want 1", len(stats))
+	}
+	if stats[0].PassingTwoPt != 1 || stats[0].RushingTwoPt != 2 || stats[0].ReceivingTwoPt != 0 {
+		t.Fatalf("two-point conversion columns wrong: %+v", stats[0])
+	}
+
+	const oldHeader = "player_id,player_display_name,position,season,week,season_type,game_id,team,opponent_team,fantasy_points,fantasy_points_ppr\n"
+	const oldRow = "00-302,Old Release Quarterback,QB,2026,1,REG,2026_01_BUF_MIA,BUF,MIA,20.0,20.0\n"
+	oldPath := writeFixture(t, "old_twopt_stats.csv", oldHeader+oldRow)
+	oldStats, err := parsePlayerStats(oldPath, 2026)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(oldStats) != 1 {
+		t.Fatalf("old-release stats = %d rows, want 1", len(oldStats))
+	}
+	if oldStats[0].PassingTwoPt != 0 || oldStats[0].RushingTwoPt != 0 || oldStats[0].ReceivingTwoPt != 0 {
+		t.Fatalf("old-release row must decode two-point columns to zero: %+v", oldStats[0])
+	}
+}
