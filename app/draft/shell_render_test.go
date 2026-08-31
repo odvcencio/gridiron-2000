@@ -1,6 +1,7 @@
 package draft
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -56,7 +57,47 @@ func livePool() league.PlayerSource {
 	for _, p := range rows {
 		out = append(out, league.Player{ID: p.ID, Name: p.Name, Position: p.Position, NFLTeam: p.NFLTeam, ADP: p.ADP, ADPRank: p.ADPRank, ByeWeek: p.ByeWeek, Projection: p.Projection, Status: "Available"})
 	}
+	out = append(out, houseRankSupplyFiller(len(out))...)
 	return func() ([]league.Player, int64, string) { return out, 1, "live" }
+}
+
+// houseRankSupplyFiller tops up TE/K/DST behind OfflinePool()'s own real
+// entries (house-rank change, 2026-08-30): OfflinePool is deliberately
+// coarse (12 K, 12 DST, 17 TE — "an eight-team, fifteen-round draft,"
+// its own doc comment), a fine margin over the standard preset's 8/8/8
+// demand for a round-robin ADP autopick walk, but not for
+// completeDraftByForcedAutopicks' full 120-pick run under house order
+// (houserank.go): house order clusters same-position players, including
+// K/DST's flat, closely-bunched values, so several teams' spare BENCH
+// picks can legally exhaust a thin position before every team has drafted
+// its one required starter there. These low-value, low-ADP filler rows
+// (never any REAL player's name) restore the same 3-4x supply-over-demand
+// margin the sanity fixtures assume, purely so this render test's full
+// completion is deterministic; they never rank above a real player.
+func houseRankSupplyFiller(startIndex int) []league.Player {
+	fill := func(position string, count int, floor float64) []league.Player {
+		out := make([]league.Player, 0, count)
+		for i := 0; i < count; i++ {
+			index := startIndex + len(out)
+			out = append(out, league.Player{
+				ID:         fmt.Sprintf("filler-%s-%02d", position, i+1),
+				Name:       fmt.Sprintf("Filler %s %02d", position, i+1),
+				Position:   position,
+				NFLTeam:    "TST",
+				ADP:        float64(index + 1),
+				ADPRank:    index + 1,
+				Projection: floor - float64(i)*0.1,
+				Status:     "Available",
+			})
+		}
+		startIndex += count
+		return out
+	}
+	out := make([]league.Player, 0, 60)
+	out = append(out, fill("TE", 20, 8.0)...)
+	out = append(out, fill("K", 20, 7.4)...)
+	out = append(out, fill("DST", 20, 6.5)...)
+	return out
 }
 
 func TestDraftShellRendersEveryDraftState(t *testing.T) {

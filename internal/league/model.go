@@ -98,8 +98,8 @@ type Player struct {
 	// reasoning," the same principle Preseason Blitz's pre1 evidence line
 	// already follows).
 	DraftCapital string `json:"draftCapital,omitempty"`
-	// PunterRank is a Position "P" player's house rank, 1..N, assigned by
-	// internal/fantasy's pool build from the league's own embedded 2025
+	// PunterRank is a Position "P" player's positional rank, 1..N, assigned
+	// by internal/fantasy's pool build from the league's own embedded 2025
 	// punter rescoring (main.go's fantasyPlayerSource carries it through
 	// from fantasy.Player.PunterRank untouched). Zero for every non-punter,
 	// and for a punter the embedded projection lookup missed. playerMap
@@ -107,6 +107,19 @@ type Player struct {
 	// zero — market ADP never covers punters (blitz.go reads ADPRank>0 as
 	// a market-ADP signal, so PunterRank must never feed it).
 	PunterRank int `json:"punterRank,omitempty"`
+	// HouseRank is the player's replacement-value (VORP) rank under the
+	// league's ACTIVE roster preset and team count — a format-aware
+	// ranking computed alongside market ADP, not a replacement for it
+	// (houserank.go). It is 1..N over every player with a positive
+	// Projection, ordered by VORP (Projection minus the position's
+	// replacement level) descending; zero for a zero-Projection player, who
+	// carries no house rank at all. Computed once per pool version
+	// (buildPool, service.go) and never mutates ADPRank, PunterRank, or
+	// pool order — the board stays market-ADP-ordered; only the autopick
+	// selection order (draftclock.go's autopickChoice) and the "H##"
+	// display label (playerMap) read it. See docs/season-operations.md's
+	// "House rank" section for the full model.
+	HouseRank int `json:"houseRank,omitempty"`
 }
 
 // BlitzEntry is one member's 5-player slate entry for Preseason Blitz

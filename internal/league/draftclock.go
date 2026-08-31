@@ -273,12 +273,17 @@ func (s *Service) teamNeverSeen(state PersistedState, teamID string, now time.Ti
 // first the seat's Big Board, walked in order and skipping any ID that is
 // already picked, does not resolve in the pool, or would breach the
 // league's optional Limits knob or would leave too few future picks to fill
-// every required starter slot; then best-available ADP order (the pool's
-// own draft order), with the same filters. If every remaining candidate
-// would breach only a soft Limits cap, the second pass ignores that cap but
-// never ignores starter viability. ok is false when no undrafted candidate
-// can finish a legal roster — the clock pauses for commissioner attention
-// instead of auto-drafting an unusable team.
+// every required starter slot; then best-available HOUSE order (houserank.go's
+// pool.byHouse — the format-aware replacement-value ranking under the
+// league's active roster preset, NOT the pool's market-ADP draft order),
+// with the same filters. If every remaining candidate would breach only a
+// soft Limits cap, the second pass ignores that cap but never ignores
+// starter viability. ok is false when no undrafted candidate can finish a
+// legal roster — the clock pauses for commissioner attention instead of
+// auto-drafting an unusable team. Only autopick's own selection order
+// reads pool.byHouse; the board display, the commissioner force-pick, and
+// every other "best available" consumer keep reading pool.players/byADP
+// (market ADP) untouched.
 func (s *Service) autopickChoice(state PersistedState, teamID string) (string, bool) {
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
@@ -301,7 +306,7 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 			return id, true
 		}
 	}
-	for _, player := range pool.players {
+	for _, player := range pool.byHouse {
 		if !picked[player.ID] && fits(player.ID) {
 			return player.ID, true
 		}
@@ -315,7 +320,7 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 			return id, true
 		}
 	}
-	for _, player := range pool.players {
+	for _, player := range pool.byHouse {
 		if !picked[player.ID] && viable(player.ID) {
 			return player.ID, true
 		}

@@ -44,6 +44,14 @@ type playerPool struct {
 	// reads this order directly (P1 perf fix, 2026-08-30) rather than
 	// re-sorting the whole pool on every DraftHistory call.
 	byADP []Player
+	// byHouse is the house-ordered index: every player carrying a
+	// HouseRank, in HouseRank order (best VORP first), followed by every
+	// HouseRank-0 player in the pool's own order (players, above) — see
+	// houseOrderedIndex (houserank.go). Built once per pool version
+	// (buildPool), alongside byADP. autopickChoice (draftclock.go) walks
+	// this order instead of players; the board display and every other
+	// "best available" consumer keep reading players/byADP (market ADP).
+	byHouse []Player
 	// unavailable is set when an explicitly wired production source has no
 	// authoritative rows. It keeps the embedded resolution players out of
 	// the lookup map as well as the ordered pool, so a stale player ID cannot
@@ -1356,7 +1364,16 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 	annotated := make([]Player, len(players))
 	for index, player := range players {
 		annotated[index] = s.withHistorical(player)
-		byID[annotated[index].ID] = annotated[index]
+	}
+	// HouseRank (houserank.go) is computed once per pool version, here
+	// alongside byADP — never per render. It reads the ACTIVE roster
+	// preset and team count, not a fixed shape, so a commissioner's
+	// roster-shape override or a team-count change is reflected on the
+	// next pool version, the same way everything else CurrentRoster()
+	// backs already is.
+	annotated = applyHouseRanks(annotated, CurrentRoster(), s.TeamCount())
+	for _, player := range annotated {
+		byID[player.ID] = player
 	}
 	byADP := make([]Player, len(annotated))
 	copy(byADP, annotated)
@@ -1370,7 +1387,8 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 		}
 		return left < right
 	})
-	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP}
+	byHouse := houseOrderedIndex(annotated)
+	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP, byHouse: byHouse}
 }
 
 // withHistorical fills a player's previous-season line from the attached
@@ -4328,7 +4346,7 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 func playerMap(player Player, scoringValues map[string]float64, matchup matchupIndex) map[string]any {
 	// ADPRank (real market ADP) always wins when present. Punters carry no
 	// market ADP at all (blitz.go's ADPRank>0 market-ADP signal), so their
-	// house rank — PunterRank, from the league's own embedded 2025
+	// positional rank — PunterRank, from the league's own embedded 2025
 	// rescoring (internal/fantasy's pool build) — renders as "P##" in its
 	// place. A punter PunterRank missed (the embedded projection lookup
 	// had no match) falls through to the same "—" every other unranked
@@ -4339,6 +4357,16 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		rank = fmt.Sprintf("%03d", player.ADPRank)
 	case player.PunterRank > 0:
 		rank = fmt.Sprintf("P%02d", player.PunterRank)
+	}
+	// houseRank is the display value for the SEPARATE house-rank column
+	// (houserank.go): the format-aware VORP rank under the league's active
+	// roster preset, shown beside the market rank above, never instead of
+	// it. "H%02d" for a ranked player (HouseRank > 0); empty for one with
+	// no house rank (a zero-Projection player, or one CurrentRoster's
+	// demand model never reaches — see houseRanks' doc comment).
+	houseRank := ""
+	if player.HouseRank > 0 {
+		houseRank = fmt.Sprintf("H%02d", player.HouseRank)
 	}
 	detail := player.NFLTeam
 	if player.ByeWeek > 0 {
@@ -4364,7 +4392,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
 		"projection": fmt.Sprintf("%.1f", player.Projection),
 		"points":     fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
-		"rank": rank, "detail": detail,
+		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,

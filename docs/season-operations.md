@@ -211,6 +211,20 @@ The live Tank01 feed carries no punter ADP and no punter projections. Gridiron r
 - A punter's 2025 line has no games floor. A punter below the rank floor can still show a line and `—` for rank.
 - The pool sync keeps a limited number of players. A punter cut by that limit shows no rank.
 
+### House rank
+
+Market ADP ranks players for a generic fantasy market, not the league's own roster shape. House rank re-ranks the same pool by replacement value under the league's actual starter demand.
+
+- House rank measures VORP (value over replacement player). VORP is a player's per-game projection minus the projected per-game points of the best player left at that position after demand is filled.
+- Demand comes from the active roster preset: each position's own starter slot count, times the team count.
+- The league fills FLEX and SUPERFLEX slots one at a time. Each open slot goes to the eligible position whose next player projects highest.
+- A position whose pool runs out inside its own demand gets a replacement level of zero. Every remaining player there then carries a very high VORP.
+- A tied VORP breaks first by market ADP, then by name. A missing ADP sorts last.
+- The player pool shows an `H##` label beside the market rank, for example `H01` for the top house-ranked player.
+- A zero-projection player carries no house rank and shows no `H##` label.
+- Autopick selects from house order. The player pool and the draft-room board still sort by market ADP.
+- The house-rank model counts starter demand only. It carries no bench-depth term.
+
 ### Trades
 
 - Only a manager with a franchise seat can compose an offer.

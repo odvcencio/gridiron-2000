@@ -21,10 +21,21 @@ import (
 // previous surface should fail here with the invariant that matters to a
 // manager or commissioner.
 func TestSeasonJourneyAcceptance(t *testing.T) {
+	// Bench 0 (house-rank change, 2026-08-30): this fixture's pool carries
+	// exactly 8 QBs and 8 RBs for 8 teams — supply exactly equal to
+	// Starters demand. A bench slot would let AdminForceAutopick's house
+	// order (houserank.go), which ranks same-position players together
+	// rather than interleaving positions the way market ADP naturally
+	// does, legally spend it on a SECOND QB or RB for one team and starve
+	// a later team of the one it needs. Zero bench makes every pick's
+	// legality check (draftCandidateKeepsRosterViable) require the exact
+	// still-missing position, independent of ranking order, so the
+	// terminal 1-QB/1-RB-per-team shape this test's later assertions rely
+	// on is guaranteed rather than order-dependent.
 	setRosterShape(RosterPreset{
 		Name:  "season-journey",
 		Slots: map[string]int{"QB": 1, "RB": 1},
-		Bench: 1,
+		Bench: 0,
 	})
 	t.Cleanup(clearRosterShape)
 
