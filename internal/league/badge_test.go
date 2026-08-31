@@ -272,27 +272,71 @@ func TestBadgeImageUnknownTeamAndNoClaimReportNotOK(t *testing.T) {
 	}
 }
 
-// TestBadgeImageRendersTintedPNGWithAlphaPreserved checks the tint
-// pipeline end to end: BadgeImage decodes the source motif fixture,
-// tints it in the team's tone, and PNG-encodes the result, with alpha
-// copied unchanged and RGB scaled by source luminance.
-func TestBadgeImageRendersTintedPNGWithAlphaPreserved(t *testing.T) {
+// TestTintMotifPreservesAlphaAndAppliesToneColor checks tintMotif directly
+// (the per-pixel tint step, never resized — see its own doc comment):
+// alpha is copied unchanged and RGB is scaled by source luminance. This
+// is the exact-pixel-value contract TestBadgeImageRendersTintedPNGAtBadgeOutputSize
+// cannot check once its own output has gone through a resize.
+func TestTintMotifPreservesAlphaAndAppliesToneColor(t *testing.T) {
+	fixtureDir := t.TempDir()
+	writeMotifFixture(t, fixtureDir, "helmet")
+	f, err := os.Open(filepath.Join(fixtureDir, "helmet.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	src, err := png.Decode(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toneHex, ok := BadgeToneHex("cyan")
+	if !ok {
+		t.Fatal("cyan must have a BadgeToneHex entry")
+	}
+	toneR, toneG, toneB, err := parseHexColor(toneHex)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tinted := tintMotif(src, toneR, toneG, toneB)
+	bounds := tinted.Bounds()
+	if bounds.Dx() != 2 || bounds.Dy() != 2 {
+		t.Fatalf("output size = %dx%d, want 2x2 (matching the fixture — tintMotif never resizes)", bounds.Dx(), bounds.Dy())
+	}
+
+	// The fully-opaque near-white source pixel (1,1) must render at
+	// exactly full alpha and the tone's own color (luminance 1.0).
+	r, g, b, a := nrgbaAt(tinted, 1, 1)
+	if a != 255 {
+		t.Fatalf("opaque source pixel lost its alpha: got %d, want 255", a)
+	}
+	if r != toneR || g != toneG || b != toneB {
+		t.Fatalf("opaque source pixel = (%d,%d,%d), want the tone color (%d,%d,%d)", r, g, b, toneR, toneG, toneB)
+	}
+	if r == 0 && g == 0 && b == 0 {
+		t.Fatal("tint output color is all zero — the tint never applied")
+	}
+
+	// Every source pixel's alpha must survive unchanged.
+	wantAlpha := map[[2]int]uint8{{0, 0}: 200, {1, 0}: 0, {0, 1}: 100, {1, 1}: 255}
+	for point, want := range wantAlpha {
+		_, _, _, gotAlpha := nrgbaAt(tinted, point[0], point[1])
+		if gotAlpha != want {
+			t.Errorf("pixel %v alpha = %d, want %d (alpha must be copied unchanged)", point, gotAlpha, want)
+		}
+	}
+}
+
+// TestBadgeImageRendersAtBadgeOutputSize checks the tint-plus-resize
+// pipeline end to end: BadgeImage decodes the source motif fixture, tints
+// it in the team's tone, and scales the PNG-encoded result to
+// BadgeOutputSize regardless of the source art's own dimensions.
+func TestBadgeImageRendersAtBadgeOutputSize(t *testing.T) {
 	service := newTestService(t, true)
 	service.motifRoot = t.TempDir()
 	writeMotifFixture(t, service.motifRoot, "helmet")
 	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
 
 	if err := service.ClaimBadge(request, "team-1", "helmet"); err != nil {
-		t.Fatal(err)
-	}
-	// team-1's tone in the neutral default config is "cyan" (the palette
-	// cycle's first entry — see teamsFromSeeds).
-	toneHex, ok := BadgeToneHex(service.teamByID("team-1").Tone)
-	if !ok {
-		t.Fatalf("team-1's tone %q has no BadgeToneHex entry", service.teamByID("team-1").Tone)
-	}
-	toneR, toneG, toneB, err := parseHexColor(toneHex)
-	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,30 +353,49 @@ func TestBadgeImageRendersTintedPNGWithAlphaPreserved(t *testing.T) {
 		t.Fatalf("BadgeImage output is not a valid PNG: %v", err)
 	}
 	bounds := img.Bounds()
-	if bounds.Dx() != 2 || bounds.Dy() != 2 {
-		t.Fatalf("output size = %dx%d, want 2x2 (matching the fixture)", bounds.Dx(), bounds.Dy())
+	if bounds.Dx() != BadgeOutputSize || bounds.Dy() != BadgeOutputSize {
+		t.Fatalf("output size = %dx%d, want %dx%d", bounds.Dx(), bounds.Dy(), BadgeOutputSize, BadgeOutputSize)
+	}
+}
+
+// TestBadgeImageLargeRendersAtBadgeOutputSizeLarge checks that
+// BadgeImageLarge scales to the distinct, bigger BadgeOutputSizeLarge —
+// the .team-monogram hero's own render — while BadgeImage on the same
+// claim keeps rendering at BadgeOutputSize.
+func TestBadgeImageLargeRendersAtBadgeOutputSizeLarge(t *testing.T) {
+	service := newTestService(t, true)
+	service.motifRoot = t.TempDir()
+	writeMotifFixture(t, service.motifRoot, "helmet")
+	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
+
+	if err := service.ClaimBadge(request, "team-1", "helmet"); err != nil {
+		t.Fatal(err)
 	}
 
-	// The fully-opaque near-white source pixel (1,1) must render at
-	// exactly full alpha and the tone's own color (luminance 1.0).
-	r, g, b, a := nrgbaAt(img, 1, 1)
-	if a != 255 {
-		t.Fatalf("opaque source pixel lost its alpha: got %d, want 255", a)
+	smallData, smallVersion, ok := service.BadgeImage("team-1")
+	if !ok {
+		t.Fatal("BadgeImage reported ok=false for a claimed team")
 	}
-	if r != toneR || g != toneG || b != toneB {
-		t.Fatalf("opaque source pixel = (%d,%d,%d), want the tone color (%d,%d,%d)", r, g, b, toneR, toneG, toneB)
+	largeData, largeVersion, ok := service.BadgeImageLarge("team-1")
+	if !ok {
+		t.Fatal("BadgeImageLarge reported ok=false for a claimed team")
 	}
-	if r == 0 && g == 0 && b == 0 {
-		t.Fatal("tint output color is all zero — the tint never applied")
+	if smallVersion == largeVersion {
+		t.Fatal("BadgeImage and BadgeImageLarge must render distinct bytes (and thus distinct version hashes)")
 	}
-
-	// Every source pixel's alpha must survive unchanged.
-	wantAlpha := map[[2]int]uint8{{0, 0}: 200, {1, 0}: 0, {0, 1}: 100, {1, 1}: 255}
-	for point, want := range wantAlpha {
-		_, _, _, gotAlpha := nrgbaAt(img, point[0], point[1])
-		if gotAlpha != want {
-			t.Errorf("pixel %v alpha = %d, want %d (alpha must be copied unchanged)", point, gotAlpha, want)
-		}
+	smallImg, err := png.Decode(bytes.NewReader(smallData))
+	if err != nil {
+		t.Fatalf("BadgeImage output is not a valid PNG: %v", err)
+	}
+	largeImg, err := png.Decode(bytes.NewReader(largeData))
+	if err != nil {
+		t.Fatalf("BadgeImageLarge output is not a valid PNG: %v", err)
+	}
+	if b := smallImg.Bounds(); b.Dx() != BadgeOutputSize || b.Dy() != BadgeOutputSize {
+		t.Fatalf("BadgeImage output size = %dx%d, want %dx%d", b.Dx(), b.Dy(), BadgeOutputSize, BadgeOutputSize)
+	}
+	if b := largeImg.Bounds(); b.Dx() != BadgeOutputSizeLarge || b.Dy() != BadgeOutputSizeLarge {
+		t.Fatalf("BadgeImageLarge output size = %dx%d, want %dx%d", b.Dx(), b.Dy(), BadgeOutputSizeLarge, BadgeOutputSizeLarge)
 	}
 }
 
@@ -344,23 +407,30 @@ func TestTintedBadgePNGIsCachedPerMotifAndTone(t *testing.T) {
 	service.motifRoot = t.TempDir()
 	writeMotifFixture(t, service.motifRoot, "helmet")
 
-	first, err := service.tintedBadgePNG("helmet", "cyan")
+	first, err := service.tintedBadgePNG("helmet", "cyan", BadgeOutputSize)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.tintedBadgePNG("helmet", "cyan")
+	second, err := service.tintedBadgePNG("helmet", "cyan", BadgeOutputSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if &first[0] != &second[0] {
-		t.Fatal("tintedBadgePNG did not return the cached slice for a repeated motif+tone")
+		t.Fatal("tintedBadgePNG did not return the cached slice for a repeated motif+tone+size")
 	}
-	third, err := service.tintedBadgePNG("helmet", "blue")
+	third, err := service.tintedBadgePNG("helmet", "blue", BadgeOutputSize)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if bytes.Equal(first, third) {
 		t.Fatal("a different tone should render different bytes")
+	}
+	fourth, err := service.tintedBadgePNG("helmet", "cyan", BadgeOutputSizeLarge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(first, fourth) {
+		t.Fatal("a different size should render different bytes")
 	}
 }
 

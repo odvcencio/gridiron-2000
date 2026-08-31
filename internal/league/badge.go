@@ -162,32 +162,56 @@ func (s *Service) motifDir() string {
 	return filepath.Join("public", "avatars", "motifs")
 }
 
-// badgeArtCache is the in-memory cache of tinted, PNG-encoded badge
-// renders, keyed by "{motif}|{tone}" (see badgeArtKey). With 16 motifs
-// and 8 tones the whole keyspace is 128 entries at most — unbounded is
-// fine at this scale (the brief's own sizing note: "≤14 teams").
+// BadgeOutputSize is the tinted badge PNG's rendered width and height, in
+// pixels. It covers every "many marks per page" render site (matchups,
+// draft board, standings, home, admin): styles.css's widest such slot is
+// .team-mark--large at 3.7rem (about 59 CSS px), and 128 is that slot's
+// 2x-device-pixel-ratio need rounded up to a round number. The 512x512
+// public/avatars/motifs source art is never resized in place — only this
+// rendered, cached copy is.
+const BadgeOutputSize = 128
+
+// BadgeOutputSizeLarge is the one explicit larger render this package
+// serves. styles.css's .team-monogram — the team identity page's own
+// hero mark, app/team/page.gsx — is sized clamp(9rem, 18vw, 12rem), up to
+// 12rem (about 192 CSS px); at 2x device pixel ratio that needs 384px.
+// Every other render site fits BadgeOutputSize; see BadgeImageLarge and
+// avatarViewLarge, this package's only consumers of this constant.
+const BadgeOutputSizeLarge = 384
+
+// badgeArtCache is the in-memory cache of tinted, resized, PNG-encoded
+// badge renders, keyed by "{motif}|{tone}|{size}" (see badgeArtKey). With
+// 16 motifs, 8 tones, and 2 sizes the whole keyspace is 256 entries at
+// most — unbounded is fine at this scale (the brief's own sizing note:
+// "≤14 teams").
 type badgeArtCache struct {
 	mu    sync.Mutex
 	cache map[string][]byte
 }
 
-func badgeArtKey(motif, tone string) string {
-	return motif + "|" + tone
+func badgeArtKey(motif, tone string, size int) string {
+	return motif + "|" + tone + "|" + strconv.Itoa(size)
 }
 
-// tintedBadgePNG renders motif's source art tinted in tone's color and
-// returns the PNG-encoded bytes, using badgeArt as a memoized cache keyed
-// by badgeArtKey so a page rendering many BadgeImage calls (the picker
-// grid preview links, the served badge itself) never re-decodes and
-// re-tints the same motif+tone pair twice.
-func (s *Service) tintedBadgePNG(motif, tone string) ([]byte, error) {
+// tintedBadgePNG renders motif's source art tinted in tone's color,
+// scales the result to size x size, and returns the PNG-encoded bytes,
+// using badgeArt as a memoized cache keyed by badgeArtKey so a page
+// rendering many BadgeImage calls (the picker grid preview links, the
+// served badge itself) never re-decodes, re-tints, or re-scales the same
+// motif+tone+size triple twice. The source art is always decoded and
+// tinted at its native resolution (tintMotif never resizes — see its own
+// doc comment); centerSquareAndScale (avatar.go) does the one high-quality
+// downscale to size, the same Catmull-Rom scaler the avatar-upload
+// pipeline already uses for the same category of "shrink to a fixed
+// square" problem.
+func (s *Service) tintedBadgePNG(motif, tone string, size int) ([]byte, error) {
 	// Keep the catalog gate immediately beside the filesystem path join. A
 	// persisted value is not trusted merely because it came from the store:
 	// pre-v1 databases may still contain a retired or otherwise hostile slug.
 	if !knownMotif(motif) {
 		return nil, ErrBadgeUnknownMotif
 	}
-	key := badgeArtKey(motif, tone)
+	key := badgeArtKey(motif, tone, size)
 	s.badgeArt.mu.Lock()
 	if cached, ok := s.badgeArt.cache[key]; ok {
 		s.badgeArt.mu.Unlock()
@@ -214,8 +238,9 @@ func (s *Service) tintedBadgePNG(motif, tone string) ([]byte, error) {
 		return nil, err
 	}
 	tinted := tintMotif(src, toneR, toneG, toneB)
+	scaled := centerSquareAndScale(tinted, size)
 	var buf bytes.Buffer
-	if err := png.Encode(&buf, tinted); err != nil {
+	if err := png.Encode(&buf, scaled); err != nil {
 		return nil, err
 	}
 	encoded := buf.Bytes()
@@ -297,11 +322,23 @@ func parseHexColor(hex string) (r, g, b uint8, err error) {
 }
 
 // BadgeImage resolves teamID's claimed motif and tone and returns the
-// tinted PNG. version is the SHA-256 of the exact rendered bytes, so the
-// caller can include it in the URL and use an immutable cache policy without
-// serving changed bytes under an old mutable URL. ok is false when teamID is
-// unknown, identity persistence is unhealthy, or the team has no badge claim.
+// tinted PNG at BadgeOutputSize. version is the SHA-256 of the exact
+// rendered bytes, so the caller can include it in the URL and use an
+// immutable cache policy without serving changed bytes under an old
+// mutable URL. ok is false when teamID is unknown, identity persistence
+// is unhealthy, or the team has no badge claim.
 func (s *Service) BadgeImage(teamID string) (data []byte, version string, ok bool) {
+	return s.badgeImageSized(teamID, BadgeOutputSize)
+}
+
+// BadgeImageLarge is BadgeImage at BadgeOutputSizeLarge — the one surface
+// that needs it is the team identity page's own .team-monogram hero; see
+// avatarViewLarge, its only caller.
+func (s *Service) BadgeImageLarge(teamID string) (data []byte, version string, ok bool) {
+	return s.badgeImageSized(teamID, BadgeOutputSizeLarge)
+}
+
+func (s *Service) badgeImageSized(teamID string, size int) (data []byte, version string, ok bool) {
 	if !knownTeam(teamID) || !s.store.IdentityHealthy() {
 		return nil, "", false
 	}
@@ -317,7 +354,7 @@ func (s *Service) BadgeImage(teamID string) (data []byte, version string, ok boo
 		return nil, "", false
 	}
 	team := s.teamByID(teamID)
-	data, err := s.tintedBadgePNG(motif, team.Tone)
+	data, err := s.tintedBadgePNG(motif, team.Tone, size)
 	if err != nil {
 		return nil, "", false
 	}

@@ -2237,6 +2237,15 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		projected += player.Projection
 	}
 	teamMap := s.teamMap(team)
+	// This page's own .team-monogram hero (app/team/page.gsx) is the one
+	// render site that needs BadgeOutputSizeLarge instead of teamMap's own
+	// BadgeOutputSize avatar_image_url — see avatarViewLarge's doc comment.
+	// Computed only here (not inside teamMap itself, which every
+	// many-teams-per-page caller — matchups, draft, standings, admin —
+	// also shares) so those pages never pay to render a size they do not
+	// use.
+	_, _, avatarImageLargeURL := s.avatarViewLarge(team.ID, team.Tone)
+	teamMap["avatar_image_large_url"] = avatarImageLargeURL
 	// Demo mode grants one synthetic, fully authorized seat without writing
 	// a production Member. Present that authority truthfully on the Team
 	// terminal instead of calling the same viewer both the manager and an

@@ -1114,6 +1114,104 @@ func TestAvatarViewFallbackChain(t *testing.T) {
 	}
 }
 
+// TestAvatarViewLargeFallbackChain checks avatarViewLarge's own fallback
+// chain: tier c prefers a large default file but falls back to the
+// BadgeOutputSize default when no large file exists yet; tier b serves the
+// distinct "-lg" badge URL at BadgeImageLarge's own version hash; tier a
+// (an uploaded custom avatar) is identical to avatarView's own URL, since
+// that pipeline is untouched by this sizing pass.
+func TestAvatarViewLargeFallbackChain(t *testing.T) {
+	service := newTestService(t, true)
+	service.motifRoot = t.TempDir()
+	writeMotifFixture(t, service.motifRoot, "wolf")
+	request, _ := http.NewRequest(http.MethodPost, "/avatar/badge", nil)
+	now := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+
+	// Tier c, no defaults at all: no image.
+	hasAvatar, hasImage, url := service.avatarViewLarge("team-2", "blue")
+	if hasAvatar || hasImage || url != "" {
+		t.Fatalf("fresh team should have no large avatar image: hasAvatar=%v hasImage=%v url=%q", hasAvatar, hasImage, url)
+	}
+
+	// Tier c, only the BadgeOutputSize default exists: avatarViewLarge
+	// falls back to it rather than dropping to the text mark. Advance the
+	// injected clock past defaultBadgeExists's scan-cache TTL first (see
+	// TestDefaultBadgeExistsCacheInvalidatesAfterTTL) so the new file is
+	// actually picked up rather than reusing the tier-c scan's cached
+	// (empty) result.
+	if err := os.MkdirAll(service.defaultBadgeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(service.defaultBadgeRoot, "blue.png"), []byte("badge"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(defaultBadgeCacheTTL + time.Second)
+	hasAvatar, hasImage, url = service.avatarViewLarge("team-2", "blue")
+	if hasAvatar {
+		t.Fatal("hasAvatar must stay false for the default-badge tier")
+	}
+	if !hasImage || url != "/avatars/defaults/blue.png" {
+		t.Fatalf("tier c fallback resolution wrong: hasImage=%v url=%q", hasImage, url)
+	}
+
+	// Tier c, a large default now exists: it outranks the fallback.
+	largeDir := filepath.Join(service.defaultBadgeRoot, "large")
+	if err := os.MkdirAll(largeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(largeDir, "blue.png"), []byte("large badge"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hasAvatar, hasImage, url = service.avatarViewLarge("team-2", "blue")
+	if hasAvatar {
+		t.Fatal("hasAvatar must stay false for the default-badge tier")
+	}
+	if !hasImage || url != "/avatars/defaults/large/blue.png" {
+		t.Fatalf("tier c large resolution wrong: hasImage=%v url=%q", hasImage, url)
+	}
+
+	// Tier b: a badge claim outranks the tone default, at the distinct
+	// "-lg" URL and BadgeImageLarge's own version hash.
+	if err := service.ClaimBadge(request, "team-2", "wolf"); err != nil {
+		t.Fatal(err)
+	}
+	hasAvatar, hasImage, url = service.avatarViewLarge("team-2", "blue")
+	if hasAvatar {
+		t.Fatal("hasAvatar must stay false for the badge-claim tier")
+	}
+	_, smallVersion, ok := service.BadgeImage("team-2")
+	if !ok {
+		t.Fatal("BadgeImage should render the claimed motif")
+	}
+	_, largeVersion, ok := service.BadgeImageLarge("team-2")
+	if !ok {
+		t.Fatal("BadgeImageLarge should render the claimed motif")
+	}
+	if smallVersion == largeVersion {
+		t.Fatal("BadgeImage and BadgeImageLarge must render distinct bytes")
+	}
+	if !hasImage || url != "/avatars/badge/team-2-lg.png?v="+largeVersion {
+		t.Fatalf("tier b large resolution wrong: hasImage=%v url=%q", hasImage, url)
+	}
+
+	// Tier a: an uploaded avatar still outranks the badge claim, at the
+	// same URL avatarView itself would return — that pipeline is out of
+	// scope for this sizing pass.
+	data := solidPNG(t, 100, 100, color.RGBA{R: 9, G: 9, B: 9, A: 255})
+	if _, err := service.UploadAvatar(request, "team-2", data); err != nil {
+		t.Fatal(err)
+	}
+	hasAvatar, hasImage, url = service.avatarViewLarge("team-2", "blue")
+	if !hasAvatar || !hasImage {
+		t.Fatalf("tier a resolution wrong: hasAvatar=%v hasImage=%v", hasAvatar, hasImage)
+	}
+	_, _, smallURL := service.avatarView("team-2", "blue")
+	if url != smallURL {
+		t.Fatalf("tier a large url = %q, want the same custom-avatar url as avatarView: %q", url, smallURL)
+	}
+}
+
 // TestDefaultBadgeExistsCacheInvalidatesAfterTTL checks that a badge file
 // dropped in after the first scan is picked up once defaultBadgeCacheTTL
 // has elapsed against the service's injected clock, without needing a real

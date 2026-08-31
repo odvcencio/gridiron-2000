@@ -235,7 +235,7 @@ func Page() Node {
 			<div class="team-hero__identity">
 				<span class="team-monogram">
 					<If cond={data.team.has_avatar_image}>
-						<img class="avatar-mark__photo" src={data.team.avatar_image_url} alt={data.team.name} loading="lazy" />
+						<img class="avatar-mark__photo" src={data.team.avatar_image_large_url} alt={data.team.name} loading="lazy" />
 					</If>
 					<If cond={data.team.has_avatar_image == false}>
 						{data.team.abbreviation}

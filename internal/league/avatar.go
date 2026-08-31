@@ -421,6 +421,62 @@ func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url
 	return false, false, ""
 }
 
+// avatarViewLarge is avatarView's counterpart for the one surface that
+// needs BadgeOutputSizeLarge instead of BadgeOutputSize: the team
+// identity page's own .team-monogram hero (app/team/page.gsx; see
+// BadgeOutputSizeLarge's doc comment on badge.go). Tier a — an uploaded
+// custom avatar — is unaffected: that object is already normalized to
+// AvatarOutputSize and out of scope for this sizing pass, so this only
+// differs from avatarView in tiers b and c. Tier c falls back to the
+// BadgeOutputSize default file if no large variant is on disk yet, rather
+// than dropping to the text mark, matching avatarView's own
+// "never link a file that has not just been confirmed to exist" rule.
+func (s *Service) avatarViewLarge(teamID, tone string) (hasAvatar, hasImage bool, url string) {
+	if !s.store.IdentityHealthy() {
+		return false, false, ""
+	}
+	if ref, referenced := s.store.AvatarRef(teamID); referenced {
+		return true, true, fmt.Sprintf("/avatars/custom/%s/%s.png", teamID, ref)
+	}
+	if _, ok := s.store.BadgeClaim(teamID); ok {
+		_, version, rendered := s.BadgeImageLarge(teamID)
+		if !rendered {
+			return false, false, ""
+		}
+		return false, true, fmt.Sprintf("/avatars/badge/%s-lg.png?v=%s", teamID, version)
+	}
+	if s.defaultBadgeLargeExists(tone) {
+		return false, true, fmt.Sprintf("/avatars/defaults/large/%s.png", tone)
+	}
+	if s.defaultBadgeExists(tone) {
+		return false, true, fmt.Sprintf("/avatars/defaults/%s.png", tone)
+	}
+	return false, false, ""
+}
+
+// defaultBadgeLargeExists reports whether tone has a BadgeOutputSizeLarge
+// default badge file. Checked directly (not cached like
+// defaultBadgeExists's directory scan): avatarViewLarge's only caller
+// renders exactly one team's own hero mark per request, so there is no
+// many-teams-per-page cost here to amortize.
+func (s *Service) defaultBadgeLargeExists(tone string) bool {
+	tone = strings.TrimSpace(tone)
+	if tone == "" {
+		return false
+	}
+	_, err := os.Stat(s.defaultBadgeLargePath(tone))
+	return err == nil
+}
+
+// defaultBadgeLargePath resolves the BadgeOutputSizeLarge counterpart of
+// a {tone}.png default badge, kept in a "large" subdirectory rather than
+// a "{tone}-lg.png" sibling so scanDefaultBadgeTones's flat directory
+// listing (which treats every top-level *.png's stem as a tone name)
+// never mistakes it for one.
+func (s *Service) defaultBadgeLargePath(tone string) string {
+	return filepath.Join(s.defaultBadgeDir(), "large", tone+".png")
+}
+
 // avatarDigest renders "team-1:<sha256>,team-3:<sha256>" across every
 // default team ID that currently has a stored avatar, in order
 // (defaultTeamIDs is already sorted team-1..team-8), followed by
@@ -560,6 +616,9 @@ func processAvatarImage(data []byte) ([]byte, error) {
 // smallest accepted upload (64x64) is well below the 512x512 output, and
 // this is the one step that reconciles that (design decision 1:
 // "downscale/center-crop to 512x512" covers both directions in practice).
+// badge.go's tintedBadgePNG also calls this for its own square-to-square
+// downscale (its source art is always the same 512x512 square already,
+// so only the scale, never the crop, is exercised there).
 func centerSquareAndScale(src image.Image, outSize int) *image.RGBA {
 	bounds := src.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()

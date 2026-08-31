@@ -24,6 +24,7 @@ type badgeTransitionUpdater interface {
 
 type badgeImageReader interface {
 	BadgeImage(string) ([]byte, string, bool)
+	BadgeImageLarge(string) ([]byte, string, bool)
 	IdentityHealthy() bool
 }
 
@@ -111,10 +112,17 @@ func badgeErrorMessage(err error) string {
 //
 // Unlike avatarServeHandler, there is no file to os.Open here: the
 // tinted PNG is rendered on demand (and cached in memory) by
-// league.Service.BadgeImage. A missing claim, or an unrecognized {file}
-// value, 404s with no body — the render layer's own avatarView is what
-// actually keeps a page from linking here without a claim; this 404 is
-// the defense-in-depth backstop, matching avatarServeHandler's own.
+// league.Service.BadgeImage (or BadgeImageLarge — see below). A missing
+// claim, or an unrecognized {file} value, 404s with no body — the render
+// layer's own avatarView/avatarViewLarge is what actually keeps a page
+// from linking here without a claim; this 404 is the defense-in-depth
+// backstop, matching avatarServeHandler's own.
+//
+// A "{teamID}-lg.png" file name (rather than "{teamID}.png") requests
+// league.BadgeOutputSizeLarge instead of the default league.BadgeOutputSize
+// — the one large-variant surface avatarViewLarge's doc comment
+// describes. Every configured team ID is "team-N" (see model.go's
+// defaultTeamIDs), so the "-lg" suffix is unambiguous to strip.
 func badgeServeHandler(svc badgeImageReader) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !svc.IdentityHealthy() {
@@ -127,7 +135,12 @@ func badgeServeHandler(svc badgeImageReader) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		data, version, ok := svc.BadgeImage(teamID)
+		render := svc.BadgeImage
+		if large, isLarge := strings.CutSuffix(teamID, "-lg"); isLarge {
+			teamID = large
+			render = svc.BadgeImageLarge
+		}
+		data, version, ok := render(teamID)
 		if !ok {
 			http.NotFound(w, r)
 			return

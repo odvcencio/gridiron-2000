@@ -41,14 +41,21 @@ func (f *fakeBadgeUpdater) ClaimBadgeWithTransition(r *http.Request, team, motif
 }
 
 type fakeBadgeImageReader struct {
-	data    []byte
-	version string
-	ok      bool
-	healthy bool
+	data      []byte
+	version   string
+	ok        bool
+	largeData []byte
+	largeVer  string
+	largeOK   bool
+	healthy   bool
 }
 
 func (f fakeBadgeImageReader) BadgeImage(string) ([]byte, string, bool) {
 	return f.data, f.version, f.ok
+}
+
+func (f fakeBadgeImageReader) BadgeImageLarge(string) ([]byte, string, bool) {
+	return f.largeData, f.largeVer, f.largeOK
 }
 
 func (f fakeBadgeImageReader) IdentityHealthy() bool { return f.healthy }
@@ -244,6 +251,29 @@ func TestBadgeServeHandlerUsesContentHashCacheAndExactBytes(t *testing.T) {
 	}
 	if got := mutable.Body.Bytes(); !bytes.Equal(got, body) {
 		t.Fatalf("unversioned body = %q, want exact bytes", got)
+	}
+}
+
+// TestBadgeServeHandlerLargeSuffixRoutesToBadgeImageLarge checks that a
+// "{teamID}-lg.png" request serves BadgeImageLarge's bytes, not
+// BadgeImage's — the one large-variant surface avatarViewLarge's own
+// tests exercise from the league package side.
+func TestBadgeServeHandlerLargeSuffixRoutesToBadgeImageLarge(t *testing.T) {
+	smallBody := []byte("small badge bytes")
+	largeBody := []byte("large badge bytes")
+	const largeVersion = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+	handler := badgeServeHandler(fakeBadgeImageReader{
+		data: smallBody, version: "small-version", ok: true,
+		largeData: largeBody, largeVer: largeVersion, largeOK: true,
+		healthy: true,
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://localhost/avatars/badge/team-1-lg.png?v="+largeVersion, nil))
+	if response.Code != http.StatusOK || !bytes.Equal(response.Body.Bytes(), largeBody) {
+		t.Fatalf("large-suffix response = status %d body %q, want the large-render bytes", response.Code, response.Body.Bytes())
+	}
+	if got := response.Header().Get("ETag"); got != `"`+largeVersion+`"` {
+		t.Fatalf("large-suffix ETag = %q, want the large version", got)
 	}
 }
 

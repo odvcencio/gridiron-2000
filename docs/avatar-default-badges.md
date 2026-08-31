@@ -25,7 +25,19 @@ the plain text mark (the team's abbreviation in a colored box).
 ## Image requirements
 
 - Format: PNG, with a transparent background.
-- Size: 512x512 pixels.
+- Size: 128x128 pixels. This is the site's own render size for every
+  "many marks per page" surface (matchups, draft board, standings, home,
+  admin) — twice the widest such CSS slot at a 2x device pixel ratio.
+
+## The large variant
+
+One surface — the team identity page's own hero mark
+(`.team-monogram`) — displays up to 192 CSS px wide and needs a bigger
+file to stay crisp at a 2x device pixel ratio. Add a matching file to
+`large/{tone}.png` (same naming convention, 384x384 pixels) to enable it.
+A tone with only the 128x128 file still renders correctly everywhere;
+the team identity page falls back to that file until a 384x384 one
+exists.
 
 ## How the fallback chain works
 
