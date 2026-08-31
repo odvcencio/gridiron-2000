@@ -678,6 +678,9 @@ func TeamLineupRegion() Node {
 										<If cond={slot.locked}>
 											<span class="position-chip position-chip--locked">{slot.lock_label}</span>
 										</If>
+										<If cond={slot.has_possession}>
+											<span class="possession-chip">{slot.possession_label}</span>
+										</If>
 									</div>
 									<If cond={data.team_terminal_roster_complete && slot.locked == false}>
 										<form method="post" action={actionPath("lineup-set")} data-gosx-managed="true" class="lineup-slot__form">

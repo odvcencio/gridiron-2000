@@ -198,7 +198,15 @@ func TestBuildLiveScoringWiresFreshenSnapshotIntoWeekStatsSeam(t *testing.T) {
 	}
 
 	rt := &AppRuntime{}
-	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2026}
+	// This test exercises the freshenSnapshot/week-stats seam, not GC-2b's
+	// adaptive cadence: it never drafts or starts a real roster on lg, so
+	// a wired league-backed RelevanceSource would read every team as
+	// carrying no league starter at all and idle-tier this game (zero
+	// fetches ever), failing the setup assertion below for a reason
+	// unrelated to what this test actually covers. A permissive stub
+	// opts back into pre-GC-2b's flat, always-relevant cadence instead.
+	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 1000, Season: 2026,
+		Relevance: func(string) livescore.TeamRelevance { return livescore.TeamRelevance{OffensiveStarter: true} }}
 	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, nil, rt)
 	t.Cleanup(func() {
 		lg.SetWeekStatsSource(nil)
@@ -667,7 +675,14 @@ func TestBuildLiveScoringRegistersTheWireTriggerEndToEnd(t *testing.T) {
 	}
 
 	rt := &AppRuntime{}
-	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year()}
+	// This test exercises the wire-trigger seam end to end, not GC-2b's
+	// adaptive cadence: it never drafts or starts a real roster on lg, so
+	// a wired league-backed RelevanceSource would idle-tier this game
+	// (zero fetches, including Tick's own first sighting the comment
+	// below counts on). A permissive stub opts back into pre-GC-2b's
+	// flat, always-relevant cadence instead.
+	liveCfg := livescore.Config{Enabled: true, MaxInflight: 2, DailyBudget: 100, BoxBaseline: time.Hour, Season: time.Now().Year(),
+		Relevance: func(string) livescore.TeamRelevance { return livescore.TeamRelevance{OffensiveStarter: true} }}
 	liveRuntime := buildLiveScoring(liveCfg, fetcher, true, stats, lg, signalFeed, rt)
 	t.Cleanup(func() {
 		lg.SetWeekStatsSource(nil)

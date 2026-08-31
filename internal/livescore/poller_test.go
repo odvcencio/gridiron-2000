@@ -28,6 +28,7 @@ type fakeFetcher struct {
 	err        error
 	listingErr error
 	calls      int
+	callsByID  map[string]int
 	inflight   int
 	peak       int
 }
@@ -35,6 +36,10 @@ type fakeFetcher struct {
 func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
 	f.mu.Lock()
 	f.calls++
+	if f.callsByID == nil {
+		f.callsByID = map[string]int{}
+	}
+	f.callsByID[gameID]++
 	f.inflight++
 	if f.inflight > f.peak {
 		f.peak = f.inflight
@@ -65,6 +70,14 @@ func (f *fakeFetcher) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.calls
+}
+
+// callsFor is keyed by the Tank01 gameID (fixtureListings' own IDs), not
+// the schedule game ID.
+func (f *fakeFetcher) callsFor(tank01ID string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.callsByID[tank01ID]
 }
 
 var kickoff = time.Date(2025, 9, 7, 20, 20, 0, 0, mustEastern())
@@ -440,7 +453,7 @@ func TestRunLogsPollerEnabledOnceAtBoot(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	count, want := 0, "livescore: poller enabled (scoreboard_interval=5ms, box_baseline=45s, max_inflight=3, daily_budget=4242, season=2025)"
+	count, want := 0, "livescore: poller enabled (scoreboard_interval=5ms, box_baseline=45s, box_fast=20s, max_inflight=3, daily_budget=4242, season=2025)"
 	for _, line := range logs {
 		if line == want {
 			count++

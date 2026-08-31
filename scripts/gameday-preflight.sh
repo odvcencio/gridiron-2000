@@ -14,6 +14,11 @@
 #   4. It prints the exact flip and kill-switch-drill commands from
 #      docs/launch-checklist.md step 13.5 and
 #      docs/season-operations.md#kill-switch-procedure.
+#   5. seasonprobe (cmd/seasonprobe, GC-2b item 1): READ-ONLY, but COSTS
+#      REAL UPSTREAM QUOTA — about five Tank01 calls through the live
+#      relay. Off by default; set GAMEDAY_RUN_SEASONPROBE=1 to run it.
+#      Operator-run only, never scheduled, never run against production
+#      by an agent.
 #
 # See docs/launch-checklist.md step 13.5 for the drill this script
 # prepares, and docs/season-operations.md#kill-switch-procedure for the
@@ -56,7 +61,7 @@ if [ -n "$missing_commands" ]; then
 	exit 1
 fi
 
-section "1/4 /api/health (https://${HOST})"
+section "1/5 /api/health (https://${HOST})"
 health_body="$(curl --fail-with-body -sS "https://${HOST}/api/health" 2>&1)" && health_ok=1 || health_ok=0
 if [ "$health_ok" -ne 1 ]; then
 	echo "FAIL: curl https://${HOST}/api/health failed: ${health_body}" >&2
@@ -74,7 +79,7 @@ else
 	fi
 fi
 
-section "2/4 relay reachable + budget header (svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE}, read-only port-forward)"
+section "2/5 relay reachable + budget header (svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE}, read-only port-forward)"
 pf_log="$(mktemp)"
 pf_pid=""
 curl_err_log="$(mktemp)"
@@ -154,7 +159,7 @@ fi
 cleanup_port_forward
 trap - EXIT INT TERM HUP
 
-section "3/4 live-scoring flag (${DEPLOYMENT_MANIFEST})"
+section "3/5 live-scoring flag (${DEPLOYMENT_MANIFEST})"
 if [ -f "$DEPLOYMENT_MANIFEST" ]; then
 	flag_line="$(grep -A1 'name: LIVE_SCORING_ENABLED' "$DEPLOYMENT_MANIFEST" | grep 'value:' | head -1 | sed -e 's/^ *value: *//' -e 's/"//g')"
 	if [ -z "$flag_line" ]; then
@@ -168,7 +173,7 @@ else
 	fail=1
 fi
 
-section "4/4 flip and kill-switch-drill commands"
+section "4/5 flip and kill-switch-drill commands"
 cat <<EOF
   Flip ON, 30 minutes before kickoff (launch-checklist.md step 13.5):
     Edit ${DEPLOYMENT_MANIFEST}: set LIVE_SCORING_ENABLED to "true", then:
@@ -190,6 +195,72 @@ cat <<EOF
 
   Log the drill in docs/launch-checklist.md's "Kill-switch drill log" table.
 EOF
+
+section "5/5 seasonprobe: upstream season probe (READ-ONLY, but COSTS REAL UPSTREAM QUOTA — about five Tank01 calls; off by default)"
+if [ "${GAMEDAY_RUN_SEASONPROBE:-0}" != "1" ]; then
+	cat <<EOF
+  Skipped by default. seasonprobe (cmd/seasonprobe, GC-2b item 1) fetches the
+  real regular-season week-1 games list and one completed preseason box score
+  through the live relay — about five real Tank01 calls, billed against the
+  daily quota like any other relay call. It is operator-run only: never
+  scheduled, never run automatically by an agent, never pointed at production
+  without a deliberate decision to spend those calls.
+
+  Set GAMEDAY_RUN_SEASONPROBE=1 to run it here, through the same read-only
+  port-forward section 2 used. It also needs a synced OPEN_STATS_ROOT mirror
+  (GAMEDAY_OPEN_STATS_ROOT, default data/open-stats) to diff against.
+EOF
+else
+	require_command go
+	if [ -n "$missing_commands" ]; then
+		fail=1
+	else
+		pf_log="$(mktemp)"
+		pf_pid=""
+		cleanup_port_forward() {
+			if [ -n "$pf_pid" ]; then
+				kill "$pf_pid" >/dev/null 2>&1 || true
+				wait "$pf_pid" 2>/dev/null || true
+			fi
+			rm -f "$pf_log"
+		}
+		trap cleanup_port_forward EXIT
+		trap 'cleanup_port_forward; trap - EXIT; exit 130' INT
+		trap 'cleanup_port_forward; trap - EXIT; exit 143' TERM HUP
+
+		kubectl -n "$RELAY_NAMESPACE" port-forward "svc/${RELAY_SERVICE}" "${RELAY_LOCAL_PORT}:80" >"$pf_log" 2>&1 &
+		pf_pid=$!
+		ready=0
+		tries=0
+		while [ "$tries" -lt 20 ]; do
+			if grep -q "Forwarding from" "$pf_log" 2>/dev/null; then
+				ready=1
+				break
+			fi
+			if ! kill -0 "$pf_pid" 2>/dev/null; then
+				break
+			fi
+			sleep 0.25
+			tries=$((tries + 1))
+		done
+
+		if [ "$ready" -ne 1 ]; then
+			echo "FAIL: kubectl port-forward to svc/${RELAY_SERVICE} -n ${RELAY_NAMESPACE} did not become ready" >&2
+			cat "$pf_log" >&2
+			fail=1
+		else
+			OPEN_STATS_ROOT="${GAMEDAY_OPEN_STATS_ROOT:-data/open-stats}" \
+				go run ./cmd/seasonprobe \
+				--tank01-base-url "http://127.0.0.1:${RELAY_LOCAL_PORT}" \
+				--open-stats-root "${GAMEDAY_OPEN_STATS_ROOT:-data/open-stats}" \
+				--season "$SEASON" --week "$WEEK" \
+				--capture-dir "${GAMEDAY_CAPTURE_DIR:-}" \
+				|| fail=1
+		fi
+		cleanup_port_forward
+		trap - EXIT INT TERM HUP
+	fi
+fi
 
 if [ "$fail" -ne 0 ]; then
 	echo

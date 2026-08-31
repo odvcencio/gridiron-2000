@@ -656,16 +656,21 @@ explicit action, never a batch.
    requests/day, soft-limited — RapidAPI bills overage at $0.01/request
    instead of blocking, and returns no `429` on overage, so the app's own
    429 circuit breaker never fires there; `STATRELAY_DAILY_BUDGET` is the
-   real wallet guard. The three-layer polling design
-   (season-operations.md's Game day section) replaces the old blanket
-   per-game poll: a scoreboard tick (`LIVE_SCOREBOARD_INTERVAL`, default
-   `10s`, only while a game is inside its own poll window) resolves Tank01
-   IDs; a baseline (`LIVE_BOX_BASELINE`, default `60s`) fetches each
-   in-progress game's box at minimum; a Signal Wire trigger fetches a
-   named team's game at once, bounded to one triggered fetch per game per
-   10s. The tracked defaults are: `LIVE_DAILY_BUDGET=5000` per app
-   instance (box-score fetches only — a games-list call is never charged
-   against it) and `STATRELAY_DAILY_BUDGET=10000` on the shared relay
+   real wallet guard. The polling design (season-operations.md's Game day
+   section) replaces the old blanket per-game poll: a scoreboard tick
+   (`LIVE_SCOREBOARD_INTERVAL`, default `10s`, only while a game is inside
+   its own poll window) resolves Tank01 IDs; GC-2b's adaptive cadence then
+   fetches each in-progress game's box at `LIVE_BOX_FAST` (default `20s`)
+   while a relevant possession is actively known, `LIVE_BOX_BASELINE`
+   (default `30s`) otherwise (including every game before possession is
+   verified), or at most once (its first sighting only) for a game where
+   neither team fields a single league starter this week; a Signal Wire
+   trigger fetches a named
+   team's game at once regardless of either adaptive-cadence backoff,
+   bounded to one triggered fetch per game per 10s. The tracked defaults
+   are: `LIVE_DAILY_BUDGET=9000` per app instance (box-score fetches
+   only — a games-list call is never charged against it) and
+   `STATRELAY_DAILY_BUDGET=13000` on the shared relay
    (`deploy/k8s/statrelay.yaml`), both real values against the verified
    quota, not placeholders. `LIVE_POLL_INTERVAL` is the deprecated alias
    for `LIVE_SCOREBOARD_INTERVAL`; no tracked manifest sets it.

@@ -156,7 +156,8 @@ func liveStatusFromPoller(snapshot func() livescore.Snapshot, health func() live
 		h, s := health(), freshenSnapshot(snapshot(), now())
 		games := make(map[string]league.LiveGameState, len(s.Games)*2)
 		for _, game := range s.Games {
-			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff}
+			state := league.LiveGameState{GameID: game.ID, Away: game.Away, Home: game.Home, Period: game.Period, Clock: game.Clock, Final: game.Final, InProgress: game.InProgress, Kickoff: game.Kickoff,
+				Possession: game.Possession, PossessionKnown: game.PossessionKnown}
 			games[game.Away], games[game.Home] = state, state
 		}
 		return league.LiveStatus{Enabled: h.Enabled, Degraded: h.Degraded, Reason: h.Reason, CheckedAt: h.LastSuccess, Games: games}
@@ -278,6 +279,17 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 		liveCfg.Enabled = false
 		liveCfg.DisabledReason = fantasyPoolDisabledReason
 	}
+	if liveCfg.Relevance == nil {
+		// GC-2b's adaptive-cadence callback seam. Every real caller
+		// (main.go, through liveScoringInputs's livescore.ConfigFromEnv)
+		// always arrives here with liveCfg.Relevance unset, so wiring the
+		// real league-backed source is unconditional in production; a
+		// test that wants pre-GC-2b's flat, always-relevant cadence
+		// instead of modeling a real roster sets its own stub directly on
+		// the Config it builds (see live_scoring_test.go), and that value
+		// is respected rather than clobbered here.
+		liveCfg.Relevance = liveRelevanceSource(lg)
+	}
 	poller := livescore.New(liveCfg, fetcher, liveScheduleSource(lg.ScheduleSourceForLive()))
 	if signalFeed != nil {
 		signalFeed.OnSignal(wireBoxFetchTrigger(poller))
@@ -320,3 +332,16 @@ func buildLiveScoring(liveCfg livescore.Config, fetcher livescore.Fetcher, fanta
 }
 
 var _ livescore.Fetcher = (*fantasy.BoxScoreClient)(nil)
+
+// liveRelevanceSource adapts league.Service.TeamRelevanceFor to
+// livescore.RelevanceSource — GC-2b's adaptive-cadence callback seam,
+// the poller's own analog of the WeekStatsSource pattern this file
+// already uses above. The two TeamRelevance types are deliberately
+// distinct (internal/league must not import internal/livescore); this
+// closure is the entire, one-field-at-a-time adaptation between them.
+func liveRelevanceSource(lg *league.Service) livescore.RelevanceSource {
+	return func(team string) livescore.TeamRelevance {
+		r := lg.TeamRelevanceFor(team)
+		return livescore.TeamRelevance{OffensiveStarter: r.OffensiveStarter, DSTStarter: r.DSTStarter}
+	}
+}

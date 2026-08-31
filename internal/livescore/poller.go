@@ -47,6 +47,19 @@ type gameRecord struct {
 	box  fantasy.BoxScore
 	hash [32]byte
 	at   time.Time
+	// possession and possessionKnown are ExtractPossession's own result
+	// against box.Raw, recorded once per fetch (GC-2b) so boxFetchTier
+	// need not re-run extraction on every tier check.
+	possession      string
+	possessionKnown bool
+	// unchangedFastFetches counts consecutive fast-tier box fetches for
+	// this game whose content hash matched the immediately prior fetch's
+	// (GC-2b's unchanged-payload backoff) — see updateFastStreak's own
+	// doc comment for exactly how it is incremented and reset. Carried
+	// forward across record() calls (never reset to zero merely by a new
+	// gameRecord being written) so the backoff survives from tick to
+	// tick; only updateFastStreak ever changes it after the first write.
+	unchangedFastFetches int
 }
 
 // Poller fetches every in-window game each tick and publishes a versioned
@@ -136,7 +149,13 @@ func New(cfg Config, fetcher Fetcher, schedule ScheduleSource) *Poller {
 		}
 	}
 	if cfg.BoxBaseline <= 0 {
-		cfg.BoxBaseline = 60 * time.Second
+		cfg.BoxBaseline = 30 * time.Second
+	}
+	if cfg.BoxFast <= 0 {
+		cfg.BoxFast = 20 * time.Second
+	}
+	if cfg.BoxFast < boxFastFloor {
+		cfg.BoxFast = boxFastFloor
 	}
 	if cfg.MaxInflight <= 0 {
 		cfg.MaxInflight = 4
@@ -165,8 +184,8 @@ func (p *Poller) Run(ctx context.Context) {
 	// this fires. A 2026-08-30 flagship drill (release-2026.08.30-
 	// c655472) found the enabled poller logged nothing at boot at all —
 	// see the kill-switch drill log in docs/launch-checklist.md.
-	p.cfg.Logf("livescore: poller enabled (scoreboard_interval=%s, box_baseline=%s, max_inflight=%d, daily_budget=%d, season=%d)",
-		p.cfg.ScoreboardInterval, p.cfg.BoxBaseline, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
+	p.cfg.Logf("livescore: poller enabled (scoreboard_interval=%s, box_baseline=%s, box_fast=%s, max_inflight=%d, daily_budget=%d, season=%d)",
+		p.cfg.ScoreboardInterval, p.cfg.BoxBaseline, p.cfg.BoxFast, p.cfg.MaxInflight, p.cfg.DailyBudget, p.cfg.Season)
 	ticker := time.NewTicker(p.cfg.ScoreboardInterval)
 	defer ticker.Stop()
 	p.Tick(ctx)
@@ -326,23 +345,31 @@ func (p *Poller) Tick(ctx context.Context) {
 	p.tank01ID, p.trackedGame = tank01ByGame, trackedGame
 	p.mu.Unlock()
 
-	// boxTargets narrows targets to GC-2 layer 2's own gate: a box score
-	// is fetched when it has gone at least cfg.BoxBaseline without a
-	// successful fetch (including never yet fetched at all) — the slow
-	// safety net that keeps yardage and reception stats flowing between
-	// scoring plays. This tick has no scoreboard-delta gate layered on
-	// top (see ScoreboardInterval's own doc comment): GC-2 shipped
-	// without one, for lack of a verified live score/period/clock field
-	// on the games-list response itself. A wire-triggered fetch
+	// boxTargets narrows targets to GC-2 layer 2's own gate, refined by
+	// GC-2b's tiered cadence (boxFetchTier/boxFetchDue): an idle game
+	// appears here at most once — its first sighting, never again after —
+	// and a baseline or fast game appears once it has gone at least its
+	// own tier's interval without a successful fetch (including never yet
+	// fetched at all) — the safety net that keeps yardage and reception
+	// stats flowing between scoring plays, faster while a relevant
+	// possession is active. This tick has no scoreboard-delta gate
+	// layered on top (see ScoreboardInterval's own doc comment): GC-2
+	// shipped without one, for lack of a verified live score/period/clock
+	// field on the games-list response itself. A wire-triggered fetch
 	// (TriggerBoxFetch) reaches the same fetcher/record/budget path
-	// independently of this loop, between ticks.
+	// independently of this loop, between ticks, and skips an
+	// already-seen idle-tier game the same way this loop does (an unseen
+	// one is vanishingly unlikely to reach a trigger before Tick's own
+	// first-sighting fetch already ran).
 	var boxTargets []Game
+	tierByID := make(map[string]boxFetchTier, len(targets))
 	for _, game := range targets {
 		if _, ok := matched[game.ID]; !ok {
 			continue
 		}
-		if p.boxFetchDue(game.ID, now) {
+		if p.boxFetchDue(game, now) {
 			boxTargets = append(boxTargets, game)
+			tierByID[game.ID] = p.boxFetchTier(game)
 		}
 	}
 
@@ -352,12 +379,13 @@ func (p *Poller) Tick(ctx context.Context) {
 	var changedMu sync.Mutex
 	for _, game := range boxTargets {
 		tank01ID := matched[game.ID]
+		tier := tierByID[game.ID]
 		if !p.budgetRemaining(now) {
 			break
 		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(game Game, tank01ID string) {
+		go func(game Game, tank01ID string, tier boxFetchTier) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			box, err := p.fetcher.FetchBoxScore(ctx, tank01ID)
@@ -370,13 +398,14 @@ func (p *Poller) Tick(ctx context.Context) {
 			// budget on failed attempts and mask the real fault behind a
 			// false "daily budget exhausted" reason.
 			recordChanged := p.record(game, box, now)
+			p.updateFastStreak(game.ID, tier, recordChanged) // GC-2b's unchanged-payload backoff
 			p.chargeBudget(now)
 			if recordChanged {
 				changedMu.Lock()
 				changed = true
 				changedMu.Unlock()
 			}
-		}(game, tank01ID)
+		}(game, tank01ID, tier)
 	}
 	wg.Wait()
 	p.mu.Lock()
@@ -398,27 +427,45 @@ func (p *Poller) isFinalDone(id string) bool {
 	return p.finalDone[id]
 }
 
-// boxFetchDue reports whether id's box score has gone at least
-// cfg.BoxBaseline without a successful fetch — including a game never yet
-// fetched at all, which is always due (GC-2 layer 2). A negative elapsed
-// duration (cfg.Now went backward relative to the last successful fetch —
-// never true of a real production clock, but a real possibility for a
-// harness that can set an arbitrary clock override, sim_gameday_test.go's
-// /test/clock chief among them) is treated as due too: there is no
-// meaningful sense in which a fetch is still "fresh" against a now that
-// precedes it, and the alternative — waiting for the clock to naturally
-// catch back up to that stale timestamp — could silently stall fetching
-// far longer than cfg.BoxBaseline ever promises. Callers hold no lock; it
-// takes its own.
-func (p *Poller) boxFetchDue(id string, now time.Time) bool {
+// boxFetchDue reports whether game's box score is due for a fetch this
+// tick, under GC-2b's tiered cadence (boxFetchTier): a game never yet
+// fetched at all is always due, at any tier including idle (the
+// snapshot-completeness carve-out — see boxFetchIdle's own doc comment);
+// past that first sighting, idle never fetches again, and baseline/fast
+// each fetch when the last successful fetch is at least that tier's own
+// interval old. A negative elapsed duration (cfg.Now went backward
+// relative to the last successful fetch — never true of a real
+// production clock, but a real possibility for a harness that can set an
+// arbitrary clock override, sim_gameday_test.go's /test/clock chief among
+// them) is treated as due too: there is no meaningful sense in which a
+// fetch is still "fresh" against a now that precedes it, and the
+// alternative — waiting for the clock to naturally catch back up to that
+// stale timestamp — could silently stall fetching far longer than the
+// interval ever promises. Callers hold no lock; it takes its own.
+func (p *Poller) boxFetchDue(game Game, now time.Time) bool {
 	p.mu.Lock()
-	rec, seen := p.games[id]
+	rec, seen := p.games[game.ID]
 	p.mu.Unlock()
+	// The very first sighting always fetches, at any tier, including
+	// idle: gameRelevance's hasStarter check is a roster fact, entirely
+	// independent of anything a box fetch could ever teach it, so an
+	// idle game is never going to become non-idle later — but the
+	// snapshot itself (score, period, clock — and, for the possession
+	// display seam, whether this game's own possession can be read at
+	// all) would otherwise never carry that game's data even once. GC-2b
+	// left this exact call to the implementer ("fetch at most once ...
+	// if that helps the snapshot's completeness — your call, document
+	// it"): a single fetch per idle game, at whatever instant it first
+	// enters the poll window, is worth the bounded one-time cost.
 	if !seen {
 		return true
 	}
+	tier := p.boxFetchTier(game)
+	if tier == boxFetchIdle {
+		return false
+	}
 	elapsed := now.Sub(rec.at)
-	return elapsed < 0 || elapsed >= p.cfg.BoxBaseline
+	return elapsed < 0 || elapsed >= p.intervalFor(tier)
 }
 
 // TriggerBoxFetch requests one immediate, out-of-band box-score fetch for
@@ -437,11 +484,18 @@ func (p *Poller) boxFetchDue(id string, now time.Time) bool {
 // A call is a silent no-op when: the poller is disabled; the relay
 // circuit is open; gameID is not one of the current tick's own targets
 // (unmatched to a Tank01 ID, out of window, or already final — see
-// tank01ID/trackedGame's own doc comment); or gameID was already
-// triggered within triggerCooldown (10s). Every other guard Tick's own
-// fetch loop applies — the daily budget, failure/circuit tracking —
-// applies here too, through the same shared budgetRemaining/
-// chargeBudget/record/recordFailure methods.
+// tank01ID/trackedGame's own doc comment); gameID was already triggered
+// within triggerCooldown (10s); or the game is GC-2b's own idle tier
+// (neither side fields a single league starter this week — boxFetchTier)
+// — a false trigger on a game nothing in the league cares about should
+// not cost even one bonus fetch. GC-2b's other two adaptive-cadence
+// backoffs (break-state, unchanged-payload) do NOT apply here: a
+// matching wire signal is exactly the "something changed" event those
+// backoffs exist to defer to, so a trigger always fires immediately once
+// past the checks above, regardless of either backoff's current state
+// for this game. Every other guard Tick's own fetch loop applies — the
+// daily budget, failure/circuit tracking — applies here too, through the
+// same shared budgetRemaining/chargeBudget/record/recordFailure methods.
 func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 	now := p.cfg.Now()
 	p.mu.Lock()
@@ -465,6 +519,14 @@ func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 	p.lastTrigger[gameID] = now
 	p.mu.Unlock()
 
+	// The cooldown slot above is consumed regardless (harmless: an idle
+	// game's cooldown gates nothing meaningful anyway, and computing
+	// boxFetchTier needs p.mu, which this function no longer holds at
+	// this point — see boxFetchTier's own lock use).
+	if p.boxFetchTier(game) == boxFetchIdle {
+		return
+	}
+
 	if !p.budgetRemaining(now) {
 		return
 	}
@@ -474,6 +536,11 @@ func (p *Poller) TriggerBoxFetch(ctx context.Context, gameID string) {
 		return
 	}
 	changed := p.record(game, box, now)
+	// A real change here always resets the backoff streak (updateFastStreak
+	// only ever increments for tier==boxFetchFast, so the boxFetchBaseline
+	// argument below is a no-op on the unchanged path and exists only to
+	// carry the "any real change resets, at any tier" case).
+	p.updateFastStreak(gameID, boxFetchBaseline, changed)
 	p.chargeBudget(now)
 	if changed {
 		p.mu.Lock()
@@ -586,18 +653,29 @@ func (p *Poller) openCircuitOnRateLimit(err error, now time.Time) {
 }
 
 // record stores one box score and reports whether its content changed.
+// Possession is extracted here (GC-2b), once per fetch, gated on
+// box.InProgress exactly as addBoxToSnapshot gates it for Snapshot's own
+// GameState — the two must never disagree about when possession is
+// meaningful to read at all.
 func (p *Poller) record(game Game, box fantasy.BoxScore, now time.Time) bool {
 	encoded, _ := json.Marshal(box)
 	hash := sha256.Sum256(encoded)
+	possession, possessionKnown := "", false
+	if box.InProgress {
+		possession, possessionKnown = ExtractPossession(box.Raw)
+	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.failures, p.lastError, p.lastSuccess = 0, "", now
 	previous, seen := p.games[game.ID]
-	p.games[game.ID] = gameRecord{game: game, box: box, hash: hash, at: now}
+	changed := !seen || previous.hash != hash
+	p.games[game.ID] = gameRecord{game: game, box: box, hash: hash, at: now,
+		possession: possession, possessionKnown: possessionKnown,
+		unchangedFastFetches: previous.unchangedFastFetches}
 	if box.Final {
 		p.finalDone[game.ID] = true
 	}
-	return !seen || previous.hash != hash
+	return changed
 }
 
 // Snapshot copies the current state under p.mu only; it reads no schedule.

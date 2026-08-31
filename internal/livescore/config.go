@@ -14,6 +14,11 @@ import (
 // wire trigger) exists to remove.
 const scoreboardFloor = 5 * time.Second
 
+// boxFastFloor is the minimum LIVE_BOX_FAST (GC-2b): a misconfigured value
+// can never push the fast tier's cadence tighter than this, the same
+// floor discipline scoreboardFloor applies to LIVE_SCOREBOARD_INTERVAL.
+const boxFastFloor = 10 * time.Second
+
 // Config drives one Poller. Every value is environment-driven because the
 // RapidAPI tier decides the cadence and budget, not the code. The owner
 // confirms the budget defaults after the verified Ultra quota (GC-2).
@@ -34,11 +39,35 @@ type Config struct {
 	// for a caller that builds a Config directly instead of through
 	// ConfigFromEnv.
 	ScoreboardInterval time.Duration
-	// BoxBaseline is LIVE_BOX_BASELINE, default 60s (GC-2, layer 2): every
-	// in-progress game's box score is fetched at least this often
-	// regardless of the wire trigger, so yardage and reception stats keep
-	// flowing between scoring plays.
+	// BoxBaseline is LIVE_BOX_BASELINE, default 30s (GC-2b lowered it from
+	// GC-2's original 60s): the flat cadence GC-2's layer 2 always used,
+	// now also GC-2b's own fallback tier — a relevant game whose
+	// possession is not itself known-relevant (including simply unknown),
+	// a break-state game, or a fast-tier game backed off by the
+	// unchanged-payload guard, all fetch at this cadence instead of
+	// BoxFast. See boxFetchTier's own doc comment for the full tier
+	// table.
 	BoxBaseline time.Duration
+	// BoxFast is LIVE_BOX_FAST, default 20s, floored at boxFastFloor
+	// (10s): GC-2b's fast tier, used only for a game whose last-known
+	// possession is itself relevant (Relevance below) — the possessing
+	// team fields a league offensive starter, or the defending team's DST
+	// is started — and that is not currently backed off by the
+	// break-state or unchanged-payload guards (boxFetchTier).
+	BoxFast time.Duration
+	// Relevance is GC-2b's adaptive-cadence callback seam, the poller's
+	// own analog of the existing WeekStatsSource/ScheduleSource pattern:
+	// given one NFL team abbreviation (nflverse-normalized), it reports
+	// whether that team fields at least one league offensive starter this
+	// week and whether that team's DST is started, derived from current
+	// effective starters league-wide. live_scoring.go wires this from
+	// internal/league; internal/livescore never imports that package
+	// directly, keeping the two decoupled. A nil Relevance (a caller that
+	// builds Config directly, every existing test, or replay mode before
+	// it is wired) makes every game read as relevant-with-unknown-
+	// possession — the same flat BoxBaseline cadence GC-2 always used,
+	// never idle, never fast: see gameRelevance's own doc comment.
+	Relevance RelevanceSource
 	// Interval is LIVE_POLL_INTERVAL's old field name, kept only as a
 	// deprecated fallback: New copies it into ScoreboardInterval whenever
 	// ScoreboardInterval is left zero, so a caller that still only sets
@@ -82,11 +111,24 @@ func ConfigFromEnv() Config {
 	return Config{
 		Enabled:            strings.EqualFold(strings.TrimSpace(os.Getenv("LIVE_SCORING_ENABLED")), "true"),
 		ScoreboardInterval: scoreboardIntervalFromEnv(),
-		BoxBaseline:        envDuration("LIVE_BOX_BASELINE", 60*time.Second),
+		BoxBaseline:        envDuration("LIVE_BOX_BASELINE", 30*time.Second),
+		BoxFast:            boxFastFromEnv(),
 		MaxInflight:        envInt("LIVE_MAX_INFLIGHT", 4),
-		DailyBudget:        envInt("LIVE_DAILY_BUDGET", 5000),
+		DailyBudget:        envInt("LIVE_DAILY_BUDGET", 9000),
 		Season:             envInt("NFL_SEASON", time.Now().Year()),
 	}
+}
+
+// boxFastFromEnv resolves LIVE_BOX_FAST, default 20s, floored at
+// boxFastFloor (10s) — the same floor discipline scoreboardIntervalFromEnv
+// applies to LIVE_SCOREBOARD_INTERVAL, so a misconfigured value can never
+// push the fast tier's cadence tighter than the floor allows.
+func boxFastFromEnv() time.Duration {
+	fast := envDuration("LIVE_BOX_FAST", 20*time.Second)
+	if fast < boxFastFloor {
+		fast = boxFastFloor
+	}
+	return fast
 }
 
 // scoreboardIntervalFromEnv resolves LIVE_SCOREBOARD_INTERVAL, falling back

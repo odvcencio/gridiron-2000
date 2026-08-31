@@ -3049,6 +3049,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterDetail := make(map[string]string)
 	starterSource := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
+	starterPossessionBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
 	matchupClock := make(map[string]string, len(live.Matchups))
 	matchupIndicator := make(map[string]string, len(live.Matchups))
@@ -3084,6 +3085,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterDetail[row.LiveKey] = row.Detail
 		starterSource[row.LiveKey] = row.Source
 		starterGameStateBind[row.LiveKey] = row.GameState
+		starterPossessionBind[row.LiveKey] = row.Possession
 	}
 	for _, matchup := range live.Matchups {
 		scores[matchup.Away.ID] = matchupScoreText(matchup.Away)
@@ -3150,6 +3152,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"starterDetail":     starterDetail,
 		"starterSource":     starterSource,
 		"starterGameState":  starterGameStateBind,
+		"starterPossession": starterPossessionBind,
 		"liveStatus":        liveStatus,
 		"liveUpdated":       checked,
 		"lastUpdated":       statsUpdated,
@@ -4086,6 +4089,7 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
 			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
+			"possession": row.Possession,
 		})
 	}
 	return out

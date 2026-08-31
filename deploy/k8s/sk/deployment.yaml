@@ -90,24 +90,28 @@ spec:
               value: "http://statrelay.gridiron.svc.cluster.local"
             # Regular-season live scoring kill switch (internal/livescore),
             # mirroring ../deployment.yaml, including the retired
-            # LIVE_POLL_INTERVAL and the verified Ultra quota's real
-            # LIVE_DAILY_BUDGET (see that file's own comment). The Stable
-            # Kernel league did not form for the 2026 season, so this
-            # manifest is not a live canary right now — flagship is the
-            # only live instance, enabled behind the replay rehearsal and
-            # the Thursday-night kill-switch watch in
-            # docs/launch-checklist.md. This file stays tracked as the
-            # template a future second live instance rolls from.
+            # LIVE_POLL_INTERVAL and GC-2b's verified Ultra quota real
+            # values (LIVE_BOX_BASELINE/LIVE_BOX_FAST/LIVE_DAILY_BUDGET —
+            # see that file's own comment). The Stable Kernel league did
+            # not form for the 2026 season, so this manifest is not a live
+            # canary right now — flagship is the only live instance,
+            # enabled behind the replay rehearsal and the Thursday-night
+            # kill-switch watch in docs/launch-checklist.md. This file
+            # stays tracked as the template a future second live instance
+            # rolls from, and its values stay in lockstep with the
+            # flagship manifest even while it carries no live traffic.
             - name: LIVE_SCORING_ENABLED
               value: "false"
             - name: LIVE_SCOREBOARD_INTERVAL
               value: "10s"
             - name: LIVE_BOX_BASELINE
-              value: "60s"
+              value: "30s"
+            - name: LIVE_BOX_FAST
+              value: "20s"
             - name: LIVE_MAX_INFLIGHT
               value: "4"
             - name: LIVE_DAILY_BUDGET
-              value: "5000"
+              value: "9000"
             - name: COMMISSIONER_INSTANCE_ID
               value: "skl"
             - name: COMMISSIONER_HQ_PEERS

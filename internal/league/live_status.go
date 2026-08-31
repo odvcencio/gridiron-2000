@@ -11,6 +11,15 @@ type LiveGameState struct {
 	Final      bool
 	InProgress bool
 	Kickoff    time.Time
+	// Possession and PossessionKnown are GC-2b's possession display seam:
+	// the nflverse abbreviation of the team the live poller last resolved
+	// as currently on offense, and whether that resolution is actually
+	// known (internal/livescore.ExtractPossession's own tolerant seam,
+	// carried through livescore.GameState). Both are always their zero
+	// value unless InProgress is true — possession has no honest meaning
+	// otherwise.
+	Possession      string
+	PossessionKnown bool
 }
 
 // LiveStatus is the live poller's provenance for the render path. Degraded

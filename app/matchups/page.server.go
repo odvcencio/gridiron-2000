@@ -95,6 +95,12 @@ type StarterCellData struct {
 	Source          string
 	GameState       string
 	StateClass      string
+	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
+	// ON FIELD", or "" — league.StarterLedgerRow.Possession's own doc
+	// comment). Rendered only when non-empty (public/styles.css's
+	// .possession-chip:empty rule hides an empty bound span the same way
+	// .state-chip:empty already does).
+	Possession string
 }
 
 // starterCellData converts one side of a FeaturedMatchupPairData row.
@@ -124,6 +130,7 @@ func starterCellData(raw any, right bool) StarterCellData {
 		Source:          stringField(row, "source"),
 		GameState:       stringField(row, "game_state"),
 		StateClass:      starterStateClass(stringField(row, "game_state")),
+		Possession:      stringField(row, "possession"),
 	}
 }
 

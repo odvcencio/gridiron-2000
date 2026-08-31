@@ -9400,6 +9400,36 @@ body.is-on-clock .draft-clock-panel {
   display: none;
 }
 
+/* .possession-chip is GC-2b's possession chip: rendered inline inside
+   the starter-cell name's <small> line (never a promoted grid item of
+   .starter-cell, which has display: contents above and must keep its
+   exact three-child grid shape). Truthful-state rule: it carries text
+   ("ON OFFENSE", "DEFENSE ON FIELD"), never color alone, and the same
+   :empty-hides pattern .state-chip:empty already uses keeps an unknown
+   or not-relevant starter's bound span present (so a later live update
+   still has something to patch) but visually absent — no placeholder
+   chip. */
+.possession-chip {
+  display: inline-block;
+  margin-left: 0.35em;
+  padding: 0 0.4em;
+  border: 1px solid var(--color-accent-cyan);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent-cyan);
+  background: var(--color-cyan-haze);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.possession-chip:empty {
+  display: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .pts,
 .starter-cell__pts {
   font-family: var(--font-mono);

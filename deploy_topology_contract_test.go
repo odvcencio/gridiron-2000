@@ -73,9 +73,10 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 	liveScoringEnv := []string{
 		"name: LIVE_SCORING_ENABLED\n              value: \"false\"",
 		"name: LIVE_SCOREBOARD_INTERVAL\n              value: \"10s\"",
-		"name: LIVE_BOX_BASELINE\n              value: \"60s\"",
+		"name: LIVE_BOX_BASELINE\n              value: \"30s\"",
+		"name: LIVE_BOX_FAST\n              value: \"20s\"",
 		"name: LIVE_MAX_INFLIGHT\n              value: \"4\"",
-		"name: LIVE_DAILY_BUDGET\n              value: \"5000\"",
+		"name: LIVE_DAILY_BUDGET\n              value: \"9000\"",
 	}
 	for _, path := range []string{"deploy/k8s/deployment.yaml", "deploy/k8s/sk/deployment.yaml"} {
 		t.Run(path, func(t *testing.T) {
@@ -99,7 +100,7 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "name: STATRELAY_DAILY_BUDGET\n              value: \"10000\""; !strings.Contains(string(relay), want) {
+	if want := "name: STATRELAY_DAILY_BUDGET\n              value: \"13000\""; !strings.Contains(string(relay), want) {
 		t.Errorf("deploy/k8s/statrelay.yaml omitted %q", want)
 	}
 }

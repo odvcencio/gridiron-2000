@@ -161,6 +161,19 @@ type BoxScore struct {
 	InProgress bool                          // code "1", or any non-final code with a non-empty period
 	Players    map[string]PlayerLine         // Tank01 playerID -> line
 	DST        map[string]map[string]float64 // Tank01 team abbreviation -> dstStatKeys plus ptsAllowed
+	// Raw is the decoded top-level getNFLBoxScore body, kept only for a
+	// tolerant downstream seam this package does not itself model:
+	// internal/livescore's GC-2b possession extraction (ExtractPossession)
+	// reads it for the "lineScore.{away,home}.currentlyInPossession" shape
+	// verified against testdata/box-20250904_DAL-PHI.json and
+	// testdata/preseason-boxscore-sample.json (both completed games, so
+	// both sides read "False" there — the shape is real, a live "True" is
+	// not yet observed), plus a short list of speculative fallback keys.
+	// No scoring rule may ever read this field; every scored value comes
+	// from the typed fields above. It rides along in poller.go's
+	// change-detection hash on purpose: a possession flip with no other
+	// stat change still counts as new content worth a version bump.
+	Raw map[string]any
 }
 
 // PlayerLine is one player's box-score row with the identity fields the
@@ -206,6 +219,7 @@ func parseBoxScore(raw json.RawMessage) BoxScore {
 	box.Clock = strings.TrimSpace(flexString(body["gameClock"]))
 	box.Final = preseasonFinal(box.Status, box.StatusCode) || strings.EqualFold(box.Period, "final")
 	box.InProgress = !box.Final && (box.StatusCode == "1" || (box.StatusCode != "0" && box.StatusCode != "" && box.Period != ""))
+	box.Raw = body
 	playerStats, _ := body["playerStats"].(map[string]any)
 	for playerID, rawEntry := range playerStats {
 		entry, ok := rawEntry.(map[string]any)

@@ -503,7 +503,11 @@ type StarterLedgerRow struct {
 	JoinState  string  `json:"joinState"`
 	Source     string  `json:"source,omitempty"`    // StatSource* of the matched line
 	GameState  string  `json:"gameState,omitempty"` // "Q3 8:12", "FINAL", "SUN 4:25 PM", ""
-	Detail     string  `json:"detail"`
+	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
+	// ON FIELD", or "" — starterPossessionLabel's own doc comment). Empty
+	// renders no chip at all: possession only appears when known.
+	Possession string `json:"possession,omitempty"`
+	Detail     string `json:"detail"`
 }
 
 // TeamWeekLedger is the one scoring calculation shared by the live matchup
