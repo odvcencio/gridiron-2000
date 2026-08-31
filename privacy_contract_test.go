@@ -159,7 +159,9 @@ func privacyPathExcluded(path string) bool {
 	if normalized == "league.json" || normalized == "config/league.json" {
 		return true
 	}
-	for _, privatePrefix := range []string{"deploy/local", "docs/plans", "docs/superpowers"} {
+	// .claude holds agent-tool worktrees and session state: never repository
+	// content, and its checkouts duplicate tracked files under scan.
+	for _, privatePrefix := range []string{".claude", "deploy/local", "docs/plans", "docs/superpowers"} {
 		if normalized == privatePrefix || strings.HasPrefix(normalized, privatePrefix+"/") {
 			return true
 		}

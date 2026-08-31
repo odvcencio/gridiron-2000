@@ -22,7 +22,9 @@ func TestLiveIndicatorContract(t *testing.T) {
 			return err
 		}
 		if info.IsDir() {
-			if path == "../.git" || path == "../dist" || path == "../data" {
+			// .claude holds agent-tool worktrees whose checkouts duplicate
+			// every .gsx file and would double-count approved live-dot sites.
+			if path == "../.git" || path == "../dist" || path == "../data" || path == "../.claude" {
 				return filepath.SkipDir
 			}
 			return nil
