@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -237,5 +238,83 @@ func TestAdminSetRosterShapeRequiresCommissioner(t *testing.T) {
 	}
 	if err := svc.AdminResetRosterShape(request); err == nil {
 		t.Fatal("a non-commissioner request must be rejected")
+	}
+}
+
+// TestAdminSetRosterShapeInvalidatesPoolCache is the finding 3 regression
+// (adversarial review, 2026-08-30): pool()'s cache keys on (source
+// version, label) only, so a commissioner's roster-shape override or
+// reset left stale HouseRanks behind forever on a source whose version
+// never moves. AdminSetRosterShape and AdminResetRosterShape must
+// invalidate the pool cache directly (invalidatePoolCache, service.go)
+// so the very next pool() call recomputes HouseRank against whichever
+// shape is now active, not the one that was active when the cache was
+// last built.
+func TestAdminSetRosterShapeInvalidatesPoolCache(t *testing.T) {
+	t.Cleanup(clearRosterShape)
+	svc := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	// pivot ("qb-09", index 8) is the 9th-best QB: under the config
+	// baseline (standard, no SUPERFLEX) QB demand is exactly 8 (1 slot x
+	// 8 teams), so this player IS the replacement level — VORP 0.
+	// gridiron-house's extra SUPERFLEX slot roughly doubles QB demand;
+	// every RB/WR/TE player in this fixture is deliberately far below
+	// every QB's projection at any pointer index the greedy fill reaches,
+	// so all 8 SUPERFLEX slots go to QB, comfortably absorbing qb-09 as a
+	// real starter with a large, strictly positive VORP. This is a large,
+	// deterministic swing — the finding 3 test only needs the two
+	// computations to disagree, not to land on a specific rank number.
+	pool := make([]Player, 0, 20+90)
+	for i := 0; i < 20; i++ {
+		pool = append(pool, Player{
+			ID: fmt.Sprintf("qb-%02d", i+1), Name: fmt.Sprintf("QB %02d", i+1),
+			Position: "QB", NFLTeam: "TST", ADP: float64(i + 1), ADPRank: i + 1,
+			Projection: 30.0 - float64(i)*0.5,
+		})
+	}
+	for _, position := range []string{"RB", "WR", "TE"} {
+		for i := 0; i < 30; i++ {
+			pool = append(pool, Player{
+				ID: fmt.Sprintf("%s-%02d", position, i+1), Name: fmt.Sprintf("%s %02d", position, i+1),
+				Position: position, NFLTeam: "TST", ADP: float64(100 + i), ADPRank: 100 + i,
+				Projection: 12.0 - float64(i)*0.35,
+			})
+		}
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	const pivotID = "qb-09"
+	before := svc.pool()
+	pivotBefore, ok := before.byID[pivotID]
+	if !ok {
+		t.Fatalf("pivot player %s missing from the baseline pool", pivotID)
+	}
+
+	if _, err := svc.AdminSetRosterShape(request, validGridironShape()); err != nil {
+		t.Fatalf("AdminSetRosterShape: %v", err)
+	}
+	after := svc.pool()
+	if after.version != before.version {
+		t.Fatalf("test setup: pool version moved (%d -> %d); this case needs a CONSTANT source version to isolate the cache-key gap", before.version, after.version)
+	}
+	pivotAfter, ok := after.byID[pivotID]
+	if !ok {
+		t.Fatalf("pivot player %s missing after the roster-shape override", pivotID)
+	}
+	if pivotAfter.HouseRank >= pivotBefore.HouseRank {
+		t.Fatalf("pivot HouseRank after AdminSetRosterShape = %d, want strictly better (lower) than the pre-override baseline %d — SUPERFLEX raised QB demand past this player; an unchanged or worse rank means the pool cache was not invalidated", pivotAfter.HouseRank, pivotBefore.HouseRank)
+	}
+
+	if err := svc.AdminResetRosterShape(request); err != nil {
+		t.Fatalf("AdminResetRosterShape: %v", err)
+	}
+	reverted := svc.pool()
+	pivotReverted, ok := reverted.byID[pivotID]
+	if !ok {
+		t.Fatalf("pivot player %s missing after the roster-shape reset", pivotID)
+	}
+	if pivotReverted.HouseRank != pivotBefore.HouseRank {
+		t.Fatalf("pivot HouseRank after AdminResetRosterShape = %d, want it to match the pre-override baseline %d — the reset must also invalidate the cache", pivotReverted.HouseRank, pivotBefore.HouseRank)
 	}
 }

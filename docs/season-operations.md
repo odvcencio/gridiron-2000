@@ -218,10 +218,11 @@ Market ADP ranks players for a generic fantasy market, not the league's own rost
 - House rank measures VORP (value over replacement player). VORP is a player's per-game projection minus the projected per-game points of the best player left at that position after demand is filled.
 - Demand comes from the active roster preset: each position's own starter slot count, times the team count.
 - The league fills FLEX and SUPERFLEX slots one at a time. Each open slot goes to the eligible position whose next player projects highest.
+- An RB, WR, or TE spends a FLEX slot before a SUPERFLEX slot. This order leaves SUPERFLEX open for a QB to claim.
 - A position whose pool runs out inside its own demand gets a replacement level of zero. Every remaining player there then carries a very high VORP.
-- A tied VORP breaks first by market ADP, then by name. A missing ADP sorts last.
-- The player pool shows an `H##` label beside the market rank, for example `H01` for the top house-ranked player.
-- A zero-projection player carries no house rank and shows no `H##` label.
+- A tied VORP breaks first by market ADP, then by name, then by player ID. A missing ADP sorts last.
+- The player pool shows an `H###` label beside the market rank, for example `H001` for the top house-ranked player.
+- A zero-projection player carries no house rank and shows no `H###` label.
 - Autopick selects from house order. The player pool and the draft-room board still sort by market ADP.
 - The house-rank model counts starter demand only. It carries no bench-depth term.
 

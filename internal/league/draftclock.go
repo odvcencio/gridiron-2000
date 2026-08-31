@@ -272,30 +272,65 @@ func (s *Service) teamNeverSeen(state PersistedState, teamID string, now time.Ti
 // autopickChoice resolves the player an auto-pick would select for teamID:
 // first the seat's Big Board, walked in order and skipping any ID that is
 // already picked, does not resolve in the pool, or would breach the
-// league's optional Limits knob or would leave too few future picks to fill
-// every required starter slot; then best-available HOUSE order (houserank.go's
+// league's optional Limits knob, would leave too few future picks to fill
+// every required starter slot, or is blocked by the league-wide scarcity
+// guard below; then best-available HOUSE order (houserank.go's
 // pool.byHouse — the format-aware replacement-value ranking under the
 // league's active roster preset, NOT the pool's market-ADP draft order),
 // with the same filters. If every remaining candidate would breach only a
-// soft Limits cap, the second pass ignores that cap but never ignores
-// starter viability. ok is false when no undrafted candidate can finish a
-// legal roster — the clock pauses for commissioner attention instead of
-// auto-drafting an unusable team. Only autopick's own selection order
-// reads pool.byHouse; the board display, the commissioner force-pick, and
-// every other "best available" consumer keep reading pool.players/byADP
-// (market ADP) untouched.
+// soft Limits cap, the second pass ignores that cap but keeps both starter
+// viability and the scarcity guard. ok is false when no undrafted candidate
+// can finish a legal roster — the clock pauses for commissioner attention
+// instead of auto-drafting an unusable team. As a last resort, if the
+// scarcity guard alone leaves zero viable candidates (every remaining
+// legal player is guard-blocked — a state the guard's own math should
+// never reach, since it never blocks a position no seat still needs), a
+// third pass drops only the guard and keeps starter viability, so a
+// stalled clock is never caused by this guard itself. Only autopick's own
+// selection order reads pool.byHouse; the board display, the commissioner
+// force-pick, and every other "best available" consumer keep reading
+// pool.players/byADP (market ADP) untouched.
 func (s *Service) autopickChoice(state PersistedState, teamID string) (string, bool) {
 	picked := make(map[string]bool, len(state.Picks))
 	for _, pick := range state.Picks {
 		picked[pick.PlayerID] = true
 	}
 	pool := s.pool()
+	preset := CurrentRoster()
+	otherTeamIDs := make([]string, 0, len(s.Teams()))
+	for _, team := range s.Teams() {
+		if team.ID != teamID {
+			otherTeamIDs = append(otherTeamIDs, team.ID)
+		}
+	}
+	// scarceCache memoizes positionScarcityBlocksCandidate per real
+	// position for this one autopickChoice call: state, picked, and the
+	// rosters it reads are fixed for the whole call, so every candidate
+	// at the same position shares one answer — a handful of positions,
+	// not one bipartite-matching pass per pool row.
+	scarceCache := make(map[string]bool, len(housePositionOrder))
+	scarce := func(position string) bool {
+		if blocked, cached := scarceCache[position]; cached {
+			return blocked
+		}
+		blocked := positionScarcityBlocksCandidate(state, pool, picked, preset, teamID, position, otherTeamIDs)
+		scarceCache[position] = blocked
+		return blocked
+	}
 	fits := func(playerID string) bool {
+		player, ok := pool.byID[playerID]
+		if !ok {
+			return false
+		}
 		_, _, breach := teamWouldBreachLimit(state, pool.byID, teamID, []string{playerID}, nil)
-		return !breach && draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
+		return !breach && draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position)
 	}
 	viable := func(playerID string) bool {
-		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
+		player, ok := pool.byID[playerID]
+		if !ok {
+			return false
+		}
+		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) && !scarce(player.Position)
 	}
 	key := s.boardKeyForTeam(state, teamID)
 	for _, id := range state.Boards[key] {
@@ -311,7 +346,11 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 			return player.ID, true
 		}
 	}
-	// Fallback: ignore Limits rather than stall the draft.
+	// Fallback: ignore Limits rather than stall the draft. The scarcity
+	// guard survives this fallback — a soft Limits cap and league-wide
+	// starvation protection are independent knobs, and relaxing Limits is
+	// never a reason to also let a bench pick duplicate the one scarce
+	// specialist a peer seat still needs.
 	for _, id := range state.Boards[key] {
 		if picked[id] {
 			continue
@@ -325,7 +364,127 @@ func (s *Service) autopickChoice(state PersistedState, teamID string) (string, b
 			return player.ID, true
 		}
 	}
+	// Last resort: drop only the scarcity guard, keep starter viability.
+	// Reached only when literally no legal candidate survives it — the
+	// guard's own predicate should never produce that (it only blocks a
+	// position once at least one OTHER seat still needs it, so someone
+	// downstream can always legally take the alternative), but a stalled
+	// clock is a worse outcome than one guard miss, so this pass exists
+	// as the documented, narrow relief valve rather than a silent stall.
+	unguardedViable := func(playerID string) bool {
+		return draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID)
+	}
+	for _, id := range state.Boards[key] {
+		if picked[id] {
+			continue
+		}
+		if _, ok := pool.byID[id]; ok && unguardedViable(id) {
+			return id, true
+		}
+	}
+	for _, player := range pool.byHouse {
+		if !picked[player.ID] && unguardedViable(player.ID) {
+			return player.ID, true
+		}
+	}
 	return "", false
+}
+
+// teamDraftedPlayers resolves teamID's currently drafted players against
+// pool, in pick order, and the raw pick count for that team (including any
+// pick whose player no longer resolves in pool). Shared by
+// draftCandidateKeepsRosterViable and the scarcity guard below, so both
+// count a team's roster the exact same way.
+func teamDraftedPlayers(state PersistedState, pool map[string]Player, teamID string) (players []Player, pickCount int) {
+	for _, pick := range state.Picks {
+		if pick.TeamID != teamID {
+			continue
+		}
+		pickCount++
+		if player, exists := pool[pick.PlayerID]; exists {
+			players = append(players, player)
+		}
+	}
+	return players, pickCount
+}
+
+// teamCoversPositionRequirement reports whether players (a team's current
+// roster, from teamDraftedPlayers) already fills every starter slot
+// position is eligible for — its own dedicated slot count plus any
+// FLEX/SUPERFLEX slot that also accepts it. It reuses
+// maximumDraftStarterFill, the same bipartite matcher
+// draftCandidateKeepsRosterViable calls, against one hypothetical extra
+// player at position rather than inventing a parallel per-position
+// counting scheme: if that hypothetical player cannot raise the team's
+// maximum starter fill, no additional real player at position could
+// either, so the requirement is already covered. A position absent from
+// every slot (Starters()'s FLEX/SUPERFLEX included) is vacuously always
+// covered — there is no starter requirement for it to leave open.
+func teamCoversPositionRequirement(players []Player, preset RosterPreset, position string) bool {
+	before := maximumDraftStarterFill(players, preset)
+	hypothetical := make([]Player, len(players), len(players)+1)
+	copy(hypothetical, players)
+	hypothetical = append(hypothetical, Player{Position: position})
+	after := maximumDraftStarterFill(hypothetical, preset)
+	return after <= before
+}
+
+// undraftedPositionSupply counts pool's undrafted players at position —
+// the scarcity guard's supply side. Reads pool.players (the active,
+// annotated pool the board and house order both derive from), not the
+// byID map, so a legacy fixture ID that only survives in byID for
+// historical-lookup purposes (see buildPool) is never counted as supply
+// that could reach a future pick.
+func undraftedPositionSupply(players []Player, picked map[string]bool, position string) int {
+	supply := 0
+	for _, player := range players {
+		if player.Position == position && !picked[player.ID] {
+			supply++
+		}
+	}
+	return supply
+}
+
+// positionScarcityBlocksCandidate is the league-wide starvation guard
+// (adversarial review finding, 2026-08-30): HOUSE order (houserank.go)
+// clusters same-position players together by VORP, so a seat spending a
+// spare bench pick under house order can legally take a SECOND scarce
+// specialist while a later seat in the same draft has not yet drafted its
+// first — the VORP model has no notion of "someone else needs this more."
+// This guard refuses a candidate at position when BOTH:
+//
+//  1. teamID's own requirement for position is already covered
+//     (teamCoversPositionRequirement) — one more player there could not
+//     raise teamID's own starter fill, so this specific pick is pure bench
+//     depth, not a need.
+//  2. The pool's remaining undrafted supply at position would not stretch
+//     to cover every OTHER active seat that has not yet covered its own
+//     requirement for position (each checked with the identical
+//     teamCoversPositionRequirement predicate) — so taking one now could
+//     leave a peer seat unable to fill a required starter slot legally at
+//     all.
+//
+// Both conditions read only roster counts, never board contents or pick
+// order, so the guard is symmetric across every seat and independent of
+// which seat happens to be on the clock. A position with no starter slot
+// at all (FLEX/SUPERFLEX absorption included) is vacuously covered for
+// every seat, so the guard never fires for it.
+func positionScarcityBlocksCandidate(state PersistedState, pool playerPool, picked map[string]bool, preset RosterPreset, teamID, position string, otherTeamIDs []string) bool {
+	ownPlayers, _ := teamDraftedPlayers(state, pool.byID, teamID)
+	if !teamCoversPositionRequirement(ownPlayers, preset, position) {
+		return false
+	}
+	stillMissing := 0
+	for _, other := range otherTeamIDs {
+		otherPlayers, _ := teamDraftedPlayers(state, pool.byID, other)
+		if !teamCoversPositionRequirement(otherPlayers, preset, position) {
+			stillMissing++
+		}
+	}
+	if stillMissing == 0 {
+		return false
+	}
+	return undraftedPositionSupply(pool.players, picked, position) <= stillMissing
 }
 
 // draftCandidateKeepsRosterViable is the hard legality boundary shared by
@@ -340,17 +499,7 @@ func draftCandidateKeepsRosterViable(state PersistedState, pool map[string]Playe
 	if !ok {
 		return false
 	}
-	players := make([]Player, 0, CurrentDraftRounds())
-	pickCount := 0
-	for _, pick := range state.Picks {
-		if pick.TeamID != teamID {
-			continue
-		}
-		pickCount++
-		if player, exists := pool[pick.PlayerID]; exists {
-			players = append(players, player)
-		}
-	}
+	players, pickCount := teamDraftedPlayers(state, pool, teamID)
 	pickCount++
 	players = append(players, candidate)
 	remaining := CurrentDraftRounds() - pickCount

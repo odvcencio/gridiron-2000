@@ -961,6 +961,24 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 	s.poolMu.Unlock()
 }
 
+// invalidatePoolCache drops the cached pool so the next s.pool() call
+// rebuilds it (buildPool), even though the underlying player source's own
+// version has not moved. pool()'s cache key is (source version, label)
+// only (adversarial review finding, 2026-08-30): it was never meant to
+// also track the roster preset HouseRank is computed against, so a
+// commissioner's roster-shape override left stale HouseRanks behind on a
+// constant-version pool. This follows the same direct-clear discipline
+// SetPlayerSource already uses above, rather than folding a roster
+// fingerprint into the cache key: it is a rare, commissioner-only event,
+// not a per-render cost, so paying one full rebuild on the next pool()
+// call is simpler than widening the key everywhere it is compared.
+// AdminSetRosterShape and AdminResetRosterShape are the only callers.
+func (s *Service) invalidatePoolCache() {
+	s.poolMu.Lock()
+	s.poolCache = playerPool{}
+	s.poolMu.Unlock()
+}
+
 // SetNotifier attaches the notification delivery queue and the mail
 // transport's enabled state. Call it once during startup, before the
 // server accepts requests, beside SetPlayerSource — main.go resolves
@@ -4361,12 +4379,15 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	// houseRank is the display value for the SEPARATE house-rank column
 	// (houserank.go): the format-aware VORP rank under the league's active
 	// roster preset, shown beside the market rank above, never instead of
-	// it. "H%02d" for a ranked player (HouseRank > 0); empty for one with
-	// no house rank (a zero-Projection player, or one CurrentRoster's
-	// demand model never reaches — see houseRanks' doc comment).
+	// it. "H%03d" for a ranked player (HouseRank > 0) — three digits, so
+	// the column holds a stable width once a deep pool's rank reaches
+	// three digits (matching the market rank's own "%03d" above); empty
+	// for one with no house rank (a zero-Projection player, or one
+	// CurrentRoster's demand model never reaches — see houseRanks' doc
+	// comment).
 	houseRank := ""
 	if player.HouseRank > 0 {
-		houseRank = fmt.Sprintf("H%02d", player.HouseRank)
+		houseRank = fmt.Sprintf("H%03d", player.HouseRank)
 	}
 	detail := player.NFLTeam
 	if player.ByeWeek > 0 {

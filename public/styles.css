@@ -4186,7 +4186,7 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-/* .house-rank (HOUSE RANK feature): the "H##" house-rank label a rank cell
+/* .house-rank (HOUSE RANK feature): the "H###" house-rank label a rank cell
    (.pool-rank on /players and the draft pool rows, .num on the draft-room
    available pane) renders beside its own market rank — one extra child
    INSIDE the existing rank cell, never an extra grid track, so it never

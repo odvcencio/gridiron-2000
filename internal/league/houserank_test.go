@@ -197,14 +197,19 @@ func TestAllocateFlexSuperflexSplitsBetweenQBAndEliteRB(t *testing.T) {
 func TestApplyHouseRanksVORPTieRuleIsDeterministic(t *testing.T) {
 	// WR demand is 0 (absent from Slots), so replacement = the position's
 	// own best player's Projection (20, "Alpha Best"): every other WR's
-	// VORP is 10-20 = -10, an exact three-way tie among b/c/d below, with
-	// "Delta Cheap" the sole distinguishing ADP.
+	// VORP is 10-20 = -10, a four-way tie among b/c/d/e below, with ADP
+	// the first distinguishing field — including e1's ADP of 0, an
+	// unranked-by-market player (finding 5 of the adversarial review,
+	// 2026-08-30): applyHouseRanks treats an ADP of 0 or less as
+	// math.MaxFloat64, so it must sort last within this tie regardless of
+	// how large every other tied player's real ADP is.
 	preset := RosterPreset{Slots: map[string]int{}, Bench: 0}
 	players := []Player{
 		{ID: "a1", Name: "Alpha Best", Position: "WR", Projection: 20, ADP: 1},
 		{ID: "b1", Name: "Zeta Last", Position: "WR", Projection: 10, ADP: 5},
 		{ID: "c1", Name: "Beta Mid", Position: "WR", Projection: 10, ADP: 5},
 		{ID: "d1", Name: "Delta Cheap", Position: "WR", Projection: 10, ADP: 2},
+		{ID: "e1", Name: "Echo NoADP", Position: "WR", Projection: 10, ADP: 0},
 		{ID: "z1", Name: "Zero Camp Body", Position: "WR", Projection: 0, ADP: 6},
 	}
 	first := applyHouseRanks(players, preset, 1)
@@ -212,7 +217,7 @@ func TestApplyHouseRanksVORPTieRuleIsDeterministic(t *testing.T) {
 	for _, player := range first {
 		ranks[player.ID] = player.HouseRank
 	}
-	want := map[string]int{"a1": 1, "d1": 2, "c1": 3, "b1": 4, "z1": 0}
+	want := map[string]int{"a1": 1, "d1": 2, "c1": 3, "b1": 4, "e1": 5, "z1": 0}
 	if !reflect.DeepEqual(ranks, want) {
 		t.Fatalf("HouseRank assignment = %+v, want %+v", ranks, want)
 	}
@@ -229,13 +234,27 @@ func TestApplyHouseRanksVORPTieRuleIsDeterministic(t *testing.T) {
 
 // houseRankRealisticPool builds the sanity-anchor fixture: per-game
 // Projections in the ranges the design's sanity anchors specify (QB
-// 19-24, elite RB/WR 13-16, TE 9-13 at the top, K ~8, P ~7-9, DST ~6-8),
-// under a single-QB market ADP that severely underprices QBs the way a
-// real single-QB consensus board does (the design's own framing): every
-// QB's ADPRank is deliberately late (26 or worse) regardless of its real
-// per-game value, while every skill/specialist player's ADPRank tracks
-// its own Projection order. One zero-Projection camp body proves the "no
-// zero-Projection player ranked" anchor.
+// 19-24 at the replacement boundary, elite RB/WR 13-16, TE 9-13 at the
+// top, K ~8, P ~7-9, DST ~6-8), under a single-QB market ADP that
+// severely underprices QBs the way a real single-QB consensus board does
+// (the design's own framing): every QB's ADPRank is deliberately late (26
+// or worse) regardless of its real per-game value, while every
+// skill/specialist player's ADPRank tracks its own Projection order. One
+// zero-Projection camp body proves the "no zero-Projection player ranked"
+// anchor.
+//
+// qbCount is 28, strictly above gridiron-house/8's own QB demand of 16
+// (adversarial review finding 2, 2026-08-30): the ORIGINAL fixture
+// carried exactly 16 QBs — supply equal to demand — which zeroes
+// houseReplacementLevels' QB entry (no player survives past demand to
+// set a replacement floor) and gives every QB VORP equal to its raw
+// Projection, an artifact of the degenerate branch, not the model. The
+// realistic top/step pair below (24.0, 0.45) keeps a genuine replacement
+// QB in the pool (QB-17..28) while still giving the top QBs enough
+// separation from that floor to out-VORP the RB/WR pack this fixture's
+// own FLEX-driven demand inflation produces — the anchors below assert
+// both sides of that: QBs earn real top-10 presence, but RB and WR still
+// contest the very top of the board the way a real superflex market does.
 func houseRankRealisticPool() []Player {
 	type row struct {
 		position string
@@ -267,7 +286,7 @@ func houseRankRealisticPool() []Player {
 			})
 		}
 	}
-	qbCount := 16
+	qbCount := 28
 	for i := 0; i < qbCount; i++ {
 		adp = 26 + i*9 // one QB in the top 26; the rest strictly worse
 		pool = append(pool, Player{
@@ -277,7 +296,7 @@ func houseRankRealisticPool() []Player {
 			NFLTeam:    "TST",
 			ADP:        float64(adp),
 			ADPRank:    adp,
-			Projection: 24.0 - float64(i)*0.3,
+			Projection: 24.0 - float64(i)*0.45,
 		})
 	}
 	pool = append(pool, Player{ID: "camp-body", Name: "Zero Camp Body", Position: "WR", NFLTeam: "TST", ADP: 500, ADPRank: 500, Projection: 0})
@@ -306,6 +325,8 @@ func TestHouseRankSanityAnchorGridironHouse(t *testing.T) {
 
 	qbInTop10 := 0
 	kOrPInTop40 := 0
+	rbInTop5 := false
+	wrInTop5 := false
 	topQB := Player{}
 	for _, player := range ranked {
 		if player.HouseRank == 0 {
@@ -322,9 +343,32 @@ func TestHouseRankSanityAnchorGridironHouse(t *testing.T) {
 		if (player.Position == "K" || player.Position == "P") && player.HouseRank <= 40 {
 			kOrPInTop40++
 		}
+		if player.HouseRank <= 5 && player.Position == "RB" {
+			rbInTop5 = true
+		}
+		if player.HouseRank <= 5 && player.Position == "WR" {
+			wrInTop5 = true
+		}
 	}
 	if qbInTop10 < 3 {
 		t.Errorf("QBs in house top 10 = %d, want at least 3", qbInTop10)
+	}
+	// Finding 2's own regression guard: the degenerate replacement=0
+	// branch (supply exactly equal to demand) put every one of the
+	// fixture's QBs at the very top by raw Projection, an "all-QB top
+	// 12" artifact with no RB or WR anywhere near the top and no ceiling
+	// on how many QBs could occupy the top 10. A real, non-degenerate
+	// replacement level (this fixture now supplies 28 QBs against a
+	// demand of 16) both lets skill positions contest the top and caps
+	// how far QB volume alone can carry the ranking.
+	if !rbInTop5 {
+		t.Error("no RB in house top 5 — want at least one (non-degenerate replacement lets RB/WR contest the top, not just QB volume)")
+	}
+	if !wrInTop5 {
+		t.Error("no WR in house top 5 — want at least one (non-degenerate replacement lets RB/WR contest the top, not just QB volume)")
+	}
+	if qbInTop10 > 4 {
+		t.Errorf("QBs in house top 10 = %d, want at most 4 (the degenerate all-QB artifact this fixture regression-guards against)", qbInTop10)
 	}
 	if topQB.ID == "" {
 		t.Fatal("no QB carries a house rank at all")
@@ -335,6 +379,46 @@ func TestHouseRankSanityAnchorGridironHouse(t *testing.T) {
 	if kOrPInTop40 != 0 {
 		t.Errorf("kickers/punters in house top 40 = %d, want 0", kOrPInTop40)
 	}
+}
+
+// houseRankQBDominantPool builds a fixture purpose-built for
+// TestAutopickHouseOrderTakesASecondQBWhenLegalAndBigBoardIsEmpty below:
+// unlike houseRankRealisticPool (deliberately tuned so RB and WR also
+// contest the very top of the board — finding 2 of the adversarial
+// review, 2026-08-30), this fixture keeps QB's VORP margin over RB/WR
+// wide enough that the first several house-order picks are QB,
+// unambiguously, by construction — this test only needs "the on-clock
+// team's first two picks both land on QB," not a realistic market. It
+// reuses houseRankSkillPlayers' own RB/WR/TE tiers (that helper's doc
+// comment already proves RB sweeps every FLEX step against this exact
+// WR/TE shape) with a wider QB step: QB VORP is step x demand
+// (16 under gridiron-house/8), so step 3 gives the top QB a VORP of 48,
+// far clear of RB's own FLEX-inflated top VORP of 24 (step 1 x demand
+// 24) — the first five QBs alone (VORP 48 down to 36) all outrank RB's
+// best.
+func houseRankQBDominantPool() []Player {
+	_, rb, wr, te := houseRankSkillPlayers()
+	qb := make([]Player, 0, 20)
+	for i := 0; i < 20; i++ {
+		qb = append(qb, Player{
+			ID:         fmt.Sprintf("qbstack-%02d", i+1),
+			Name:       fmt.Sprintf("QBStack Player %02d", i+1),
+			Position:   "QB",
+			NFLTeam:    "TST",
+			ADP:        float64(i + 1),
+			ADPRank:    i + 1,
+			Projection: 100 - float64(i)*3,
+		})
+	}
+	out := make([]Player, 0, len(qb)+len(rb)+len(wr)+len(te)+36)
+	out = append(out, qb...)
+	out = append(out, rb...)
+	out = append(out, wr...)
+	out = append(out, te...)
+	out = append(out, houseRankFillerPlayers("DST", 8.0)...)
+	out = append(out, houseRankFillerPlayers("K", 8.0)...)
+	out = append(out, houseRankFillerPlayers("P", 8.0)...)
+	return out
 }
 
 // TestAutopickHouseOrderTakesASecondQBWhenLegalAndBigBoardIsEmpty is
@@ -348,12 +432,11 @@ func TestAutopickHouseOrderTakesASecondQBWhenLegalAndBigBoardIsEmpty(t *testing.
 	setRosterShape(rosterPresets["gridiron-house"])
 	t.Cleanup(clearRosterShape)
 	service := newTestService(t, false) // non-demo, unseated team-1 => empty Big Board (boardKeyForTeam)
-	// houseRankRealisticPool (the sanity-anchor fixture) ranks every one of
-	// its 16 QBs ahead of every skill/specialist player under
-	// gridiron-house/8 (verified by TestHouseRankSanityAnchorGridironHouse's
-	// "at least 3 QBs in top 10"), so both of team-1's first two selections
-	// land on a QB deterministically.
-	service.SetPlayerSource(func() ([]Player, int64, string) { return houseRankRealisticPool(), 1, "live" })
+	// houseRankQBDominantPool ranks its QB tier ahead of every
+	// skill/specialist player under gridiron-house/8 by construction (see
+	// its own doc comment), so both of team-1's first two selections land
+	// on a QB deterministically.
+	service.SetPlayerSource(func() ([]Player, int64, string) { return houseRankQBDominantPool(), 1, "live" })
 
 	state := service.store.Snapshot()
 	first, ok := service.autopickChoice(state, "team-1")
@@ -436,13 +519,13 @@ func TestHouseRankMemoizedPerPoolVersionNotPerCall(t *testing.T) {
 }
 
 // TestPlayerMapHouseRankLabel is the playerMap render-value test: house_rank
-// formats "H%02d" for a ranked player and stays empty (has_house_rank
+// formats "H%03d" for a ranked player and stays empty (has_house_rank
 // false) for a HouseRank-0 player.
 func TestPlayerMapHouseRankLabel(t *testing.T) {
 	ranked := Player{ID: "p1", Name: "Ranked Player", Position: "RB", HouseRank: 1}
 	entry := playerMap(ranked, nil, matchupIndex{})
-	if entry["house_rank"] != "H01" {
-		t.Errorf("house_rank for HouseRank=1 = %v, want H01", entry["house_rank"])
+	if entry["house_rank"] != "H001" {
+		t.Errorf("house_rank for HouseRank=1 = %v, want H001", entry["house_rank"])
 	}
 	if entry["has_house_rank"] != true {
 		t.Errorf("has_house_rank for HouseRank=1 = %v, want true", entry["has_house_rank"])

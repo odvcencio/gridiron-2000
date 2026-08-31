@@ -21,21 +21,25 @@ import (
 // previous surface should fail here with the invariant that matters to a
 // manager or commissioner.
 func TestSeasonJourneyAcceptance(t *testing.T) {
-	// Bench 0 (house-rank change, 2026-08-30): this fixture's pool carries
-	// exactly 8 QBs and 8 RBs for 8 teams — supply exactly equal to
-	// Starters demand. A bench slot would let AdminForceAutopick's house
-	// order (houserank.go), which ranks same-position players together
-	// rather than interleaving positions the way market ADP naturally
-	// does, legally spend it on a SECOND QB or RB for one team and starve
-	// a later team of the one it needs. Zero bench makes every pick's
-	// legality check (draftCandidateKeepsRosterViable) require the exact
-	// still-missing position, independent of ranking order, so the
-	// terminal 1-QB/1-RB-per-team shape this test's later assertions rely
-	// on is guaranteed rather than order-dependent.
+	// Bench 1 (restored 2026-08-30, adversarial review finding 1): this
+	// fixture's pool carries exactly 8 QBs and 8 RBs for 8 teams — supply
+	// exactly equal to Starters demand. AdminForceAutopick's house order
+	// (houserank.go) ranks same-position players together rather than
+	// interleaving positions the way market ADP naturally does, so a
+	// bare legality check on the picking seat alone would let a spare
+	// bench pick legally spend on a SECOND QB or RB for one team and
+	// starve a later team of the one it still needs. The league-wide
+	// scarcity guard in autopickChoice (draftclock.go's
+	// positionScarcityBlocksCandidate) closes exactly this gap: once a
+	// team's own QB or RB requirement is covered, it may not take another
+	// while a peer seat still needs one and supply cannot cover every
+	// such seat. This fixture is the guard's regression test — reverting
+	// the guard must fail this test (see
+	// TestSeasonJourneyRequiresScarcityGuard in draftclock_test.go).
 	setRosterShape(RosterPreset{
 		Name:  "season-journey",
 		Slots: map[string]int{"QB": 1, "RB": 1},
-		Bench: 0,
+		Bench: 1,
 	})
 	t.Cleanup(clearRosterShape)
 

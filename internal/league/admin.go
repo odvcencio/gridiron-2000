@@ -613,6 +613,11 @@ func (s *Service) AdminSetRosterShape(r *http.Request, o RosterOverride) (Roster
 	s.topologyMutationCheckpoint("roster-shape-after-store")
 	preset := rosterOverridePreset(o)
 	setRosterShape(preset)
+	// The pool cache keys on (source version, label) only; a roster-shape
+	// change moves neither, so it must invalidate the cache directly or
+	// HouseRank stays computed against the shape that just changed (see
+	// invalidatePoolCache's doc comment, service.go).
+	s.invalidatePoolCache()
 	return preset, nil
 }
 
@@ -630,6 +635,10 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 	}
 	s.topologyMutationCheckpoint("roster-shape-reset-after-store")
 	clearRosterShape()
+	// Same cache-key gap as AdminSetRosterShape above: the reset must
+	// invalidate the pool cache directly too, or HouseRank stays computed
+	// against the override that was just cleared.
+	s.invalidatePoolCache()
 	return nil
 }
 

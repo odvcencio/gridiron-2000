@@ -73,7 +73,8 @@ func livePool() league.PlayerSource {
 // its one required starter there. These low-value, low-ADP filler rows
 // (never any REAL player's name) restore the same 3-4x supply-over-demand
 // margin the sanity fixtures assume, purely so this render test's full
-// completion is deterministic; they never rank above a real player.
+// completion is deterministic; no filler ever outranks a real player at
+// its own position.
 func houseRankSupplyFiller(startIndex int) []league.Player {
 	fill := func(position string, count int, floor float64) []league.Player {
 		out := make([]league.Player, 0, count)

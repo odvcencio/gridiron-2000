@@ -70,8 +70,8 @@ func TestPlayersPoolFragmentRowsShowHouseRankLabelFixtureProcess(t *testing.T) {
 	if !strings.Contains(topRow, `class="house-rank"`) {
 		t.Errorf("top quarterback's row missing the house-rank label markup: %s", topRow)
 	}
-	if !strings.Contains(topRow, "H01") {
-		t.Errorf("top ranked player's row must render H01: %s", topRow)
+	if !strings.Contains(topRow, "H001") {
+		t.Errorf("top ranked player's row must render H001: %s", topRow)
 	}
 
 	campRow := rowFor(t, "Zero Camp Body")
