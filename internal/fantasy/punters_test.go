@@ -160,6 +160,25 @@ func TestNormalizePoolNeverTouchesADPRankedPlayers(t *testing.T) {
 	}
 }
 
+// TestNormalizePoolSplitsRankedHeadOnADPMatchingMergePool is finding 3's
+// own regression test: normalizePool's ranked/rest split predicate (ADP >
+// 0) must match mergePool's own ranked-head boundary — every ADP entry,
+// and parseADP drops any adp <= 0 — rather than ADPRank > 0. A player
+// that already carries a real market ADP but has not yet had ADPRank
+// assigned (an ADP feed's entry a caller has not yet ranked) must still
+// stay out of the rest-tier re-sort; under the old ADPRank > 0 predicate
+// it would fall into rest and sort alphabetically behind "Aaa Rest".
+func TestNormalizePoolSplitsRankedHeadOnADPMatchingMergePool(t *testing.T) {
+	pool := []Player{
+		{ID: "adp-unranked", Name: "Market Unranked", Position: "WR", NFLTeam: "CIN", ADP: 3.0},
+		{ID: "rest1", Name: "Aaa Rest", Position: "WR", NFLTeam: "DET"},
+	}
+	out := normalizePool(pool, nil)
+	if out[0].ID != "adp-unranked" {
+		t.Fatalf("ADP > 0 player (ADPRank not yet assigned) must stay in the ranked head, ahead of the rest-tier sort: %+v", out)
+	}
+}
+
 // TestSyncNowWiresPunterProjectionsHook is the sync-path integration test:
 // SetPunterProjections, called before SyncNow (matching app_build.go's
 // wiring order), enriches and ranks a punter the live Tank01 feed itself
@@ -473,6 +492,39 @@ func TestMergePoolEnrichesPunterBeforePoolLimitTruncation(t *testing.T) {
 	for _, p := range unenriched {
 		if p.ID == "punter" {
 			t.Fatalf("with a nil hook, the punter must not be enriched into the truncation-surviving set: %+v", unenriched)
+		}
+	}
+}
+
+// suffixStrippingSurnameTable pins punterSurname's suffix-strip rule
+// against internal/league/punters_hist_test.go's identical table for
+// lastWord (TestLastWordAgreesWithPunterSurnameSuffixTable, mirrored
+// there). This package cannot import internal/league (see punterSurname's
+// doc comment), so the table is duplicated here verbatim; keep both
+// copies in lockstep by hand whenever either side's suffix list changes
+// (finding 1 of the punter-rankings review). Every expected value is
+// upper-cased to match punterSurname's own return convention.
+var suffixStrippingSurnameTable = map[string]string{
+	"Michael Dickson Jr.": "DICKSON",
+	"Michael Dickson Jr":  "DICKSON",
+	"Michael Dickson JR.": "DICKSON",
+	"John Smith III":      "SMITH",
+	"John Smith II":       "SMITH",
+	"Bob Jones Sr.":       "JONES",
+	"Bob Jones SR":        "JONES",
+	"AJ Cole III":         "COLE",
+	"Bo Taylor IV":        "TAYLOR",
+}
+
+// TestPunterSurnameStripsGenerationalSuffix is finding 1's own regression
+// test: a trailing JR/SR/II/III/IV token, with or without a period, must
+// never itself be extracted as the collision key — the exact bug that let
+// "AJ Cole III" collide falsely with an unrelated "III" punter, and share
+// no collision key at all with a second live Cole.
+func TestPunterSurnameStripsGenerationalSuffix(t *testing.T) {
+	for name, want := range suffixStrippingSurnameTable {
+		if got := punterSurname(name); got != want {
+			t.Errorf("punterSurname(%q) = %q, want %q", name, got, want)
 		}
 	}
 }

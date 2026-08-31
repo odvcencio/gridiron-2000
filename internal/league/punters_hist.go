@@ -175,7 +175,13 @@ func punterPerGame(entry punterHistEntry) (float64, bool) {
 // punterSuffixes lists the trailing generational/name suffixes lastWord
 // strips before extracting a last name, with or without a trailing period
 // (for example both "Jr." and "Jr"), case-insensitive — so "Michael
-// Dickson Jr." keys on "Dickson", not "Jr.".
+// Dickson Jr." keys on "Dickson", not "Jr.". This is the EXACT mirror of
+// internal/fantasy/service.go's own punterSuffixes var and punterSurname
+// loop: internal/fantasy has no dependency on this package, so the two
+// copies are hand-kept in lockstep (finding 1 of the punter-rankings
+// review); TestLastWordAgreesWithPunterSurnameSuffixTable, below, and
+// fantasy's TestPunterSurnameStripsGenerationalSuffix pin both against the
+// same table literal.
 var punterSuffixes = map[string]bool{
 	"JR": true, "SR": true, "II": true, "III": true, "IV": true,
 }

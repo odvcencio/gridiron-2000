@@ -523,6 +523,22 @@ func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
 // unique, so no live-pool surname collision applies.
 func fantasyEnrichedPunterPool(t *testing.T, raw []fantasy.Player, hook map[string]float64) []fantasy.Player {
 	t.Helper()
+	return fantasyEnrichedPunterPoolWithHook(t, raw, func(name, team string, requireTeam bool) (float64, bool) {
+		perGame, ok := hook[name]
+		return perGame, ok
+	})
+}
+
+// fantasyEnrichedPunterPoolWithHook is fantasyEnrichedPunterPool's shared
+// core: it takes the punter-projection hook directly, in fantasy's own
+// func(name, team string, requireTeam bool) (float64, bool) shape, rather
+// than a name-keyed stub. This lets a caller drive the pool through the
+// REAL PunterProjection (this package, no stub) for finding 7's own
+// lockstep regression test, below — the only way to exercise
+// SetPunterProjections' real requireTeam wiring exactly as app_build.go
+// sets it up, rather than a fixture that ignores requireTeam entirely.
+func fantasyEnrichedPunterPoolWithHook(t *testing.T, raw []fantasy.Player, hook func(name, team string, requireTeam bool) (float64, bool)) []fantasy.Player {
+	t.Helper()
 	root := t.TempDir()
 	cacheFile := struct {
 		SchemaVersion int              `json:"schemaVersion"`
@@ -546,12 +562,42 @@ func fantasyEnrichedPunterPool(t *testing.T, raw []fantasy.Player, hook map[stri
 	if err != nil {
 		t.Fatalf("fantasy.NewService: %v", err)
 	}
-	service.SetPunterProjections(func(name, team string, requireTeam bool) (float64, bool) {
-		perGame, ok := hook[name]
-		return perGame, ok
-	})
+	service.SetPunterProjections(hook)
 	players, _ := service.Players()
 	return players
+}
+
+// TestFantasyEnrichmentAgreesWithLeaguePunterProjectionOnSuffixedSurname is
+// finding 1's own lockstep regression test (finding 7 of the
+// punter-rankings review): it drives fantasy's REAL SetPunterProjections
+// pipeline with PunterProjection itself as the hook — no stub — over a
+// pool holding "AJ Cole III" (LV), a second, unrelated live Cole on
+// another team, and a moved punter with a unique-in-pool surname.
+// punterSurname (internal/fantasy) and lastWord (this package) must
+// tokenize "AJ Cole III" to the same "COLE" key or this fails: before
+// finding 1's fix, punterSurname kept "III" as the key, so the two Coles
+// shared no collision key at all and the second Cole silently inherited
+// the first Cole's LV projection.
+func TestFantasyEnrichmentAgreesWithLeaguePunterProjectionOnSuffixedSurname(t *testing.T) {
+	raw := []fantasy.Player{
+		{ID: "lv-cole", Name: "AJ Cole III", Position: "P", NFLTeam: "LV"},
+		{ID: "other-cole", Name: "Bo Cole", Position: "P", NFLTeam: "DAL"},
+		{ID: "moved-townsend", Name: "Tommy Townsend", Position: "P", NFLTeam: "NYJ"},
+	}
+	out := fantasyEnrichedPunterPoolWithHook(t, raw, PunterProjection)
+	byID := make(map[string]fantasy.Player, len(out))
+	for _, p := range out {
+		byID[p.ID] = p
+	}
+	if byID["lv-cole"].Projection <= 0 {
+		t.Errorf("AJ Cole III (LV) must enrich from the embedded Cole/LV entry: %+v", byID["lv-cole"])
+	}
+	if byID["other-cole"].Projection != 0 {
+		t.Errorf("a second live Cole on another team must NOT inherit LV Cole's projection: %+v", byID["other-cole"])
+	}
+	if byID["moved-townsend"].Projection <= 0 {
+		t.Errorf("a moved punter with a unique-in-pool surname must still resolve by last name alone: %+v", byID["moved-townsend"])
+	}
 }
 
 func TestCommissionerAutopickCompletesStartableRosters(t *testing.T) {

@@ -207,8 +207,9 @@ The live Tank01 feed carries no punter ADP and no punter projections. Gridiron r
 - The player pool shows a `P##` label for each ranked punter, for example `P01` for the top punter by projected points per game.
 - A punter absent from the embedded data shows `—`, the same dash every other unranked player shows.
 - Market ADP never covers a punter, so the `P##` label is the only rank a punter ever carries.
-- A punter needs at least 8 games in the embedded 2025 season to qualify for a rank. This floor stops a short, hot streak from outranking a full season of steady punting.
-- The pool sync applies a size-based limit on total players. A punter who falls outside that limit shows no rank, the same as any other player past the limit.
+- A punter with fewer than 8 games shows no rank.
+- A punter's 2025 line has no games floor. A punter below the rank floor can still show a line and `—` for rank.
+- The pool sync keeps a limited number of players. A punter cut by that limit shows no rank.
 
 ### Trades
 

@@ -294,3 +294,37 @@ func TestPunterProjectionFromRequireTeamOnUniqueLastNameCollision(t *testing.T) 
 		t.Fatalf("requireTeam=false, mismatched team = %v, %v, want %v, true (unique surname, team-changed punter still matches)", got, ok, want)
 	}
 }
+
+// suffixStrippingSurnameTable pins lastWord's suffix-strip rule against
+// internal/fantasy/punters_test.go's identical table for punterSurname
+// (TestPunterSurnameStripsGenerationalSuffix, mirrored there).
+// internal/fantasy cannot import this package (see punterSurname's doc
+// comment there), so the table is duplicated here verbatim; keep both
+// copies in lockstep by hand whenever either side's suffix list changes
+// (finding 1 of the punter-rankings review). Every expected value is
+// upper-cased, matching punterSurname's own return convention, so this
+// table compares strings.ToUpper(lastWord(name)) against it.
+var suffixStrippingSurnameTable = map[string]string{
+	"Michael Dickson Jr.": "DICKSON",
+	"Michael Dickson Jr":  "DICKSON",
+	"Michael Dickson JR.": "DICKSON",
+	"John Smith III":      "SMITH",
+	"John Smith II":       "SMITH",
+	"Bob Jones Sr.":       "JONES",
+	"Bob Jones SR":        "JONES",
+	"AJ Cole III":         "COLE",
+	"Bo Taylor IV":        "TAYLOR",
+}
+
+// TestLastWordAgreesWithPunterSurnameSuffixTable is finding 1's own
+// regression test: lastWord and internal/fantasy's punterSurname must
+// tokenize a generational suffix identically, or the fantasy pool's
+// live-pool collision guard and this package's own last-name match
+// disagree about which live "P" players collide.
+func TestLastWordAgreesWithPunterSurnameSuffixTable(t *testing.T) {
+	for name, want := range suffixStrippingSurnameTable {
+		if got := strings.ToUpper(lastWord(name)); got != want {
+			t.Errorf("lastWord(%q) = %q (upper-cased), want %q", name, got, want)
+		}
+	}
+}

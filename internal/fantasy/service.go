@@ -409,6 +409,16 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 // alone. A nil punterProjection is a no-op: normalizePool's caller-side
 // ranking pass still runs over whatever punters already carry a nonzero
 // Projection.
+//
+// mergePool calls this on the wider, pre-truncation merge output;
+// normalizePool calls this on an already-final, previously-truncated
+// installed pool. Because puntersNeedingTeamMatch, below, is always
+// computed from the exact slice its caller hands it — never from a
+// separately tracked set — this is the single code path finding 2 of the
+// punter-rankings review asks for, not two implementations that could
+// drift apart. A punter cut by an earlier truncation cannot be a live
+// collision partner for a caller that never sees it again either, so this
+// scope difference changes no visible rank.
 func enrichPunters(pool []Player, punterProjection func(name, team string, requireTeam bool) (float64, bool)) {
 	if punterProjection == nil {
 		return
@@ -450,13 +460,43 @@ func puntersNeedingTeamMatch(pool []Player) map[string]bool {
 	return collisions
 }
 
-// punterSurname extracts the last space-separated, upper-cased token of a
-// player's full name — enrichPunters' own collision key. This package has
-// no dependency on internal/league (app_build.go wires the two together
-// at the top), so the live-pool collision check needs its own minimal
-// tokenization rather than importing league's lastWord.
+// punterSuffixes lists the trailing generational/name suffixes
+// punterSurname strips before taking the last token, with or without a
+// trailing period (for example both "III" and "III."), case-insensitive
+// — the EXACT mirror of internal/league/punters_hist.go's own
+// punterSuffixes var and lastWord loop. Keep the two lists and loops
+// identical by hand: TestPunterSurnameStripsGenerationalSuffix here and
+// league's TestLastWordAgreesWithPunterSurnameSuffixTable pin both against
+// the same table literal (finding 1 of the punter-rankings review).
+var punterSuffixes = map[string]bool{
+	"JR": true, "SR": true, "II": true, "III": true, "IV": true,
+}
+
+// punterSurname extracts a player's collision key: the last
+// space-separated, upper-cased token of name, skipping a trailing
+// generational suffix (see punterSuffixes) — enrichPunters' own collision
+// key, and the EXACT mirror of internal/league/punters_hist.go's lastWord.
+// This package has no dependency on internal/league (app_build.go wires
+// the two together at the top), so the live-pool collision check needs
+// its own minimal tokenization rather than importing league's lastWord —
+// but that tokenization must strip the same suffixes lastWord does.
+// Before this suffix strip, "AJ Cole III" tokenized as "III", not "COLE":
+// a second live Cole on another team shared no collision key with him at
+// all (no collision flagged, so the second Cole silently inherited the
+// first Cole's projection and rank), and an unrelated "Bo Taylor III"
+// collided with him falsely on "III" (a moved punter lost his own rank) —
+// finding 1 of the punter-rankings review. A drift between this loop and
+// lastWord's is exactly the bug the two sides' lockstep tests exist to
+// catch.
 func punterSurname(name string) string {
 	fields := strings.Fields(name)
+	for len(fields) > 0 {
+		last := strings.ToUpper(strings.TrimSuffix(fields[len(fields)-1], "."))
+		if !punterSuffixes[last] {
+			break
+		}
+		fields = fields[:len(fields)-1]
+	}
 	if len(fields) == 0 {
 		return ""
 	}
@@ -536,7 +576,13 @@ func normalizePool(pool []Player, punterProjection func(name, team string, requi
 	ranked := make([]Player, 0, len(pool))
 	rest := make([]Player, 0, len(pool))
 	for _, player := range pool {
-		if player.ADPRank > 0 {
+		// ADP > 0, not ADPRank > 0: the same predicate mergePool's own
+		// ranked head is built from (its rankedCount boundary comes from
+		// every ADP entry, and parseADP drops any adp <= 0), so the two
+		// splits are equivalent by construction (finding 3 of the
+		// punter-rankings review) — and unlike ADPRank, ADP > 0 already
+		// holds before a caller has assigned any rank at all.
+		if player.ADP > 0 {
 			ranked = append(ranked, player)
 		} else {
 			rest = append(rest, player)
