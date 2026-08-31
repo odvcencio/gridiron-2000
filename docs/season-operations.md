@@ -200,6 +200,14 @@ Do not rehearse start, pick, undo, or reset actions against either live producti
 - A beaten FAAB claim reports only that another team won the player, never the winning bid amount. A manager sees their own bid at all times.
 - The commissioner sees every team's waiver receipts, not only their own team's. The commissioner may also force an out-of-cycle run from `/admin` when a run is stuck or overdue.
 
+### Punter rankings
+
+The live Tank01 feed carries no punter ADP and no punter projections. Gridiron ranks punters from the league's own 2025 season, rescored under the league's punting rules and embedded in the app.
+
+- The player pool shows a `P##` label for each ranked punter, for example `P01` for the top punter by projected points per game.
+- A punter absent from the embedded data shows `—`, the same dash every other unranked player shows.
+- Market ADP never covers a punter, so the `P##` label is the only rank a punter ever carries.
+
 ### Trades
 
 - Only a manager with a franchise seat can compose an offer.

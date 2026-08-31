@@ -320,6 +320,13 @@ func fantasyPlayerSource(pool *fantasy.Service) league.PlayerSource {
 					Status:       "Available",
 					Rookie:       player.IsRookie(),
 					DraftCapital: player.DraftCapitalLabel(),
+					// PunterRank is fantasy's house rank for Position "P"
+					// (internal/fantasy's normalizePool, off the league's
+					// own embedded 2025 punter rescoring) — Tank01 carries
+					// no punter ADP at all, so this is the only rank a
+					// punter ever gets. playerMap (internal/league) renders
+					// it as "P##" whenever ADPRank is zero.
+					PunterRank: player.PunterRank,
 				})
 			}
 			lastVersion = version

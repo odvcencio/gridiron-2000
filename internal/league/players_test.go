@@ -585,6 +585,47 @@ func TestPlayersDataPositionFilterAndSearch(t *testing.T) {
 	}
 }
 
+// TestPlayersDataPositionFilterPunterRankOrder checks /players?pos=P:
+// punters render ordered by projection (pool order — PlayersData never
+// re-sorts, it only filters, matching mergePool/normalizePool's existing
+// rest-tier order), each carrying its "P##" rank label, and a punter the
+// embedded projection lookup missed renders "—" instead of a false rank.
+func TestPlayersDataPositionFilterPunterRankOrder(t *testing.T) {
+	pool := []Player{
+		{ID: "wr1", Name: "Some Receiver", Position: "WR", NFLTeam: "PIT", ADPRank: 1, Projection: 15},
+		{ID: "p-high", Name: "High Punter", Position: "P", NFLTeam: "HOU", Projection: 9.0, PunterRank: 1},
+		{ID: "p-low", Name: "Low Punter", Position: "P", NFLTeam: "DAL", Projection: 6.0, PunterRank: 2},
+		{ID: "p-missed", Name: "Unmatched Punter", Position: "P", NFLTeam: "NYJ"},
+	}
+	svc, _ := newPlayersTestServiceWithPool(t, pool)
+
+	request, _ := http.NewRequest(http.MethodGet, "/players?pos=P", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	if len(rows) != 3 {
+		t.Fatalf("pos=P rows = %d, want 3: %+v", len(rows), rows)
+	}
+	wantOrder := []struct {
+		id   string
+		rank string
+	}{
+		{"p-high", "P01"},
+		{"p-low", "P02"},
+		{"p-missed", "—"},
+	}
+	for i, want := range wantOrder {
+		if rows[i]["id"] != want.id {
+			t.Fatalf("row %d id = %v, want %v (rows: %+v)", i, rows[i]["id"], want.id, rows)
+		}
+		if rows[i]["rank"] != want.rank {
+			t.Fatalf("row %d rank = %v, want %v", i, rows[i]["rank"], want.rank)
+		}
+		if rows[i]["position"] != "P" {
+			t.Fatalf("pos=P filter leaked a %v row", rows[i]["position"])
+		}
+	}
+}
+
 func TestPlayersDataPaginatesFilteredRowsAndKeepsNavigationState(t *testing.T) {
 	svc := newTestService(t, true)
 	pool := make([]Player, 0, 123)

@@ -4326,9 +4326,19 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 // call playerMap in a bare loop, which forces every breakdown onto the
 // default-only path and repeats the schedule scan per row.
 func playerMap(player Player, scoringValues map[string]float64, matchup matchupIndex) map[string]any {
+	// ADPRank (real market ADP) always wins when present. Punters carry no
+	// market ADP at all (blitz.go's ADPRank>0 market-ADP signal), so their
+	// house rank — PunterRank, from the league's own embedded 2025
+	// rescoring (internal/fantasy's pool build) — renders as "P##" in its
+	// place. A punter PunterRank missed (the embedded projection lookup
+	// had no match) falls through to the same "—" every other unranked
+	// player gets.
 	rank := "—"
-	if player.ADPRank > 0 {
+	switch {
+	case player.ADPRank > 0:
 		rank = fmt.Sprintf("%03d", player.ADPRank)
+	case player.PunterRank > 0:
+		rank = fmt.Sprintf("P%02d", player.PunterRank)
 	}
 	detail := player.NFLTeam
 	if player.ByeWeek > 0 {

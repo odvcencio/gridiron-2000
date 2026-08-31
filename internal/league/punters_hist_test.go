@@ -1,6 +1,10 @@
 package league
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 // TestPunterHistLineMatchesTownsendHOU pins the embedded 2025 punter index's
 // canonical match: team + last name, case-insensitive, against the
@@ -25,10 +29,10 @@ func TestPunterHistLineNoMatch(t *testing.T) {
 		name string
 		team string
 	}{
-		{"Nobody Punter", "HOU"},   // unknown last name
-		{"Tommy Townsend", "DAL"},  // right last name, wrong team
-		{"", "HOU"},                // empty name
-		{"   ", "HOU"},             // whitespace-only name
+		{"Nobody Punter", "HOU"},  // unknown last name
+		{"Tommy Townsend", "DAL"}, // right last name, wrong team
+		{"", "HOU"},               // empty name
+		{"   ", "HOU"},            // whitespace-only name
 	}
 	for _, tc := range cases {
 		if line, ok := punterHistLine(tc.name, tc.team); ok {
@@ -94,5 +98,110 @@ func TestWithHistoricalPunterFallbackWithNoPrimarySource(t *testing.T) {
 	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"})
 	if punter.Hist == "" {
 		t.Fatalf("punter fallback must work with no primary source attached: %+v", punter)
+	}
+}
+
+// TestEmbeddedPunterLastNamesAreUnique verifies the design assumption
+// PunterProjection's last-name-primary match rests on: every one of the
+// embedded asset's 35 entries carries a unique last name. This is the
+// factual check the design calls for stating in the implementation report.
+func TestEmbeddedPunterLastNamesAreUnique(t *testing.T) {
+	var entries []punterHistEntry
+	if err := json.Unmarshal(puntersHistRaw, &entries); err != nil {
+		t.Fatalf("decode embedded asset: %v", err)
+	}
+	if len(entries) != 35 {
+		t.Fatalf("embedded asset entry count = %d, want 35", len(entries))
+	}
+	seen := make(map[string]string, len(entries))
+	for _, entry := range entries {
+		key := strings.ToUpper(strings.TrimSpace(entry.LastName))
+		if prior, dup := seen[key]; dup {
+			t.Fatalf("last name %q is not unique: %q and %q both carry it", key, prior, entry.Team)
+		}
+		seen[key] = entry.Team
+	}
+	if len(seen) != 35 {
+		t.Fatalf("unique last names = %d, want 35", len(seen))
+	}
+}
+
+// TestPunterProjectionMatchesTownsendHOUWithExactPerGameArithmetic pins the
+// scale contract: PunterProjection returns TotalPts/Games exactly, on the
+// SAME per-game scale internal/fantasy's other Projection values already
+// carry — not a season total, not a rounded display figure.
+func TestPunterProjectionMatchesTownsendHOUWithExactPerGameArithmetic(t *testing.T) {
+	perGame, ok := PunterProjection("Tommy Townsend", "HOU")
+	if !ok {
+		t.Fatal("Townsend/HOU must match the embedded index")
+	}
+	want := 148.8 / 17.0
+	if perGame != want {
+		t.Fatalf("PunterProjection(Townsend, HOU) = %v, want exactly %v (148.8 TotalPts / 17 Games)", perGame, want)
+	}
+	// A realistic per-game figure: nowhere near a season total (148.8) and
+	// nowhere near zero.
+	if perGame < 5 || perGame > 15 {
+		t.Fatalf("per-game projection = %v, want a realistic weekly punter value", perGame)
+	}
+}
+
+// TestPunterProjectionMatchesByLastNameAcrossTeamChange checks the primary
+// matching rule directly: a team mismatch (a punter who has since changed
+// teams) does not block the match when the last name alone is unambiguous
+// in the embedded asset — the opposite of punterHistLine's own team+name
+// exact-match rule, deliberately, because punters change teams between
+// seasons far more than skill players (design decision, this feature).
+func TestPunterProjectionMatchesByLastNameAcrossTeamChange(t *testing.T) {
+	wantHOU, ok := PunterProjection("Tommy Townsend", "HOU")
+	if !ok {
+		t.Fatal("Townsend/HOU must match")
+	}
+	gotWrongTeam, ok := PunterProjection("Tommy Townsend", "DAL")
+	if !ok {
+		t.Fatal("Townsend must still match on a team the asset does not carry for him")
+	}
+	if gotWrongTeam != wantHOU {
+		t.Fatalf("team-mismatched match = %v, want the same value as the team match %v", gotWrongTeam, wantHOU)
+	}
+}
+
+// TestPunterProjectionMisses pins the fail-quiet contract: an unknown last
+// name and an empty name both return (0, false), never a wrong
+// attribution or a panic.
+func TestPunterProjectionMisses(t *testing.T) {
+	if _, ok := PunterProjection("Nobody Punter", "HOU"); ok {
+		t.Error("an unknown last name must miss")
+	}
+	if _, ok := PunterProjection("", "HOU"); ok {
+		t.Error("an empty name must miss")
+	}
+}
+
+// TestPunterProjectionFromRequiresTeamOnLastNameCollision pins the
+// disambiguation rule PunterProjection would need the moment two asset
+// entries ever do share a last name (none do today — see
+// TestEmbeddedPunterLastNamesAreUnique): only then is a team match
+// required; an unmatched team among the collision candidates misses
+// entirely rather than guessing.
+func TestPunterProjectionFromRequiresTeamOnLastNameCollision(t *testing.T) {
+	store := punterHistStore{
+		byLastName: map[string][]punterHistEntry{
+			"SMITH": {
+				{LastName: "Smith", Team: "HOU", Games: 17, TotalPts: 85.0},
+				{LastName: "Smith", Team: "DAL", Games: 16, TotalPts: 80.0},
+			},
+		},
+	}
+	houPerGame, ok := punterProjectionFrom(store, "Smith", "HOU")
+	if !ok || houPerGame != 85.0/17.0 {
+		t.Fatalf("HOU Smith = %v, %v, want %v, true", houPerGame, ok, 85.0/17.0)
+	}
+	dalPerGame, ok := punterProjectionFrom(store, "Smith", "DAL")
+	if !ok || dalPerGame != 80.0/16.0 {
+		t.Fatalf("DAL Smith = %v, %v, want %v, true", dalPerGame, ok, 80.0/16.0)
+	}
+	if _, ok := punterProjectionFrom(store, "Smith", "NYJ"); ok {
+		t.Fatal("a team absent from the colliding candidates must miss, not guess")
 	}
 }

@@ -396,6 +396,90 @@ func TestDraftSelectionCannotStrandRequiredStarter(t *testing.T) {
 	}
 }
 
+// TestAutopickForcedPunterTakesProjectionTopNotAlphabetical is item 6's own
+// regression test (design: "No code change expected — autopickChoice
+// walks pool order"): once every other required starter slot is filled, a
+// team's final pick can only be legally completed by a punter (the
+// gridiron-house preset's own startable P slot). autopickChoice's
+// best-available fallback then walks pool.players in POOL ORDER — the
+// order internal/fantasy's mergePool/normalizePool now produce, punters
+// ranked by real projection — and must take the projection-top punter
+// ("Zed Punter", pool-order-first) rather than the alphabetically-first
+// one ("Aaron Punter"), proving the historical bug (all-zero punter
+// projections tie-breaking to alphabetical order) is fixed upstream, with
+// no change needed here.
+func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"]) // Starters()=11 incl. P; Total()=17
+	t.Cleanup(clearRosterShape)
+	draftAt := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service, _ := newClockTestService(t, true, draftAt, draftAt) // demo mode: empty board key "demo-guest"
+	const targetTeam = "team-1"
+
+	// Ten players that, between them, fill every gridiron-house starter
+	// slot EXCEPT P (QB, RB x2, WR x2, TE, FLEX via a 3rd RB, SUPERFLEX via
+	// a 2nd QB, K, DST — 10 of the preset's 11 starter slots).
+	filled := []Player{
+		{ID: "fq1", Name: "Filled QB1", Position: "QB", NFLTeam: "TEST"},
+		{ID: "fq2", Name: "Filled QB2", Position: "QB", NFLTeam: "TEST"},
+		{ID: "fr1", Name: "Filled RB1", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fr2", Name: "Filled RB2", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fr3", Name: "Filled RB3", Position: "RB", NFLTeam: "TEST"},
+		{ID: "fw1", Name: "Filled WR1", Position: "WR", NFLTeam: "TEST"},
+		{ID: "fw2", Name: "Filled WR2", Position: "WR", NFLTeam: "TEST"},
+		{ID: "ft1", Name: "Filled TE1", Position: "TE", NFLTeam: "TEST"},
+		{ID: "fk1", Name: "Filled K1", Position: "K", NFLTeam: "TEST"},
+		{ID: "fd1", Name: "Filled DST1", Position: "DST", NFLTeam: "TEST"},
+	}
+	// Six more bench fillers (any non-P position) so the target team's
+	// prior pick count reaches 16 — one short of gridiron-house's 17
+	// rounds, so this is the team's final pick.
+	bench := make([]Player, 0, 6)
+	for i := 1; i <= 6; i++ {
+		bench = append(bench, Player{ID: fmt.Sprintf("bench-%d", i), Name: fmt.Sprintf("Bench WR %d", i), Position: "WR", NFLTeam: "TEST"})
+	}
+	priorPicks := append(append([]Player{}, filled...), bench...)
+	if len(priorPicks) != 16 {
+		t.Fatalf("prior pick fixture = %d players, want 16", len(priorPicks))
+	}
+
+	// An unpicked, non-P camp body: it must fail roster viability (the
+	// target team has no starter deficit left except P) and so must never
+	// be chosen, however early it sits in pool order.
+	extraCampBody := Player{ID: "extra-camp", Name: "Extra Camp Body", Position: "WR", NFLTeam: "TEST"}
+	// The alphabetically-first punter carries the WORSE projection and a
+	// lower PunterRank position; the pool-order-first punter ("Zed
+	// Punter") carries the BETTER projection — mirroring what
+	// internal/fantasy's normalizePool now produces upstream. Pool order,
+	// not the name, is what autopickChoice must follow.
+	zedPunter := Player{ID: "zed-punter", Name: "Zed Punter", Position: "P", NFLTeam: "HOU", Projection: 9.0, PunterRank: 1}
+	aaronPunter := Player{ID: "aaron-punter", Name: "Aaron Punter", Position: "P", NFLTeam: "DAL", Projection: 6.0, PunterRank: 2}
+
+	pool := append(append([]Player{}, priorPicks...), extraCampBody, zedPunter, aaronPunter)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	picks := make([]DraftPick, 0, len(priorPicks))
+	for i, player := range priorPicks {
+		picks = append(picks, DraftPick{Number: i + 1, TeamID: targetTeam, PlayerID: player.ID, MadeAt: draftAt})
+	}
+	service.store.mu.Lock()
+	service.store.state.Picks = picks
+	service.store.state.DraftStarted = true
+	persistErr := service.store.persistLocked(colPicks, colBoards, colScalars)
+	service.store.mu.Unlock()
+	if persistErr != nil {
+		t.Fatalf("persist forced-punter fixture: %v", persistErr)
+	}
+
+	state := service.store.Snapshot()
+	got, ok := service.autopickChoice(state, targetTeam)
+	if !ok {
+		t.Fatal("autopickChoice reported no legal candidate, want the top punter")
+	}
+	if got != zedPunter.ID {
+		t.Fatalf("autopickChoice = %q, want %q (projection-top punter, not %q the alphabetically-first one)", got, zedPunter.ID, aaronPunter.ID)
+	}
+}
+
 func TestCommissionerAutopickCompletesStartableRosters(t *testing.T) {
 	setRosterShape(rosterPresets["standard"])
 	t.Cleanup(clearRosterShape)
