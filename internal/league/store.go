@@ -179,6 +179,17 @@ type Store struct {
 	// bounds the RATE of a live cancel/refile burst, a concern a process
 	// restart naturally resets on its own.
 	filingLog map[string][]time.Time
+	// lockerPostLog backs the Locker Room per-identity post rate limit
+	// (GC-4): each canonical email's recent PostLocker instants, trimmed
+	// to the trailing lockerPostRateWindow on every check. Deliberately
+	// not persisted, the same restart-resets-the-rate reasoning as
+	// filingLog above.
+	lockerPostLog map[string][]time.Time
+	// lockerGeneration counts every PostLocker/RemoveLockerPost commit.
+	// It is the locker-live hub's version source (app/locker/live.go),
+	// the same in-memory, not-persisted, monotonic-within-one-process
+	// role scheduleGeneration already plays for the schedule.
+	lockerGeneration int64
 }
 
 func NewStore(filePath string) *Store {
@@ -222,6 +233,7 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 			CoInvites:       map[string]string{},
 			SeatRevisions:   map[string]uint64{},
 			TrimmedTeamIDs:  []string{},
+			LockerPosts:     []LockerPost{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4021,6 +4033,168 @@ func (s *Store) DeleteAnnouncement(id string) error {
 	return s.persistLocked(colAnnouncements)
 }
 
+// lockerBodyMaxRunes bounds one Locker Room post or reply's text (GC-4:
+// "at most 1,000 runes"). lockerPostRateLimit and lockerPostRateWindow are
+// the server-enforced per-identity posting cooldown ("six posts per minute
+// per identity"), the same shape as waiverFilingRateLimit/
+// waiverFilingRateWindow above.
+const (
+	lockerBodyMaxRunes   = 1000
+	lockerPostRateLimit  = 6
+	lockerPostRateWindow = time.Minute
+)
+
+// lockerPostID derives a short, stable content-hash ID for a new post: the
+// same shape announcementID already uses, applied to the post's body,
+// author, and instant so two different posts never collide.
+func lockerPostID(body, authorEmail string, now time.Time) string {
+	sum := sha256.Sum256([]byte(body + "|" + authorEmail + "|" + now.UTC().Format(time.RFC3339Nano)))
+	return "post-" + hex.EncodeToString(sum[:8])
+}
+
+// lockerPostByIDLocked finds a post by ID in the current state. Must be
+// called with s.mu held.
+func (s *Store) lockerPostByIDLocked(id string) (LockerPost, bool) {
+	for _, post := range s.state.LockerPosts {
+		if post.ID == id {
+			return post, true
+		}
+	}
+	return LockerPost{}, false
+}
+
+// allowLockerPostLocked reports whether authorEmail may post another
+// Locker Room entry at now, and prunes authorEmail's posting log to the
+// trailing lockerPostRateWindow as a side effect. Must be called with
+// s.mu held.
+func (s *Store) allowLockerPostLocked(authorEmail string, now time.Time) bool {
+	if s.lockerPostLog == nil {
+		s.lockerPostLog = map[string][]time.Time{}
+	}
+	cutoff := now.Add(-lockerPostRateWindow)
+	kept := s.lockerPostLog[authorEmail][:0]
+	for _, at := range s.lockerPostLog[authorEmail] {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	s.lockerPostLog[authorEmail] = kept
+	return len(kept) < lockerPostRateLimit
+}
+
+// recordLockerPostLocked appends authorEmail's successful post instant.
+// Must be called with s.mu held, after allowLockerPostLocked already
+// pruned the log for this same call.
+func (s *Store) recordLockerPostLocked(authorEmail string, at time.Time) {
+	if s.lockerPostLog == nil {
+		s.lockerPostLog = map[string][]time.Time{}
+	}
+	s.lockerPostLog[authorEmail] = append(s.lockerPostLog[authorEmail], at)
+}
+
+// PostLocker records a new Locker Room top-level post, or — when parentID
+// names an existing top-level post — a reply nested exactly one level
+// under it (GC-4: "one level of flat replies"). body is trimmed and must
+// be non-empty and no more than lockerBodyMaxRunes runes. authorEmail is
+// the canonical identity the rate limit and, later, removal authority key
+// on; authorName/authorTeamID are a display snapshot taken now, the same
+// "freeze the actor's identity at the moment of the action" shape
+// DraftPick.MadeBy/TeamID already use.
+func (s *Store) PostLocker(parentID, body, authorEmail, authorName, authorTeamID string, now time.Time) (LockerPost, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return LockerPost{}, fmt.Errorf("post text is required")
+	}
+	if runes := []rune(body); len(runes) > lockerBodyMaxRunes {
+		return LockerPost{}, fmt.Errorf("posts must be %d characters or fewer", lockerBodyMaxRunes)
+	}
+	authorEmail = strings.TrimSpace(authorEmail)
+	if authorEmail == "" {
+		return LockerPost{}, fmt.Errorf("a signed-in identity is required to post")
+	}
+	parentID = strings.TrimSpace(parentID)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return LockerPost{}, err
+	}
+	if parentID != "" {
+		parent, ok := s.lockerPostByIDLocked(parentID)
+		if !ok {
+			return LockerPost{}, fmt.Errorf("that post no longer exists")
+		}
+		if parent.ParentID != "" {
+			return LockerPost{}, fmt.Errorf("replies may not be nested more than one level")
+		}
+	}
+	if !s.allowLockerPostLocked(authorEmail, now) {
+		return LockerPost{}, fmt.Errorf("you are posting too quickly; wait a moment and try again")
+	}
+	post := LockerPost{
+		ID:           lockerPostID(body, authorEmail, now),
+		ParentID:     parentID,
+		Body:         body,
+		AuthorEmail:  authorEmail,
+		AuthorName:   authorName,
+		AuthorTeamID: authorTeamID,
+		PostedAt:     now.UTC(),
+	}
+	s.state.LockerPosts = append(s.state.LockerPosts, post)
+	if err := s.persistLocked(colLockerPosts); err != nil {
+		return LockerPost{}, err
+	}
+	s.recordLockerPostLocked(authorEmail, now)
+	s.lockerGeneration++
+	return post, nil
+}
+
+// RemoveLockerPost soft-deletes one Locker Room post or reply by ID: its
+// body is cleared and it renders as a labeled tombstone, with
+// removedByRole ("author" or "commissioner") standing as the whole
+// metadata-only audit trail GC-4 calls for — no separate log retains the
+// removed text. Removing an ID that is already removed, or that does not
+// exist, is a harmless no-op, matching DeleteAnnouncement/ReleaseBadge's
+// idempotent precedent.
+func (s *Store) RemoveLockerPost(id, removedByRole string, now time.Time) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	index := -1
+	for i, post := range s.state.LockerPosts {
+		if post.ID == id {
+			index = i
+			break
+		}
+	}
+	if index == -1 || !s.state.LockerPosts[index].RemovedAt.IsZero() {
+		return nil
+	}
+	s.state.LockerPosts[index].Body = ""
+	s.state.LockerPosts[index].RemovedAt = now.UTC()
+	s.state.LockerPosts[index].RemovedByRole = removedByRole
+	if err := s.persistLocked(colLockerPosts); err != nil {
+		return err
+	}
+	s.lockerGeneration++
+	return nil
+}
+
+// LockerGeneration returns the current in-memory Locker Room commit
+// counter: the locker-live hub's version source (app/locker/live.go).
+// Deliberately not persisted; a process restart resets it, exactly as
+// scheduleGeneration does for the schedule.
+func (s *Store) LockerGeneration() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lockerGeneration
+}
+
 // persistLocked writes every collection named in cols, plus any
 // collection an earlier failed attempt left marked, in one transaction.
 //
@@ -4121,6 +4295,7 @@ func cloneState(in PersistedState) PersistedState {
 		CoInvites:               make(map[string]string, len(in.CoInvites)),
 		SeatRevisions:           make(map[string]uint64, len(in.SeatRevisions)),
 		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
+		LockerPosts:             append([]LockerPost(nil), in.LockerPosts...),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value

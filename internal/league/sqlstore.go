@@ -69,6 +69,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate006WaiverReceipts,
 	migrate007WaiverClaimDeferral,
 	migrate008WaiverClaimDeferralTiming,
+	migrate009LockerPosts,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -341,6 +342,19 @@ func migrate008WaiverClaimDeferralTiming(tx *sql.Tx) error {
 	return nil
 }
 
+// migrate009LockerPosts adds the Locker Room league-board table (GC-4).
+func migrate009LockerPosts(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE locker_posts (ord INTEGER PRIMARY KEY, id TEXT NOT NULL, parent_id TEXT NOT NULL,
+		body TEXT NOT NULL, author_email TEXT NOT NULL, author_name TEXT NOT NULL, author_team_id TEXT NOT NULL,
+		posted_at TEXT NOT NULL, removed_at TEXT NOT NULL, removed_by_role TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("CREATE TABLE locker_posts: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '10')`); err != nil {
+		return fmt.Errorf("stamp schema_version 10: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -385,6 +399,7 @@ const (
 	colRosterZones
 	colSchedule
 	colPlayoffs
+	colLockerPosts
 	collectionCount
 )
 
@@ -896,6 +911,21 @@ var collectionSpecs = [collectionCount]collectionSpec{
 				return
 			}
 			sink.add("playoffs", []any{1}, sink.jsonValue(st.Playoffs))
+		},
+	},
+	colLockerPosts: {
+		tables: []tableDef{{
+			name:    "locker_posts",
+			keyCols: []string{"ord"},
+			valCols: []string{"id", "parent_id", "body", "author_email", "author_name", "author_team_id",
+				"posted_at", "removed_at", "removed_by_role"},
+		}},
+		emit: func(st *PersistedState, sink *rowSink) {
+			for i, p := range st.LockerPosts {
+				sink.add("locker_posts", []any{i},
+					p.ID, p.ParentID, p.Body, p.AuthorEmail, p.AuthorName, p.AuthorTeamID,
+					encodeTime(p.PostedAt), encodeTime(p.RemovedAt), p.RemovedByRole)
+			}
 		},
 	},
 }
@@ -1847,6 +1877,28 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		return state, err
 	}
 
+	if err := queryRows(db, `SELECT "id", "parent_id", "body", "author_email", "author_name", "author_team_id",
+		"posted_at", "removed_at", "removed_by_role" FROM locker_posts ORDER BY "ord"`,
+		func(rows *sql.Rows) error {
+			var p LockerPost
+			var postedAt, removedAt string
+			if err := rows.Scan(&p.ID, &p.ParentID, &p.Body, &p.AuthorEmail, &p.AuthorName, &p.AuthorTeamID,
+				&postedAt, &removedAt, &p.RemovedByRole); err != nil {
+				return err
+			}
+			var err error
+			if p.PostedAt, err = decodeTime(postedAt); err != nil {
+				return err
+			}
+			if p.RemovedAt, err = decodeTime(removedAt); err != nil {
+				return err
+			}
+			state.LockerPosts = append(state.LockerPosts, p)
+			return nil
+		}); err != nil {
+		return state, err
+	}
+
 	// v1 had no catalog-enforced identity boundary. Strip retired/unknown
 	// motifs and keep only one holder for each current canonical art before
 	// this state becomes the Store's read model. repairIdentityRows already
@@ -2132,6 +2184,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.TrimmedTeamIDs == nil {
 		state.TrimmedTeamIDs = []string{}
+	}
+	if state.LockerPosts == nil {
+		state.LockerPosts = []LockerPost{}
 	}
 	normalizeIdentityCollections(state)
 }
