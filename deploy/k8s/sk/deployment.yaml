@@ -89,17 +89,25 @@ spec:
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
             # Regular-season live scoring kill switch (internal/livescore),
-            # mirroring ../deployment.yaml: "false" until
-            # docs/launch-checklist.md's live-scoring rollout section
-            # explicitly flips it for this canary instance first.
+            # mirroring ../deployment.yaml, including the retired
+            # LIVE_POLL_INTERVAL and the verified Ultra quota's real
+            # LIVE_DAILY_BUDGET (see that file's own comment). The Stable
+            # Kernel league did not form for the 2026 season, so this
+            # manifest is not a live canary right now — flagship is the
+            # only live instance, enabled behind the replay rehearsal and
+            # the Thursday-night kill-switch watch in
+            # docs/launch-checklist.md. This file stays tracked as the
+            # template a future second live instance rolls from.
             - name: LIVE_SCORING_ENABLED
               value: "false"
-            - name: LIVE_POLL_INTERVAL
-              value: "5s"
+            - name: LIVE_SCOREBOARD_INTERVAL
+              value: "10s"
+            - name: LIVE_BOX_BASELINE
+              value: "60s"
             - name: LIVE_MAX_INFLIGHT
               value: "4"
             - name: LIVE_DAILY_BUDGET
-              value: "20000"
+              value: "5000"
             - name: COMMISSIONER_INSTANCE_ID
               value: "skl"
             - name: COMMISSIONER_HQ_PEERS

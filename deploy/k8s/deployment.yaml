@@ -62,16 +62,25 @@ spec:
               value: "http://statrelay.gridiron.svc.cluster.local"
             # Regular-season live scoring kill switch (internal/livescore).
             # "false" until docs/launch-checklist.md's live-scoring rollout
-            # section explicitly flips it per instance; LIVE_DAILY_BUDGET is
-            # a placeholder the owner confirms after the Mega RapidAPI tier.
+            # section explicitly flips it. LIVE_SCOREBOARD_INTERVAL/
+            # LIVE_BOX_BASELINE/LIVE_DAILY_BUDGET are the verified Ultra
+            # quota's numbers (15,000 requests/day, soft-limited — see
+            # docs/season-operations.md's Game day section), not
+            # placeholders. LIVE_POLL_INTERVAL is retired here on purpose:
+            # the deprecated env alias still works for a self-hosted
+            # instance that sets it directly, but no tracked manifest may
+            # carry the old name, or a stale 5s value would silently
+            # restore blanket-polling cadence.
             - name: LIVE_SCORING_ENABLED
               value: "false"
-            - name: LIVE_POLL_INTERVAL
-              value: "5s"
+            - name: LIVE_SCOREBOARD_INTERVAL
+              value: "10s"
+            - name: LIVE_BOX_BASELINE
+              value: "60s"
             - name: LIVE_MAX_INFLIGHT
               value: "4"
             - name: LIVE_DAILY_BUDGET
-              value: "20000"
+              value: "5000"
             # Read-only Commissioner HQ federation. Browser cookies, CSRF
             # tokens, manager identities, and mutations never cross hosts.
             - name: COMMISSIONER_INSTANCE_ID
