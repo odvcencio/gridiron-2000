@@ -89,7 +89,12 @@ const uiPassTouchTargetProbeScript = `(function(){
 			var tag = el.tagName.toLowerCase();
 			var type = el.getAttribute('type') || '';
 			var name = el.id ? (tag + '#' + el.id) : (el.className ? (tag + '.' + String(el.className).split(' ')[0]) : tag);
-			short.push(name + (type ? ('[type=' + type + ']') : '') + ' ' + Math.round(rect.width) + 'x' + Math.round(rect.height));
+			// The allowlist below keys on the bare name (matching
+			// touchTargetAllowlist's convention in
+			// sim_room_browser_test.go), so the rendered size rides
+			// along after a '::' marker for the failure log only —
+			// it must never be part of the matched key.
+			short.push(name + (type ? ('[type=' + type + ']') : '') + '::' + Math.round(rect.width) + 'x' + Math.round(rect.height));
 		}
 	});
 	return short.join('|');
@@ -122,9 +127,10 @@ func runTouchTargetSweep(t *testing.T, ctx context.Context, selector, label stri
 		return
 	}
 	var unexpected []string
-	for _, name := range strings.Split(raw, "|") {
+	for _, entry := range strings.Split(raw, "|") {
+		name, size, _ := strings.Cut(entry, "::")
 		if !uiPassTouchTargetAllowlist[name] {
-			unexpected = append(unexpected, name)
+			unexpected = append(unexpected, name+" "+size)
 		}
 	}
 	if len(unexpected) > 0 {
@@ -173,6 +179,27 @@ func TestBrowserTouchTargetSweepAcrossSurfaces(t *testing.T) {
 	runTouchTargetSweep(t, ctx, "#primary-navigation-dialog", "phone nav dialog")
 }
 
+// TestBrowserTouchTargetSweepOnGuidePage is finding 13's own coverage
+// (2026-08-31 review): /guide runs as its own scenario rather than
+// joining TestBrowserTouchTargetSweepAcrossSurfaces's route loop above —
+// that sweep already sits close to browserBudget (sim_browser_test.go,
+// a 90s ceiling on the whole scenario) with its existing five routes,
+// two sweeps each, plus the phone nav dialog step; appending /guide's
+// own link-heavy quickstart and checklist content pushed the combined
+// scenario over that budget in rehearsal ("context deadline exceeded"
+// opening the phone nav dialog, the very last step). /guide needs no
+// sign-in: publicGuideData (page.server.go) is deliberately a
+// pre-account, PII-free surface.
+func TestBrowserTouchTargetSweepOnGuidePage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, _, ctx := startBrowserDraft(t)
+	navigateTo(t, ctx, child, "/guide", uiPassPhoneWidth, uiPassPhoneHeight)
+	runTouchTargetSweep(t, ctx, "#main-content", "/guide")
+	runTouchTargetSweep(t, ctx, ".site-footer", "/guide footer")
+}
+
 // TestBrowserPhoneNavDialogLinkFontSize is P2-15's own probe (UI pass
 // 2026-08-30): every PrimaryNavigation link label inside the phone
 // dialog renders at >= 15px, not the pre-fix 12.5px floor.
@@ -211,7 +238,10 @@ func TestBrowserPhoneNavDialogLinkFontSize(t *testing.T) {
 // TestBrowserTypeFloorAcrossSurfaces is the "New probe coverage" type-floor
 // item (2026-08-30 UI pass): no #main-content text node renders under
 // 13px at 390px, by default (comfortable) density, on Home, Draft,
-// Players, Team, Matchups, or Scoring.
+// Players, Team, Matchups, Scoring, or Pick'em (finding 9, 2026-08-31
+// review: the token sweep made --type-2xs/--space-2xs resolve for the
+// first time, tightening the pickem market head/note lines to 13.1px —
+// this route joins the sweep so that never regresses below the floor).
 func TestBrowserTypeFloorAcrossSurfaces(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -220,7 +250,7 @@ func TestBrowserTypeFloorAcrossSurfaces(t *testing.T) {
 	viewer := league.bots[len(league.bots)-1]
 	navigateSignedInTo(t, ctx, child, viewer, "/", uiPassPhoneWidth, uiPassPhoneHeight)
 
-	for _, route := range []string{"/", "/draft", "/players", "/team", "/matchups", "/scoring"} {
+	for _, route := range []string{"/", "/draft", "/players", "/team", "/matchups", "/scoring", "/pickem"} {
 		navigateTo(t, ctx, child, route, uiPassPhoneWidth, uiPassPhoneHeight)
 		var offenders string
 		if err := chromedp.Run(ctx, chromedp.Evaluate(minMainContentFontSizeScript, &offenders)); err != nil {

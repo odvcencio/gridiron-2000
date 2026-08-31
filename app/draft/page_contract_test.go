@@ -217,6 +217,14 @@ func TestTapeRowManagerDropsTeamNameDuplication(t *testing.T) {
 		{"manager name merely starts similarly, no space boundary", "Big End", "Big Endians", "Big Endians"},
 		{"empty manager", "Big Endians", "", ""},
 		{"empty team", "", "Some Manager", "Some Manager"},
+		// Finding 12 (2026-08-31 review): the old implementation sliced
+		// manager by len(team) BYTES, not runes. "\u212a-Town" (KELVIN
+		// SIGN, 3 bytes) makes team 8 bytes but only 6 runes, so that
+		// byte slice landed mid-word in manager's plain-ASCII "k-town"
+		// prefix instead of on the actual 6-rune boundary — a case a
+		// byte-slicing bug can hit on any team name carrying so much as
+		// one multi-byte character, not only exotic ones like this.
+		{"multi-byte team name (byte length != rune count)", "\u212a-Town", "k-town Manager", ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

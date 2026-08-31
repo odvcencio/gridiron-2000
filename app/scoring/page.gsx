@@ -98,10 +98,10 @@ func Page() Node {
 		</div>
 		<details class="player-pool" id="scoring-league" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">01 // LEAGUE</span>
-					<h2>League identity</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">League identity</span>
+				</span>
 			</summary>
 			<p class="scoring-note">
 				{data.identity_rules.name}
@@ -130,10 +130,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-membership" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">02 // MEMBERSHIP</span>
-					<h2>Who can join</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Who can join</span>
+				</span>
 			</summary>
 			<p class="scoring-note">
 				<b class="mono">{data.membership_rules.label}</b>
@@ -152,10 +152,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-roster" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">03 // ROSTER</span>
-					<h2>Starting lineup and bench</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Starting lineup and bench</span>
+				</span>
 			</summary>
 			<div class="pool-list">
 				<Each of={data.roster_rules.slots} as="slot">
@@ -184,10 +184,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-draft" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">04 // DRAFT</span>
-					<h2>Startup snake draft</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Startup snake draft</span>
+				</span>
 			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
@@ -220,10 +220,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-lineups" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">05 // LINEUPS &amp; LOCKS</span>
-					<h2>Setting your lineup</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Setting your lineup</span>
+				</span>
 			</summary>
 			<p class="scoring-note">
 				Each player locks at their own NFL team's kickoff, not one league-wide lock time — a Sunday player can still be swapped Monday morning if their game has not kicked off yet.
@@ -241,13 +241,13 @@ func Page() Node {
 		<Each of={data.groups} as="group">
 			<details class="player-pool" id={group.ID} open>
 				<summary class="pool-toolbar">
-					<div>
+					<span class="pool-toolbar__label">
 						<span class="section-index">
 							06 // SCORING //
 							{group.Name}
 						</span>
-						<h2>{group.Name}</h2>
-					</div>
+						<span class="pool-toolbar__heading" role="heading" aria-level="2">{group.Name}</span>
+					</span>
 				</summary>
 				<If cond={group.Note != ""}>
 					<p class="scoring-note">{group.Note}</p>
@@ -281,10 +281,10 @@ func Page() Node {
 		<p class="scoring-note">{data.scoring_note}</p>
 		<details class="player-pool" id="scoring-week-close" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">07 // WEEK CLOSE</span>
-					<h2>Schedule, playoffs, and closing a week</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Schedule, playoffs, and closing a week</span>
+				</span>
 			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
@@ -326,10 +326,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-free-agency" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">08 // FREE AGENCY</span>
-					<h2>Signing free agents</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Signing free agents</span>
+				</span>
 			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
@@ -353,10 +353,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-waivers" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">09 // WAIVERS</span>
-					<h2>Claiming a dropped or locked player</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">Claiming a dropped or locked player</span>
+				</span>
 			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
@@ -423,10 +423,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-trades" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">10 // TRADES</span>
-					<h2>This league's veto policy</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">This league's veto policy</span>
+				</span>
 			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
@@ -497,10 +497,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-pickem" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">11 // PICK'EM</span>
-					<h2>The weekly side game</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">The weekly side game</span>
+				</span>
 			</summary>
 			<p class="scoring-note">
 				Every signed-in member may make pick'em picks — a team seat is not required. Pick against the market spread shown on each matchup. The line updates until the weekly Thursday freeze; an earlier game freezes at its own kickoff. A missing frozen line is void, never silently converted to straight-up scoring.
@@ -512,10 +512,10 @@ func Page() Node {
 		</details>
 		<details class="player-pool" id="scoring-blitz" open>
 			<summary class="pool-toolbar">
-				<div>
+				<span class="pool-toolbar__label">
 					<span class="section-index">12 // PRESEASON BLITZ</span>
-					<h2>A side contest before the real thing</h2>
-				</div>
+					<span class="pool-toolbar__heading" role="heading" aria-level="2">A side contest before the real thing</span>
+				</span>
 			</summary>
 			<p class="scoring-note">
 				Pick five preseason players and race the field on total production, no roster spot required. Scores live during the preseason window only.

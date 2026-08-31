@@ -1888,7 +1888,7 @@ func DraftPickDetailBody(props TapePick) Node {
 			<span class="mono">Proj {props.Projection}</span>
 			<If cond={props.HasValue}><span class="mono">vs ADP {props.ValueLabel}</span></If>
 		</div>
-		<p class="mono muted">Drafted by {props.TeamName} · {props.Manager}</p>
+		<p class="mono muted">Drafted by {props.TeamName}<If cond={props.Manager != ""}> · {props.Manager}</If></p>
 		<p class="mono muted">Source: {props.Source}</p>
 		<div class="pick-detail__best">
 			<span class="idx">Best available at this pick</span>

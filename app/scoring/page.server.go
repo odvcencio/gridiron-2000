@@ -131,6 +131,7 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().ScoringData(ctx.Request)
+			data["jump_sections"] = []scoringJumpSection{}
 			if groups, ok := data["groups"].([]league.ScoringRuleGroup); ok {
 				editable, _ := data["editable"].(bool)
 				views := scoringRuleGroupViews(groups, editable, ctx.ActionPath("scoring-set"), session.Token(ctx.Request))

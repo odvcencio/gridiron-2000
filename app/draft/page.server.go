@@ -416,11 +416,12 @@ func tapeRowManager(team, manager string) string {
 	if strings.EqualFold(manager, team) {
 		return ""
 	}
-	if len(manager) > len(team) && strings.EqualFold(manager[:len(team)], team) {
-		rest := manager[len(team):]
-		if strings.HasPrefix(rest, " ") {
-			return ""
-		}
+	// strings.HasPrefix compares whole, always-valid UTF-8 strings, never a
+	// byte-index slice of manager — team's own byte length (len(team)) does
+	// not line up with manager's rune boundaries when either name carries a
+	// multi-byte character, so a byte slice there could split mid-rune.
+	if strings.HasPrefix(strings.ToLower(manager), strings.ToLower(team)+" ") {
+		return ""
 	}
 	return manager
 }

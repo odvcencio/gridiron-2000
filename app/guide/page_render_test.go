@@ -65,12 +65,12 @@ func TestPublicGuideDataReflectsDynastyAndRedraftConfig(t *testing.T) {
 		{
 			name: "dynasty invite posture",
 			cfg:  guideConfig("Gridiron House", "dynasty", "America/New_York", "", 8, 17),
-			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "OPEN AFTER SIGN-IN"},
+			want: map[string]any{"league_format_summary": "8 teams · DYNASTY", "roster_capacity": 136, "pool_target": 340, "pool_target_cushion": 204, "membership_label": "OPEN AFTER SIGN-IN", "draft_timezone": "Eastern Time"},
 		},
 		{
 			name: "redraft domain posture",
 			cfg:  guideConfig("Stable Kernel League", "redraft", "America/New_York", "stablekernel.com", 14, 17),
-			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN OR INVITE"},
+			want: map[string]any{"league_format_summary": "14 teams · REDRAFT", "roster_capacity": 238, "pool_target": 595, "pool_target_cushion": 357, "membership_label": "DOMAIN OR INVITE", "draft_timezone": "Eastern Time"},
 		},
 	}
 	for _, tc := range tests {
@@ -92,7 +92,7 @@ func TestGuidePageRendersSeasonReadyManagerPath(t *testing.T) {
 		"Manager Guide · Stable Kernel League",
 		"14 teams · REDRAFT",
 		"Sat, Aug 29, 2026 · 4:00 PM EDT",
-		"America/New_York",
+		"Eastern Time",
 		"DOMAIN OR INVITE",
 		"Accounts at the configured work domain or with an explicit invitation may enter.",
 		"FIVE-MINUTE START",
