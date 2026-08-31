@@ -45,6 +45,7 @@ The commissioner performs this once for each isolated league instance.
 5. Add manager invitations. A domain-gated league admits identities in the configured domain; use explicit invitations for permitted people outside it.
 6. Ask every manager to claim the intended franchise before draft order is finalized.
 7. At the draft-order milestone, one draw publishes both the final order and the default 14-week regular-season schedule, then sends one notification batch. Use the separate schedule control beforehand only when the league needs a custom span or first NFL week.
+8. Download a league backup from `/admin` (League configuration) before draft night, and again after any major change. See [Backup and restore](backup-restore.md) for what the archive holds and how to restore it.
 
 For a multi-instance Kubernetes topology, every league can use the shared `statrelay`. Only `statrelay-secrets` owns `TANK01_API_KEY`; each league sets `TANK01_BASE_URL` to the relay Service. The tracked flagship and Stable Kernel manifests are the current two-instance example, not a fleet-size limit.
 
@@ -372,6 +373,7 @@ Use the least destructive response that preserves an honest league record.
 - Incorrect final week: stop and make a commissioner ruling before attempting any repair. A final week is intentionally immutable through normal manager flows.
 - Source outage: preserve the last good cache and diagnose the relay or upstream. Do not replace a known snapshot with fabricated zeros.
 - Release failure: follow `docs/launch-checklist.md`, canary Stable Kernel first, and adjudicate both recorded logical and physical state-schema bounds before using any prior revision. If an old binary cannot read either persisted marker, roll forward or use the separately tested compatible fallback digest; an image-only undo is forbidden.
+- Full data loss, a corrupted database, or a required rollback to an earlier league state: stop Gridiron and follow [Backup and restore](backup-restore.md). Restore is an offline `leaguerestore` step; there is no web-facing restore/upload path.
 
 ## Current year-one boundary
 

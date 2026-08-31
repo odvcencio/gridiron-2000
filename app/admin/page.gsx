@@ -403,6 +403,7 @@ func Page() Node {
 						<h3>League configuration and communication</h3>
 						<ul>
 							<AdminTaskLink Label="Post league notes" Href="/admin?section=announcements#admin-announcements" Current={data.admin_section == "announcements"} Status="POST / REVIEW" />
+							<AdminTaskLink Label="Download league backup" Href="/admin?section=backup#admin-backup" Current={data.admin_section == "backup"} Status="LOCAL SNAPSHOT" />
 						</ul>
 					</div>
 					<div class="admin-task-nav__group admin-task-nav__group--danger">
@@ -1252,6 +1253,30 @@ func Page() Node {
 							</article>
 						</Each>
 					</div>
+				</section>
+				<section id="admin-backup" aria-labelledby="admin-backup-heading" tabindex="-1" data-admin-section="backup" class={"player-pool" + data.section_class_backup}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">08 // BACKUP</span>
+							<h2 id="admin-backup-heading">League backup</h2>
+						</div>
+					</div>
+					<p class="scoring-note">
+						This downloads one archive: a consistent database snapshot, the loaded
+						league.json, and a manifest. The manifest records both schema versions,
+						the app version, the timestamp, and the database's SHA-256.
+					</p>
+					<p class="scoring-note">
+						Downloading is read-only and reversible. It changes nothing in the league.
+						The archive holds no secrets and no environment values. It also excludes
+						the Signal Wire and Open Stats caches; both refetch automatically.
+					</p>
+					<a class="button button--primary" href="/admin/backup.tar.gz">Download league backup</a>
+					<p class="scoring-note">
+						Gridiron also saves a nightly local snapshot to data/backups/ and keeps the
+						most recent copies. Restoring is a separate, offline step; see
+						docs/backup-restore.md for the exact commands.
+					</p>
 				</section>
 				<section id="admin-danger" aria-labelledby="admin-danger-heading" tabindex="-1" data-admin-section="danger" class={"player-pool admin-danger" + data.section_class_danger}>
 					<div class="pool-toolbar">

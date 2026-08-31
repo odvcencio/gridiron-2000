@@ -16,6 +16,7 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - A draft pool service with a swappable provider seam: an embedded 182-player offline pool with approximate ranks, or a live Tank01 pool with ADP, projections, bye weeks, injuries, and news.
 - A seat-level Big Board at `/board`: the primary and co-manager share one private order, and the draft room/autopick surface that team's top available targets on the clock.
 - A commissioner console at `/admin` (`COMMISSIONER_EMAILS`): runtime invites, seat release, and typed-confirmation draft or league resets.
+- One-click league backup: a commissioner-downloadable snapshot archive from `/admin`, nightly local snapshots, and an offline `cmd/leaguerestore` restore path — see [Backup and restore](docs/backup-restore.md).
 - Honest empty states: seats show `UNCLAIMED` until a manager signs in, records start `0–0`, and rosters stay empty until picks are made.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
@@ -104,8 +105,11 @@ it does not apply resources.
 The shared statrelay remains the sole owner of the real TANK01_API_KEY.
 Fleet-generated application Secrets receive only a relay URL. Each generated
 local-path PVC is ReadWriteOnce and node-local; inspect the StorageClass
-reclaim policy because deletion may retain or delete the local volume, and
-plan backups before node maintenance. No HA or backup guarantee is implied.
+reclaim policy because deletion may retain or delete the local volume. Gridiron
+takes its own local nightly and on-demand snapshots (see
+[Backup and restore](docs/backup-restore.md)), but never copies them off the
+node; plan an off-host copy before node maintenance yourself. This setup makes
+no HA guarantee.
 
 The output directory is generated and fleetgen-owned, as shown by its fixed
 ownership marker. It replaces only an empty directory or a prior tree with
@@ -249,6 +253,8 @@ data/
   league.db                    authoritative league state (SQLite)
   league.db.bak                rolling snapshot, written before every draft pick
   league-state.json.imported   the JSON state file the database was built from
+  backups/
+    gridiron-snapshot-*.tar.gz   nightly local snapshots, rotated to BACKUP_KEEP (default 7)
   signal-wire/
     state.json                 current, rewriteable signal excerpts
     events/YYYY-MM-DD.ndjson   metadata-only audit journal
@@ -260,6 +266,12 @@ data/
 ```
 
 Files are created with owner-only permissions. The Signal Wire honors Bluesky deletions by clearing the post text and CID from current state. Feed and manager entries retain explicit provenance; the journal preserves only derived metadata needed to audit classification.
+
+A commissioner can also download a complete, restorable backup archive
+on demand from `/admin` (League configuration), and Gridiron saves the same
+archive locally every night. Off-host copying remains the operator's job. See
+[Backup and restore](docs/backup-restore.md) for exactly what an archive
+contains and how to restore one with `cmd/leaguerestore`.
 
 League-session endpoints:
 

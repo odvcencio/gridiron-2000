@@ -418,6 +418,15 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}
 	rt.starters = append(rt.starters, league.Default().StartNotifier)
 
+	// The nightly local snapshot loop (BACKUP_ENABLED, default true;
+	// BACKUP_KEEP, default 7) — see backup_scheduler.go and
+	// docs/backup-restore.md. It only ever writes under the same data
+	// directory as league.db; off-host copying remains the operator's job.
+	backupCfg := backupSchedulerConfigFromEnv(league.Default().DataDir())
+	rt.starters = append(rt.starters, func(ctx context.Context) {
+		startBackupScheduler(ctx, league.Default(), backupCfg, appVersion)
+	})
+
 	// league.Default() has already resolved APP_NAME (env) over
 	// league.name (file) over the neutral built-in default (spec section
 	// 3.3 precedence); read the wordmark through it instead of a second,
@@ -699,6 +708,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Mount("POST /draft/queue", draftpage.QueueMoveHandler(league.Default()))
 	app.Mount("GET /draft/live.json", draftpage.LiveViewHandler(league.Default()))
 	app.Mount("GET /draft/ledger.csv", draftpage.LedgerCSVHandler(league.Default()))
+	// League backup (data sovereignty): a commissioner-only, read-only
+	// download of one consistent local snapshot archive — see
+	// docs/backup-restore.md and adminpage.BackupDownloadHandler's doc
+	// comment. appVersion is the same release marker /api/health reports.
+	app.Mount("GET /admin/backup.tar.gz", adminpage.BackupDownloadHandler(league.Default(), appVersion))
 	app.Mount(draftpage.DraftLiveHubPath, draftLiveUpdates.Handler(league.Default()))
 	app.Mount(matchupspage.ScoresLiveHubPath, scoresLive.Handler(league.Default()))
 	app.Mount(lockerpage.LockerLiveHubPath, lockerLive.Handler(league.Default()))

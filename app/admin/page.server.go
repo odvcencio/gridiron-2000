@@ -20,7 +20,7 @@ import (
 
 var adminSectionKeys = []string{
 	"draft-control", "schedule", "week-close", "seats", "invites",
-	"draft-order", "data", "clock", "roster", "playoffs", "announcements", "danger",
+	"draft-order", "data", "clock", "roster", "playoffs", "announcements", "backup", "danger",
 }
 
 func adminSection(request *http.Request) string {
