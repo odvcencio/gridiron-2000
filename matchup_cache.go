@@ -34,12 +34,25 @@ const (
 	matchupMaxRegularWeek  = 18
 )
 
+// matchupCacheSchemaVersion tags every ranks.json write with the scoring
+// formula that produced it. Bumped here (1 -> 2) for the fix that swaps
+// computeMatchupSnapshot from league.ScoreStatLine (display-key lookup,
+// silently scoring 0 for a rule-keyed stat line) to league.ScoreRuleStats
+// (task #59): a file written before this fix carries every rank computed
+// from TD/INT alone, and matchupCacheStaleAfter (6h) is nowhere near
+// short enough to flush it on its own after a deploy. readMatchupCache's
+// caller treats any SchemaVersion other than this one as unusable, the
+// same as a missing file — an old file decodes with SchemaVersion 0 (the
+// field did not exist yet), which never equals this constant.
+const matchupCacheSchemaVersion = 2
+
 // matchupSnapshotCache is ranks.json's on-disk shape (F22's atomic-write
 // pattern: temp file, chmod 0600, rename — matching blitzPre1Cache in
 // blitz_pre1.go).
 type matchupSnapshotCache struct {
-	Snapshot   matchup.Snapshot `json:"snapshot"`
-	ComputedAt time.Time        `json:"computedAt"`
+	SchemaVersion int              `json:"schema_version"`
+	Snapshot      matchup.Snapshot `json:"snapshot"`
+	ComputedAt    time.Time        `json:"computedAt"`
 }
 
 // matchupRetryAfterFailure is how soon startMatchupRanks tries again
@@ -106,20 +119,29 @@ func startMatchupRanks(ctx context.Context, stats *openstats.Service, lg *league
 }
 
 // loadOrComputeMatchupSnapshot returns the snapshot to serve: the disk
-// cache when it exists and is fresher than matchupCacheStaleAfter, else
-// a fresh compute. A fresh-compute failure (or a compute that finds
-// nothing to rank) falls back to a stale cache when one exists (a stale
-// rank beats none, and it stays honestly labelled by its own
-// SourceLabel either way); with no cache at all it returns ok=false,
-// having already logged the one required line.
+// cache when it exists, carries this build's matchupCacheSchemaVersion,
+// and is fresher than matchupCacheStaleAfter, else a fresh compute. A
+// fresh-compute failure (or a compute that finds nothing to rank) falls
+// back to a stale-but-usable cache when one exists (a stale rank beats
+// none, and it stays honestly labelled by its own SourceLabel either
+// way) — but never to a cache whose schema version does not match: that
+// file was computed under a different scoring formula (see
+// matchupCacheSchemaVersion's doc comment), so serving it, even as a
+// degraded fallback, would silently resurrect the old formula's wrong
+// ranks. With no usable cache at all it returns ok=false, having already
+// logged the one required line.
 func loadOrComputeMatchupSnapshot(stats *openstats.Service, scoringValues map[string]float64, now time.Time) (matchup.Snapshot, bool) {
 	cache, cacheErr := readMatchupCache()
-	if cacheErr == nil && now.Sub(cache.ComputedAt) < matchupCacheStaleAfter {
+	cacheUsable := cacheErr == nil && cache.SchemaVersion == matchupCacheSchemaVersion
+	if cacheErr == nil && !cacheUsable {
+		log.Printf("matchup: cached rank file is schema version %d, want %d; discarding and recomputing", cache.SchemaVersion, matchupCacheSchemaVersion)
+	}
+	if cacheUsable && now.Sub(cache.ComputedAt) < matchupCacheStaleAfter {
 		return cache.Snapshot, true
 	}
 	snap, err := computeMatchupSnapshot(stats, scoringValues, now)
 	if err != nil {
-		if cacheErr == nil {
+		if cacheUsable {
 			log.Printf("matchup: rank refresh failed (%v); serving the cached snapshot from %s (%s)", err, cache.ComputedAt.Format(time.RFC3339), cache.Snapshot.SourceLabel)
 			return cache.Snapshot, true
 		}
@@ -136,9 +158,23 @@ func loadOrComputeMatchupSnapshot(stats *openstats.Service, scoringValues map[st
 // fetches every REG-season offensive skill-position row for both the
 // current and the previous season, decides which season to rank from
 // (matchup.SelectSeason, design point 4), scores every row through the
-// league's own live scoring rules (league.ScoreStatLine — never a
-// forked formula), and ranks. An empty row set for the chosen season is
-// an error (nothing to serve) rather than a table of fabricated ranks.
+// league's own live scoring rules, and ranks. An empty row set for the
+// chosen season is an error (nothing to serve) rather than a table of
+// fabricated ranks.
+//
+// Scoring uses league.ScoreRuleStats, not league.ScoreStatLine (task
+// #59, adversarial review 2026-08-31): offenseStatLine below returns a
+// RULE-keyed stat line (passYards, reception, recYards, fumbleLost, ...
+// — the same keys WeekStatLine.Stats carries), while ScoreStatLine reads
+// its stats argument by DISPLAY key (passYds, receptions, recYds,
+// fumblesLost, ...). Every offense field except the ones where a rule
+// key and a display key happen to collide (passTD, passInt, rushTD,
+// recTD, fgMade, fgMissed, xpMade) silently scored 0 under the old call
+// — a confirmed 45.5-vs-28.0-point gap on one probed row — so every
+// matchup-toughness rank ever served derived from touchdowns and
+// interceptions alone, never yardage, receptions, or fumbles.
+// ScoreRuleStats reads the identical rule keys offenseStatLine produces,
+// with the identical nil-values contract ScoreStatLine already had.
 func computeMatchupSnapshot(stats *openstats.Service, scoringValues map[string]float64, now time.Time) (matchup.Snapshot, error) {
 	currentSeason := stats.Status().Season
 	previousSeason := currentSeason - 1
@@ -164,7 +200,7 @@ func computeMatchupSnapshot(stats *openstats.Service, scoringValues map[string]f
 			Opponent: row.Opponent,
 			Position: row.Position,
 			Week:     row.Week,
-			Points:   league.ScoreStatLine(offenseStatLine(row.stat), scoringValues),
+			Points:   league.ScoreRuleStats(offenseStatLine(row.stat), scoringValues),
 		})
 	}
 	return matchup.Compute(scored, season, label, now), nil
@@ -220,10 +256,21 @@ func matchupWeekRows(rows []openstats.PlayerWeekStat) []matchupRow {
 // returns an empty slice for that week; the loop does not distinguish
 // "not played yet" from "no games this week" since neither should ever
 // feed a rank.
+// fetchSeasonPlayerStatsRowCap is the per-week query cap passed to query
+// below. A real week (an active roster's worth of QB/RB/WR/TE/K/DST rows,
+// ~1333 typical) sits comfortably under it, but the cap itself gives no
+// signal when a week's true row count reaches or exceeds it — a query
+// result of exactly this many rows is indistinguishable from "there were
+// more, and they got dropped" without checking the count.
+const fetchSeasonPlayerStatsRowCap = 1000
+
 func fetchSeasonPlayerStats(query func(openstats.PlayerQuery) []openstats.PlayerWeekStat) []openstats.PlayerWeekStat {
 	var all []openstats.PlayerWeekStat
 	for week := 1; week <= matchupMaxRegularWeek; week++ {
-		rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Limit: 1000})
+		rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Limit: fetchSeasonPlayerStatsRowCap})
+		if len(rows) == fetchSeasonPlayerStatsRowCap {
+			log.Printf("matchup: week %d returned exactly the %d-row query cap; a real week's rows may have been silently truncated", week, fetchSeasonPlayerStatsRowCap)
+		}
 		all = append(all, rows...)
 	}
 	return all
@@ -266,7 +313,11 @@ func matchupSourceFromSnapshot(snap matchup.Snapshot) league.MatchupSource {
 // readMatchupCache reads and decodes matchupCachePath. Any error
 // (missing file, malformed JSON) is returned as-is; the caller treats
 // every error alike — "no usable cache" — rather than distinguishing
-// causes (matching readBlitzPre1Cache's own contract).
+// causes (matching readBlitzPre1Cache's own contract). A successful
+// decode whose SchemaVersion does not match matchupCacheSchemaVersion
+// is not an error here — the bytes decoded fine — but
+// loadOrComputeMatchupSnapshot still treats it as unusable, since an
+// old-schema file was computed under a different scoring formula.
 func readMatchupCache() (matchupSnapshotCache, error) {
 	raw, err := os.ReadFile(matchupCachePath)
 	if err != nil {
@@ -280,13 +331,14 @@ func readMatchupCache() (matchupSnapshotCache, error) {
 }
 
 // writeMatchupCache writes snap to matchupCachePath (F22's atomic-write
-// pattern: temp file in the same directory, chmod 0600, rename).
+// pattern: temp file in the same directory, chmod 0600, rename), stamped
+// with the current matchupCacheSchemaVersion.
 func writeMatchupCache(snap matchup.Snapshot, computedAt time.Time) error {
 	dir := filepath.Dir(matchupCachePath)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
-	encoded, err := json.MarshalIndent(matchupSnapshotCache{Snapshot: snap, ComputedAt: computedAt}, "", "  ")
+	encoded, err := json.MarshalIndent(matchupSnapshotCache{SchemaVersion: matchupCacheSchemaVersion, Snapshot: snap, ComputedAt: computedAt}, "", "  ")
 	if err != nil {
 		return err
 	}

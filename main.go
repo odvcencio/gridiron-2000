@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -625,41 +624,6 @@ func leagueInjuryDesignationSource(stats *openstats.Service) league.InjuryDesign
 			}
 		}
 		return designation, found
-	}
-}
-
-// historicalSource joins previous-season nflverse totals onto pool players by
-// normalized name and position. The lookup builds lazily once summaries are
-// mirrored; previous-season data is static after the first sync.
-func historicalSource(stats *openstats.Service) league.HistoricalSource {
-	var mu sync.Mutex
-	lookup := map[string]string{}
-	return func(name, position string) (string, bool) {
-		mu.Lock()
-		defer mu.Unlock()
-		if len(lookup) == 0 {
-			for _, summary := range stats.PlayerSeasonSummaries() {
-				key := openstats.NormalizePlayerKey(summary.PlayerName, summary.Position)
-				lookup[key] = histLine(summary)
-			}
-		}
-		line, ok := lookup[openstats.NormalizePlayerKey(name, position)]
-		return line, ok
-	}
-}
-
-// histLine renders one legible previous-season line, shaped by position.
-func histLine(s openstats.PlayerSeasonSummary) string {
-	switch s.Position {
-	case "QB":
-		return fmt.Sprintf("%d · %d G · %s pass yds · %d TD · %d INT · %.1f FPts",
-			s.Season, s.Games, thousands(s.PassYds), s.PassTD, s.PassInt, s.FantasyPoints)
-	case "RB":
-		return fmt.Sprintf("%d · %d G · %s rush yds · %d TD · %d rec · %.1f FPts",
-			s.Season, s.Games, thousands(s.RushYds), s.RushTD+s.RecTD, s.Receptions, s.FantasyPoints)
-	default:
-		return fmt.Sprintf("%d · %d G · %d rec · %s rec yds · %d TD · %.1f FPts",
-			s.Season, s.Games, s.Receptions, thousands(s.RecYds), s.RecTD, s.FantasyPoints)
 	}
 }
 

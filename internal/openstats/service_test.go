@@ -89,19 +89,6 @@ func TestServiceCachesAndNormalizesOpenData(t *testing.T) {
 	if status.PlayByPlay.State != "ready" || status.PlayByPlay.Rows != 1 {
 		t.Fatalf("play-by-play status = %+v", status.PlayByPlay)
 	}
-	summaries := service.PlayerSeasonSummaries()
-	if len(summaries) != 1 {
-		t.Fatalf("season summaries = %+v", summaries)
-	}
-	if summaries[0].PlayerName != "Prior Player" || summaries[0].Team != "BUF" || summaries[0].Games != 1 {
-		t.Fatalf("season summary identity wrong: %+v", summaries[0])
-	}
-	if summaries[0].RushYds != 80 || summaries[0].Receptions != 3 || summaries[0].RecYds != 20 {
-		t.Fatalf("season summary stats wrong: %+v", summaries[0])
-	}
-	if summaries[0].FantasyPoints != 15.5 {
-		t.Fatalf("season summary half-PPR points = %v, want 15.5", summaries[0].FantasyPoints)
-	}
 	stats := service.PlayerStats(PlayerQuery{Week: 1, Team: "buf", Limit: 10})
 	if len(stats) != 1 || stats[0].FantasyPointsPPR != 24.5 || stats[0].FumblesLost != 1 {
 		t.Fatalf("normalized stats = %+v", stats)

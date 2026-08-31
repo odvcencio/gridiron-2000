@@ -1151,6 +1151,13 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 		return ScoringRule{}, err
 	}
 	rule.Points = points
+	// The pool cache keys on (source version, label) only; a scoring edit
+	// moves neither, so every player's Hist line (season_hist.go, house-
+	// scored under the league's live rules) would stay stale until the
+	// pool source's version happens to move for an unrelated reason —
+	// the same cache-key gap AdminSetRosterShape's own invalidatePoolCache
+	// call documents (service.go).
+	s.invalidatePoolCache()
 	return rule, nil
 }
 
@@ -1163,7 +1170,12 @@ func (s *Service) AdminResetScoring(r *http.Request) error {
 	if s.ScoringLocked(s.clock()) {
 		return fmt.Errorf("scoring is locked for the season")
 	}
-	return s.store.ResetScoring(s.clock())
+	if err := s.store.ResetScoring(s.clock()); err != nil {
+		return err
+	}
+	// Same cache-key gap as AdminSetScoring above.
+	s.invalidatePoolCache()
+	return nil
 }
 
 // AdminPauseClock stops the running pick clock. Picks stay allowed; only

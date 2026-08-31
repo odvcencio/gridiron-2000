@@ -171,6 +171,32 @@ func TestBoardNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.
 	}
 }
 
+// TestBoardHistBlocksIncludeScoringNote is the finding 4 regression
+// (adversarial review, 2026-08-31): both of page.gsx's has_hist blocks
+// (the BoardRow component and the inline board-pool row) must render the
+// "Scored under this league's own rules" caption alongside the Hist line
+// itself, matching the pattern app/players/page.gsx already follows —
+// before this fix, board.gsx rendered {player.hist} with no
+// {player.hist_label} caption at all.
+func TestBoardHistBlocksIncludeScoringNote(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatalf("read Board page: %v", err)
+	}
+	// Whitespace-normalized: this proves ordering and adjacency (the
+	// hist-note caption immediately follows the Hist line inside the same
+	// has_hist block) without pinning to exact indentation.
+	normalized := strings.Join(strings.Fields(string(page)), " ")
+	for _, want := range []string{
+		`<p class="stat-tip__hist mono">{props.Player.hist}</p> <p class="stat-tip__hist-note">{props.Player.hist_label}</p>`,
+		`<p class="stat-tip__hist mono">{player.hist}</p> <p class="stat-tip__hist-note">{player.hist_label}</p>`,
+	} {
+		if !strings.Contains(normalized, want) {
+			t.Fatalf("page.gsx missing the Hist scoring-note caption immediately after the Hist line: %q", want)
+		}
+	}
+}
+
 func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {

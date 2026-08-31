@@ -291,3 +291,57 @@ func TestServiceMatchupScorerWiring(t *testing.T) {
 		t.Fatalf("points = %v, want 6", points)
 	}
 }
+
+// TestScoreRuleStatsMatchesLiveWeeklyEngine checks ScoreRuleStats (the
+// exported seam main.go's seasonHouseHistSource scores a previous season
+// through, generalized-punter-pattern work) against the same rule-keyed
+// stat shape WeekStatLine.Stats carries and default-value contract every
+// other player-week score in this package uses.
+func TestScoreRuleStatsMatchesLiveWeeklyEngine(t *testing.T) {
+	stats := map[string]float64{"passYards": 300, "passTD": 3, "passInt": 1, "fumbleLost": 1}
+	values := breakdownDefaultValues()
+
+	got := ScoreRuleStats(stats, values)
+	// 300*0.04 + 3*4 + 1*(-2) + 1*(-2) = 12 + 12 - 2 - 2 = 20
+	want := 20.0
+	if got != want {
+		t.Fatalf("ScoreRuleStats = %v, want %v", got, want)
+	}
+
+	// Parity with the identical calculation scorePlayerPoints performs for
+	// a real week's close, through the unexported engine directly.
+	if direct := scorePlayerStats(stats, values); direct != got {
+		t.Fatalf("ScoreRuleStats (%v) disagrees with scorePlayerStats (%v)", got, direct)
+	}
+}
+
+// TestScoreRuleStatsNilValuesUsesDefaults checks ScoreRuleStats' nil
+// contract matches ScoreStatLine's own (breakdown.go): nil scores against
+// the stock defaultScoringRules, no store access required.
+func TestScoreRuleStatsNilValuesUsesDefaults(t *testing.T) {
+	stats := map[string]float64{"recTD": 2}
+	got := ScoreRuleStats(stats, nil)
+	if got != 12 { // 2 * default recTD value (6)
+		t.Fatalf("ScoreRuleStats(nil values) = %v, want 12", got)
+	}
+}
+
+// TestScoreRuleStatsAppliesOverriddenValues checks a commissioner's
+// override reaches ScoreRuleStats exactly as it reaches every other
+// scoring surface — the invalidation contract main.go's
+// seasonHistCache relies on to know a scoring edit changed the answer.
+func TestScoreRuleStatsAppliesOverriddenValues(t *testing.T) {
+	stats := map[string]float64{"passYards": 100}
+	defaultValues := breakdownDefaultValues()
+	overridden := breakdownDefaultValues()
+	overridden["passYards"] = 0.10
+
+	before := ScoreRuleStats(stats, defaultValues)
+	after := ScoreRuleStats(stats, overridden)
+	if before == after {
+		t.Fatalf("overridden passYards value did not change the score: before=%v after=%v", before, after)
+	}
+	if after != 10 { // 100 * 0.10
+		t.Fatalf("ScoreRuleStats with overridden passYards = %v, want 10", after)
+	}
+}

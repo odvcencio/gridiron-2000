@@ -29,6 +29,7 @@ type DraftPlayerCard struct {
 	BreakdownTotal  string
 	HasHist         bool
 	Hist            string
+	HistLabel       string
 	Search          string
 	HasDraftCapital bool
 	DraftCapital    string
@@ -175,6 +176,7 @@ func DraftQueue(props DraftQueueProps) Node {
 							</If>
 							<If cond={player.HasHist}>
 								<p class="stat-tip__hist mono">{player.Hist}</p>
+								<p class="stat-tip__hist-note">{player.HistLabel}</p>
 							</If>
 						</div>
 					</details>

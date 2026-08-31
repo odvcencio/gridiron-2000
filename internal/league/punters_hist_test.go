@@ -64,26 +64,26 @@ func TestPunterHistLineUsesLastWord(t *testing.T) {
 // untouched.
 func TestWithHistoricalAttachesPunterFallback(t *testing.T) {
 	service := newTestService(t, true)
-	service.SetHistoricalSource(func(name, position string) (string, bool) {
+	service.SetHistoricalSource(func(name, position string, values map[string]float64) (string, bool) {
 		return "", false // nflverse never matches a punter (no punting columns)
 	})
 
-	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"})
+	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil)
 	if punter.Hist == "" {
 		t.Fatalf("punter fallback did not attach a hist line: %+v", punter)
 	}
 
-	unknownPunter := service.withHistorical(Player{Name: "Nobody Punter", Position: "P", NFLTeam: "HOU"})
+	unknownPunter := service.withHistorical(Player{Name: "Nobody Punter", Position: "P", NFLTeam: "HOU"}, nil)
 	if unknownPunter.Hist != "" {
 		t.Fatalf("an unmatched punter must attach nothing: %+v", unknownPunter)
 	}
 
-	kicker := service.withHistorical(Player{Name: "Tommy Townsend", Position: "K", NFLTeam: "HOU"})
+	kicker := service.withHistorical(Player{Name: "Tommy Townsend", Position: "K", NFLTeam: "HOU"}, nil)
 	if kicker.Hist != "" {
 		t.Fatalf("the punter fallback must never apply to a non-P position: %+v", kicker)
 	}
 
-	already := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU", Hist: "already set"})
+	already := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU", Hist: "already set"}, nil)
 	if already.Hist != "already set" {
 		t.Fatalf("existing Hist must not be overwritten: %+v", already)
 	}
@@ -95,7 +95,7 @@ func TestWithHistoricalAttachesPunterFallback(t *testing.T) {
 // the primary source existing.
 func TestWithHistoricalPunterFallbackWithNoPrimarySource(t *testing.T) {
 	service := newTestService(t, true)
-	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"})
+	punter := service.withHistorical(Player{Name: "Tommy Townsend", Position: "P", NFLTeam: "HOU"}, nil)
 	if punter.Hist == "" {
 		t.Fatalf("punter fallback must work with no primary source attached: %+v", punter)
 	}

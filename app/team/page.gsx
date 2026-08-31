@@ -25,6 +25,7 @@ type RosterRowProps struct {
 	BreakdownTotal string
 	HasHist        bool
 	Hist           string
+	HistLabel      string
 	Status         string
 	Projection     string
 	Points         string
@@ -138,6 +139,7 @@ component RosterRow(props: RosterRowProps) {
 				</If>
 				<If cond={props.HasHist}>
 					<p class="stat-tip__hist mono">{props.Hist}</p>
+					<p class="stat-tip__hist-note">{props.HistLabel}</p>
 				</If>
 			</div>
 		</details>

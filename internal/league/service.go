@@ -972,7 +972,9 @@ func (s *Service) SetPlayerSource(source PlayerSource) {
 // fingerprint into the cache key: it is a rare, commissioner-only event,
 // not a per-render cost, so paying one full rebuild on the next pool()
 // call is simpler than widening the key everywhere it is compared.
-// AdminSetRosterShape and AdminResetRosterShape are the only callers.
+// AdminSetRosterShape and AdminResetRosterShape were the first callers;
+// AdminSetScoring and AdminResetScoring (admin.go) call it too, for the
+// identical reason applied to Hist lines instead of HouseRank.
 func (s *Service) invalidatePoolCache() {
 	s.poolMu.Lock()
 	s.poolCache = playerPool{}
@@ -1357,9 +1359,12 @@ func playerPoolIsUnavailable(pool playerPool) bool {
 }
 
 // HistoricalSource supplies one player's legible previous-season line by
-// name and position. main.go adapts the nflverse season summary mirror to
-// this shape, which keeps that dependency out of internal/league.
-type HistoricalSource func(name, position string) (line string, ok bool)
+// name and position, scored against values — the league's live scoring
+// values buildPool already resolved once for this rebuild (see
+// currentScoringValues), never re-resolved by the source itself. main.go
+// adapts the nflverse season summary mirror to this shape, which keeps
+// that dependency out of internal/league.
+type HistoricalSource func(name, position string, values map[string]float64) (line string, ok bool)
 
 // SetHistoricalSource attaches the previous-season lookup. Call it once
 // during startup, before the server accepts requests.
@@ -1374,14 +1379,23 @@ func (s *Service) SetHistoricalSource(fn HistoricalSource) {
 // an Hist line gets one chance at it here, and the result travels with the
 // cached pool. buildPool is called from pool(), which already holds poolMu,
 // so it reads s.historicalFn directly rather than locking again.
+//
+// scoringValues is resolved here exactly once, then passed to every
+// withHistorical/historicalFn call below — currentScoringValues snapshots
+// the whole store and clones it (breakdown.go's own doc comment: "up to
+// 400 players render per page, and 400 store snapshots per render is
+// wasteful"), so calling it once per player here instead of once per
+// rebuild would pay that cost hundreds of times over (adversarial review
+// finding, 2026-08-31).
 func (s *Service) buildPool(players []Player, version int64, label string) playerPool {
+	scoringValues := s.currentScoringValues()
 	byID := make(map[string]Player, len(players)+len(s.players))
 	for _, player := range s.players {
-		byID[player.ID] = s.withHistorical(player)
+		byID[player.ID] = s.withHistorical(player, scoringValues)
 	}
 	annotated := make([]Player, len(players))
 	for index, player := range players {
-		annotated[index] = s.withHistorical(player)
+		annotated[index] = s.withHistorical(player, scoringValues)
 	}
 	// HouseRank (houserank.go) is computed once per pool version, here
 	// alongside byADP — never per render. It reads the ACTIVE roster
@@ -1411,7 +1425,9 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 
 // withHistorical fills a player's previous-season line from the attached
 // historical source, unless the player already carries one. Callers hold
-// poolMu already (see buildPool).
+// poolMu already (see buildPool). scoringValues is buildPool's once-per-
+// rebuild resolved values map (see buildPool's own doc comment); it is
+// passed straight through to historicalFn, never re-resolved here.
 //
 // Punter fallback (roster-ops spec section 4.1.2 / WP-R0): nflverse's
 // season-summary mirror — the attached historicalFn source — carries no
@@ -1419,12 +1435,12 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 // primary source is absent or misses and the player is a punter, this
 // falls back to the embedded 2025 punter index (punters_hist.go), matching
 // by team and last name. A mismatch attaches nothing (fail quiet).
-func (s *Service) withHistorical(player Player) Player {
+func (s *Service) withHistorical(player Player, scoringValues map[string]float64) Player {
 	if player.Hist != "" {
 		return player
 	}
 	if s.historicalFn != nil {
-		if line, ok := s.historicalFn(player.Name, player.Position); ok && line != "" {
+		if line, ok := s.historicalFn(player.Name, player.Position, scoringValues); ok && line != "" {
 			player.Hist = line
 			return player
 		}
@@ -4349,6 +4365,15 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 	return out
 }
 
+// histScoringLabel is the qualifier every rendered Hist line carries
+// (generalized-punter-pattern work): the embedded punter rescoring
+// (punters_hist.go) and the computed QB/RB/WR/TE/K season line (main.go's
+// seasonHouseHistSource) are both this league's own house-scored total,
+// never a generic market or nflverse-raw number. A player with no Hist
+// line carries no qualifier either — see playerMap, which gates both on
+// the same player.Hist != "" check.
+const histScoringLabel = "Scored under this league's own rules"
+
 // playerMap renders one player's view-model map. scoringValues is the
 // league's live, override-aware point values (see currentScoringValues);
 // pass nil to score the player's breakdown against the stock default
@@ -4409,6 +4434,10 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	if hasBreakdown {
 		breakdownRows, breakdownTotal = scoreBreakdownWithValues(player.ProjStats, scoringValues)
 	}
+	histLabel := ""
+	if player.Hist != "" {
+		histLabel = histScoringLabel
+	}
 	out := map[string]any{
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
 		"projection": fmt.Sprintf("%.1f", player.Projection),
@@ -4421,6 +4450,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"breakdown_total": breakdownTotal,
 		"has_hist":        player.Hist != "",
 		"hist":            player.Hist,
+		"hist_label":      histLabel,
 		"search":          playerSearchText(player),
 		// is_rookie/draft_capital/has_draft_capital back the pool row's
 		// rookie chip (owner directive 2026-08-18 — "show the reasoning"):
