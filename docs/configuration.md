@@ -166,6 +166,22 @@ provenance. Partial, stale, degraded, or unavailable scores cannot advance a
 published bracket. Manual corrections require the explicit confirmation
 phrase, a reason, and an audit entry.
 
+## Demo mode and closed-by-default boot
+
+Gridiron never opens a league to anonymous visitors by accident. Demo mode
+(an open commissioner console, no sign-in required, for local rehearsal
+only) requires both conditions at once:
+
+- `DEMO_MODE=true`, exactly; and
+- a local `APP_ENV`: empty, `local`, `development`, or `test`.
+
+Every other `APP_ENV` label — `prod`, `staging`, `production`, or any
+unrecognized value — refuses demo mode unconditionally and logs the
+refusal, even when `DEMO_MODE=true` is set. There is no other default:
+an unconfigured deployment (no Google OAuth, no league.json) boots closed,
+invite-only, with `IsCommissioner` false for every anonymous visitor. It
+does not fall open merely because no sign-in provider is configured.
+
 ## Supported environment overrides
 
 Only these seven environment values override public JSON fields:

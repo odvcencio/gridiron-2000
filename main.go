@@ -32,14 +32,11 @@ import (
 
 // isLocalAppEnv reports whether APP_ENV names a local, non-deployed
 // environment. It is an allow-list: every other label, "prod" and "staging"
-// included, is a deployment. The cookie policy and AppConfig.validate share
-// this one answer so the two can never disagree about where the process runs.
+// included, is a deployment. The cookie policy, AppConfig.validate, and
+// internal/league's demo-mode gate share this one answer (league.IsLocalAppEnv)
+// so none of them can disagree about where the process runs.
 func isLocalAppEnv(appEnv string) bool {
-	switch strings.ToLower(strings.TrimSpace(appEnv)) {
-	case "", "local", "development", "test":
-		return true
-	}
-	return false
+	return league.IsLocalAppEnv(appEnv)
 }
 
 // gridironSessionOptions keeps the cookie policy explicit at the one place
