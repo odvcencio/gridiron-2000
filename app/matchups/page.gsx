@@ -236,7 +236,7 @@ func Page() Node {
 		<If cond={data.has_week_notice}><p class="matchup-week-notice" role="status">{data.week_notice}</p></If>
 		<div class="matchup-layout">
 			<If cond={data.my_matchup.HasMatchup}><FeaturedMatchup {...data.my_matchup}></FeaturedMatchup></If>
-			<If cond={data.matchups_empty}><section class="my-matchup card"><div class="empty-tape"><strong>NO MATCHUPS YET</strong><p>{data.league.season_open_line}</p></div></section></If>
+			<If cond={data.matchups_empty}><section class="my-matchup card"><div class="empty-tape"><strong>NO MATCHUPS YET</strong><p>{data.league.season_open_line}</p><a href="/draft" data-gosx-link class="button button--compact">Open the draft room →</a></div></section></If>
 			<aside class="around-league">
 				<header class="around-league__head"><span class="section-index">Around the league</span><span class="mono muted">{data.other_count_label}</span></header>
 				<div class="matchup-grid"><Each of={data.other_matchups} as="other"><Scorebug {...other}></Scorebug></Each></div>

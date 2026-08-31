@@ -401,6 +401,30 @@ func boardTeamProps(team map[string]any) draftBoardTeamView {
 	}
 }
 
+// tapeRowManager drops manager when it only restates team — "Big Endians
+// Manager" managing "Big Endians" read as one run-on, duplicated name
+// (P3-22, UI pass 2026-08-30) rather than as two distinct facts. A real
+// manager's own display name only coincides with their team name by
+// exact match or literal "<team> ..." prefix in a demo/rehearsal
+// league; either way the team name alone already carries that fact.
+func tapeRowManager(team, manager string) string {
+	manager = strings.TrimSpace(manager)
+	team = strings.TrimSpace(team)
+	if team == "" || manager == "" {
+		return manager
+	}
+	if strings.EqualFold(manager, team) {
+		return ""
+	}
+	if len(manager) > len(team) && strings.EqualFold(manager[:len(team)], team) {
+		rest := manager[len(team):]
+		if strings.HasPrefix(rest, " ") {
+			return ""
+		}
+	}
+	return manager
+}
+
 // tapePickProps converts one league.TapePick into its page-level mirror:
 // field-for-field, the same conversion boundary draftTeamProps/
 // draftPlayerProps already use for teams/players.
@@ -409,7 +433,7 @@ func tapePickProps(pick league.TapePick) draftTapePickView {
 		Number: pick.Number, Round: pick.Round, Slot: pick.Slot, Column: pick.Column,
 		Label:    pick.Label,
 		TeamID:   pick.TeamID,
-		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: pick.Manager,
+		TeamName: pick.TeamName, TeamAbbr: pick.TeamAbbr, TeamTone: pick.TeamTone, Manager: tapeRowManager(pick.TeamName, pick.Manager),
 		HasAvatarImage: pick.HasAvatarImage, AvatarImageURL: pick.AvatarImageURL,
 		PlayerID: pick.PlayerID, PlayerName: pick.PlayerName, Position: pick.Position, NFLTeam: pick.NFLTeam,
 		MadeBy: pick.MadeBy, IsAuto: pick.IsAuto, IsCommissioner: pick.IsCommissioner, Mine: pick.Mine,

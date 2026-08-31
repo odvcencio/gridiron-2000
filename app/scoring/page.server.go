@@ -32,8 +32,11 @@ type scoringRuleRowView struct {
 
 // scoringRuleGroupView is one scoring section as page.gsx's Page() reads
 // it: unchanged from league.ScoringRuleGroup except each Rule Rules entry
-// carries the render-time view above instead of the bare data.
+// carries the render-time view above instead of the bare data, plus ID
+// (P2-13, UI pass 2026-08-30) so the section and its jump-list anchor
+// (scoringJumpSection, below) always agree.
 type scoringRuleGroupView struct {
+	ID    string
 	Name  string
 	Note  string
 	Rules []scoringRuleRowView
@@ -55,8 +58,71 @@ func scoringRuleGroupViews(groups []league.ScoringRuleGroup, editable bool, setA
 				CSRF:      csrfToken,
 			})
 		}
-		out = append(out, scoringRuleGroupView{Name: group.Name, Note: group.Note, Rules: rows})
+		out = append(out, scoringRuleGroupView{ID: "scoring-group-" + scoringSlug(group.Name), Name: group.Name, Note: group.Note, Rules: rows})
 	}
+	return out
+}
+
+// scoringSlug lowercases name and keeps only [a-z0-9-], collapsing every
+// other run of characters to one hyphen, for a stable #id a scoring-group
+// name (configured, not user free text) can safely become.
+func scoringSlug(name string) string {
+	out := make([]rune, 0, len(name))
+	lastHyphen := false
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			out = append(out, r)
+			lastHyphen = false
+		case r >= 'A' && r <= 'Z':
+			out = append(out, r+('a'-'A'))
+			lastHyphen = false
+		default:
+			if !lastHyphen && len(out) > 0 {
+				out = append(out, '-')
+				lastHyphen = true
+			}
+		}
+	}
+	for len(out) > 0 && out[len(out)-1] == '-' {
+		out = out[:len(out)-1]
+	}
+	return string(out)
+}
+
+// scoringJumpSection is one entry in the sticky anchor jump-list at the
+// top of /scoring (P2-13, UI pass 2026-08-30): a phone-length page
+// (~7,400px, pre-UI-pass) is otherwise a scroll-and-hope wall. Built from
+// the same fixed section order and the same runtime group data the page
+// body itself renders, so the two can never disagree.
+type scoringJumpSection struct {
+	ID    string
+	Label string
+}
+
+// scoringJumpSections lists every anchor the jump-list nav renders, in
+// page order. The admin-only "RESET // SCORING" danger zone is
+// deliberately not a jump target: it is a destructive action, not
+// explanatory content, and it renders only for a commissioner.
+func scoringJumpSections(groups []scoringRuleGroupView) []scoringJumpSection {
+	out := []scoringJumpSection{
+		{ID: "scoring-league", Label: "League"},
+		{ID: "scoring-membership", Label: "Membership"},
+		{ID: "scoring-roster", Label: "Roster"},
+		{ID: "scoring-draft", Label: "Draft"},
+		{ID: "scoring-lineups", Label: "Lineups"},
+	}
+	for _, group := range groups {
+		out = append(out, scoringJumpSection{ID: group.ID, Label: group.Name})
+	}
+	out = append(out,
+		scoringJumpSection{ID: "scoring-week-close", Label: "Week close"},
+		scoringJumpSection{ID: "scoring-free-agency", Label: "Free agency"},
+		scoringJumpSection{ID: "scoring-waivers", Label: "Waivers"},
+		scoringJumpSection{ID: "scoring-trades", Label: "Trades"},
+		scoringJumpSection{ID: "scoring-pickem", Label: "Pick'em"},
+		scoringJumpSection{ID: "scoring-blitz", Label: "Preseason Blitz"},
+	)
 	return out
 }
 
@@ -67,7 +133,9 @@ func init() {
 			data := league.Default().ScoringData(ctx.Request)
 			if groups, ok := data["groups"].([]league.ScoringRuleGroup); ok {
 				editable, _ := data["editable"].(bool)
-				data["groups"] = scoringRuleGroupViews(groups, editable, ctx.ActionPath("scoring-set"), session.Token(ctx.Request))
+				views := scoringRuleGroupViews(groups, editable, ctx.ActionPath("scoring-set"), session.Token(ctx.Request))
+				data["groups"] = views
+				data["jump_sections"] = scoringJumpSections(views)
 			}
 			data["has_notice"] = false
 			data["notice"] = ""

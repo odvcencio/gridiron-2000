@@ -278,7 +278,7 @@ func Page() Node {
 				<strong class="mono">{data.team.record}</strong>
 				<small>
 					{data.team.points_for}
-					PF ·
+					points scored ·
 					{data.team.streak}
 					</small>
 				</div>
@@ -585,6 +585,7 @@ func TeamLineupRegion() Node {
 						<div class="empty-tape roster-lifecycle-state roster-lifecycle-state--predraft">
 							<strong>ROSTER PREVIEW · DRAFT PENDING</strong>
 							<p>This claimed franchise has no players yet. Starting slots remain empty until the commissioner starts the draft and picks are recorded.</p>
+							<a href="/draft" data-gosx-link class="button button--primary">Open the draft room →</a>
 						</div>
 					</If>
 					<If cond={data.team_terminal_draft_live && data.lineup_intervention == false}>
@@ -771,7 +772,7 @@ func TeamLineupRegion() Node {
 							</If>
 							<If cond={data.has_ir && data.lineup_intervention == false}>
 								<h3 class="lineup-bench-title">
-									IR
+									<abbr title="injured reserve">IR</abbr>
 									<small class="mono">{data.ir_capacity}</small>
 								</h3>
 								<If cond={data.ir_occupants_empty}>

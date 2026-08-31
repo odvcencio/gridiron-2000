@@ -85,7 +85,7 @@ func TestRulesIdentityMapReadsConfig(t *testing.T) {
 		"mode_label": "DYNASTY",
 		"season":     2026,
 		"team_count": len(defaultTeams()),
-		"timezone":   "America/New_York",
+		"timezone":   "Eastern Time",
 	}
 	for key, wantValue := range want {
 		if got[key] != wantValue {
@@ -173,8 +173,8 @@ func TestRulesDraftMapUsesLiveClockAndTimezone(t *testing.T) {
 		t.Fatalf("SetClockDuration: %v", err)
 	}
 	got := svc.rulesDraftMap(svc.store.Snapshot(), time.Now())
-	if got["timezone"] != "America/Los_Angeles" {
-		t.Errorf("timezone = %v, want America/Los_Angeles", got["timezone"])
+	if got["timezone"] != "Pacific Time" {
+		t.Errorf("timezone = %v, want the friendly label Pacific Time", got["timezone"])
 	}
 	if got["clock_seconds"] != 45 {
 		t.Errorf("clock_seconds = %v, want 45 (the live override)", got["clock_seconds"])

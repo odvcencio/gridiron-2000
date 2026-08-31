@@ -307,12 +307,12 @@ func TestActivityMapsUsesLeagueTimezoneAndZoneLabel(t *testing.T) {
 	if rows[0]["time"] != "Dec 31, 11:30 PM PST" {
 		t.Fatalf("activity time = %q, want configured-zone date rollover", rows[0]["time"])
 	}
-	if rows[0]["timezone"] != "America/Los_Angeles" {
-		t.Fatalf("row timezone = %q, want configured IANA zone", rows[0]["timezone"])
+	if rows[0]["timezone"] != "Pacific Time" {
+		t.Fatalf("row timezone = %q, want the friendly label for the configured zone", rows[0]["timezone"])
 	}
 	request, _ := http.NewRequest(http.MethodGet, "/activity", nil)
 	data := svc.ActivityData(request)
-	if data["timezone"] != "America/Los_Angeles" {
-		t.Fatalf("activity data timezone = %q, want configured IANA zone", data["timezone"])
+	if data["timezone"] != "Pacific Time" {
+		t.Fatalf("activity data timezone = %q, want the friendly label for the configured zone", data["timezone"])
 	}
 }

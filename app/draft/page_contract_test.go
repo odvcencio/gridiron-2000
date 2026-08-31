@@ -171,3 +171,58 @@ func TestPresenceDotsCoverNormalizedAndDisplayCase(t *testing.T) {
 		}
 	}
 }
+
+// TestDraftPoolHeaderExplainsRKPROJVSADP is P1-7's own render test (UI
+// pass 2026-08-30): the pool header's RK/PROJ/VS ADP jargon must carry
+// either an <abbr title> or the collapsible legend — a newbie drafting
+// on a phone should never have to guess what a column header means.
+func TestDraftPoolHeaderExplainsRKPROJVSADP(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	if !strings.Contains(source, `class="pool-legend"`) {
+		t.Error("draft pool header omitted the RK/PROJ/VS ADP legend (.pool-legend)")
+	}
+	for _, want := range []string{"RK", "PROJ", "VS ADP"} {
+		if !strings.Contains(source, want) {
+			t.Errorf("draft pool header lost the %q column label entirely", want)
+		}
+	}
+	if !strings.Contains(source, `<abbr title="rank by draft market`) {
+		t.Error("RK header carries no <abbr title>")
+	}
+	if !strings.Contains(source, `<abbr title="projected points per game">PROJ</abbr>`) {
+		t.Error("PROJ header carries no <abbr title>")
+	}
+	if !strings.Contains(source, `<abbr title="value if drafted right now`) {
+		t.Error("VS ADP header carries no <abbr title>")
+	}
+}
+
+// TestTapeRowManagerDropsTeamNameDuplication is P3-22's own unit test
+// (UI pass 2026-08-30): "Big Endians · Big Endians Manager" read as one
+// duplicated, run-on fact — the harness's own bot naming (sim_draft_test.go,
+// teamName+" Manager") is exactly the shape a real league's own manager
+// name could just as easily take.
+func TestTapeRowManagerDropsTeamNameDuplication(t *testing.T) {
+	cases := []struct {
+		name, team, manager, want string
+	}{
+		{"exact match", "Big Endians", "Big Endians", ""},
+		{"case-insensitive exact match", "Big Endians", "big endians", ""},
+		{"team-prefixed manager", "Big Endians", "Big Endians Manager", ""},
+		{"distinct manager name", "Big Endians", "Priya Shah", "Priya Shah"},
+		{"manager name merely starts similarly, no space boundary", "Big End", "Big Endians", "Big Endians"},
+		{"empty manager", "Big Endians", "", ""},
+		{"empty team", "", "Some Manager", "Some Manager"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := tapeRowManager(c.team, c.manager); got != c.want {
+				t.Errorf("tapeRowManager(%q, %q) = %q, want %q", c.team, c.manager, got, c.want)
+			}
+		})
+	}
+}

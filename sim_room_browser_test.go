@@ -962,14 +962,46 @@ func signInAsManagerAtViewport(t *testing.T, ctx context.Context, child *simChil
 // viewport, with only its own panes (hidden behind the bottom tab bar at
 // this width) scrolling on their own axis. A regression here is a layout
 // bug the render tests cannot see, since they never measure box geometry.
+//
+// P1-8 (UI pass 2026-08-30) extends the same contract to two narrower
+// cases the 390px check alone could not catch: a 320px viewport (below
+// the pre-fix 320px floor body's own min-width: 20rem imposed,
+// public/styles.css) and a 390px viewport at a 20px root font-size (an
+// OS-level "larger text" accessibility setting, not a page zoom — that
+// same min-width: 20rem computed to 400px there, wider than the 390px
+// viewport it was meant to fit inside).
 func TestBrowserDraftRoomNeverScrollsAtPhoneWidth(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
 	}
-	child, league, ctx := startBrowserDraft(t)
-	viewer := league.bots[len(league.bots)-1]
-	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+	t.Run("390px", func(t *testing.T) {
+		child, league, ctx := startBrowserDraft(t)
+		viewer := league.bots[len(league.bots)-1]
+		signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+		assertDraftShellNeverScrolls(t, ctx, "390px")
+	})
+	t.Run("320px", func(t *testing.T) {
+		child, league, ctx := startBrowserDraft(t)
+		viewer := league.bots[len(league.bots)-1]
+		signInAsManagerAtViewport(t, ctx, child, viewer, 320, 844)
+		assertDraftShellNeverScrolls(t, ctx, "320px")
+	})
+	t.Run("root-font-20px-at-390px", func(t *testing.T) {
+		child, league, ctx := startBrowserDraft(t)
+		viewer := league.bots[len(league.bots)-1]
+		signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+		if err := chromedp.Run(ctx, chromedp.Evaluate(`document.documentElement.style.fontSize = '20px'`, nil)); err != nil {
+			t.Fatalf("set root font-size to 20px: %v", err)
+		}
+		assertDraftShellNeverScrolls(t, ctx, "root font-size 20px at 390px")
+	})
+}
 
+// assertDraftShellNeverScrolls reads the current document's scroll
+// metrics and fails label's subtest if either axis overflows its own
+// client size.
+func assertDraftShellNeverScrolls(t *testing.T, ctx context.Context, label string) {
+	t.Helper()
 	var scrollWidth, clientWidth, scrollHeight, clientHeight int
 	if err := chromedp.Run(ctx,
 		chromedp.Evaluate(`document.documentElement.scrollWidth`, &scrollWidth),
@@ -977,13 +1009,13 @@ func TestBrowserDraftRoomNeverScrollsAtPhoneWidth(t *testing.T) {
 		chromedp.Evaluate(`document.documentElement.scrollHeight`, &scrollHeight),
 		chromedp.Evaluate(`document.documentElement.clientHeight`, &clientHeight),
 	); err != nil {
-		t.Fatalf("read document scroll metrics: %v", err)
+		t.Fatalf("%s: read document scroll metrics: %v", label, err)
 	}
 	if scrollWidth > clientWidth {
-		t.Errorf("the document scrolls horizontally at 390px (scrollWidth %d > clientWidth %d); a draft-shell descendant is overflowing the viewport", scrollWidth, clientWidth)
+		t.Errorf("%s: the document scrolls horizontally (scrollWidth %d > clientWidth %d); a draft-shell descendant is overflowing the viewport", label, scrollWidth, clientWidth)
 	}
 	if scrollHeight > clientHeight {
-		t.Errorf("the document scrolls vertically at 390px (scrollHeight %d > clientHeight %d); the draft-shell's own panes should own every scroll instead", scrollHeight, clientHeight)
+		t.Errorf("%s: the document scrolls vertically (scrollHeight %d > clientHeight %d); the draft-shell's own panes should own every scroll instead", label, scrollHeight, clientHeight)
 	}
 }
 

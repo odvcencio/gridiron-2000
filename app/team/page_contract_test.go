@@ -345,3 +345,27 @@ func TestCommissionerLineupInterventionContracts(t *testing.T) {
 		t.Fatal("targeted Team terminal must hide franchise identity controls")
 	}
 }
+
+// TestPreDraftRosterPreviewOffersNextAction is P2-16's own render test
+// (UI pass 2026-08-30): the pre-draft "ROSTER PREVIEW · DRAFT PENDING"
+// empty state named no next action; it now links to the draft room.
+func TestPreDraftRosterPreviewOffersNextAction(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	marker := "ROSTER PREVIEW · DRAFT PENDING"
+	markerIdx := strings.Index(page, marker)
+	if markerIdx < 0 {
+		t.Fatal("pre-draft roster preview empty state is missing from page.gsx")
+	}
+	closeIdx := strings.Index(page[markerIdx:], "</If>")
+	if closeIdx < 0 {
+		t.Fatal("pre-draft roster preview <If> block has no closing </If>")
+	}
+	block := page[markerIdx : markerIdx+closeIdx]
+	if !strings.Contains(block, `<a href="/draft"`) {
+		t.Errorf("pre-draft roster preview carries no next-action anchor: %s", block)
+	}
+}

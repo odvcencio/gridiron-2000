@@ -77,6 +77,11 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
+		<nav class="guide-toc scoring-jump-list" aria-label="Rules and scoring sections">
+			<Each of={data.jump_sections} as="jump">
+				<a href={"#" + jump.ID}>{jump.Label}</a>
+			</Each>
+		</nav>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
@@ -91,13 +96,13 @@ func Page() Node {
 				</p>
 			</If>
 		</div>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		<details class="player-pool" id="scoring-league" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">01 // LEAGUE</span>
 					<h2>League identity</h2>
 				</div>
-			</div>
+			</summary>
 			<p class="scoring-note">
 				{data.identity_rules.name}
 				({data.identity_rules.short_code}) runs a
@@ -122,14 +127,14 @@ func Page() Node {
 					<b class="mono">{data.identity_rules.season_start}</b>
 				</div>
 			</div>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-membership" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">02 // MEMBERSHIP</span>
 					<h2>Who can join</h2>
 				</div>
-			</div>
+			</summary>
 			<p class="scoring-note">
 				<b class="mono">{data.membership_rules.label}</b>
 				— {data.membership_rules.detail}
@@ -144,14 +149,14 @@ func Page() Node {
 					</b>
 				</div>
 			</div>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-roster" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">03 // ROSTER</span>
 					<h2>Starting lineup and bench</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-list">
 				<Each of={data.roster_rules.slots} as="slot">
 					<div class="scoring-row">
@@ -176,14 +181,14 @@ func Page() Node {
 				{data.roster_rules.rounds}
 				-round draft. Draft rounds derive from the roster shape; they are never set independently.
 			</p>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-draft" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">04 // DRAFT</span>
 					<h2>Startup snake draft</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Date</span>
@@ -212,14 +217,14 @@ func Page() Node {
 			<p class="scoring-note">
 				An away or idle manager's pick fires automatically from their Big Board, or best available by ADP when the board is empty. The commissioner can undo the most recent pick and reopen that slot.
 			</p>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-lineups" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">05 // LINEUPS &amp; LOCKS</span>
 					<h2>Setting your lineup</h2>
 				</div>
-			</div>
+			</summary>
 			<p class="scoring-note">
 				Each player locks at their own NFL team's kickoff, not one league-wide lock time — a Sunday player can still be swapped Monday morning if their game has not kicked off yet.
 			</p>
@@ -232,10 +237,10 @@ func Page() Node {
 				The commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.
 			</p>
 			<a href="/team" data-gosx-link class="button button--compact">Open your team terminal →</a>
-		</section>
+		</details>
 		<Each of={data.groups} as="group">
-			<section class="player-pool">
-				<div class="pool-toolbar">
+			<details class="player-pool" id={group.ID} open>
+				<summary class="pool-toolbar">
 					<div>
 						<span class="section-index">
 							06 // SCORING //
@@ -243,7 +248,7 @@ func Page() Node {
 						</span>
 						<h2>{group.Name}</h2>
 					</div>
-				</div>
+				</summary>
 				<If cond={group.Note != ""}>
 					<p class="scoring-note">{group.Note}</p>
 				</If>
@@ -252,7 +257,7 @@ func Page() Node {
 						<ScoringRow {...row}></ScoringRow>
 					</Each>
 				</div>
-			</section>
+			</details>
 		</Each>
 		<If cond={data.editable}>
 			<section class="player-pool admin-danger">
@@ -274,13 +279,13 @@ func Page() Node {
 			</section>
 		</If>
 		<p class="scoring-note">{data.scoring_note}</p>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		<details class="player-pool" id="scoring-week-close" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">07 // WEEK CLOSE</span>
 					<h2>Schedule, playoffs, and closing a week</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Current phase</span>
@@ -318,14 +323,14 @@ func Page() Node {
 			<p class="scoring-note">
 				Closing a week scores every matchup and marks it final. The same close also pins every starting lineup that scored that week — a later drop, trade, or roster-shape edit can never change a closed week's score.
 			</p>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-free-agency" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">08 // FREE AGENCY</span>
 					<h2>Signing free agents</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Status</span>
@@ -345,14 +350,14 @@ func Page() Node {
 				Free agency opens the moment the draft fills every roster spot on every team. Signing a free agent onto a full roster requires naming a drop in the same move — one single step, never a separate add and drop.
 			</p>
 			<a href="/players" data-gosx-link class="button button--compact">Open the player pool →</a>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-waivers" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">09 // WAIVERS</span>
 					<h2>Claiming a dropped or locked player</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Mode</span>
@@ -415,14 +420,14 @@ func Page() Node {
 				A dropped player enters ON WAIVERS: the clear window above must pass before anyone can sign them as a free agent. A rostered player whose game has kicked off is also ON WAIVERS until that game ends and waivers clear.
 			</p>
 			<a href="/players" data-gosx-link class="button button--compact">Open the waiver desk →</a>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-trades" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">10 // TRADES</span>
 					<h2>This league's veto policy</h2>
 				</div>
-			</div>
+			</summary>
 			<div class="pool-stats">
 				<div class="pool-stat">
 					<span>Veto policy</span>
@@ -489,14 +494,14 @@ func Page() Node {
 				days. The league does not trade draft picks yet.
 			</p>
 			<a href="/trades" data-gosx-link class="button button--compact">Open the trade desk →</a>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-pickem" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">11 // PICK'EM</span>
 					<h2>The weekly side game</h2>
 				</div>
-			</div>
+			</summary>
 			<p class="scoring-note">
 				Every signed-in member may make pick'em picks — a team seat is not required. Pick against the market spread shown on each matchup. The line updates until the weekly Thursday freeze; an earlier game freezes at its own kickoff. A missing frozen line is void, never silently converted to straight-up scoring.
 			</p>
@@ -504,19 +509,19 @@ func Page() Node {
 				The line freeze does not lock the sheet. Each matchup remains pickable until its own kickoff. Once you make any valid pick in a week, an unpicked game that starts is a loss; later games remain open. A push is neutral, and a missed loss breaks a winning streak. Pick'em has its own W-L-P leaderboard and is not a fantasy-standings tiebreaker.
 			</p>
 			<a href="/pickem" data-gosx-link class="button button--compact">Make this week's picks →</a>
-		</section>
-		<section class="player-pool">
-			<div class="pool-toolbar">
+		</details>
+		<details class="player-pool" id="scoring-blitz" open>
+			<summary class="pool-toolbar">
 				<div>
 					<span class="section-index">12 // PRESEASON BLITZ</span>
 					<h2>A side contest before the real thing</h2>
 				</div>
-			</div>
+			</summary>
 			<p class="scoring-note">
 				Pick five preseason players and race the field on total production, no roster spot required. Scores live during the preseason window only.
 			</p>
 			<a href="/blitz" data-gosx-link class="button button--compact">Open Preseason Blitz →</a>
-		</section>
+		</details>
 		<p class="scoring-note mono">
 			RULES LAST CONFIRMED //
 			{data.rules_version.generated_at}

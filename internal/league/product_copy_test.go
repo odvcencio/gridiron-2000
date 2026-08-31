@@ -67,8 +67,8 @@ func TestDraftSummaryNamesScheduledWindowAndTimezone(t *testing.T) {
 	if got := before["window_reached"]; got != false {
 		t.Errorf("before window_reached = %v, want false", got)
 	}
-	if got := before["timezone"]; got != "America/New_York" {
-		t.Errorf("timezone = %v, want configured IANA timezone", got)
+	if got := before["timezone"]; got != "Eastern Time" {
+		t.Errorf("timezone = %v, want the friendly label for the configured IANA timezone", got)
 	}
 	if got := before["event_label"]; got != "LEAGUE DRAFT" {
 		t.Errorf("event_label = %v, want LEAGUE DRAFT", got)

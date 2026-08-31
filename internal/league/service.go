@@ -2210,7 +2210,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"has_deadline":   lineupDeadline.HasDeadline,
 		"exact":          lineupDeadline.Exact,
 		"relative":       lineupDeadline.Relative,
-		"timezone":       lineupDeadline.Timezone,
+		"timezone":       FriendlyTimezoneLabel(lineupDeadline.Timezone),
 		"headline":       lineupDeadline.Headline,
 		"detail":         lineupDeadline.Detail,
 		"editable_slots": strconv.Itoa(lineupDeadline.EditableSlots),
@@ -3280,7 +3280,7 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		"event_label":     "LEAGUE DRAFT",
 		"date":            strings.ToUpper(local.Format("Mon · Jan")) + " " + strconv.Itoa(local.Day()),
 		"time":            local.Format("3:04 PM MST"),
-		"timezone":        timezone,
+		"timezone":        FriendlyTimezoneLabel(timezone),
 		"long_date":       local.Format("Monday, January 2, 2006"),
 		"format":          s.draftFormatLabel(),
 		"started":         state.DraftStarted,
@@ -4482,7 +4482,7 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		teamSearch = append(teamSearch, e.teamIDs...)
 		out = append(out, map[string]any{
 			"time":        e.at.In(location).Format("Jan 2, 3:04 PM MST"),
-			"timezone":    location.String(),
+			"timezone":    FriendlyTimezoneLabel(location.String()),
 			"team":        teamDisplay,
 			"teams":       teamAbbreviations,
 			"team_names":  teamNames,

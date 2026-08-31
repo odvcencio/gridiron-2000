@@ -1115,7 +1115,7 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href="/draft">Refresh room →</a></p>
 		<p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{props.StatusSummary}</p>
 		<div class="draft-command__pick">
-			<span class="idx">ROUND <span data-gosx-live-bind="pick.round">{props.Data.round}</span> · SNAKE <span data-gosx-live-bind="pick.direction">{props.Data.snake_direction}</span></span>
+			<span class="idx">ROUND <span data-gosx-live-bind="pick.round">{props.Data.round}</span> · <abbr title="a draft order that reverses every round">SNAKE</abbr> <span data-gosx-live-bind="pick.direction">{props.Data.snake_direction}</span></span>
 			<span class="mono draft-command__number" data-pick-label>PICK <span data-gosx-live-bind="pick.number">{props.Data.pick_number}</span> <span class="muted">/ <span data-gosx-live-bind="pick.total">{props.Data.picks_total}</span></span></span>
 		</div>
 		<div class="draft-command__turn">
@@ -1446,6 +1446,10 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="K">K</button>
 			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="DST">DST</button>
 		</div>
+		<details class="pool-legend">
+			<summary>What do RK, PROJ, and VS ADP mean?</summary>
+			<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>). PROJ — projected points per game. VS ADP — value if drafted right now, versus <abbr title="average draft position">ADP</abbr>. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+		</details>
 	</div>
 }
 
@@ -1528,12 +1532,12 @@ func DraftAvailable(props DraftAvailableProps) Node {
 			</section>
 		</If>
 		<div class="avail-row avail-row--head">
-			<span class="idx">RK</span><span class="idx">PLAYER</span><span class="idx">POS</span><span class="idx">PROJ</span><If cond={props.Data.has_adp}><span class="idx">VS ADP</span></If><span class="idx">ACTION</span>
+			<span class="idx"><abbr title="rank by draft market (average draft position)">RK</abbr></span><span class="idx">PLAYER</span><span class="idx">POS</span><span class="idx"><abbr title="projected points per game">PROJ</abbr></span><If cond={props.Data.has_adp}><span class="idx"><abbr title="value if drafted right now, versus average draft position">VS ADP</abbr></span></If><span class="idx">ACTION</span>
 		</div>
 		<Each of={props.Players} as="player">
 			<article class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:player." + player.ID + ".taken"}>
 				<span class="num">{player.Rank}</span>
-				<div><strong>{player.Name}</strong><small>{player.Detail}</small></div>
+				<div class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></div>
 				<span class={"pos pos-" + player.Position}>{player.Position}</span>
 				<span class="num">{player.Projection}</span>
 				<If cond={props.Data.has_adp}><span class="num">{player.ValueLabel}</span></If>
@@ -1650,7 +1654,12 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		<div class="draft-mine__view draft-mine__view--room">
 		<div class="draft-mine__room">
 			<div class="draft-mine__room-summary mono">
-				<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> auto
+				<span class="draft-mine__room-summary--comfortable">
+					<span data-gosx-live-bind="room.here">{props.Data.here_count}</span> of <span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> managers online · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span> ready · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> on autopick
+				</span>
+				<span class="draft-mine__room-summary--compact">
+					<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready · <span data-gosx-live-bind="room.auto">{props.Data.auto_count}</span> auto
+				</span>
 				<If cond={props.Data.your_pick_in > 0}>
 					<span class="draft-mine__yourpick" data-gosx-live-bind={props.Data.yourpick_bind_key}>your pick in {props.Data.your_pick_in}</span>
 				</If>
