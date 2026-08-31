@@ -220,10 +220,21 @@ func matchupWeekRows(rows []openstats.PlayerWeekStat) []matchupRow {
 // returns an empty slice for that week; the loop does not distinguish
 // "not played yet" from "no games this week" since neither should ever
 // feed a rank.
+// fetchSeasonPlayerStatsRowCap is the per-week query cap passed to query
+// below. A real week (an active roster's worth of QB/RB/WR/TE/K/DST rows,
+// ~1333 typical) sits comfortably under it, but the cap itself gives no
+// signal when a week's true row count reaches or exceeds it — a query
+// result of exactly this many rows is indistinguishable from "there were
+// more, and they got dropped" without checking the count.
+const fetchSeasonPlayerStatsRowCap = 1000
+
 func fetchSeasonPlayerStats(query func(openstats.PlayerQuery) []openstats.PlayerWeekStat) []openstats.PlayerWeekStat {
 	var all []openstats.PlayerWeekStat
 	for week := 1; week <= matchupMaxRegularWeek; week++ {
-		rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Limit: 1000})
+		rows := query(openstats.PlayerQuery{Week: week, SeasonType: "REG", Limit: fetchSeasonPlayerStatsRowCap})
+		if len(rows) == fetchSeasonPlayerStatsRowCap {
+			log.Printf("matchup: week %d returned exactly the %d-row query cap; a real week's rows may have been silently truncated", week, fetchSeasonPlayerStatsRowCap)
+		}
 		all = append(all, rows...)
 	}
 	return all

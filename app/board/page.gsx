@@ -69,6 +69,7 @@ func BoardRow(props BoardRowProps) Node {
 				</If>
 				<If cond={props.Player.has_hist}>
 					<p class="stat-tip__hist mono">{props.Player.hist}</p>
+					<p class="stat-tip__hist-note">{props.Player.hist_label}</p>
 				</If>
 			</div>
 		</details>
@@ -331,6 +332,7 @@ func Page() Node {
 									</If>
 									<If cond={player.has_hist}>
 										<p class="stat-tip__hist mono">{player.hist}</p>
+										<p class="stat-tip__hist-note">{player.hist_label}</p>
 									</If>
 								</div>
 							</details>

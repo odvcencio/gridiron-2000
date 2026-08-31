@@ -336,7 +336,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	league.Default().SetStatsUpdatedSource(func() time.Time {
 		return openStats.Status().PlayerStats.LastUpdated
 	})
-	league.Default().SetHistoricalSource(seasonHouseHistSource(openStats, league.Default().CurrentScoringValues))
+	league.Default().SetHistoricalSource(seasonHouseHistSource(openStats))
 	liveCfg, liveFetcher, replayServer := liveScoringInputs(fantasyPool, league.Default(), rt, cfg.AppEnv)
 	// A replay server is its own self-contained relay: it needs no Tank01
 	// credentials of its own, so its presence stands in for

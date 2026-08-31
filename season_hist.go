@@ -84,8 +84,10 @@ type seasonHouseAccumulator struct {
 // single pool rebuild would re-page and re-score all eighteen weeks of
 // the mirror once per player. A cache hit costs one mutex lock and one
 // map lookup; a miss (first call, a season rollover, or a commissioner
-// scoring edit — AdminSetScoring/AdminResetScoring, admin.go) rebuilds
-// once and every subsequent lookup in that pool version reuses it.
+// scoring edit — AdminSetScoring/AdminResetScoring, admin.go, both of
+// which now call invalidatePoolCache so the next pool() rebuild reaches
+// here with fresh values) rebuilds once and every subsequent lookup in
+// that pool version reuses it.
 type seasonHistCache struct {
 	mu          sync.Mutex
 	season      int
@@ -96,21 +98,32 @@ type seasonHistCache struct {
 // seasonHouseHistSource adapts the mirrored previous-season player ledger
 // to league.HistoricalSource, generalizing historicalSource's old raw-
 // points join to house-scored totals for QB/RB/WR/TE/K (see this file's
-// doc comment for DST and punters). stats is the openstats mirror;
-// scoringValues supplies the league's live, override-aware scoring values
-// on every call (app_build.go wires league.Default().CurrentScoringValues
-// directly) so a commissioner's mid-season scoring edit is reflected the
-// next time the pool rebuilds, never stale. Taking a plain function here,
-// not a *league.Service, keeps this file decoupled from the concrete
-// service type and lets a test drive the memo with a fake provider.
-func seasonHouseHistSource(stats *openstats.Service, scoringValues func() map[string]float64) league.HistoricalSource {
+// doc comment for DST and punters). stats is the openstats mirror. The
+// returned source is called once per player from buildPool
+// (internal/league/service.go), which resolves the league's live scoring
+// values exactly ONCE per rebuild and passes the same map into every
+// call here — this source never re-resolves values itself, so a
+// commissioner's mid-season scoring edit costs one store snapshot per
+// pool rebuild, not one per player (adversarial review finding,
+// 2026-08-31).
+func seasonHouseHistSource(stats *openstats.Service) league.HistoricalSource {
 	cache := &seasonHistCache{}
-	return func(name, position string) (string, bool) {
+	return func(name, position string, values map[string]float64) (string, bool) {
 		season := stats.Status().Season - 1
-		values := scoringValues()
 		fingerprint := scoringValuesFingerprint(values)
 		cache.mu.Lock()
-		if cache.index == nil || cache.season != season || cache.fingerprint != fingerprint {
+		// len(cache.index) == 0, not cache.index == nil: a previous build
+		// that legitimately found zero applicable rows (a fresh deploy
+		// racing openstats' async sync — the CSV has not landed yet) still
+		// returns a non-nil, empty map, and a nil check alone would cache
+		// that blank answer forever with no restart able to self-heal it
+		// (adversarial review finding, 2026-08-31 — historicalSource, the
+		// source this file replaced, self-healed the identical race via
+		// its own len(lookup)==0 check). Treating "empty" the same as
+		// "never built" means every lookup retries the page-and-score pass
+		// until the mirror actually has rows, exactly like the source this
+		// file replaced.
+		if len(cache.index) == 0 || cache.season != season || cache.fingerprint != fingerprint {
 			cache.index = buildSeasonHouseHistIndex(stats, values)
 			cache.season = season
 			cache.fingerprint = fingerprint
@@ -207,6 +220,14 @@ func houseHistLine(acc *seasonHouseAccumulator) string {
 		return fmt.Sprintf("%d · %d G · %s rush yds · %d TD · %d rec · %.1f FPts",
 			acc.season, games, thousands(roundToInt(acc.rushYds)), roundToInt(acc.rushTD+acc.recTD), roundToInt(acc.receptions), acc.totalPts)
 	case "K":
+		// The denominator is fgMade+fgMissed, not a true fg-attempts count:
+		// nflverse's stats_player_week dictionary tracks a blocked field
+		// goal in its own fg_blocked column, separate from fg_missed, and
+		// parsePlayerStats (internal/openstats/parser.go) does not read
+		// fg_blocked at all — so a week with a blocked kick undercounts
+		// this line's attempts by exactly that block (confirmed against
+		// the nflverse player-stats data dictionary, 2026-08-31; not an
+		// assumption).
 		return fmt.Sprintf("%d · %d G · %d/%d FG · %d XP · %.1f FPts",
 			acc.season, games, roundToInt(acc.fgMade), roundToInt(acc.fgMade+acc.fgMissed), roundToInt(acc.xpMade), acc.totalPts)
 	default: // WR, TE

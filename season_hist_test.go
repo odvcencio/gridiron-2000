@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"gridiron-2000/internal/openstats"
@@ -28,6 +31,7 @@ type seasonHistTestRow struct {
 	passYds, passTD, passInt, rushYds, rushTD float64
 	receptions, recYds, recTD                 float64
 	rushFumLost, recFumLost, sackFumLost      float64
+	fgMade, fgMissed, xpMade                  float64
 }
 
 func (row seasonHistTestRow) csvLine(playerID, name, position string, season int) string {
@@ -39,17 +43,24 @@ func (row seasonHistTestRow) csvLine(playerID, name, position string, season int
 		f(row.receptions), f(row.recYds), f(row.recTD),
 		f(row.rushFumLost), f(row.recFumLost), f(row.sackFumLost),
 		"0", "0", // fantasy_points, fantasy_points_ppr
-		"0", "0", "0", // fg_made, fg_missed, pat_made
+		f(row.fgMade), f(row.fgMissed), f(row.xpMade),
 	}, ",")
 }
 
-// mahomes2025 and jefferson2025 are the real 2025 REG-season weekly lines
-// for Patrick Mahomes (QB, 14 games) and Justin Jefferson (WR, 17 games),
-// taken from the mirrored nflverse stats_player_week_2025 release — the
-// same file main.go's seasonHouseHistSource rescores in production.
-// Mahomes' week 14 line includes a real trick-play catch (1 reception,
-// -10 receiving yards): every offense field a QB row can carry, exercised
-// for real, not just the passing ones.
+// mahomes2025 and jefferson2025 are EDITED fixtures derived from the real
+// 2025 REG-season weekly lines for Patrick Mahomes (QB, 14 games) and
+// Justin Jefferson (WR, 17 games), read from the mirrored nflverse
+// stats_player_week_2025 release — the same file main.go's
+// seasonHouseHistSource rescores in production. Passing/rushing/
+// receiving columns carry the real values; fumble columns and
+// fantasy_points/fantasy_points_ppr are zeroed (see seasonHistTestRow's
+// own doc comment for why), so this is not a verbatim row-for-row copy.
+// The hand-computed totals below (281.18 and 159.5) were independently
+// re-derived from these edited rows, not copied from any nflverse total,
+// and both check out against handComputeHousePoints. Mahomes' week 14
+// line includes a real trick-play catch (1 reception, -10 receiving
+// yards): every offense field a QB row can carry, exercised for real,
+// not just the passing ones.
 var mahomes2025 = []seasonHistTestRow{
 	{week: 1, team: "KC", opponent: "LAC", gameID: "2025_01_KC_LAC", passYds: 258, passTD: 1, passInt: 0, rushYds: 57, rushTD: 1},
 	{week: 2, team: "KC", opponent: "PHI", gameID: "2025_02_PHI_KC", passYds: 187, passTD: 1, passInt: 1, rushYds: 66, rushTD: 1},
@@ -87,10 +98,19 @@ var jefferson2025 = []seasonHistTestRow{
 	{week: 18, team: "MIN", opponent: "GB", gameID: "2025_18_GB_MIN", rushYds: 3, receptions: 8, recYds: 101},
 }
 
+// testKicker2025 is a synthetic two-week K fixture (finding 6, adversarial
+// review 2026-08-31): season_hist_test.go carried zero kicker coverage
+// before this fixture. Week 1: 3 FG made, 1 FG missed, 2 XP made. Week 2:
+// 2 FG made, 2 FG missed, 4 XP made.
+var testKicker2025 = []seasonHistTestRow{
+	{week: 1, team: "BAL", opponent: "CIN", gameID: "2025_01_BAL_CIN", fgMade: 3, fgMissed: 1, xpMade: 2},
+	{week: 2, team: "BAL", opponent: "CLE", gameID: "2025_02_BAL_CLE", fgMade: 2, fgMissed: 2, xpMade: 4},
+}
+
 // writeSeasonHistFixtureCSV writes one previous-season stats_player_week
-// CSV to root containing exactly the two real players' weekly rows above,
-// the shape buildSeasonHouseHistIndex's pipeline (fetchSeasonPlayerStats
-// -> parsePlayerStats) reads.
+// CSV to root containing the three players' weekly rows above (QB, WR,
+// K), the shape buildSeasonHouseHistIndex's pipeline
+// (fetchSeasonPlayerStats -> parsePlayerStats) reads.
 func writeSeasonHistFixtureCSV(t *testing.T, root string, season int) {
 	t.Helper()
 	lines := []string{seasonHistTestCSVHeader}
@@ -99,6 +119,9 @@ func writeSeasonHistFixtureCSV(t *testing.T, root string, season int) {
 	}
 	for _, row := range jefferson2025 {
 		lines = append(lines, row.csvLine("jefferson-wr", "Justin Jefferson", "WR", season))
+	}
+	for _, row := range testKicker2025 {
+		lines = append(lines, row.csvLine("test-k", "Test Kicker", "K", season))
 	}
 	content := strings.Join(lines, "\n") + "\n"
 	path := root + "/stats_player_week_" + strconv.Itoa(season) + ".csv"
@@ -190,6 +213,28 @@ func TestBuildSeasonHouseHistIndexHandMathQBAndWR(t *testing.T) {
 	}
 }
 
+// TestBuildSeasonHouseHistIndexHandMathKicker is the finding 6 regression
+// (adversarial review, 2026-08-31): season_hist_test.go carried zero
+// kicker coverage before this test. testKicker2025's two weeks (3 FG
+// made/1 missed + 2 XP, then 2 FG made/2 missed + 4 XP) sum to fgMade 5,
+// fgMissed 3 (denominator 8), xpMade 6. Hand math against the KICKING
+// group's live values (fgMade 3, fgMissed -1, xpMade 1): 5*3 + 3*-1 +
+// 6*1 = 15-3+6 = 18.0 FPts.
+func TestBuildSeasonHouseHistIndexHandMathKicker(t *testing.T) {
+	stats := newSeasonHistTestStats(t, 2026)
+	index := buildSeasonHouseHistIndex(stats, nil)
+
+	kKey := openstats.NormalizePlayerKey("Test Kicker", "K")
+	line, ok := index[kKey]
+	if !ok {
+		t.Fatalf("no Hist line built for the test kicker; index = %+v", index)
+	}
+	wantLine := "2025 · 2 G · 5/8 FG · 6 XP · 18.0 FPts"
+	if line != wantLine {
+		t.Fatalf("K Hist line = %q, want %q", line, wantLine)
+	}
+}
+
 // TestBuildSeasonHouseHistIndexSkipsPuntersAndDST checks
 // seasonHousePositions' whitelist directly: a P or DST row in the mirror
 // never enters the index, so withHistorical's Position=="P" fallback to
@@ -228,10 +273,10 @@ func TestBuildSeasonHouseHistIndexDeterministic(t *testing.T) {
 // restores the original line exactly.
 func TestSeasonHouseHistSourceOverriddenScoringChangesLineAndResetRestores(t *testing.T) {
 	stats := newSeasonHistTestStats(t, 2026)
-	current := map[string]float64{"passYards": 0.04, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
-	source := seasonHouseHistSource(stats, func() map[string]float64 { return current })
+	source := seasonHouseHistSource(stats)
+	defaults := map[string]float64{"passYards": 0.04, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
 
-	original, ok := source("Patrick Mahomes", "QB")
+	original, ok := source("Patrick Mahomes", "QB", defaults)
 	if !ok {
 		t.Fatalf("expected a Hist line for Mahomes under default values")
 	}
@@ -239,9 +284,12 @@ func TestSeasonHouseHistSourceOverriddenScoringChangesLineAndResetRestores(t *te
 		t.Fatalf("original line = %q, want it to contain 281.2 FPts", original)
 	}
 
-	// Commissioner edit: passYards worth 0.10 instead of 0.04.
-	current = map[string]float64{"passYards": 0.10, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
-	overridden, ok := source("Patrick Mahomes", "QB")
+	// Commissioner edit: passYards worth 0.10 instead of 0.04. buildPool now
+	// resolves this map once per rebuild (service.go), so the test passes
+	// the "next call's values" argument directly, the same shape it arrives
+	// in production.
+	overriddenValues := map[string]float64{"passYards": 0.10, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
+	overridden, ok := source("Patrick Mahomes", "QB", overriddenValues)
 	if !ok {
 		t.Fatalf("expected a Hist line for Mahomes under overridden values")
 	}
@@ -252,8 +300,8 @@ func TestSeasonHouseHistSourceOverriddenScoringChangesLineAndResetRestores(t *te
 	// Reset: back to the exact original values object (a fresh map with
 	// the same contents, the same shape AdminResetScoring's store write
 	// produces — a fingerprint match, not a pointer match).
-	current = map[string]float64{"passYards": 0.04, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
-	restored, ok := source("Patrick Mahomes", "QB")
+	resetValues := map[string]float64{"passYards": 0.04, "passTD": 4, "passInt": -2, "rushYards": 0.1, "rushTD": 6, "reception": 0.5, "recYards": 0.1, "recTD": 6, "fumbleLost": -2}
+	restored, ok := source("Patrick Mahomes", "QB", resetValues)
 	if !ok {
 		t.Fatalf("expected a Hist line for Mahomes after reset")
 	}
@@ -272,25 +320,100 @@ func TestSeasonHouseHistSourceMemoizesByFingerprint(t *testing.T) {
 	setSeasonHistBuildCalls(func() { builds++ })
 	defer setSeasonHistBuildCalls(nil)
 
-	values := map[string]float64{"passYards": 0.04}
-	source := seasonHouseHistSource(stats, func() map[string]float64 {
-		// A fresh map every call (map equality is by fingerprint, not by
-		// reference) — the realistic shape league.CurrentScoringValues
-		// returns, a new snapshot each call.
-		return map[string]float64{"passYards": values["passYards"]}
-	})
+	source := seasonHouseHistSource(stats)
+	// A fresh map every call (map equality is by fingerprint, not by
+	// reference) — the realistic shape buildPool's currentScoringValues
+	// call produces, a new snapshot each rebuild.
+	values := func(passYards float64) map[string]float64 {
+		return map[string]float64{"passYards": passYards}
+	}
 
-	source("Patrick Mahomes", "QB")
-	source("Justin Jefferson", "WR")
-	source("Patrick Mahomes", "QB")
+	source("Patrick Mahomes", "QB", values(0.04))
+	source("Justin Jefferson", "WR", values(0.04))
+	source("Patrick Mahomes", "QB", values(0.04))
 	if builds != 1 {
 		t.Fatalf("builds = %d after 3 same-fingerprint lookups, want 1", builds)
 	}
 
-	values["passYards"] = 0.10
-	source("Patrick Mahomes", "QB")
+	source("Patrick Mahomes", "QB", values(0.10))
 	if builds != 2 {
 		t.Fatalf("builds = %d after a scoring-value change, want 2", builds)
+	}
+}
+
+// TestSeasonHouseHistSourceEmptyIndexSelfHeals is the finding 1
+// regression (adversarial review, 2026-08-31): buildSeasonHouseHistIndex
+// returns a non-nil, empty map when the previous-season mirror has no
+// rows yet — the realistic shape of a fresh deploy racing openstats'
+// async sync goroutine before the release CSV actually lands. Before
+// this fix, the memo's cache.index == nil check let that first empty
+// build satisfy every later condition (a non-nil, empty map is not nil),
+// locking a blank Hist line in for the rest of the process's life with
+// no restart able to self-heal it — the exact regression the removed
+// historicalSource's own len(lookup)==0 check used to prevent. Two
+// lookups against an empty mirror must both rebuild; once the mirror's
+// async sync actually lands rows (simulated here by flipping the fake
+// source's response and re-running SyncNow, never restarting the
+// process), the very next lookup must succeed.
+func TestSeasonHouseHistSourceEmptyIndexSelfHeals(t *testing.T) {
+	var mirrorReady atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !mirrorReady.Load() {
+			http.NotFound(w, r)
+			return
+		}
+		lines := []string{seasonHistTestCSVHeader}
+		for _, row := range mahomes2025 {
+			lines = append(lines, row.csvLine("mahomes-qb", "Patrick Mahomes", "QB", 2025))
+		}
+		_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
+	}))
+	defer server.Close()
+
+	stats, err := openstats.NewService(openstats.Config{
+		Root:               t.TempDir(),
+		Season:             2026,
+		Enabled:            false,
+		PlayerStatsPrevURL: server.URL + "/stats_prev.csv",
+		HTTPClient:         server.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The other five datasets carry no URL in this fixture, so SyncNow
+	// returns a non-nil joined error for them (expected — see
+	// recordDatasetError's "disabled" state); only the player-stats-prev
+	// half of the sync matters here.
+	_ = stats.SyncNow(t.Context())
+	if state := stats.Status().PlayerStatsPrev.State; state != "awaiting_release" {
+		t.Fatalf("test setup: PlayerStatsPrev state = %q, want awaiting_release (the mirror must start with zero rows)", state)
+	}
+
+	builds := 0
+	setSeasonHistBuildCalls(func() { builds++ })
+	defer setSeasonHistBuildCalls(nil)
+
+	source := seasonHouseHistSource(stats)
+	if _, ok := source("Patrick Mahomes", "QB", nil); ok {
+		t.Fatalf("expected a miss before the mirror has any rows")
+	}
+	if _, ok := source("Patrick Mahomes", "QB", nil); ok {
+		t.Fatalf("expected a miss on the second lookup too — the mirror still has no rows")
+	}
+	if builds != 2 {
+		t.Fatalf("builds = %d after 2 lookups against an empty mirror, want 2 (no permanent empty-cache lock-in)", builds)
+	}
+
+	// The mirror's async sync lands the file — no server/process restart.
+	mirrorReady.Store(true)
+	_ = stats.SyncNow(t.Context())
+
+	line, ok := source("Patrick Mahomes", "QB", nil)
+	if !ok || line == "" {
+		t.Fatalf("expected a hit once the mirror has rows, with no restart required; got ok=%v line=%q", ok, line)
+	}
+	if builds != 3 {
+		t.Fatalf("builds = %d after the mirror gained rows, want 3", builds)
 	}
 }
 
@@ -316,8 +439,8 @@ func TestScoringValuesFingerprintDeterministicAndSensitive(t *testing.T) {
 // returns ok=false, never a fabricated line.
 func TestSeasonHouseHistSourceMissesUnknownPlayer(t *testing.T) {
 	stats := newSeasonHistTestStats(t, 2026)
-	source := seasonHouseHistSource(stats, func() map[string]float64 { return nil })
-	if _, ok := source("Nobody At All", "RB"); ok {
+	source := seasonHouseHistSource(stats)
+	if _, ok := source("Nobody At All", "RB", nil); ok {
 		t.Fatalf("expected a miss for an unmirrored player")
 	}
 }

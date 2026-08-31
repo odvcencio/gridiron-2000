@@ -213,13 +213,14 @@ The live Tank01 feed carries no punter ADP and no punter projections. Gridiron r
 
 ### Season history under house rules
 
-A player's `Hist` line shows their previous season, scored under this league's own scoring rules. It never shows a generic market number. Gridiron rescores every QB, RB, WR, TE, and K's 2025 weekly stats through the same engine that scores the current season.
+A player's `Hist` line shows their previous season, scored under this league's own scoring rules. It never shows a generic market number. Gridiron rescores every QB, RB, WR, TE, and K's previous-season weekly stats (2025, for the 2026 season) through the same engine that scores the current season.
 
 - The `Hist` line carries a short note: "Scored under this league's own rules." The note appears only when a `Hist` line renders.
 - Gridiron computes each player's line once per player-pool refresh, and again whenever a commissioner edits a scoring value. A reset to the default rules recomputes the line back to its original total.
 - DST carries no `Hist` line. The open-data mirror keeps no previous-season team-defense file to rescore from.
 - Punters keep their own embedded 2025 line (see "Punter rankings" above). That line was already rescored under the league's punting rules before this feature existed.
 - A rookie or a player absent from the previous season's mirror shows no `Hist` line at all, never a fabricated one.
+- The weekly mirror carries no two-point conversion columns (pass, rush, or catch) and no return-touchdown column, so the `Hist` line can never credit those four scoring rules, even though the league's own rulebook prices them. This is the same gap live weekly scoring has for those same four rules — not a `Hist`-only shortfall.
 
 ### House rank
 

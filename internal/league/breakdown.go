@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"strconv"
+	"sync/atomic"
 )
 
 // breakdownRow is one line of a player's score breakdown: a projected stat,
@@ -110,13 +111,38 @@ func breakdownDefaultValues() map[string]float64 {
 	return values
 }
 
+// currentScoringValuesCalls is a test seam (mirrors houseRankBuildCalls,
+// seasonHistBuildCalls): nil in production, so currentScoringValues pays
+// no cost beyond one atomic load per call. A test that must prove a
+// snapshot-costly caller (buildPool, service.go) resolves scoring values
+// exactly once per rebuild — not once per player — installs a counting
+// func here and must clear it afterward (setCurrentScoringValuesCalls(nil)).
+var currentScoringValuesCalls atomic.Pointer[func()]
+
+// setCurrentScoringValuesCalls installs fn as the test seam, or clears it
+// when fn is nil.
+func setCurrentScoringValuesCalls(fn func()) {
+	if fn == nil {
+		currentScoringValuesCalls.Store(nil)
+		return
+	}
+	currentScoringValuesCalls.Store(&fn)
+}
+
 // currentScoringValues resolves every scoring rule's live point value:
 // the default, overridden by the commissioner's stored value where one
 // exists. It snapshots store state exactly once per call, so pool-rendering
 // callers must call it once per render and pass the result down through
 // playerMaps rather than call scoreBreakdown once per player — up to 400
 // players render per page, and 400 store snapshots per render is wasteful.
+// buildPool's Hist-line lookup follows the identical rule (adversarial
+// review finding, 2026-08-31): it resolves values here once per rebuild
+// and passes the same map into every player's HistoricalSource call,
+// rather than letting the source re-resolve values itself per player.
 func (s *Service) currentScoringValues() map[string]float64 {
+	if fn := currentScoringValuesCalls.Load(); fn != nil {
+		(*fn)()
+	}
 	values := breakdownDefaultValues()
 	state := s.store.Snapshot()
 	for key, points := range state.Scoring {

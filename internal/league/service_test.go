@@ -1147,7 +1147,7 @@ func TestHistoricalSourceAppliesInBuildPool(t *testing.T) {
 	pool := testPool(3)
 	pool[1].Hist = "already set"
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 9, "live" })
-	service.SetHistoricalSource(func(name, position string) (string, bool) {
+	service.SetHistoricalSource(func(name, position string, values map[string]float64) (string, bool) {
 		if name == "Pool Player 001" && position == "QB" {
 			return "2025 · 17 G · 4,100 pass yds · 30 TD · 8 INT · 24.6 FPts", true
 		}
@@ -1166,6 +1166,83 @@ func TestHistoricalSourceAppliesInBuildPool(t *testing.T) {
 	}
 	if built.players[2].Hist != "" {
 		t.Fatalf("unmatched player gained a hist line: %+v", built.players[2])
+	}
+}
+
+// TestBuildPoolResolvesScoringValuesOnceForHistoricalLookups is the
+// finding 3 regression (adversarial review, 2026-08-31): currentScoringValues
+// snapshots the whole store and clones it, so buildPool must resolve it
+// exactly ONCE per rebuild and pass the same map into every player's
+// HistoricalSource call — never once per player, which would multiply a
+// 6µs/6.8KB/89-alloc snapshot by the size of the pool on every rebuild.
+func TestBuildPoolResolvesScoringValuesOnceForHistoricalLookups(t *testing.T) {
+	service := newTestService(t, true)
+	pool := testPool(50)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	lookups := 0
+	service.SetHistoricalSource(func(name, position string, values map[string]float64) (string, bool) {
+		lookups++
+		return "", false
+	})
+	snapshots := 0
+	setCurrentScoringValuesCalls(func() { snapshots++ })
+	defer setCurrentScoringValuesCalls(nil)
+
+	service.pool()
+	// buildPool calls withHistorical for both the sourced pool and the
+	// embedded fixture roster (s.players) it always merges in, so the
+	// lookup count exceeds len(pool) — the test only needs "more than one
+	// lookup happened" to prove currentScoringValues is not naively
+	// following the same per-call pattern.
+	if lookups <= 1 {
+		t.Fatalf("test setup: HistoricalSource lookups = %d, want more than 1 (one per player with no existing Hist)", lookups)
+	}
+	if snapshots != 1 {
+		t.Fatalf("currentScoringValues calls = %d after one buildPool over %d HistoricalSource lookups, want exactly 1", snapshots, lookups)
+	}
+}
+
+// TestAdminSetScoringInvalidatesPoolCache is the finding 2 regression
+// (adversarial review, 2026-08-31): pool()'s cache keys on (source
+// version, label) only, so a commissioner's scoring edit left every
+// player's Hist line stale forever on a source whose version never
+// moves. AdminSetScoring and AdminResetScoring must invalidate the pool
+// cache directly (invalidatePoolCache, service.go), mirroring
+// AdminSetRosterShape's own fix for the identical cache-key gap, so the
+// very next pool() call rescores Hist lines under whichever values are
+// now live.
+func TestAdminSetScoringInvalidatesPoolCache(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodGet, "/scoring", nil)
+
+	pool := []Player{{ID: "qb-1", Name: "Test QB", Position: "QB", NFLTeam: "TST"}}
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	service.SetHistoricalSource(func(name, position string, values map[string]float64) (string, bool) {
+		return fmt.Sprintf("passYards=%.2f", values["passYards"]), true
+	})
+
+	before := service.pool()
+	if got := before.byID["qb-1"].Hist; got != "passYards=0.04" {
+		t.Fatalf("baseline Hist = %q, want passYards=0.04 (the default passYards value)", got)
+	}
+
+	if _, err := service.AdminSetScoring(request, "passYards", "0.10"); err != nil {
+		t.Fatalf("AdminSetScoring: %v", err)
+	}
+	after := service.pool()
+	if after.version != before.version {
+		t.Fatalf("test setup: pool version moved (%d -> %d); this case needs a CONSTANT source version to isolate the cache-key gap", before.version, after.version)
+	}
+	if got := after.byID["qb-1"].Hist; got != "passYards=0.10" {
+		t.Fatalf("Hist after AdminSetScoring = %q, want passYards=0.10 — a scoring edit must invalidate the pool cache", got)
+	}
+
+	if err := service.AdminResetScoring(request); err != nil {
+		t.Fatalf("AdminResetScoring: %v", err)
+	}
+	reverted := service.pool()
+	if got := reverted.byID["qb-1"].Hist; got != "passYards=0.04" {
+		t.Fatalf("Hist after AdminResetScoring = %q, want passYards=0.04 — the reset must also invalidate the pool cache", got)
 	}
 }
 
