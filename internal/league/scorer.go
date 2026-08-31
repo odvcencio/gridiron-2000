@@ -93,6 +93,25 @@ func scorePlayerStats(stats map[string]float64, values map[string]float64) float
 	return points
 }
 
+// ScoreRuleStats sums a rule-keyed stat line — the same shape
+// WeekStatLine.Stats carries (see its doc comment), for example main.go's
+// offenseStatLine output — against values, through the identical engine
+// live weekly scoring uses (scorePlayerPoints -> scorePlayerStats). It is
+// the seam a caller outside this package reaches for when its stat line is
+// already mapped onto the league's scoring-rule keys, as opposed to
+// ScoreStatLine's breakdown-stat-key shape (fed by a fantasy.Player
+// projection's Tank01-style keys, see breakdownRows). The house-scored
+// season-history line (main.go's seasonHouseHistSource) is the first such
+// caller: it sums a whole previous season's weekly rule-keyed lines
+// through this one function, never a forked formula. values nil scores
+// against the stock defaults, matching ScoreStatLine's own nil contract.
+func ScoreRuleStats(stats map[string]float64, values map[string]float64) float64 {
+	if values == nil {
+		values = breakdownDefaultValues()
+	}
+	return scorePlayerStats(stats, values)
+}
+
 // scorePlayerPoints is the single player-to-points calculation used by both
 // MatchupScorer.TeamWeekScore and the explanatory starter ledger. Keeping the
 // join and rule application here prevents a rendered row from drifting away

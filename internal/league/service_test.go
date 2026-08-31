@@ -1035,6 +1035,26 @@ func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
 	}
 }
 
+// TestPlayerMapHistLabelQualifierFollowsHasHist checks the "scored under
+// this league's own rules" qualifier (generalized-punter-pattern work):
+// it appears alongside a rendered Hist line — whether the line came from
+// the embedded punter rescoring or the computed skill/K season line, this
+// map has no way to tell which — and stays empty when there is no Hist
+// line to qualify, exactly as has_hist gates rendering the line itself.
+func TestPlayerMapHistLabelQualifierFollowsHasHist(t *testing.T) {
+	withHist := Player{ID: "p-hist", Name: "Has History", Position: "QB", NFLTeam: "KC", Hist: "2025 · 14 G · 3,587 pass yds · 22 TD · 11 INT · 281.2 FPts"}
+	entry := playerMap(withHist, nil, matchupIndex{})
+	if entry["hist_label"] != histScoringLabel {
+		t.Errorf("hist_label = %v, want %q", entry["hist_label"], histScoringLabel)
+	}
+
+	noHist := Player{ID: "p-nohist", Name: "No History", Position: "DST", NFLTeam: "SF"}
+	noHistEntry := playerMap(noHist, nil, matchupIndex{})
+	if noHistEntry["hist_label"] != "" {
+		t.Errorf("hist_label = %v, want empty when has_hist is false", noHistEntry["hist_label"])
+	}
+}
+
 // TestPlayerMapEmitsRookieAndDraftCapitalKeys checks the rookie chip's
 // frontend contract (owner directive 2026-08-18 — "show the reasoning"):
 // is_rookie, draft_capital, and has_draft_capital all appear, and a player

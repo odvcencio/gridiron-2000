@@ -4349,6 +4349,15 @@ func (s *Service) divisionMaps(state PersistedState) []map[string]any {
 	return out
 }
 
+// histScoringLabel is the qualifier every rendered Hist line carries
+// (generalized-punter-pattern work): the embedded punter rescoring
+// (punters_hist.go) and the computed QB/RB/WR/TE/K season line (main.go's
+// seasonHouseHistSource) are both this league's own house-scored total,
+// never a generic market or nflverse-raw number. A player with no Hist
+// line carries no qualifier either — see playerMap, which gates both on
+// the same player.Hist != "" check.
+const histScoringLabel = "Scored under this league's own rules"
+
 // playerMap renders one player's view-model map. scoringValues is the
 // league's live, override-aware point values (see currentScoringValues);
 // pass nil to score the player's breakdown against the stock default
@@ -4409,6 +4418,10 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	if hasBreakdown {
 		breakdownRows, breakdownTotal = scoreBreakdownWithValues(player.ProjStats, scoringValues)
 	}
+	histLabel := ""
+	if player.Hist != "" {
+		histLabel = histScoringLabel
+	}
 	out := map[string]any{
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
 		"projection": fmt.Sprintf("%.1f", player.Projection),
@@ -4421,6 +4434,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"breakdown_total": breakdownTotal,
 		"has_hist":        player.Hist != "",
 		"hist":            player.Hist,
+		"hist_label":      histLabel,
 		"search":          playerSearchText(player),
 		// is_rookie/draft_capital/has_draft_capital back the pool row's
 		// rookie chip (owner directive 2026-08-18 — "show the reasoning"):

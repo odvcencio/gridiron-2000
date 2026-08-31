@@ -160,6 +160,7 @@ type draftPlayerCardView struct {
 	BreakdownTotal  string
 	HasHist         bool
 	Hist            string
+	HistLabel       string
 	Search          string
 	HasDraftCapital bool
 	DraftCapital    string
@@ -728,6 +729,7 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			BreakdownTotal:  stringField(player, "breakdown_total"),
 			HasHist:         boolField(player, "has_hist"),
 			Hist:            stringField(player, "hist"),
+			HistLabel:       stringField(player, "hist_label"),
 			Search:          stringField(player, "search"),
 			HasDraftCapital: boolField(player, "has_draft_capital"),
 			DraftCapital:    stringField(player, "draft_capital"),

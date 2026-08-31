@@ -4625,6 +4625,17 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
+/* stat-tip__hist-note is the "scored under this league's own rules"
+   qualifier (season-history generalization of the punter pattern):
+   one small caption directly under a rendered Hist line, no border of
+   its own so it reads as part of the same block, not a new row. */
+.stat-tip__hist-note {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-2xs);
+  font-style: italic;
+}
+
 .board-workspace,
 .admin-grid {
   display: grid;

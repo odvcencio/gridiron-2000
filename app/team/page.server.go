@@ -47,6 +47,7 @@ type RosterCard struct {
 	BreakdownTotal string
 	HasHist        bool
 	Hist           string
+	HistLabel      string
 	Status         string
 	Projection     string
 	Points         string
@@ -140,6 +141,7 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			BreakdownTotal: stringField(player, "breakdown_total"),
 			HasHist:        boolField(player, "has_hist"),
 			Hist:           stringField(player, "hist"),
+			HistLabel:      stringField(player, "hist_label"),
 			Status:         stringField(player, "status"),
 			Projection:     stringField(player, "projection"),
 			Points:         stringField(player, "points"),
