@@ -196,3 +196,88 @@ func TestServiceIngestsAndDeletesJetstreamPost(t *testing.T) {
 		t.Fatalf("deleted post remained visible: %+v", got)
 	}
 }
+
+// TestOnSignalFiresForARelevantSignalOnly covers the GC-2 subscription
+// seam: a registered callback runs once for a relevant, classified
+// signal, carrying its category and text, and never runs for a post the
+// classifier ignores as noise.
+func TestOnSignalFiresForARelevantSignalOnly(t *testing.T) {
+	now := time.Date(2026, 9, 13, 20, 12, 0, 0, time.UTC)
+	service, err := NewService(Config{Root: t.TempDir(), Enabled: false, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []Signal
+	service.OnSignal(func(signal Signal) { got = append(got, signal) })
+
+	touchdown := fmt.Sprintf(`{
+		"did":"did:plc:reporter",
+		"time_us":%d,
+		"kind":"commit",
+		"commit":{
+			"operation":"create",
+			"collection":"app.bsky.feed.post",
+			"rkey":"post1",
+			"cid":"cid1",
+			"record":{"$type":"app.bsky.feed.post","text":"Touchdown Bills!","createdAt":"2026-09-13T20:11:58Z"}
+		}
+	}`, now.UnixMicro())
+	if _, err := service.IngestJSON([]byte(touchdown)); err != nil {
+		t.Fatalf("ingest touchdown: %v", err)
+	}
+
+	noise := fmt.Sprintf(`{
+		"did":"did:plc:reporter",
+		"time_us":%d,
+		"kind":"commit",
+		"commit":{
+			"operation":"create",
+			"collection":"app.bsky.feed.post",
+			"rkey":"post2",
+			"cid":"cid2",
+			"record":{"$type":"app.bsky.feed.post","text":"Who do you like in mock drafts this year?","createdAt":"2026-09-13T20:12:30Z"}
+		}
+	}`, now.Add(time.Second).UnixMicro())
+	if _, err := service.IngestJSON([]byte(noise)); err != nil {
+		t.Fatalf("ingest noise: %v", err)
+	}
+
+	if len(got) != 1 {
+		t.Fatalf("callback fired %d times, want 1 (only the relevant signal): %+v", len(got), got)
+	}
+	if got[0].Category != CategoryTouchdown || !strings.Contains(got[0].Text, "Bills") {
+		t.Fatalf("callback signal = %+v, want category %q naming Bills", got[0], CategoryTouchdown)
+	}
+}
+
+// TestOnSignalRunsEveryRegisteredCallbackInOrder covers multi-registration:
+// two callbacks both fire, in the order registered.
+func TestOnSignalRunsEveryRegisteredCallbackInOrder(t *testing.T) {
+	now := time.Date(2026, 9, 13, 20, 12, 0, 0, time.UTC)
+	service, err := NewService(Config{Root: t.TempDir(), Enabled: false, Now: func() time.Time { return now }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	service.OnSignal(func(Signal) { order = append(order, "first") })
+	service.OnSignal(func(Signal) { order = append(order, "second") })
+
+	event := fmt.Sprintf(`{
+		"did":"did:plc:reporter",
+		"time_us":%d,
+		"kind":"commit",
+		"commit":{
+			"operation":"create",
+			"collection":"app.bsky.feed.post",
+			"rkey":"post1",
+			"cid":"cid1",
+			"record":{"$type":"app.bsky.feed.post","text":"Fumble recovered by the defense","createdAt":"2026-09-13T20:11:58Z"}
+		}
+	}`, now.UnixMicro())
+	if _, err := service.IngestJSON([]byte(event)); err != nil {
+		t.Fatalf("ingest: %v", err)
+	}
+	if len(order) != 2 || order[0] != "first" || order[1] != "second" {
+		t.Fatalf("callback order = %v, want [first second]", order)
+	}
+}

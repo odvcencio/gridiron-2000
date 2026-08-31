@@ -10,6 +10,20 @@ const (
 	PostCollection = "app.bsky.feed.post"
 )
 
+// Category values a Signal can carry after classification
+// (signal_rules.arb). These four are the ones GC-2's live-scoring
+// box-fetch trigger seam (see Service.OnSignal, live_scoring.go) treats
+// as fast enough, and fantasy-relevant enough, to justify an
+// out-of-band, freshness-only box fetch ahead of the next scoreboard
+// tick. Every other category (injury, role, weather, market, ...) stays
+// provisional-only and never triggers one.
+const (
+	CategoryTouchdown   = "touchdown"
+	CategoryTurnover    = "turnover"
+	CategoryBigPlay     = "big_play"
+	CategoryKickingPlay = "kicking"
+)
+
 // Signal is a small, current-state record derived from a public post. It is
 // deliberately not a fantasy scoring event: every signal stays provisional
 // until a structured dataset confirms it.
