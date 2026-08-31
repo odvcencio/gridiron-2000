@@ -131,7 +131,7 @@ func TestEmbeddedPunterLastNamesAreUnique(t *testing.T) {
 // SAME per-game scale internal/fantasy's other Projection values already
 // carry — not a season total, not a rounded display figure.
 func TestPunterProjectionMatchesTownsendHOUWithExactPerGameArithmetic(t *testing.T) {
-	perGame, ok := PunterProjection("Tommy Townsend", "HOU")
+	perGame, ok := PunterProjection("Tommy Townsend", "HOU", false)
 	if !ok {
 		t.Fatal("Townsend/HOU must match the embedded index")
 	}
@@ -153,16 +153,24 @@ func TestPunterProjectionMatchesTownsendHOUWithExactPerGameArithmetic(t *testing
 // exact-match rule, deliberately, because punters change teams between
 // seasons far more than skill players (design decision, this feature).
 func TestPunterProjectionMatchesByLastNameAcrossTeamChange(t *testing.T) {
-	wantHOU, ok := PunterProjection("Tommy Townsend", "HOU")
+	wantHOU, ok := PunterProjection("Tommy Townsend", "HOU", false)
 	if !ok {
 		t.Fatal("Townsend/HOU must match")
 	}
-	gotWrongTeam, ok := PunterProjection("Tommy Townsend", "DAL")
+	gotWrongTeam, ok := PunterProjection("Tommy Townsend", "DAL", false)
 	if !ok {
 		t.Fatal("Townsend must still match on a team the asset does not carry for him")
 	}
 	if gotWrongTeam != wantHOU {
 		t.Fatalf("team-mismatched match = %v, want the same value as the team match %v", gotWrongTeam, wantHOU)
+	}
+	// requireTeam=true is the live-pool collision guard: it must block the
+	// exact same team mismatch that requireTeam=false just allowed.
+	if _, ok := PunterProjection("Tommy Townsend", "DAL", true); ok {
+		t.Fatal("requireTeam=true must block a team the asset does not carry for this punter")
+	}
+	if gotRequireTeam, ok := PunterProjection("Tommy Townsend", "HOU", true); !ok || gotRequireTeam != wantHOU {
+		t.Fatalf("requireTeam=true must still match the punter's real team: got %v, %v, want %v, true", gotRequireTeam, ok, wantHOU)
 	}
 }
 
@@ -170,11 +178,66 @@ func TestPunterProjectionMatchesByLastNameAcrossTeamChange(t *testing.T) {
 // name and an empty name both return (0, false), never a wrong
 // attribution or a panic.
 func TestPunterProjectionMisses(t *testing.T) {
-	if _, ok := PunterProjection("Nobody Punter", "HOU"); ok {
+	if _, ok := PunterProjection("Nobody Punter", "HOU", false); ok {
 		t.Error("an unknown last name must miss")
 	}
-	if _, ok := PunterProjection("", "HOU"); ok {
+	if _, ok := PunterProjection("", "HOU", false); ok {
 		t.Error("an empty name must miss")
+	}
+}
+
+// TestPunterProjectionRequiresMinimumGames is finding 4's own regression
+// test: a punter below MinPunterGamesForRank games misses entirely, even
+// though its per-game average would otherwise be real and positive — a
+// 5-game small sample must never outrank a full-season punter on a
+// handful of good punts. A punter at or above the floor still matches.
+func TestPunterProjectionRequiresMinimumGames(t *testing.T) {
+	store := punterHistStore{
+		byLastName: map[string][]punterHistEntry{
+			"SMALLSAMPLE": {{LastName: "SmallSample", Team: "ARI", Games: 5, TotalPts: 47.3}},
+			"FULLSEASON":  {{LastName: "FullSeason", Team: "HOU", Games: 17, TotalPts: 148.8}},
+		},
+	}
+	if _, ok := punterProjectionFrom(store, "SmallSample", "ARI", false); ok {
+		t.Error("a 5-game entry (below MinPunterGamesForRank) must miss")
+	}
+	perGame, ok := punterProjectionFrom(store, "FullSeason", "HOU", false)
+	if !ok || perGame != 148.8/17.0 {
+		t.Errorf("a 17-game entry (at/above MinPunterGamesForRank) = %v, %v, want %v, true", perGame, ok, 148.8/17.0)
+	}
+}
+
+// TestLastWordStripsGenerationalSuffix is finding 8's own regression test:
+// a trailing JR/SR/II/III/IV token, with or without a period, must never
+// itself be extracted as the last name.
+func TestLastWordStripsGenerationalSuffix(t *testing.T) {
+	cases := map[string]string{
+		"Michael Dickson Jr.": "Dickson",
+		"Michael Dickson Jr":  "Dickson",
+		"Michael Dickson JR.": "Dickson",
+		"John Smith III":      "Smith",
+		"John Smith II":       "Smith",
+		"Bob Jones Sr.":       "Jones",
+		"Jr.":                 "", // suffix-only name has no last name at all
+	}
+	for name, want := range cases {
+		if got := lastWord(name); got != want {
+			t.Errorf("lastWord(%q) = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// TestPunterHistLineStillMatchesWithSuffixedName checks that
+// punterHistLine's display match — sharing lastWord with PunterProjection
+// — still resolves a suffixed name correctly; the shared helper's suffix
+// fix must not regress punterHistLine's own matching semantics.
+func TestPunterHistLineStillMatchesWithSuffixedName(t *testing.T) {
+	want, ok := punterHistLine("Tommy Townsend", "HOU")
+	if !ok {
+		t.Fatal("Townsend/HOU must match")
+	}
+	if got, ok := punterHistLine("Tommy Townsend Jr.", "HOU"); !ok || got != want {
+		t.Errorf("suffixed name must still match: got %q, %v, want %q, true", got, ok, want)
 	}
 }
 
@@ -193,15 +256,41 @@ func TestPunterProjectionFromRequiresTeamOnLastNameCollision(t *testing.T) {
 			},
 		},
 	}
-	houPerGame, ok := punterProjectionFrom(store, "Smith", "HOU")
+	houPerGame, ok := punterProjectionFrom(store, "Smith", "HOU", false)
 	if !ok || houPerGame != 85.0/17.0 {
 		t.Fatalf("HOU Smith = %v, %v, want %v, true", houPerGame, ok, 85.0/17.0)
 	}
-	dalPerGame, ok := punterProjectionFrom(store, "Smith", "DAL")
+	dalPerGame, ok := punterProjectionFrom(store, "Smith", "DAL", false)
 	if !ok || dalPerGame != 80.0/16.0 {
 		t.Fatalf("DAL Smith = %v, %v, want %v, true", dalPerGame, ok, 80.0/16.0)
 	}
-	if _, ok := punterProjectionFrom(store, "Smith", "NYJ"); ok {
+	if _, ok := punterProjectionFrom(store, "Smith", "NYJ", false); ok {
 		t.Fatal("a team absent from the colliding candidates must miss, not guess")
+	}
+}
+
+// TestPunterProjectionFromRequireTeamOnUniqueLastNameCollision pins the
+// LIVE-pool collision guard (finding 3): a last name unique in the
+// embedded asset still needs an exact team match once the caller (the
+// fantasy pool's enrichment walk) says requireTeam — a second live
+// punter sharing the surname is on a different team and must miss rather
+// than inherit the first one's projection. requireTeam=false keeps the
+// original last-name-only match, so a punter who has since changed teams
+// still resolves.
+func TestPunterProjectionFromRequireTeamOnUniqueLastNameCollision(t *testing.T) {
+	store := punterHistStore{
+		byLastName: map[string][]punterHistEntry{
+			"TAYLOR": {{LastName: "Taylor", Team: "DET", Games: 17, TotalPts: 119.0}},
+		},
+	}
+	want := 119.0 / 17.0
+	if got, ok := punterProjectionFrom(store, "Taylor", "DET", true); !ok || got != want {
+		t.Fatalf("requireTeam=true, matching team = %v, %v, want %v, true", got, ok, want)
+	}
+	if _, ok := punterProjectionFrom(store, "Taylor", "SEA", true); ok {
+		t.Fatal("requireTeam=true, mismatched team must miss (a second live Taylor on another team)")
+	}
+	if got, ok := punterProjectionFrom(store, "Taylor", "SEA", false); !ok || got != want {
+		t.Fatalf("requireTeam=false, mismatched team = %v, %v, want %v, true (unique surname, team-changed punter still matches)", got, ok, want)
 	}
 }

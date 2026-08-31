@@ -1,11 +1,15 @@
 package league
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"gridiron-2000/internal/fantasy"
 )
 
 // newClockTestService builds a Service with a fake clock, a fresh Store on
@@ -407,7 +411,11 @@ func TestDraftSelectionCannotStrandRequiredStarter(t *testing.T) {
 // ("Zed Punter", pool-order-first) rather than the alphabetically-first
 // one ("Aaron Punter"), proving the historical bug (all-zero punter
 // projections tie-breaking to alphabetical order) is fixed upstream, with
-// no change needed here.
+// no change needed here. The two punters are driven through fantasy's
+// own SetPunterProjections (real enrichment, real re-sort, real
+// PunterRank assignment — see fantasyEnrichedPunterPool below), not
+// hand-assigned a pre-sorted Projection/PunterRank, so deleting that
+// upstream enrichment logic fails this test instead of going unnoticed.
 func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
 	setRosterShape(rosterPresets["gridiron-house"]) // Starters()=11 incl. P; Total()=17
 	t.Cleanup(clearRosterShape)
@@ -446,15 +454,37 @@ func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
 	// target team has no starter deficit left except P) and so must never
 	// be chosen, however early it sits in pool order.
 	extraCampBody := Player{ID: "extra-camp", Name: "Extra Camp Body", Position: "WR", NFLTeam: "TEST"}
-	// The alphabetically-first punter carries the WORSE projection and a
-	// lower PunterRank position; the pool-order-first punter ("Zed
-	// Punter") carries the BETTER projection — mirroring what
-	// internal/fantasy's normalizePool now produces upstream. Pool order,
-	// not the name, is what autopickChoice must follow.
-	zedPunter := Player{ID: "zed-punter", Name: "Zed Punter", Position: "P", NFLTeam: "HOU", Projection: 9.0, PunterRank: 1}
-	aaronPunter := Player{ID: "aaron-punter", Name: "Aaron Punter", Position: "P", NFLTeam: "DAL", Projection: 6.0, PunterRank: 2}
 
-	pool := append(append([]Player{}, priorPicks...), extraCampBody, zedPunter, aaronPunter)
+	// The two punters start out exactly as fantasy.mergePool/normalizePool
+	// would see them pre-enrichment — zero Projection, zero PunterRank —
+	// fed in ALPHABETICAL (Aaron-before-Zed) raw order, deliberately the
+	// wrong order for this test's assertion. fantasyEnrichedPunterPool
+	// drives them through fantasy's real SetPunterProjections pipeline;
+	// only the real enrichment and re-sort can put "Zed Punter" (the
+	// higher-projection one) ahead of "Aaron Punter" in the returned pool
+	// order.
+	enrichedPunters := fantasyEnrichedPunterPool(t,
+		[]fantasy.Player{
+			{ID: "aaron-punter", Name: "Aaron Punter", Position: "P", NFLTeam: "DAL"},
+			{ID: "zed-punter", Name: "Zed Punter", Position: "P", NFLTeam: "HOU"},
+		},
+		map[string]float64{"Zed Punter": 9.0, "Aaron Punter": 6.0},
+	)
+	var zedID, aaronID string
+	pool := append([]Player{}, priorPicks...)
+	pool = append(pool, extraCampBody)
+	for _, p := range enrichedPunters {
+		pool = append(pool, Player{ID: p.ID, Name: p.Name, Position: p.Position, NFLTeam: p.NFLTeam, Projection: p.Projection, PunterRank: p.PunterRank})
+		switch p.Name {
+		case "Zed Punter":
+			zedID = p.ID
+		case "Aaron Punter":
+			aaronID = p.ID
+		}
+	}
+	if zedID == "" || aaronID == "" {
+		t.Fatalf("enriched punter fixture missing an expected punter: %+v", enrichedPunters)
+	}
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
 
 	picks := make([]DraftPick, 0, len(priorPicks))
@@ -475,9 +505,53 @@ func TestAutopickForcedPunterTakesProjectionTopNotAlphabetical(t *testing.T) {
 	if !ok {
 		t.Fatal("autopickChoice reported no legal candidate, want the top punter")
 	}
-	if got != zedPunter.ID {
-		t.Fatalf("autopickChoice = %q, want %q (projection-top punter, not %q the alphabetically-first one)", got, zedPunter.ID, aaronPunter.ID)
+	if got != zedID {
+		t.Fatalf("autopickChoice = %q, want %q (projection-top punter, not %q the alphabetically-first one)", got, zedID, aaronID)
 	}
+}
+
+// fantasyEnrichedPunterPool drives raw, pre-enrichment fantasy.Player
+// punters through fantasy's real SetPunterProjections ranking pipeline (a
+// cache-loaded fantasy.Service, mirroring
+// TestSetPunterProjectionsEnrichesACacheLoadedPool in
+// internal/fantasy/punters_test.go) so a caller gets back the actual
+// mergePool/normalizePool pool order and Projection/PunterRank values —
+// not a hand-picked stand-in — for a test whose assertion depends on that
+// real ordering (finding 6, autopick's punter-ranking regression test).
+// hook resolves a raw punter's per-game projection by exact Name, and the
+// returned hook ignores requireTeam: this fixture's punter names are
+// unique, so no live-pool surname collision applies.
+func fantasyEnrichedPunterPool(t *testing.T, raw []fantasy.Player, hook map[string]float64) []fantasy.Player {
+	t.Helper()
+	root := t.TempDir()
+	cacheFile := struct {
+		SchemaVersion int              `json:"schemaVersion"`
+		Provider      string           `json:"provider"`
+		Scoring       string           `json:"scoring"`
+		Players       []fantasy.Player `json:"players"`
+	}{
+		SchemaVersion: fantasy.SchemaVersion,
+		Provider:      "tank01",
+		Scoring:       "half_ppr",
+		Players:       raw,
+	}
+	encoded, err := json.Marshal(cacheFile)
+	if err != nil {
+		t.Fatalf("marshal fantasy cache fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "players.json"), encoded, 0o600); err != nil {
+		t.Fatalf("write fantasy cache fixture: %v", err)
+	}
+	service, err := fantasy.NewService(fantasy.Config{Root: root, Season: 2026, ScoringFormat: "half_ppr"})
+	if err != nil {
+		t.Fatalf("fantasy.NewService: %v", err)
+	}
+	service.SetPunterProjections(func(name, team string, requireTeam bool) (float64, bool) {
+		perGame, ok := hook[name]
+		return perGame, ok
+	})
+	players, _ := service.Players()
+	return players
 }
 
 func TestCommissionerAutopickCompletesStartableRosters(t *testing.T) {

@@ -3,18 +3,23 @@ package fantasy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
 // stubPunterHook returns a hook that resolves exactly the entries table
 // gives it, keyed on the exact name string, so a test can pin both a hit
 // and a deliberate miss without touching the real embedded league asset.
-func stubPunterHook(entries map[string]float64) func(name, team string) (float64, bool) {
-	return func(name, team string) (float64, bool) {
+// It ignores requireTeam: a name-only fixture table has no notion of a
+// live-pool surname collision on its own — TestEnrichPuntersRequiresTeamOn...
+// below pins that behavior with a hook that DOES read requireTeam.
+func stubPunterHook(entries map[string]float64) func(name, team string, requireTeam bool) (float64, bool) {
+	return func(name, team string, requireTeam bool) (float64, bool) {
 		perGame, ok := entries[name]
 		return perGame, ok
 	}
@@ -65,7 +70,7 @@ func TestNormalizePoolLeavesHookMissedPunterZero(t *testing.T) {
 // overwritten by the hook.
 func TestNormalizePoolNeverConsultsHookForNonPunterOrAlreadyProjected(t *testing.T) {
 	calls := map[string]int{}
-	hook := func(name, team string) (float64, bool) {
+	hook := func(name, team string, requireTeam bool) (float64, bool) {
 		calls[name]++
 		return 99.0, true
 	}
@@ -259,7 +264,7 @@ func TestSetPunterProjectionsEnrichesACacheLoadedPool(t *testing.T) {
 	if status := service.Status(); status.Mode != "cache" {
 		t.Fatalf("mode = %q, want cache before the hook runs", status.Mode)
 	}
-	before, _ := service.Players()
+	before, beforeVersion := service.Players()
 	for _, p := range before {
 		if p.ID == "p1" && (p.Projection != 0 || p.PunterRank != 0) {
 			t.Fatalf("pre-hook cached punter already enriched (fixture wrong): %+v", p)
@@ -269,8 +274,13 @@ func TestSetPunterProjectionsEnrichesACacheLoadedPool(t *testing.T) {
 	service.SetPunterProjections(stubPunterHook(map[string]float64{"Cached Punter": 8.0}))
 
 	after, version := service.Players()
-	if version == 0 {
-		t.Fatal("SetPunterProjections must bump the pool version")
+	// Pinning version == 0 as "the setter bumped it" is vacuous: NewService
+	// starts version at 1 and loadCache bumps it again, so it is already
+	// nonzero before SetPunterProjections ever runs. The setter's own
+	// contract is that it must further, strictly increase whatever version
+	// was already in place.
+	if version <= beforeVersion {
+		t.Fatalf("SetPunterProjections must strictly bump the pool version: before=%d, after=%d", beforeVersion, version)
 	}
 	var punter, camp Player
 	for _, p := range after {
@@ -303,5 +313,166 @@ func TestSetPunterProjectionsEnrichesACacheLoadedPool(t *testing.T) {
 	}
 	if camp.PunterRank != 0 {
 		t.Errorf("non-punter PunterRank = %d, want 0", camp.PunterRank)
+	}
+}
+
+// TestSetPunterProjectionsDoesNotRaceWithHeldPlayers is finding 1's own
+// regression test: a Players() result handed to a reader before
+// SetPunterProjections runs must never be mutated by that setter — only
+// -race, against a genuinely concurrent read of the exact slice the
+// setter used to mutate in place, can catch this (a single-threaded
+// assertion cannot). held is captured once, up front, and the reader
+// goroutine keeps ranging over that SAME slice throughout; the writer
+// goroutine calls SetPunterProjections concurrently. Before the fix,
+// SetPunterProjections passed s.players itself into normalizePool, which
+// writes Player fields in place — the same backing array held still
+// pointed at.
+func TestSetPunterProjectionsDoesNotRaceWithHeldPlayers(t *testing.T) {
+	root := t.TempDir()
+	service, err := NewService(Config{Root: root, Season: 2026, ScoringFormat: "half_ppr"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// OfflinePool (NewService's starting pool) carries no punters; add one
+	// so SetPunterProjections' normalizePool actually mutates a Player
+	// field on every call, not a no-op walk.
+	service.mu.Lock()
+	service.players = append(service.players, Player{ID: "race-punter", Name: "Race Punter", Position: "P", NFLTeam: "HOU"})
+	service.mu.Unlock()
+
+	held, _ := service.Players()
+
+	var wg sync.WaitGroup
+	done := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				for _, p := range held {
+					_ = p.Projection
+				}
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			service.SetPunterProjections(stubPunterHook(map[string]float64{"Race Punter": 8.75}))
+		}
+		close(done)
+	}()
+	wg.Wait()
+}
+
+// TestEnrichPuntersRequiresTeamOnLivePoolSurnameCollision is finding 3's
+// own regression test: two live "P" players sharing a last name (a
+// live-pool collision — Taylor, say, is unique in the embedded asset but
+// common among real live punters) must each resolve independently by
+// team, not both inherit whichever candidate the hook happens to return
+// first. A third punter with a unique-in-pool surname still resolves by
+// last name alone (no team match required), so a punter who has since
+// changed teams keeps working.
+func TestEnrichPuntersRequiresTeamOnLivePoolSurnameCollision(t *testing.T) {
+	calls := map[string]bool{}
+	hook := func(name, team string, requireTeam bool) (float64, bool) {
+		calls[name] = requireTeam
+		switch {
+		case name == "Home Taylor" && team == "DET":
+			return 9.5, true
+		case name == "Away Taylor" && team == "SEA":
+			// The hook itself would happily resolve "Taylor" by last name
+			// alone (matching DET's asset entry) if requireTeam allowed it;
+			// with requireTeam it must miss, since SEA is not DET.
+			if requireTeam {
+				return 0, false
+			}
+			return 9.5, true
+		case name == "Moved Punter":
+			return 6.25, true
+		}
+		return 0, false
+	}
+	pool := []Player{
+		{ID: "home", Name: "Home Taylor", Position: "P", NFLTeam: "DET"},
+		{ID: "away", Name: "Away Taylor", Position: "P", NFLTeam: "SEA"},
+		{ID: "moved", Name: "Moved Punter", Position: "P", NFLTeam: "ARI"},
+	}
+	enrichPunters(pool, hook)
+
+	byID := make(map[string]Player, len(pool))
+	for _, p := range pool {
+		byID[p.ID] = p
+	}
+	if !calls["Home Taylor"] || !calls["Away Taylor"] {
+		t.Fatalf("both live-pool-colliding punters must be looked up with requireTeam=true: calls=%v", calls)
+	}
+	if calls["Moved Punter"] {
+		t.Fatalf("a unique-in-pool surname must be looked up with requireTeam=false: calls=%v", calls)
+	}
+	if byID["home"].Projection != 9.5 {
+		t.Errorf("team-matching live Taylor Projection = %v, want 9.5 (enriched)", byID["home"].Projection)
+	}
+	if byID["away"].Projection != 0 {
+		t.Errorf("non-team-matching live Taylor Projection = %v, want 0 (must miss, not inherit home's projection)", byID["away"].Projection)
+	}
+	if byID["moved"].Projection != 6.25 {
+		t.Errorf("unique-surname moved punter Projection = %v, want 6.25 (still matches by last name alone)", byID["moved"].Projection)
+	}
+}
+
+// TestMergePoolEnrichesPunterBeforePoolLimitTruncation is finding 2's own
+// regression test: mergePool must enrich a Position "P" player's
+// projection BEFORE the rest-tier sort and the pool-limit truncation, not
+// after. A pool limit small enough that an unenriched (zero-projection,
+// alphabetically-tailed) punter would be cut must still keep an ENRICHED
+// punter, because its real projection outranks the other zero-projection
+// rest-tier filler competing for the same limited slots.
+func TestMergePoolEnrichesPunterBeforePoolLimitTruncation(t *testing.T) {
+	base := map[string]Player{
+		"punter": {ID: "punter", Name: "Zzz Punter", Position: "P", NFLTeam: "HOU"},
+	}
+	// 10 zero-projection filler players whose names alphabetize ahead of
+	// "Zzz Punter" — exactly the tail an enriched punter must outrank once
+	// its real projection is applied before the sort.
+	for i := 0; i < 10; i++ {
+		id := fmt.Sprintf("filler%02d", i)
+		base[id] = Player{ID: id, Name: fmt.Sprintf("Aaa Filler %02d", i), Position: "WR", NFLTeam: "FA"}
+	}
+	hook := stubPunterHook(map[string]float64{"Zzz Punter": 9.0})
+
+	const limit = 3
+	pool := mergePool(base, nil, nil, nil, nil, limit, hook)
+	if len(pool) != limit {
+		t.Fatalf("pool size = %d, want %d", len(pool), limit)
+	}
+	found := false
+	for _, p := range pool {
+		if p.ID == "punter" {
+			found = true
+			if p.Projection != 9.0 {
+				t.Errorf("enriched punter Projection = %v, want 9.0", p.Projection)
+			}
+			if p.PunterRank != 1 {
+				t.Errorf("enriched punter PunterRank = %d, want 1", p.PunterRank)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("enriched punter was truncated out of a %d-entry pool limit; enrichment must run before truncation: %+v", limit, pool)
+	}
+
+	// The hookless (nil) call site — TestMergePoolPuntersSortToTailWithNoCrash
+	// — must still pass unchanged with a nil hook: no enrichment, no
+	// panic, punter sorts to the alphabetical tail with the other
+	// zero-projection players.
+	unenriched := mergePool(base, nil, nil, nil, nil, limit, nil)
+	for _, p := range unenriched {
+		if p.ID == "punter" {
+			t.Fatalf("with a nil hook, the punter must not be enriched into the truncation-surviving set: %+v", unenriched)
+		}
 	}
 }
