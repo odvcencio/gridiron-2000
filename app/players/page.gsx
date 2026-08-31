@@ -162,7 +162,12 @@ func Page() Node {
 			<div class="pool-list pool-list--tall">
 				<Each of={data.players} as="player">
 					<article class="pool-row pool-row--status" data-player-position={player.position}>
-						<span class="pool-rank mono">{player.rank}</span>
+						<span class="pool-rank mono">
+							{player.rank}
+							<If cond={player.has_house_rank}>
+								<small class="house-rank">{player.house_rank}</small>
+							</If>
+						</span>
 						<details class="stat-tip">
 							<summary class="pool-player pool-player--photo stat-tip__summary">
 							<If cond={player.has_headshot}>
@@ -643,7 +648,7 @@ func PlayerPoolRegion() Node {
 		<div class="pool-list pool-list--tall">
 			<Each of={data.players} as="player">
 				<article class="pool-row pool-row--status" data-player-position={player.position}>
-					<span class="pool-rank mono">{player.rank}</span>
+					<span class="pool-rank mono">{player.rank}<If cond={player.has_house_rank}><small class="house-rank">{player.house_rank}</small></If></span>
 					<details class="stat-tip">
 						<summary class="pool-player pool-player--photo stat-tip__summary">
 							<If cond={player.has_headshot}><img class="player-headshot" src={player.headshot} alt="" loading="lazy" /></If>

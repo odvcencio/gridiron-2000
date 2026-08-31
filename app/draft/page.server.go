@@ -149,6 +149,8 @@ type draftPlayerCardView struct {
 	NFLTeam         string
 	Projection      string
 	Rank            string
+	HasHouseRank    bool
+	HouseRank       string
 	Detail          string
 	Headshot        string
 	HasHeadshot     bool
@@ -715,6 +717,8 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			NFLTeam:         stringField(player, "nfl_team"),
 			Projection:      stringField(player, "projection"),
 			Rank:            stringField(player, "rank"),
+			HasHouseRank:    boolField(player, "has_house_rank"),
+			HouseRank:       stringField(player, "house_rank"),
 			Detail:          stringField(player, "detail"),
 			Headshot:        stringField(player, "headshot"),
 			HasHeadshot:     boolField(player, "has_headshot"),

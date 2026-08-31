@@ -339,6 +339,65 @@ func TestAutopickPrecedence(t *testing.T) {
 	}
 }
 
+// TestSeasonJourneyRequiresScarcityGuard is finding 1's verified oracle
+// (adversarial review, 2026-08-31), cited by name from
+// TestSeasonJourneyAcceptance in season_journey_contract_test.go: under
+// gridiron-house/8, K supply is trimmed to exactly 8 (one per seat). The
+// seat on the clock has already drafted K[0] (its own K requirement is
+// covered), its Big Board head is K[1], and the other 7 seats have not
+// drafted a K yet — supply left (7) cannot stretch past those 7 seats, so
+// positionScarcityBlocksCandidate must block K[1] even though it leads
+// the seat's own board: autopickChoice must fall past it to a
+// non-specialist pick instead. Revert proof: stub
+// positionScarcityBlocksCandidate to always return false and this test
+// fails (autopickChoice returns K[1] instead of falling past it);
+// restoring the guard makes it pass again.
+func TestSeasonJourneyRequiresScarcityGuard(t *testing.T) {
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	service := newTestService(t, true) // demo mode: one shared board key
+
+	kickerID := func(index int) string { return fmt.Sprintf("scarcity-k-%03d", index) }
+	pool := make([]Player, 0, 48)
+	for index := 0; index < 8; index++ {
+		pool = append(pool, Player{
+			ID:         kickerID(index),
+			Name:       fmt.Sprintf("Scarcity Kicker %03d", index),
+			Position:   "K",
+			NFLTeam:    "TST",
+			ADP:        float64(900 + index),
+			ADPRank:    900 + index,
+			Projection: 9.0 - float64(index)*0.05,
+		})
+	}
+	skillPositions := []string{"QB", "RB", "WR", "TE"}
+	for index := 0; index < 40; index++ {
+		pool = append(pool, Player{
+			ID:         fmt.Sprintf("scarcity-skill-%03d", index),
+			Name:       fmt.Sprintf("Scarcity Skill %03d", index),
+			Position:   skillPositions[index%len(skillPositions)],
+			NFLTeam:    "TST",
+			ADP:        float64(index + 1),
+			ADPRank:    index + 1,
+			Projection: 20 - float64(index)*0.05,
+		})
+	}
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	state := PersistedState{
+		Picks:  []DraftPick{{Number: 1, Round: 1, TeamID: "team-1", PlayerID: kickerID(0)}},
+		Boards: map[string][]string{"demo-guest": {kickerID(1)}},
+	}
+
+	got, ok := service.autopickChoice(state, "team-1")
+	if !ok {
+		t.Fatal("autopickChoice reported ok=false, want a legal non-specialist fallback")
+	}
+	if got == kickerID(1) {
+		t.Fatalf("autopickChoice = %q, want the scarcity guard to block a second K for team-1 while 7 peer seats still need their first", got)
+	}
+}
+
 func TestDraftSelectionCannotStrandRequiredStarter(t *testing.T) {
 	setRosterShape(rosterPresets["standard"])
 	t.Cleanup(clearRosterShape)

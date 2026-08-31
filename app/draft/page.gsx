@@ -14,7 +14,13 @@ type DraftPlayerCard struct {
 	NFLTeam         string
 	Projection      string
 	Rank            string
-	Detail          string
+	// HasHouseRank/HouseRank back the secondary "H##" label beside Rank
+	// (houserank.go): the format-aware replacement-value rank under the
+	// league's active roster preset. Empty/false for a zero-Projection
+	// player, who carries no house rank at all.
+	HasHouseRank bool
+	HouseRank    string
+	Detail       string
 	Headshot        string
 	HasHeadshot     bool
 	Jersey          string
@@ -117,7 +123,7 @@ func DraftQueue(props DraftQueueProps) Node {
 		<div class="pool-list">
 			<Each of={props.Players} as="player">
 				<article class="pool-row" data-player-position={player.Position} data-search={player.Search}>
-					<span class="pool-rank mono">{player.Rank}</span>
+					<span class="pool-rank mono">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
 					<details class="stat-tip">
 						<summary class="pool-player pool-player--photo stat-tip__summary">
 						<If cond={player.HasHeadshot}>
@@ -1536,7 +1542,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 		</div>
 		<Each of={props.Players} as="player">
 			<article class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:player." + player.ID + ".taken"}>
-				<span class="num">{player.Rank}</span>
+				<span class="num">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
 				<div class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></div>
 				<span class={"pos pos-" + player.Position}>{player.Position}</span>
 				<span class="num">{player.Projection}</span>
