@@ -4186,6 +4186,20 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
+/* .house-rank (HOUSE RANK feature): the "H###" house-rank label a rank cell
+   (.pool-rank on /players and the draft pool rows, .num on the draft-room
+   available pane) renders beside its own market rank — one extra child
+   INSIDE the existing rank cell, never an extra grid track, so it never
+   disturbs the N-children/N-tracks .pool-row/.avail-row grid discipline
+   (public/styles.css's own rule, see .pool-row's doc comment above). */
+.house-rank {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.85em;
+  color: var(--color-text-muted);
+  opacity: .75;
+}
+
 /* .pool-player also renders the pickem leaderboard row (app/pickem/page.gsx),
    which stays on the default grid stack. The --photo modifier scopes the
    flex layout to the draft/board rows that carry the new headshot img. */
