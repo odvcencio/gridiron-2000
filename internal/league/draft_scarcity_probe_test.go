@@ -277,6 +277,12 @@ func TestAutopickDefersSpecialistsUntilRosterMathRequiresThem(t *testing.T) {
 	pool = append(pool, probeFillerPlayers("p", "P", 12, 7.0, 0.05)...)
 	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
 
+	// probeSpecialistPositions is this test's own oracle for "specialist",
+	// deliberately independent of production's isSpecialistPosition
+	// (draftclock.go): stubbing that production predicate must not make
+	// this assertion pass vacuously.
+	probeSpecialistPositions := map[string]bool{"K": true, "DST": true, "P": true}
+
 	poolSnapshot := service.pool()
 	state := PersistedState{}
 	total := probeTeamCount * CurrentDraftRounds()
@@ -287,9 +293,9 @@ func TestAutopickDefersSpecialistsUntilRosterMathRequiresThem(t *testing.T) {
 			t.Fatalf("autopickChoice stalled at pick %d of %d", number, total)
 		}
 		player := poolSnapshot.byID[playerID]
-		if isSpecialistPosition(player.Position) {
+		if probeSpecialistPositions[player.Position] {
 			for _, candidate := range poolSnapshot.players {
-				if isSpecialistPosition(candidate.Position) {
+				if probeSpecialistPositions[candidate.Position] {
 					continue
 				}
 				alreadyPicked := false

@@ -211,13 +211,20 @@ func TestApplyHouseRanksVORPTieRuleIsDeterministic(t *testing.T) {
 		{ID: "d1", Name: "Delta Cheap", Position: "WR", Projection: 10, ADP: 2},
 		{ID: "e1", Name: "Echo NoADP", Position: "WR", Projection: 10, ADP: 0},
 		{ID: "z1", Name: "Zero Camp Body", Position: "WR", Projection: 0, ADP: 6},
+		// f1/f2 (finding 6, adversarial review, 2026-08-31): tied through
+		// every earlier field in the chain — VORP (same Projection, so
+		// same 10-20=-10 VORP as b1/c1/d1/e1), ADP, AND Name — so only the
+		// final ID tiebreak can separate them. f1 < f2 by ID must rank
+		// first.
+		{ID: "f1", Name: "Foxtrot Twin", Position: "WR", Projection: 10, ADP: 3},
+		{ID: "f2", Name: "Foxtrot Twin", Position: "WR", Projection: 10, ADP: 3},
 	}
 	first := applyHouseRanks(players, preset, 1)
 	ranks := map[string]int{}
 	for _, player := range first {
 		ranks[player.ID] = player.HouseRank
 	}
-	want := map[string]int{"a1": 1, "d1": 2, "c1": 3, "b1": 4, "e1": 5, "z1": 0}
+	want := map[string]int{"a1": 1, "d1": 2, "f1": 3, "f2": 4, "c1": 5, "b1": 6, "e1": 7, "z1": 0}
 	if !reflect.DeepEqual(ranks, want) {
 		t.Fatalf("HouseRank assignment = %+v, want %+v", ranks, want)
 	}
