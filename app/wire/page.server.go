@@ -447,6 +447,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	}
 	return map[string]any{
 		"viewer":            viewer,
+		"league":            league.Default().LeagueIdentity(),
 		"signals":           items,
 		"empty":             len(items) == 0,
 		"last_event_id":     lastID,
@@ -740,15 +741,23 @@ func sightingFieldErrors(message string) map[string]string {
 	return map[string]string{field: message}
 }
 
+// displayTime renders one wire timestamp in the league's canonical zone
+// with a relative label, per the contract's time rule (exact league-local
+// time, timezone, and a useful relative value). It previously hard-coded
+// America/Los_Angeles — three hours behind the league — and carried no
+// relative text.
 func displayTime(value time.Time) string {
+	return formatWireTime(value, time.Now(), league.Default().LeagueLocation())
+}
+
+// formatWireTime is displayTime's pure core, split out so the format is
+// testable without the league singleton or the wall clock.
+func formatWireTime(value, now time.Time, location *time.Location) string {
 	if value.IsZero() {
 		return "WAITING"
 	}
-	location, err := time.LoadLocation("America/Los_Angeles")
-	if err != nil {
-		location = time.Local
-	}
-	return strings.ToUpper(value.In(location).Format("Jan 02 · 3:04 PM MST"))
+	stamp := strings.ToUpper(value.In(location).Format("Jan 02 · 3:04 PM MST"))
+	return stamp + " · " + league.RelativeTime(now, value)
 }
 
 func shortDID(did string) string {

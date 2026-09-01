@@ -310,7 +310,12 @@ func Page() Node {
 								<span class="position-chip">CLAIM FILED</span>
 							</If>
 							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}>
-								<button class="draft-button" type="button" disabled="disabled">Add</button>
+								<span class="control-locked">
+									<button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>Add</button>
+									<If cond={data.add_locked_reason != ""}>
+										<small class="control-locked__reason">{data.add_locked_reason}</small>
+									</If>
+								</span>
 							</If>
 							<If cond={player.can_drop}>
 								<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh">
@@ -686,7 +691,7 @@ func PlayerPoolRegion() Node {
 								</form>
 							</If>
 							<If cond={player.claimed_by_me}><span class="position-chip">CLAIM FILED</span></If>
-							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}><button class="draft-button" type="button" disabled="disabled">Add</button></If>
+							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}><span class="control-locked"><button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>Add</button><If cond={data.add_locked_reason != ""}><small class="control-locked__reason">{data.add_locked_reason}</small></If></span></If>
 							<If cond={player.can_drop}>
 								<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="player_id" value={player.id}></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input><label><input type="checkbox" name="confirmation" value="drop-player" required="required"></input>I understand this player will leave my roster.</label><button class="board-button board-button--cut" type="submit">Confirm drop</button>

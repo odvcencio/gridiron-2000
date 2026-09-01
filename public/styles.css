@@ -646,6 +646,33 @@ button.access-link {
   flex-direction: column;
   gap: var(--space-sm);
   overscroll-behavior: contain;
+  /* The 17-destination column scrolls at common desktop heights, and an
+     invisible scrollbar hid seven destinations with no cue (2026-09-01
+     UX audit, finding 6): keep the thumb visible against the dark rail. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* Pointer-device density (same finding): 2.75rem rows are a touch
+   floor, not a pointer one, and the re-verify measured that min-height
+   alone changed nothing — padding set the real 43px row height. Cutting
+   the block padding and the group gaps brings all 17 destinations into
+   a 900px-tall window; the mobile dialog and static disclosure keep the
+   full touch height. */
+@media (pointer: fine) {
+  .site-rail .navigation-link {
+    min-height: 1.875rem;
+    padding-block: 0.15rem;
+  }
+  .site-rail .primary-navigation__groups {
+    gap: var(--space-xs);
+  }
+  .site-rail .navigation-group + .navigation-group {
+    padding-top: var(--space-xs);
+  }
+  .site-rail .navigation-group__label {
+    padding-bottom: 2px;
+  }
 }
 
 .navigation-group {
@@ -1120,11 +1147,32 @@ h2 {
 .draft-button:disabled,
 .button:disabled {
   transform: none;
+  border-style: dashed;
   border-color: var(--color-border);
   color: var(--color-text-muted);
   background: var(--color-white-faint);
   box-shadow: none;
   cursor: not-allowed;
+  opacity: 0.75;
+}
+
+/* A disabled control and its adjacent plain-language reason (product
+   experience contract: "Disabled styling is not the explanation"). The
+   2026-09-01 UX audit found /players rendering fifty disabled Adds whose
+   nearest explanation sat 500px away. */
+.control-locked {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  max-width: 12rem;
+}
+
+.control-locked__reason {
+  font-size: 0.8125rem; /* the app-wide 13px readable-type floor */
+  line-height: 1.3;
+  text-align: right;
+  color: var(--color-text-muted);
 }
 
 /* ---- Shared field recipe (defect 2, wave-1 UI repair): every select,
@@ -1185,6 +1233,32 @@ textarea {
   grid-template-columns: minmax(0, 1.35fr) minmax(19rem, 0.65fr);
   align-items: center;
   gap: var(--space-3xl);
+}
+
+/* Draft card at common laptop widths (2026-09-01 UX audit, finding 3):
+   a grid item's default min-width:auto let the card's min-content width
+   force the 0.65fr track past its container at 1280 and 1366 — the state
+   chip clipped mid-word ("SCHEDULEI") and the note lost its line ends.
+   An explicit min-width lets the track hold its size while the chip and
+   countdown wrap inside it, and the gap narrows before the two most
+   common laptop widths need the room. */
+.hero-command > .draft-transmission {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.event-state {
+  flex-wrap: wrap;
+}
+
+.countdown-strip {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1440px) {
+  .hero-command {
+    gap: var(--space-xl);
+  }
 }
 
 .hero-command__copy {
@@ -1361,6 +1435,13 @@ textarea {
   position: relative;
   z-index: 2;
   color: var(--color-text-muted);
+  /* The card's real min-content driver at 1280 (2026-09-01 UX audit
+     re-verify): "INCOMING TRANSMISSION" and "DRAFT EVENT" side by side
+     need ~366px, wider than the 19rem track leaves after padding, so the
+     whole card grew past its container and clipped every full-width
+     child mid-word. Wrapping stacks the two labels at narrow widths and
+     lets the card actually fit its track. */
+  flex-wrap: wrap;
 }
 
 .chrome-disc {
@@ -1401,6 +1482,13 @@ textarea {
   position: relative;
   z-index: 2;
   display: grid;
+  /* The card's inner rigidity (2026-09-01 UX audit re-verify, check 2):
+     an implicit grid track floors at min-content, and the display-size
+     strong below measured 267px — so the body held a fixed ~297px track
+     and the card clipped its children at 1280-1366 no matter what the
+     outer grid allowed. An explicit minmax(0, 1fr) lets the body
+     actually shrink to the card. */
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .draft-transmission__body p {
@@ -1413,8 +1501,13 @@ textarea {
 
 .draft-transmission__body strong {
   font-family: var(--font-display);
-  font-size: var(--type-2xl);
+  /* Fluid below the type-2xl cap so "SCHEDULED" fits the 19rem track's
+     content width at laptop widths without breaking mid-word; the
+     overflow-wrap is the last-resort guard the body h2 already carries
+     (same audit check). */
+  font-size: clamp(1.5rem, 0.5rem + 1.7vw, var(--type-2xl));
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .draft-transmission__body > span {
@@ -2116,13 +2209,17 @@ button.badge-option:hover {
   margin: 0 0 var(--space-2xl);
   padding: var(--space-sm);
   display: flex;
+  /* Wrap, never sideways-scroll (2026-09-01 UX audit, finding 10): on a
+     390px phone this row measured 1303px with four links fully
+     off-screen and no cue — the hidden-horizontal-scroll pattern the
+     experience contract bans. Two wrapped rows keep every section
+     reachable at every width. */
+  flex-wrap: wrap;
   gap: var(--space-xs);
-  overflow-x: auto;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-canvas-deep) 94%, transparent);
   box-shadow: var(--shadow-panel);
-  scrollbar-width: thin;
 }
 
 .guide-toc a {
@@ -9073,6 +9170,16 @@ body.is-on-clock .draft-clock-panel {
     display: none;
   }
 
+  /* Preseason guard (2026-09-01 UX audit, finding 5): the rule above
+     assumes the live source phrase and games count fill the phone row.
+     Before the season both are empty strings, and hiding the ledger
+     stamp too left the strip an empty box — an aria-live region
+     announcing nothing. When the source phrase is empty, the ledger
+     stamp is the only truthful content the strip has: keep it. */
+  .matchups-page .matchup-status-line:has(.matchup-status-line__source:empty) .matchup-status-line__ledger {
+    display: inline;
+  }
+
   .matchups-page .matchup-status-line__games {
     flex: 0 0 auto;
   }
@@ -9116,6 +9223,18 @@ body.is-on-clock .draft-clock-panel {
   margin: var(--space-xs) 0 0;
   font-size: var(--type-xs);
   color: var(--color-text-muted);
+}
+
+/* The masthead's plain-language state line ("WEEK SCHEDULED. · COMING
+   SOON.", "LIVE SIGNAL. · LIVE"): the page's visible answer to "what is
+   happening now". It was visually-hidden until the 2026-09-01 UX audit
+   found sighted users got only a run-on date fragment. */
+.matchups-masthead__state {
+  margin: var(--space-xs) 0 0;
+  font-size: var(--type-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent);
 }
 
 .pickem-weeknav .board-button {
@@ -9607,20 +9726,26 @@ body:has(.draft-shell) .site-footer {
   display: none;
 }
 
-body:has(.draft-shell) .site-rail { width: 4rem; }
+/* Collapsed at rest, legible on approach (2026-09-01 UX audit, finding
+   2): the resting 4rem rail showed only bare index numbers, so the draft
+   room's fastest exits (Big Board, Player Pool) were unlabelled. The
+   rail is position:fixed, so expanding on hover or keyboard entry
+   overlays the room without reflowing it; the :not() keeps every
+   collapse rule from applying while a pointer or focus is inside. */
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) { width: 4rem; }
 
-body:has(.draft-shell) .site-rail .brand-copy,
-body:has(.draft-shell) .site-rail .navigation-group__label {
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .brand-copy,
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .navigation-group__label {
   display: none;
 }
 
-body:has(.draft-shell) .site-rail .navigation-link {
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .navigation-link {
   justify-content: center;
   padding-inline: 0;
   font-size: 0;
 }
 
-body:has(.draft-shell) .site-rail .navigation-link__index {
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .navigation-link__index {
   margin-right: 0;
   font-size: var(--type-xs);
 }

@@ -397,13 +397,17 @@ func DraftRoom(props DraftRoomProps) Node {
 				<p>{props.Data.draft.format}. {props.Data.draft.status_note}</p>
 			</div>
 			<div class="draft-clock-panel">
-				<If cond={props.Data.draft.started == false}>
+				<If cond={props.Data.draft.started == false && props.Data.draft.published}>
 					<span>Scheduled window</span>
 					<strong
 					class="mono"
 					data-gosx-countdown={props.Data.draft.at}
 					data-gosx-countdown-format="dhms"
 					>{props.Data.draft.countdown_label}</strong>
+				</If>
+				<If cond={props.Data.draft.started == false && props.Data.draft.published == false}>
+					<span>Scheduled window</span>
+					<strong class="mono">NOT SET</strong>
 				</If>
 				<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 					<span>Draft status</span>
@@ -1165,8 +1169,12 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			</div>
 		</div>
 		<div class="draft-command__clock" data-clock-state={props.Data.clock.state} data-gosx-live-bind-attr="data-clock-state:clock.state">
-			<If cond={props.Data.draft.started == false}>
+			<If cond={props.Data.draft.started == false && props.Data.draft.published}>
 				<strong class="pick-clock mono" data-pick-clock data-gosx-countdown={props.Data.draft.at} data-gosx-countdown-format="dhms" aria-live="off">{props.Data.draft.countdown_label}</strong>
+				<span class="idx">Scheduled window</span>
+			</If>
+			<If cond={props.Data.draft.started == false && props.Data.draft.published == false}>
+				<strong class="pick-clock mono">NOT SET</strong>
 				<span class="idx">Scheduled window</span>
 			</If>
 			<If cond={props.Data.draft.started}>

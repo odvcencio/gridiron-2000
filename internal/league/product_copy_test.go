@@ -2,6 +2,7 @@ package league
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -83,5 +84,49 @@ func TestDraftSummaryNamesScheduledWindowAndTimezone(t *testing.T) {
 	}
 	if got := after["window_reached"]; got != true {
 		t.Errorf("after window_reached = %v, want true", got)
+	}
+}
+
+// A draft date that is unset, or absurdly far out (the neutral reference
+// league ships a 2098-12-31 placeholder), must never render as a real
+// scheduled window: the 2026-09-01 UX audit found a live "26419d 16:51:31"
+// countdown on three surfaces. The summary declares the date unpublished,
+// suppresses the countdown, and explains who sets the date.
+func TestDraftSummaryGuardsUnpublishedDraftDates(t *testing.T) {
+	service := newTestService(t, false)
+	service.cfg.Timezone = "America/New_York"
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+
+	service.draftAt = time.Date(2098, 12, 31, 19, 0, 0, 0, time.UTC)
+	summary := service.draftSummary(now)
+	if got := summary["published"]; got != false {
+		t.Fatalf("2098 placeholder published = %v, want false", got)
+	}
+	if got := summary["countdown_label"]; got != "" {
+		t.Errorf("2098 placeholder countdown_label = %q, want empty", got)
+	}
+	if got := summary["at"]; got != "" {
+		t.Errorf("2098 placeholder at = %q, want empty so no client countdown starts", got)
+	}
+	if got := summary["status_label"]; got != "NOT SCHEDULED" {
+		t.Errorf("status_label = %v, want NOT SCHEDULED", got)
+	}
+	if got := summary["date"]; got != "TBD" {
+		t.Errorf("date = %v, want TBD", got)
+	}
+	if got := summary["long_date"]; got != "Draft time not published yet" {
+		t.Errorf("long_date = %v, want the honest empty state", got)
+	}
+	if note, _ := summary["status_note"].(string); !strings.Contains(note, "commissioner") {
+		t.Errorf("status_note = %q, want a plain-language commissioner explanation", note)
+	}
+
+	service.draftAt = time.Date(2026, 9, 5, 20, 0, 0, 0, time.UTC)
+	near := service.draftSummary(now)
+	if got := near["published"]; got != true {
+		t.Fatalf("near-date published = %v, want true", got)
+	}
+	if got, _ := near["countdown_label"].(string); got == "" {
+		t.Error("a near, real draft date must keep its countdown")
 	}
 }

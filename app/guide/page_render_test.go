@@ -193,3 +193,27 @@ func TestGuideStylesCoverInformationAndNarrowNavigation(t *testing.T) {
 		}
 	}
 }
+
+// The guide rendered inside the public minimal shell even for a signed-in
+// or demo viewer (no data.viewer), and with an empty brand block (no
+// data.league) — a manager reading the guide during draft week lost the
+// whole league navigation and could only leave with the back button. The
+// page body keeps its deliberate public-only projection; the shell bundle
+// adds only what the shared layout reads on every route.
+func TestGuidePageDataCarriesShellViewerAndLeague(t *testing.T) {
+	data := guidePageData(httptest.NewRequest(http.MethodGet, "/guide", nil))
+	if _, ok := data["viewer"].(map[string]any); !ok {
+		t.Fatalf(`data["viewer"] = %#v, want the viewer map for the shared layout`, data["viewer"])
+	}
+	identity, ok := data["league"].(map[string]any)
+	if !ok {
+		t.Fatalf(`data["league"] = %#v, want the league identity map`, data["league"])
+	}
+	if name, _ := identity["name"].(string); strings.TrimSpace(name) == "" {
+		t.Fatalf("league identity name = %q, want non-empty", name)
+	}
+	// The public projection's own keys must survive the merge.
+	if _, ok := data["league_name"]; !ok {
+		t.Fatal("public guide projection lost league_name in the merge")
+	}
+}

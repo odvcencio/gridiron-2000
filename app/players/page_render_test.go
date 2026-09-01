@@ -111,15 +111,21 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 			t.Fatalf("seatless players page missing %q: %s", want, seatless)
 		}
 	}
-	for _, forbidden := range []string{"player-add", "claim-file", "player-drop", "disabled=\"disabled\">Add"} {
+	for _, forbidden := range []string{"player-add", "claim-file", "player-drop", `class="control-locked"`} {
 		if strings.Contains(seatless, forbidden) {
 			t.Errorf("seatless players page rendered forbidden row control %q: %s", forbidden, seatless)
 		}
 	}
 
 	seated := renderPlayersForUser(t, handler, seatedEmail)
-	if !strings.Contains(seated, "disabled=\"disabled\">Add") {
+	// The honest disabled Add now carries its plain-language reason
+	// adjacent to the control (contract: disabled styling is not the
+	// explanation; 2026-09-01 UX audit finding 7).
+	if !strings.Contains(seated, `disabled="disabled" title="Roster moves open after the draft.">Add`) {
 		t.Errorf("seated pre-draft page lost its honest disabled Add state: %s", seated)
+	}
+	if !strings.Contains(seated, `<small class="control-locked__reason">Roster moves open after the draft.</small>`) {
+		t.Errorf("seated pre-draft disabled Add lost its adjacent reason: %s", seated)
 	}
 	for _, want := range []string{
 		`<details class="stat-tip">`,

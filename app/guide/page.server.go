@@ -3,6 +3,7 @@ package guide
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -15,6 +16,21 @@ import (
 var loadPublicGuideData = func() map[string]any {
 	svc := league.Default()
 	return publicGuideDataAt(svc.Config(), svc.DraftAt(), svc.MembershipPosture())
+}
+
+// guidePageData merges the shared layout's shell bundle (viewer badge and
+// league identity — StaticPageData's exact keys) under the guide's public
+// projection. The guide body still renders only operator-authored public
+// facts; the shell bundle is what lets a signed-in or demo reader keep
+// the full league navigation instead of falling into the public minimal
+// bar with no way back (2026-09-01 UX audit, finding 10). The projection's
+// own keys win any collision so the public-only guarantee cannot erode.
+func guidePageData(r *http.Request) map[string]any {
+	data := league.Default().StaticPageData(r)
+	for key, value := range loadPublicGuideData() {
+		data[key] = value
+	}
+	return data
 }
 
 // publicGuideData deliberately projects only operator-authored, public league
@@ -48,14 +64,24 @@ func publicGuideDataAt(cfg league.Config, effectiveDraftAt time.Time, postures .
 	if capacity > 0 {
 		coverage = fmt.Sprintf("%.2fx", float64(target)/float64(capacity))
 	}
+	// The same unpublished-date guard the draft summary applies: an unset
+	// or placeholder far-future draft date (the neutral reference league's
+	// 2098-12-31) must not print as a real meeting time in the guide's
+	// fact table.
+	draftAtLabel := draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST")
+	draftTimezone := league.FriendlyTimezoneLabel(cfg.Timezone)
+	if !league.DraftDatePublished(time.Now(), effectiveDraftAt) {
+		draftAtLabel = "Not published yet — the commissioner sets it"
+		draftTimezone = ""
+	}
 	return map[string]any{
 		"league_name":             cfg.Name,
 		"mode_label":              mode,
 		"team_count":              teamCount,
 		"roster_spots":            rosterSpots,
 		"roster_capacity":         capacity,
-		"draft_at":                draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST"),
-		"draft_timezone":          league.FriendlyTimezoneLabel(cfg.Timezone),
+		"draft_at":                draftAtLabel,
+		"draft_timezone":          draftTimezone,
 		"membership_label":        posture.Label(),
 		"membership_detail":       posture.Detail(),
 		"pool_target":             target,
@@ -82,7 +108,7 @@ func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
-			return loadPublicGuideData(), nil
+			return guidePageData(ctx.Request), nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
 			leagueName := guideString(data, "league_name", "Gridiron")

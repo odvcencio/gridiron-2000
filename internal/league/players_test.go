@@ -1351,3 +1351,23 @@ func TestPlayersDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 		})
 	}
 }
+
+// TestPlayersDataNamesTheAddLockReason covers the contract's disabled-
+// control rule at the loader level: the 2026-09-01 UX audit found fifty
+// disabled "Add" buttons on /players with no adjacent reason anywhere in
+// a row. The page data must carry the plain-language reason whenever
+// adds are locked, and no reason once free agency opens.
+func TestPlayersDataNamesTheAddLockReason(t *testing.T) {
+	preDraft := newInProgressPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := preDraft.PlayersData(request)
+	if got, _ := data["add_locked_reason"].(string); got != "Roster moves open after the draft." {
+		t.Fatalf("pre-draft add_locked_reason = %q, want the draft explanation", got)
+	}
+
+	postDraft, _ := newPlayersTestService(t)
+	data = postDraft.PlayersData(request)
+	if got, _ := data["add_locked_reason"].(string); got != "" {
+		t.Fatalf("post-draft add_locked_reason = %q, want empty (adds are live)", got)
+	}
+}

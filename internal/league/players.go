@@ -403,6 +403,23 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		}
 	}
 
+	// addLockedReason is the contract's adjacent plain-language reason for
+	// the disabled Add control every non-addable free-agent row renders
+	// (the 2026-09-01 UX audit found fifty disabled Adds with no reason in
+	// reach). One page-level value: every row locks for the same cause. A
+	// pool outage stays empty here — the OFFLINE PLAYER LIST notice
+	// already owns that explanation.
+	addLockedReason := ""
+	switch {
+	case poolUnavailable:
+	case s.DemoMode() && !hasSeat:
+		addLockedReason = "Demo mode is read-only. Sign in with a team seat to make moves."
+	case !hasSeat:
+		addLockedReason = "Adding players needs a team seat."
+	case !open:
+		addLockedReason = "Roster moves open after the draft."
+	}
+
 	return map[string]any{
 		"viewer":             viewer,
 		"public_entry":       publicEntry,
@@ -410,6 +427,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"can_edit":           canEdit,
 		"pool_unavailable":   poolUnavailable,
 		"free_agency_open":   open,
+		"add_locked_reason":  addLockedReason,
 		"pos":                pos,
 		"positions":          positionFilterTabs(pos, rawQuery),
 		"query":              rawQuery,

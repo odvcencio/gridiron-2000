@@ -17,7 +17,7 @@ func Page() Node {
 			<aside class="masthead-console guide-console" aria-label="Guide at a glance">
 				<div><span>League format</span><strong>{data.league_format_summary}</strong></div>
 				<div><span>Roster capacity</span><strong>{data.roster_capacity} draft slots</strong></div>
-				<div><span>Draft meeting</span><strong>{data.draft_at}</strong><small>{data.draft_timezone}</small></div>
+				<div><span>Draft meeting</span><strong>{data.draft_at}</strong><If cond={data.draft_timezone != ""}><small>{data.draft_timezone}</small></If></div>
 				<div><span>Membership</span><strong>{data.membership_label}</strong></div>
 				<div><span>Draft start</span><strong>Commissioner-controlled</strong></div>
 			</aside>

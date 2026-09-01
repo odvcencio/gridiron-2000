@@ -3020,6 +3020,13 @@ func (s *Service) StaticPageData(r *http.Request) map[string]any {
 	}
 }
 
+// LeagueIdentity is the "league" block StaticPageData bundles, for a route
+// server that assembles its own data map but still owes the shared layout
+// its league identity — every route's brand and announcement banner read
+// it, and a page that omits it paints an empty brand (the Signal Wire did,
+// caught by the 2026-09-01 UX audit).
+func (s *Service) LeagueIdentity() map[string]any { return s.leagueMap() }
+
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 	viewer := s.Viewer(r)
 	next := navigation.DefaultReturnPath
@@ -3393,7 +3400,7 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 	if !state.DraftStartedAt.IsZero() {
 		startedAt = state.DraftStartedAt.Format(time.RFC3339)
 	}
-	return map[string]any{
+	summary := map[string]any{
 		"at":              draftAt.Format(time.RFC3339),
 		"overridden":      !state.DraftAtOverride.IsZero(),
 		"input_value":     draftMeetingInputValue(draftAt, location),
@@ -3411,7 +3418,38 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 		"status_note":     statusNote,
 		"days_until":      max(0, int(draftAt.Sub(now).Hours()/24)),
 		"countdown_label": countdownDHMSLabel(draftAt.Sub(now)),
+		"published":       DraftDatePublished(now, draftAt),
 	}
+	// An unset or absurdly far-out draft date is a placeholder, not a
+	// schedule: the neutral reference league ships 2098-12-31, and the
+	// 2026-09-01 UX audit found it rendered as a live "26419d 16:51:31"
+	// countdown on three surfaces. Render the honest empty state instead —
+	// no countdown target, no fabricated calendar line. A started or
+	// completed draft keeps its own truthful status; input_value stays the
+	// raw value so the commissioner's own form still shows what is stored.
+	if summary["published"] == false {
+		summary["at"] = ""
+		summary["countdown_label"] = ""
+		summary["date"] = "TBD"
+		summary["time"] = ""
+		summary["long_date"] = "Draft time not published yet"
+		summary["days_until"] = 0
+		summary["window_reached"] = false
+		if !state.DraftStarted && !complete {
+			summary["status_label"] = "NOT SCHEDULED"
+			summary["status_note"] = "Draft time is not published yet. The commissioner sets it in League settings."
+		}
+	}
+	return summary
+}
+
+// DraftDatePublished reports whether at is a real, operator-published
+// draft date: non-zero and no further out than one season (400 days) from
+// now. Far-future placeholder dates (the neutral reference league's
+// 2098-12-31) fail it; any past date passes — a draft that already
+// happened is still a real date.
+func DraftDatePublished(now, at time.Time) bool {
+	return !at.IsZero() && at.Before(now.Add(400*24*time.Hour))
 }
 
 // countdownDHMSLabel formats a duration the same way the data-gosx-countdown
@@ -3687,6 +3725,21 @@ func (s *Service) announcementListMaps(limit int) []map[string]any {
 	}
 	return out
 }
+
+// RelativeTime is the canonical past-instant relative label ("N hours
+// ago", "just now") for every page's time-sensitive values — the product
+// experience contract requires exact league-local time plus a useful
+// relative value, from one formatter, so route servers (the Signal Wire's
+// displayTime chief among them) call this instead of growing their own.
+func RelativeTime(now, then time.Time) string { return relativeTime(now, then) }
+
+// LeagueLocation is the league's canonical *time.Location (config.go's
+// Timezone field, defaulting to America/New_York) — the same resolution
+// matchup formatting already uses. Route servers outside this package use
+// it so no page can drift onto its own hard-coded zone again (the Signal
+// Wire shipped on America/Los_Angeles for a while; the audit that caught
+// it is spore.2026-09-01.alder in the hyphae space).
+func (s *Service) LeagueLocation() *time.Location { return s.matchupLocation() }
 
 // relativeTime renders a compact "N unit(s) ago" label for a past instant,
 // floored at "just now" for anything under a minute. Only the coarsest

@@ -339,17 +339,19 @@ func Page() Node {
 					<div class="draft-transmission__body">
 						<h2 id="draft-event-heading-public">{data.draft.event_label}</h2>
 						<time class="event-date">{data.draft.long_date}</time>
-						<div class="event-time">
-							<strong>{data.draft.time}</strong>
-							<span>{data.draft.timezone}</span>
-						</div>
+						<If cond={data.draft.published}>
+							<div class="event-time">
+								<strong>{data.draft.time}</strong>
+								<span>{data.draft.timezone}</span>
+							</div>
+						</If>
 						<div class="event-state" role="status">
 							<span class="event-state__mark" aria-hidden="true"></span>
 							<strong>{data.draft.status_label}</strong>
 						</div>
 						<p class="event-note">{data.draft.status_note}</p>
 					</div>
-					<If cond={data.draft.window_reached == false}>
+					<If cond={data.draft.window_reached == false && data.draft.published}>
 						<div class="countdown-strip">
 							<span>Window in</span>
 							<b

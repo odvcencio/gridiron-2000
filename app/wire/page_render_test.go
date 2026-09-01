@@ -434,3 +434,54 @@ func renderWireComponent(t *testing.T, component string, props any) string {
 	}
 	return gosx.RenderHTML(node)
 }
+
+// The contract requires league-local time plus a relative label on
+// time-sensitive values. The wire previously hard-coded
+// America/Los_Angeles (three hours behind the league) and carried no
+// relative text at all.
+func TestFormatWireTimeUsesLeagueZoneAndRelativeLabel(t *testing.T) {
+	eastern, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	occurred := time.Date(2026, 8, 31, 21, 8, 0, 0, time.UTC) // 5:08 PM EDT
+	now := occurred.Add(18 * time.Hour)
+	got := formatWireTime(occurred, now, eastern)
+	want := "AUG 31 · 5:08 PM EDT · 18 hours ago"
+	if got != want {
+		t.Fatalf("formatWireTime = %q, want %q", got, want)
+	}
+	if got := formatWireTime(time.Time{}, now, eastern); got != "WAITING" {
+		t.Fatalf("zero time = %q, want WAITING", got)
+	}
+	if got := formatWireTime(occurred, occurred.Add(20*time.Second), eastern); got != "AUG 31 · 5:08 PM EDT · just now" {
+		t.Fatalf("sub-minute = %q", got)
+	}
+}
+
+// The shared layout's brand block reads data.league on every route.
+// wirePageData shipped without the key and the /wire header painted an
+// empty green outline where the league identity belongs.
+func TestWirePageDataCarriesLeagueIdentityForTheShell(t *testing.T) {
+	signals, err := signalwire.NewService(signalwire.Config{
+		Root: t.TempDir(), Enabled: true, FeedsEnabled: false,
+		DIDs: []string{"did:plc:reporter"}, JetstreamURL: "wss://stream.example.test/subscribe",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := openstats.NewService(openstats.Config{Root: t.TempDir(), Season: 2026, Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := wirePageData(httptest.NewRequest(http.MethodGet, "/wire", nil), signals, stats)
+	identity, ok := data["league"].(map[string]any)
+	if !ok {
+		t.Fatalf(`data["league"] = %#v, want the league identity map`, data["league"])
+	}
+	name, _ := identity["name"].(string)
+	shortCode, _ := identity["short_code"].(string)
+	if strings.TrimSpace(name) == "" || strings.TrimSpace(shortCode) == "" {
+		t.Fatalf("league identity name=%q short_code=%q, want both non-empty", name, shortCode)
+	}
+}

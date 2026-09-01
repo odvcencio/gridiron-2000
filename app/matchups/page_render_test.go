@@ -189,10 +189,19 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="projected.`, `data-gosx-live-bind="stillToPlay.`,
 		`class="matchup-pair slot-row"`, `<details class="matchup-ledger">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
 		`data-gosx-live-on="scores:changed"`, "Live box scores · checked", "Q2 ", "Josh Allen", "Lamar Jackson",
+		// The masthead's plain-language state line is visible, never
+		// visually-hidden: the 2026-09-01 UX audit found the only copy of
+		// "COMING SOON." and the status sentence clipped to a 1px box, so
+		// sighted users got a run-on date fragment as the whole answer to
+		// "what is happening now".
+		`class="matchups-masthead__state`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("live fixture missing %q", want)
 		}
+	}
+	if strings.Contains(body, `<p class="visually-hidden"><span data-gosx-live-bind="headlineTop"`) {
+		t.Error("masthead state line is still visually-hidden; it must be visible")
 	}
 	for _, forbidden := range []string{"Scores from", "Browser checked", "Stats ledger updated", "View mode", "Browser poll", `class="masthead-console"`} {
 		if strings.Contains(body, forbidden) {
