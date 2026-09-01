@@ -79,6 +79,40 @@ func TestBuildAppServesLiveness(t *testing.T) {
 	}
 }
 
+// TestBuildAppNeverMountsSetupRoute is the design's slice-2 acceptance
+// criterion: "configured volume 404s /setup." BuildApp's router walks only
+// app/, which carries no setup directory at all — /setup is a truthful,
+// unregistered 404 in CONFIGURED state, not a gated redirect.
+func TestBuildAppNeverMountsSetupRoute(t *testing.T) {
+	hermeticEnv(t)
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if rt.StopNotify != nil {
+		defer rt.StopNotify()
+	}
+	rt.Start(ctx)
+	server := httptest.NewServer(app.Build())
+	defer server.Close()
+	for _, path := range []string{"/setup", "/setup/teams", "/setup/review"} {
+		response, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		response.Body.Close()
+		if response.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s = %d, want 404 (a CONFIGURED instance must never mount /setup)", path, response.StatusCode)
+		}
+	}
+}
+
 func TestAppConfigRefusesHarnessSwitchesOutsideLocalEnvironments(t *testing.T) {
 	for _, appEnv := range []string{"production", "prod", "staging", "Production", "canary"} {
 		t.Run("auth/"+appEnv, func(t *testing.T) {

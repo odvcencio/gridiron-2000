@@ -61,9 +61,38 @@ func main() {
 	if err := env.LoadDir(server.ResolveAppRoot(thisFile), ""); err != nil {
 		log.Fatal(err)
 	}
+	// The boot state decision runs before AppConfigFromEnv/BuildApp and
+	// before any league code: SETUP and FAIL_CLOSED never construct the
+	// league.Default() singleton at all (setup-wizard design section 3.1).
+	// A CONFIGURED decision falls through unchanged to the normal boot
+	// below, which resolves league.json again itself through the same
+	// lookup rule — DetermineBootState only decided which app to build.
+	bootDecision, err := league.DetermineBootState()
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := AppConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
+	}
+	switch bootDecision.State {
+	case league.BootFailClosed:
+		app, err := BuildFailClosedApp(cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("league boot state: fail_closed (marker or league data present, no league.json resolves) — %s", failClosedOperatorMessage)
+		serveSimpleApp(app, cfg.Port, "fail-closed operator page")
+		return
+	case league.BootSetup:
+		app, setupRuntime, err := BuildSetupApp(cfg, bootDecision.Store)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() { _ = setupRuntime.Store.Close() }()
+		log.Printf("league boot state: setup")
+		serveSimpleApp(app, cfg.Port, "setup wizard")
+		return
 	}
 	runtimeContext, stopRuntime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRuntime()
@@ -137,6 +166,33 @@ func main() {
 	}
 	if runtimeFailure != nil {
 		log.Fatalf("%s listener failed: %v", runtimeFailure.name, runtimeFailure.err)
+	}
+}
+
+// serveSimpleApp runs the SETUP and BootFailClosed apps: a single listener,
+// no background loops, no Commissioner HQ provider — everything BuildApp's
+// AppRuntime otherwise coordinates. Shutdown follows the same signal +
+// bounded-timeout shape as the CONFIGURED path below, just without a
+// runtime to drain.
+func serveSimpleApp(app *server.App, port, name string) {
+	runtimeContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log.Printf("%s listening on http://localhost:%s", name, port)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- app.ListenAndServe(":" + port)
+	}()
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("%s listener failed: %v", name, err)
+		}
+	case <-runtimeContext.Done():
+	}
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	if err := app.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("%s shutdown: %v", name, err)
 	}
 }
 
