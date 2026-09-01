@@ -129,7 +129,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 									<h3>DRAFT CONTROL</h3>
 									<p><strong>{card.draft_status}</strong> · <If cond={card.draft_started}>STARTED</If><If cond={card.draft_started == false}>NOT STARTED</If></p>
 									<p>{card.draft_start_copy}</p>
-									<p class="mono"><time datetime={card.draft_at_iso}>{card.draft_at}</time> · {card.draft_order} · {card.clock_text}</p>
+									<p class="mono"><time datetime={card.draft_at_iso}>{card.draft_at}</time><If cond={card.draft_at_relative != ""}> ({card.draft_at_relative})</If> · {card.draft_order} · {card.clock_text}</p>
 								</section>
 								<section class="commissioner-hq__detail">
 									<h3>SCHEDULE / WEEK CLOSE</h3>

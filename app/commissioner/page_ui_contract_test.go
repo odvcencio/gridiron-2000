@@ -72,7 +72,7 @@ func TestFleetViewSortsAttentionAndKeepsOnlyQualifiedPublicLinks(t *testing.T) {
 		},
 	}
 	failed := commissionerhq.FleetEntry{PeerID: "skl", PublicURL: "https://sk.example", Error: "League unavailable"}
-	view := buildFleetView([]commissionerhq.FleetEntry{entry, failed}, now)
+	view := buildFleetView([]commissionerhq.FleetEntry{entry, failed}, now, time.UTC)
 	if len(view.Cards) != 2 || view.LeagueCount != 2 {
 		t.Fatalf("fleet cards = %#v", view.Cards)
 	}
@@ -123,7 +123,7 @@ func TestWeekCloseReadyAttentionRoutesToNormalCloseControl(t *testing.T) {
 			Season:    commissionerhq.Season{WeekClose: commissionerhq.WeekClose{Week: 1, Ready: true}},
 			Attention: []commissionerhq.Attention{{Code: "week_close_ready", Severity: "warning", Area: "schedule", Message: "ready"}},
 		},
-	})
+	}, time.Now(), time.UTC)
 	if len(card.Attention) != 1 || card.Attention[0].Section != "week-close" || card.Attention[0].OwnerURL != "https://gridiron.example/admin?section=week-close#admin-week-close" {
 		t.Fatalf("week-close attention route = %+v", card.Attention)
 	}

@@ -31,7 +31,7 @@ func TestCommissionerReleaseMetadataRendersExactFieldsAndHonestUnknowns(t *testi
 		},
 		{PeerID: "offline", PublicURL: "https://offline.gridiron.example", Error: "request timed out"},
 	}
-	props := readoutFromView(buildFleetView(entries, fixed), true, true)
+	props := readoutFromView(buildFleetView(entries, fixed, time.UTC), true, true)
 	program, err := route.LoadFileProgram("page.gsx")
 	if err != nil {
 		t.Fatal(err)
