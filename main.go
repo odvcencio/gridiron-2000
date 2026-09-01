@@ -43,6 +43,16 @@ func isLocalAppEnv(appEnv string) bool {
 // where the application decides whether it is serving local plain HTTP or a
 // deployed HTTPS environment. gosx defaults to Secure when AllowInsecure is
 // omitted, so only known local/default environments opt in to plain HTTP.
+//
+// MaxAge is 180 days (owner decision, setup-wizard design section 6.2: the
+// design proposed raising it only for a Tier-0-only instance, "because
+// re-auth costs a commissioner round-trip"; the owner's parameter list
+// applies the longer window unconditionally, for every sign-in tier, to
+// avoid computing "is Tier 0 the only method" per deployment). The cookie
+// stays Secure/HTTPOnly/Encrypt/SameSite=Lax regardless of its length; a
+// per-member session-epoch revocation (design section 6.4) is a later
+// slice's addition for a commissioner who needs to invalidate one seat's
+// session early.
 func gridironSessionOptions(appEnv string) session.Options {
 	localHTTP := isLocalAppEnv(appEnv)
 	return session.Options{
@@ -51,7 +61,7 @@ func gridironSessionOptions(appEnv string) session.Options {
 		AllowInsecure: localHTTP,
 		HTTPOnly:      true,
 		Encrypt:       true,
-		MaxAge:        30 * 24 * time.Hour,
+		MaxAge:        180 * 24 * time.Hour,
 		SameSite:      http.SameSiteLaxMode,
 	}
 }
