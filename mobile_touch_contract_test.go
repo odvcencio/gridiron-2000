@@ -218,10 +218,16 @@ func TestMobileContentControlsKeepTouchBaseline(t *testing.T) {
 		"min-inline-size: 2.75rem;",
 		"min-height: 2.75rem;",
 		"min-block-size: 2.75rem;",
-		"touch-action: manipulation;",
 	} {
 		if !strings.Contains(reorder.declarations, declaration) {
 			t.Errorf("GoSX reorder handle omitted %q", declaration)
 		}
+	}
+	// touch-action: none is intentionally absent from this rule: the reorder
+	// runtime writes it inline on the handle at hydration (navigation.ts's
+	// prepareReorderHandle), and an inline style always wins over this
+	// stylesheet rule, so a declaration here would be dead and misleading.
+	if strings.Contains(reorder.declarations, "touch-action") {
+		t.Errorf("GoSX reorder handle declares touch-action, which the runtime's inline style always overrides: %q", reorder.declarations)
 	}
 }

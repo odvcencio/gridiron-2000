@@ -215,7 +215,7 @@ func Page() Node {
 					</If>
 				</If>
 				<div
-					class="pool-list"
+					class="pool-list pool-list--reorder-scroll"
 					data-gosx-reorder
 					data-gosx-reorder-action={"POST " + actionPath("board-move-to")}
 					data-gosx-csrf-token={csrf.token}
@@ -235,6 +235,8 @@ func Page() Node {
 							CanMoveDown={entry.board_can_move_down}
 						 />
 					</Each>
+					<p class="reorder-status reorder-status--pending">Saving order…</p>
+					<p class="reorder-status reorder-status--error">Reorder failed. The previous order was restored.</p>
 				</div>
 			</section>
 			<section class="player-pool" id="board-pool">

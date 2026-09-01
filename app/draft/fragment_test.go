@@ -719,16 +719,20 @@ func TestDraftPostFormsEitherSignalOrAreExplicitlyAllowlisted(t *testing.T) {
 	if marker := strings.Index(string(source), "// --- The app shell (D2, D5)"); marker >= 0 {
 		source = source[marker:]
 	}
-	// Pick-mutation forms (make-pick, queue-add, queue-remove) and the
-	// seated manager's own ready/autopick forms (the command bar until
-	// V1 moved them into the my-team pane's Room tab and the mobile pick
-	// bar) all rely on the typed hub events their own region already
+	// Pick-mutation forms (make-pick, queue-add, queue-remove, queue-move)
+	// and the seated manager's own ready/autopick forms (the command bar
+	// until V1 moved them into the my-team pane's Room tab and the mobile
+	// pick bar) all rely on the typed hub events their own region already
 	// listens to (draft:pick/undo/state/seat, Page()), not a manual
-	// refresh-signal poke.
+	// refresh-signal poke. queue-move (the no-JS up/down reorder forms,
+	// DraftMyTeam) shares draftActionSuccess with the other three: its
+	// managed-form response is the same "value": "refresh" full soft
+	// navigation, so it needs no region-scoped signal either.
 	allowlist := []string{
 		`action={props.MakePickAction}`,
 		`action={props.QueueAddAction}`,
 		`action={props.QueueRemoveAction}`,
+		`action={props.QueueMoveAction}`,
 		`action={props.Actions.toggle_ready}`,
 		`action={props.Actions.toggle_autopick}`,
 	}

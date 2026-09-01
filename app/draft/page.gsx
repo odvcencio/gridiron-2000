@@ -46,6 +46,14 @@ type DraftPlayerCard struct {
 	// Always false/"" for a queue-pane row, which never renders the column.
 	HasValue   bool
 	ValueLabel string
+	// CanMoveUp/CanMoveDown back the queue pane's no-JS up/down reorder
+	// forms (mirrors board.BoardRowProps), the same board_can_move_up/down
+	// fields BoardData already computes, reused here for the queue's own
+	// position within the same underlying board order (service.go's
+	// queuePanel). Always false for an available-pool entry, which never
+	// renders these controls.
+	CanMoveUp   bool
+	CanMoveDown bool
 }
 
 type DraftQueueProps struct {
@@ -1077,7 +1085,13 @@ type DraftMyTeamProps struct {
 	Queue             []DraftPlayerCard
 	CSRF              string
 	QueueRemoveAction string
-	Actions           map[string]string
+	// QueueMoveAction is the no-JS up/down reorder forms' post target
+	// (mirrors board.BoardRowProps.MoveAction): the same BoardMove the
+	// drag-reorder POST already calls through, routed here as
+	// "queue-move" (page.server.go) so a session with JavaScript off can
+	// still reorder its queue one step at a time.
+	QueueMoveAction string
+	Actions         map[string]string
 }
 
 type DraftAvailableHeadProps struct {
@@ -1623,24 +1637,56 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 			<label class="segment__option" for="mine-room">Room</label>
 		</div>
 		<div class="draft-mine__view draft-mine__view--queue">
-			<div class="pool-list" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
+			<div class="pool-list pool-list--reorder-scroll" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
 						<span class="mono">{player.Rank}</span>
 						<div><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small></div>
-						<If cond={player.Taken}>
-							<form method="post" action={props.QueueRemoveAction} data-gosx-managed="true">
+						<div class="q-row__actions">
+							<form method="post" action={props.QueueMoveAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 								<input type="hidden" name="player_id" value={player.ID}></input>
+								<input type="hidden" name="direction" value="up"></input>
 								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 								<input type="hidden" name="q" value={props.Data.pool_query}></input>
 								<input type="hidden" name="page" value={props.Data.pool_page}></input>
-								<button class="btn btn-sm btn-ghost" type="submit">Clear</button>
+								<If cond={player.CanMoveUp}>
+									<button class="board-button board-button--move" type="submit" aria-label={"Move " + player.Name + " up"}>↑ <span class="visually-hidden">Move up</span></button>
+								</If>
+								<If cond={player.CanMoveUp == false}>
+									<button class="board-button board-button--move" type="button" disabled="disabled" aria-label={player.Name + " is already first"}>↑ <span class="visually-hidden">Already first</span></button>
+								</If>
 							</form>
-						</If>
+							<form method="post" action={props.QueueMoveAction} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="player_id" value={player.ID}></input>
+								<input type="hidden" name="direction" value="down"></input>
+								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+								<input type="hidden" name="q" value={props.Data.pool_query}></input>
+								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<If cond={player.CanMoveDown}>
+									<button class="board-button board-button--move" type="submit" aria-label={"Move " + player.Name + " down"}>↓ <span class="visually-hidden">Move down</span></button>
+								</If>
+								<If cond={player.CanMoveDown == false}>
+									<button class="board-button board-button--move" type="button" disabled="disabled" aria-label={player.Name + " is already last"}>↓ <span class="visually-hidden">Already last</span></button>
+								</If>
+							</form>
+							<If cond={player.Taken}>
+								<form method="post" action={props.QueueRemoveAction} data-gosx-managed="true">
+									<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+									<input type="hidden" name="player_id" value={player.ID}></input>
+									<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+									<input type="hidden" name="q" value={props.Data.pool_query}></input>
+									<input type="hidden" name="page" value={props.Data.pool_page}></input>
+									<button class="btn btn-sm btn-ghost" type="submit">Clear</button>
+								</form>
+							</If>
+						</div>
 					</article>
 				</Each>
+				<p class="reorder-status reorder-status--pending">Saving order…</p>
+				<p class="reorder-status reorder-status--error">Reorder failed. The previous order was restored.</p>
 			</div>
 			<If cond={props.Data.queue_empty}>
 				<div class="board-peek-empty"><a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a></div>

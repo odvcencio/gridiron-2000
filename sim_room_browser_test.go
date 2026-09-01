@@ -1166,9 +1166,12 @@ const touchTargetProbeScript = `(function(){
 // this test runs): legitimate follow-up polish, not evidence the
 // touch-baseline CSS block regressed. Anything NOT on this list fails the
 // test, so a new short control cannot land silently.
-var touchTargetAllowlist = map[string]bool{
-	"span.board-row__handle": true, // the queue row's compact reorder handle, inside a table-like grid
-}
+//
+// span.board-row__handle carried a permanent entry here even though
+// touchTargetProbeScript's own selector list never queries a bare <span>
+// — a dead line for a control this probe could not have measured either
+// way. Measurement honesty pass (2026-08-31): removed.
+var touchTargetAllowlist = map[string]bool{}
 
 // TestBrowserDraftRoomTouchTargetsAtPhoneWidth is the D5 44px touch-target
 // probe at 390px (S7, Task 5a review): every offending control's selector

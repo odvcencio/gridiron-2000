@@ -104,9 +104,16 @@ const uiPassTouchTargetProbeScript = `(function(){
 // still report short, checked against a live rehearsal render of each
 // route: legitimate follow-up polish, not evidence a touch-baseline rule
 // regressed. Anything NOT here fails the affected route's test.
-var uiPassTouchTargetAllowlist = map[string]bool{
-	"span.board-row__handle": true, // the queue row's compact reorder handle, inside a table-like grid (also allowlisted for /draft, sim_room_browser_test.go)
-}
+//
+// span.board-row__handle (the Big Board/draft-queue reorder handle)
+// carried a permanent entry here even though this sweep's own selector
+// list never queries a bare <span> — a dead allowlist line for a control
+// the sweep could not have measured either way. Measurement honesty pass
+// (2026-08-31): removed. The mobile CSS still pins the handle's own
+// min-width/min-height at 2.75rem (public/styles.css, [data-gosx-reorder-
+// handle]); if a future sweep selector starts matching it, this list
+// stays the place to record a real, checked exception.
+var uiPassTouchTargetAllowlist = map[string]bool{}
 
 // runTouchTargetSweep asserts every interactive control inside selector
 // (a CSS selector naming the sweep's own root — #main-content, the
@@ -148,9 +155,12 @@ func uiPassTouchTargetProbeScriptFor(selector string) string {
 
 // TestBrowserTouchTargetSweepAcrossSurfaces is the "New probe coverage"
 // item (2026-08-30 UI pass): the 44px sweep now runs against /players,
-// /team, /wire, /help, /settings, the footer, and the phone nav dialog —
-// not just /draft (sim_room_browser_test.go already covers that route) —
-// and no longer excludes checkbox/radio inputs.
+// /team, /wire, /help, /settings, /board, the footer, and the phone nav
+// dialog — not just /draft (sim_room_browser_test.go already covers that
+// route) — and no longer excludes checkbox/radio inputs. /board joined
+// (measurement honesty pass, 2026-08-31): it had appeared in no browser
+// sweep at all, so its own reorder handle and up/down controls had never
+// actually been measured.
 func TestBrowserTouchTargetSweepAcrossSurfaces(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -159,7 +169,7 @@ func TestBrowserTouchTargetSweepAcrossSurfaces(t *testing.T) {
 	viewer := league.bots[len(league.bots)-1]
 	navigateSignedInTo(t, ctx, child, viewer, "/players", uiPassPhoneWidth, uiPassPhoneHeight)
 
-	for _, route := range []string{"/players", "/team", "/wire", "/help", "/settings"} {
+	for _, route := range []string{"/players", "/team", "/wire", "/help", "/settings", "/board"} {
 		navigateTo(t, ctx, child, route, uiPassPhoneWidth, uiPassPhoneHeight)
 		runTouchTargetSweep(t, ctx, "#main-content", route)
 		runTouchTargetSweep(t, ctx, ".site-footer", route+" footer")
@@ -238,10 +248,12 @@ func TestBrowserPhoneNavDialogLinkFontSize(t *testing.T) {
 // TestBrowserTypeFloorAcrossSurfaces is the "New probe coverage" type-floor
 // item (2026-08-30 UI pass): no #main-content text node renders under
 // 13px at 390px, by default (comfortable) density, on Home, Draft,
-// Players, Team, Matchups, Scoring, or Pick'em (finding 9, 2026-08-31
-// review: the token sweep made --type-2xs/--space-2xs resolve for the
-// first time, tightening the pickem market head/note lines to 13.1px —
-// this route joins the sweep so that never regresses below the floor).
+// Players, Team, Matchups, Scoring, Pick'em, or Board (finding 9,
+// 2026-08-31 review: the token sweep made --type-2xs/--space-2xs resolve
+// for the first time, tightening the pickem market head/note lines to
+// 13.1px — this route joins the sweep so that never regresses below the
+// floor). /board joined the route list in the same measurement-honesty
+// pass (2026-08-31) that added it to the touch-target sweep above.
 func TestBrowserTypeFloorAcrossSurfaces(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")
@@ -250,7 +262,7 @@ func TestBrowserTypeFloorAcrossSurfaces(t *testing.T) {
 	viewer := league.bots[len(league.bots)-1]
 	navigateSignedInTo(t, ctx, child, viewer, "/", uiPassPhoneWidth, uiPassPhoneHeight)
 
-	for _, route := range []string{"/", "/draft", "/players", "/team", "/matchups", "/scoring", "/pickem"} {
+	for _, route := range []string{"/", "/draft", "/players", "/team", "/matchups", "/scoring", "/pickem", "/board"} {
 		navigateTo(t, ctx, child, route, uiPassPhoneWidth, uiPassPhoneHeight)
 		var offenders string
 		if err := chromedp.Run(ctx, chromedp.Evaluate(minMainContentFontSizeScript, &offenders)); err != nil {

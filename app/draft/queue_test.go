@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -52,6 +53,59 @@ func TestQueueMoveEndpointReportsAMoveError(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "that player is not on your board") {
 		t.Fatalf("code=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+// TestQueueNativeReorderControlsPreserveContextAndManagedFeedback is the
+// draft queue's own equivalent of
+// TestBoardNativeReorderControlsPreserveContextAndManagedFeedback
+// (app/board/page_render_test.go): the queue pane's no-JS up/down forms
+// (page.gsx's DraftMyTeam) carry the same context-preservation, disabled
+// end-stop, and managed-feedback contract the Big Board's move buttons do,
+// routed through page.server.go's queue-move action instead of board-move.
+func TestQueueNativeReorderControlsPreserveContextAndManagedFeedback(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatalf("read Draft page: %v", err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		"action={props.QueueMoveAction}",
+		"name=\"direction\" value=\"up\"",
+		"name=\"direction\" value=\"down\"",
+		"name=\"pos\" value={props.Data.pool_position}",
+		"name=\"q\" value={props.Data.pool_query}",
+		"name=\"page\" value={props.Data.pool_page}",
+		"If cond={player.CanMoveUp}",
+		"If cond={player.CanMoveUp == false}",
+		"If cond={player.CanMoveDown}",
+		"If cond={player.CanMoveDown == false}",
+		"aria-label={\"Move \" + player.Name + \" up\"}",
+		"aria-label={\"Move \" + player.Name + \" down\"}",
+		"type=\"button\" disabled=\"disabled\"",
+		"data-gosx-managed=\"true\"",
+	} {
+		if !strings.Contains(source, want) {
+			t.Fatalf("page.gsx missing native queue reorder contract %q", want)
+		}
+	}
+
+	server, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatalf("read Draft server: %v", err)
+	}
+	serverSource := string(server)
+	for _, want := range []string{
+		`"queue-move": func(ctx *action.Context) error {`,
+		`league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"])`,
+		`return draftActionSuccess(ctx, target, "Queue order updated.")`,
+		`QueueMoveAction: draftActionPath("queue-move")`,
+		`CanMoveUp:       boolField(player, "board_can_move_up")`,
+		`CanMoveDown:     boolField(player, "board_can_move_down")`,
+	} {
+		if !strings.Contains(serverSource, want) {
+			t.Fatalf("page.server.go missing queue reorder continuity contract %q", want)
+		}
 	}
 }
 

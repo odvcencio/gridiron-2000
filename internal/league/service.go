@@ -2704,16 +2704,22 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 	// queuePanel is the shell's full personal-queue view (D2): every board
 	// entry, in order, each carrying taken so a drafted target still shows
 	// (struck through, client-side) rather than silently vanishing.
-	// boardPanel stays the pre-existing 5-item undrafted "peek" the legacy
-	// DraftWorkspace sidebar reads; both share one playerMap build per id.
+	// board_can_move_up/down mirror BoardData's own index math (board.go)
+	// exactly, over the same boardOrder: the queue is the same underlying
+	// board, so the no-JS up/down forms (DraftMyTeam, page.gsx) disable at
+	// the same ends BoardRow's do. boardPanel stays the pre-existing 5-item
+	// undrafted "peek" the legacy DraftWorkspace sidebar reads; both share
+	// one playerMap build per id.
 	queuePanel := make([]map[string]any, 0, len(boardOrder))
-	for _, id := range boardOrder {
+	for index, id := range boardOrder {
 		player, ok := pool.byID[id]
 		if !ok {
 			continue
 		}
 		item := playerMap(player, scoringValues, matchup)
 		item["taken"] = picked[id]
+		item["board_can_move_up"] = index > 0
+		item["board_can_move_down"] = index+1 < len(boardOrder)
 		queuePanel = append(queuePanel, item)
 		if !picked[id] && len(boardPanel) < 5 {
 			boardPanel = append(boardPanel, item)

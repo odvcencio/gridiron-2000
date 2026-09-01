@@ -179,6 +179,11 @@ type draftPlayerCardView struct {
 	// HasValue/ValueLabel back the available pane's VS ADP cell (R4).
 	HasValue   bool
 	ValueLabel string
+	// CanMoveUp/CanMoveDown back the queue pane's no-JS up/down reorder
+	// forms; always false for an available-pool entry, which never renders
+	// them. Sourced from service.go's queuePanel board_can_move_up/down.
+	CanMoveUp   bool
+	CanMoveDown bool
 }
 
 type draftRoomView struct {
@@ -684,13 +689,15 @@ type draftAvailableView struct {
 // draftQueueView backs the "my team" pane: the viewer's full personal
 // queue (including already-taken entries, Task 5a's DraftMyTeam), the
 // roster-needs tally, the queue-remove action a taken row's Clear button
-// posts to, and (V1) the Room segment's own ready/autopick controls, which
-// moved here off the command bar.
+// posts to, the queue-move action its no-JS up/down forms post to, and
+// (V1) the Room segment's own ready/autopick controls, which moved here
+// off the command bar.
 type draftQueueView struct {
 	Data              map[string]any
 	Queue             []draftPlayerCardView
 	CSRF              string
 	QueueRemoveAction string
+	QueueMoveAction   string
 	Actions           map[string]string
 }
 
@@ -743,6 +750,8 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			Taken:           boolField(player, "taken"),
 			HasValue:        boolField(player, "has_value"),
 			ValueLabel:      stringField(player, "value_label"),
+			CanMoveUp:       boolField(player, "board_can_move_up"),
+			CanMoveDown:     boolField(player, "board_can_move_down"),
 		})
 	}
 	return out
@@ -904,7 +913,8 @@ func prepareDraftData(data map[string]any) map[string]any {
 		MakePickAction: draftActionPath("make-pick"), QueueAddAction: draftActionPath("queue-add"), Actions: actions,
 	}
 	output["queue"] = draftQueueView{
-		Data: viewData, Queue: typedQueue, QueueRemoveAction: draftActionPath("queue-remove"), Actions: actions,
+		Data: viewData, Queue: typedQueue,
+		QueueRemoveAction: draftActionPath("queue-remove"), QueueMoveAction: draftActionPath("queue-move"), Actions: actions,
 	}
 	return output
 }
@@ -1126,6 +1136,23 @@ func init() {
 				}
 				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
 				return draftActionSuccess(ctx, target, "Removed from your queue.")
+			},
+			// queue-move is the no-JS fallback for the queue pane's up/down
+			// buttons (page.gsx's DraftMyTeam), routing through the same
+			// BoardMove the Big Board's own board-move action calls (both
+			// panes read and write the identical underlying board order —
+			// see BoardData/queuePanel, internal/league). The drag-reorder
+			// POST (data-gosx-reorder-action="POST /draft/queue") stays on
+			// its own dedicated queueMoveHandler (queue.go): that path
+			// answers plain JSON for the runtime's background fetch and
+			// must not redirect, the same split board-move/board-move-to
+			// keeps on /board.
+			"queue-move": func(ctx *action.Context) error {
+				if err := league.Default().BoardMove(ctx.Request, ctx.FormData["player_id"], ctx.FormData["direction"]); err != nil {
+					return actionui.Validation(ctx, "draft", "player_id", err)
+				}
+				target := draftRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"])
+				return draftActionSuccess(ctx, target, "Queue order updated.")
 			},
 			"toggle-autopick": func(ctx *action.Context) error {
 				on, teamName, err := league.Default().ToggleAutopick(ctx.Request, ctx.FormData["team_id"])

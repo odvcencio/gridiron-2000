@@ -4702,6 +4702,55 @@ body.is-on-clock .draft-clock-panel {
   border-radius: var(--radius-sm);
 }
 
+/* pool-list--reorder-scroll: the reorder container's own scroll box (Big
+   Board and draft-queue reorder mitigation). The runtime auto-scrolls
+   ONLY container.scrollTop, measuring its edge zones against the
+   container's own getBoundingClientRect (gosx@v0.53.10's navigation.ts,
+   reorderAutoScrollDelta/reorderAutoScrollTick) — a container with no
+   height limit never scrolls, so a drag past one screen of rows was
+   previously unreachable, worst on a 390px phone. 65vh keeps the whole
+   box on-screen at that width (matching .stat-tip__panel's own 65vh
+   mobile ceiling above) so both its top and bottom edge zones stay
+   reachable. Deliberately its own modifier, not a blanket .pool-list
+   change: most .pool-list uses (the browse/add pool, waiver claims) are
+   not reorder containers and must keep their existing shape. */
+.pool-list--reorder-scroll {
+  max-height: 65vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* Reorder pending/error feedback (gosx#212 mitigation). The runtime writes
+   data-gosx-pending="true" on the reorder container for the duration of
+   its background POST, and data-gosx-form-state="error" if that POST
+   fails (navigation.ts's commitReorderResult; by the time this paints the
+   optimistic move is already reverted and the container's own
+   announceNavigation call has told a screen reader "Reorder failed.
+   Order restored."). Both status lines below are real DOM text — see
+   BoardRow/DraftMyTeam's own reorder-status markup — never a
+   ::before/::after content string, which some screen readers do not
+   expose. Text carries the state; color is reinforcement, never the only
+   signal. */
+.reorder-status {
+  display: none;
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.pool-list[data-gosx-reorder][data-gosx-pending="true"] .reorder-status--pending {
+  display: block;
+  color: var(--color-text-muted);
+}
+
+.pool-list[data-gosx-reorder][data-gosx-form-state="error"] .reorder-status--error {
+  display: block;
+  border: 1px solid var(--color-danger);
+  color: var(--color-text-primary);
+  background: var(--color-hot-haze);
+}
+
 /* gosx-reorder-item--lifted: the pointer-dragged row. The contract
    requires position: absolute with no top/left so the runtime's own
    translateY starts from the row's static in-flow position; everything
@@ -8825,7 +8874,14 @@ body.is-on-clock .draft-clock-panel {
   }
 
   /* GoSX owns pointer and keyboard reorder gestures. Keep its handle
-     tappable after the mobile flex recipe changes the board row layout. */
+     tappable after the mobile flex recipe changes the board row layout.
+     No touch-action declaration here on purpose: prepareReorderHandle
+     (gosx@v0.53.10's navigation.ts) writes an inline touch-action: none
+     on the handle at hydration so a touch-drag is not raced by the
+     browser's own scroll gesture, and an inline style always outranks
+     this stylesheet rule regardless of what it says — a prior
+     touch-action: manipulation here was dead and, worse, misleading
+     about the handle's real gesture contract. */
   .site-frame [data-gosx-reorder-handle] {
     display: inline-flex;
     align-items: center;
@@ -8834,7 +8890,6 @@ body.is-on-clock .draft-clock-panel {
     min-inline-size: 2.75rem;
     min-height: 2.75rem;
     min-block-size: 2.75rem;
-    touch-action: manipulation;
   }
 
   /* Draft war room (D2, D5): the mobile tab bar's labels are not
@@ -9999,6 +10054,22 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 
 .q-row[data-taken="true"] strong {
   text-decoration: line-through;
+}
+
+/* q-row__actions: the row's fourth and last grid track (mirrors
+   .board-controls, /board's own up/down/cut cell) — the no-JS up/down
+   reorder forms and the taken row's Clear form share this one cell so a
+   populated row still renders exactly four grid children against
+   .q-row's four tracks. */
+.q-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  justify-content: end;
+}
+
+.q-row__actions form {
+  display: flex;
 }
 
 .draft-shell .need {
