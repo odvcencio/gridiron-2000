@@ -976,7 +976,7 @@ type TradePlayerCard struct {
 	Team     string
 }
 
-// TradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
+// TradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/PENDING-REVIEW/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows. HasReviewDeadline/ReviewDeadline
 // are always present (empty/false once not applicable) rather than a
@@ -1022,7 +1022,7 @@ type TradeOfferRow struct {
 	ExpiryState             string
 }
 
-// tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/REVIEW
+// tradeOfferRow renders one TradeOffer for the COMPOSE/INBOX/OUTBOX/PENDING-REVIEW/REVIEW
 // panels: display fields plus the per-viewer action flags that decide
 // which managed form(s) the row shows.
 func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string, canEdit, deadlinePassed, isCommissioner bool, threshold int) TradeOfferRow {
@@ -1169,10 +1169,13 @@ func (s *Service) tradeHistoryRows(state PersistedState, pool playerPool, teamID
 }
 
 // TradesData assembles the /trades page (roster-ops spec section 8.3):
-// COMPOSE (counterparty roster options), INBOX/OUTBOX (open offers plus
-// the viewer's own accepted offers awaiting the review window), REVIEW
-// (commissioner approve/veto, commissioner or both mode), and VOTE (non-
-// party managers, vote or both mode).
+// COMPOSE (counterparty roster options), INBOX (open offers addressed to
+// the viewer), OUTBOX (open and accepted offers the viewer sent),
+// PENDING REVIEW (offers the viewer received and accepted, awaiting the
+// review window — never mixed into OUTBOX, since OUTBOX's row always
+// reads "you send" against the viewer as sender), REVIEW (commissioner
+// approve/veto, commissioner or both mode), and VOTE (non-party managers,
+// vote or both mode).
 func (s *Service) TradesData(r *http.Request) map[string]any {
 	return s.tradesData(r, false)
 }
@@ -1254,6 +1257,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 
 	inbox := []TradeOfferRow{}
 	outbox := []TradeOfferRow{}
+	pendingReview := []TradeOfferRow{}
 	review := []TradeOfferRow{}
 	votePanel := []TradeOfferRow{}
 	for _, offer := range state.TradeOffers {
@@ -1267,8 +1271,17 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 			inbox = append(inbox, row)
 		case offer.Status == TradeStatusOpen && offer.FromTeamID == teamID:
 			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
-		case offer.Status == TradeStatusAccepted && (offer.FromTeamID == teamID || offer.ToTeamID == teamID):
+		// Outbox is only ever offers the viewer sent (FromTeamID): its row
+		// always reads "You send {Give} for {Get}" against the offer's own
+		// FromTeamID-anchored fields, so mixing in an offer the viewer
+		// received would show the viewer as its own sender/recipient (the
+		// gap-audit finding). An offer the viewer received and accepted
+		// goes to pendingReview instead, which the template reads with the
+		// same Give/Get fields but the inbox's "them→you" framing.
+		case offer.Status == TradeStatusAccepted && offer.FromTeamID == teamID:
 			outbox = append(outbox, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
+		case offer.Status == TradeStatusAccepted && offer.ToTeamID == teamID:
+			pendingReview = append(pendingReview, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
 		}
 		if offer.Status == TradeStatusAccepted && isCommissioner && (s.cfg.Trades.Veto == "commissioner" || s.cfg.Trades.Veto == "both") {
 			review = append(review, s.tradeOfferRow(pool, offer, teamID, canEdit, deadlinePassed, isCommissioner, threshold))
@@ -1310,6 +1323,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"inbox_empty":               len(inbox) == 0,
 		"outbox":                    outbox,
 		"outbox_empty":              len(outbox) == 0,
+		"pending_review":            pendingReview,
+		"pending_review_empty":      len(pendingReview) == 0,
 		"review":                    review,
 		"review_empty":              len(review) == 0,
 		"vote_panel":                votePanel,
