@@ -524,3 +524,84 @@ func TestHomepageActionCenterTypedAdapterRendersLinkOnly(t *testing.T) {
 		t.Fatal("homepage action center template must remain link-only")
 	}
 }
+
+// TestCommissionerSeatlessOverlayLeadsWithLeagueStateAndPromotesRealTask is
+// the wave-1 audit fix for a seatless commissioner's home page: the
+// generic seatless entry stage (internal/league/public_entry.go's
+// PublicEntryAdmittedSeatlessFull) headlines "ADMITTED · WAITING FOR A
+// SEAT." and its one action's Detail tells the viewer to ask the
+// commissioner — nonsensical copy when the viewer IS the commissioner.
+// commissionerSeatlessOverlay replaces the leading heading/actions with
+// league state and the commissioner's own already-computed next job
+// (hq.go's commissionerActions, promoted from the secondary aside into
+// the primary action list) rather than duplicating that logic here.
+func TestCommissionerSeatlessOverlayLeadsWithLeagueStateAndPromotesRealTask(t *testing.T) {
+	card := ActionCenterCard{
+		Stage: "entry", StageLabel: "ADMITTED · NO FRANCHISE",
+		Heading:    "ADMITTED · WAITING FOR A SEAT.",
+		Summary:    "Complete admission or claim a franchise before setting up the season.",
+		HasActions: true, ActionCount: 1,
+		Actions: []league.ActionCenterActionCard{{
+			ID: "entry", Label: "Open Pick'em HQ →",
+			Detail: "You are admitted, but every configured franchise is currently assigned. The commissioner must release a seat before team entry is available; Pick'em remains available while you wait.",
+			Href:   "/pickem",
+		}},
+		HasCommissioner: true,
+		CommissionerActions: []league.ActionCenterActionCard{{
+			ID: "commissioner-start", Label: "Start and monitor draft",
+			Detail: "0/10 seats claimed · 0/0 managers ready · draft order is not set · 0 players in pool.",
+			Href:   "/admin?section=draft-control#admin-draft-control",
+		}},
+	}
+	data := map[string]any{
+		"draft": map[string]any{"status_label": "SCHEDULED WINDOW"},
+		"live":  map[string]any{"week_label": "WEEK 1"},
+	}
+	got := commissionerSeatlessOverlay(card, data)
+
+	if strings.Contains(got.Heading, "WAITING FOR A SEAT") {
+		t.Errorf("overlay Heading still leads with the seatless entry copy: %q", got.Heading)
+	}
+	if len(got.Actions) == 0 {
+		t.Fatal("overlay dropped every action")
+	}
+	for _, action := range got.Actions {
+		if strings.Contains(action.Detail, "must release a seat") {
+			t.Errorf("overlay action %q still tells the commissioner to ask the commissioner: %q", action.ID, action.Detail)
+		}
+	}
+	if got.Actions[0].Href != "/admin?section=draft-control#admin-draft-control" {
+		t.Errorf("overlay did not promote the real commissioner task, got Actions[0] = %+v", got.Actions[0])
+	}
+	if got.HasCommissioner || len(got.CommissionerActions) != 0 {
+		t.Errorf("overlay left a duplicate commissioner aside after promoting it into Actions: HasCommissioner=%v CommissionerActions=%+v", got.HasCommissioner, got.CommissionerActions)
+	}
+}
+
+// TestCommissionerSeatlessOverlayFallsBackWhenNoCommissionerTaskExists
+// covers the case hq.go's commissionerActions returns nothing (a
+// DraftComplete league with no open week-close): the overlay still names
+// a real next job instead of leaving the panel with zero actions.
+func TestCommissionerSeatlessOverlayFallsBackWhenNoCommissionerTaskExists(t *testing.T) {
+	card := ActionCenterCard{Heading: "ADMITTED · WAITING FOR A SEAT.", HasCommissioner: false, CommissionerActions: nil}
+	got := commissionerSeatlessOverlay(card, map[string]any{})
+	if len(got.Actions) != 1 || got.Actions[0].Href != "/admin" {
+		t.Fatalf("fallback overlay action = %+v, want exactly one action linking /admin", got.Actions)
+	}
+}
+
+// TestHomepageCommissionerSeatlessOverlayRenders is the full-page render
+// proof: a signed-in commissioner with no team seat sees the promoted
+// commissioner task and never the "ask the commissioner" sentence.
+func TestHomepageCommissionerSeatlessOverlayRenders(t *testing.T) {
+	body := runHomeBootstrapFixture(t, "seatless-commissioner")
+	if strings.Contains(body, "must release a seat before team entry is available") {
+		t.Fatalf("seatless commissioner's home page still told them to ask the commissioner: %s", body)
+	}
+	if strings.Contains(body, "WAITING FOR A SEAT") {
+		t.Fatalf("seatless commissioner's home page still led with the generic seatless headline: %s", body)
+	}
+	if !strings.Contains(body, "/admin") {
+		t.Fatalf("seatless commissioner's home page omitted a real next job into League settings: %s", body)
+	}
+}

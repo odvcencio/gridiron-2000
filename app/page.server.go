@@ -1,7 +1,9 @@
 package app
 
 import (
+	"fmt"
 	"log"
+	"strings"
 
 	matchupspage "gridiron-2000/app/matchups"
 	"gridiron-2000/internal/league"
@@ -183,7 +185,29 @@ func init() {
 				data["divisions"] = dashboardDivisions(divisions)
 			}
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
-				data["action_center"] = dashboardActionCenter(actionCenter)
+				card := dashboardActionCenter(actionCenter)
+				isCommissioner, _ := viewer["is_commissioner"].(bool)
+				// A seatless commissioner is a first-class viewer, not a
+				// stalled applicant: internal/league/public_entry.go's
+				// PublicEntryAdmittedSeatlessFull/Open headlines ("ADMITTED
+				// · WAITING FOR A SEAT.", "CHOOSE YOUR FRANCHISE.") and the
+				// entry action's "ask the commissioner" Detail are correct
+				// for every other seatless member, but nonsensical when
+				// the viewer IS the commissioner (2026-09-01 audit).
+				// public_entry.go and hq.go are not this package's files
+				// to edit, so the override happens here, after both have
+				// already run. Gated on public_entry's own admitted-
+				// seatless states (never a bare !hasSeat) so a co-manager-
+				// invite-pending or membership-not-recorded commissioner —
+				// in demo mode IsCommissioner is true for every viewer —
+				// still sees that state's own correct, unrelated copy.
+				publicEntry, _ := data["public_entry"].(map[string]any)
+				entryState := stringField(publicEntry, "state")
+				seatlessAdmitted := entryState == "admitted_seatless_full" || entryState == "admitted_seatless_open"
+				if isCommissioner && !hasSeat && seatlessAdmitted {
+					card = commissionerSeatlessOverlay(card, data)
+				}
+				data["action_center"] = card
 			}
 			return data, nil
 		},
@@ -251,6 +275,55 @@ func dashboardActionCenter(raw map[string]any) ActionCenterCard {
 		HasCommissioner:     boolField(raw, "has_commissioner_actions"),
 		CommissionerActions: actionCenterActionCards(raw["commissioner_actions"]),
 	}
+}
+
+// commissionerSeatlessOverlay replaces card's leading heading/summary/
+// actions for a signed-in commissioner who holds no team seat. The
+// generic seatless-entry copy card already carries (from
+// internal/league's public_entry.go by way of hq.go's ActionCenterEntry
+// stage) is correct for an ordinary applicant waiting on a franchise, but
+// a commissioner's next job is never "wait for the commissioner" — it is
+// whatever hq.go's commissionerActions already computed as the real
+// state-aware task (start the draft, run the live clock, close the
+// week), which this promotes from the secondary "COMMISSIONER OVERLAY"
+// aside into the primary lead so the panel never shows both the
+// dead-end seatless copy AND the real task at once. Product rule: league
+// identity and state before flavor, and a commissioner's next job is
+// league operations, not a seat.
+func commissionerSeatlessOverlay(card ActionCenterCard, data map[string]any) ActionCenterCard {
+	draft, _ := data["draft"].(map[string]any)
+	live, _ := data["live"].(map[string]any)
+	draftStatus := strings.TrimSpace(stringField(draft, "status_label"))
+	weekLabel := strings.TrimSpace(stringField(live, "week_label"))
+
+	card.Stage = "commissioner_seatless"
+	card.StageLabel = "COMMISSIONER · LEAGUE STATE"
+	card.Heading = "RUN THE LEAGUE."
+	switch {
+	case draftStatus != "" && weekLabel != "":
+		card.Summary = fmt.Sprintf("Draft %s · %s. You hold no team seat; league operations remain your job.", draftStatus, weekLabel)
+	case draftStatus != "":
+		card.Summary = fmt.Sprintf("Draft %s. You hold no team seat; league operations remain your job.", draftStatus)
+	default:
+		card.Summary = "You hold no team seat; league operations remain your job."
+	}
+
+	if len(card.CommissionerActions) > 0 {
+		card.Actions = card.CommissionerActions
+	} else {
+		card.Actions = []league.ActionCenterActionCard{{
+			ID: "commissioner-open-settings", Priority: "commissioner", PriorityLabel: "COMMISSIONER",
+			Label: "Open League settings", Detail: "Review admission, draft, and season controls.",
+			Href: "/admin", Primary: true,
+		}}
+	}
+	card.HasActions = len(card.Actions) > 0
+	card.ActionCount = len(card.Actions)
+	// Promoted into Actions above; leaving the aside populated would show
+	// the same task twice.
+	card.HasCommissioner = false
+	card.CommissionerActions = nil
+	return card
 }
 
 func intField(m map[string]any, key string) int {
