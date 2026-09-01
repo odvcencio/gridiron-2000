@@ -821,14 +821,20 @@ func TestDraftRegionContractIsPushDrivenAndMounted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Wave-1 stale-state fix: every mutating draft action must redirect like
+	// every other GoSX-managed action (team-rename, notification-set), not
+	// answer a bare {ok:true, data:{value:"refresh"}} the managed-form
+	// runtime never reads. See draftActionSuccess.
 	for _, want := range []string{
 		`BindHub(draftLiveHubName, draftLiveBindingPath(), nil)`,
-		`action.WantsJSON(ctx.Request)`,
-		`ctx.Success(message, map[string]any{"value": "refresh"})`,
+		`func draftActionSuccess(ctx *action.Context, target, message string) error {`,
 	} {
 		if !strings.Contains(string(serverSource), want) {
 			t.Errorf("draft server synchronization contract missing %q", want)
 		}
+	}
+	if strings.Contains(string(serverSource), `map[string]any{"value": "refresh"}`) {
+		t.Error("draft server still answers a managed mutation with a dead refresh signal instead of a redirect")
 	}
 
 	buildSource := rootPackageSource(t)

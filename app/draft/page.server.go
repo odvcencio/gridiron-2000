@@ -127,10 +127,25 @@ func draftRedirectTarget(pos, query, page string) string {
 	return "/draft"
 }
 
+// draftActionSuccess always redirects, for both native and GoSX-managed
+// callers. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) re-renders the current document only when a JSON
+// action result carries a non-empty "redirect" field; the previous plain
+// ctx.Success reply, carrying only a "refresh" data value, never triggered
+// that re-render, so a managed pick, queue change, ready/autopick toggle, or
+// commissioner clock action left the room on its pre-mutation state until a
+// manual reload. Routing every one of the fourteen actions below through
+// this one 303-with-redirect shape matches the already-working team-rename
+// and notification-set actions.
+//
+// The server itself only ever emits an actual Location-header redirect for
+// a native (non-JSON) request (action.shouldRedirect skips it whenever
+// action.WantsJSON is true); a managed reply still carries status 303, but
+// as a JSON body with no Location header, so gridiron-sim's Bot client and
+// the browser's own fetch (redirect:"follow", but nothing to follow) both
+// read the JSON body directly instead of being silently redirected away
+// from it — see mutation_response_shape_test.go.
 func draftActionSuccess(ctx *action.Context, target, message string) error {
-	if action.WantsJSON(ctx.Request) {
-		return ctx.Success(message, map[string]any{"value": "refresh"})
-	}
 	actionui.RedirectWithNotice(ctx, target, message)
 	return nil
 }
