@@ -8,8 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
@@ -763,6 +765,83 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess(t *te
 		t.Fatalf("forced close confirmation error missing: %s", forceReloadRes.Body.String())
 	}
 }
+
+// TestAdminScheduleSeasonLabelUsesConfigSeasonNotSentinelYear is the
+// /admin half of the wave-1 season-label mismatch: DefaultConfig ships
+// cfg.Season as the real current year but the neutral sentinel
+// season-start instant 2099-01-08 (config.go), and schedule generation
+// (admin.go's buildSchedule) stamps the persisted SeasonSchedule.Season
+// from that sentinel's year rather than cfg.Season — so a generated
+// schedule's "Season" stat read 2099 while /commissioner's HQ card (which
+// reads cfg.Season directly, commissioner_summary.go) read the real 2026.
+// admin.go is out of this package's ownership for this wave, so the fix
+// lives here: the loader takes the display label from cfg.Season alone
+// regardless of what the persisted schedule row carries.
+func TestAdminScheduleSeasonLabelUsesConfigSeasonNotSentinelYear(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminScheduleSeasonLabelFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_SCHEDULE_SEASON_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin schedule season fixture process: %v\n%s", err, output)
+	}
+}
+
+func TestAdminScheduleSeasonLabelFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_SCHEDULE_SEASON_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"2"},
+		"start_week": {"1"},
+		"seed":       {"17"},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+	wantSeason := strconv.Itoa(time.Now().Year())
+	seasonStart := strings.Index(body, `<span>Season</span>`)
+	if seasonStart < 0 {
+		t.Fatalf("admin schedule panel omitted the Season stat: %s", body)
+	}
+	snippet := body[seasonStart:min(seasonStart+120, len(body))]
+	if !strings.Contains(snippet, wantSeason) {
+		t.Errorf("admin schedule Season stat = %q, want it to include the configured season %s", snippet, wantSeason)
+	}
+	if strings.Contains(snippet, "2099") {
+		t.Errorf("admin schedule Season stat rendered the sentinel season-start year: %q", snippet)
+	}
+}
+
 func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 	body := renderAdminPage(t)
 	for _, want := range []string{

@@ -135,6 +135,18 @@ func init() {
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
 			ctx.NoStore()
 			data := league.Default().AdminData(ctx.Request)
+			// The schedule panel's "Season" stat must read cfg.Season, the
+			// one source of league-season truth /commissioner's HQ card
+			// already uses (commissioner_summary.go). AdminData's schedule
+			// map (admin.go, out of this package's ownership for this wave)
+			// stamps its own "season" from the season-start sentinel year
+			// when no real schedule exists yet, and from the persisted
+			// schedule's own generation-time value otherwise — either can
+			// disagree with the configured season. Override here rather
+			// than trust either.
+			if schedule, ok := data["schedule"].(map[string]any); ok {
+				schedule["season"] = league.Default().Config().Season
+			}
 			isCommissioner, _ := data["is_commissioner"].(bool)
 			if isCommissioner {
 				data["admin_attention"] = adminAttentionReadoutFromData(league.Default().CommissionerAttentionDataReadOnly(ctx.Request))

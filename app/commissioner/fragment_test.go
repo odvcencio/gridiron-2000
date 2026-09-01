@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/league"
 
 	"m31labs.dev/gosx/route"
 )
@@ -98,7 +99,11 @@ func TestCommissionerFragmentUsesSharedReadoutAndDegradesWholeFragment(t *testin
 		t.Fatalf("unchanged fragment = %d body %q", unchanged.Code, unchanged.Body.String())
 	}
 
-	props := readoutFromView(buildFleetView(entries, fixed), true, true)
+	// The fragment handler itself resolves the league zone through
+	// league.Default().LeagueLocation() (fleetCard/page.server.go's
+	// production call sites); this hand-built comparison must use the
+	// same singleton so the two renders agree on more than just structure.
+	props := readoutFromView(buildFleetView(entries, fixed, league.Default().LeagueLocation()), true, true)
 	program, err := route.LoadFileProgram("page.gsx")
 	if err != nil {
 		t.Fatal(err)

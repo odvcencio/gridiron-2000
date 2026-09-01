@@ -68,6 +68,11 @@ func emptyFleetReadout(isCommissioner, federationEnabled bool) fleetReadoutProps
 	}
 }
 
+// readoutFromView projects view (already built with its own location, see
+// buildFleetView) into the page's render props. Every timestamp on data
+// was already converted through view.Location by toData(); this only
+// reads it back out, so there is exactly one place that resolves the
+// league zone for a given fleet snapshot.
 func readoutFromView(view fleetPageView, isCommissioner, federationEnabled bool) fleetReadoutProps {
 	data := view.toData()
 	return fleetReadoutProps{
@@ -77,8 +82,8 @@ func readoutFromView(view fleetPageView, isCommissioner, federationEnabled bool)
 		LeagueCount:    view.LeagueCount, ClaimedSeats: view.ClaimedSeats,
 		TotalSeats: view.TotalSeats, DraftsLive: view.DraftsLive,
 		AttentionCount: view.AttentionCount, CriticalCount: view.CriticalCount,
-		WarningCount: view.WarningCount, GeneratedAt: displayTime(view.GeneratedAt),
-		GeneratedAtISO: isoTime(view.GeneratedAt),
+		WarningCount: view.WarningCount, GeneratedAt: data["generated_at"].(string),
+		GeneratedAtISO: data["generated_at_iso"].(string),
 		HQV1:           emptyHQV1Portfolio(),
 	}
 }
@@ -105,7 +110,7 @@ func commissionerPageData(request *http.Request) map[string]any {
 func commissionerPageDataWithReader(request *http.Request, isCommissioner bool, reader func(context.Context) []commissionerhq.FleetEntry, federationEnabled bool) map[string]any {
 	readout := emptyFleetReadout(isCommissioner, federationEnabled)
 	if isCommissioner && reader != nil {
-		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
+		readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation()), true, federationEnabled)
 	}
 	readout = withHQV1Portfolio(request, readout, isCommissioner)
 	return map[string]any{
@@ -157,7 +162,7 @@ func fragmentHandler(
 
 		readout := emptyFleetReadout(true, federationEnabled)
 		if reader != nil {
-			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow()), true, federationEnabled)
+			readout = readoutFromView(buildFleetView(reader(request.Context()), timeNow(), league.Default().LeagueLocation()), true, federationEnabled)
 		}
 		readout = withHQV1Portfolio(request, readout, true)
 		program, err := route.LoadFileProgramHere("page.gsx")
@@ -210,5 +215,5 @@ var timeNow = func() time.Time { return time.Now().UTC() }
 // fleetCard remains the narrow contract used by existing renderer tests. The
 // full page and live fragment both use the richer model behind it.
 func fleetCard(entry commissionerhq.FleetEntry) map[string]any {
-	return cardView(entry).toMap()
+	return cardView(entry, timeNow(), time.UTC, false).toMap()
 }

@@ -58,3 +58,19 @@ func TestHelpIndexRendersSearchAndProjectionMarkers(t *testing.T) {
 		t.Fatal("help index leaked identity/domain PII")
 	}
 }
+
+// TestHelpIndexGuardsSentinelDraftDate is the /help half of the wave-1
+// sentinel-date audit finding: the neutral shipped config (no league.json
+// in this test tree) carries the placeholder draft instant 2099-01-01
+// (config.go), and the masthead console used to print it as a live
+// "Next draft meeting" fact instead of the DraftDatePublished guard
+// draftSummaryForState already applies to / and /guide.
+func TestHelpIndexGuardsSentinelDraftDate(t *testing.T) {
+	body := renderHelpRoute(t, "/")
+	if strings.Contains(body, "2098") || strings.Contains(body, "2099") {
+		t.Fatalf("help index rendered the sentinel draft year: %s", body)
+	}
+	if !strings.Contains(body, "Not published yet") {
+		t.Fatalf("help index did not render the unpublished-draft guard text: %s", body)
+	}
+}

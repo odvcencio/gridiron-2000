@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+	"gridiron-2000/internal/league"
 )
 
 // The commissioner readout deliberately uses a PII-free view model. It is
@@ -16,6 +17,7 @@ import (
 // uses one meaning for the whole commissioner readout.
 type fleetPageView struct {
 	GeneratedAt    time.Time
+	Location       *time.Location
 	Cards          []fleetCardView
 	Attention      []attentionView
 	LeagueCount    int
@@ -42,6 +44,7 @@ type attentionView struct {
 
 type fleetCardView struct {
 	Available bool
+	Local     bool
 	PeerID    string
 	Name      string
 	ShortCode string
@@ -70,6 +73,7 @@ type fleetCardView struct {
 	DraftStartedAtISO string
 	DraftAt           string
 	DraftAtISO        string
+	DraftAtRelative   string
 	DraftRounds       int
 	DraftPicks        int
 	DraftSlots        int
@@ -136,13 +140,28 @@ type fleetCardView struct {
 	AdminDangerURL        string
 }
 
-func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time) fleetPageView {
+// buildFleetView assembles the fleet readout. location is the viewing
+// commissioner's own LeagueLocation() (league.Default().LeagueLocation()
+// in production, an explicit *time.Location in every test): every
+// timestamp formatted below is converted into it rather than left in
+// whatever offset the summary's wire JSON happened to carry (2026-09-01
+// audit: displayTime with no location conversion rendered a literal "UTC"
+// abbreviation on every card, not the commissioner's own league zone).
+func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time, location *time.Location) fleetPageView {
 	if generatedAt.IsZero() {
 		generatedAt = time.Now().UTC()
 	}
-	view := fleetPageView{GeneratedAt: generatedAt, Cards: make([]fleetCardView, 0, len(entries))}
-	for _, entry := range entries {
-		card := cardView(entry)
+	if location == nil {
+		location = time.UTC
+	}
+	view := fleetPageView{GeneratedAt: generatedAt, Location: location, Cards: make([]fleetCardView, 0, len(entries))}
+	for index, entry := range entries {
+		// Fleet() (internal/commissionerhq/service.go) documents and
+		// guarantees the local instance's own entry at index 0, every
+		// configured peer after it — the same invariant AdminDestinations
+		// relies on. cardView uses this to link the local card with
+		// root-relative paths instead of PublicURL (see setLinks).
+		card := cardView(entry, generatedAt, location, index == 0)
 		view.Cards = append(view.Cards, card)
 		view.LeagueCount++
 		if !card.Available {
@@ -200,11 +219,21 @@ func severityRank(value string) int {
 	}
 }
 
-func cardView(entry commissionerhq.FleetEntry) fleetCardView {
+// cardView projects one peer's summary. now is the fleet-snapshot instant
+// (buildFleetView's generatedAt) used only for DraftDatePublished's
+// far-future-sentinel check and each field's relative-text label; location
+// is the *time.Location every absolute timestamp below is displayed in;
+// local marks the viewing commissioner's own instance (buildFleetView's
+// index 0), whose links use root-relative paths instead of PublicURL —
+// summary.Instance.PublicURL falls back to defaultConfigURL
+// ("http://localhost:8080", config.go) on any deployment that never set
+// league.json's url field, which made every local HQ link a dead
+// localhost bounce (2026-09-01 audit).
+func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Location, local bool) fleetCardView {
 	if !entry.Available() {
 		publicURL := strings.TrimRight(entry.PublicURL, "/")
 		card := fleetCardView{
-			Available: false, PeerID: entry.PeerID, Name: entry.PeerID,
+			Available: false, Local: local, PeerID: entry.PeerID, Name: entry.PeerID,
 			PublicURL: publicURL, HostLabel: hostLabel(publicURL), Error: safePeerError(entry.Error),
 			DraftStartCopy: "The commissioner starts drafts intentionally; a scheduled time is only the meeting point.",
 		}
@@ -217,18 +246,32 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 	if publicURL == "" {
 		publicURL = strings.TrimRight(entry.PublicURL, "/")
 	}
+	// The scheduled draft meeting is the one HQ field that can carry the
+	// neutral shipped placeholder (config.go's placeholderDraftAt,
+	// 2099-01-01): DraftDatePublished is the same guard draftSummaryForState
+	// (service.go) already applies to / and /guide. A published, already-
+	// past meeting also gets a relative label; a future one does not (a
+	// meeting three days out is not usefully described as "in 3 days" by
+	// the same past-oriented RelativeTime the rest of the app uses for
+	// freshness labels).
+	draftAt, draftAtISO, draftAtRelative := "Not published yet", "", ""
+	if league.DraftDatePublished(now, summary.Draft.ScheduledAt) {
+		draftAt = displayTime(location, summary.Draft.ScheduledAt)
+		draftAtISO = isoTime(summary.Draft.ScheduledAt)
+		draftAtRelative = relativeText(now, summary.Draft.ScheduledAt)
+	}
 	card := fleetCardView{
-		Available: true, PeerID: entry.PeerID, Name: summary.Instance.Name,
+		Available: true, Local: local, PeerID: entry.PeerID, Name: summary.Instance.Name,
 		ShortCode: summary.Instance.ShortCode, Mode: summary.Instance.Mode,
 		Season: summary.Instance.Season, PublicURL: publicURL, HostLabel: hostLabel(publicURL),
 		RuntimeReady: summary.Runtime.Ready, AppVersion: summary.Runtime.AppVersion,
 		FrameworkVersion: summary.Runtime.FrameworkVersion, GitSHA: sourceSHAView(summary.Runtime.GitSHA),
-		Build: summary.Runtime.Build, GeneratedAt: displayTime(summary.GeneratedAt),
+		Build: summary.Runtime.Build, GeneratedAt: displayTime(location, summary.GeneratedAt),
 		GeneratedAtISO: isoTime(summary.GeneratedAt), Seats: summary.Membership.Seats,
 		ClaimedSeats: summary.Membership.ClaimedSeats, ReadySeats: summary.Membership.ReadySeats,
 		DraftStatus: draftStatusLabel(summary.Draft.Status), DraftStarted: summary.Draft.Started,
-		DraftStartedAt: displayTime(summary.Draft.StartedAt), DraftStartedAtISO: isoTime(summary.Draft.StartedAt),
-		DraftAt: displayTime(summary.Draft.ScheduledAt), DraftAtISO: isoTime(summary.Draft.ScheduledAt),
+		DraftStartedAt: displayTime(location, summary.Draft.StartedAt), DraftStartedAtISO: isoTime(summary.Draft.StartedAt),
+		DraftAt: draftAt, DraftAtISO: draftAtISO, DraftAtRelative: draftAtRelative,
 		DraftRounds: summary.Draft.Rounds, DraftPicks: summary.Draft.Picks,
 		DraftSlots: summary.Pool.RosterCapacity, DraftOrder: orderText(summary.Draft.Order),
 		DraftOrderSet: summary.Draft.OrderSet, ClockArmed: summary.Draft.ClockArmed,
@@ -242,7 +285,7 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		WeekCloseWeek:    summary.Season.WeekClose.Week, WeekCloseReady: summary.Season.WeekClose.Ready,
 		WeekCloseGames: summary.Season.WeekClose.GamesFinal, WeekCloseTotal: summary.Season.WeekClose.GamesTotal,
 		WeekCloseFinal: summary.Season.WeekClose.Final, WeekCloseStats: summary.Season.WeekClose.StatsFresh,
-		WeekCloseStatsAt: displayTime(summary.Season.WeekClose.StatsUpdatedAt),
+		WeekCloseStatsAt: displayTime(location, summary.Season.WeekClose.StatsUpdatedAt),
 		WeekCloseBadge:   weekCloseBadge(summary.Season.WeekClose), WeekCloseWaiting: !summary.Season.WeekClose.Final && !summary.Season.WeekClose.Ready,
 		WeekCloseWaitingReason: weekCloseWaitingReason(summary.Season.WeekClose),
 		PlayoffAvailable:       summary.Season.Playoffs.Available,
@@ -255,14 +298,14 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 		PoolRosterCapacity: summary.Pool.RosterCapacity, PoolTarget: summary.Pool.Target,
 		PoolCushion: summary.Pool.Cushion, PoolShortfall: summary.Pool.Shortfall,
 		PoolActualCoverage: ratio(summary.Pool.ActualCoverage), PoolTargetCoverage: ratio(summary.Pool.TargetCoverage),
-		PoolRosterCoverage: ratio(summary.Pool.RosterCoverage), PoolLastSync: displayTime(summary.Pool.LastSync),
+		PoolRosterCoverage: ratio(summary.Pool.RosterCoverage), PoolLastSync: displayTime(location, summary.Pool.LastSync),
 	}
 	for _, seat := range summary.Membership.SeatLedger {
 		card.SeatLedger = append(card.SeatLedger, map[string]any{
 			"seat": seat.Seat, "claimed": seat.Claimed, "ready": seat.Ready,
 		})
 	}
-	card.OpenData = openDataRows(summary.OpenData)
+	card.OpenData = openDataRows(summary.OpenData, location)
 	for _, item := range summary.Attention {
 		section := attentionSection(item)
 		attention := attentionView{
@@ -278,29 +321,35 @@ func cardView(entry commissionerhq.FleetEntry) fleetCardView {
 	return card
 }
 
+// setLinks builds every navigable URL on card. A local card (card.Local)
+// ignores base entirely and links with root-relative paths: the viewing
+// commissioner is already inside that instance's own origin, so an
+// absolute link would depend on PublicURL being correctly configured,
+// which it is not on a deployment that never set league.json's url field.
 func (card *fleetCardView) setLinks(base string) {
-	base = strings.TrimRight(base, "/")
+	if card.Local {
+		base = ""
+	} else {
+		base = strings.TrimRight(base, "/")
+	}
 	card.HomeURL = base + "/"
 	card.AdminURL = base + "/admin"
 	card.DraftURL = base + "/draft"
-	card.AdminDraftURL = qualifiedAdminURL(base, "draft-control")
-	card.AdminScheduleURL = qualifiedAdminURL(base, "schedule")
-	card.AdminWeekCloseURL = qualifiedAdminURL(base, "week-close")
-	card.AdminSeatsURL = qualifiedAdminURL(base, "seats")
-	card.AdminInvitesURL = qualifiedAdminURL(base, "invites")
-	card.AdminOrderURL = qualifiedAdminURL(base, "draft-order")
-	card.AdminDataURL = qualifiedAdminURL(base, "data")
-	card.AdminClockURL = qualifiedAdminURL(base, "clock")
-	card.AdminRosterURL = qualifiedAdminURL(base, "roster")
-	card.AdminAnnouncementsURL = qualifiedAdminURL(base, "announcements")
-	card.AdminDangerURL = qualifiedAdminURL(base, "danger")
+	card.AdminDraftURL = qualifiedAdminURL(base, card.Local, "draft-control")
+	card.AdminScheduleURL = qualifiedAdminURL(base, card.Local, "schedule")
+	card.AdminWeekCloseURL = qualifiedAdminURL(base, card.Local, "week-close")
+	card.AdminSeatsURL = qualifiedAdminURL(base, card.Local, "seats")
+	card.AdminInvitesURL = qualifiedAdminURL(base, card.Local, "invites")
+	card.AdminOrderURL = qualifiedAdminURL(base, card.Local, "draft-order")
+	card.AdminDataURL = qualifiedAdminURL(base, card.Local, "data")
+	card.AdminClockURL = qualifiedAdminURL(base, card.Local, "clock")
+	card.AdminRosterURL = qualifiedAdminURL(base, card.Local, "roster")
+	card.AdminAnnouncementsURL = qualifiedAdminURL(base, card.Local, "announcements")
+	card.AdminDangerURL = qualifiedAdminURL(base, card.Local, "danger")
 }
 
 func (card fleetCardView) adminURLFor(section string) string {
-	if section == "" {
-		return card.AdminURL
-	}
-	return qualifiedAdminURL(card.PublicURL, section)
+	return qualifiedAdminURL(card.PublicURL, card.Local, section)
 }
 
 func (card fleetCardView) NameOrPeer() string {
@@ -324,7 +373,7 @@ func (view fleetPageView) toData() map[string]any {
 		"claimed_seats": view.ClaimedSeats, "total_seats": view.TotalSeats,
 		"drafts_live": view.DraftsLive, "attention_count": view.AttentionCount,
 		"critical_count": view.CriticalCount, "warning_count": view.WarningCount,
-		"generated_at": displayTime(view.GeneratedAt), "generated_at_iso": isoTime(view.GeneratedAt),
+		"generated_at": displayTime(view.Location, view.GeneratedAt), "generated_at_iso": isoTime(view.GeneratedAt),
 	}
 }
 
@@ -343,7 +392,7 @@ func (card fleetCardView) toMap() map[string]any {
 		attention = append(attention, item.toMap())
 	}
 	return map[string]any{
-		"available": card.Available, "peer_id": card.PeerID, "name": card.Name,
+		"available": card.Available, "local": card.Local, "peer_id": card.PeerID, "name": card.Name,
 		"short_code": card.ShortCode, "mode": card.Mode, "season": card.Season,
 		"public_url": card.PublicURL, "host_label": card.HostLabel, "error": card.Error,
 		"runtime_ready": card.RuntimeReady, "app_version": card.AppVersion,
@@ -352,7 +401,7 @@ func (card fleetCardView) toMap() map[string]any {
 		"seats": card.Seats, "claimed_seats": card.ClaimedSeats, "ready_seats": card.ReadySeats,
 		"seat_ledger": card.SeatLedger, "draft_status": card.DraftStatus, "draft_started": card.DraftStarted,
 		"draft_started_at": card.DraftStartedAt, "draft_started_at_iso": card.DraftStartedAtISO,
-		"draft_at": card.DraftAt, "draft_at_iso": card.DraftAtISO, "draft_rounds": card.DraftRounds,
+		"draft_at": card.DraftAt, "draft_at_iso": card.DraftAtISO, "draft_at_relative": card.DraftAtRelative, "draft_rounds": card.DraftRounds,
 		"draft_picks": card.DraftPicks, "draft_slots": card.DraftSlots, "draft_order": card.DraftOrder,
 		"draft_order_set": card.DraftOrderSet, "clock_armed": card.ClockArmed, "clock_paused": card.ClockPaused,
 		"clock_text": card.ClockText, "draft_start_copy": card.DraftStartCopy,
@@ -383,14 +432,14 @@ func (card fleetCardView) toMap() map[string]any {
 	}
 }
 
-func openDataRows(data commissionerhq.OpenData) []map[string]any {
+func openDataRows(data commissionerhq.OpenData, location *time.Location) []map[string]any {
 	return []map[string]any{
-		{"label": "SCHEDULES", "state": dataStateLabel(data.Schedules.State), "updated": displayTime(data.Schedules.LastUpdated)},
-		{"label": "PLAYER STATS", "state": dataStateLabel(data.PlayerStats.State), "updated": displayTime(data.PlayerStats.LastUpdated)},
-		{"label": "PREVIOUS STATS", "state": dataStateLabel(data.PlayerStatsPrev.State), "updated": displayTime(data.PlayerStatsPrev.LastUpdated)},
-		{"label": "INJURIES", "state": dataStateLabel(data.Injuries.State), "updated": displayTime(data.Injuries.LastUpdated)},
-		{"label": "TEAM STATS", "state": dataStateLabel(data.TeamStats.State), "updated": displayTime(data.TeamStats.LastUpdated)},
-		{"label": "PLAY-BY-PLAY", "state": dataStateLabel(data.PlayByPlay.State), "updated": displayTime(data.PlayByPlay.LastUpdated)},
+		{"label": "SCHEDULES", "state": dataStateLabel(data.Schedules.State), "updated": displayTime(location, data.Schedules.LastUpdated)},
+		{"label": "PLAYER STATS", "state": dataStateLabel(data.PlayerStats.State), "updated": displayTime(location, data.PlayerStats.LastUpdated)},
+		{"label": "PREVIOUS STATS", "state": dataStateLabel(data.PlayerStatsPrev.State), "updated": displayTime(location, data.PlayerStatsPrev.LastUpdated)},
+		{"label": "INJURIES", "state": dataStateLabel(data.Injuries.State), "updated": displayTime(location, data.Injuries.LastUpdated)},
+		{"label": "TEAM STATS", "state": dataStateLabel(data.TeamStats.State), "updated": displayTime(location, data.TeamStats.LastUpdated)},
+		{"label": "PLAY-BY-PLAY", "state": dataStateLabel(data.PlayByPlay.State), "updated": displayTime(location, data.PlayByPlay.LastUpdated)},
 	}
 }
 
@@ -456,10 +505,19 @@ var knownAdminSections = map[string]bool{
 	"roster": true, "announcements": true, "danger": true,
 }
 
-func qualifiedAdminURL(publicURL, section string) string {
-	base := strings.TrimRight(strings.TrimSpace(publicURL), "/")
-	if base == "" {
-		return ""
+// qualifiedAdminURL builds a link to /admin, optionally scoped to section.
+// local uses a root-relative path unconditionally, ignoring publicURL — see
+// setLinks' doc comment. A remote (non-local) link with no known publicURL
+// returns "" (an unusable href is worse than a link with no known
+// destination at all) rather than a bare "/admin" that would silently
+// point at the viewer's own instance instead of the remote peer.
+func qualifiedAdminURL(publicURL string, local bool, section string) string {
+	base := ""
+	if !local {
+		base = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+		if base == "" {
+			return ""
+		}
 	}
 	if section == "" || !knownAdminSections[section] {
 		return base + "/admin"
@@ -585,11 +643,21 @@ func dataStateLabel(value string) string {
 	return "UNAVAILABLE"
 }
 
-func displayTime(value time.Time) string {
+// displayTime formats value in location, the caller's explicit
+// *time.Location (never resolved from a package-level global here — see
+// buildFleetView's doc comment). Un-converted formatting used to print
+// value's own embedded offset regardless of which league was viewing it,
+// which for the UTC instants commissionerhq's wire summaries actually
+// carry rendered a literal "UTC" abbreviation on every card instead of the
+// viewing commissioner's own league zone (2026-09-01 audit).
+func displayTime(location *time.Location, value time.Time) string {
 	if value.IsZero() {
 		return "—"
 	}
-	return value.Format("Jan 2, 2006 · 3:04 PM MST")
+	if location == nil {
+		location = time.UTC
+	}
+	return value.In(location).Format("Jan 2, 2006 · 3:04 PM MST")
 }
 
 func isoTime(value time.Time) string {
@@ -597,6 +665,18 @@ func isoTime(value time.Time) string {
 		return ""
 	}
 	return value.Format(time.RFC3339)
+}
+
+// relativeText renders league.RelativeTime's compact "N unit(s) ago" label
+// for a past instant. A zero or future value renders no relative text: a
+// draft meeting three days out is not usefully described by the same
+// past-oriented helper the rest of the app uses for freshness labels, and
+// a fabricated "in the future" phrasing is worse than omitting the line.
+func relativeText(now, value time.Time) string {
+	if value.IsZero() || value.After(now) {
+		return ""
+	}
+	return league.RelativeTime(now, value)
 }
 
 func weekCloseBadge(close commissionerhq.WeekClose) string {

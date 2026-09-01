@@ -40,10 +40,20 @@ func runtimeProjection() map[string]any {
 	if err != nil {
 		location = time.UTC
 	}
-	draftAt := svc.DraftAt().In(location)
+	// DefaultConfig ships a neutral 400+-day-out placeholder draft instant
+	// (2099-01-01, config.go's placeholderDraftAt), which the 2026-09-01
+	// audit found rendered here as a live "Next draft meeting" fact. Apply
+	// the same DraftDatePublished guard draftSummaryForState already uses
+	// for / and /guide.
+	now := time.Now()
+	draftAt := svc.DraftAt()
+	draftAtLabel := "Not published yet — the commissioner sets it"
+	if league.DraftDatePublished(now, draftAt) {
+		draftAtLabel = draftAt.In(location).Format("Mon, Jan 2, 2006 · 3:04 PM MST")
+	}
 	return map[string]any{
 		"league_name": cfg.Name, "mode": mode, "phase": phase, "timezone": league.FriendlyTimezoneLabel(zone),
-		"draft_at":     draftAt.Format("Mon, Jan 2, 2006 · 3:04 PM MST"),
+		"draft_at":     draftAtLabel,
 		"runtime_note": "Rules, dates, deadlines, capabilities, and freshness remain owned by the current league runtime.",
 	}
 }

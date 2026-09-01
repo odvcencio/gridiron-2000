@@ -97,6 +97,27 @@ func TestRulesIdentityMapReadsConfig(t *testing.T) {
 	}
 }
 
+// TestRulesIdentityMapGuardsSentinelDraftAndSeasonDates is the /scoring
+// half of the wave-1 sentinel-date audit finding: DefaultConfig ships the
+// neutral placeholder draft/season dates (2099-01-01 / 2099-01-08,
+// config.go), and rulesIdentityMap used to print them as literal calendar
+// facts ("Wednesday, December 31, 2098" style text) instead of applying the
+// same DraftDatePublished guard /help and /draft already use.
+func TestRulesIdentityMapGuardsSentinelDraftAndSeasonDates(t *testing.T) {
+	cfg := DefaultConfig()
+	svc := newRulesTestService(t, cfg, cfg.DraftAt)
+	location, _ := time.LoadLocation("America/New_York")
+	now := time.Now()
+
+	got := svc.rulesIdentityMap(now, location)
+	if got["draft_date"] != "Not published yet — the commissioner sets it" {
+		t.Errorf("draft_date with a sentinel draft date = %v, want the unpublished guard text", got["draft_date"])
+	}
+	if got["season_start"] != "Season start not published yet" {
+		t.Errorf("season_start with a sentinel season-start date = %v, want the unpublished guard text", got["season_start"])
+	}
+}
+
 func TestRulesMembershipMapHonest(t *testing.T) {
 	svc := newRulesTestService(t, DefaultConfig(), time.Now())
 

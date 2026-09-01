@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -128,5 +129,59 @@ func TestDraftSummaryGuardsUnpublishedDraftDates(t *testing.T) {
 	}
 	if got, _ := near["countdown_label"].(string); got == "" {
 		t.Error("a near, real draft date must keep its countdown")
+	}
+}
+
+// TestDraftSummaryPostDraftNeverContradictsCompleteStatus is the wave-1
+// audit fix: a league with the sentinel unpublished draftAt (config.go's
+// placeholderDraftAt) that has already started or completed its draft
+// used to render "Draft time not published yet" (long_date) right next
+// to "COMPLETE — All N picks are locked." (status_note) — a live
+// self-contradiction the 2026-09-01 harness caught. A started/complete
+// draft's date line now anchors on the one truthful timestamp available
+// (state.DraftStartedAt), never the "not published" claim.
+func TestDraftSummaryPostDraftNeverContradictsCompleteStatus(t *testing.T) {
+	service := newTestService(t, false)
+	service.cfg.Timezone = "America/New_York"
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	service.draftAt = time.Date(2098, 12, 31, 19, 0, 0, 0, time.UTC)
+
+	startedAt := now.Add(-3 * time.Hour)
+	if _, err := service.store.StartDraft(startedAt, 90*time.Second); err != nil {
+		t.Fatalf("StartDraft: %v", err)
+	}
+
+	live := service.draftSummary(now)
+	if got := live["status_label"]; got != "LIVE" {
+		t.Fatalf("status_label = %v, want LIVE", got)
+	}
+	if got, _ := live["long_date"].(string); strings.Contains(got, "not published") {
+		t.Errorf("LIVE long_date = %q, contradicts the LIVE status alongside it", got)
+	}
+	if got := live["date"]; got == "TBD" {
+		t.Errorf("LIVE date = %v, want the started date, not the unpublished TBD placeholder", got)
+	}
+
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		team := teamOnClock(nil, number)
+		playerID := fmt.Sprintf("draft-fixture-%03d", number)
+		if _, err := service.store.MakePick(team, playerID, "manager", startedAt.Add(time.Duration(number)*time.Second), time.Time{}); err != nil {
+			t.Fatalf("seed pick %d: %v", number, err)
+		}
+	}
+
+	complete := service.draftSummary(now)
+	if got := complete["status_label"]; got != "COMPLETE" {
+		t.Fatalf("status_label = %v, want COMPLETE", got)
+	}
+	if got, _ := complete["status_note"].(string); !strings.Contains(got, "picks are locked") {
+		t.Errorf("status_note = %q, want the COMPLETE picks-locked explanation", got)
+	}
+	if got, _ := complete["long_date"].(string); strings.Contains(got, "not published") {
+		t.Errorf("COMPLETE long_date = %q, contradicts the COMPLETE status alongside it", got)
+	}
+	if got := complete["date"]; got == "TBD" {
+		t.Errorf("COMPLETE date = %v, want the started date, not the unpublished TBD placeholder", got)
 	}
 }

@@ -3430,12 +3430,33 @@ func (s *Service) draftSummaryForState(now time.Time, state PersistedState) map[
 	if summary["published"] == false {
 		summary["at"] = ""
 		summary["countdown_label"] = ""
-		summary["date"] = "TBD"
-		summary["time"] = ""
-		summary["long_date"] = "Draft time not published yet"
 		summary["days_until"] = 0
 		summary["window_reached"] = false
-		if !state.DraftStarted && !complete {
+		switch {
+		case (state.DraftStarted || complete) && !state.DraftStartedAt.IsZero():
+			// The scheduled meeting date is unpublished, but the room did
+			// open — an audited fact, not a placeholder. Anchor the date
+			// line on that instant instead of repeating "not published"
+			// beside a LIVE/COMPLETE status the same summary already
+			// states (the audit's exact contradiction: "Draft time not
+			// published yet" next to "COMPLETE — All 120 picks are
+			// locked.").
+			startedLocal := state.DraftStartedAt.In(location)
+			summary["date"] = strings.ToUpper(startedLocal.Format("Mon · Jan")) + " " + strconv.Itoa(startedLocal.Day())
+			summary["time"] = startedLocal.Format("3:04 PM MST")
+			summary["long_date"] = startedLocal.Format("Monday, January 2, 2006")
+		case state.DraftStarted || complete:
+			// Started/complete with no recorded start time (a fixture or
+			// migrated league): still no "not published" claim to make
+			// beside a truthful LIVE/COMPLETE status — omit the date line
+			// rather than contradict it.
+			summary["date"] = ""
+			summary["time"] = ""
+			summary["long_date"] = ""
+		default:
+			summary["date"] = "TBD"
+			summary["time"] = ""
+			summary["long_date"] = "Draft time not published yet"
 			summary["status_label"] = "NOT SCHEDULED"
 			summary["status_note"] = "Draft time is not published yet. The commissioner sets it in League settings."
 		}
