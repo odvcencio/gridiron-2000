@@ -118,30 +118,37 @@ func TestCompletedDraftReplacesMutationControlsWithNextActions(t *testing.T) {
 	}
 }
 
-func TestDraftActionSuccessRefreshesManagedRegionsWithoutNavigation(t *testing.T) {
+// TestDraftActionSuccessRedirectsManagedAndNative is the wave-1 stale-state
+// fix's own contract pin for the draft room (replacing this test's former
+// "...WithoutNavigation" shape, which asserted the bug: a managed reply
+// carrying only {ok:true, data:{value:"refresh"}} that GoSX's managed-form
+// runtime never acts on, so a room mutation never left the pre-mutation
+// document on screen). draftActionSuccess must answer a managed caller with
+// the same 303-plus-redirect-field JSON shape a native caller gets via
+// Location — see mutation_response_shape_test.go for the fuller per-action
+// coverage and the no-Location-header rationale (a plain HTTP client, such
+// as gridiron-sim's Bot, must read the JSON body rather than being silently
+// redirected away from it).
+func TestDraftActionSuccessRedirectsManagedAndNative(t *testing.T) {
 	managedRequest := httptest.NewRequest(http.MethodPost, "/draft/__actions/test", nil)
 	managedRequest.Header.Set("Accept", "application/json")
 	managed := httptest.NewRecorder()
 	action.ServeHandler(managed, managedRequest, func(ctx *action.Context) error {
 		return draftActionSuccess(ctx, "/draft?pos=RB", "Draft state updated.")
 	})
-	if managed.Code != http.StatusOK || managed.Header().Get("Location") != "" {
-		t.Fatalf("managed action = %d location=%q body=%s", managed.Code, managed.Header().Get("Location"), managed.Body.String())
+	if managed.Code != http.StatusSeeOther || managed.Header().Get("Location") != "" {
+		t.Fatalf("managed action = %d location=%q body=%s, want 303 with no Location header", managed.Code, managed.Header().Get("Location"), managed.Body.String())
 	}
 	var result struct {
-		OK      bool            `json:"ok"`
-		Message string          `json:"message"`
-		Data    json.RawMessage `json:"data"`
+		OK       bool   `json:"ok"`
+		Message  string `json:"message"`
+		Redirect string `json:"redirect"`
 	}
 	if err := json.Unmarshal(managed.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	var data map[string]string
-	if err := json.Unmarshal(result.Data, &data); err != nil {
-		t.Fatal(err)
-	}
-	if !result.OK || result.Message != "Draft state updated." || data["value"] != "refresh" {
-		t.Fatalf("managed result = %+v data=%v", result, data)
+	if !result.OK || result.Message != "Draft state updated." || result.Redirect != "/draft?pos=RB" {
+		t.Fatalf("managed result = %+v, want ok with the redirect target", result)
 	}
 
 	nativeRequest := httptest.NewRequest(http.MethodPost, "/draft/__actions/test", nil)
