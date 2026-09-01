@@ -1531,7 +1531,11 @@ func (s *Service) buildSchedule(weeks, startWeek int, seed int64) (SeasonSchedul
 		seed = drawn
 	}
 	sched, err := GenerateSchedule(ScheduleParams{
-		Season:    seasonStartAt().Year(),
+		// cfg.Season is the one source of league-season truth (commissioner
+		// HQ and the schedule panel label already read it); seasonStartAt()
+		// is only a kickoff-timing sentinel and its year can disagree with
+		// the configured season (gap-audit item 10).
+		Season:    s.cfg.Season,
 		TeamIDs:   teamIDList(s.Teams()),
 		Divisions: teamDivisionMap(s.Teams()),
 		StartWeek: startWeek,

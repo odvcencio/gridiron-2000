@@ -852,6 +852,32 @@ func TestAdminGenerateScheduleCreatesAndPersists(t *testing.T) {
 	}
 }
 
+// TestAdminGenerateScheduleUsesConfiguredSeason pins buildSchedule to
+// cfg.Season, the one source of league-season truth commissioner HQ and the
+// schedule panel label already read (commissioner_summary.go,
+// app/admin/page.server.go's init override comment). buildSchedule
+// previously stamped SeasonSchedule.Season from seasonStartAt().Year(), a
+// sentinel date unrelated to the configured season, so a deployment whose
+// SEASON_START_AT year disagreed with its own league.json season persisted
+// the wrong year into every generated schedule.
+func TestAdminGenerateScheduleUsesConfiguredSeason(t *testing.T) {
+	service := newTestService(t, true)
+	service.cfg.Season = seasonStartAt().Year() + 5
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	sched, err := service.AdminGenerateSchedule(request, 4, 1, 42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sched.Season != service.cfg.Season {
+		t.Fatalf("schedule.Season = %d, want configured season %d (not the seasonStartAt sentinel year %d)", sched.Season, service.cfg.Season, seasonStartAt().Year())
+	}
+	stored := service.store.Snapshot().Schedule
+	if stored == nil || stored.Season != service.cfg.Season {
+		t.Fatalf("persisted schedule.Season = %+v, want configured season %d", stored, service.cfg.Season)
+	}
+}
+
 func TestAdminGenerateScheduleFailsIfScheduleExists(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
