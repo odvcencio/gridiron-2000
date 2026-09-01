@@ -69,7 +69,7 @@ func adminNotificationReceiptText(receipt league.NotificationReceipt) string {
 		parts = append(parts, fmt.Sprintf("%d already recorded", receipt.AlreadyRecorded))
 	}
 	if receipt.LedgerFailures > 0 {
-		parts = append(parts, fmt.Sprintf("partial failure: %d ledger failure(s)", receipt.LedgerFailures))
+		parts = append(parts, "partial failure: "+league.Plural(receipt.LedgerFailures, "ledger failure"))
 	}
 	if receipt.QueueDrops > 0 {
 		parts = append(parts, fmt.Sprintf("%d dropped (queue full)", receipt.QueueDrops))
@@ -310,7 +310,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Regular-season schedule generated: %d weeks, seed %d.", len(schedule.Weeks), schedule.Seed))
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("schedule"), fmt.Sprintf("Regular-season schedule generated: %d weeks, seed %d.", len(schedule.Weeks), schedule.Seed))
 				return nil
 			},
 			"schedule-regenerate": func(ctx *action.Context) error {
@@ -322,7 +322,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Schedule redrawn with seed %d. No draft or scoring state changed.", schedule.Seed))
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("schedule"), fmt.Sprintf("Schedule redrawn with seed %d. No draft or scoring state changed.", schedule.Seed))
 				return nil
 			},
 			"close-week-ready": func(ctx *action.Context) error {
@@ -408,7 +408,7 @@ func init() {
 				case expired > 0:
 					notice = fmt.Sprintf("Waiver run expired %d claim%s; none resolved.", expired, plural(expired))
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", notice)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), notice)
 				return nil
 			},
 			"playoff-preview": func(ctx *action.Context) error {
@@ -483,14 +483,14 @@ func init() {
 				if !started {
 					message = "Draft was already live; the original clock is unchanged."
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", message)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("draft-control"), message)
 				return nil
 			},
 			"draft-reschedule": func(ctx *action.Context) error {
 				if err := league.Default().AdminRescheduleDraft(ctx.Request, ctx.FormData["meeting_at"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Draft meeting rescheduled. This changes the manager-facing meeting time and reminders; it does not start the draft.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("draft-control"), "Draft meeting rescheduled. This changes the manager-facing meeting time and reminders; it does not start the draft.")
 				return nil
 			},
 			"invite-add": func(ctx *action.Context) error {
@@ -498,7 +498,7 @@ func init() {
 				if err := league.Default().AdminAddInvite(ctx.Request, email); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", email+" can now claim a seat.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("invites"), email+" can now claim a seat.")
 				return nil
 			},
 			"invite-send": func(ctx *action.Context) error {
@@ -511,14 +511,14 @@ func init() {
 				if !sent {
 					message = "Invite added — email is not configured, use the mail link."
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", message)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("invites"), message)
 				return nil
 			},
 			"invite-remove": func(ctx *action.Context) error {
 				if err := league.Default().AdminRemoveInvite(ctx.Request, ctx.FormData["email"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Invite removed.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("invites"), "Invite removed.")
 				return nil
 			},
 			"seat-release": func(ctx *action.Context) error {
@@ -526,7 +526,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is unclaimed again.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), team.Name+" is unclaimed again.")
 				return nil
 			},
 			// co-detach lets the commissioner remove a seat's co-manager,
@@ -535,7 +535,7 @@ func init() {
 				if err := league.Default().DetachCoManager(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Co-manager detached.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), "Co-manager detached.")
 				return nil
 			},
 			"team-rename": func(ctx *action.Context) error {
@@ -543,21 +543,21 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", team.Name+" is set.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), team.Name+" is set.")
 				return nil
 			},
 			"avatar-reset": func(ctx *action.Context) error {
 				if err := league.Default().ResetAvatar(ctx.Request, ctx.FormData["team_id"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Avatar reset.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), "Avatar reset.")
 				return nil
 			},
 			"draft-reset": func(ctx *action.Context) error {
 				if err := league.Default().AdminResetDraft(ctx.Request, ctx.FormData["confirm"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Draft reset: draft-scoped state cleared; league topology and configuration preserved.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("danger"), "Draft reset: draft-scoped state cleared; league topology and configuration preserved.")
 				return nil
 			},
 			"draft-undo": func(ctx *action.Context) error {
@@ -568,14 +568,14 @@ func init() {
 				if err := league.Default().AdminUndoPick(ctx.Request, ctx.FormData["previous_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Last pick undone; the slot is open again.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("danger"), "Last pick undone; the slot is open again.")
 				return nil
 			},
 			"league-reset": func(ctx *action.Context) error {
 				if err := league.Default().AdminResetLeague(ctx.Request, ctx.FormData["confirm"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "League reset: blank pre-draft topology restored. Franchise name overrides, invites, scoring, announcements, and notification preferences preserved.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("danger"), "League reset: blank pre-draft topology restored. Franchise name overrides, invites, scoring, announcements, and notification preferences preserved.")
 				return nil
 			},
 			// seat-trim is the T-1hr action: drop every seat nobody claimed,
@@ -593,11 +593,11 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				notice := fmt.Sprintf("Trimmed %d unclaimed seat(s). The league is set at %d teams.", len(removed), len(kept))
+				notice := fmt.Sprintf("Trimmed %s. The league is set at %d teams.", league.Plural(len(removed), "unclaimed seat"), len(kept))
 				if scheduleBefore {
 					notice += " Existing unplayed schedule cleared; regenerate it for the kept teams."
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", notice)
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("draft-order"), notice)
 				return nil
 			},
 			"order-randomize": func(ctx *action.Context) error {
@@ -625,14 +625,14 @@ func init() {
 				if err := league.Default().AdminPauseClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock paused.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("clock"), "Pick clock paused.")
 				return nil
 			},
 			"clock-resume": func(ctx *action.Context) error {
 				if err := league.Default().AdminResumeClock(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Pick clock resumed.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("clock"), "Pick clock resumed.")
 				return nil
 			},
 			"clock-force-autopick": func(ctx *action.Context) error {
@@ -640,7 +640,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("clock"), fmt.Sprintf("Pick %d: %s auto-selects %s.", pick.Number, team.Name, player.Name))
 				return nil
 			},
 			"clock-extend": func(ctx *action.Context) error {
@@ -652,7 +652,7 @@ func init() {
 				if err := league.Default().AdminExtendClock(ctx.Request, secs, ctx.FormData["current_pick_token"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Clock extended by %d seconds.", secs))
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("clock"), fmt.Sprintf("Clock extended by %d seconds.", secs))
 				return nil
 			},
 			"clock-set-duration": func(ctx *action.Context) error {
@@ -664,9 +664,13 @@ func init() {
 				if err := league.Default().AdminSetClockSeconds(ctx.Request, secs); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Pick clock set to %d seconds.", secs))
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("clock"), fmt.Sprintf("Pick clock set to %d seconds.", secs))
 				return nil
 			},
+			// clock-set-autopick is submitted from the per-seat AUTO toggle in
+			// 01 // SEATS (SeatRow), not from 05 // DRAFT CLOCK, so its
+			// section-preserving return target is seats, matching where the
+			// control the commissioner clicked actually lives.
 			"clock-set-autopick": func(ctx *action.Context) error {
 				on := strings.EqualFold(strings.TrimSpace(ctx.FormData["on"]), "true")
 				if err := league.Default().AdminSetAutopick(ctx.Request, ctx.FormData["team_id"], on); err != nil {
@@ -676,7 +680,7 @@ func init() {
 				if on {
 					status = "on"
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Autopick is "+status+" for that seat.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("seats"), "Autopick is "+status+" for that seat.")
 				return nil
 			},
 			"roster-shape-apply": func(ctx *action.Context) error {
@@ -734,7 +738,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf(
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("roster"), fmt.Sprintf(
 					"Roster shape set: %d starters + %d bench + %d reserve = %d draft rounds (IR %d, outside the cap).",
 					preset.Starters(), preset.Bench, preset.ReserveTotal(), preset.Total(), preset.IR))
 				return nil
@@ -743,7 +747,7 @@ func init() {
 				if err := league.Default().AdminResetRosterShape(ctx.Request); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Roster shape reset to the default.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("roster"), "Roster shape reset to the default.")
 				return nil
 			},
 			"announcement-post": func(ctx *action.Context) error {
@@ -763,7 +767,7 @@ func init() {
 				if err := league.Default().AdminDeleteAnnouncement(ctx.Request, ctx.FormData["id"]); err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				actionui.RedirectWithNotice(ctx, "/admin", "Announcement removed.")
+				actionui.RedirectBackWithNotice(ctx, adminSectionTarget("announcements"), "Announcement removed.")
 				return nil
 			},
 		},
@@ -784,7 +788,7 @@ func adminPlayoffRedirect(ctx *action.Context, message string) {
 	adminPlayoffNotice(ctx, adminSectionTarget("playoffs"), message)
 }
 
-var adminPlayoffNotice = actionui.RedirectWithNotice
+var adminPlayoffNotice = actionui.RedirectBackWithNotice
 
 func adminPlayoffScores(homeRaw, awayRaw string) (float64, float64, bool, error) {
 	homeRaw, awayRaw = strings.TrimSpace(homeRaw), strings.TrimSpace(awayRaw)
@@ -811,7 +815,7 @@ func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
 		return actionui.Validation(ctx, "admin", "admin", err)
 	}
 	if alreadyFinal {
-		actionui.RedirectWithNotice(ctx, "/admin", fmt.Sprintf("Week %d was already final; no scoring or lineup changes were made.", week))
+		actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), fmt.Sprintf("Week %d was already final; no scoring or lineup changes were made.", week))
 		return nil
 	}
 	notice := fmt.Sprintf("Week %d closed and scored.", week)
@@ -834,7 +838,7 @@ func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {
 			notice += miss.PlayerName + " (" + league.Default().TeamLabel(miss.TeamID) + ")"
 		}
 	}
-	actionui.RedirectWithNotice(ctx, "/admin", notice)
+	actionui.RedirectBackWithNotice(ctx, adminSectionTarget("week-close"), notice)
 	return nil
 }
 

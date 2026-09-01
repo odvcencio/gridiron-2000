@@ -875,15 +875,15 @@ func Page() Node {
 								<input type="hidden" name="unclaimed_seat_token" value={data.unclaimed_seat_token}></input>
 								<label for="admin-seat-trim-confirm">Type <span class="mono">{data.unclaimed_seat_confirm}</span> to confirm.</label>
 								<input id="admin-seat-trim-confirm" class="scoring-input" type="text" name="confirm" value="" autocomplete="off" placeholder={data.unclaimed_seat_confirm} required="required"></input>
-								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_count} unclaimed seat(s)</button>
+								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_label}</button>
 							</form>
 							<p class="demo-message">
 								<strong>SCHEDULE WARNING:</strong>
 								if a schedule already exists, this action discards that unplayed schedule. The final order draw will publish a replacement for the kept teams.
 							</p>
 							<p class="scoring-note">
-								{data.unclaimed_seat_count}
-								seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
+								{data.unclaimed_seat_label}
+								{data.unclaimed_seat_verb} no manager. Drop them first, then randomize. An unclaimed seat takes a turn
 								in every round: it runs the full pick clock down, then autopicks a player. Reload this page if the claim count changes before you confirm.
 							</p>
 						</If>

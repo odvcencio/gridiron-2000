@@ -28,7 +28,8 @@ func TestAdminNotificationReceiptCopyAndAnchors(t *testing.T) {
 	}{
 		{name: "disabled", receipt: league.NotificationReceipt{Requested: 2, TransportDisabled: true}, want: "delivery off"},
 		{name: "not wired", receipt: league.NotificationReceipt{Requested: 1, TransportNotWired: true}, want: "delivery not wired"},
-		{name: "ledger failure", receipt: league.NotificationReceipt{Requested: 1, LedgerFailures: 1}, want: "partial failure: 1 ledger failure(s)"},
+		{name: "ledger failure", receipt: league.NotificationReceipt{Requested: 1, LedgerFailures: 1}, want: "partial failure: 1 ledger failure"},
+		{name: "ledger failures plural", receipt: league.NotificationReceipt{Requested: 2, LedgerFailures: 2}, want: "partial failure: 2 ledger failures"},
 		{name: "no recipients", receipt: league.NotificationReceipt{}, want: "no recipients requested"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -26,6 +26,33 @@ import (
 // one linearizable operation.
 var topologyMutationMu sync.Mutex
 
+// Plural renders "<n> <singular>" with the correct English plural noun
+// (gap-audit item 11): commissioner-facing copy printed the field name
+// literally ("1 LEAGUES", "1 occurrence(s)", "2 day(s)") instead of a real
+// count-agreement sentence. Only the exact count 1 keeps the singular form;
+// every other count, including 0 and negative counts, takes the plural.
+// This covers the regular English "add a trailing s" case, which is every
+// noun this console currently counts (day, league, seat, failure, ...); a
+// caller with an irregular plural can still fall back to its own
+// fmt.Sprintf rather than force one on every other caller here.
+func Plural(n int, singular string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %ss", n, singular)
+}
+
+// pluralVerb picks the verb form agreeing with a count Plural just rendered
+// as a noun ("1 unclaimed seat has no manager" vs "3 unclaimed seats have no
+// manager"). It is deliberately narrow — a caller with its own verb pair
+// passes it directly rather than growing this into a general conjugator.
+func pluralVerb(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
 // AdminData assembles the commissioner console: seat claims, invites, and
 // league state counters. The page itself renders a restricted notice for
 // non-commissioners; every action re-checks authority server-side.
@@ -246,6 +273,13 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"has_unclaimed_seats":    len(unclaimedSeatIDs) > 0,
 		"unclaimed_seat_token":   seatTrimToken(unclaimedSeatIDs, state.DraftOrder, state.Schedule),
 		"unclaimed_seat_confirm": seatTrimConfirmation(len(unclaimedSeatIDs)),
+		// unclaimed_seat_label/_verb (gap-audit item 11): "N unclaimed
+		// seat(s)" and "seat(s) have" read wrong at both ends of the count —
+		// "1 unclaimed seat(s)" and "3 seat(s) have". Plural agrees the
+		// noun; the verb needs its own singular/plural form since it is not
+		// a noun Plural can render.
+		"unclaimed_seat_label": Plural(len(unclaimedSeatIDs), "unclaimed seat"),
+		"unclaimed_seat_verb":  pluralVerb(len(unclaimedSeatIDs), "has", "have"),
 		// draft_started hides the seat-trim control once the first pick
 		// lands, matching the roster-shape panel's own lock. The store
 		// rejects a late trim anyway ("seats lock once the draft starts"),

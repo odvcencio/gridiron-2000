@@ -1162,3 +1162,28 @@ func TestAdminClockActionsRejectImpossibleTransitions(t *testing.T) {
 		t.Fatalf("resume running error = %v, want already-running rejection", err)
 	}
 }
+
+// TestPluralRendersCountedNoun pins the shared plural helper (gap-audit item
+// 11): admin and HQ console copy printed "1 LEAGUES", "1 occurrence(s)", and
+// "2 day(s)" instead of "1 league" and "2 days". Only the exact count 1 gets
+// the singular form; every other count, including 0, gets the plural.
+func TestPluralRendersCountedNoun(t *testing.T) {
+	cases := []struct {
+		n    int
+		word string
+		want string
+	}{
+		{0, "day", "0 days"},
+		{1, "day", "1 day"},
+		{2, "day", "2 days"},
+		{7, "day", "7 days"},
+		{-1, "day", "-1 days"},
+		{1, "league", "1 league"},
+		{3, "league", "3 leagues"},
+	}
+	for _, c := range cases {
+		if got := Plural(c.n, c.word); got != c.want {
+			t.Errorf("Plural(%d, %q) = %q, want %q", c.n, c.word, got, c.want)
+		}
+	}
+}
