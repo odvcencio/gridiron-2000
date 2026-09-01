@@ -116,8 +116,9 @@ func gitPrivacyPaths(root string) ([]string, error) {
 			return nil, fmt.Errorf("git ls-files returned unsafe relative path")
 		}
 		// --others reports a nested agent worktree under .claude/ as a bare
-		// directory path; the exclusion filter must apply to this list too.
-		if privacyPathExcluded(path) {
+		// directory path that cannot be read as a file. Skip only that
+		// prefix here; the broader exclusion filter applies at scan time.
+		if path == ".claude" || strings.HasPrefix(path, ".claude/") {
 			continue
 		}
 		paths = append(paths, path)
