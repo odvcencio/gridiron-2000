@@ -215,5 +215,5 @@ var timeNow = func() time.Time { return time.Now().UTC() }
 // fleetCard remains the narrow contract used by existing renderer tests. The
 // full page and live fragment both use the richer model behind it.
 func fleetCard(entry commissionerhq.FleetEntry) map[string]any {
-	return cardView(entry, timeNow(), time.UTC).toMap()
+	return cardView(entry, timeNow(), time.UTC, false).toMap()
 }

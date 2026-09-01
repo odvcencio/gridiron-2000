@@ -44,6 +44,7 @@ type attentionView struct {
 
 type fleetCardView struct {
 	Available bool
+	Local     bool
 	PeerID    string
 	Name      string
 	ShortCode string
@@ -154,8 +155,13 @@ func buildFleetView(entries []commissionerhq.FleetEntry, generatedAt time.Time, 
 		location = time.UTC
 	}
 	view := fleetPageView{GeneratedAt: generatedAt, Location: location, Cards: make([]fleetCardView, 0, len(entries))}
-	for _, entry := range entries {
-		card := cardView(entry, generatedAt, location)
+	for index, entry := range entries {
+		// Fleet() (internal/commissionerhq/service.go) documents and
+		// guarantees the local instance's own entry at index 0, every
+		// configured peer after it — the same invariant AdminDestinations
+		// relies on. cardView uses this to link the local card with
+		// root-relative paths instead of PublicURL (see setLinks).
+		card := cardView(entry, generatedAt, location, index == 0)
 		view.Cards = append(view.Cards, card)
 		view.LeagueCount++
 		if !card.Available {
@@ -216,12 +222,18 @@ func severityRank(value string) int {
 // cardView projects one peer's summary. now is the fleet-snapshot instant
 // (buildFleetView's generatedAt) used only for DraftDatePublished's
 // far-future-sentinel check and each field's relative-text label; location
-// is the *time.Location every absolute timestamp below is displayed in.
-func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Location) fleetCardView {
+// is the *time.Location every absolute timestamp below is displayed in;
+// local marks the viewing commissioner's own instance (buildFleetView's
+// index 0), whose links use root-relative paths instead of PublicURL —
+// summary.Instance.PublicURL falls back to defaultConfigURL
+// ("http://localhost:8080", config.go) on any deployment that never set
+// league.json's url field, which made every local HQ link a dead
+// localhost bounce (2026-09-01 audit).
+func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Location, local bool) fleetCardView {
 	if !entry.Available() {
 		publicURL := strings.TrimRight(entry.PublicURL, "/")
 		card := fleetCardView{
-			Available: false, PeerID: entry.PeerID, Name: entry.PeerID,
+			Available: false, Local: local, PeerID: entry.PeerID, Name: entry.PeerID,
 			PublicURL: publicURL, HostLabel: hostLabel(publicURL), Error: safePeerError(entry.Error),
 			DraftStartCopy: "The commissioner starts drafts intentionally; a scheduled time is only the meeting point.",
 		}
@@ -249,7 +261,7 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 		draftAtRelative = relativeText(now, summary.Draft.ScheduledAt)
 	}
 	card := fleetCardView{
-		Available: true, PeerID: entry.PeerID, Name: summary.Instance.Name,
+		Available: true, Local: local, PeerID: entry.PeerID, Name: summary.Instance.Name,
 		ShortCode: summary.Instance.ShortCode, Mode: summary.Instance.Mode,
 		Season: summary.Instance.Season, PublicURL: publicURL, HostLabel: hostLabel(publicURL),
 		RuntimeReady: summary.Runtime.Ready, AppVersion: summary.Runtime.AppVersion,
@@ -309,29 +321,35 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 	return card
 }
 
+// setLinks builds every navigable URL on card. A local card (card.Local)
+// ignores base entirely and links with root-relative paths: the viewing
+// commissioner is already inside that instance's own origin, so an
+// absolute link would depend on PublicURL being correctly configured,
+// which it is not on a deployment that never set league.json's url field.
 func (card *fleetCardView) setLinks(base string) {
-	base = strings.TrimRight(base, "/")
+	if card.Local {
+		base = ""
+	} else {
+		base = strings.TrimRight(base, "/")
+	}
 	card.HomeURL = base + "/"
 	card.AdminURL = base + "/admin"
 	card.DraftURL = base + "/draft"
-	card.AdminDraftURL = qualifiedAdminURL(base, "draft-control")
-	card.AdminScheduleURL = qualifiedAdminURL(base, "schedule")
-	card.AdminWeekCloseURL = qualifiedAdminURL(base, "week-close")
-	card.AdminSeatsURL = qualifiedAdminURL(base, "seats")
-	card.AdminInvitesURL = qualifiedAdminURL(base, "invites")
-	card.AdminOrderURL = qualifiedAdminURL(base, "draft-order")
-	card.AdminDataURL = qualifiedAdminURL(base, "data")
-	card.AdminClockURL = qualifiedAdminURL(base, "clock")
-	card.AdminRosterURL = qualifiedAdminURL(base, "roster")
-	card.AdminAnnouncementsURL = qualifiedAdminURL(base, "announcements")
-	card.AdminDangerURL = qualifiedAdminURL(base, "danger")
+	card.AdminDraftURL = qualifiedAdminURL(base, card.Local, "draft-control")
+	card.AdminScheduleURL = qualifiedAdminURL(base, card.Local, "schedule")
+	card.AdminWeekCloseURL = qualifiedAdminURL(base, card.Local, "week-close")
+	card.AdminSeatsURL = qualifiedAdminURL(base, card.Local, "seats")
+	card.AdminInvitesURL = qualifiedAdminURL(base, card.Local, "invites")
+	card.AdminOrderURL = qualifiedAdminURL(base, card.Local, "draft-order")
+	card.AdminDataURL = qualifiedAdminURL(base, card.Local, "data")
+	card.AdminClockURL = qualifiedAdminURL(base, card.Local, "clock")
+	card.AdminRosterURL = qualifiedAdminURL(base, card.Local, "roster")
+	card.AdminAnnouncementsURL = qualifiedAdminURL(base, card.Local, "announcements")
+	card.AdminDangerURL = qualifiedAdminURL(base, card.Local, "danger")
 }
 
 func (card fleetCardView) adminURLFor(section string) string {
-	if section == "" {
-		return card.AdminURL
-	}
-	return qualifiedAdminURL(card.PublicURL, section)
+	return qualifiedAdminURL(card.PublicURL, card.Local, section)
 }
 
 func (card fleetCardView) NameOrPeer() string {
@@ -374,7 +392,7 @@ func (card fleetCardView) toMap() map[string]any {
 		attention = append(attention, item.toMap())
 	}
 	return map[string]any{
-		"available": card.Available, "peer_id": card.PeerID, "name": card.Name,
+		"available": card.Available, "local": card.Local, "peer_id": card.PeerID, "name": card.Name,
 		"short_code": card.ShortCode, "mode": card.Mode, "season": card.Season,
 		"public_url": card.PublicURL, "host_label": card.HostLabel, "error": card.Error,
 		"runtime_ready": card.RuntimeReady, "app_version": card.AppVersion,
@@ -487,10 +505,19 @@ var knownAdminSections = map[string]bool{
 	"roster": true, "announcements": true, "danger": true,
 }
 
-func qualifiedAdminURL(publicURL, section string) string {
-	base := strings.TrimRight(strings.TrimSpace(publicURL), "/")
-	if base == "" {
-		return ""
+// qualifiedAdminURL builds a link to /admin, optionally scoped to section.
+// local uses a root-relative path unconditionally, ignoring publicURL — see
+// setLinks' doc comment. A remote (non-local) link with no known publicURL
+// returns "" (an unusable href is worse than a link with no known
+// destination at all) rather than a bare "/admin" that would silently
+// point at the viewer's own instance instead of the remote peer.
+func qualifiedAdminURL(publicURL string, local bool, section string) string {
+	base := ""
+	if !local {
+		base = strings.TrimRight(strings.TrimSpace(publicURL), "/")
+		if base == "" {
+			return ""
+		}
 	}
 	if section == "" || !knownAdminSections[section] {
 		return base + "/admin"

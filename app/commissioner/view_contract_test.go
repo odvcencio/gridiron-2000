@@ -56,7 +56,7 @@ func TestCommissionerDraftDateGuardsSentinelAndAddsRelativeText(t *testing.T) {
 			Instance: commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example"},
 			Draft:    commissionerhq.Draft{ScheduledAt: sentinelDraftAt},
 		},
-	}, now, time.UTC)
+	}, now, time.UTC, false)
 	if unpublished.DraftAt != "Not published yet" {
 		t.Fatalf("DraftAt with a sentinel draft date = %q, want the unpublished guard text", unpublished.DraftAt)
 	}
@@ -74,7 +74,7 @@ func TestCommissionerDraftDateGuardsSentinelAndAddsRelativeText(t *testing.T) {
 			Instance: commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example"},
 			Draft:    commissionerhq.Draft{ScheduledAt: pastScheduled},
 		},
-	}, now, time.UTC)
+	}, now, time.UTC, false)
 	if published.DraftAt == "Not published yet" {
 		t.Fatal("DraftAt with a real, recent draft date rendered the unpublished guard text")
 	}
@@ -110,6 +110,63 @@ func TestCommissionerDraftDateGuardsSentinelAndAddsRelativeText(t *testing.T) {
 	}
 	if !strings.Contains(publishedHTML, "(3 hours ago)") {
 		t.Fatalf("rendered draft control panel omitted the relative-time label: %s", publishedHTML)
+	}
+}
+
+// TestFleetCardLocalInstanceLinksAreRelativeRemoteStaysAbsolute is the
+// wave-1 audit fix for view.go's HQ links: summary.Instance.PublicURL
+// falls back to defaultConfigURL ("http://localhost:8080", config.go) on
+// any deployment that never set league.json's url field, which made every
+// "Open league →" / "Draft controls →" / "Schedule →" / "Data →" / "Open
+// data →" link on the LOCAL card bounce to a dead localhost origin. The
+// local card (buildFleetView's index 0, per Fleet()'s documented
+// ordering) now links with root-relative paths regardless of what
+// PublicURL carries; only a remote peer card keeps the absolute URL,
+// since that is the only way to reach a different origin.
+func TestFleetCardLocalInstanceLinksAreRelativeRemoteStaysAbsolute(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 20, 0, 0, 0, time.UTC)
+	attention := []commissionerhq.Attention{{Code: "pool_stale", Severity: "warning", Area: "pool", Message: "Pool data is stale"}}
+	localSummary := commissionerhq.Summary{
+		Instance:  commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "http://localhost:8080"},
+		Attention: attention,
+	}
+	remoteSummary := commissionerhq.Summary{
+		Instance:  commissionerhq.Instance{Name: "PEER LEAGUE", PublicURL: "https://peer.gridiron.example"},
+		Attention: attention,
+	}
+	local := cardView(commissionerhq.FleetEntry{PeerID: "local", PublicURL: "http://localhost:8080", Summary: localSummary}, now, time.UTC, true)
+	remote := cardView(commissionerhq.FleetEntry{PeerID: "peer", PublicURL: "https://peer.gridiron.example", Summary: remoteSummary}, now, time.UTC, false)
+
+	relativeWant := map[string]string{
+		"HomeURL":          "/",
+		"AdminURL":         "/admin",
+		"DraftURL":         "/draft",
+		"AdminDraftURL":    "/admin?section=draft-control#admin-draft-control",
+		"AdminScheduleURL": "/admin?section=schedule#admin-schedule",
+		"AdminDataURL":     "/admin?section=data#admin-data",
+	}
+	got := map[string]string{
+		"HomeURL": local.HomeURL, "AdminURL": local.AdminURL, "DraftURL": local.DraftURL,
+		"AdminDraftURL": local.AdminDraftURL, "AdminScheduleURL": local.AdminScheduleURL,
+		"AdminDataURL": local.AdminDataURL,
+	}
+	for key, want := range relativeWant {
+		if got[key] != want {
+			t.Errorf("local card %s = %q, want relative path %q", key, got[key], want)
+		}
+	}
+	if len(local.Attention) != 1 || local.Attention[0].OwnerURL != "/admin?section=data#admin-data" {
+		t.Fatalf("local card's data-attention owner_url = %+v, want a relative /admin?section=data link", local.Attention)
+	}
+
+	if !strings.HasPrefix(remote.HomeURL, "https://peer.gridiron.example") {
+		t.Errorf("remote card HomeURL = %q, want the absolute PublicURL preserved", remote.HomeURL)
+	}
+	if !strings.HasPrefix(remote.AdminDraftURL, "https://peer.gridiron.example") {
+		t.Errorf("remote card AdminDraftURL = %q, want the absolute PublicURL preserved", remote.AdminDraftURL)
+	}
+	if len(remote.Attention) != 1 || !strings.HasPrefix(remote.Attention[0].OwnerURL, "https://peer.gridiron.example") {
+		t.Fatalf("remote card's attention owner_url = %+v, want the absolute PublicURL preserved", remote.Attention)
 	}
 }
 
@@ -173,7 +230,7 @@ func TestWeekCloseBadgePrecedenceAndBoundedWaitingReason(t *testing.T) {
 					Instance: commissionerhq.Instance{Name: "Fixture", PublicURL: "https://fixture.example"},
 					Season:   commissionerhq.Season{WeekClose: tc.close},
 				},
-			}, time.Now(), time.UTC)
+			}, time.Now(), time.UTC, false)
 			payload := card.toMap()
 			if got := payload["week_close_badge"]; got != tc.badge {
 				t.Fatalf("render badge = %#v, want %q", got, tc.badge)

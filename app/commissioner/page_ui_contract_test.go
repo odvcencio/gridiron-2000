@@ -123,7 +123,7 @@ func TestWeekCloseReadyAttentionRoutesToNormalCloseControl(t *testing.T) {
 			Season:    commissionerhq.Season{WeekClose: commissionerhq.WeekClose{Week: 1, Ready: true}},
 			Attention: []commissionerhq.Attention{{Code: "week_close_ready", Severity: "warning", Area: "schedule", Message: "ready"}},
 		},
-	}, time.Now(), time.UTC)
+	}, time.Now(), time.UTC, false)
 	if len(card.Attention) != 1 || card.Attention[0].Section != "week-close" || card.Attention[0].OwnerURL != "https://gridiron.example/admin?section=week-close#admin-week-close" {
 		t.Fatalf("week-close attention route = %+v", card.Attention)
 	}
