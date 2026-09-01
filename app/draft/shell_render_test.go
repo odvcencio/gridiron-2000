@@ -132,7 +132,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		`data-gosx-live-mode="event"`, `data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
 		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape-rows"`,
 		`id="tab-players"`, `id="tab-picks"`, `class="draft-tabbar"`,
-		`aria-live="polite"`, `aria-live="off"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
+		`aria-live="polite"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
 		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // live on v0.53.10
 		`class="live-dot live-dot--bound" aria-hidden="true"`,
 	}
@@ -157,8 +157,24 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 			t.Fatalf("%s shell: command region (%d) must precede the panes (%d)", state, start, end)
 		}
 		command := body[start:end]
+		// The shipped neutral league carries a placeholder draft date
+		// (config.go placeholderDraftAt), which draftSummaryForState reads
+		// as unpublished: the pre-draft command bar must render the honest
+		// NOT SET state with no countdown target at all (the 2026-09-01 UX
+		// audit found a live "26419d" clock here). Every started state
+		// carries exactly one clock, inside the command region, muted for
+		// screen readers.
+		if state == "pre" {
+			if !strings.Contains(command, "NOT SET") || strings.Contains(body, `data-gosx-countdown-format=`) {
+				t.Errorf("%s shell: unpublished draft date must render NOT SET with no countdown; command region: %s", state, command)
+			}
+			return
+		}
 		if n := strings.Count(body, `data-gosx-countdown-format=`); n != 1 || strings.Count(command, `data-gosx-countdown-format=`) != 1 {
 			t.Errorf("%s shell: %d countdowns, want exactly one inside the command region", state, n)
+		}
+		if !strings.Contains(command, `aria-live="off"`) {
+			t.Errorf("%s shell: the pick clock must carry aria-live=\"off\"", state)
 		}
 	}
 	// Available and My team panes exist before and during the draft only; the
@@ -166,7 +182,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	panes := []string{`draft-pane--available`, `draft-pane--mine`, `data-gosx-region-url="/draft/fragment/available?pos={value}"`, `data-gosx-region-url="/draft/fragment/queue"`, `data-gosx-set="$draft.available.pos"`}
 	pre := renderDraftForUser(t, handler, seated)
 	check("pre", pre)
-	for _, want := range append([]string{`data-gosx-countdown-format="dhms"`, "Build your big board", "Check in now ↑", `id="ready-toggle"`, `id="autopick-toggle"`}, panes...) {
+	for _, want := range append([]string{"Build your big board", "Check in now ↑", `id="ready-toggle"`, `id="autopick-toggle"`}, panes...) {
 		if !strings.Contains(pre, want) {
 			t.Errorf("pre-draft shell missing %q", want)
 		}
