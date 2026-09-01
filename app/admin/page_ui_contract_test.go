@@ -378,6 +378,52 @@ func TestAdminTaskBoardDraftPhaseTruthTable(t *testing.T) {
 	}
 }
 
+// TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete pins
+// gap-audit item 4: section 00 kept showing the eight-step pre-draft
+// checklist ("drop the seats nobody claimed", "Type START below") on a
+// completed-draft league, where the draft is already over and there is no
+// START control left to click. Once draft_complete, the section renders a
+// season-operations runbook instead (week close, waivers, trades review,
+// lineup intervention, backups). Reuses the same complete-draft fixture
+// process TestAdminTaskBoardDraftPhaseTruthTable already drives.
+func TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminTaskBoardDraftPhaseFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_TASK_DRAFT_PHASE=complete",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("complete-draft fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		"Season operations runbook",
+		"Close each scoring week",
+		"Watch the waiver run",
+		"Review trades",
+		"Step in on a lineup",
+		"Keep a backup",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("season-operations runbook missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"About an hour early, drop the seats nobody claimed",
+		"Confirm every seat is ready",
+		"Type START below",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("completed-draft admin page still shows the stale pre-draft checklist: %q", forbidden)
+		}
+	}
+}
+
 func TestAdminTaskBoardDraftPhaseFixtureProcess(t *testing.T) {
 	phase := os.Getenv("ADMIN_TASK_DRAFT_PHASE")
 	if phase == "" {

@@ -416,12 +416,68 @@ func Page() Node {
 			</nav>
 			<div class="admin-grid">
 				<section id="admin-draft-control" aria-labelledby="admin-draft-control-heading" tabindex="-1" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
+					<If cond={data.draft.complete}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">00 // SEASON OPERATIONS</span>
+							<h2 id="admin-draft-control-heading">Season operations runbook</h2>
+						</div>
+					</div>
+					<div class="checklist">
+						<div class="checklist-item">
+							<span class="checklist-mark mono">01</span>
+							<div class="checklist-item__text">
+								<strong>Close each scoring week</strong>
+								<small>
+									Use <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> once every real game and the player-stat ledger are settled. The forced override stays a separate, explicit action for a data stall.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">02</span>
+							<div class="checklist-item__text">
+								<strong>Watch the waiver run</strong>
+								<small>
+									The daily processor resolves every due claim on its own schedule. Force an out-of-cycle run from <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> only when one is stuck or overdue.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">03</span>
+							<div class="checklist-item__text">
+								<strong>Review trades</strong>
+								<small>
+									This league's veto model is commissioner review. Watch for a manager-flagged trade and settle it before the next week closes.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">04</span>
+							<div class="checklist-item__text">
+								<strong>Step in on a lineup</strong>
+								<small>
+									Set a lineup for a manager who cannot before kickoff from <a href="/scoring" data-gosx-link>the task board</a>.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">05</span>
+							<div class="checklist-item__text">
+								<strong>Keep a backup</strong>
+								<small>
+									Download a snapshot from <a href="/admin?section=backup#admin-backup" data-gosx-link>08 // BACKUP</a> before any risky change; a nightly copy also saves automatically.
+								</small>
+							</div>
+						</div>
+					</div>
+					</If>
+					<If cond={data.draft.complete == false}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
 							<h2 id="admin-draft-control-heading">
-								{data.draft.date}
-								runbook
+								<If cond={data.draft.date != ""}>{data.draft.date} runbook</If>
+								<If cond={data.draft.date == ""}>Draft runbook</If>
 							</h2>
 						</div>
 					</div>
@@ -455,11 +511,16 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">04</span>
 							<div class="checklist-item__text">
-								<strong>
-									At
-									{data.draft.time}
-									, confirm everyone is present and start the draft
-								</strong>
+								<If cond={data.draft.time != ""}>
+									<strong>
+										At
+										{data.draft.time}
+										, confirm everyone is present and start the draft
+									</strong>
+								</If>
+								<If cond={data.draft.time == ""}>
+									<strong>Confirm everyone is present and start the draft</strong>
+								</If>
 								<small>The scheduled time never opens the room. Type START below when you intentionally begin pick one.</small>
 							</div>
 						</div>
@@ -492,6 +553,7 @@ func Page() Node {
 							</div>
 						</div>
 					</div>
+					</If>
 					<If cond={data.draft_started == false}>
 					<form method="post" action={actionPath("draft-reschedule")} data-gosx-managed="true" class="clock-controls draft-reschedule-form">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
