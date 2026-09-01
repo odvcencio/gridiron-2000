@@ -384,17 +384,118 @@ func TestEffectiveLineupCarriesForwardFromEarlierWeek(t *testing.T) {
 	}
 }
 
-// TestEffectiveLineupLeavesSlotEmptyWhenOnlyCandidateIsLocked pins that a
-// locked player can never fill a gap via auto-fill (section 4.3: a locked
-// player cannot move into a slot).
-func TestEffectiveLineupLeavesSlotEmptyWhenOnlyCandidateIsLocked(t *testing.T) {
+// TestEffectiveLineupPinsAutoFillOnceLockedInsteadOfVacating is the P0
+// regression test for the 2026-08-31 gap-audit finding: this test used to
+// assert the OPPOSITE (a locked-only candidate leaves the slot empty), which
+// was the bug itself — effectiveLineup's old auto-fill loop excluded any
+// locked player from candidacy, so a slot resolved before kickoff vacated
+// the instant that player's game started. AUTO-fill must never re-examine
+// lock status when selecting a candidate (see effectiveLineup's auto-fill
+// loop comment for the invariant): with only one eligible candidate on the
+// roster, that candidate fills the slot regardless of whether their own game
+// has already kicked off, because ignoring lock in selection makes the
+// result identical to what would have been chosen before any kickoff.
+// Locking freezes a choice; it must never erase one.
+func TestEffectiveLineupPinsAutoFillOnceLockedInsteadOfVacating(t *testing.T) {
 	kickoff := time.Date(2026, 9, 13, 17, 0, 0, 0, time.UTC)
 	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: kickoff, Away: "LV", Home: "DEN"}}
 	roster := []Player{{ID: "p1", Name: "Only Punter", Position: "P", NFLTeam: "LV", Projection: 5}}
 	lineup := effectiveLineup(rosterPresets["gridiron-house"], roster, nil, 1, games, kickoff.Add(time.Minute))
+	p, ok := lineup.slotAssignment("P")
+	if !ok || !p.HasPlayer || p.Player.ID != "p1" {
+		t.Fatalf("P slot = %+v, want the only candidate auto-filled even though their game has kicked off", p)
+	}
+	if !p.Locked {
+		t.Error("P slot's occupant must report Locked once their own kickoff has passed")
+	}
+	if !p.AutoFilled {
+		t.Error("P slot's occupant must still be marked AutoFilled")
+	}
+}
+
+// TestEffectiveLineupLeavesSlotEmptyWithNoEligibleCandidateAtAll keeps the
+// genuinely-empty case distinct from "locked but exists" above: a slot with
+// zero eligible roster players at all stays empty regardless of the clock —
+// nothing in the P0 fix changes that, since there is no candidate to pin.
+func TestEffectiveLineupLeavesSlotEmptyWithNoEligibleCandidateAtAll(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	roster := []Player{{ID: "rb1", Name: "Only RB", Position: "RB", NFLTeam: "LV", Projection: 5}}
+	lineup := effectiveLineup(rosterPresets["gridiron-house"], roster, nil, 1, nil, now)
 	p, _ := lineup.slotAssignment("P")
 	if p.HasPlayer {
-		t.Fatalf("P slot = %+v, want empty once the only candidate is locked", p)
+		t.Fatalf("P slot = %+v, want empty — the roster carries no P-eligible player at all", p)
+	}
+}
+
+// TestEffectiveLineupFullyAutoRosterLocksWithoutReshuffleAtKickoff is Item
+// A's test (1): a fully AUTO-filled "standard" roster (9 starters, no
+// explicit stored week) resolves identically before and after every
+// starter's game kicks off — the exact "9/9 -> 5/9 starters, four EMPTY
+// slots" gap-audit scenario, now proven never to reshuffle or vacate.
+func TestEffectiveLineupFullyAutoRosterLocksWithoutReshuffleAtKickoff(t *testing.T) {
+	preset := rosterPresets["standard"]
+	roster := lineupFixtureRoster() // 11 players; qb2 and p1 don't fit "standard" and sit on the bench
+	kickoff := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "KC"},
+		{ID: "g2", Week: 1, Kickoff: kickoff, Away: "DET", Home: "ATL"},
+		{ID: "g3", Week: 1, Kickoff: kickoff, Away: "PHI", Home: "CIN"},
+		{ID: "g4", Week: 1, Kickoff: kickoff, Away: "MIN", Home: "LV"},
+		{ID: "g5", Week: 1, Kickoff: kickoff, Away: "SF", Home: "BAL"},
+	}
+	before := effectiveLineup(preset, roster, nil, 1, games, kickoff.Add(-time.Hour))
+	after := effectiveLineup(preset, roster, nil, 1, games, kickoff.Add(time.Hour))
+
+	if len(before.Slots) != 9 || len(after.Slots) != 9 {
+		t.Fatalf("slots = %d before, %d after; want 9 (the standard preset)", len(before.Slots), len(after.Slots))
+	}
+	for i := range before.Slots {
+		b, a := before.Slots[i], after.Slots[i]
+		if b.Slot.ID != a.Slot.ID {
+			t.Fatalf("slot order changed: before %s, after %s", b.Slot.ID, a.Slot.ID)
+		}
+		if !b.HasPlayer {
+			t.Fatalf("slot %s empty before kickoff, want all 9 filled (fully AUTO roster)", b.Slot.ID)
+		}
+		if !a.HasPlayer {
+			t.Fatalf("slot %s went EMPTY after kickoff — the P0 bug: an auto-filled starter vanished at lock", a.Slot.ID)
+		}
+		if a.Player.ID != b.Player.ID {
+			t.Fatalf("slot %s reshuffled at kickoff: before %s, after %s", b.Slot.ID, b.Player.ID, a.Player.ID)
+		}
+		if b.Locked {
+			t.Fatalf("slot %s reports Locked before any kickoff", b.Slot.ID)
+		}
+		if !a.Locked {
+			t.Fatalf("slot %s does not report Locked once its game has kicked off", a.Slot.ID)
+		}
+		if !a.AutoFilled {
+			t.Fatalf("slot %s lost its AutoFilled flag after kickoff", a.Slot.ID)
+		}
+	}
+}
+
+// TestLineupProblemsOmitsEmptyForSlotsAutoFillCanStillFill is Item A's test
+// (3): the N18 "EMPTY" warning (lineupProblems / slotWarningLabel) must not
+// fire for a slot the roster can actually fill — the false "RB2 is empty"
+// complaint the gap audit found was a symptom of the same excluded-locked-
+// candidate bug fixed above, not a genuinely thin roster.
+func TestLineupProblemsOmitsEmptyForSlotsAutoFillCanStillFill(t *testing.T) {
+	preset := rosterPresets["standard"]
+	roster := lineupFixtureRoster()
+	kickoff := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: kickoff, Away: "BUF", Home: "KC"},
+		{ID: "g2", Week: 1, Kickoff: kickoff, Away: "DET", Home: "ATL"},
+		{ID: "g3", Week: 1, Kickoff: kickoff, Away: "PHI", Home: "CIN"},
+		{ID: "g4", Week: 1, Kickoff: kickoff, Away: "MIN", Home: "LV"},
+		{ID: "g5", Week: 1, Kickoff: kickoff, Away: "SF", Home: "BAL"},
+	}
+	now := kickoff.Add(time.Hour) // every game has kicked off
+	lineup := effectiveLineup(preset, roster, nil, 1, games, now)
+	problems := lineupProblems(lineup, games, now)
+	if len(problems) != 0 {
+		t.Fatalf("lineupProblems = %+v, want none — every slot has a rostered player to fill it", problems)
 	}
 }
 
@@ -571,18 +672,27 @@ func TestSetLineupExactMessages(t *testing.T) {
 
 // TestSetLineupLockBoundary pins the exact kickoff instant: a set at
 // kickoff minus one second passes; at kickoff it fails.
+//
+// This uses WR1/WR2 and wr-open, not RB1 and rb-open: with the P0 fix (see
+// effectiveLineup's auto-fill loop), RB1 in this fixture auto-resolves to
+// rb-locked (TB, the higher-projection RB, already kicked off) from the very
+// start — a set of rb-open into RB1 at kickoff-1s would fail L7 (displacing
+// a locked occupant), which is correct engine behavior but not what this
+// test is pinning (the L6 incoming-player boundary). WR1/wr-open has no such
+// collision: this fixture's WR slots have exactly two WR-eligible players,
+// so nothing auto-resolves ahead of the explicit set below.
 func TestSetLineupLockBoundary(t *testing.T) {
 	svc, games, _ := newLineupTestService(t)
 	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
 	kickoff := games[0].Kickoff // PIT's week-1 kickoff
 
 	svc.now = func() time.Time { return kickoff.Add(-time.Second) }
-	if _, err := svc.SetLineup(request, "team-1", 1, "RB1", "rb-open"); err != nil {
+	if _, err := svc.SetLineup(request, "team-1", 1, "WR1", "wr-open"); err != nil {
 		t.Fatalf("a set at kickoff-1s must pass: %v", err)
 	}
 	svc.now = func() time.Time { return kickoff }
-	if _, err := svc.SetLineup(request, "team-1", 1, "RB1", "wr-bench"); err == nil {
-		t.Fatal("a set at kickoff must fail — PIT's own player is now locked as the incoming pick's team")
+	if _, err := svc.SetLineup(request, "team-1", 1, "WR2", "wr-open"); err == nil {
+		t.Fatal("a set at kickoff must fail — wr-open's own PIT game has kicked off")
 	}
 }
 
@@ -694,5 +804,104 @@ func TestLineupAutoPinsLockedOccupant(t *testing.T) {
 	rb1, ok := lineup.slotAssignment("RB1")
 	if !ok || !rb1.HasPlayer || rb1.Player.ID != "rb-locked" {
 		t.Fatalf("RB1 = %+v, want the locked occupant pinned in place", rb1)
+	}
+}
+
+// TestEffectiveLineupMixedExplicitAndAutoLocksPartialSlateLeavesRestOpen is
+// Item A's test (2): newLineupTestService's fixture is naturally a partial
+// slate (PIT unlocked an hour out, TB locked an hour in the past). With one
+// slot set explicitly and the rest left to AUTO, the kicked-off AUTO choice
+// (rb-locked, the higher-projection RB, TB already kicked off) must lock and
+// pin exactly like an explicit starter — SetLineup's L7/L8 must reject
+// displacing or clearing it — while the still-open AUTO slots (RB2, WR2, QB)
+// stay resolvable: an explicit re-set against one of them succeeds.
+func TestEffectiveLineupMixedExplicitAndAutoLocksPartialSlateLeavesRestOpen(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+
+	// The mixed explicit half: WR1 explicitly set to the lower-projection
+	// wr-bench, so AUTO must fill WR2 with wr-open (the higher-projection
+	// player AUTO would otherwise have claimed for WR1).
+	if _, err := svc.SetLineup(request, "team-1", 1, "WR1", "wr-bench"); err != nil {
+		t.Fatal(err)
+	}
+
+	lineup := svc.effectiveLineupForTeam(svc.store.Snapshot(), "team-1", 1)
+	wr1, _ := lineup.slotAssignment("WR1")
+	if !wr1.HasPlayer || wr1.Player.ID != "wr-bench" || wr1.AutoFilled || wr1.Locked {
+		t.Fatalf("WR1 = %+v, want the explicit, non-auto-filled, unlocked wr-bench", wr1)
+	}
+	wr2, _ := lineup.slotAssignment("WR2")
+	if !wr2.HasPlayer || wr2.Player.ID != "wr-open" || !wr2.AutoFilled || wr2.Locked {
+		t.Fatalf("WR2 = %+v, want auto-filled, unlocked wr-open", wr2)
+	}
+	rb1, _ := lineup.slotAssignment("RB1")
+	if !rb1.HasPlayer || rb1.Player.ID != "rb-locked" || !rb1.AutoFilled || !rb1.Locked {
+		t.Fatalf("RB1 = %+v, want auto-filled, LOCKED rb-locked (TB already kicked off, the higher-projection RB)", rb1)
+	}
+	rb2, _ := lineup.slotAssignment("RB2")
+	if !rb2.HasPlayer || rb2.Player.ID != "rb-open" || !rb2.AutoFilled || rb2.Locked {
+		t.Fatalf("RB2 = %+v, want auto-filled, unlocked rb-open", rb2)
+	}
+	qb, _ := lineup.slotAssignment("QB")
+	if !qb.HasPlayer || qb.Player.ID != "qb-open" || !qb.AutoFilled || qb.Locked {
+		t.Fatalf("QB = %+v, want auto-filled, unlocked qb-open", qb)
+	}
+	// TE/FLEX/DST/K have no eligible roster player in this fixture at all —
+	// empty for a reason unrelated to lock, not part of this test's claim.
+
+	// The kicked-off AUTO choice is pinned: L8 forbids clearing it, exactly
+	// as it would an explicit starter.
+	if _, err := svc.SetLineup(request, "team-1", 1, "RB1", ""); err == nil {
+		t.Fatal("clearing the locked AUTO occupant RB1 must fail (L8) — a lock must never be silently reshuffled away")
+	}
+	// A still-open AUTO slot remains resolvable: an explicit re-set succeeds.
+	if _, err := svc.SetLineup(request, "team-1", 1, "RB2", "rb-open"); err != nil {
+		t.Fatalf("re-setting the still-unlocked RB2 must succeed: %v", err)
+	}
+}
+
+// TestCloseWeekPinsFullSlateAutoFillInsteadOfDegradingIt is Item A's test
+// (4): closeWeek (season.go) and the scorer (lineupStarters, scorer.go) must
+// observe the same pinned lineup effectiveLineup resolves, even when every
+// roster player's game has already kicked off by the moment of close — the
+// exact P0 timing ("week close pins the resolved slots at a moment when
+// every game has kicked off"). Before the fix, the auto-fill candidate
+// exclusion degraded this pin to whatever was still unlocked at close time.
+func TestCloseWeekPinsFullSlateAutoFillInsteadOfDegradingIt(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	// Move the clock past BOTH fixture games (PIT and TB) — every roster
+	// player is locked by the time the commissioner closes the week.
+	postKickoff := time.Date(2026, 9, 13, 20, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return postKickoff }
+	sched, err := GenerateSchedule(ScheduleParams{
+		Season: 2026, TeamIDs: teamIDList(svc.teams), Divisions: teamDivisionMap(svc.teams),
+		StartWeek: 1, Weeks: 1, Seed: 5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.store.SetSchedule(sched); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+
+	if _, _, err := svc.closeWeek(1, postKickoff); err != nil {
+		t.Fatal(err)
+	}
+	pin := svc.store.Snapshot().Lineups["team-1"][1]
+	want := map[string]string{"QB": "qb-open", "RB1": "rb-locked", "RB2": "rb-open", "WR1": "wr-open", "WR2": "wr-bench"}
+	for slot, playerID := range want {
+		if pin[slot] != playerID {
+			t.Errorf("pin[%s] = %q, want %q — closeWeek must not degrade the AUTO resolution just because every game has kicked off", slot, pin[slot], playerID)
+		}
+	}
+	if len(pin) != len(want) {
+		t.Errorf("pin has %d entries, want exactly %d (this roster's fillable standard-preset slots)", len(pin), len(want))
+	}
+
+	starters := svc.lineupStarters(svc.store.Snapshot(), "team-1", 1)
+	if len(starters) != len(want) {
+		t.Fatalf("lineupStarters (the closed-week scorer path) = %d players, want %d — it must read the same pin closeWeek wrote", len(starters), len(want))
 	}
 }

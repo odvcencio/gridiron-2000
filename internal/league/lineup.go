@@ -524,6 +524,16 @@ type EffectiveLineup struct {
 // roster is teamID's current roster (Service.rosterForTeam); stored is
 // PersistedState.Lineups[teamID] (nil is valid — no week ever stored);
 // games backs the per-player lock check (nil is valid — nothing locks).
+//
+// P0 invariant (2026-08-31 gap audit): AUTO-fill's candidate selection below
+// never reads lock status — see the auto-fill loop's own comment for why
+// that makes this whole function's AUTO output a deterministic, clock-
+// independent function of (roster, week) alone. now only decorates the
+// already-resolved Slots with Locked/lock_label; it can never change WHICH
+// player a slot resolves to. That is what makes a kicked-off AUTO choice
+// stay pinned instead of vacating (the fix for the P0 "auto-filled starters
+// vanish at kickoff" report) while still letting an explicit, still-open
+// slot (L1-L8) be edited freely up to its own player's lock.
 func effectiveLineup(preset RosterPreset, roster []Player, stored map[int]map[string]string, week int, games []GameInfo, now time.Time) EffectiveLineup {
 	slots := lineupSlots(preset)
 	byID := make(map[string]Player, len(roster))
@@ -562,6 +572,33 @@ func effectiveLineup(preset RosterPreset, roster []Player, stored map[int]map[st
 	// Auto-fill every remaining gap, in engine order, so a slot with no
 	// explicit entry always resolves the same way the spec's "no stored
 	// week" case does — see the reconciliation note above.
+	//
+	// P0 INVARIANT (2026-08-31 gap audit — read before touching this loop):
+	// candidate eligibility here must NEVER consult playerLocked. Position
+	// fit, "taken", and Projection are the only time-independent inputs,
+	// which makes this whole gap-fill pass a deterministic function of
+	// (roster, week) alone — the same slot resolves to the same player no
+	// matter when it is evaluated. That determinism is exactly what makes it
+	// safe to skip lock: since eligibility never changes as the clock moves,
+	// the resolution computed one minute after kickoff is bit-for-bit the
+	// one that would have been computed one minute before it, so "resolve
+	// once before any kickoff and freeze on lock" and "resolve fresh every
+	// call and ignore lock" are the SAME function. Locked-ness only decorates
+	// the result afterward (the Locked field below) and gates WRITES
+	// (SetLineup's L6/L7/L8, lineupSlotOptions' picker) — it must never gate
+	// SELECTION.
+	//
+	// The bug this replaced: filtering playerLocked here made selection
+	// time-dependent. A slot resolved to its best AUTO candidate before
+	// kickoff would, on the very next read after that player's game started,
+	// re-run this loop with that same player now excluded — vacating an
+	// already-decided slot (or worse, replacing a superior locked starter
+	// with an inferior unlocked bench player) purely because time had
+	// passed. That is the P0 report's "auto-filled starters vanish at
+	// kickoff instead of locking": a fully-AUTO 9/9 roster degraded to 5/9
+	// once Sunday's early kickoffs passed, with the starters-empty warning
+	// then lying about players who were sitting right there on the roster.
+	// Locking must freeze a choice; it must never erase one.
 	for i := range assignments {
 		if assignments[i].HasPlayer {
 			continue
@@ -569,7 +606,7 @@ func effectiveLineup(preset RosterPreset, roster []Player, stored map[int]map[st
 		slot := assignments[i].Slot
 		var candidates []Player
 		for _, p := range roster {
-			if taken[p.ID] || !slot.Def.Fits(p.Position) || playerLocked(games, week, p.NFLTeam, now) {
+			if taken[p.ID] || !slot.Def.Fits(p.Position) {
 				continue
 			}
 			candidates = append(candidates, p)
