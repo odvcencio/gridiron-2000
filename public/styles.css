@@ -7009,6 +7009,14 @@ body.is-on-clock .draft-clock-panel {
   .page {
     animation: none;
   }
+
+  /* gap-audit item 6 (wave 3): .chrome-disc's own "animation: disc-float
+     4s ... infinite" declaration beats the "*" selector above the same
+     way .page's did — a nonzero iteration-count still cycles forever, just
+     at 1ms per lap, which reads as constant motion rather than none. */
+  .chrome-disc {
+    animation: none;
+  }
 }
 
 /* ===== DRAFT-NIGHT-POLISH: manager pre-draft checklist (app/draft/page.gsx)
