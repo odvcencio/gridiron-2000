@@ -1370,13 +1370,14 @@ func Page() Node {
 					<div class="danger-grid">
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset draft</strong>
+							<strong>Reset {data.league.name}'s draft</strong>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> Picks, Ready, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, and draft-scoped notification receipts.</li>
-								<li><strong>Preserved:</strong> Members/seats, CoInvites, Boards, Invites, TeamNames, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, DraftAtOverride (scheduled meeting time), Scoring, Pickems, BlitzEntries, BadgeClaims, AvatarRefs, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+								<li><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</li>
+								<li><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</li>
 							</ul>
+							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back.</p>
 							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
-							<button class="button" type="submit">Reset draft</button>
+							<button class="button button--danger" type="submit">Reset {data.league.name}'s draft</button>
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -1386,17 +1387,18 @@ func Page() Node {
 								Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first.
 							</p>
 							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
-							<button class="button" type="submit">Undo last pick</button>
+							<button class="button button--danger" type="submit">Undo last pick</button>
 						</form>
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset league</strong>
+							<strong>Reset {data.league.name} to a blank league</strong>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> Members/seats, CoInvites, Picks, Ready, Boards, Pickems/PickemEnteredAt/PickemMarkets, BlitzEntries, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, BadgeClaims, AvatarRefs, DraftAtOverride, and league-scoped notification receipts.</li>
-								<li><strong>Preserved:</strong> Invites, TeamNames (franchise name overrides), Scoring, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+								<li><strong>Destroyed:</strong> every team seat and manager, pending co-manager invites, every draft pick, ready status for every seat, draft boards, pick'em picks and markets, blitz contest entries, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, claimed badges, custom avatar images, the scheduled meeting time, and league notification history.</li>
+								<li><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</li>
 							</ul>
+							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back.</p>
 							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
-							<button class="button" type="submit">Reset league</button>
+							<button class="button button--danger" type="submit">Reset {data.league.name} to a blank league</button>
 						</form>
 					</div>
 				</section>

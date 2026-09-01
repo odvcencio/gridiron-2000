@@ -1138,6 +1138,22 @@ h2 {
   background: transparent;
 }
 
+/* gap-audit item 7: the 99 // DANGER ZONE reset buttons used the neutral
+   .button style, matching every routine control on /admin instead of
+   naming their own destructive classification. New rather than reused —
+   no shared danger button style existed before this — but only the admin
+   danger-grid forms carry the class, so it is admin-scoped by usage. */
+.button--danger {
+  border-color: var(--color-accent-magenta, #ff5ec4);
+  color: var(--color-accent-magenta, #ff5ec4);
+  background: transparent;
+}
+
+.button--danger:hover {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-magenta, #ff5ec4);
+}
+
 .button--compact {
   min-height: 2.55rem;
   padding: var(--space-xs) var(--space-sm);

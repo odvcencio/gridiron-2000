@@ -57,26 +57,51 @@ func renderAdminPage(t *testing.T) string {
 	return rec.Body.String()
 }
 
+// TestAdminPageRendersExactResetContracts pins gap-audit item 7: the
+// danger-zone consequence lists read as Go field names ("CoInvites,
+// TrimmedTeamIDs, WaiversProcessedThrough, RosterZones"), neither reset
+// named the league, and both buttons carried the same neutral .button
+// style as every routine control. The rewrite states every consequence in
+// league nouns, puts the league name in the heading/phrase/button of each
+// reset, states a plain reversibility sentence, and gives all three
+// danger-grid buttons their own .button--danger style.
 func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	body := renderAdminPage(t)
 	if got := strings.Count(body, "reset-contract-list"); got != 2 {
 		t.Fatalf("reset danger cards rendered %d contract lists, want 2", got)
 	}
+	leagueName := "THE LEAGUE"
+	// The rendered apostrophe in "<league>'s draft" is HTML-escaped.
+	draftHeading := "Reset " + leagueName + "&#39;s draft"
+	leagueHeading := "Reset " + leagueName + " to a blank league"
 	for _, want := range []string{
 		"RESET DRAFT</span> to confirm.",
 		"RESET LEAGUE</span> to confirm.",
-		"DraftAtOverride (scheduled meeting time)",
-		"RosterOverride",
-		"TrimmedTeamIDs",
-		"TeamNames (franchise name overrides)",
+		draftHeading,
+		leagueHeading,
+		"the scheduled meeting time",
+		"the custom roster shape",
+		"the trimmed-seat list",
+		"custom team names",
+		"This cannot be undone from this screen; only a restored backup can bring",
+		`class="button button--danger"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reset contract copy missing %q", want)
 		}
 	}
+	// The old Go-identifier vocabulary must not survive the rewrite.
+	for _, unwanted := range []string{
+		"CoInvites", "TrimmedTeamIDs", "WaiversProcessedThrough", "RosterZones",
+		"RosterOverride", "DraftAtOverride", "SentLog", "PickemEnteredAt", "PickemMarkets",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("reset contract copy still leaks the Go field name %q", unwanted)
+		}
+	}
 
-	draftStart := strings.Index(body, "<strong>Reset draft</strong>")
-	leagueStart := strings.Index(body, "<strong>Reset league</strong>")
+	draftStart := strings.Index(body, "<strong>"+draftHeading+"</strong>")
+	leagueStart := strings.Index(body, "<strong>"+leagueHeading+"</strong>")
 	if draftStart < 0 || leagueStart <= draftStart {
 		t.Fatal("reset danger cards are missing or out of order")
 	}
@@ -87,8 +112,8 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	}
 	leagueCard := body[leagueStart:]
 	preserved := strings.Index(leagueCard, "<strong>Preserved:</strong>")
-	if preserved < 0 || strings.Contains(leagueCard[preserved:], "RosterOverride") ||
-		strings.Contains(leagueCard[preserved:], "TrimmedTeamIDs") {
+	if preserved < 0 || strings.Contains(leagueCard[preserved:], "the custom roster shape") ||
+		strings.Contains(leagueCard[preserved:], "the trimmed-seat list") {
 		t.Fatal("full reset card still presents roster shape or seat trim as preserved")
 	}
 }
