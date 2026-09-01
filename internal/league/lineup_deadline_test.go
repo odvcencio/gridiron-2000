@@ -173,8 +173,15 @@ func TestDegradedEarlierWeekRemainsCurrentSelectableAndEditable(t *testing.T) {
 		t.Fatalf("degraded deadline editability = %#v", deadline)
 	}
 
+	// WR1/wr-open, not RB1/rb-open: with the P0 auto-fill fix (see
+	// effectiveLineup's auto-fill loop comment), RB1 in this fixture already
+	// auto-resolves to rb-locked (TB, the higher-projection RB, genuinely
+	// locked — unrelated to this test's PIT degradation) before this call
+	// ever runs, so assigning rb-open there would correctly fail L7. WR1 has
+	// no such collision: this fixture's two WR-eligible players exactly fill
+	// its two WR slots, so nothing pre-empts the explicit set below.
 	post, _ := http.NewRequest(http.MethodPost, "/team", nil)
-	if _, err := service.SetLineup(post, "team-1", 1, "RB1", "rb-open"); err != nil {
+	if _, err := service.SetLineup(post, "team-1", 1, "WR1", "wr-open"); err != nil {
 		t.Fatalf("Week 1 lineup action must remain allowed while kickoff is degraded: %v", err)
 	}
 }

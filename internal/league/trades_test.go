@@ -251,6 +251,48 @@ func TestTradeHistoryIsPrivateBoundedNewestFirstAndIncludesFailureReason(t *test
 	}
 }
 
+// TestTradeHistoryRowsRenderPerViewingSeat is item D's regression test
+// (2026-08-31 gap audit): TradeOfferRow.Give/Get are always the offer's own
+// FromTeamID perspective (tradeOfferRow's contract) — the HISTORY row used
+// to render that unchanged for both parties, so the receiving seat read its
+// own incoming asset as something it gave away ("Give: Xavier Worthy ·
+// Get: Steelers D/ST" shown identically to both the proposer and the
+// counterparty). tradeHistoryRows must swap Give/Get for the viewing seat
+// that was the offer's ToTeamID; the proposing seat and a non-party
+// commissioner keep the FromTeamID-anchored default.
+func TestTradeHistoryRowsRenderPerViewingSeat(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	offer := TradeOffer{
+		ID: "trd-history-perspective", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"}, Status: TradeStatusExecuted,
+		CreatedAt: now, ResolvedAt: now.Add(time.Second),
+	}
+	state := PersistedState{TradeOffers: []TradeOffer{offer}}
+	pool := svc.pool()
+	threshold := tradeVetoThreshold(len(defaultTeamIDs()))
+
+	proposer := svc.tradeHistoryRows(state, pool, "team-1", false, threshold)
+	if len(proposer) != 1 {
+		t.Fatalf("proposer history = %d rows, want 1", len(proposer))
+	}
+	if len(proposer[0].Give) != 1 || proposer[0].Give[0].ID != "t1-a" || len(proposer[0].Get) != 1 || proposer[0].Get[0].ID != "t2-a" {
+		t.Fatalf("proposer (team-1) row give=%+v get=%+v, want give t1-a get t2-a", proposer[0].Give, proposer[0].Get)
+	}
+
+	counterparty := svc.tradeHistoryRows(state, pool, "team-2", false, threshold)
+	if len(counterparty) != 1 {
+		t.Fatalf("counterparty history = %d rows, want 1", len(counterparty))
+	}
+	if len(counterparty[0].Give) != 1 || counterparty[0].Give[0].ID != "t2-a" || len(counterparty[0].Get) != 1 || counterparty[0].Get[0].ID != "t1-a" {
+		t.Fatalf("counterparty (team-2) row give=%+v get=%+v, want give t2-a get t1-a (swapped from the proposer's view)", counterparty[0].Give, counterparty[0].Get)
+	}
+
+	commissionerRows := svc.tradeHistoryRows(state, pool, "", true, threshold)
+	if len(commissionerRows) != 1 || commissionerRows[0].Give[0].ID != "t1-a" || commissionerRows[0].Get[0].ID != "t2-a" {
+		t.Fatalf("commissioner (non-party) row must keep the FromTeamID-anchored default: %+v", commissionerRows[0])
+	}
+}
+
 // ---------------------------------------------------------------------
 // Counter composer exposes the current counterparty roster, not the original give list.
 func TestTradeCounterOffersFullCurrentCounterpartyRoster(t *testing.T) {

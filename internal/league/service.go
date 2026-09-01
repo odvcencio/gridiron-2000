@@ -3622,7 +3622,18 @@ func (s *Service) heroKicker() string {
 
 // seasonOpenLine renders the persisted schedule's opening NFL week, or the
 // explicit platform fallback before a schedule exists, from season_start_at.
+//
+// Guarded by the same DraftDatePublished sentinel check as rulesIdentityMap's
+// season_start and the scoring masthead's own season-start line (2026-08-31
+// gap-audit finding): DefaultConfig ships a far-future placeholder
+// SeasonStartAt (config.go's placeholderSeasonStartAt, 2099-01-08), and this
+// line used to print it as a literal calendar fact — the demo /matchups page
+// showed "League play begins NFL week 1 · January 8" for a season that was
+// never actually scheduled.
 func (s *Service) seasonOpenLine() string {
+	if !DraftDatePublished(s.clock(), s.cfg.SeasonStartAt) {
+		return "League play begins when the commissioner publishes the season start."
+	}
 	return fmt.Sprintf("League play begins NFL week %d · %s.", s.seasonStartWeek(), s.cfg.SeasonStartAt.Format("January 2"))
 }
 

@@ -1160,7 +1160,20 @@ func (s *Service) tradeHistoryRows(state PersistedState, pool playerPool, teamID
 	}
 	rows := make([]TradeOfferRow, 0, len(offers))
 	for _, offer := range offers {
-		rows = append(rows, s.tradeOfferRow(pool, offer, teamID, false, false, isCommissioner, threshold))
+		row := s.tradeOfferRow(pool, offer, teamID, false, false, isCommissioner, threshold)
+		// tradeOfferRow's Give/Get are always FromTeamID's own perspective
+		// (its own doc comment). HISTORY renders for whichever seat is
+		// looking at it — unlike INBOX/OUTBOX/REVIEW, which are each already
+		// scoped to one fixed vantage point — so the receiving party
+		// (ToTeamID) must see ITS OWN Give/Get, not the proposer's, or a
+		// manager reads their own incoming asset as something they gave
+		// away (2026-08-31 gap-audit finding). Swap only for that seat; the
+		// proposing seat and a non-party commissioner keep the
+		// FromTeamID-anchored default.
+		if teamID != "" && teamID == offer.ToTeamID {
+			row.Give, row.Get = row.Get, row.Give
+		}
+		rows = append(rows, row)
 	}
 	return rows
 }

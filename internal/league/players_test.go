@@ -710,6 +710,40 @@ func TestPlayersDataOnWaiversRowRendersClaimNotAdd(t *testing.T) {
 	}
 }
 
+// TestPlayersDataWaiverResolvesAppendsRelativeTime is item C's regression
+// test (2026-08-31 gap audit): the /players pool row chip read "ON WAIVERS
+// · Sep 4, 9:00 AM EDT" with no relative label, while the MY CLAIMS row for
+// the same deadline showed "(in 2 days)" via the same deadlineRelativeTime
+// helper (lineup_deadline.go). The pool row must append " · " plus that same
+// helper's output, so the two surfaces never disagree.
+func TestPlayersDataWaiverResolvesAppendsRelativeTime(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	var wv map[string]any
+	for _, row := range rows {
+		if row["id"] == "wv-open" {
+			wv = row
+			break
+		}
+	}
+	if wv == nil {
+		t.Fatal("wv-open must appear in the pool rows")
+	}
+	resolves, _ := wv["waiver_resolves"].(string)
+
+	state := svc.store.Snapshot()
+	status := playerWaiverStatus(state, svc.cfg, svc.schedule(), "wv-open", "PIT", now)
+	if status.Reason == "kickoff" {
+		t.Fatal("this fixture's wv-open must resolve on the plain waiver-window path, not the kickoff estimate — the appended-relative-time claim doesn't apply to that branch")
+	}
+	want := formatResolvesAt(svc.cfg, status.ResolvesAt) + " · " + deadlineRelativeTime(now, status.ResolvesAt)
+	if resolves != want {
+		t.Fatalf("waiver_resolves = %q, want %q (the absolute time plus the shared relative-time suffix)", resolves, want)
+	}
+}
+
 // TestPlayersDataClaimedByMeSuppressesTheClaimButton checks that an
 // already-claimed row stops offering a second CLAIM form. team-1 (the
 // demo default viewer) is at cap, so its claim names its own rb-open as
