@@ -251,13 +251,17 @@ func lineupValidation(ctx *action.Context, field string, err error) error {
 	return result
 }
 
-// lineupMutationSuccess keeps managed mutations on the current document so
-// the TeamLineupRegion can converge from the authoritative fragment. Native
-// forms retain the existing POST-redirect-GET fallback, including its notice.
+// lineupMutationSuccess always redirects, for both native and GoSX-managed
+// callers. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) re-renders the current document only when a JSON
+// action result carries a non-empty "redirect" field; a bare 200 ctx.Success
+// never triggers that re-render, so a managed lineup-set left the slot
+// showing the previous starter no matter how long a manager waited or how
+// many times REFRESH LINEUP NOW was pressed. Routing every mutation through
+// one 303-with-redirect shape matches the already-working team-rename and
+// notification-set actions and lets the browser's native fetch-and-swap
+// pick up the authoritative fragment.
 func lineupMutationSuccess(ctx *action.Context, message string) error {
-	if action.WantsJSON(ctx.Request) {
-		return ctx.Success(message, nil)
-	}
 	actionui.RedirectWithNotice(ctx, teamLineupTarget(ctx), message)
 	return nil
 }

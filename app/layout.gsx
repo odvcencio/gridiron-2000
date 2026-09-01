@@ -15,6 +15,17 @@ type PrimaryNavigationProps struct {
 	CSRFToken     string
 }
 
+// PrimaryNavigation's sign-out form posts to /auth/logout as a plain,
+// unmanaged (data-gosx-managed="false") full-page submission — the same
+// shape team/page.gsx's own avatar-upload form uses. POST /auth/logout is a
+// raw http.HandlerFunc that always answers a plain 303 to /login with a
+// rotated session cookie, never JSON. GoSX's managed-form runtime only
+// performs a soft navigation when the parsed JSON result carries a
+// "redirect" field (client/runtime/host/navigation.ts); a managed fetch
+// instead followed the redirect itself, received HTML it could not parse as
+// JSON, and left the browser on the current page with a generic "Action
+// completed." toast and no URL change. Opting out lets the browser submit
+// the form and follow the 303 natively.
 func PrimaryNavigation(props PrimaryNavigationProps) Node {
 	return <div class="primary-navigation">
 		<nav class="primary-navigation__groups" aria-label="Primary navigation">
@@ -134,7 +145,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<Link href="/settings" class="access-link">
 					Notification settings
 				</Link>
-				<form method="post" action="/auth/logout" data-gosx-managed="true">
+				<form method="post" action="/auth/logout" data-gosx-managed="false">
 					<input type="hidden" name="csrf_token" value={props.CSRFToken}></input>
 					<button class="access-link" type="submit">Sign out</button>
 				</form>

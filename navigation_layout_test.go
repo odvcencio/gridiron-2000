@@ -350,6 +350,46 @@ func TestPrimaryNavigationQuerylessCurrentLinkUsesGoSXContract(t *testing.T) {
 	}
 }
 
+// TestSignOutFormIsNotManaged pins the wave-1 sign-out fix: GoSX's managed
+// navigation layer (client/runtime/host/navigation.ts) intercepts a
+// data-gosx-managed form's submit, fetches with Accept: application/json,
+// and only performs a soft navigation when the parsed JSON result carries a
+// "redirect" field. POST /auth/logout is a raw http.HandlerFunc that always
+// answers a plain 303 Location: /login with no JSON body, so a managed
+// submit followed the redirect inside the fetch, received HTML it could not
+// parse as JSON, and left the browser on the current page with only a
+// generic "Action completed." toast — the cookie rotated, but the URL and
+// DOM never changed. The logout form must opt out of managed handling
+// (data-gosx-managed="false", the same shape team/page.gsx already uses for
+// its own full-navigation avatar-upload form) so the browser submits it
+// natively and follows the 303 itself.
+func TestSignOutFormIsNotManaged(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true, hasSeat: true})
+	document := parseNavigationDocument(t, body)
+	forms := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "form" && nodeAttr(node, "action") == "/auth/logout"
+	})
+	if len(forms) == 0 {
+		t.Fatal("rendered layout has no /auth/logout form")
+	}
+	for index, form := range forms {
+		if got := nodeAttr(form, "data-gosx-managed"); got != "false" {
+			t.Errorf("logout form %d data-gosx-managed = %q, want \"false\" — a managed logout form intercepts the submit and never leaves the current page", index, got)
+		}
+		// The shorthand only expands into the runtime-contract attribute
+		// (data-gosx-form, gosx.FormAttr) when it evaluates truthy; a
+		// literal data-gosx-managed="false" leaves it absent. This is the
+		// same attribute isManagedFormElement checks client-side, so its
+		// absence is the authoritative signal the browser will treat this
+		// as a plain, unmanaged form.
+		for _, attribute := range form.Attr {
+			if attribute.Key == "data-gosx-form" {
+				t.Errorf("logout form %d still carries data-gosx-form; the managed-form contract was not opted out", index)
+			}
+		}
+	}
+}
+
 func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("public", "styles.css"))
 	if err != nil {

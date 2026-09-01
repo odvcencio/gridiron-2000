@@ -57,10 +57,17 @@ func TestTradeFragmentContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"EnableBootstrap", "tradeFragmentURL", `map[string]any{"value": "refresh"}`} {
+	// Wave-1 stale-state fix: a managed mutation must redirect like every
+	// other GoSX-managed action (team-rename, notification-set), not answer
+	// a bare {ok:true, data:{value:"refresh"}} the managed-form runtime
+	// never reads. See tradeMutationSuccess.
+	for _, want := range []string{"EnableBootstrap", "tradeFragmentURL", "tradeMutationSuccess(ctx,"} {
 		if !strings.Contains(string(server), want) {
 			t.Errorf("Trade server missing synchronization contract %q", want)
 		}
+	}
+	if strings.Contains(string(server), `map[string]any{"value": "refresh"}`) {
+		t.Error("Trade server still answers a managed mutation with a dead refresh signal instead of a redirect")
 	}
 	fragment, err := os.ReadFile("fragment.go")
 	if err != nil {

@@ -73,12 +73,17 @@ func TestPickemFragmentContract(t *testing.T) {
 		"PickemDataReadOnly",
 		"pickemFragmentURL",
 		"pickemRegionFinalInterval",
-		"action.WantsJSON(ctx.Request)",
-		`ctx.Success(message, map[string]any{"value": "refresh"})`,
 	} {
 		if !strings.Contains(string(server), want) {
 			t.Errorf("Pick'em server missing synchronization contract %q", want)
 		}
+	}
+	// Wave-1 stale-state fix: a successful pick must redirect like every
+	// other GoSX-managed action (team-rename, notification-set), not answer
+	// a bare {ok:true, data:{value:"refresh"}} the managed-form runtime
+	// never reads. See pickemSetAction.
+	if strings.Contains(string(server), `map[string]any{"value": "refresh"}`) {
+		t.Error("Pick'em server still answers a managed pick with a dead refresh signal instead of a redirect")
 	}
 	fragment, err := os.ReadFile("fragment.go")
 	if err != nil {
