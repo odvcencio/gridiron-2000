@@ -108,6 +108,35 @@ func TestSetupAppLivenessAlwaysOK(t *testing.T) {
 	}
 }
 
+// TestSetupAppTokenClaimViaFullTokenizedURL covers the boot banner's
+// second printed line (design section 3.3: "plus the full tokenized URL
+// for copy-paste"): visiting /setup?token=<token> directly claims the
+// token exactly like submitting the form, and does so exactly once.
+func TestSetupAppTokenClaimViaFullTokenizedURL(t *testing.T) {
+	server, client, tokens := newSetupTestApp(t)
+	token := mustReadToken(t, tokens)
+
+	status, body := getBody(t, client, server.URL+"/setup?token="+token)
+	if status != http.StatusOK || !strings.Contains(body, "/setup/identity") {
+		t.Fatalf("the tokenized URL must authorize and bounce to the first step; status=%d body:\n%s", status, body)
+	}
+
+	// A second visitor (fresh cookie jar) using the exact same URL must
+	// not claim it a second time.
+	secondJar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := &http.Client{Jar: secondJar}
+	status, body = getBody(t, second, server.URL+"/setup?token="+token)
+	if status != http.StatusOK || strings.Contains(body, "/setup/identity") {
+		t.Fatalf("a second visit to the same tokenized URL must not authorize a new session; status=%d body:\n%s", status, body)
+	}
+	if !strings.Contains(body, "Enter the console token") {
+		t.Fatalf("the second visitor should see the token entry form:\n%s", body)
+	}
+}
+
 // TestSetupAppTokenSingleClaimEndToEnd is the design's slice-2 acceptance
 // criterion: "token single-claim proven by test," exercised over real HTTP
 // with real encrypted session cookies (not just the in-process guard unit

@@ -154,7 +154,7 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 		})
 		return server.HTMLDocument(ctx.Document("Gridiron Setup", body))
 	})
-	router.Add(route.Route{Pattern: "/setup", Handler: setupRootPageHandler(rt)})
+	router.Add(route.Route{Pattern: "/setup", Handler: setupRootPageHandler(rt, limiter)})
 	router.Handle("POST /setup", setupClaimActionHandler(rt, limiter))
 	registerWizardRoutes(router, rt)
 
@@ -253,11 +253,36 @@ func wizardActionGuard(rt *SetupRuntime, next http.Handler) http.Handler {
 	})
 }
 
-func setupRootPageHandler(rt *SetupRuntime) route.PageHandler {
-	return wizardPageGuard(rt, func(ctx *route.RouteContext) gosx.Node {
+// setupRootPageHandler is the one route that also accepts the boot
+// banner's full tokenized URL (design section 3.3: "plus the full
+// tokenized URL for copy-paste") — GET /setup?token=<token> claims the
+// token exactly like the POST form does, so following that printed link
+// lands directly in the wizard. It cannot share wizardPageGuard's plain
+// shape because it must inspect the query string before the ordinary
+// authorization check, so its gate is written out here instead.
+func setupRootPageHandler(rt *SetupRuntime, limiter *setupRateLimiter) route.PageHandler {
+	return func(ctx *route.RouteContext) gosx.Node {
+		ctx.NoStore()
+		if result := rt.Completion(); result != nil {
+			return setupCompletionNode(ctx, *result)
+		}
+		if !wizardAuthorized(rt, ctx.Request) {
+			if candidate := strings.TrimSpace(ctx.Request.URL.Query().Get("token")); candidate != "" && limiter.Allow(setupRequestIP(ctx.Request)) {
+				epoch, ok, _ := rt.Guard.Claim(candidate)
+				if ok {
+					if store := session.Current(ctx.Request); store != nil {
+						store.Set(setupSessionEpochKey, epoch)
+					}
+					target := "/setup/" + rt.Wizard.View().Status.FirstIncompleteStep()
+					return metaRefreshNode(target, "Setup token accepted. Continuing to the setup wizard.")
+				}
+			}
+			return setupTokenEntryNode(ctx)
+		}
+		rt.Guard.Touch()
 		target := "/setup/" + rt.Wizard.View().Status.FirstIncompleteStep()
 		return metaRefreshNode(target, "Continuing to the setup wizard.")
-	})
+	}
 }
 
 func setupClaimActionHandler(rt *SetupRuntime, limiter *setupRateLimiter) http.Handler {
