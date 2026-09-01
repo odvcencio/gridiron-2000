@@ -3617,6 +3617,49 @@ button.badge-option:hover {
   color: inherit;
 }
 
+/* gap-audit item 5: /scoring's "the commissioner can set any team's
+   lineup" claim had nothing linking to it, and the only working route
+   (/team?team=<id>) took the internal team ID, never an abbreviation —
+   this disclosure is that missing link, one per team, on the task board
+   itself. */
+.admin-task-nav__lineup-intervention {
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--color-border);
+}
+
+.admin-task-nav__lineup-summary {
+  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+  font-weight: 700;
+}
+
+.admin-task-nav__lineup-list {
+  display: grid;
+  gap: var(--space-2xs, 0.25rem);
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-task-nav__lineup-list a {
+  display: block;
+  padding: 0.35rem var(--space-sm);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  background: var(--color-white-faint);
+  text-decoration: none;
+  font-size: var(--type-sm);
+}
+
+.admin-task-nav__lineup-list a:hover,
+.admin-task-nav__lineup-list a:focus-visible {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+}
+
 .admin-task-nav__group--danger {
   border-color: var(--color-accent-magenta, #ff5ec4);
 }

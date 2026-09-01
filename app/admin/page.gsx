@@ -398,6 +398,15 @@ func Page() Node {
 							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
 							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
 						</ul>
+						<details class="admin-task-nav__lineup-intervention">
+							<summary class="admin-task-nav__lineup-summary">Set a lineup for a manager</summary>
+							<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
+							<ul class="admin-task-nav__lineup-list">
+								<Each of={data.seats} as="seat">
+									<li><a href={"/team?team=" + seat.id + "#lineup"} data-gosx-link>{seat.name}</a></li>
+								</Each>
+							</ul>
+						</details>
 					</div>
 					<div class="admin-task-nav__group">
 						<h3>League configuration and communication</h3>

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -683,6 +684,26 @@ func TestAdminInvitePreviewStatesUnpublishedDraftDateCleanly(t *testing.T) {
 	}
 	if strings.Contains(body, "Draft time not published yet at") || strings.Contains(body, " at .") {
 		t.Fatalf("admin invite preview must not interpolate the unpublished placeholder into the draft sentence: %s", body)
+	}
+}
+
+// TestAdminTaskBoardLinksLineupInterventionPerTeam pins gap-audit item 5:
+// /scoring promises "the commissioner can set any team's lineup", but
+// nothing on the console ever linked to it, and the only working route
+// (/team?team=<id>) takes the team's internal ID, never an abbreviation.
+// The task board now lists every team with a direct link, using the
+// internal ID in the href and the team name as the visible label.
+func TestAdminTaskBoardLinksLineupInterventionPerTeam(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, "Set a lineup for a manager") {
+		t.Fatalf("task board missing the lineup-intervention control: %s", body)
+	}
+	for i := 1; i <= 8; i++ {
+		teamID := fmt.Sprintf("team-%d", i)
+		want := `href="/team?team=` + teamID + `#lineup"`
+		if !strings.Contains(body, want) {
+			t.Errorf("task board missing a lineup-intervention link for %s (want %q)", teamID, want)
+		}
 	}
 }
 
