@@ -42,6 +42,7 @@ If none exists, Gridiron starts with a neutral reference configuration whose dat
 | `waivers` | optional object | Waiver ordering/budget and processing window. An omitted block uses defaults. |
 | `trades` | optional object | Trade deadline, veto authority, and review window. An omitted block uses defaults. |
 | `postseason` | optional object | Playoff qualification, seeding, byes, round calendar, tie-break order, and consolation behavior. An omitted block leaves postseason disabled. |
+| `auth` | optional object | Sign-in tier toggles (invite links, Google). An omitted block enables every tier. |
 
 ## `league`
 
@@ -165,6 +166,22 @@ Every persisted matchup carries its tie-break explanation and result source
 provenance. Partial, stale, degraded, or unavailable scores cannot advance a
 published bracket. Manual corrections require the explicit confirmation
 phrase, a reason, and an audit entry.
+
+## `auth` (optional)
+
+`auth` toggles which sign-in tiers this instance accepts. It is additive to
+the version-1 schema: an existing league.json with no `auth` key keeps
+working unchanged, with both fields defaulting to enabled.
+
+| Field | Rule |
+| --- | --- |
+| `invite_links` | Boolean, default `true`. Tier 0 (commissioner-distributed, single-use invite links). Disabling it requires `google` to stay `true`. |
+| `google` | Boolean, default `true`. Tier 3 (Google OAuth). Still separately gated by `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`; setting this `false` disables Google sign-in even when those credentials are present. |
+
+`auth.invite_links` and `auth.google` cannot both be `false`: a league must
+always keep at least one sign-in method reachable. The first-boot setup
+wizard writes this block; leaguecheck validates it through the same loader
+as every other field.
 
 ## Demo mode and closed-by-default boot
 
