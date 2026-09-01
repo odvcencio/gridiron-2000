@@ -5112,9 +5112,14 @@ body.is-on-clock .draft-clock-panel {
   flex: 1 1 14rem;
 }
 
+/* gap-audit item 2: the 19rem cap measured 144px in the two-column admin
+   layout once the summary link's siblings claimed the rest of the
+   flex-wrap seat row — far short of the 277px the per-seat "RELEASE <team
+   name>" confirm phrase needs. A full-width row gives the opened form (and
+   its typed-confirm-input, see the shared rule near .scoring-input) the
+   entire row to render that phrase in. */
 .seat-release-disclosure {
-  flex: 0 1 19rem;
-  min-width: min(100%, 15rem);
+  flex: 1 1 100%;
 }
 
 .seat-release-disclosure > summary {
@@ -5341,6 +5346,33 @@ body.is-on-clock .draft-clock-panel {
   color: inherit;
   font-family: var(--font-mono);
   font-size: var(--type-xs);
+}
+
+/* Admin console: a typed-confirmation phrase input must show the whole
+   phrase the commissioner has to retype (gap-audit item 2 — 11 of 14
+   confirm fields clipped their own phrase at the shared 6rem
+   .scoring-input width; "CLOSE WEEK N" read as "CLOSE WE", "RUN WAIVERS
+   NOW" as "RUN WAIV"). /draft and /scoring reuse .scoring-input and
+   .clock-controls for genuinely short numeric fields, so this widens only
+   the confirm-phrase inputs through their own class, declared after
+   .scoring-input so its width wins the cascade at equal specificity.
+   flex-basis claims a full row in the .clock-controls / seat-trim-form /
+   plain-block redraw and force-current-pick flex and block parents alike;
+   width:100% then fills that row. */
+.typed-confirm-input {
+  flex: 1 1 100%;
+  width: 100%;
+  max-width: 30rem;
+  min-height: 2.35rem;
+}
+
+/* The playoff-correct confirm field's grid item is the wrapping
+   <label class="roster-shape-field">, not the input itself, inside
+   .roster-shape-form-grid's CSS grid — grid-column has to land on the
+   label to span the full row; typed-confirm-input above still widens the
+   input within it. */
+.roster-shape-form-grid .typed-confirm-row {
+  grid-column: 1 / -1;
 }
 
 .scoring-note {

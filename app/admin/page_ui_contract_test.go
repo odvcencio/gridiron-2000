@@ -16,6 +16,58 @@ import (
 	"gridiron-2000/internal/league"
 )
 
+// TestTypedConfirmFieldsClaimAFullWidthRow pins gap-audit item 2's first
+// half: 11 of 14 typed-confirmation fields sat in the shared 6rem
+// .scoring-input width and could not show their own required phrase (seat
+// release measured 144px against a 277px phrase; FORCE CURRENT PICK, RUN
+// WAIVERS NOW, and REDRAW SCHEDULE measured 96px). The 3 danger-grid fields
+// (RESET DRAFT, UNDO, RESET LEAGUE) already had a full grid column and are
+// deliberately not in this list.
+func TestTypedConfirmFieldsClaimAFullWidthRow(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, id := range []string{
+		`id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input"`,
+		`id="admin-draft-start-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-schedule-regenerate-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-close-week-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-run-waivers-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-playoff-publish-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-seat-trim-confirm" class="scoring-input typed-confirm-input"`,
+		`id="draft-order-redraw-confirm" class="typed-confirm-input"`,
+		`id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input"`,
+	} {
+		if !strings.Contains(markup, id) {
+			t.Errorf("typed-confirm field missing its full-width class: %q", id)
+		}
+	}
+	// The playoff-correct confirm field's grid item is its wrapping label,
+	// not the input, inside .roster-shape-form-grid's CSS grid.
+	if !strings.Contains(markup, `<label class="roster-shape-field typed-confirm-row"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input typed-confirm-input"`) {
+		t.Error("playoff-correct confirm field's row wrapper is missing its full-span class")
+	}
+
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		".typed-confirm-input {",
+		"width: 100%",
+		".roster-shape-form-grid .typed-confirm-row {",
+		"grid-column: 1 / -1;",
+		".seat-release-disclosure {\n  flex: 1 1 100%;\n}",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("admin typed-confirm styles missing %q", want)
+		}
+	}
+}
+
 func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

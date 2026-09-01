@@ -842,6 +842,70 @@ func TestAdminScheduleSeasonLabelFixtureProcess(t *testing.T) {
 	}
 }
 
+// TestForceCloseWeekConfirmPlaceholderInterpolatesWeek pins gap-audit item
+// 2's second half: the force-close typed-confirm placeholder was the
+// literal "CLOSE WEEK N" (page.gsx:632), never the selected week, so the
+// on-screen hint did not match the phrase AdminCloseWeek actually requires.
+func TestForceCloseWeekConfirmPlaceholderInterpolatesWeek(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestForceCloseWeekConfirmPlaceholderFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_FORCE_CLOSE_PLACEHOLDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("force-close placeholder fixture: %v\n%s", err, output)
+	}
+}
+
+func TestForceCloseWeekConfirmPlaceholderFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_FORCE_CLOSE_PLACEHOLDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"3"}, "start_week": {"1"}, "seed": {"9"},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+	if !strings.Contains(body, `id="admin-close-week-confirm"`) {
+		t.Fatalf("force-close confirm field is missing from the render: %s", body)
+	}
+	if strings.Contains(body, `placeholder="CLOSE WEEK N"`) {
+		t.Fatal("force-close confirm placeholder must interpolate the actual selected week, not the literal N")
+	}
+	if !strings.Contains(body, `placeholder="CLOSE WEEK 1"`) {
+		t.Fatalf("force-close confirm placeholder must show the selected week (week 1 after a fresh generate): %s", body)
+	}
+}
+
 func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 	body := renderAdminPage(t)
 	for _, want := range []string{
