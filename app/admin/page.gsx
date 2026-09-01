@@ -69,7 +69,7 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="seat_token" value={props.seat.release_token}></input>
 					<label for={"seat-release-confirm-" + props.seat.id}>Type <span class="mono">{props.seat.release_confirmation}</span> to confirm.</label>
-					<input id={"seat-release-confirm-" + props.seat.id} type="text" name="confirm" autocomplete="off" placeholder={props.seat.release_confirmation} required="required"></input>
+					<input id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input" type="text" name="confirm" autocomplete="off" placeholder={props.seat.release_confirmation} required="required"></input>
 					<p class="scoring-note">This releases the primary manager, co-manager, pending co-invite, and ready state for this seat.</p>
 					<button class="board-button board-button--cut" type="submit">Release {props.seat.name}</button>
 				</form>
@@ -85,7 +85,8 @@ func SeatRow(props SeatRowProps) Node {
 		<form method="post" action={props.RenameAction} data-gosx-managed="true">
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.seat.id}></input>
-			<input type="text" name="name" placeholder="Rename team" maxlength="40"></input>
+			<label for={"seat-rename-" + props.seat.id} class="visually-hidden">Rename {props.seat.name}</label>
+			<input id={"seat-rename-" + props.seat.id} type="text" name="name" placeholder="Rename team" maxlength="40"></input>
 			<button class="board-button" type="submit">Set</button>
 		</form>
 		<If cond={props.seat.claimed}>
@@ -398,6 +399,15 @@ func Page() Node {
 							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
 							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
 						</ul>
+						<details class="admin-task-nav__lineup-intervention">
+							<summary class="admin-task-nav__lineup-summary">Set a lineup for a manager</summary>
+							<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
+							<ul class="admin-task-nav__lineup-list">
+								<Each of={data.seats} as="seat">
+									<li><a href={"/team?team=" + seat.id + "#lineup"} data-gosx-link>{seat.name}</a></li>
+								</Each>
+							</ul>
+						</details>
 					</div>
 					<div class="admin-task-nav__group">
 						<h3>League configuration and communication</h3>
@@ -416,12 +426,68 @@ func Page() Node {
 			</nav>
 			<div class="admin-grid">
 				<section id="admin-draft-control" aria-labelledby="admin-draft-control-heading" tabindex="-1" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
+					<If cond={data.draft.complete}>
+					<div class="pool-toolbar">
+						<div>
+							<span class="section-index">00 // SEASON OPERATIONS</span>
+							<h2 id="admin-draft-control-heading">Season operations runbook</h2>
+						</div>
+					</div>
+					<div class="checklist">
+						<div class="checklist-item">
+							<span class="checklist-mark mono">01</span>
+							<div class="checklist-item__text">
+								<strong>Close each scoring week</strong>
+								<small>
+									Use <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> once every real game and the player-stat ledger are settled. The forced override stays a separate, explicit action for a data stall.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">02</span>
+							<div class="checklist-item__text">
+								<strong>Watch the waiver run</strong>
+								<small>
+									The daily processor resolves every due claim on its own schedule. Force an out-of-cycle run from <a href="/admin?section=week-close#admin-week-close" data-gosx-link>SEASON // WEEK CLOSE</a> only when one is stuck or overdue.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">03</span>
+							<div class="checklist-item__text">
+								<strong>Review trades</strong>
+								<small>
+									This league's veto model is commissioner review. Watch for a manager-flagged trade and settle it before the next week closes.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">04</span>
+							<div class="checklist-item__text">
+								<strong>Step in on a lineup</strong>
+								<small>
+									Set a lineup for a manager who cannot before kickoff from <a href="/scoring" data-gosx-link>the task board</a>.
+								</small>
+							</div>
+						</div>
+						<div class="checklist-item">
+							<span class="checklist-mark mono">05</span>
+							<div class="checklist-item__text">
+								<strong>Keep a backup</strong>
+								<small>
+									Download a snapshot from <a href="/admin?section=backup#admin-backup" data-gosx-link>08 // BACKUP</a> before any risky change; a nightly copy also saves automatically.
+								</small>
+							</div>
+						</div>
+					</div>
+					</If>
+					<If cond={data.draft.complete == false}>
 					<div class="pool-toolbar">
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
 							<h2 id="admin-draft-control-heading">
-								{data.draft.date}
-								runbook
+								<If cond={data.draft.date != ""}>{data.draft.date} runbook</If>
+								<If cond={data.draft.date == ""}>Draft runbook</If>
 							</h2>
 						</div>
 					</div>
@@ -455,11 +521,16 @@ func Page() Node {
 						<div class="checklist-item">
 							<span class="checklist-mark mono">04</span>
 							<div class="checklist-item__text">
-								<strong>
-									At
-									{data.draft.time}
-									, confirm everyone is present and start the draft
-								</strong>
+								<If cond={data.draft.time != ""}>
+									<strong>
+										At
+										{data.draft.time}
+										, confirm everyone is present and start the draft
+									</strong>
+								</If>
+								<If cond={data.draft.time == ""}>
+									<strong>Confirm everyone is present and start the draft</strong>
+								</If>
 								<small>The scheduled time never opens the room. Type START below when you intentionally begin pick one.</small>
 							</div>
 						</div>
@@ -492,6 +563,7 @@ func Page() Node {
 							</div>
 						</div>
 					</div>
+					</If>
 					<If cond={data.draft_started == false}>
 					<form method="post" action={actionPath("draft-reschedule")} data-gosx-managed="true" class="clock-controls draft-reschedule-form">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -518,7 +590,7 @@ func Page() Node {
 						<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<label class="mono" for="admin-draft-start-confirm">TYPE START //</label>
-							<input id="admin-draft-start-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="START"></input>
+							<input id="admin-draft-start-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="START"></input>
 							<button class="button button--primary" type="submit">Start draft + pick clock</button>
 						</form>
 						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players for {data.draft_required_players} draft slots ({data.pool.coverage} target coverage).</p>
@@ -581,7 +653,7 @@ func Page() Node {
 							<form method="post" action={actionPath("schedule-regenerate")} data-gosx-managed="true" class="clock-controls">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<label class="mono" for="admin-schedule-regenerate-confirm">TYPE REDRAW SCHEDULE //</label>
-								<input id="admin-schedule-regenerate-confirm" class="scoring-input" name="confirm" value={data.schedule_regeneration.confirm} autocomplete="off" placeholder="REDRAW SCHEDULE"></input>
+								<input id="admin-schedule-regenerate-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.schedule_regeneration.confirm} autocomplete="off" placeholder="REDRAW SCHEDULE"></input>
 								<button class="button button--ghost" type="submit">Redraw schedule</button>
 							</form>
 						</If>
@@ -606,7 +678,7 @@ func Page() Node {
 							<div class="pool-stat"><span>Selected week</span><b class="mono">WEEK {data.schedule.close.week}</b></div>
 							<div class="pool-stat"><span>Games</span><b class="mono">{data.schedule.close.games_final}/{data.schedule.close.games_total} FINAL</b></div>
 							<div class="pool-stat"><span>Stats updated</span><b class="mono">{data.schedule.close.stats_updated}</b></div>
-							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready}</b></div>
+							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready_label}</b></div>
 						</div>
 						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
 						<If cond={data.schedule.close.final}>
@@ -629,7 +701,7 @@ func Page() Node {
 								<label class="mono" for="admin-close-force-week">WEEK //</label>
 								<input id="admin-close-force-week" class="scoring-input" type="number" name="week" value={data.close_form.week} min="1" max="18" required="required"></input>
 								<label class="mono" for="admin-close-week-confirm">TYPE CLOSE WEEK {data.close_form.week} //</label>
-								<input id="admin-close-week-confirm" class="scoring-input" name="confirm" value={data.close_form.confirm} autocomplete="off" placeholder="CLOSE WEEK N"></input>
+								<input id="admin-close-week-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.close_form.confirm} autocomplete="off" placeholder={"CLOSE WEEK " + data.close_form.week}></input>
 								<button class="button button--ghost" type="submit">Force close week {data.close_form.week}</button>
 							</form>
 						</If>
@@ -653,7 +725,7 @@ func Page() Node {
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="waiver_run_token" value={data.waivers.run_token}></input>
 						<label class="mono" for="admin-run-waivers-confirm">TYPE RUN WAIVERS NOW //</label>
-						<input id="admin-run-waivers-confirm" class="scoring-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" placeholder="RUN WAIVERS NOW"></input>
+						<input id="admin-run-waivers-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" placeholder="RUN WAIVERS NOW"></input>
 						<If cond={data.waivers.has_open_claims == true}>
 							<button class="button button--ghost" type="submit">Force run waivers now</button>
 						</If>
@@ -661,7 +733,7 @@ func Page() Node {
 							<button class="button" type="submit" disabled="disabled">No open claims to run</button>
 						</If>
 					</form>
-					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger. The prior release note that commissioner seeding automation is not wired into this release yet is retired; use PLAYOFF TRUTH below.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; use PLAYOFF TRUTH below.</p>
 				</section>
 				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>
 					<div class="pool-toolbar">
@@ -680,17 +752,22 @@ func Page() Node {
 					</div>
 					<p class="scoring-note"><strong>STATUS:</strong> {data.playoff_truth.detail}</p>
 					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-					<form method="post" action={actionPath("playoff-preview")} data-gosx-managed="true" class="clock-controls">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<button class="button button--primary" type="submit">Build commissioner preview</button>
-					</form>
+					<If cond={data.playoff_truth.season_phase == "playoffs"}>
+						<form method="post" action={actionPath("playoff-preview")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button button--primary" type="submit">Build commissioner preview</button>
+						</form>
+					</If>
+					<If cond={data.playoff_truth.season_phase != "playoffs"}>
+						<button class="button button--primary" type="button" disabled="disabled">Preview unavailable - league is in {data.playoff_truth.season_phase_label}, not playoffs</button>
+					</If>
 					<If cond={data.playoff_truth.is_preview}>
 						<form method="post" action={actionPath("playoff-publish")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<label class="mono" for="admin-playoff-preview-id">PREVIEW ID //</label>
 							<input id="admin-playoff-preview-id" class="scoring-input" name="preview_id" value={data.playoff_truth.preview_id} required="required"></input>
 							<label class="mono" for="admin-playoff-publish-confirm">TYPE PUBLISH PLAYOFF BRACKET //</label>
-							<input id="admin-playoff-publish-confirm" class="scoring-input" name="confirm" autocomplete="off" placeholder="PUBLISH PLAYOFF BRACKET" required="required"></input>
+							<input id="admin-playoff-publish-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="PUBLISH PLAYOFF BRACKET" required="required"></input>
 							<button class="button button--primary" type="submit">Publish this preview</button>
 						</form>
 					</If>
@@ -708,7 +785,7 @@ func Page() Node {
 								<label class="roster-shape-field"><span class="mono">HOME SCORE (OPTIONAL)</span><input class="scoring-input" name="home_score" inputmode="decimal"></input></label>
 								<label class="roster-shape-field"><span class="mono">AWAY SCORE (OPTIONAL)</span><input class="scoring-input" name="away_score" inputmode="decimal"></input></label>
 								<label class="roster-shape-field"><span class="mono">AUDIT REASON</span><input class="scoring-input" name="reason" required="required"></input></label>
-								<label class="roster-shape-field"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input" name="confirm" autocomplete="off" placeholder="CORRECT PLAYOFF BRACKET" required="required"></input></label>
+								<label class="roster-shape-field typed-confirm-row"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="CORRECT PLAYOFF BRACKET" required="required"></input></label>
 							</div>
 							<button class="button button--ghost" type="submit">Record confirmed correction</button>
 						</form>
@@ -762,25 +839,35 @@ func Page() Node {
 							</If>
 						</div>
 					</div>
-					<If cond={data.league_open}>
-						<p class="demo-message">
-							<strong>OPEN LEAGUE:</strong>
-							no invite list or membership domain is set, so any Google account may claim a seat. Add the
-							{data.league.seat_count_word}
-							manager emails below.
-						</p>
+					<If cond={data.has_unclaimed_seats}>
+						<If cond={data.league_open}>
+							<p class="demo-message">
+								<strong>OPEN LEAGUE:</strong>
+								no invite list or membership domain is set, so any Google account may claim a seat. Add the
+								{data.league.seat_count_word}
+								manager emails below.
+							</p>
+						</If>
+						<If cond={data.league_domain_gated}>
+							<p class="demo-message">
+								<strong>DOMAIN-GATED:</strong>
+								any Google account ending in
+								<b class="mono">@{data.league_domain}</b>
+								may claim a seat automatically. Add an email below only to invite someone outside that domain.
+							</p>
+						</If>
 					</If>
-					<If cond={data.league_domain_gated}>
+					<If cond={data.has_unclaimed_seats == false}>
 						<p class="demo-message">
-							<strong>DOMAIN-GATED:</strong>
-							any Google account ending in
-							<b class="mono">@{data.league_domain}</b>
-							may claim a seat automatically. Add an email below only to invite someone outside that domain.
+							<strong>SEATS FULL:</strong>
+							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 01 // SEATS to open one, or assign an admitted, seatless member below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<label for="admin-invite-email" class="visually-hidden">Manager email to invite</label>
 						<input
+							id="admin-invite-email"
 							type="email"
 							name="email"
 							placeholder="manager@example.com"
@@ -831,9 +918,30 @@ func Page() Node {
 							The league cannot send email yet. Use the Mail app links.
 						</p>
 					</If>
-					<p class="scout-callout">
-						Send managers this address: they sign in with Google and the next open seat is theirs.
-					</p>
+					<If cond={data.has_unclaimed_seats}>
+						<p class="scout-callout">
+							Send managers this address: they sign in with Google and the next open seat is theirs.
+						</p>
+					</If>
+					<If cond={data.has_unclaimed_seats == false}>
+						<If cond={data.seatless_members_empty == false}>
+							<h3 class="mono">SEATLESS MEMBERS — SIGNED IN, NO SEAT</h3>
+							<div class="invite-list">
+								<Each of={data.seatless_members} as="member">
+									<article class="invite-row">
+										<div class="invite-identity">
+											<b class="mono">{member.email}</b>
+											<small>{member.name}</small>
+										</div>
+										<small class="mono">Assign a seat in 01 // SEATS, or release a claimed one to make room.</small>
+									</article>
+								</Each>
+							</div>
+						</If>
+						<If cond={data.seatless_members_empty}>
+							<p class="scoring-note">Every admitted member already holds a seat.</p>
+						</If>
+					</If>
 				</section>
 
 				<section id="admin-draft-order" aria-labelledby="admin-draft-order-heading" tabindex="-1" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
@@ -874,47 +982,53 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="unclaimed_seat_token" value={data.unclaimed_seat_token}></input>
 								<label for="admin-seat-trim-confirm">Type <span class="mono">{data.unclaimed_seat_confirm}</span> to confirm.</label>
-								<input id="admin-seat-trim-confirm" class="scoring-input" type="text" name="confirm" value="" autocomplete="off" placeholder={data.unclaimed_seat_confirm} required="required"></input>
-								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_count} unclaimed seat(s)</button>
+								<input id="admin-seat-trim-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value="" autocomplete="off" placeholder={data.unclaimed_seat_confirm} required="required"></input>
+								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_label}</button>
 							</form>
 							<p class="demo-message">
 								<strong>SCHEDULE WARNING:</strong>
 								if a schedule already exists, this action discards that unplayed schedule. The final order draw will publish a replacement for the kept teams.
 							</p>
 							<p class="scoring-note">
-								{data.unclaimed_seat_count}
-								seat(s) have no manager. Drop them first, then randomize. An unclaimed seat takes a turn
+								{data.unclaimed_seat_label}
+								{data.unclaimed_seat_verb} no manager. Drop them first, then randomize. An unclaimed seat takes a turn
 								in every round: it runs the full pick clock down, then autopicks a player. Reload this page if the claim count changes before you confirm.
 							</p>
 						</If>
 					</If>
-					<If cond={data.order_randomized == false}>
-						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
-							<input type="hidden" name="order_token" value=""></input>
-							<button class="button button--primary" type="submit">Draw order + schedule · queue reminders</button>
-						</form>
-						<p class="scoring-note">
-							One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then reports how many manager reminders were queued. Queued is not delivery.
-						</p>
+					<If cond={data.draft_started}>
+						<button class="button button--primary" type="button" disabled="disabled">Draw order unavailable - the draft has already started</button>
+						<p class="scoring-note">The order and schedule lock once the commissioner starts the draft. Reset the draft in 99 // DANGER ZONE to change them again.</p>
 					</If>
-					<If cond={data.order_randomized}>
-						<p class="demo-message">
-							<strong>FINAL ORDER PUBLISHED:</strong>
-							an ordinary second click cannot redraw it or queue the league again.
-						</p>
-						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
-							<input type="hidden" name="order_token" value={data.draft_order_token}></input>
-							<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
-							<input id="draft-order-redraw-confirm" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
-							<button class="button" type="submit">Redraw and queue replacement</button>
-						</form>
-						<p class="scoring-note">
-							Replacement draws run six passes, preserve the published schedule, and queue exactly one new notice. Queued is not delivery. Use only when the published draw must be replaced.
-						</p>
+					<If cond={data.draft_started == false}>
+						<If cond={data.order_randomized == false}>
+							<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
+								<input type="hidden" name="order_token" value=""></input>
+								<button class="button button--primary" type="submit">Draw order + schedule · queue reminders</button>
+							</form>
+							<p class="scoring-note">
+								One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then reports how many manager reminders were queued. Queued is not delivery.
+							</p>
+						</If>
+						<If cond={data.order_randomized}>
+							<p class="demo-message">
+								<strong>FINAL ORDER PUBLISHED:</strong>
+								an ordinary second click cannot redraw it or queue the league again.
+							</p>
+							<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
+								<input type="hidden" name="order_token" value={data.draft_order_token}></input>
+								<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
+								<input id="draft-order-redraw-confirm" class="typed-confirm-input" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
+								<button class="button" type="submit">Redraw and queue replacement</button>
+							</form>
+							<p class="scoring-note">
+								Replacement draws run six passes, preserve the published schedule, and queue exactly one new notice. Queued is not delivery. Use only when the published draw must be replaced.
+							</p>
+						</If>
 					</If>
 					<p class="scoring-note">Run this one hour before the draft. Locked once the commissioner starts the draft.</p>
 				</section>
@@ -1049,7 +1163,8 @@ func Page() Node {
 							<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
-								<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+								<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>
+								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 								<button class="button" type="submit">Extend running pick</button>
 							</form>
 						</If>
@@ -1083,7 +1198,8 @@ func Page() Node {
 						</form>
 						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
+							<label for="admin-clock-set-duration-seconds" class="visually-hidden">Custom pick clock duration in seconds</label>
+							<input id="admin-clock-set-duration-seconds" class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
 							<button class="button" type="submit">Set duration</button>
 						</form>
 						<details class="draft-destructive-control">
@@ -1093,7 +1209,7 @@ func Page() Node {
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
 								<p>This immediately consumes the on-clock seat's Big Board target, or best available if its board is empty. It advances the draft even when the clock is paused.</p>
 								<label class="mono" for="admin-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
-								<input id="admin-force-current-pick-confirm" class="scoring-input" type="text" name="confirm" value={data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
+								<input id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value={data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
 								<button class="button button--ghost" type="submit">Confirm force current pick</button>
 							</form>
 						</details>
@@ -1219,11 +1335,21 @@ func Page() Node {
 					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
-						<textarea name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3"></textarea>
-						<label class="announcement-email-toggle">
-							<input type="checkbox" name="also_email" value="true"></input>
-							Also queue an email to the league
-						</label>
+						<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>
+						<textarea id="admin-announcement-body" name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3" aria-describedby="admin-announcement-limit"></textarea>
+						<small id="admin-announcement-limit" class="scoring-note">Up to 500 characters.</small>
+						<If cond={data.mail_enabled}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true"></input>
+								Also queue an email to the league
+							</label>
+						</If>
+						<If cond={data.mail_enabled == false}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true" disabled="disabled"></input>
+								Also queue an email to the league — unavailable, delivery is off
+							</label>
+						</If>
 						<button class="button button--primary" type="submit">Post announcement</button>
 					</form>
 					<If cond={data.announcements_empty}>
@@ -1244,11 +1370,16 @@ func Page() Node {
 										·
 										{note.posted_at}
 									</small>
-									<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
-										<input type="hidden" name="csrf_token" value={csrf.token}></input>
-										<input type="hidden" name="id" value={note.id}></input>
-										<button class="board-button board-button--cut" type="submit">✕</button>
-									</form>
+									<details class="announcement-delete-disclosure">
+										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at}>✕</summary>
+										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
+											<input type="hidden" name="id" value={note.id}></input>
+											<p>Delete the announcement posted {note.posted_at}? This removes it from the league notes and the home page; it cannot be undone.</p>
+											<button class="board-button board-button--cut" type="submit">Confirm delete</button>
+										</form>
+									</details>
 								</div>
 							</article>
 						</Each>
@@ -1288,13 +1419,14 @@ func Page() Node {
 					<div class="danger-grid">
 						<form method="post" action={actionPath("draft-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset draft</strong>
+							<strong>Reset {data.league.name}'s draft</strong>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> Picks, Ready, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, and draft-scoped notification receipts.</li>
-								<li><strong>Preserved:</strong> Members/seats, CoInvites, Boards, Invites, TeamNames, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, DraftAtOverride (scheduled meeting time), Scoring, Pickems, BlitzEntries, BadgeClaims, AvatarRefs, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+								<li><strong>Destroyed:</strong> every draft pick, ready status for every seat, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, and draft-related notification history.</li>
+								<li><strong>Preserved:</strong> team seats and managers, pending co-manager invites, draft boards, the invite list, custom team names, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the scheduled meeting time, scoring rules, pick'em picks, blitz contest entries, claimed badges, custom avatar images, league announcements, notification preferences, and unrelated sent-notification history.</li>
 							</ul>
+							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed draft data back.</p>
 							<label>Type <span class="mono">RESET DRAFT</span> to confirm.<input type="text" name="confirm" placeholder="RESET DRAFT" autocomplete="off"></input></label>
-							<button class="button" type="submit">Reset draft</button>
+							<button class="button button--danger" type="submit">Reset {data.league.name}'s draft</button>
 						</form>
 						<form method="post" action={actionPath("draft-undo")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -1303,18 +1435,20 @@ func Page() Node {
 							<p>
 								Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first.
 							</p>
-							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
-							<button class="button" type="submit">Undo last pick</button>
+							<label for="admin-draft-undo-confirm">Type <span class="mono">UNDO</span> to confirm.</label>
+							<input id="admin-draft-undo-confirm" type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
+							<button class="button button--danger" type="submit">Undo last pick</button>
 						</form>
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<strong>Reset league</strong>
+							<strong>Reset {data.league.name} to a blank league</strong>
 							<ul class="reset-contract-list">
-								<li><strong>Destroyed:</strong> Members/seats, CoInvites, Picks, Ready, Boards, Pickems/PickemEnteredAt/PickemMarkets, BlitzEntries, DraftOrder, Schedule, Playoffs, Phase, RosterOverride, TrimmedTeamIDs, draft lifecycle/clock/autopick, Transactions, Lineups, WaiverClaims, WaiverReceipts, WaiversProcessedThrough, TradeOffers, RosterZones, BadgeClaims, AvatarRefs, DraftAtOverride, and league-scoped notification receipts.</li>
-								<li><strong>Preserved:</strong> Invites, TeamNames (franchise name overrides), Scoring, Announcements, NotifyPrefs, and unrelated SentLog receipts.</li>
+								<li><strong>Destroyed:</strong> every team seat and manager, pending co-manager invites, every draft pick, ready status for every seat, draft boards, pick'em picks and markets, blitz contest entries, the draft order, the regular-season schedule, the playoff bracket, the season phase, the custom roster shape, the trimmed-seat list, the draft clock and autopick settings, the transaction log, every set lineup, pending waiver claims, the waiver claim history, the waiver processing clock, pending and past trade offers, reserve/IR roster assignments, claimed badges, custom avatar images, the scheduled meeting time, and league notification history.</li>
+								<li><strong>Preserved:</strong> the invite list, custom team names, scoring rules, league announcements, notification preferences, and unrelated sent-notification history.</li>
 							</ul>
+							<p class="scoring-note">This cannot be undone from this screen; only a restored backup can bring {data.league.name}'s destroyed data back.</p>
 							<label>Type <span class="mono">RESET LEAGUE</span> to confirm.<input type="text" name="confirm" placeholder="RESET LEAGUE" autocomplete="off"></input></label>
-							<button class="button" type="submit">Reset league</button>
+							<button class="button button--danger" type="submit">Reset {data.league.name} to a blank league</button>
 						</form>
 					</div>
 				</section>

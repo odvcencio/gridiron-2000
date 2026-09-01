@@ -57,8 +57,14 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// of a per-action call, so the direct-call inventory fell while the
 	// number of redirecting actions rose (see mutation_response_shape_test
 	// in each package).
-	const wantRedirects = 38
-	const wantRedirectBacks = 12
+	// Wave 2 gap-audit item 1: every admin action must return the
+	// commissioner to the section it started from. app/admin/page.server.go
+	// converted its 27 remaining direct RedirectWithNotice(ctx, "/admin",
+	// ...) calls to RedirectBackWithNotice(ctx, adminSectionTarget(<section>),
+	// ...), so redirects fell by 27 (38 -> 11) and redirectBacks rose by the
+	// same 27 (12 -> 39).
+	const wantRedirects = 11
+	const wantRedirectBacks = 39
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {
@@ -99,7 +105,9 @@ func TestSeatTrimNoticePreservesScheduleResetGuidance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"scheduleBefore", "Existing unplayed schedule cleared; regenerate it for the kept teams.", "actionui.RedirectWithNotice(ctx, \"/admin\", notice)"} {
+	// Wave 2 gap-audit item 1: seat-trim now returns to the draft-order
+	// section it was submitted from instead of a hard "/admin" redirect.
+	for _, want := range []string{"scheduleBefore", "Existing unplayed schedule cleared; regenerate it for the kept teams.", "actionui.RedirectBackWithNotice(ctx, adminSectionTarget(\"draft-order\"), notice)"} {
 		if !strings.Contains(string(source), want) {
 			t.Fatalf("admin seat-trim feedback must preserve %q", want)
 		}

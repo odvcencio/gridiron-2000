@@ -26,6 +26,33 @@ import (
 // one linearizable operation.
 var topologyMutationMu sync.Mutex
 
+// Plural renders "<n> <singular>" with the correct English plural noun
+// (gap-audit item 11): commissioner-facing copy printed the field name
+// literally ("1 LEAGUES", "1 occurrence(s)", "2 day(s)") instead of a real
+// count-agreement sentence. Only the exact count 1 keeps the singular form;
+// every other count, including 0 and negative counts, takes the plural.
+// This covers the regular English "add a trailing s" case, which is every
+// noun this console currently counts (day, league, seat, failure, ...); a
+// caller with an irregular plural can still fall back to its own
+// fmt.Sprintf rather than force one on every other caller here.
+func Plural(n int, singular string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, singular)
+	}
+	return fmt.Sprintf("%d %ss", n, singular)
+}
+
+// pluralVerb picks the verb form agreeing with a count Plural just rendered
+// as a noun ("1 unclaimed seat has no manager" vs "3 unclaimed seats have no
+// manager"). It is deliberately narrow — a caller with its own verb pair
+// passes it directly rather than growing this into a general conjugator.
+func pluralVerb(n int, singular, plural string) string {
+	if n == 1 {
+		return singular
+	}
+	return plural
+}
+
 // AdminData assembles the commissioner console: seat claims, invites, and
 // league state counters. The page itself renders a restricted notice for
 // non-commissioners; every action re-checks authority server-side.
@@ -155,18 +182,38 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		}
 		seats = append(seats, item)
 	}
+	// seatlessMembers (gap-audit item 8): once every seat is claimed, "any
+	// Google account may claim a seat ... the next open seat is theirs" is
+	// false — there is no next seat. A signed-in member with no TeamID at
+	// that point is an admitted, seatless member waiting on the
+	// commissioner, not an invite still to be sent; the invites panel
+	// switches to naming them instead of repeating the now-false claim.
+	seatlessMembers := make([]map[string]any, 0)
+	for _, member := range state.Members {
+		if strings.TrimSpace(member.TeamID) != "" {
+			continue
+		}
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = "No display name yet"
+		}
+		seatlessMembers = append(seatlessMembers, map[string]any{"email": member.Email, "name": name})
+	}
+	slices.SortFunc(seatlessMembers, func(a, b map[string]any) int {
+		return strings.Compare(a["email"].(string), b["email"].(string))
+	})
 	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	envSet := make(map[string]bool, len(envEmails))
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
 	for _, email := range envEmails {
 		envSet[email] = true
-		invites = append(invites, s.adminInviteMap(state, email, "PRESET", false))
+		invites = append(invites, s.adminInviteMap(state, r, email, "PRESET", false))
 	}
 	for _, email := range state.Invites {
 		if envSet[email] {
 			continue
 		}
-		invites = append(invites, s.adminInviteMap(state, email, "INVITE", true))
+		invites = append(invites, s.adminInviteMap(state, r, email, "INVITE", true))
 	}
 	inviteSignedInCount := 0
 	inviteSeatedCount := 0
@@ -190,7 +237,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	for _, teamID := range orderIDs {
 		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
 	}
-	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
+	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, "their-email@example.com")
 	now := s.clock()
 	// domainGate mirrors rulesMembershipMap's fix (scoring.go): "no invite
 	// list" alone does not mean any Google account may claim a seat when a
@@ -215,6 +262,12 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"league_open":            domainGate == "" && len(invites) == 0,
 		"league_domain_gated":    domainGate != "",
 		"league_domain":          domainGate,
+		// seatless_members backs the invites panel's full-league state
+		// (gap-audit item 8): once every seat is claimed there is no "next
+		// open seat" left to promise a new sign-in, so the panel names the
+		// admitted members still waiting on one instead.
+		"seatless_members":       seatlessMembers,
+		"seatless_members_empty": len(seatlessMembers) == 0,
 		// The masthead labels this value SEATS. Seatless signed-in members and
 		// co-managers are real members but do not occupy additional team seats,
 		// so counting raw Member records overstates launch readiness.
@@ -246,6 +299,13 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"has_unclaimed_seats":    len(unclaimedSeatIDs) > 0,
 		"unclaimed_seat_token":   seatTrimToken(unclaimedSeatIDs, state.DraftOrder, state.Schedule),
 		"unclaimed_seat_confirm": seatTrimConfirmation(len(unclaimedSeatIDs)),
+		// unclaimed_seat_label/_verb (gap-audit item 11): "N unclaimed
+		// seat(s)" and "seat(s) have" read wrong at both ends of the count —
+		// "1 unclaimed seat(s)" and "3 seat(s) have". Plural agrees the
+		// noun; the verb needs its own singular/plural form since it is not
+		// a noun Plural can render.
+		"unclaimed_seat_label": Plural(len(unclaimedSeatIDs), "unclaimed seat"),
+		"unclaimed_seat_verb":  pluralVerb(len(unclaimedSeatIDs), "has", "have"),
 		// draft_started hides the seat-trim control once the first pick
 		// lands, matching the roster-shape panel's own lock. The store
 		// rejects a late trim anyway ("seats lock once the draft starts"),
@@ -406,16 +466,28 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 	return base
 }
 
+// adminWeekCloseMap renders the week-close readiness tiles (gap-audit item
+// 9): "ready" stays the raw bool other callers switch on (adminScheduleMap,
+// close-week-ready's own gate), but ready_label carries the plain-language
+// word the tile actually prints — GoSX's raw-bool interpolation had shown
+// the Go literal "false" on screen. stats_updated similarly needs a value
+// or a reason in every tile, never a blank cell, so it falls back to
+// "NOT YET" before the first stats sync instead of an empty string.
 func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]any {
-	statsUpdated := ""
+	statsUpdated := "NOT YET"
 	if !info.StatsUpdatedAt.IsZero() {
 		statsUpdated = info.StatsUpdatedAt.In(location).Format("Jan 2, 2006 · 3:04 PM MST")
+	}
+	readyLabel := "NOT READY"
+	if info.Ready {
+		readyLabel = "READY"
 	}
 	return map[string]any{
 		"week":          info.Week,
 		"exists":        info.Exists,
 		"final":         info.Final,
 		"ready":         info.Ready,
+		"ready_label":   readyLabel,
 		"games_known":   info.GamesKnown,
 		"games_total":   info.GamesTotal,
 		"games_final":   info.GamesFinal,
@@ -431,13 +503,13 @@ func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]a
 // snapshot lets the console distinguish "email added" from "person signed
 // in", "seat claimed", and "manager ready" without adding another persisted
 // state machine that could drift from the actual league state.
-func (s *Service) adminInviteMap(state PersistedState, email, source string, removable bool) map[string]any {
+func (s *Service) adminInviteMap(state PersistedState, r *http.Request, email, source string, removable bool) map[string]any {
 	email = strings.ToLower(strings.TrimSpace(email))
 	item := map[string]any{
 		"email":         email,
 		"source":        source,
 		"removable":     removable,
-		"mailto":        inviteMailto(s, email),
+		"mailto":        inviteMailto(s, r, email),
 		"signed_in":     false,
 		"seated":        false,
 		"ready":         false,
@@ -570,8 +642,8 @@ func clockDurationSource(state PersistedState) string {
 // inviteMailto builds a prefilled mailto: link for one invite email, using
 // that email's own copy of the invite template's plain-text body (mailto:
 // links cannot carry HTML, so the text version is the only option here).
-func inviteMailto(s *Service, email string) string {
-	subject, text, _ := s.InviteEmailTemplate(email)
+func inviteMailto(s *Service, r *http.Request, email string) string {
+	subject, text, _ := s.InviteEmailTemplate(r, email)
 	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(text)
 }
 
@@ -740,6 +812,44 @@ func inviteSeasonPosture(mode string) (plain, htmlCopy string) {
 	return "", "This is a fresh-season league. The commissioner publishes each season's roster and rules."
 }
 
+// requestOrigin reports r's own scheme and host ("https://league.example"),
+// or "" when r is nil or carries no Host. It never trusts a client-supplied
+// scheme header beyond the standard reverse-proxy convention: TLS on the
+// connection itself, or X-Forwarded-Proto set by the proxy in front of it.
+func requestOrigin(r *http.Request) string {
+	if r == nil || strings.TrimSpace(r.Host) == "" {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	} else if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+		scheme = strings.ToLower(strings.TrimSpace(strings.SplitN(proto, ",", 2)[0]))
+	}
+	return scheme + "://" + r.Host
+}
+
+// leagueJoinURL resolves the seat-claim link an invite points to. A real
+// deployment's own choice — league.json's url, or a LEAGUE_URL override —
+// always wins outright. Only the unconfigured default config (DefaultConfig,
+// url=http://localhost:8080) falls back to the viewing request's own
+// scheme+host: that placeholder is never a real address a manager could
+// reach, and printing it in invite copy was the 2026-09-01
+// wave-1-verification finding this fixes. r may be nil (an offline or
+// request-less caller); leaguePathURL's own default is the final fallback.
+func (s *Service) leagueJoinURL(r *http.Request) string {
+	if s.cfg.Source != "defaults" || strings.TrimSpace(os.Getenv("LEAGUE_URL")) != "" {
+		return s.leaguePathURL("join")
+	}
+	if origin := requestOrigin(r); origin != "" {
+		if joined, err := url.JoinPath(origin, "join"); err == nil {
+			return joined
+		}
+		return strings.TrimRight(origin, "/") + "/join"
+	}
+	return s.leaguePathURL("join")
+}
+
 // InviteEmailTemplate builds the subject, plain-text body, and HTML body of
 // the invite email sent to one manager. It draws the draft date and time
 // from the live draft summary, so the copy always matches the console, and
@@ -749,13 +859,17 @@ func inviteSeasonPosture(mode string) (plain, htmlCopy string) {
 // rather than inventing one for a league that has none. The HTML body
 // carries the same facts as the text body, dressed in the league's
 // Neo-Retro Stadium OS look; the text body is unchanged in shape from the
-// plain-text-only era, since its mailto: use depends on the wording.
-func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody string) {
+// plain-text-only era, since its mailto: use depends on the wording. r is
+// the viewing/acting commissioner's own request, used only by
+// leagueJoinURL's unconfigured-default fallback; pass nil when no request
+// is available (r's absence never changes behavior for a configured URL).
+func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, text, htmlBody string) {
 	draft := s.draftSummary(time.Now())
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	joinURL := s.leaguePathURL("join")
+	published, _ := draft["published"].(bool)
+	joinURL := s.leagueJoinURL(r)
 	blurb := s.inviteBlurb()
 
 	venueClause := ""
@@ -764,12 +878,23 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	}
 	seasonText, _ := inviteSeasonPosture(s.cfg.ModeLabel)
 
+	// An unpublished draft date leaves long_date as the placeholder "Draft
+	// time not published yet" and time as "" (draftSummaryForState,
+	// service.go); interpolating those straight into "is %s at %s." read
+	// as "is Draft time not published yet at ." (2026-09-01
+	// wave-1-verification finding). State the unpublished date as its own
+	// clean sentence instead, with no dangling "at" clause.
+	draftSentence := fmt.Sprintf("The startup snake draft is %s at %s.", longDate, draftTime)
+	if !published {
+		draftSentence = "The startup snake draft date is not published yet."
+	}
+
 	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
 	text = fmt.Sprintf(`Hi there,
 
 You've got a seat waiting in %s, %s.
 
-The startup snake draft is %s at %s.%s
+%s%s
 
 Here's what to do before then:
   1. Open %s
@@ -779,7 +904,7 @@ Here's what to do before then:
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, seasonText)
+— The Commissioner`, s.cfg.Name, blurb, draftSentence, venueClause, joinURL, email, seasonText)
 	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
@@ -948,7 +1073,7 @@ func (s *Service) AdminSendInvite(r *http.Request, email string) (bool, error) {
 	if err := s.store.AddInvite(email); err != nil {
 		return false, err
 	}
-	subject, text, htmlBody := s.InviteEmailTemplate(email)
+	subject, text, htmlBody := s.InviteEmailTemplate(r, email)
 	config := mailer.FromEnv()
 	if !config.Enabled() {
 		return false, nil
@@ -1531,7 +1656,11 @@ func (s *Service) buildSchedule(weeks, startWeek int, seed int64) (SeasonSchedul
 		seed = drawn
 	}
 	sched, err := GenerateSchedule(ScheduleParams{
-		Season:    seasonStartAt().Year(),
+		// cfg.Season is the one source of league-season truth (commissioner
+		// HQ and the schedule panel label already read it); seasonStartAt()
+		// is only a kickoff-timing sentinel and its year can disagree with
+		// the configured season (gap-audit item 10).
+		Season:    s.cfg.Season,
 		TeamIDs:   teamIDList(s.Teams()),
 		Divisions: teamDivisionMap(s.Teams()),
 		StartWeek: startWeek,

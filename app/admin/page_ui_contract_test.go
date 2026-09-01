@@ -16,6 +16,111 @@ import (
 	"gridiron-2000/internal/league"
 )
 
+// TestTypedConfirmFieldsClaimAFullWidthRow pins gap-audit item 2's first
+// half: 11 of 14 typed-confirmation fields sat in the shared 6rem
+// .scoring-input width and could not show their own required phrase (seat
+// release measured 144px against a 277px phrase; FORCE CURRENT PICK, RUN
+// WAIVERS NOW, and REDRAW SCHEDULE measured 96px). The 3 danger-grid fields
+// (RESET DRAFT, UNDO, RESET LEAGUE) already had a full grid column and are
+// deliberately not in this list.
+func TestTypedConfirmFieldsClaimAFullWidthRow(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, id := range []string{
+		`id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input"`,
+		`id="admin-draft-start-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-schedule-regenerate-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-close-week-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-run-waivers-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-playoff-publish-confirm" class="scoring-input typed-confirm-input"`,
+		`id="admin-seat-trim-confirm" class="scoring-input typed-confirm-input"`,
+		`id="draft-order-redraw-confirm" class="typed-confirm-input"`,
+		`id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input"`,
+	} {
+		if !strings.Contains(markup, id) {
+			t.Errorf("typed-confirm field missing its full-width class: %q", id)
+		}
+	}
+	// The playoff-correct confirm field's grid item is its wrapping label,
+	// not the input, inside .roster-shape-form-grid's CSS grid.
+	if !strings.Contains(markup, `<label class="roster-shape-field typed-confirm-row"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input typed-confirm-input"`) {
+		t.Error("playoff-correct confirm field's row wrapper is missing its full-span class")
+	}
+
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		".typed-confirm-input {",
+		"width: 100%",
+		".roster-shape-form-grid .typed-confirm-row {",
+		"grid-column: 1 / -1;",
+		".seat-release-disclosure {\n  flex: 1 1 100%;\n}",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("admin typed-confirm styles missing %q", want)
+		}
+	}
+}
+
+// TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle pins gap-audit
+// item 9's ghost-style ask: FORCE CLOSE and force-run-waivers keep the
+// shared .button--ghost class (so /draft, /help, /login, /settings, and
+// /team's own ghost buttons are untouched), but the admin week-close
+// section further mutes it — a dashed border and muted text, one step
+// short of disabled — since it is the only clickable control once
+// readiness disables the normal close.
+func TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle(t *testing.T) {
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		"#admin-week-close .clock-controls .button--ghost {",
+		"border-style: dashed;",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("week-close force-button muting styles missing %q", want)
+		}
+	}
+}
+
+// TestPreviouslyUnlabeledControlsNowHaveAccessibleNames pins gap-audit item
+// 6: twelve controls had no accessible name — the 8 per-team rename
+// inputs, the invite email field, the clock-extend and set-duration
+// seconds fields, the announcement textarea, and the "type UNDO" field.
+func TestPreviouslyUnlabeledControlsNowHaveAccessibleNames(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		`<label for={"seat-rename-" + props.seat.id} class="visually-hidden">Rename {props.seat.name}</label>`,
+		`<label for="admin-invite-email" class="visually-hidden">Manager email to invite</label>`,
+		`<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>`,
+		`<label for="admin-clock-set-duration-seconds" class="visually-hidden">Custom pick clock duration in seconds</label>`,
+		`<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>`,
+		`<label for="admin-draft-undo-confirm">Type <span class="mono">UNDO</span> to confirm.</label>`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("admin page missing accessible-name fix %q", want)
+		}
+	}
+	// Up to 500 characters is the closest static equivalent this template
+	// can render for a live counter without a client-side runtime feature;
+	// note it is at least stated next to the field it limits.
+	if !strings.Contains(markup, `aria-describedby="admin-announcement-limit"`) || !strings.Contains(markup, `id="admin-announcement-limit"`) {
+		t.Error("announcement textarea is missing its character-limit hint")
+	}
+}
+
 func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -300,6 +405,52 @@ func TestAdminTaskBoardDraftPhaseTruthTable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete pins
+// gap-audit item 4: section 00 kept showing the eight-step pre-draft
+// checklist ("drop the seats nobody claimed", "Type START below") on a
+// completed-draft league, where the draft is already over and there is no
+// START control left to click. Once draft_complete, the section renders a
+// season-operations runbook instead (week close, waivers, trades review,
+// lineup intervention, backups). Reuses the same complete-draft fixture
+// process TestAdminTaskBoardDraftPhaseTruthTable already drives.
+func TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminTaskBoardDraftPhaseFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_TASK_DRAFT_PHASE=complete",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("complete-draft fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		"Season operations runbook",
+		"Close each scoring week",
+		"Watch the waiver run",
+		"Review trades",
+		"Step in on a lineup",
+		"Keep a backup",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("season-operations runbook missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"About an hour early, drop the seats nobody claimed",
+		"Confirm every seat is ready",
+		"Type START below",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("completed-draft admin page still shows the stale pre-draft checklist: %q", forbidden)
+		}
 	}
 }
 

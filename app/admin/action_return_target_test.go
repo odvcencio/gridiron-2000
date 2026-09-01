@@ -2,9 +2,12 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -12,6 +15,164 @@ import (
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/session"
 )
+
+// TestAdminPlainLanguageErrorNeverEchoesAStoreError pins gap-audit item 3's
+// "never echo a store error" rule for the two errors a bypassed UI gate
+// (draw order, playoff preview) can still reach: DrawDraftOrder's and
+// AdminPreviewPlayoffs' own internal/league wording must never reach the
+// commissioner, even directly.
+func TestAdminPlainLanguageErrorNeverEchoesAStoreError(t *testing.T) {
+	for _, raw := range []string{
+		"reset the draft before changing the order",
+		"playoff preview requires the playoffs phase",
+	} {
+		mapped := adminPlainLanguageError(errors.New(raw))
+		if mapped == nil || mapped.Error() == raw {
+			t.Errorf("adminPlainLanguageError(%q) = %v, want a rewritten plain-language message", raw, mapped)
+		}
+	}
+	other := errors.New("some other admin store error")
+	if mapped := adminPlainLanguageError(other); mapped != other {
+		t.Errorf("adminPlainLanguageError must pass through unrecognized errors unchanged, got %v", mapped)
+	}
+	if adminPlainLanguageError(nil) != nil {
+		t.Error("adminPlainLanguageError(nil) must return nil")
+	}
+}
+
+// adminActionSection names every /admin/__actions/<name> handler's owning
+// section (gap-audit item 1). All 33 handlers in page.server.go's Actions
+// map must redirect back to this section on success — 27 previously landed
+// on a hard "/admin" with focus reset to <main> and scrollY 0; the other 2
+// (order-randomize, announcement-post) and the 4 playoff actions (behind
+// adminPlayoffRedirect) already did. clock-set-autopick is submitted from
+// the per-seat AUTO toggle in 01 // SEATS, not 05 // DRAFT CLOCK, so its
+// section is seats, not clock.
+var adminActionSection = map[string]string{
+	"schedule-generate":    "schedule",
+	"schedule-regenerate":  "schedule",
+	"close-week-ready":     "week-close",
+	"close-week-force":     "week-close",
+	"run-waivers":          "week-close",
+	"playoff-preview":      "playoffs",
+	"playoff-publish":      "playoffs",
+	"playoff-advance":      "playoffs",
+	"playoff-correct":      "playoffs",
+	"draft-start":          "draft-control",
+	"draft-reschedule":     "draft-control",
+	"invite-add":           "invites",
+	"invite-send":          "invites",
+	"invite-remove":        "invites",
+	"seat-release":         "seats",
+	"co-detach":            "seats",
+	"team-rename":          "seats",
+	"avatar-reset":         "seats",
+	"draft-reset":          "danger",
+	"draft-undo":           "danger",
+	"league-reset":         "danger",
+	"seat-trim":            "draft-order",
+	"order-randomize":      "draft-order",
+	"clock-pause":          "clock",
+	"clock-resume":         "clock",
+	"clock-force-autopick": "clock",
+	"clock-extend":         "clock",
+	"clock-set-duration":   "clock",
+	"clock-set-autopick":   "seats",
+	"roster-shape-apply":   "roster",
+	"roster-shape-reset":   "roster",
+	"announcement-post":    "announcements",
+	"announcement-delete":  "announcements",
+}
+
+// actionHandlerBoundary finds each "<name>": func(ctx *action.Context) error {
+// entry in the Actions map literal, in source order, so a handler's body can
+// be isolated without a full Go parse.
+var actionHandlerBoundary = regexp.MustCompile(`"([a-z-]+)":\s*func\(ctx \*action\.Context\) error \{`)
+
+// TestEveryAdminActionReturnsToItsSection pins the section-preserving
+// redirect for all 33 admin actions (gap-audit item 1): each handler's body
+// must call RedirectBackWithNotice with that action's own section target
+// (directly, or through adminPlayoffRedirect for the 4 playoff actions),
+// never a bare RedirectWithNotice("/admin", ...) that drops the commissioner
+// at scrollY 0 with focus reset to <main>.
+func TestEveryAdminActionReturnsToItsSection(t *testing.T) {
+	source, err := os.ReadFile("page.server.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(source)
+	matches := actionHandlerBoundary.FindAllStringSubmatchIndex(text, -1)
+	if len(matches) == 0 {
+		t.Fatal("no admin action handlers found in page.server.go")
+	}
+	bodies := make(map[string]string, len(matches))
+	for i, m := range matches {
+		name := text[m[2]:m[3]]
+		bodyStart := m[1]
+		bodyEnd := len(text)
+		if i+1 < len(matches) {
+			bodyEnd = matches[i+1][0]
+		}
+		bodies[name] = text[bodyStart:bodyEnd]
+	}
+	if len(bodies) != len(adminActionSection) {
+		t.Fatalf("found %d action handlers in source, want %d named in adminActionSection (update whichever inventory drifted)", len(bodies), len(adminActionSection))
+	}
+	for name, section := range adminActionSection {
+		body, ok := bodies[name]
+		if !ok {
+			t.Errorf("action %q has no handler body in page.server.go", name)
+			continue
+		}
+		if strings.Contains(body, `actionui.RedirectWithNotice(ctx, "/admin"`) {
+			t.Errorf("action %q still redirects to a hard /admin instead of its own section", name)
+		}
+		// playoff-* route through adminPlayoffRedirect and close-week-* route
+		// through adminCloseWeek; both helpers carry the literal
+		// adminSectionTarget(...) call themselves (checked separately
+		// below), so a call to either helper is accepted here in place of
+		// the literal in the action's own body.
+		want := `adminSectionTarget("` + section + `")`
+		indirect := strings.Contains(body, "adminPlayoffRedirect(ctx,") || strings.Contains(body, "adminCloseWeek(ctx,")
+		if !strings.Contains(body, want) && !indirect {
+			t.Errorf("action %q must redirect back to %s (want %q in its handler body)", name, section, want)
+		}
+	}
+	// The two indirection points themselves must carry the real target, or
+	// the check above would accept a helper that silently fell back to
+	// "/admin".
+	if !strings.Contains(text, `func adminCloseWeek(ctx *action.Context, week int, alreadyFinal bool) error {`) {
+		t.Fatal("adminCloseWeek helper signature moved; update this test's indirection check")
+	}
+	closeWeekBody := text[strings.Index(text, "func adminCloseWeek("):]
+	if !strings.Contains(closeWeekBody[:strings.Index(closeWeekBody, "\n}\n")], `adminSectionTarget("week-close")`) {
+		t.Error("adminCloseWeek must redirect back to week-close")
+	}
+	if !strings.Contains(text, `adminPlayoffNotice(ctx, adminSectionTarget("playoffs")`) {
+		t.Error("adminPlayoffRedirect must redirect back to playoffs")
+	}
+}
+
+// TestAdminSectionTargetsCarrySectionQueryAndAnchor is the literal
+// contract gap-audit item 1 measures against: every admin section's
+// redirect target must carry both the ?section= query and the #admin-
+// fragment so the commissioner lands scrolled to, and focused on, the
+// section their action just ran in.
+func TestAdminSectionTargetsCarrySectionQueryAndAnchor(t *testing.T) {
+	seen := map[string]bool{}
+	for _, section := range adminActionSection {
+		if seen[section] {
+			continue
+		}
+		seen[section] = true
+		target := adminSectionTarget(section)
+		wantQuery := "section=" + section
+		wantAnchor := "#admin-" + section
+		if !strings.Contains(target, wantQuery) || !strings.HasSuffix(target, wantAnchor) {
+			t.Errorf("adminSectionTarget(%q) = %q, want it to carry %q and end with %q", section, target, wantQuery, wantAnchor)
+		}
+	}
+}
 
 func TestAdminDraftOrderRedirectBackUsesSubmittedAnchorManaged(t *testing.T) {
 	returnTarget := adminSectionTarget("draft-order")

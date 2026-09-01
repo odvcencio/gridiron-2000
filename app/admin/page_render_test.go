@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -56,26 +57,51 @@ func renderAdminPage(t *testing.T) string {
 	return rec.Body.String()
 }
 
+// TestAdminPageRendersExactResetContracts pins gap-audit item 7: the
+// danger-zone consequence lists read as Go field names ("CoInvites,
+// TrimmedTeamIDs, WaiversProcessedThrough, RosterZones"), neither reset
+// named the league, and both buttons carried the same neutral .button
+// style as every routine control. The rewrite states every consequence in
+// league nouns, puts the league name in the heading/phrase/button of each
+// reset, states a plain reversibility sentence, and gives all three
+// danger-grid buttons their own .button--danger style.
 func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	body := renderAdminPage(t)
 	if got := strings.Count(body, "reset-contract-list"); got != 2 {
 		t.Fatalf("reset danger cards rendered %d contract lists, want 2", got)
 	}
+	leagueName := "THE LEAGUE"
+	// The rendered apostrophe in "<league>'s draft" is HTML-escaped.
+	draftHeading := "Reset " + leagueName + "&#39;s draft"
+	leagueHeading := "Reset " + leagueName + " to a blank league"
 	for _, want := range []string{
 		"RESET DRAFT</span> to confirm.",
 		"RESET LEAGUE</span> to confirm.",
-		"DraftAtOverride (scheduled meeting time)",
-		"RosterOverride",
-		"TrimmedTeamIDs",
-		"TeamNames (franchise name overrides)",
+		draftHeading,
+		leagueHeading,
+		"the scheduled meeting time",
+		"the custom roster shape",
+		"the trimmed-seat list",
+		"custom team names",
+		"This cannot be undone from this screen; only a restored backup can bring",
+		`class="button button--danger"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("reset contract copy missing %q", want)
 		}
 	}
+	// The old Go-identifier vocabulary must not survive the rewrite.
+	for _, unwanted := range []string{
+		"CoInvites", "TrimmedTeamIDs", "WaiversProcessedThrough", "RosterZones",
+		"RosterOverride", "DraftAtOverride", "SentLog", "PickemEnteredAt", "PickemMarkets",
+	} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("reset contract copy still leaks the Go field name %q", unwanted)
+		}
+	}
 
-	draftStart := strings.Index(body, "<strong>Reset draft</strong>")
-	leagueStart := strings.Index(body, "<strong>Reset league</strong>")
+	draftStart := strings.Index(body, "<strong>"+draftHeading+"</strong>")
+	leagueStart := strings.Index(body, "<strong>"+leagueHeading+"</strong>")
 	if draftStart < 0 || leagueStart <= draftStart {
 		t.Fatal("reset danger cards are missing or out of order")
 	}
@@ -86,8 +112,8 @@ func TestAdminPageRendersExactResetContracts(t *testing.T) {
 	}
 	leagueCard := body[leagueStart:]
 	preserved := strings.Index(leagueCard, "<strong>Preserved:</strong>")
-	if preserved < 0 || strings.Contains(leagueCard[preserved:], "RosterOverride") ||
-		strings.Contains(leagueCard[preserved:], "TrimmedTeamIDs") {
+	if preserved < 0 || strings.Contains(leagueCard[preserved:], "the custom roster shape") ||
+		strings.Contains(leagueCard[preserved:], "the trimmed-seat list") {
 		t.Fatal("full reset card still presents roster shape or seat trim as preserved")
 	}
 }
@@ -529,6 +555,107 @@ func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
 	}
 }
 
+// TestDrawOrderGatesOnDraftStartedNotOrderRandomized pins gap-audit item 3:
+// the primary "Draw order + schedule" control gated on
+// data.order_randomized == false (page.gsx:891), so on a league whose draft
+// had started but whose order was never drawn, the control stayed enabled
+// and answered the raw store error "reset the draft before changing the
+// order" on submit. draft_started is the real gate — DrawDraftOrder refuses
+// once picks can be on the clock, independent of order_randomized.
+func TestDrawOrderGatesOnDraftStartedNotOrderRandomized(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDrawOrderGatesOnDraftStartedFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_DRAW_ORDER_GATE_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("draw-order gate fixture: %v\n%s", err, output)
+	}
+}
+
+func TestDrawOrderGatesOnDraftStartedFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_DRAW_ORDER_GATE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	handler := adminTestHandler(t)
+
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	body := getRes.Body.String()
+
+	// Before the draft starts, order_randomized is false and the draw
+	// control must remain the primary, enabled button.
+	if !strings.Contains(body, "Draw order + schedule") {
+		t.Fatalf("draw-order control missing before draft start: %s", body)
+	}
+	if strings.Contains(body, "Draw order unavailable") {
+		t.Fatalf("draw-order control disabled before the draft has started: %s", body)
+	}
+
+	form := url.Values{"csrf_token": {adminCSRFToken(t, body)}, "confirm": {"START"}}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/draft-start", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("draft-start POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body = reloadRes.Body.String()
+
+	// The draft has started and order was never drawn (order_randomized is
+	// still false), so the pre-fix gate would still show the live button.
+	if strings.Contains(body, ">Draw order + schedule") {
+		t.Fatalf("draw-order control still enabled after the draft started: %s", body)
+	}
+	if !strings.Contains(body, "Draw order unavailable") {
+		t.Fatalf("draw-order control missing its disabled-with-reason state after the draft started: %s", body)
+	}
+	if strings.Contains(body, "reset the draft before changing the order") {
+		t.Fatal("admin page must never echo the raw store error")
+	}
+}
+
+// TestPlayoffPreviewGatesOnPlayoffsPhase pins gap-audit item 3: "Build
+// commissioner preview" rendered unconditionally, so a commissioner could
+// click it in PRESEASON and read back the raw store error "playoff preview
+// requires the playoffs phase". renderAdminPage always starts a fresh
+// league with no schedule, which SeasonPhase reports as preseason, so the
+// default render is enough to exercise the gate.
+func TestPlayoffPreviewGatesOnPlayoffsPhase(t *testing.T) {
+	body := renderAdminPage(t)
+	if strings.Contains(body, ">Build commissioner preview<") {
+		t.Fatalf("playoff preview control must not render enabled outside the playoffs phase: %s", body)
+	}
+	if !strings.Contains(body, "Preview unavailable") {
+		t.Fatalf("playoff preview control missing its disabled-with-reason state: %s", body)
+	}
+	if strings.Contains(body, "playoff preview requires the playoffs phase") {
+		t.Fatal("admin page must never echo the raw store error")
+	}
+}
+
 func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -550,6 +677,128 @@ func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	}
 	if strings.Contains(markup[seatRow:page], `role="status"`) {
 		t.Fatal("SeatRow repeats the identity status warning; rows should only hide identity controls")
+	}
+}
+
+// TestAdminInvitePreviewNeverPrintsTheUnconfiguredDefaultURL pins the
+// 2026-09-01 wave-1-verification finding: a fresh, unconfigured instance's
+// /admin invite preview printed "1. Open http://localhost:8080/join" (the
+// config package's placeholder default), never an address a manager could
+// actually reach. renderAdminPage always starts a fresh, unconfigured
+// league, so the request-origin fallback must have replaced the default by
+// the time this render happens.
+func TestAdminInvitePreviewNeverPrintsTheUnconfiguredDefaultURL(t *testing.T) {
+	body := renderAdminPage(t)
+	if strings.Contains(body, "localhost:8080") {
+		t.Fatalf("admin invite preview must never print the unconfigured default URL: %s", body)
+	}
+	if !strings.Contains(body, "1. Open http://example.com/join") {
+		t.Fatalf("admin invite preview must use the viewing request's own origin: %s", body)
+	}
+}
+
+// TestAdminInvitePreviewStatesUnpublishedDraftDateCleanly pins the
+// 2026-09-01 wave-1-verification finding: the default demo league (whose
+// draft date is the unpublished 2099 placeholder) rendered "The startup
+// snake draft is Draft time not published yet at ." in the /admin invite
+// preview.
+func TestAdminInvitePreviewStatesUnpublishedDraftDateCleanly(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, "The startup snake draft date is not published yet.") {
+		t.Fatalf("admin invite preview must state the unpublished date cleanly: %s", body)
+	}
+	if strings.Contains(body, "Draft time not published yet at") || strings.Contains(body, " at .") {
+		t.Fatalf("admin invite preview must not interpolate the unpublished placeholder into the draft sentence: %s", body)
+	}
+}
+
+// TestAdminTaskBoardLinksLineupInterventionPerTeam pins gap-audit item 5:
+// /scoring promises "the commissioner can set any team's lineup", but
+// nothing on the console ever linked to it, and the only working route
+// (/team?team=<id>) takes the team's internal ID, never an abbreviation.
+// The task board now lists every team with a direct link, using the
+// internal ID in the href and the team name as the visible label.
+func TestAdminTaskBoardLinksLineupInterventionPerTeam(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, "Set a lineup for a manager") {
+		t.Fatalf("task board missing the lineup-intervention control: %s", body)
+	}
+	for i := 1; i <= 8; i++ {
+		teamID := fmt.Sprintf("team-%d", i)
+		want := `href="/team?team=` + teamID + `#lineup"`
+		if !strings.Contains(body, want) {
+			t.Errorf("task board missing a lineup-intervention link for %s (want %q)", teamID, want)
+		}
+	}
+}
+
+// TestInvitesPanelBranchesOnOpenSeatCount pins gap-audit item 8: with
+// 8/8 seats claimed the invites panel still said "any Google account may
+// claim a seat ... the next open seat is theirs" — false once every seat
+// is gone. A ninth sign-in lands as an admitted, seatless member (no team
+// seat); the panel must name them instead of repeating the false promise.
+func TestInvitesPanelBranchesOnOpenSeatCount(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestInvitesPanelBranchesOnOpenSeatCountFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_INVITES_FULL_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("invites-full fixture: %v\n%s", err, output)
+	}
+}
+
+func TestInvitesPanelBranchesOnOpenSeatCountFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_INVITES_FULL_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	for i := 1; i <= 8; i++ {
+		email := fmt.Sprintf("manager%d@example.com", i)
+		if _, err := service.AssignManager(email, fmt.Sprintf("Manager %d", i)); err != nil {
+			t.Fatalf("assign manager %d: %v", i, err)
+		}
+	}
+	// The ninth sign-in has no seat left to claim; EnsureMember is the
+	// seatless-admission counterpart AssignManager itself now refuses to
+	// take once every seat is assigned.
+	if _, err := service.EnsureMember("extra@example.com", "Extra Manager"); err != nil {
+		t.Fatalf("admit seatless manager: %v", err)
+	}
+
+	body := renderAdminPage(t)
+	if strings.Contains(body, "any Google account may claim a seat") {
+		t.Errorf("invites panel still claims a seat is available with 8/8 claimed: %s", body)
+	}
+	if strings.Contains(body, "next open seat is theirs") {
+		t.Errorf("invites panel still promises a next open seat with 8/8 claimed: %s", body)
+	}
+	if !strings.Contains(body, "SEATS FULL") {
+		t.Errorf("invites panel missing its full-league state: %s", body)
+	}
+	if !strings.Contains(body, "extra@example.com") {
+		t.Errorf("invites panel missing the seatless member queue entry: %s", body)
+	}
+}
+
+// TestAnnouncementEmailToggleDisabledWithReasonWhenDeliveryOff pins the
+// second half of gap-audit item 8: the "Also queue an email" checkbox
+// stayed enabled when delivery was off, and the toast only revealed
+// "Email: delivery off" after the commissioner had already submitted.
+// renderAdminPage's fixture never configures SMTP, so mail_enabled is
+// false by default and this needs no extra setup.
+func TestAnnouncementEmailToggleDisabledWithReasonWhenDeliveryOff(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, `name="also_email" value="true" disabled="disabled"`) {
+		t.Fatalf("also_email checkbox is not disabled when delivery is off: %s", body)
+	}
+	if !strings.Contains(body, "Also queue an email to the league — unavailable, delivery is off") {
+		t.Fatalf("also_email checkbox is missing its adjacent reason: %s", body)
 	}
 }
 
@@ -641,11 +890,18 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess(t *te
 		"Regular-season control",
 		"Generate regular-season schedule",
 		"Close a scoring week",
-		"commissioner seeding automation is not wired into this release yet",
 	} {
 		if !strings.Contains(body, snippet) {
 			t.Fatalf("admin page omitted %q: %s", snippet, body)
 		}
+	}
+	// gap-audit item 9: "commissioner seeding automation is not wired into
+	// this release yet" was engineering narration about the release itself,
+	// not a fact about the league — it leaked into the shipped PLAYOFF
+	// TIMING copy and this test used to pin its presence. It must not come
+	// back.
+	if strings.Contains(body, "commissioner seeding automation is not wired") {
+		t.Fatal("admin page must not print the leftover engineering release note")
 	}
 
 	cookie := getRes.Result().Cookies()[0]
@@ -839,6 +1095,235 @@ func TestAdminScheduleSeasonLabelFixtureProcess(t *testing.T) {
 	}
 	if strings.Contains(snippet, "2099") {
 		t.Errorf("admin schedule Season stat rendered the sentinel season-start year: %q", snippet)
+	}
+}
+
+// TestForceCloseWeekConfirmPlaceholderInterpolatesWeek pins gap-audit item
+// 2's second half: the force-close typed-confirm placeholder was the
+// literal "CLOSE WEEK N" (page.gsx:632), never the selected week, so the
+// on-screen hint did not match the phrase AdminCloseWeek actually requires.
+func TestForceCloseWeekConfirmPlaceholderInterpolatesWeek(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestForceCloseWeekConfirmPlaceholderFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_FORCE_CLOSE_PLACEHOLDER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("force-close placeholder fixture: %v\n%s", err, output)
+	}
+}
+
+func TestForceCloseWeekConfirmPlaceholderFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_FORCE_CLOSE_PLACEHOLDER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"3"}, "start_week": {"1"}, "seed": {"9"},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+	if !strings.Contains(body, `id="admin-close-week-confirm"`) {
+		t.Fatalf("force-close confirm field is missing from the render: %s", body)
+	}
+	if strings.Contains(body, `placeholder="CLOSE WEEK N"`) {
+		t.Fatal("force-close confirm placeholder must interpolate the actual selected week, not the literal N")
+	}
+	if !strings.Contains(body, `placeholder="CLOSE WEEK 1"`) {
+		t.Fatalf("force-close confirm placeholder must show the selected week (week 1 after a fresh generate): %s", body)
+	}
+}
+
+// TestWeekCloseTilesRenderPlainLanguageNotBooleansOrEmptyValues pins
+// gap-audit item 9: the readiness tile printed the raw Go bool ("false")
+// instead of a word, and the stats-updated tile was empty with no value or
+// reason before any week ever closed. It also pins the release-note
+// sentence's removal — internal engineering narration ("The prior release
+// note that commissioner seeding automation is not wired into this release
+// yet is retired") had leaked into the shipped PLAYOFF TIMING copy.
+func TestWeekCloseTilesRenderPlainLanguageNotBooleansOrEmptyValues(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWeekCloseTilesFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_WEEK_CLOSE_TILES_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("week-close tiles fixture: %v\n%s", err, output)
+	}
+}
+
+func TestWeekCloseTilesFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_WEEK_CLOSE_TILES_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"3"}, "start_week": {"1"}, "seed": {"11"},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+
+	readinessStart := strings.Index(body, "<span>Readiness</span>")
+	if readinessStart < 0 {
+		t.Fatalf("readiness tile is missing: %s", body)
+	}
+	readinessSnippet := body[readinessStart:min(readinessStart+80, len(body))]
+	if strings.Contains(readinessSnippet, ">false<") || strings.Contains(readinessSnippet, ">true<") {
+		t.Errorf("readiness tile renders a raw Go bool instead of a word: %q", readinessSnippet)
+	}
+	if !strings.Contains(readinessSnippet, "NOT READY") {
+		t.Errorf("readiness tile must render NOT READY for a freshly generated, unplayed week: %q", readinessSnippet)
+	}
+
+	statsStart := strings.Index(body, "<span>Stats updated</span>")
+	if statsStart < 0 {
+		t.Fatalf("stats-updated tile is missing: %s", body)
+	}
+	statsSnippet := body[statsStart:min(statsStart+80, len(body))]
+	if strings.Contains(statsSnippet, "<b class=\"mono\"></b>") {
+		t.Errorf("stats-updated tile must carry a value or reason, never empty: %q", statsSnippet)
+	}
+	if !strings.Contains(statsSnippet, "NOT YET") {
+		t.Errorf("stats-updated tile must state NOT YET before any stats sync: %q", statsSnippet)
+	}
+
+	if strings.Contains(body, "The prior release note") {
+		t.Error("week-close copy still carries the leftover engineering release note")
+	}
+}
+
+// TestAnnouncementDeleteHasAccessibleNameAndReviewConfirmStep pins gap-audit
+// item 6: the announcement ✕ delete carried no accessible name and no
+// confirmation step, so one careless tap silently destroyed a posted note.
+// Opening the disclosure (whose summary now names the exact announcement
+// being deleted) is the review step; a second, explicit button submits it.
+func TestAnnouncementDeleteHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAnnouncementDeleteFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_ANNOUNCEMENT_DELETE_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("announcement-delete fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAnnouncementDeleteFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_ANNOUNCEMENT_DELETE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"body":       {"Draft night is Saturday."},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/announcement-post", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("announcement-post POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+
+	data := league.Default().AdminData(httptest.NewRequest(http.MethodGet, "/admin", nil))
+	notes, _ := data["announcements"].([]map[string]any)
+	if len(notes) != 1 {
+		t.Fatalf("announcements = %#v, want exactly 1", notes)
+	}
+	postedAt, _ := notes[0]["posted_at"].(string)
+	if postedAt == "" {
+		t.Fatal("posted announcement has no posted_at timestamp to name the delete with")
+	}
+	wantAriaLabel := `aria-label="Delete announcement posted ` + postedAt + `"`
+	if !strings.Contains(body, wantAriaLabel) {
+		t.Errorf("announcement delete missing its accessible name: want %q in %s", wantAriaLabel, body)
+	}
+	if !strings.Contains(body, "Delete the announcement posted "+postedAt+"? This removes it from the league notes and the home page; it cannot be undone.") {
+		t.Errorf("announcement delete missing its review-confirm sentence: %s", body)
+	}
+	if !strings.Contains(body, ">Confirm delete<") {
+		t.Errorf("announcement delete missing its explicit confirm button: %s", body)
+	}
+	if !strings.Contains(body, `class="announcement-delete-disclosure"`) {
+		t.Errorf("announcement delete is not wrapped in the review-confirm disclosure: %s", body)
 	}
 }
 
