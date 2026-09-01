@@ -32,20 +32,25 @@ func main() {
 	}
 
 	relay := NewRelay(host, apiKey, dataDir, &http.Client{Timeout: 30 * time.Second}, time.Now)
-	dailyBudget := envInt("STATRELAY_DAILY_BUDGET", 0)
+	profile := statrelayProfileFromEnv()
+	profileDailyBudget, profileScoreboardTTL := statrelayProfileDefaults(profile)
+	dailyBudget := envInt("STATRELAY_DAILY_BUDGET", profileDailyBudget)
 	if dailyBudget < 0 { // a negative value reads as unlimited, matching livescore.New's clamp
 		dailyBudget = 0
 	}
 	relay.dailyBudget = dailyBudget // 0 = unlimited
 	// boxLiveTTL/scoreboardTTL (relay.go): read once, at boot, before the
 	// server starts serving — see their own doc comment. A non-positive
-	// override is ignored, keeping the 10s default, the same "invalid
-	// reads as default" idiom envInt/envDuration already use elsewhere in
-	// this package.
+	// override is ignored, keeping the active profile's own default, the
+	// same "invalid reads as default" idiom envInt/envDuration already use
+	// elsewhere in this package. boxLiveTTL has no free-profile default of
+	// its own (see statrelayProfileDefaults's doc comment): free's box
+	// fetches run on a 6h cadence regardless (internal/livescore's
+	// LIVE_PROFILE=free), so a short in-progress TTL costs nothing extra.
 	if v := envDuration("STATRELAY_BOX_LIVE_TTL", boxLiveTTL); v > 0 {
 		boxLiveTTL = v
 	}
-	if v := envDuration("STATRELAY_SCOREBOARD_TTL", scoreboardTTL); v > 0 {
+	if v := envDuration("STATRELAY_SCOREBOARD_TTL", profileScoreboardTTL); v > 0 {
 		scoreboardTTL = v
 	}
 	relay.LoadDisk()
@@ -74,6 +79,50 @@ func main() {
 			log.Printf("statrelay: shutdown: %v", err)
 		}
 	}
+}
+
+// statrelayProfileFromEnv resolves STATRELAY_PROFILE ("free" or "ultra",
+// the default), mirroring internal/livescore's LIVE_PROFILE resolver for
+// symmetry: a league instance running the poller's own free profile needs
+// the relay in front of it sized to match, since both share the one
+// Tank01 free BASIC tier key (1,000 requests/month, hard-limited). An
+// unknown, non-empty value is logged once and read as "ultra" — the
+// already-verified, already-deployed default — rather than silently
+// picked as free's much lower budget or rejected outright.
+func statrelayProfileFromEnv() string {
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("STATRELAY_PROFILE"))); raw {
+	case "", "ultra":
+		return "ultra"
+	case "free":
+		return "free"
+	default:
+		log.Printf("statrelay: unknown STATRELAY_PROFILE=%q; falling back to \"ultra\". Valid values: \"free\", \"ultra\".", raw)
+		return "ultra"
+	}
+}
+
+// statrelayProfileDefaults returns the STATRELAY_DAILY_BUDGET and
+// STATRELAY_SCOREBOARD_TTL defaults profile implies. Each is only ever a
+// *fallback* main passes to envInt/envDuration, which still read the
+// matching STATRELAY_* variable first — so an explicitly set variable
+// always wins over the profile it was resolved under.
+//
+// free's defaults (STATRELAY_DAILY_BUDGET=30, a 30-minute scoreboard TTL)
+// match internal/livescore's own LIVE_PROFILE=free arithmetic (that
+// package's profileDefaults doc comment): one free-profile league
+// instance needs headroom for roughly 44 requests/day, not Ultra's
+// 13,000, and a 30-minute scoreboard TTL matches the poller's own
+// LIVE_SCOREBOARD_INTERVAL=30m tick, so the relay never forces a fresher
+// scoreboard fetch than the free-profile poller would ever ask for.
+// STATRELAY_BOX_LIVE_TTL has no matching free default — see main's own
+// comment beside where it reads that variable. "ultra" (or unset) keeps
+// today's code defaults: 0 (unlimited) and 10s, unchanged from before
+// this profile existed.
+func statrelayProfileDefaults(profile string) (dailyBudget int, scoreboardTTL time.Duration) {
+	if profile == "free" {
+		return 30, 30 * time.Minute
+	}
+	return 0, 10 * time.Second
 }
 
 // envString reads key from the environment, trimmed, falling back to
