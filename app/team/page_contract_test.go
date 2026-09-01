@@ -191,6 +191,35 @@ func TestLineupContinuityContracts(t *testing.T) {
 	}
 }
 
+// TestStartersEmptyWarningRendersBesideStartersCount is the gap-audit
+// finding's /team half: SET BEST LINEUP must never leave a manager
+// believing every slot filled when one did not. The warning has to sit
+// beside the STARTERS count (same header block) and be gated on
+// starters_empty as text, not a color-only cue (product experience
+// contract).
+func TestStartersEmptyWarningRendersBesideStartersCount(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	countAt := strings.Index(page, `<span class="lineup-lock">`)
+	if countAt < 0 {
+		t.Fatal("STARTERS count badge not found")
+	}
+	warningAt := strings.Index(page[countAt:], `<If cond={data.starters_empty}>`)
+	if warningAt < 0 || warningAt > 300 {
+		t.Fatalf("starters_empty warning must render immediately beside the STARTERS count, found at offset %d", warningAt)
+	}
+	nextSection := strings.Index(page[countAt:], `<If cond={data.has_week_notice}>`)
+	if nextSection >= 0 && warningAt > nextSection {
+		t.Fatal("starters_empty warning must render before the week notice, not after")
+	}
+	if !strings.Contains(page[countAt:countAt+warningAt+300], `{data.starters_empty_label}`) {
+		t.Fatal("starters_empty warning must render the plain-language label, not a color-only cue")
+	}
+}
+
 func TestLineupValidationPreservesNativeAnchorAndManagedValues(t *testing.T) {
 	native := &action.Context{
 		Request:  httptest.NewRequest(http.MethodPost, "/__actions/lineup-set", nil),

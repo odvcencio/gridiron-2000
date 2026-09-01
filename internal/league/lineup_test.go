@@ -3,6 +3,7 @@ package league
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 )
@@ -703,6 +704,112 @@ func TestLineupAutoIsDeterministicAcrossRuns(t *testing.T) {
 		if second[slot] != playerID {
 			t.Fatalf("slot %s = %q then %q; SET BEST LINEUP must be deterministic", slot, playerID, second[slot])
 		}
+	}
+}
+
+// TestLineupAutoNamesEachSlotItCouldNotFill is the gap-audit finding: SET
+// BEST LINEUP must never report plain success while a starting slot stays
+// empty. newLineupTestService's fixture carries no TE/DST/K at all, and its
+// second RB (rb-locked, TB) is already locked before kickoff, so RB2, TE,
+// FLEX, DST, and K all resolve empty; the result message must name every
+// one of them and where to fix it, not just say the lineup is set.
+func TestLineupAutoNamesEachSlotItCouldNotFill(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	message, err := svc.LineupAuto(request, "team-1", 1)
+	if err != nil {
+		t.Fatalf("LineupAuto: %v", err)
+	}
+	if !strings.HasPrefix(message, "Best lineup set.") {
+		t.Fatalf("message = %q, want it to open with the base success line", message)
+	}
+	for _, want := range []string{
+		"K is still empty — you have no kicker. Sign one from the Player Pool.",
+		"DST is still empty — you have no defense/special teams. Sign one from the Player Pool.",
+		"TE is still empty — you have no tight end. Sign one from the Player Pool.",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("message = %q, missing %q", message, want)
+		}
+	}
+}
+
+// TestLineupAutoOmitsEmptySlotWarningWhenEveryStarterFills confirms the
+// unchanged happy path: a fixture that fully covers a small roster shape's
+// starting slots gets the bare success line, with no slot warning
+// appended.
+func TestLineupAutoOmitsEmptySlotWarningWhenEveryStarterFills(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	players := []Player{
+		{ID: "qb-1", Name: "Full QB", Position: "QB", NFLTeam: "PIT", Projection: 20},
+		{ID: "k-1", Name: "Full K", Position: "K", NFLTeam: "PIT", Projection: 8},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	setRosterShape(RosterPreset{Name: "qb-k", Slots: map[string]int{"QB": 1, "K": 1}, Bench: 1})
+	t.Cleanup(clearRosterShape)
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb-1", "k-1"})
+
+	request, _ := http.NewRequest(http.MethodPost, "/team", nil)
+	message, err := svc.LineupAuto(request, "team-1", 1)
+	if err != nil {
+		t.Fatalf("LineupAuto: %v", err)
+	}
+	if message != "Best lineup set." {
+		t.Fatalf("message = %q, want the bare success line once every starting slot fills", message)
+	}
+}
+
+// TestTeamDataWarnsWhenAStartingSlotStaysEmpty is the /team half of the
+// gap-audit finding: SET BEST LINEUP's result message names an empty slot
+// once, but /team must carry a persistent, plain-language warning beside
+// the starters count for as long as the slot stays empty — not just at the
+// moment of the action. newLineupTestService's fixture leaves K, TE, DST,
+// and RB2 empty even with no action taken at all.
+func TestTeamDataWarnsWhenAStartingSlotStaysEmpty(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+
+	if data["starters_empty"] != true {
+		t.Fatalf("starters_empty = %#v, want true (RB2/TE/FLEX/DST/K are all empty)", data["starters_empty"])
+	}
+	label, _ := data["starters_empty_label"].(string)
+	for _, want := range []string{"K is empty", "you have no kicker", "TE is empty", "you have no tight end"} {
+		if !strings.Contains(label, want) {
+			t.Fatalf("starters_empty_label = %q, missing %q", label, want)
+		}
+	}
+}
+
+// TestTeamDataOmitsStartersWarningWhenEveryStarterFills confirms the
+// warning is truly conditional: a fixture that fully covers a small roster
+// shape's starting slots carries no warning at all.
+func TestTeamDataOmitsStartersWarningWhenEveryStarterFills(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	players := []Player{
+		{ID: "qb-1", Name: "Full QB", Position: "QB", NFLTeam: "PIT", Projection: 20},
+		{ID: "k-1", Name: "Full K", Position: "K", NFLTeam: "PIT", Projection: 8},
+	}
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return players, 1, "test" })
+	setRosterShape(RosterPreset{Name: "qb-k", Slots: map[string]int{"QB": 1, "K": 1}, Bench: 1})
+	t.Cleanup(clearRosterShape)
+	draftFixtureOntoTeam1(t, svc, now, []string{"qb-1", "k-1"})
+
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	if _, err := svc.LineupAuto(request, "team-1", 1); err != nil {
+		t.Fatal(err)
+	}
+	data := svc.TeamData(request)
+	if data["starters_empty"] != false || data["starters_empty_label"] != "" {
+		t.Fatalf("starters_empty = %#v, label = %#v; want no warning once every slot fills", data["starters_empty"], data["starters_empty_label"])
 	}
 }
 

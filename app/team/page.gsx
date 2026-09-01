@@ -522,6 +522,9 @@ func TeamLineupRegion() Node {
 							STARTERS
 						</span>
 					</header>
+					<If cond={data.starters_empty}>
+						<p class="error-message lineup-starters-warning" role="status">{data.starters_empty_label}</p>
+					</If>
 					<If cond={data.has_week_notice}>
 						<p class="error-message lineup-week-notice" role="status">{data.week_notice}</p>
 					</If>

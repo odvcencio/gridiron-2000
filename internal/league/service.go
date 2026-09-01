@@ -2383,6 +2383,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled":      strconv.Itoa(filled),
 		"starters_total":       strconv.Itoa(len(lineup.Slots)),
+		// starters_empty/starters_empty_label back /team's persistent,
+		// beside-the-count warning (gap-audit finding: SET BEST LINEUP used
+		// to report plain success while a starting slot, e.g. K with no
+		// kicker rostered, stayed empty). This is state, read fresh on
+		// every render, so it stays honest independent of whether the
+		// empty slot came from SET BEST LINEUP, a drop, or a lock.
+		"starters_empty":       len(lineupEmptyStarterSlots(lineup)) > 0,
+		"starters_empty_label": lineupEmptySlotsWarning(lineupEmptyStarterSlots(lineup)),
 		"bench_capacity":       strconv.Itoa(preset.Bench),
 		"bench":                playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
 		"bench_empty":          len(lineup.Bench) == 0,
