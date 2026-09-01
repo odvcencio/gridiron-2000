@@ -58,15 +58,22 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 	if strings.Contains(valid, "Every seat belongs to one manager.") || strings.Contains(valid, "Your league access will be waiting.") {
 		t.Fatalf("login page retained unconditional admission/seat promise: %s", valid)
 	}
+	// The neutral reference league ships a placeholder draft date
+	// (config.go placeholderDraftAt), which DraftDatePublished reads as
+	// unpublished: the event card must state that honestly instead of
+	// rendering the 2098 sentinel as a scheduled fact (2026-09-01 UX audit).
 	for _, want := range []string{
 		"LEAGUE DRAFT",
-		"Wednesday, December 31, 2098",
-		"7:00 PM EST",
-		"Eastern Time",
-		"SCHEDULED WINDOW",
+		"Draft time not published yet",
+		"NOT SCHEDULED",
 	} {
 		if !strings.Contains(valid, want) {
-			t.Errorf("login page omitted configured event fact %q: %s", want, valid)
+			t.Errorf("login page omitted honest event state %q: %s", want, valid)
+		}
+	}
+	for _, forbidden := range []string{"December 31, 2098", "SCHEDULED WINDOW"} {
+		if strings.Contains(valid, forbidden) {
+			t.Errorf("login page rendered the placeholder draft date as a fact (%q): %s", forbidden, valid)
 		}
 	}
 

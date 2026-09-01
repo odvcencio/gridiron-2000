@@ -51,7 +51,13 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// 2026-08-30 review, finding 3: run-waivers (app/admin) adds one.
 	// UI pass 2026-08-30 (P1-6): settings/page.server.go's setDensityPreference adds one.
 	// GC-4: locker/page.server.go's locker-post and locker-remove actions add two.
-	const wantRedirects = 50
+	// 38 after wave 1 of the gap-audit plan: every managed mutation in
+	// team, players, trades, pickem, locker and draft now redirects through
+	// one per-package *MutationSuccess / draftActionSuccess helper instead
+	// of a per-action call, so the direct-call inventory fell while the
+	// number of redirecting actions rose (see mutation_response_shape_test
+	// in each package).
+	const wantRedirects = 38
 	const wantRedirectBacks = 12
 	redirects := 0
 	redirectBacks := 0

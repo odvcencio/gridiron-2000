@@ -53,6 +53,13 @@ func managedFormTag(tag string) bool {
 func intentionalNativeTeamForm(path, tag string) bool {
 	switch filepath.ToSlash(path) {
 	case "admin/page.gsx", "team/page.gsx":
+	case "layout.gsx":
+		// The shell's sign-out form must be a native document navigation:
+		// /auth/logout answers a plain 303 and rotates the session cookie,
+		// and a managed submit swallowed that redirect, leaving the signed-
+		// out manager's team on screen (2026-09-01 UX audit, entry #1).
+		return regexp.MustCompile("(?i)\\bdata-gosx-managed\\s*=\\s*[\"']false[\"']").MatchString(tag) &&
+			regexp.MustCompile("(?i)\\baction\\s*=\\s*[\"']/auth/logout[\"']").MatchString(tag)
 	default:
 		return false
 	}
