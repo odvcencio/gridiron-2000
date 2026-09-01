@@ -18,7 +18,7 @@ func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "")
 
-	subject, text, _ := service.InviteEmailTemplate("manager@example.com")
+	subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
 
 	if !strings.Contains(subject, service.cfg.Name) {
 		t.Errorf("subject missing league name: %q", subject)
@@ -47,7 +47,7 @@ func TestInviteEmailTemplateCarriesFactsAndEmail(t *testing.T) {
 func TestInviteEmailTemplateStatesDynastySeasonBoundary(t *testing.T) {
 	service := newTestService(t, true)
 	service.cfg.ModeLabel = "DYNASTY"
-	_, dynastyText, dynastyHTML := service.InviteEmailTemplate("manager@example.com")
+	_, dynastyText, dynastyHTML := service.InviteEmailTemplate(nil, "manager@example.com")
 	for _, body := range []string{dynastyText, dynastyHTML} {
 		if strings.Contains(strings.ToLower(body), "rosters carry over") {
 			t.Errorf("DYNASTY invite must not promise automatic carryover:\n%s", body)
@@ -67,7 +67,7 @@ func TestInviteEmailTemplateStatesDynastySeasonBoundary(t *testing.T) {
 	}
 
 	service.cfg.ModeLabel = "REDRAFT"
-	_, redraftText, redraftHTML := service.InviteEmailTemplate("manager@example.com")
+	_, redraftText, redraftHTML := service.InviteEmailTemplate(nil, "manager@example.com")
 	for _, body := range []string{redraftText, redraftHTML} {
 		if strings.Contains(strings.ToLower(body), "rosters carry over") ||
 			strings.Contains(strings.ToLower(body), "roster rollover") {
@@ -93,7 +93,7 @@ func TestInviteEmailTemplateReproducesDeployedLeagueFacts(t *testing.T) {
 	service.cfg = referenceDeploymentConfig()
 	service.teams = teamsFromSeeds(service.cfg.Teams)
 
-	subject, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	subject, text, htmlBody := service.InviteEmailTemplate(nil, "manager@example.com")
 	if !strings.Contains(subject, service.cfg.Name) {
 		t.Errorf("subject missing league name: %q", subject)
 	}
@@ -113,7 +113,7 @@ func TestInviteEmailTemplateHonorsLeagueURLEnv(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "https://league.example.com")
 
-	_, text, _ := service.InviteEmailTemplate("manager@example.com")
+	_, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
 	if !strings.Contains(text, "1. Open https://league.example.com/join") {
 		t.Errorf("text body did not honor LEAGUE_URL override:\n%s", text)
 	}
@@ -122,11 +122,57 @@ func TestInviteEmailTemplateHonorsLeagueURLEnv(t *testing.T) {
 	}
 }
 
+// TestInviteEmailTemplateUsesRequestOriginWhenUnconfigured pins the
+// 2026-09-01 wave-1-verification finding: an unconfigured instance's own
+// /admin invite preview and sent invites printed "1. Open
+// http://localhost:8080/join" (config.go's defaultConfigURL, never a real
+// address a manager could reach) instead of the address the commissioner
+// is actually viewing the console from. A real league.json url or
+// LEAGUE_URL still wins outright — this fallback only replaces the
+// placeholder default, mirroring the HQ fleet card's own "the local
+// instance never trusts a placeholder public URL" rule.
+func TestInviteEmailTemplateUsesRequestOriginWhenUnconfigured(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "")
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	request.Host = "gridiron.example.org"
+
+	_, text, htmlBody := service.InviteEmailTemplate(request, "manager@example.com")
+	if !strings.Contains(text, "1. Open http://gridiron.example.org/join") {
+		t.Errorf("text body did not use the request's own origin:\n%s", text)
+	}
+	if !strings.Contains(htmlBody, `href="http://gridiron.example.org/join"`) {
+		t.Errorf("html body did not use the request's own origin:\n%s", htmlBody)
+	}
+	if strings.Contains(text, "localhost:8080") || strings.Contains(htmlBody, "localhost:8080") {
+		t.Errorf("invite copy must never print the unconfigured default URL:\ntext:\n%s\nhtml:\n%s", text, htmlBody)
+	}
+}
+
+// TestInviteEmailTemplateConfiguredURLOutranksRequestOrigin keeps a real
+// deployment's own configured URL authoritative even when a request is
+// available — the request origin is strictly a fallback for the
+// unconfigured default, never a silent override of an operator's choice.
+func TestInviteEmailTemplateConfiguredURLOutranksRequestOrigin(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "https://league.example.com")
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	request.Host = "some-other-host.example.org"
+
+	_, text, _ := service.InviteEmailTemplate(request, "manager@example.com")
+	if !strings.Contains(text, "1. Open https://league.example.com/join") {
+		t.Errorf("configured LEAGUE_URL must outrank the request origin:\n%s", text)
+	}
+	if strings.Contains(text, "some-other-host.example.org") {
+		t.Errorf("request origin leaked into copy despite a configured LEAGUE_URL:\n%s", text)
+	}
+}
+
 func TestInviteEmailTemplateHTMLCarriesCTALinkAndFacts(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "")
 
-	_, _, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	_, _, htmlBody := service.InviteEmailTemplate(nil, "manager@example.com")
 
 	if !strings.Contains(htmlBody, `href="`+service.cfg.URL+`/join"`) {
 		t.Errorf("html body missing CTA link to the seat-claim route:\n%s", htmlBody)
@@ -168,7 +214,7 @@ func TestInviteEmailTemplateDirectsInviteesToSeatClaim(t *testing.T) {
 	service := newTestService(t, true)
 	t.Setenv("LEAGUE_URL", "https://league.example.com/fantasy/")
 
-	_, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	_, text, htmlBody := service.InviteEmailTemplate(nil, "manager@example.com")
 	want := "https://league.example.com/fantasy/join"
 	if !strings.Contains(text, "1. Open "+want) {
 		t.Errorf("text invite must lead directly to seat claim:\n%s", text)
@@ -183,7 +229,7 @@ func TestInviteEmailTemplateDirectsInviteesToSeatClaim(t *testing.T) {
 // entirely, rather than inventing a venue for a league that has none.
 func TestInviteEmailTemplateOmitsVenueRowWhenUnset(t *testing.T) {
 	service := newTestService(t, true)
-	_, text, htmlBody := service.InviteEmailTemplate("manager@example.com")
+	_, text, htmlBody := service.InviteEmailTemplate(nil, "manager@example.com")
 	if strings.Contains(htmlBody, "VENUE") {
 		t.Errorf("html body should omit the VENUE row when copy.venue_line is empty:\n%s", htmlBody)
 	}
@@ -193,6 +239,29 @@ func TestInviteEmailTemplateOmitsVenueRowWhenUnset(t *testing.T) {
 	wantSentence := "The startup snake draft is " + longDate + " at " + draftTime + "."
 	if !strings.Contains(text, wantSentence) {
 		t.Errorf("text body should end the draft sentence cleanly with no venue clause:\nwant substring %q\ngot:\n%s", wantSentence, text)
+	}
+}
+
+// TestInviteEmailTemplateStatesUnpublishedDraftDateCleanly pins the
+// 2026-09-01 wave-1-verification finding: the demo /admin invite preview
+// printed "The startup snake draft is Draft time not published yet at ."
+// — draftSummaryForState's own unpublished placeholders ("Draft time not
+// published yet" for long_date, "" for time) interpolated straight into
+// the "is %s at %s." sentence. An unpublished date needs its own sentence
+// with no dangling "at" clause.
+func TestInviteEmailTemplateStatesUnpublishedDraftDateCleanly(t *testing.T) {
+	service := newTestService(t, true)
+	service.draftAt = time.Now().Add(500 * 24 * time.Hour)
+
+	_, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+	want := "The startup snake draft date is not published yet."
+	if !strings.Contains(text, want) {
+		t.Errorf("text body must state the unpublished date cleanly:\nwant substring %q\ngot:\n%s", want, text)
+	}
+	for _, bad := range []string{"Draft time not published yet at", " at .", "is Draft time not published"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("text body must not interpolate the unpublished placeholder into the draft sentence: %q found in:\n%s", bad, text)
+		}
 	}
 }
 
@@ -230,7 +299,7 @@ func referenceDeploymentConfig() Config {
 func TestInviteEmailTemplateHTMLEscapesUnsafeEmail(t *testing.T) {
 	service := newTestService(t, true)
 
-	_, _, htmlBody := service.InviteEmailTemplate(`<script>alert(1)</script>@example.com`)
+	_, _, htmlBody := service.InviteEmailTemplate(nil, `<script>alert(1)</script>@example.com`)
 
 	if strings.Contains(htmlBody, "<script>") {
 		t.Errorf("html body should escape a raw '<' in the email address:\n%s", htmlBody)

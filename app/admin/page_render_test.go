@@ -654,6 +654,38 @@ func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	}
 }
 
+// TestAdminInvitePreviewNeverPrintsTheUnconfiguredDefaultURL pins the
+// 2026-09-01 wave-1-verification finding: a fresh, unconfigured instance's
+// /admin invite preview printed "1. Open http://localhost:8080/join" (the
+// config package's placeholder default), never an address a manager could
+// actually reach. renderAdminPage always starts a fresh, unconfigured
+// league, so the request-origin fallback must have replaced the default by
+// the time this render happens.
+func TestAdminInvitePreviewNeverPrintsTheUnconfiguredDefaultURL(t *testing.T) {
+	body := renderAdminPage(t)
+	if strings.Contains(body, "localhost:8080") {
+		t.Fatalf("admin invite preview must never print the unconfigured default URL: %s", body)
+	}
+	if !strings.Contains(body, "1. Open http://example.com/join") {
+		t.Fatalf("admin invite preview must use the viewing request's own origin: %s", body)
+	}
+}
+
+// TestAdminInvitePreviewStatesUnpublishedDraftDateCleanly pins the
+// 2026-09-01 wave-1-verification finding: the default demo league (whose
+// draft date is the unpublished 2099 placeholder) rendered "The startup
+// snake draft is Draft time not published yet at ." in the /admin invite
+// preview.
+func TestAdminInvitePreviewStatesUnpublishedDraftDateCleanly(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, "The startup snake draft date is not published yet.") {
+		t.Fatalf("admin invite preview must state the unpublished date cleanly: %s", body)
+	}
+	if strings.Contains(body, "Draft time not published yet at") || strings.Contains(body, " at .") {
+		t.Fatalf("admin invite preview must not interpolate the unpublished placeholder into the draft sentence: %s", body)
+	}
+}
+
 func TestAdminPageRendersInvitationProgressContract(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

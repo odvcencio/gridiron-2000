@@ -187,13 +187,13 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
 	for _, email := range envEmails {
 		envSet[email] = true
-		invites = append(invites, s.adminInviteMap(state, email, "PRESET", false))
+		invites = append(invites, s.adminInviteMap(state, r, email, "PRESET", false))
 	}
 	for _, email := range state.Invites {
 		if envSet[email] {
 			continue
 		}
-		invites = append(invites, s.adminInviteMap(state, email, "INVITE", true))
+		invites = append(invites, s.adminInviteMap(state, r, email, "INVITE", true))
 	}
 	inviteSignedInCount := 0
 	inviteSeatedCount := 0
@@ -217,7 +217,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	for _, teamID := range orderIDs {
 		draftOrder = append(draftOrder, s.teamMap(s.teamView(state, teamID)))
 	}
-	previewSubject, previewText, previewHTML := s.InviteEmailTemplate("their-email@example.com")
+	previewSubject, previewText, previewHTML := s.InviteEmailTemplate(r, "their-email@example.com")
 	now := s.clock()
 	// domainGate mirrors rulesMembershipMap's fix (scoring.go): "no invite
 	// list" alone does not mean any Google account may claim a seat when a
@@ -465,13 +465,13 @@ func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]a
 // snapshot lets the console distinguish "email added" from "person signed
 // in", "seat claimed", and "manager ready" without adding another persisted
 // state machine that could drift from the actual league state.
-func (s *Service) adminInviteMap(state PersistedState, email, source string, removable bool) map[string]any {
+func (s *Service) adminInviteMap(state PersistedState, r *http.Request, email, source string, removable bool) map[string]any {
 	email = strings.ToLower(strings.TrimSpace(email))
 	item := map[string]any{
 		"email":         email,
 		"source":        source,
 		"removable":     removable,
-		"mailto":        inviteMailto(s, email),
+		"mailto":        inviteMailto(s, r, email),
 		"signed_in":     false,
 		"seated":        false,
 		"ready":         false,
@@ -604,8 +604,8 @@ func clockDurationSource(state PersistedState) string {
 // inviteMailto builds a prefilled mailto: link for one invite email, using
 // that email's own copy of the invite template's plain-text body (mailto:
 // links cannot carry HTML, so the text version is the only option here).
-func inviteMailto(s *Service, email string) string {
-	subject, text, _ := s.InviteEmailTemplate(email)
+func inviteMailto(s *Service, r *http.Request, email string) string {
+	subject, text, _ := s.InviteEmailTemplate(r, email)
 	return "mailto:" + email + "?subject=" + url.QueryEscape(subject) + "&body=" + url.QueryEscape(text)
 }
 
@@ -774,6 +774,44 @@ func inviteSeasonPosture(mode string) (plain, htmlCopy string) {
 	return "", "This is a fresh-season league. The commissioner publishes each season's roster and rules."
 }
 
+// requestOrigin reports r's own scheme and host ("https://league.example"),
+// or "" when r is nil or carries no Host. It never trusts a client-supplied
+// scheme header beyond the standard reverse-proxy convention: TLS on the
+// connection itself, or X-Forwarded-Proto set by the proxy in front of it.
+func requestOrigin(r *http.Request) string {
+	if r == nil || strings.TrimSpace(r.Host) == "" {
+		return ""
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	} else if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto != "" {
+		scheme = strings.ToLower(strings.TrimSpace(strings.SplitN(proto, ",", 2)[0]))
+	}
+	return scheme + "://" + r.Host
+}
+
+// leagueJoinURL resolves the seat-claim link an invite points to. A real
+// deployment's own choice — league.json's url, or a LEAGUE_URL override —
+// always wins outright. Only the unconfigured default config (DefaultConfig,
+// url=http://localhost:8080) falls back to the viewing request's own
+// scheme+host: that placeholder is never a real address a manager could
+// reach, and printing it in invite copy was the 2026-09-01
+// wave-1-verification finding this fixes. r may be nil (an offline or
+// request-less caller); leaguePathURL's own default is the final fallback.
+func (s *Service) leagueJoinURL(r *http.Request) string {
+	if s.cfg.Source != "defaults" || strings.TrimSpace(os.Getenv("LEAGUE_URL")) != "" {
+		return s.leaguePathURL("join")
+	}
+	if origin := requestOrigin(r); origin != "" {
+		if joined, err := url.JoinPath(origin, "join"); err == nil {
+			return joined
+		}
+		return strings.TrimRight(origin, "/") + "/join"
+	}
+	return s.leaguePathURL("join")
+}
+
 // InviteEmailTemplate builds the subject, plain-text body, and HTML body of
 // the invite email sent to one manager. It draws the draft date and time
 // from the live draft summary, so the copy always matches the console, and
@@ -783,13 +821,17 @@ func inviteSeasonPosture(mode string) (plain, htmlCopy string) {
 // rather than inventing one for a league that has none. The HTML body
 // carries the same facts as the text body, dressed in the league's
 // Neo-Retro Stadium OS look; the text body is unchanged in shape from the
-// plain-text-only era, since its mailto: use depends on the wording.
-func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody string) {
+// plain-text-only era, since its mailto: use depends on the wording. r is
+// the viewing/acting commissioner's own request, used only by
+// leagueJoinURL's unconfigured-default fallback; pass nil when no request
+// is available (r's absence never changes behavior for a configured URL).
+func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, text, htmlBody string) {
 	draft := s.draftSummary(time.Now())
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	joinURL := s.leaguePathURL("join")
+	published, _ := draft["published"].(bool)
+	joinURL := s.leagueJoinURL(r)
 	blurb := s.inviteBlurb()
 
 	venueClause := ""
@@ -798,12 +840,23 @@ func (s *Service) InviteEmailTemplate(email string) (subject, text, htmlBody str
 	}
 	seasonText, _ := inviteSeasonPosture(s.cfg.ModeLabel)
 
+	// An unpublished draft date leaves long_date as the placeholder "Draft
+	// time not published yet" and time as "" (draftSummaryForState,
+	// service.go); interpolating those straight into "is %s at %s." read
+	// as "is Draft time not published yet at ." (2026-09-01
+	// wave-1-verification finding). State the unpublished date as its own
+	// clean sentence instead, with no dangling "at" clause.
+	draftSentence := fmt.Sprintf("The startup snake draft is %s at %s.", longDate, draftTime)
+	if !published {
+		draftSentence = "The startup snake draft date is not published yet."
+	}
+
 	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
 	text = fmt.Sprintf(`Hi there,
 
 You've got a seat waiting in %s, %s.
 
-The startup snake draft is %s at %s.%s
+%s%s
 
 Here's what to do before then:
   1. Open %s
@@ -813,7 +866,7 @@ Here's what to do before then:
 
 The full scoring system is on the Rules page.%s
 
-— The Commissioner`, s.cfg.Name, blurb, longDate, draftTime, venueClause, joinURL, email, seasonText)
+— The Commissioner`, s.cfg.Name, blurb, draftSentence, venueClause, joinURL, email, seasonText)
 	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
@@ -982,7 +1035,7 @@ func (s *Service) AdminSendInvite(r *http.Request, email string) (bool, error) {
 	if err := s.store.AddInvite(email); err != nil {
 		return false, err
 	}
-	subject, text, htmlBody := s.InviteEmailTemplate(email)
+	subject, text, htmlBody := s.InviteEmailTemplate(r, email)
 	config := mailer.FromEnv()
 	if !config.Enabled() {
 		return false, nil
