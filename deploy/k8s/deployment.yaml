@@ -30,9 +30,9 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.01-460d658-gap-closure-wave1; built from
-          # 460d6584d2e945340cf1783f9a09983eab13e027.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:ab646811af28b5abaf2135dc13c51cdd4a06ae307017a7a3407019afc30a3ab2
+          # release-2026.09.01-3f78a44-adoption-wave; built from
+          # 3f78a4452ece50879478efe3ec62ab029de1e2aa.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:c87dc3bf0b53f7502947ab065bf03babe18e6d56cb96eba3ad33043df22003e9
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -60,6 +60,11 @@ spec:
             # relay, not this namespace's Secret, owns TANK01_API_KEY.
             - name: TANK01_BASE_URL
               value: "http://statrelay.gridiron.svc.cluster.local"
+            # Tank01 publishes ADP hourly. An hourly pool sync costs about
+            # 120 relayed calls per day against the 15,000/day Ultra quota
+            # and keeps the draft board current through draft week.
+            - name: FANTASY_SYNC_INTERVAL
+              value: "1h"
             # Regular-season live scoring kill switch (internal/livescore).
             # "false" until docs/launch-checklist.md's live-scoring rollout
             # section explicitly flips it. LIVE_SCOREBOARD_INTERVAL/
