@@ -551,6 +551,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}); err != nil {
 		return nil, nil, err
 	}
+	// Tier 0 invite-link consume (setup-wizard design section 6.2):
+	// registered directly on the router, not under app/, and deliberately
+	// outside requireLeagueSession — an anonymous visitor presenting the
+	// raw token is exactly who /auth/invite/{token} is for.
+	registerInviteConsumeRoutes(router, authManager, league.Default(), league.Default())
 
 	app := server.New()
 	app.EnableNavigation()

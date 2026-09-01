@@ -6,6 +6,39 @@ import (
 	"time"
 )
 
+// TestMintInviteLinkWithAdmissionAlsoRecordsPlainInvite is the design's
+// "extends AddInvite; one action records the invite AND mints the link"
+// contract (section 6.2): a Tier 0 mint must also admit the email through
+// the same state.Invites list Service.EmailAllowed reads, or a freshly
+// minted link would admit nobody.
+func TestMintInviteLinkWithAdmissionAlsoRecordsPlainInvite(t *testing.T) {
+	store := newSetupTestStore(t)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	if store.Invited("newcomer@example.com") {
+		t.Fatal("email should not be invited before minting")
+	}
+	if _, _, err := store.MintInviteLinkWithAdmission("newcomer@example.com", "commish@example.com", 0, now); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Invited("newcomer@example.com") {
+		t.Fatal("MintInviteLinkWithAdmission must also record the plain admission invite")
+	}
+}
+
+// TestMintInviteLinkAloneDoesNotRecordPlainInvite documents the narrower
+// entry point's contract: it mints a link only, for a caller that already
+// manages admission separately.
+func TestMintInviteLinkAloneDoesNotRecordPlainInvite(t *testing.T) {
+	store := newSetupTestStore(t)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	if _, _, err := store.MintInviteLink("already-admitted@example.com", "commish@example.com", 0, now); err != nil {
+		t.Fatal(err)
+	}
+	if store.Invited("already-admitted@example.com") {
+		t.Fatal("MintInviteLink alone must not record a plain admission invite")
+	}
+}
+
 func TestSetupDraftRoundTrip(t *testing.T) {
 	store := newSetupTestStore(t)
 	if _, found, err := store.LoadSetupDraft(); err != nil || found {

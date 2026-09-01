@@ -177,27 +177,74 @@ func scanInviteLink(row interface{ Scan(...any) error }) (InviteLink, error) {
 
 const inviteLinkColumns = `id, email, created_by, created_at, expires_at, consumed_at, consumed_email, revoked_at`
 
-// MintInviteLink creates a new Tier 0 invite link for email and returns the
-// raw token exactly once — only its SHA-256 hash is ever stored (design
-// section 6.4: "Database theft: hashes only; no token is recoverable").
-// Minting supersedes (revokes) every earlier unused link already minted for
-// the same email (design section 6.2), so a commissioner can always hand
-// out one current link per member. ttl<=0 uses DefaultInviteLinkTTL.
+// MintInviteLink creates a new Tier 0 invite link for email only — it does
+// not touch the plain admission invite list (state.Invites). Most callers
+// want MintInviteLinkWithAdmission instead (design section 6.2: "extends
+// AddInvite; one action records the invite AND mints the link"); this
+// lower-level entry point exists for re-minting a link to an email that is
+// already admitted some other way (a persisted member, a domain match, or
+// an already-recorded invite), where adding it to state.Invites again
+// would be a redundant write. Returns the raw token exactly once — only
+// its SHA-256 hash is ever stored (design section 6.4: "Database theft:
+// hashes only; no token is recoverable"). Minting supersedes (revokes)
+// every earlier unused link already minted for the same email (design
+// section 6.2). ttl<=0 uses DefaultInviteLinkTTL.
 func (s *Store) MintInviteLink(email, createdBy string, ttl time.Duration, now time.Time) (token string, link InviteLink, err error) {
 	email = admissionEmail(email)
 	if email == "" || !strings.Contains(email, "@") {
 		return "", InviteLink{}, fmt.Errorf("enter a valid email address")
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return "", InviteLink{}, err
+	}
+	return s.mintInviteLinkLocked(email, createdBy, ttl, now)
+}
+
+// MintInviteLinkWithAdmission is the real mint entry point (design section
+// 6.2): it records email on the plain admission invite list
+// (state.Invites, the same list Store.AddInvite maintains and
+// Service.EmailAllowed reads) and mints the Tier 0 invite link, in the
+// same locked section — "one action records the invite AND mints the
+// link." Every real caller (the wizard's membership step and atomic
+// commit; a later /admin mint action) uses this, not the lower-level
+// MintInviteLink alone, so a freshly minted link always admits the email
+// it targets.
+func (s *Store) MintInviteLinkWithAdmission(email, createdBy string, ttl time.Duration, now time.Time) (token string, link InviteLink, err error) {
+	email = admissionEmail(email)
+	if email == "" || !strings.Contains(email, "@") {
+		return "", InviteLink{}, fmt.Errorf("enter a valid email address")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return "", InviteLink{}, err
+	}
+	alreadyInvited := false
+	for _, existing := range s.state.Invites {
+		if existing == email {
+			alreadyInvited = true
+			break
+		}
+	}
+	if !alreadyInvited {
+		s.state.Invites = append(s.state.Invites, email)
+		if err := s.persistLocked(colInvites); err != nil {
+			return "", InviteLink{}, err
+		}
+	}
+	return s.mintInviteLinkLocked(email, createdBy, ttl, now)
+}
+
+// mintInviteLinkLocked is MintInviteLink/MintInviteLinkWithAdmission's
+// shared core. Callers hold s.mu and have already run writeErrorLocked.
+func (s *Store) mintInviteLinkLocked(email, createdBy string, ttl time.Duration, now time.Time) (token string, link InviteLink, err error) {
 	if ttl <= 0 {
 		ttl = DefaultInviteLinkTTL
 	}
 	token, err = newRandomToken(32)
 	if err != nil {
-		return "", InviteLink{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.writeErrorLocked(); err != nil {
 		return "", InviteLink{}, err
 	}
 	if s.db == nil {
