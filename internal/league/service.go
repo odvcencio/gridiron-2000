@@ -333,17 +333,20 @@ func Default() *Service {
 		} else {
 			log.Printf("league config: loaded %s", cfg.Source)
 		}
-		demo := parseBool(os.Getenv("DEMO_MODE"), os.Getenv("GOOGLE_CLIENT_ID") == "")
-		// Production never runs demo mode, no matter what the environment
-		// says. Demo mode bypasses the sign-in gate and grants commissioner
-		// powers to every visitor; one misconfigured or auto-loaded env file
-		// must not be able to open a live league to the internet. The
-		// owner's rule: the deployed site is for signed-up members only.
-		if strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
-			if demo {
-				log.Printf("league: DEMO_MODE requested but APP_ENV=production; demo mode is disabled unconditionally in production")
-			}
-			demo = false
+		// Demo mode requires an explicit opt-in AND a local APP_ENV. There is
+		// no "GOOGLE_CLIENT_ID is empty" default anymore: a bare, unconfigured
+		// deployment must boot closed (SETUP/invite-only), never as an open
+		// demo commissioner console. Demo mode bypasses the sign-in gate and
+		// grants commissioner powers to every visitor; one misconfigured or
+		// auto-loaded env file must not be able to open a live league to the
+		// internet. isLocalAppEnv is an allow-list ("", local, development,
+		// test), so APP_ENV=prod, APP_ENV=staging, APP_ENV=production, and
+		// every unknown label all refuse demo unconditionally.
+		appEnv := os.Getenv("APP_ENV")
+		demoRequested := parseBool(os.Getenv("DEMO_MODE"), false)
+		demo := demoRequested && IsLocalAppEnv(appEnv)
+		if demoRequested && !demo {
+			log.Printf("league: DEMO_MODE=true requested but APP_ENV=%q is not a local environment (\"\", local, development, test); demo mode is refused", appEnv)
 		}
 		draftTZ, err := time.LoadLocation(cfg.Timezone)
 		if err != nil || draftTZ == nil {

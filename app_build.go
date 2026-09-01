@@ -560,6 +560,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	}); err != nil {
 		return nil, nil, err
 	}
+	// Tier 0 invite-link consume (setup-wizard design section 6.2):
+	// registered directly on the router, not under app/, and deliberately
+	// outside requireLeagueSession — an anonymous visitor presenting the
+	// raw token is exactly who /auth/invite/{token} is for.
+	registerInviteConsumeRoutes(router, authManager, league.Default(), league.Default())
 
 	app := server.New()
 	app.EnableNavigation()
@@ -665,7 +670,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).
 			"leagueConfig": league.Default().Config().Source,
-			"time":         time.Now().UTC().Format(time.RFC3339),
+			// state names the boot state truthfully, matching the SETUP
+			// and fail-closed apps' own health payloads (setup_app.go,
+			// fail_closed_app.go) so a monitor reads one consistent field
+			// across every boot state instead of inferring CONFIGURED from
+			// the absence of a "state" key.
+			"state": "configured",
+			"time":  time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	})
 	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))

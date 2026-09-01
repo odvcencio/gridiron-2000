@@ -32,20 +32,27 @@ import (
 
 // isLocalAppEnv reports whether APP_ENV names a local, non-deployed
 // environment. It is an allow-list: every other label, "prod" and "staging"
-// included, is a deployment. The cookie policy and AppConfig.validate share
-// this one answer so the two can never disagree about where the process runs.
+// included, is a deployment. The cookie policy, AppConfig.validate, and
+// internal/league's demo-mode gate share this one answer (league.IsLocalAppEnv)
+// so none of them can disagree about where the process runs.
 func isLocalAppEnv(appEnv string) bool {
-	switch strings.ToLower(strings.TrimSpace(appEnv)) {
-	case "", "local", "development", "test":
-		return true
-	}
-	return false
+	return league.IsLocalAppEnv(appEnv)
 }
 
 // gridironSessionOptions keeps the cookie policy explicit at the one place
 // where the application decides whether it is serving local plain HTTP or a
 // deployed HTTPS environment. gosx defaults to Secure when AllowInsecure is
 // omitted, so only known local/default environments opt in to plain HTTP.
+//
+// MaxAge is 180 days (owner decision, setup-wizard design section 6.2: the
+// design proposed raising it only for a Tier-0-only instance, "because
+// re-auth costs a commissioner round-trip"; the owner's parameter list
+// applies the longer window unconditionally, for every sign-in tier, to
+// avoid computing "is Tier 0 the only method" per deployment). The cookie
+// stays Secure/HTTPOnly/Encrypt/SameSite=Lax regardless of its length; a
+// per-member session-epoch revocation (design section 6.4) is a later
+// slice's addition for a commissioner who needs to invalidate one seat's
+// session early.
 func gridironSessionOptions(appEnv string) session.Options {
 	localHTTP := isLocalAppEnv(appEnv)
 	return session.Options{
@@ -54,7 +61,7 @@ func gridironSessionOptions(appEnv string) session.Options {
 		AllowInsecure: localHTTP,
 		HTTPOnly:      true,
 		Encrypt:       true,
-		MaxAge:        30 * 24 * time.Hour,
+		MaxAge:        180 * 24 * time.Hour,
 		SameSite:      http.SameSiteLaxMode,
 	}
 }
@@ -64,9 +71,47 @@ func main() {
 	if err := env.LoadDir(server.ResolveAppRoot(thisFile), ""); err != nil {
 		log.Fatal(err)
 	}
+	// Load runtime.env (design section 4.5 / owner decision 6) before
+	// anything reads process environment: COMMISSIONER_EMAILS,
+	// IDENTITY_ALIASES, and SESSION_SECRET, written by a completed setup
+	// wizard commit beside league.db. Absence is not an error — a
+	// checkout that has never run setup, or a Kubernetes bundle-mode
+	// instance, simply has no such file. Real env always wins.
+	if err := loadRuntimeEnvFile(dataDirFromEnv()); err != nil {
+		log.Fatal(err)
+	}
+	// The boot state decision runs before AppConfigFromEnv/BuildApp and
+	// before any league code: SETUP and FAIL_CLOSED never construct the
+	// league.Default() singleton at all (setup-wizard design section 3.1).
+	// A CONFIGURED decision falls through unchanged to the normal boot
+	// below, which resolves league.json again itself through the same
+	// lookup rule — DetermineBootState only decided which app to build.
+	bootDecision, err := league.DetermineBootState()
+	if err != nil {
+		log.Fatal(err)
+	}
 	cfg, err := AppConfigFromEnv()
 	if err != nil {
 		log.Fatal(err)
+	}
+	switch bootDecision.State {
+	case league.BootFailClosed:
+		app, err := BuildFailClosedApp(cfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("league boot state: fail_closed (marker or league data present, no league.json resolves) — %s", failClosedOperatorMessage)
+		serveSimpleApp(app, cfg.Port, "fail-closed operator page")
+		return
+	case league.BootSetup:
+		app, setupRuntime, err := BuildSetupApp(cfg, bootDecision.Store)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer func() { _ = setupRuntime.Store.Close() }()
+		log.Printf("league boot state: setup")
+		serveSimpleApp(app, cfg.Port, "setup wizard")
+		return
 	}
 	runtimeContext, stopRuntime := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stopRuntime()
@@ -140,6 +185,33 @@ func main() {
 	}
 	if runtimeFailure != nil {
 		log.Fatalf("%s listener failed: %v", runtimeFailure.name, runtimeFailure.err)
+	}
+}
+
+// serveSimpleApp runs the SETUP and BootFailClosed apps: a single listener,
+// no background loops, no Commissioner HQ provider — everything BuildApp's
+// AppRuntime otherwise coordinates. Shutdown follows the same signal +
+// bounded-timeout shape as the CONFIGURED path below, just without a
+// runtime to drain.
+func serveSimpleApp(app *server.App, port, name string) {
+	runtimeContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	log.Printf("%s listening on http://localhost:%s", name, port)
+	serverErrors := make(chan error, 1)
+	go func() {
+		serverErrors <- app.ListenAndServe(":" + port)
+	}()
+	select {
+	case err := <-serverErrors:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("%s listener failed: %v", name, err)
+		}
+	case <-runtimeContext.Done():
+	}
+	shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelShutdown()
+	if err := app.Shutdown(shutdownContext); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Printf("%s shutdown: %v", name, err)
 	}
 }
 
@@ -778,60 +850,101 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
 			return
 		}
-		if !membership.EmailAllowed(user.Email) {
-			manager.SignOut(r)
-			session.AddFlash(r, "notice", "That Google account is not admitted by this league's membership policy.")
-			http.Redirect(w, r, "/login?error=invite", http.StatusSeeOther)
-			return
-		}
-		// flow.Callback signs the provider's raw identity before returning.
-		// Re-sign the session with the canonical application identity after
-		// raw-email admission succeeds, so every subsequent request shares
-		// the same principal without allowing aliases to bypass admission.
-		user = membership.CanonicalUser(user)
-		if !manager.SignIn(r, user) {
-			manager.SignOut(r)
-			session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
-			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
-			return
-		}
-		// Sign-in creates membership only (registration wave, build item 1 —
-		// AssignManager's auto-seating at sign-in retires). Every signed-in,
-		// allowed email is pick'em-enrolled by definition; claiming a
-		// fantasy seat is now a deliberate act at /join (build item 2), not
-		// a side effect of the first sign-in a member ever makes.
-		// AssignManager itself stays live — /join's atomic claim calls it —
-		// this is the only call site that retires.
-		//
-		// A co-manager invite is checked first: an email a primary invited
-		// (Store.InviteCoManager) binds to that seat on this, its first
-		// sign-in (BindCoManagerOnSignIn), rather than landing seatless.
-		member, bound, err := membership.BindCoManagerOnSignIn(user.Email, user.Name)
-		if err != nil {
-			manager.SignOut(r)
-			session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
-			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
-			return
-		}
-		if !bound {
-			member, err = membership.EnsureMember(user.Email, user.Name)
-			if err != nil {
-				manager.SignOut(r)
-				session.AddFlash(r, "notice", "Sign-in could not be completed. Try again.")
-				http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
-				return
-			}
-		}
-		if bound {
-			session.AddFlash(r, "notice", "You're co-managing "+league.Default().TeamLabel(member.TeamID)+" alongside its primary manager, "+user.Name+".")
-		} else if member.TeamID != "" {
-			session.AddFlash(r, "notice", "Welcome back to "+league.Default().TeamLabel(member.TeamID)+", "+user.Name+".")
-		} else {
-			session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
-		}
-		target = navigation.SafeReturnPath(target)
-		http.Redirect(w, r, target, http.StatusSeeOther)
+		completeSignIn(w, r, manager, membership, user, target, completeSignInOptions{
+			NotAdmittedRedirect: "/login?error=invite",
+			ErrorRedirect:       "/login?error=oauth",
+		})
 	})
+}
+
+// completeSignInOptions lets each provider name its own truthful redirect
+// for the two failure classes completeSignIn can hit (denied admission vs.
+// an internal sign-in failure), while the admission order, canonicalization,
+// co-manager binding, and success copy stay identical for every provider
+// (design section 9). ErrorMessage/NotAdmittedMessage default to the shared
+// provider-neutral copy below when left blank — no caller needs to repeat
+// it, but a caller with a genuinely different truthful thing to say may
+// still override it.
+type completeSignInOptions struct {
+	NotAdmittedRedirect string
+	NotAdmittedMessage  string
+	ErrorRedirect       string
+	ErrorMessage        string
+}
+
+const (
+	completeSignInDefaultNotAdmittedMessage = "That account is not admitted by this league's membership policy."
+	completeSignInDefaultErrorMessage       = "Sign-in could not be completed. Try again."
+)
+
+// completeSignIn is the one sign-in completion chain every admission
+// method shares (design section 9, extracted from the pre-slice-3
+// googleCallbackHandlerWithMembership body): EmailAllowed → CanonicalUser →
+// SignIn → BindCoManagerOnSignIn → EnsureMember → a truthful flash and
+// redirect. Every caller (Google callback, invite-link consume today;
+// transfer-code and magic-link consume in later slices) asserts an email
+// through user.Email/user.Name and gets back the identical admission
+// order, alias canonicalization, co-manager binding, and flash copy — so
+// upgrading or downgrading between sign-in tiers can never diverge in
+// which member row a signed-in identity lands on (service.go's
+// CanonicalUser/hasPersistedMembership). Returns true on a completed sign-in.
+func completeSignIn(w http.ResponseWriter, r *http.Request, manager *auth.Manager, membership googleMembership, user auth.User, target string, opts completeSignInOptions) bool {
+	if opts.NotAdmittedMessage == "" {
+		opts.NotAdmittedMessage = completeSignInDefaultNotAdmittedMessage
+	}
+	if opts.ErrorMessage == "" {
+		opts.ErrorMessage = completeSignInDefaultErrorMessage
+	}
+	fail := func(redirect, message string) bool {
+		manager.SignOut(r)
+		session.AddFlash(r, "notice", message)
+		http.Redirect(w, r, redirect, http.StatusSeeOther)
+		return false
+	}
+	if !membership.EmailAllowed(user.Email) {
+		return fail(opts.NotAdmittedRedirect, opts.NotAdmittedMessage)
+	}
+	// The provider signs the raw identity before this chain runs. Re-sign
+	// the session with the canonical application identity after
+	// raw-email admission succeeds, so every subsequent request shares the
+	// same principal without allowing aliases to bypass admission.
+	user = membership.CanonicalUser(user)
+	if !manager.SignIn(r, user) {
+		return fail(opts.ErrorRedirect, opts.ErrorMessage)
+	}
+	// Sign-in creates membership only (registration wave, build item 1 —
+	// AssignManager's auto-seating at sign-in retires). Every signed-in,
+	// allowed email is pick'em-enrolled by definition; claiming a fantasy
+	// seat is now a deliberate act at /join (build item 2), not a side
+	// effect of the first sign-in a member ever makes. AssignManager
+	// itself stays live — /join's atomic claim calls it — this is the
+	// only call site that retires.
+	//
+	// A co-manager invite is checked first: an email a primary invited
+	// (Store.InviteCoManager) binds to that seat on this, its first
+	// sign-in (BindCoManagerOnSignIn), rather than landing seatless. Every
+	// provider — Google, an invite-link consume, a future magic link or
+	// passkey — runs this exact same check, so a co-manager invite binds
+	// identically no matter which sign-in tier the invitee first uses.
+	member, bound, err := membership.BindCoManagerOnSignIn(user.Email, user.Name)
+	if err != nil {
+		return fail(opts.ErrorRedirect, opts.ErrorMessage)
+	}
+	if !bound {
+		member, err = membership.EnsureMember(user.Email, user.Name)
+		if err != nil {
+			return fail(opts.ErrorRedirect, opts.ErrorMessage)
+		}
+	}
+	if bound {
+		session.AddFlash(r, "notice", "You're co-managing "+league.Default().TeamLabel(member.TeamID)+" alongside its primary manager, "+user.Name+".")
+	} else if member.TeamID != "" {
+		session.AddFlash(r, "notice", "Welcome back to "+league.Default().TeamLabel(member.TeamID)+", "+user.Name+".")
+	} else {
+		session.AddFlash(r, "notice", "You're in, "+user.Name+". Claim a fantasy seat any time a spot opens, or head straight to Pick'em.")
+	}
+	http.Redirect(w, r, navigation.SafeReturnPath(target), http.StatusSeeOther)
+	return true
 }
 
 func googleAuthConfigured() bool {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
@@ -248,6 +249,11 @@ func TestGridironSessionOptionsRespectEnvironmentPolicy(t *testing.T) {
 			}
 			if options.SameSite != http.SameSiteLaxMode {
 				t.Errorf("SameSite = %v, want Lax", options.SameSite)
+			}
+			// Owner decision (setup-wizard design section 6.2): 180 days,
+			// unconditionally, not just for a Tier-0-only instance.
+			if want := 180 * 24 * time.Hour; options.MaxAge != want {
+				t.Errorf("MaxAge = %v, want %v", options.MaxAge, want)
 			}
 
 			manager, err := session.New("gridiron-session-options-test-secret", options)

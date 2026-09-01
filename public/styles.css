@@ -11079,3 +11079,105 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     animation: none;
   }
 }
+
+/* ---- Setup wizard (setup-wizard design, slice 3). Reuses the shared
+   field recipe above (.field/input/textarea) and .button; this block only
+   adds the wizard's own layout: the step-status nav, one field per row,
+   and the review step's rendered league.json. Status is always a word in
+   the label text (DONE/CURRENT/TODO/STALE), never color-only — these
+   classes only add a left accent bar as a secondary, non-required cue. ---- */
+.wizard-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: var(--space-lg) var(--space-md);
+}
+
+.wizard-step-nav {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0 0 var(--space-md);
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+}
+
+.wizard-step-nav__item {
+  padding: var(--space-2xs) var(--space-sm);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.wizard-step-nav__item a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.wizard-step-nav__item--done {
+  border-left-color: var(--color-accent);
+  color: var(--color-text-secondary);
+}
+
+.wizard-step-nav__item--current {
+  border-left-color: var(--color-accent-cyan);
+  color: var(--color-text-primary);
+  font-weight: 700;
+}
+
+.wizard-step-nav__item--stale {
+  border-left-color: var(--color-orange);
+  color: var(--color-text-primary);
+}
+
+.wizard-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xs);
+  margin-bottom: var(--space-sm);
+}
+
+.wizard-field label {
+  font-size: var(--type-xs);
+  color: var(--color-text-secondary);
+}
+
+.wizard-field textarea {
+  font-family: var(--font-mono);
+}
+
+.wizard-field-help {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+.wizard-radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) 0;
+}
+
+.wizard-warning {
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-orange);
+  background: rgba(255, 158, 69, 0.12);
+  color: var(--color-text-primary);
+  font-size: var(--type-sm);
+}
+
+.wizard-review-json {
+  max-height: 28rem;
+  overflow: auto;
+  padding: var(--space-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-canvas-deep);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  white-space: pre;
+}

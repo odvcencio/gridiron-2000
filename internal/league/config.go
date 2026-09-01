@@ -123,7 +123,7 @@ type MembershipBlock struct {
 
 // Config is the resolved, in-memory shape every package reads (spec
 // section 3.4). It is a flattened view of league.json's nested wire
-// format (configFile, below): callers never see the JSON nesting.
+// format (ConfigFile, below): callers never see the JSON nesting.
 type Config struct {
 	Version int
 
@@ -177,33 +177,91 @@ type Config struct {
 	// gating on its own email domain) sets it explicitly.
 	Membership MembershipBlock
 
+	// Auth is the "auth" config block's resolved form (owner decision,
+	// setup-wizard design: auth tier toggles live in an additive
+	// league.json block, not a runtime-env-only switch, so leaguecheck can
+	// lint them). Absent from the version-1 schema forever — every field
+	// defaults to enabled, so an existing league.json with no "auth" key
+	// keeps working unchanged.
+	Auth ResolvedAuth
+
 	// Source records where this config came from: "defaults", or
 	// "file:<path>". AdminData and /api/health surface it.
 	Source string
 }
 
-// configFile is league.json's wire format (spec section 3.2): nested
+// AuthBlock is the raw "auth" config block (owner decision, setup-wizard
+// design: additive to the version-1-forever schema). Each field is a
+// pointer so the loader can distinguish "not set" (defaults to enabled)
+// from an operator's explicit "false". Two tiers are actionable in this
+// slice: Tier 0 invite-link auth (default, zero external dependency) and
+// Tier 3 Google OAuth (existing wiring, still additionally gated by
+// GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET being present). Tier 1 (passkeys)
+// and Tier 2 (email/magic-link) toggles are a later slice's addition — the
+// block only ever grows new optional fields, never removes or repurposes
+// one.
+type AuthBlock struct {
+	InviteLinks *bool `json:"invite_links,omitempty"`
+	Google      *bool `json:"google,omitempty"`
+}
+
+// ResolvedAuth is AuthBlock's resolved, always-concrete form: every field
+// defaults to true (enabled) when the raw block, or one of its fields, is
+// absent.
+type ResolvedAuth struct {
+	InviteLinks bool
+	Google      bool
+}
+
+// resolveAuthBlock defaults every field to true (enabled): an absent "auth"
+// block, or an absent field within it, must never silently disable a tier
+// nobody asked to turn off.
+func resolveAuthBlock(block AuthBlock) ResolvedAuth {
+	resolved := ResolvedAuth{InviteLinks: true, Google: true}
+	if block.InviteLinks != nil {
+		resolved.InviteLinks = *block.InviteLinks
+	}
+	if block.Google != nil {
+		resolved.Google = *block.Google
+	}
+	return resolved
+}
+
+// ConfigFileLeague is ConfigFile's "league" block.
+type ConfigFileLeague struct {
+	Name      string `json:"name"`
+	ShortCode string `json:"short_code"`
+	Tagline   string `json:"tagline"`
+	ModeLabel string `json:"mode_label"`
+	URL       string `json:"url"`
+	Timezone  string `json:"timezone"`
+	Season    int    `json:"season"`
+}
+
+// ConfigFileDraft is ConfigFile's "draft" block.
+type ConfigFileDraft struct {
+	At               string `json:"at"`
+	Rounds           int    `json:"rounds"`
+	PickClockSeconds int    `json:"pick_clock_seconds"`
+	FormatLabel      string `json:"format_label"`
+}
+
+// ConfigFile is league.json's wire format (spec section 3.2): nested
 // blocks, JSON tags matching the schema exactly. json.Decoder's
 // DisallowUnknownFields runs against this shape, so an operator's typo
 // fails loudly instead of silently doing nothing (spec section 3.1).
-type configFile struct {
-	Version int `json:"version"`
-	League  struct {
-		Name      string `json:"name"`
-		ShortCode string `json:"short_code"`
-		Tagline   string `json:"tagline"`
-		ModeLabel string `json:"mode_label"`
-		URL       string `json:"url"`
-		Timezone  string `json:"timezone"`
-		Season    int    `json:"season"`
-	} `json:"league"`
-	Teams []TeamSeed `json:"teams"`
-	Draft struct {
-		At               string `json:"at"`
-		Rounds           int    `json:"rounds"`
-		PickClockSeconds int    `json:"pick_clock_seconds"`
-		FormatLabel      string `json:"format_label"`
-	} `json:"draft"`
+//
+// Exported (setup-wizard design section 4.2) so the first-boot wizard can
+// build the exact same wire shape leaguecheck and LoadConfigBytes read —
+// one canonical struct, marshaled to bytes and validated through
+// LoadConfigBytes, never a second hand-maintained mirror that could drift
+// from this one as fields are added.
+type ConfigFile struct {
+	Version int              `json:"version"`
+	League  ConfigFileLeague `json:"league"`
+	Teams   []TeamSeed       `json:"teams"`
+	Draft   ConfigFileDraft  `json:"draft"`
+
 	SeasonStartAt string          `json:"season_start_at"`
 	ScoringFormat string          `json:"scoring_format"`
 	Copy          CopyBlock       `json:"copy"`
@@ -212,6 +270,7 @@ type configFile struct {
 	Trades        TradesBlock     `json:"trades"`
 	Postseason    PlayoffConfig   `json:"postseason"`
 	Membership    MembershipBlock `json:"membership"`
+	Auth          AuthBlock       `json:"auth,omitempty"`
 }
 
 // neutralTeams is the shipped, unconfigured checkout's team list: 8 teams,
@@ -272,6 +331,7 @@ func DefaultConfig() Config {
 			ClearDays: 2, ProcessTime: "09:00",
 		},
 		Trades: TradesBlock{Deadline: "", Veto: "commissioner", ReviewHours: 24},
+		Auth:   ResolvedAuth{InviteLinks: true, Google: true},
 		Source: "defaults",
 	}
 }
@@ -377,6 +437,24 @@ func finishConfigLoad(cfg Config, withEnvOverrides bool) (Config, []string, erro
 	return cfg, warnings, nil
 }
 
+// ConfigFileResolves reports whether a league.json resolves via the normal
+// lookup order (resolveConfigPath), without reading or validating its
+// contents. The setup-wizard boot state machine (DetermineBootState) uses
+// this to decide SETUP vs CONFIGURED before constructing the process-wide
+// Service singleton or its Store.
+func ConfigFileResolves() (path string, found bool, err error) {
+	path, err = resolveConfigPath()
+	return path, path != "", err
+}
+
+// DataFilePath is the exported form of dataFilePath: the state-file path
+// Default() resolves from DATA_FILE (or its own built-in default). The
+// setup-wizard boot state machine opens its Store at this same path so a
+// wizard-written database is exactly the one Default() finds after restart.
+func DataFilePath() string {
+	return dataFilePath()
+}
+
 // resolveConfigPath implements the spec section 3.3 lookup order: an
 // explicit $LEAGUE_FILE (fatal if missing), then the app root, then
 // <app root>/config, then the directory holding DATA_FILE. "" with a nil
@@ -436,7 +514,7 @@ func loadConfigFile(path string) (Config, error) {
 }
 
 func loadConfigBytes(path string, raw []byte) (Config, error) {
-	var file configFile
+	var file ConfigFile
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&file); err != nil {
@@ -472,6 +550,7 @@ func loadConfigBytes(path string, raw []byte) (Config, error) {
 		Trades:           file.Trades,
 		Postseason:       file.Postseason,
 		Membership:       file.Membership,
+		Auth:             resolveAuthBlock(file.Auth),
 	}
 	// Absent waivers/trades blocks resolve to their defaults (roster-ops
 	// spec section 10: "Absent blocks resolve to the defaults below"). A
@@ -522,6 +601,19 @@ func unknownFieldName(err error) (string, bool) {
 		return "", false
 	}
 	return match[1], true
+}
+
+// ResolveRosterTotal computes the draftable roster total (starters + bench
+// + reserve; IR excluded) that block implies, using the exact same preset/
+// explicit-shape resolution the config loader applies. It is a read-only
+// preview, not a validator: an invalid or preset-vs-explicit-conflicting
+// block still returns some total (call LoadConfigBytes for the
+// authoritative validated result). The setup wizard (design section 4.1,
+// step 5) uses this to auto-derive draft.rounds from the roster shape
+// chosen at step 4, instead of asking an operator to compute the same sum
+// by hand a second time.
+func ResolveRosterTotal(block RosterBlock) int {
+	return resolveRosterBlock(block, 0).Total()
 }
 
 // resolveRosterBlock expands a raw roster.preset name into its RosterPreset,
@@ -737,6 +829,9 @@ func validateConfig(cfg *Config) (warnings []string, err error) {
 	if err := validateMembership(cfg.Membership); err != nil {
 		return nil, err
 	}
+	if !cfg.Auth.InviteLinks && !cfg.Auth.Google {
+		return nil, fmt.Errorf("league config: auth.invite_links and auth.google cannot both be false; at least one sign-in method must stay enabled")
+	}
 
 	if n > teamCountWarnAbove {
 		warnings = append(warnings, fmt.Sprintf(
@@ -833,6 +928,14 @@ func validSlotKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// RosterPresetNames returns every named roster preset the config loader
+// accepts for roster.preset, sorted. The setup wizard's roster step (design
+// section 4.1, step 4) reads this instead of hardcoding the list a second
+// time.
+func RosterPresetNames() []string {
+	return presetNames()
 }
 
 func presetNames() []string {
