@@ -1013,7 +1013,14 @@ button.access-link {
 
 .page {
   padding: var(--space-2xl) 0 var(--space-3xl);
-  animation: page-enter var(--duration-cinematic) var(--ease-out) both;
+  /* gap-audit item 2 (wave 3): 720ms (--duration-cinematic) from opacity 0
+     left content invisible on the first frame and under half opacity for
+     ~80ms against a 3-33ms TTFB. 150ms (--duration-fast) from 0.85 opacity
+     is a subtle settle, not a fade-in from black. See the
+     "prefers-reduced-motion" block below (~line 6983) for the full
+     "animation: none" override, and the P3-19 comment there for why a
+     blanket 1ms rule alone is not enough. */
+  animation: page-enter var(--duration-fast) var(--ease-out) both;
 }
 
 .mono {
@@ -6456,7 +6463,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(1rem); }
+  from { opacity: 0.85; transform: translateY(1rem); }
   to { opacity: 1; transform: translateY(0); }
 }
 
