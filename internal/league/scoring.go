@@ -298,13 +298,23 @@ func (s *Service) ScoringData(r *http.Request) map[string]any {
 	now := time.Now()
 	scoringValues := s.currentScoringValues()
 
+	// The masthead "Scoring editable until" line reads the same
+	// seasonStartAt() the lock check above uses, so it must carry the same
+	// DraftDatePublished guard as rulesIdentityMap's season_start below: a
+	// sentinel season start (config.go's placeholderSeasonStartAt) is not a
+	// scheduled boundary, and must not print as one.
+	seasonStartLabel := "Season start not published yet"
+	if start := seasonStartAt(); DraftDatePublished(now, start) {
+		seasonStartLabel = start.In(location).Format("Monday, January 2 · 3:04 PM MST")
+	}
+
 	return map[string]any{
 		"viewer":          s.Viewer(r),
 		"is_commissioner": isCommissioner,
 		"locked":          locked,
 		"editable":        isCommissioner && !locked,
 		"league_mode":     s.cfg.ModeLabel,
-		"season_start":    seasonStartAt().In(location).Format("Monday, January 2 · 3:04 PM MST"),
+		"season_start":    seasonStartLabel,
 		"groups":          groups,
 		"scoring_note":    s.scoringNote(),
 		"league":          s.leagueMap(),
@@ -348,6 +358,22 @@ func scoringGroupNote(group string) string {
 // facts with no code change (owner directive: "the same binary with SK's
 // league.json must produce SK's rules").
 func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[string]any {
+	// DefaultConfig ships neutral 400+-day-out placeholder draft/season
+	// instants (2099-01-01 / 2099-01-08, config.go's placeholderDraftAt /
+	// placeholderSeasonStartAt), which the 2026-09-01 audit found printed
+	// here as literal calendar facts ("Wednesday, December 31, 2098"). Both
+	// dates use the same DraftDatePublished guard draftSummaryForState
+	// already applies to / and /guide: a sentinel renders its honest
+	// unpublished text, never a fabricated date.
+	draftAt := s.EffectiveDraftAt(s.store.Snapshot())
+	draftDate := "Not published yet — the commissioner sets it"
+	if DraftDatePublished(now, draftAt) {
+		draftDate = draftAt.In(location).Format("Monday, January 2, 2006")
+	}
+	seasonStart := "Season start not published yet"
+	if DraftDatePublished(now, s.cfg.SeasonStartAt) {
+		seasonStart = s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006")
+	}
 	return map[string]any{
 		"name":         s.cfg.Name,
 		"short_code":   s.cfg.ShortCode,
@@ -355,8 +381,8 @@ func (s *Service) rulesIdentityMap(now time.Time, location *time.Location) map[s
 		"season":       s.cfg.Season,
 		"team_count":   len(s.Teams()),
 		"timezone":     FriendlyTimezoneLabel(s.cfg.Timezone),
-		"draft_date":   s.EffectiveDraftAt(s.store.Snapshot()).In(location).Format("Monday, January 2, 2006"),
-		"season_start": s.cfg.SeasonStartAt.In(location).Format("Monday, January 2, 2006"),
+		"draft_date":   draftDate,
+		"season_start": seasonStart,
 	}
 }
 

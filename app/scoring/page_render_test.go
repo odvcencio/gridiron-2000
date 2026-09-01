@@ -64,6 +64,48 @@ func TestScoringPageRendersRuleRowsWithRealData(t *testing.T) {
 	}
 }
 
+// TestScoringPageGuardsSentinelDraftAndSeasonDates is the /scoring half of
+// the wave-1 sentinel-date audit finding: the neutral shipped config (no
+// league.json in this test tree) carries the placeholder draft/season
+// instants 2099-01-01 / 2099-01-08 (config.go), which used to print as
+// literal "Wednesday, December 31, 2098" style facts in the League
+// identity section and the "Scoring editable until" masthead line.
+func TestScoringPageGuardsSentinelDraftAndSeasonDates(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "2098") || strings.Contains(body, "2099") {
+		t.Fatalf("scoring page rendered the sentinel draft/season year: %s", body)
+	}
+	if !strings.Contains(body, "Not published yet") {
+		t.Fatalf("scoring page did not render the unpublished-draft guard text: %s", body)
+	}
+	if !strings.Contains(body, "Season start not published yet") {
+		t.Fatalf("scoring page did not render the unpublished-season-start guard text: %s", body)
+	}
+}
+
 // TestScoringPageJumpListMatchesSectionsOneToOne is P2-13's own render
 // test (UI pass 2026-08-30): the sticky anchor jump-list at the top of a
 // ~7,400px page must name every <details id="..."> section it can jump
