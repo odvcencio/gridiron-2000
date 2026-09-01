@@ -603,6 +603,19 @@ func unknownFieldName(err error) (string, bool) {
 	return match[1], true
 }
 
+// ResolveRosterTotal computes the draftable roster total (starters + bench
+// + reserve; IR excluded) that block implies, using the exact same preset/
+// explicit-shape resolution the config loader applies. It is a read-only
+// preview, not a validator: an invalid or preset-vs-explicit-conflicting
+// block still returns some total (call LoadConfigBytes for the
+// authoritative validated result). The setup wizard (design section 4.1,
+// step 5) uses this to auto-derive draft.rounds from the roster shape
+// chosen at step 4, instead of asking an operator to compute the same sum
+// by hand a second time.
+func ResolveRosterTotal(block RosterBlock) int {
+	return resolveRosterBlock(block, 0).Total()
+}
+
 // resolveRosterBlock expands a raw roster.preset name into its RosterPreset,
 // or builds one from explicit roster.slots/roster.bench. An absent block
 // (both Preset and Slots empty) resolves to gridiron-house per the
@@ -915,6 +928,14 @@ func validSlotKey(key string) bool {
 		}
 	}
 	return false
+}
+
+// RosterPresetNames returns every named roster preset the config loader
+// accepts for roster.preset, sorted. The setup wizard's roster step (design
+// section 4.1, step 4) reads this instead of hardcoding the list a second
+// time.
+func RosterPresetNames() []string {
+	return presetNames()
 }
 
 func presetNames() []string {
