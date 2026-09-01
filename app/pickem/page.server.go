@@ -151,10 +151,15 @@ func pickemSetAction(ctx *action.Context, set func(*http.Request, string, string
 		redirect := league.Default().PickemRedirectTarget(ctx.FormData["week"])
 		return pickemValidationWithRedirect(ctx, redirect, err)
 	}
+	// The redirect fires for both native and GoSX-managed callers. GoSX's
+	// managed-form runtime (client/runtime/host/navigation.ts,
+	// submitManagedActionForm) re-renders the current document only when a
+	// JSON action result carries a non-empty "redirect" field; the previous
+	// plain ctx.Success reply, carrying only a "refresh" data value, never
+	// triggered that re-render, so a selected pick kept aria-pressed=false
+	// and "YOUR PICKS THIS WEEK 0" until a manual reload. This matches the
+	// already-working team-rename and notification-set actions.
 	message := ctx.FormData["team"] + " picked."
-	if action.WantsJSON(ctx.Request) {
-		return ctx.Success(message, map[string]any{"value": "refresh"})
-	}
 	actionui.RedirectWithNotice(ctx, league.Default().PickemRedirectTarget(ctx.FormData["week"]), message)
 	return nil
 }

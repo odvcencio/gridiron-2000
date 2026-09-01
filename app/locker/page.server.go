@@ -34,6 +34,21 @@ func lockerRedirectTarget(rawPage string) string {
 	return "/locker"
 }
 
+// lockerMutationSuccess always redirects, for both native and GoSX-managed
+// callers. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) re-renders the current document only when a JSON
+// action result carries a non-empty "redirect" field; the previous plain
+// ctx.Success reply, carrying only a "refresh" data value, never triggered
+// that re-render, so a new post or reply left the thread on NO POSTS YET
+// and the composer's submitted text in place, risking a duplicate post on a
+// second click. Routing every mutation through one 303-with-redirect shape
+// matches the already-working team-rename and notification-set actions, and
+// the resulting full document re-render clears the composer for free.
+func lockerMutationSuccess(ctx *action.Context, message string) error {
+	actionui.RedirectWithNotice(ctx, lockerRedirectTarget(ctx.FormData["page"]), message)
+	return nil
+}
+
 func lockerFragmentURL(request *http.Request) string {
 	if request == nil || request.URL == nil {
 		return "/locker/fragment"
@@ -136,22 +151,13 @@ func init() {
 				if strings.TrimSpace(parentID) != "" {
 					message = "Reply posted."
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, lockerRedirectTarget(ctx.FormData["page"]), message)
-				return nil
+				return lockerMutationSuccess(ctx, message)
 			},
 			"locker-remove": func(ctx *action.Context) error {
 				if err := league.Default().RemoveLockerPost(ctx.Request, ctx.FormData["post_id"]); err != nil {
 					return lockerValidation(ctx, err)
 				}
-				message := "Post removed."
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, lockerRedirectTarget(ctx.FormData["page"]), message)
-				return nil
+				return lockerMutationSuccess(ctx, "Post removed.")
 			},
 		},
 	}); err != nil {

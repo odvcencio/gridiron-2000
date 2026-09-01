@@ -111,6 +111,20 @@ func tradeRedirectTarget(counterparty string) string {
 	return "/trades?" + values.Encode()
 }
 
+// tradeMutationSuccess always redirects, for both native and GoSX-managed
+// callers. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) re-renders the current document only when a JSON
+// action result carries a non-empty "redirect" field; the previous plain
+// ctx.Success reply, carrying only a "refresh" data value, never triggered
+// that re-render, so a sent offer, a countered inbox row, or a settled trade
+// left the outbox and inbox on their pre-mutation state until a manual
+// reload. Routing every mutation through one 303-with-redirect shape matches
+// the already-working team-rename and notification-set actions.
+func tradeMutationSuccess(ctx *action.Context, message string) error {
+	actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
+	return nil
+}
+
 func tradeSelectOptions(options []league.TradeRosterOption, raw string) []league.TradeRosterOption {
 	selected := map[string]bool{}
 	for _, id := range strings.Split(raw, ",") {
@@ -217,11 +231,7 @@ func init() {
 				if err != nil {
 					return tradeValidation(ctx, err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			"trade-counter": func(ctx *action.Context) error {
 				offerID := ctx.FormData["offer_id"]
@@ -230,44 +240,28 @@ func init() {
 				if err != nil {
 					return tradeValidation(ctx, err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			"trade-decline": func(ctx *action.Context) error {
 				message, err := league.Default().DeclineTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			"trade-withdraw": func(ctx *action.Context) error {
 				message, err := league.Default().WithdrawTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			"trade-accept": func(ctx *action.Context) error {
 				message, err := league.Default().AcceptTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			// trade-approve is the commissioner's early-execution action
 			// (commissioner or both veto mode).
@@ -276,11 +270,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			// trade-veto-commissioner is the commissioner's veto action
 			// (commissioner or both mode).
@@ -289,11 +279,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 			// trade-veto-vote is a non-party manager's veto vote (vote or
 			// both mode).
@@ -302,11 +288,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, tradeRedirectTarget(ctx.FormData["counterparty"]), message)
-				return nil
+				return tradeMutationSuccess(ctx, message)
 			},
 		},
 	}); err != nil {

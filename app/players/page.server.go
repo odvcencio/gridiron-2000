@@ -39,6 +39,20 @@ func waiverRedirectTarget(pos, query, page string) string {
 	return redirectTarget(pos, query, page) + "#waivers"
 }
 
+// playersMutationSuccess always redirects, for both native and GoSX-managed
+// callers. GoSX's managed-form runtime (client/runtime/host/navigation.ts,
+// submitManagedActionForm) re-renders the current document only when a JSON
+// action result carries a non-empty "redirect" field; the previous plain
+// ctx.Success reply, carrying only a "refresh" data value, never triggered
+// that re-render, so a signed free agent, a dropped roster spot, or a filed
+// claim left the pool and waiver rows on their pre-mutation state until a
+// manual reload. Routing every mutation through one 303-with-redirect shape
+// matches the already-working team-rename and notification-set actions.
+func playersMutationSuccess(ctx *action.Context, target, message string) error {
+	actionui.RedirectWithNotice(ctx, target, message)
+	return nil
+}
+
 func playersFragmentURL(request *http.Request, kind string) string {
 	values := url.Values{}
 	if request != nil && request.URL != nil {
@@ -117,11 +131,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
-				return nil
+				return playersMutationSuccess(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 			},
 			// player-drop applies the section 5.3 player-drop action.
 			"player-drop": func(ctx *action.Context) error {
@@ -129,11 +139,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
-				return nil
+				return playersMutationSuccess(ctx, redirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 			},
 			// claim-file applies the section 5.3 claim-filing action. bid
 			// is only meaningful in faab mode; an empty field parses to 0,
@@ -145,11 +151,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "player_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
-				return nil
+				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 			},
 			// claim-cancel withdraws one of the acting team's own open
 			// claims (section 5.3).
@@ -158,11 +160,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
-				return nil
+				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 			},
 			// claim-move changes only the authenticated team's private filing
 			// order; it never changes the public league waiver position.
@@ -171,11 +169,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "players", "claim_id", err)
 				}
-				if action.WantsJSON(ctx.Request) {
-					return ctx.Success(message, map[string]any{"value": "refresh"})
-				}
-				actionui.RedirectWithNotice(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
-				return nil
+				return playersMutationSuccess(ctx, waiverRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), message)
 			},
 		},
 	}); err != nil {
