@@ -26,6 +26,22 @@ The first existing config wins, in this order:
 
 If none exists, Gridiron starts with a neutral reference configuration whose dates are deliberately far in the future. Precedence is built-in defaults, then the selected JSON file, then the limited environment overrides listed below. The active source is visible in `/api/health` and commissioner diagnostics.
 
+## First-boot setup and boot states
+
+At every start, Gridiron resolves into exactly one of three boot states before it runs any league code:
+
+- **CONFIGURED** — a `league.json` resolves. The application boots normally.
+- **SETUP** — no `league.json` resolves, no prior setup completed, and the database holds no members or picks. Gridiron mints a 256-bit setup token, prints it to stdout and the log with the full setup URL, and serves only `/setup`, static assets, `/api/live`, and `/api/health`. Enter the token to start the wizard: league identity, teams and divisions, scoring format, roster, draft meeting, waivers, trades, membership, and the commissioner account, then review and confirm. Every step validates through the same loader `leaguecheck` uses. `/api/health` reports `"state":"setup"`.
+- **FAIL_CLOSED** — a prior setup completed (or the database already holds league data), but no `league.json` resolves now. This is a mount failure — the config volume or ConfigMap went missing — not a fresh instance. Every route serves HTTP 503 with an operator message; `/api/health` reports `"state":"fail_closed"`. Restore the file and restart; setup never re-arms.
+
+The setup token is single-session bound: the first correct claim wins, later attempts see a truthful "already claimed" page, and 60 minutes of wizard inactivity mints a fresh token. A container restart during SETUP always prints a new token; non-secret wizard progress survives the restart.
+
+Confirming the wizard's final review step commits atomically: it writes `runtime.env` (`COMMISSIONER_EMAILS`, `IDENTITY_ALIASES`, a generated `SESSION_SECRET`; 0600, beside the state database), mints the membership step's Tier 0 invite links, writes `league.json` beside `DATA_FILE`, then a durable completion marker. `runtime.env` is loaded automatically at boot, beside the state database; a real environment variable of the same name always wins. Set `GRIDIRON_SUPERVISED=1` when a supervisor (for example, a compose `restart:` policy) will restart the container after commit; the process then exits so the supervisor can restart it into CONFIGURED. Without it, the completion page instructs a manual restart and the process keeps serving that page.
+
+## Tier 0: invite-link sign-in
+
+Gridiron never requires an external identity provider. The default sign-in method is a commissioner-distributed, single-use invite link: `/auth/invite/<token>`, valid 7 days by default, revocable, and auditable. A member's first visit to their link signs them in, applies any configured identity alias, binds a pending co-manager invite exactly as a Google sign-in would, and admits them — no email is sent by Gridiron at this tier. An optional `auth` block in `league.json` (see below) can disable Google sign-in, invite-link sign-in, or neither, but never both at once.
+
 ## Top-level fields
 
 | Field | Required / allowed value | Meaning |
