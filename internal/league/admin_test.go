@@ -1272,8 +1272,8 @@ func TestPluralRendersCountedNoun(t *testing.T) {
 		{3, "league", "3 leagues"},
 	}
 	for _, c := range cases {
-		if got := Plural(c.n, c.word); got != c.want {
-			t.Errorf("Plural(%d, %q) = %q, want %q", c.n, c.word, got, c.want)
+		if got := CountNoun(c.n, c.word); got != c.want {
+			t.Errorf("CountNoun(%d, %q) = %q, want %q", c.n, c.word, got, c.want)
 		}
 	}
 }

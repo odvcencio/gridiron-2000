@@ -70,7 +70,7 @@ func adminNotificationReceiptText(receipt league.NotificationReceipt) string {
 		parts = append(parts, fmt.Sprintf("%d already recorded", receipt.AlreadyRecorded))
 	}
 	if receipt.LedgerFailures > 0 {
-		parts = append(parts, "partial failure: "+league.Plural(receipt.LedgerFailures, "ledger failure"))
+		parts = append(parts, "partial failure: "+league.CountNoun(receipt.LedgerFailures, "ledger failure"))
 	}
 	if receipt.QueueDrops > 0 {
 		parts = append(parts, fmt.Sprintf("%d dropped (queue full)", receipt.QueueDrops))
@@ -594,7 +594,7 @@ func init() {
 				if err != nil {
 					return actionui.Validation(ctx, "admin", "admin", err)
 				}
-				notice := fmt.Sprintf("Trimmed %s. The league is set at %d teams.", league.Plural(len(removed), "unclaimed seat"), len(kept))
+				notice := fmt.Sprintf("Trimmed %s. The league is set at %d teams.", league.CountNoun(len(removed), "unclaimed seat"), len(kept))
 				if scheduleBefore {
 					notice += " Existing unplayed schedule cleared; regenerate it for the kept teams."
 				}

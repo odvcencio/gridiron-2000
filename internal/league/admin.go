@@ -26,20 +26,14 @@ import (
 // one linearizable operation.
 var topologyMutationMu sync.Mutex
 
-// Plural renders "<n> <singular>" with the correct English plural noun
-// (gap-audit item 11): commissioner-facing copy printed the field name
-// literally ("1 LEAGUES", "1 occurrence(s)", "2 day(s)") instead of a real
-// count-agreement sentence. Only the exact count 1 keeps the singular form;
-// every other count, including 0 and negative counts, takes the plural.
-// This covers the regular English "add a trailing s" case, which is every
-// noun this console currently counts (day, league, seat, failure, ...); a
-// caller with an irregular plural can still fall back to its own
-// fmt.Sprintf rather than force one on every other caller here.
-func Plural(n int, singular string) string {
-	if n == 1 {
-		return fmt.Sprintf("%d %s", n, singular)
-	}
-	return fmt.Sprintf("%d %ss", n, singular)
+// CountNoun renders "<n> <noun>" with the noun pluralized by Plural
+// (gap-audit item 11): commissioner-facing copy printed field names
+// literally ("1 occurrence(s)", "2 day(s)") instead of a real
+// count-agreement phrase. Plural itself returns the bare noun, which HQ
+// composes into its own uppercase readouts; this wrapper is the sentence
+// form the console's prose needs.
+func CountNoun(n int, singular string) string {
+	return fmt.Sprintf("%d %s", n, Plural(n, singular))
 }
 
 // pluralVerb picks the verb form agreeing with a count Plural just rendered
@@ -304,7 +298,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// "1 unclaimed seat(s)" and "3 seat(s) have". Plural agrees the
 		// noun; the verb needs its own singular/plural form since it is not
 		// a noun Plural can render.
-		"unclaimed_seat_label": Plural(len(unclaimedSeatIDs), "unclaimed seat"),
+		"unclaimed_seat_label": CountNoun(len(unclaimedSeatIDs), "unclaimed seat"),
 		"unclaimed_seat_verb":  pluralVerb(len(unclaimedSeatIDs), "has", "have"),
 		// draft_started hides the seat-trim control once the first pick
 		// lands, matching the roster-shape panel's own lock. The store
