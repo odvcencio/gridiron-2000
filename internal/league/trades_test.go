@@ -778,6 +778,30 @@ func TestTradeCounterSwapsSidesAndOpensOneChain(t *testing.T) {
 	}
 }
 
+// TestTradeOfferRowTimesUseLeagueZoneWithRelative is the gap-audit
+// finding: CreatedAt/ResolvedAt used to format offer.CreatedAt/ResolvedAt
+// (stored UTC) directly, in whatever zone the instant's own Location
+// carried — never the league's own timezone, and with no relative text.
+// newTradesTestService's fixture clock (2026-09-13T12:00:00Z) falls in
+// Eastern daylight time (EDT), the league's default zone.
+func TestTradeOfferRowTimesUseLeagueZoneWithRelative(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	offer := TradeOffer{
+		ID: "trd-time", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"},
+		Status:     TradeStatusExecuted,
+		CreatedAt:  now.Add(-2 * time.Hour).UTC(),
+		ResolvedAt: now.Add(-12 * time.Minute).UTC(),
+	}
+	row := svc.tradeOfferRow(svc.pool(), offer, "team-1", false, false, false, 0)
+	if row.CreatedAt != "Sep 13, 6:00 AM EDT · 2 hours ago" {
+		t.Fatalf("CreatedAt = %q, want the league-zone stamp plus relative suffix", row.CreatedAt)
+	}
+	if row.ResolvedAt != "Sep 13, 7:48 AM EDT · 12 minutes ago" {
+		t.Fatalf("ResolvedAt = %q, want the league-zone stamp plus relative suffix", row.ResolvedAt)
+	}
+}
+
 func TestTradeAcceptActorAndStatusChecks(t *testing.T) {
 	svc, now := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc)

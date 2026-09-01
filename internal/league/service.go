@@ -3707,7 +3707,7 @@ func (s *Service) latestAnnouncementBanner() map[string]any {
 	return map[string]any{
 		"has":       true,
 		"body":      latest.Body,
-		"posted_at": latest.PostedAt.Format("Jan 2, 3:04 PM MST"),
+		"posted_at": s.leagueTimeStamp(latest.PostedAt),
 	}
 }
 
@@ -3727,7 +3727,7 @@ func (s *Service) announcementListMaps(limit int) []map[string]any {
 			"id":         a.ID,
 			"body":       a.Body,
 			"posted_by":  a.PostedBy,
-			"posted_at":  a.PostedAt.Format("Jan 2, 3:04 PM MST"),
+			"posted_at":  a.PostedAt.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST"),
 			"posted_ago": relativeTime(now, a.PostedAt),
 		})
 	}
@@ -3748,6 +3748,26 @@ func RelativeTime(now, then time.Time) string { return relativeTime(now, then) }
 // Wire shipped on America/Los_Angeles for a while; the audit that caught
 // it is spore.2026-09-01.alder in the hyphae space).
 func (s *Service) LeagueLocation() *time.Location { return s.matchupLocation() }
+
+// leagueTimeStamp is the shared recipe every stored-instant display in
+// this package routes through (gap-audit finding: trades.go, admin.go,
+// and players.go each used to format a stored, often-UTC instant directly
+// — whatever zone it happened to carry, no relative text). It renders t in
+// the league's canonical zone (LeagueLocation) using this package's
+// existing "Jan 2, 3:04 PM MST" idiom, with RelativeTime's trailing label
+// folded into the same string rather than a second field: several
+// consuming templates — the shared layout's dismiss-free announcement
+// banner chief among them (app/layout.gsx, not this package) — have no
+// second binding to carry a relative value separately. now anchors the
+// relative label; callers pass s.clock() so a fixed test clock stays
+// deterministic. A zero instant renders "".
+func (s *Service) leagueTimeStamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	stamp := t.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST")
+	return stamp + " · " + RelativeTime(s.clock(), t)
+}
 
 // relativeTime renders a compact "N unit(s) ago" label for a past instant,
 // floored at "just now" for anything under a minute. Only the coarsest

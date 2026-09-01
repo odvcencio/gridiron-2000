@@ -1060,10 +1060,7 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 			alreadyVoted = true
 		}
 	}
-	resolvedAt := ""
-	if !offer.ResolvedAt.IsZero() {
-		resolvedAt = offer.ResolvedAt.Format("Jan 2, 3:04 PM MST")
-	}
+	resolvedAt := s.leagueTimeStamp(offer.ResolvedAt)
 	failReason := strings.TrimSpace(offer.FailReason)
 	if offer.Status == TradeStatusFailed && failReason == "" {
 		failReason = "The trade could not be completed. Review the Trade Desk for the current status."
@@ -1080,7 +1077,7 @@ func (s *Service) tradeOfferRow(pool playerPool, offer TradeOffer, teamID string
 		Get:                 get,
 		Note:                offer.Note,
 		HasNote:             offer.Note != "",
-		CreatedAt:           offer.CreatedAt.Format("Jan 2, 3:04 PM MST"),
+		CreatedAt:           s.leagueTimeStamp(offer.CreatedAt),
 		ResolvedAt:          resolvedAt,
 		FailReason:          failReason,
 		VetoesCount:         len(offer.Vetoes),

@@ -355,6 +355,27 @@ func TestAdminDataMailFieldsAndMailto(t *testing.T) {
 	}
 }
 
+// TestAnnouncementAdminMapsUsesLeagueZoneWithRelative is the gap-audit
+// finding for admin.go:554: the Announcements panel formatted PostedAt
+// directly (whatever zone the stored instant carried, typically UTC) with
+// no relative text. September 13 falls in Eastern daylight time (EDT),
+// the league's default zone.
+func TestAnnouncementAdminMapsUsesLeagueZoneWithRelative(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	state := PersistedState{Announcements: []Announcement{
+		{ID: "ann-1", Body: "Draft night moved.", PostedBy: "Commissioner", PostedAt: now.Add(-3 * time.Hour).UTC()},
+	}}
+	rows := service.announcementAdminMaps(state)
+	if len(rows) != 1 {
+		t.Fatalf("announcementAdminMaps = %+v, want 1 row", rows)
+	}
+	if got := rows[0]["posted_at"]; got != "Sep 13, 5:00 AM EDT · 3 hours ago" {
+		t.Fatalf("posted_at = %v, want the league-zone stamp plus relative suffix", got)
+	}
+}
+
 func TestAdminDataReportsInviteAcceptanceAndReadiness(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

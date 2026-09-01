@@ -150,7 +150,7 @@ func (s *Service) waiverReceiptRow(receipt WaiverReceipt, includeTeam, discloseW
 		"winner_abbr":       winnerAbbr,
 		"winning_bid":       winningBid,
 		"has_winning_bid":   hasWinningBid,
-		"resolved_at":       receipt.ResolvedAt.Format("Jan 2, 3:04 PM MST"),
+		"resolved_at":       s.leagueTimeStamp(receipt.ResolvedAt),
 	}
 	if includeTeam {
 		team := s.teamByID(receipt.TeamID)
@@ -366,7 +366,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			"resolution_at":       resolution["resolution_at"],
 			"resolution_relative": resolution["resolution_relative"],
 			"has_resolution_at":   resolution["has_resolution_at"],
-			"filed_at":            claim.FiledAt.Format("Jan 2, 3:04 PM MST"),
+			"filed_at":            s.leagueTimeStamp(claim.FiledAt),
 			"bid":                 claim.Bid,
 			"priority":            claim.Priority,
 			"claim_count":         len(myClaimIndices),
