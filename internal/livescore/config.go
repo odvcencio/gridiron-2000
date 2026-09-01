@@ -112,23 +112,78 @@ type Config struct {
 }
 
 func ConfigFromEnv() Config {
+	profile := liveProfileFromEnv()
+	scoreboardDefault, boxBaselineDefault, boxFastDefault, dailyBudgetDefault := profileDefaults(profile)
 	return Config{
 		Enabled:            strings.EqualFold(strings.TrimSpace(os.Getenv("LIVE_SCORING_ENABLED")), "true"),
-		ScoreboardInterval: scoreboardIntervalFromEnv(),
-		BoxBaseline:        envDuration("LIVE_BOX_BASELINE", 30*time.Second),
-		BoxFast:            boxFastFromEnv(),
+		ScoreboardInterval: scoreboardIntervalFromEnv(scoreboardDefault),
+		BoxBaseline:        envDuration("LIVE_BOX_BASELINE", boxBaselineDefault),
+		BoxFast:            boxFastFromEnv(boxFastDefault),
 		MaxInflight:        envInt("LIVE_MAX_INFLIGHT", 4),
-		DailyBudget:        envInt("LIVE_DAILY_BUDGET", 9000),
+		DailyBudget:        envInt("LIVE_DAILY_BUDGET", dailyBudgetDefault),
 		Season:             envInt("NFL_SEASON", time.Now().Year()),
 	}
 }
 
-// boxFastFromEnv resolves LIVE_BOX_FAST, default 20s, floored at
+// liveProfileFromEnv resolves LIVE_PROFILE: "ultra" (the zero value and
+// the default when unset) keeps today's paid-tier cadence; "free" swaps
+// in profileDefaults' slow-cadence set, sized for Tank01's free BASIC
+// tier. An unknown, non-empty value is logged once and read as "ultra" —
+// the already-verified, already-deployed default — rather than silently
+// picked as free's much slower cadence (which would quietly starve a
+// paying deployment) or rejected outright (which would refuse to boot a
+// deployment over one typo).
+func liveProfileFromEnv() string {
+	switch raw := strings.ToLower(strings.TrimSpace(os.Getenv("LIVE_PROFILE"))); raw {
+	case "", "ultra":
+		return "ultra"
+	case "free":
+		return "free"
+	default:
+		log.Printf("livescore: unknown LIVE_PROFILE=%q; falling back to \"ultra\". Valid values: \"free\", \"ultra\".", raw)
+		return "ultra"
+	}
+}
+
+// profileDefaults returns the LIVE_SCOREBOARD_INTERVAL / LIVE_BOX_BASELINE
+// / LIVE_BOX_FAST / LIVE_DAILY_BUDGET defaults profile implies. Each is
+// only ever a *fallback*: scoreboardIntervalFromEnv, envDuration, and
+// boxFastFromEnv/envInt still read the matching LIVE_* variable first, so
+// an explicitly set variable always wins over the profile it was resolved
+// under — a deployment can run LIVE_PROFILE=free and still hand-tune one
+// cadence without losing the other three.
+//
+// free's arithmetic (Tank01's free BASIC tier: 1,000 requests/month,
+// hard-limited — a 429 at the line, caught by the existing 60s circuit
+// breaker, unlike Ultra's soft, billed overage): a 12-hour Sunday window
+// at LIVE_SCOREBOARD_INTERVAL=30m is 24 scoreboard ticks; LIVE_DAILY_BUDGET
+// =20 caps that same day's box fetches at 20 (LIVE_BOX_BASELINE and
+// LIVE_BOX_FAST both at 6h keep the adaptive tiers from ever asking for
+// more box fetches than that budget allows across one Sunday) — about 44
+// requests total for that one day. Four game days a week (Thursday,
+// Sunday early/late, Monday carry nearly all of a week's live traffic) is
+// about 4 x 44 = 176, roughly 180/week; roughly 4.3 weeks/month puts the
+// month around 780 requests, comfortably under the 1,000/month hard
+// limit. This holds per relay, not per league instance: it assumes every
+// league instance behind one statrelay deployment shares its cache (the
+// relay's own STATRELAY_SCOREBOARD_TTL/STATRELAY_DAILY_BUDGET, see
+// cmd/statrelay/main.go's matching STATRELAY_PROFILE=free), so N
+// instances polling the same free-tier league do not each spend their own
+// 780/month independently against one shared Tank01 key.
+func profileDefaults(profile string) (scoreboard, boxBaseline, boxFast time.Duration, dailyBudget int) {
+	if profile == "free" {
+		return 30 * time.Minute, 6 * time.Hour, 6 * time.Hour, 20
+	}
+	return 10 * time.Second, 30 * time.Second, 20 * time.Second, 9000
+}
+
+// boxFastFromEnv resolves LIVE_BOX_FAST, defaulting to fallback (the
+// active profile's own default — profileDefaults), floored at
 // boxFastFloor (10s) — the same floor discipline scoreboardIntervalFromEnv
 // applies to LIVE_SCOREBOARD_INTERVAL, so a misconfigured value can never
 // push the fast tier's cadence tighter than the floor allows.
-func boxFastFromEnv() time.Duration {
-	fast := envDuration("LIVE_BOX_FAST", 20*time.Second)
+func boxFastFromEnv(fallback time.Duration) time.Duration {
+	fast := envDuration("LIVE_BOX_FAST", fallback)
 	if fast < boxFastFloor {
 		fast = boxFastFloor
 	}
@@ -137,17 +192,16 @@ func boxFastFromEnv() time.Duration {
 
 // scoreboardIntervalFromEnv resolves LIVE_SCOREBOARD_INTERVAL, falling back
 // to the deprecated LIVE_POLL_INTERVAL when the former is unset, and
-// finally to the 10s default — then floors the result at scoreboardFloor
-// (5s), so an over-tightened override on either variable can never
-// reintroduce the blanket-polling cost the three-layer design removes.
-// LIVE_SCOREBOARD_INTERVAL always wins when both are set; a deployment
-// that sets either gets one startup log line naming which value won and
-// why, so the deprecated alias never wins silently and never stays
-// silently unused.
-func scoreboardIntervalFromEnv() time.Duration {
+// finally to fallback (the active profile's own default — profileDefaults)
+// — then floors the result at scoreboardFloor (5s), so an over-tightened
+// override on either variable can never reintroduce the blanket-polling
+// cost the three-layer design removes. LIVE_SCOREBOARD_INTERVAL always
+// wins when both are set; a deployment that sets either gets one startup
+// log line naming which value won and why, so the deprecated alias never
+// wins silently and never stays silently unused.
+func scoreboardIntervalFromEnv(fallback time.Duration) time.Duration {
 	deprecatedRaw := strings.TrimSpace(os.Getenv("LIVE_POLL_INTERVAL"))
 	newRaw := strings.TrimSpace(os.Getenv("LIVE_SCOREBOARD_INTERVAL"))
-	fallback := 10 * time.Second
 	switch {
 	case deprecatedRaw != "" && newRaw != "":
 		fallback = envDuration("LIVE_POLL_INTERVAL", fallback)

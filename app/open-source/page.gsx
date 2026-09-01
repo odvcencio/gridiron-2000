@@ -23,6 +23,12 @@ func Page() Node {
 			</div>
 		</div>
 		<section>
+			<h2>Three cost tiers</h2>
+			<p>
+				The corrected nflverse ledger gives next-morning truth for $0, with no live-data account at all. Tank01's free tier adds a $0 slow-live feed, about every 30 minutes on game days. Tank01 Ultra adds the 10-second live experience for about $25 a month for the whole league. The live feed only ever affects freshness — it never decides a closed week's score.
+			</p>
+		</section>
+		<section>
 			<h2>Data attribution</h2>
 			<p>
 				Player stats, schedules, and injury reports come from {data.attribution_name}, licensed {data.attribution_license}.
