@@ -78,6 +78,31 @@ func TestDraftDataUsesPlayerSource(t *testing.T) {
 	}
 }
 
+// TestSeasonOpenLineGuardsSentinelSeasonStart is the /matchups half of the
+// 2026-08-31 gap-audit sentinel-date finding: DefaultConfig ships the
+// neutral placeholder season-start date (2099-01-08, config.go's
+// placeholderSeasonStartAt), and seasonOpenLine used to print it as a
+// literal calendar fact ("League play begins NFL week 1 · January 8") for a
+// season nobody had actually published — the same DraftDatePublished guard
+// rulesIdentityMap's season_start and the scoring masthead already apply.
+func TestSeasonOpenLineGuardsSentinelSeasonStart(t *testing.T) {
+	svc := newTestService(t, true)
+	unpublished := svc.seasonOpenLine()
+	want := "League play begins when the commissioner publishes the season start."
+	if unpublished != want {
+		t.Fatalf("seasonOpenLine with the sentinel season start = %q, want %q", unpublished, want)
+	}
+
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.cfg.SeasonStartAt = time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+	published := svc.seasonOpenLine()
+	wantPublished := fmt.Sprintf("League play begins NFL week %d · September 10.", svc.seasonStartWeek())
+	if published != wantPublished {
+		t.Fatalf("seasonOpenLine with a published season start = %q, want %q", published, wantPublished)
+	}
+}
+
 // TestDraftDataAvailablePosPFiltersAndOrdersByPunterRank checks the Draft
 // Room available-pool fragment's ?pos=P behavior: DraftData never re-sorts
 // (it only filters pool order, matching the players-page fragment's own
