@@ -183,6 +183,56 @@ func TestCommissionerSummaryKeepsUsablePartialPoolAsWarning(t *testing.T) {
 	}
 }
 
+// TestCommissionerSummaryTreatsOfflinePoolLikeAdminDoes checks the wave-2
+// fix for a 2026-09-01 audit finding: HQ reported "CRITICAL · the player
+// pool is unavailable" for a pool the rest of the app — /admin's own
+// poolFreshnessMap and the draft-start gate, playerPoolIsUnavailable —
+// treats as usable (real players, browsing and rehearsal remain
+// available). An "offline" pool with real players must not raise the
+// same "unavailable" attention a true zero-player pool does; it gets its
+// own, lower-severity note instead.
+func TestCommissionerSummaryTreatsOfflinePoolLikeAdminDoes(t *testing.T) {
+	service := newTestService(t, false)
+	capacity := len(service.Teams()) * CurrentDraftRounds()
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{
+		Mode: "offline", Actual: capacity * 2, Target: capacity * 2,
+	})
+	var sawUnavailable, sawOffline bool
+	for _, item := range summary.Attention {
+		if item.Code == "pool_unavailable" {
+			sawUnavailable = true
+		}
+		if item.Code == "pool_offline" && item.Severity == commissionerhq.AttentionSeverityWarning {
+			sawOffline = true
+		}
+	}
+	if sawUnavailable {
+		t.Fatalf("an offline pool with real players was reported unavailable/critical: %+v", summary.Attention)
+	}
+	if !sawOffline {
+		t.Fatalf("an offline pool did not raise its own warning note: %+v", summary.Attention)
+	}
+}
+
+// TestCommissionerSummaryFlagsTrulyUnavailablePool checks the actual
+// zero-player state still raises the CRITICAL attention item — the fix
+// above narrows the trigger, it does not remove it.
+func TestCommissionerSummaryFlagsTrulyUnavailablePool(t *testing.T) {
+	service := newTestService(t, false)
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{
+		Mode: "unavailable", Actual: 0, Target: 0,
+	})
+	found := false
+	for _, item := range summary.Attention {
+		if item.Code == "pool_unavailable" && item.Severity == commissionerhq.AttentionSeverityCritical {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("a truly unavailable (zero-player) pool did not raise the critical attention item: %+v", summary.Attention)
+	}
+}
+
 func TestCommissionerSummaryPoolCapacityBoundaries(t *testing.T) {
 	tests := []struct {
 		name           string

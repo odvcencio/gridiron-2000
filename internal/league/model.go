@@ -435,6 +435,64 @@ type PersistedState struct {
 	// — the WaiverClaims precedent above: a nil slice decodes safely on an
 	// old file, and the store normalizes it in load/NewStore/cloneState.
 	LockerPosts []LockerPost `json:"lockerPosts,omitempty"`
+
+	// CommissionerEvents is the append-only, person-attributed audit trail
+	// for commissioner-only actions (wave-2 commissioner console): posting
+	// or deleting an announcement, a playoff preview/publish/correction, a
+	// forced week close, a seat release, a reset — every commissioner
+	// mutation /admin and /help already promise a league-log record for,
+	// but that until now had no durable storage (the only prior audit type,
+	// PlayoffAuditEntry, is PII-free by design and has no page). Oldest
+	// first, the same convention LockerPosts and Announcements use — see
+	// CommissionerEvent's own doc comment for the attribution rule.
+	// Additive under schema version 11 — the LockerPosts precedent above:
+	// a nil slice decodes safely on an old file, and the store normalizes
+	// it in load/NewStore/cloneState.
+	CommissionerEvents []CommissionerEvent `json:"commissionerEvents,omitempty"`
+}
+
+// CommissionerEventRefs names the entities one commissioner action
+// touched. Every field is optional; a field left empty (or zero, for
+// Week) is simply omitted from persistence and from the rendered row —
+// there is no sentinel "unset" value distinct from the type's zero.
+type CommissionerEventRefs struct {
+	// TeamID is the affected franchise, when the action targets one team
+	// (a seat release, a lineup intervention, a targeted roster fix).
+	TeamID string `json:"teamId,omitempty"`
+	// PlayerID is the affected player, when the action targets a roster
+	// slot (a commissioner-forced add/drop).
+	PlayerID string `json:"playerId,omitempty"`
+	// Week is the affected fantasy week, when the action is week-scoped
+	// (a forced week close, a playoff-round action). Zero means unscoped.
+	Week int `json:"week,omitempty"`
+}
+
+// CommissionerEvent is one durable, person-attributed commissioner audit
+// entry (wave-2 commissioner console). Unlike PlayoffAuditEntry — whose
+// Actor is a PII-free role label by design, because a public bracket may
+// show it — a CommissionerEvent attributes the PERSON who acted:
+// ActorEmail is their canonical, resolved identity (the same identity
+// Member/DraftPick.MadeBy ownership already keys on), and ActorName is
+// the display name captured at action time, the same "freeze the actor's
+// own identity now" idiom LockerPost.AuthorEmail/AuthorName and
+// DraftPick.MadeBy already use — a later name change or roster departure
+// never rewrites history. Never a seat code: /activity and /admin must
+// read "Alex posted an announcement," not "E1 posted an announcement."
+//
+// Kind is a short machine tag ("announcement.post", "playoff.publish",
+// "week.force-close", ...) for future filtering/grouping; Summary is the
+// plain-language action phrase /activity and /admin render next to the
+// actor's name ("posted an announcement") — Kind and Summary are
+// deliberately separate so a future page can group by Kind without
+// parsing Summary's prose. Refs names the entities the action touched.
+type CommissionerEvent struct {
+	ID         string                `json:"id"`
+	ActorEmail string                `json:"actorEmail"`
+	ActorName  string                `json:"actorName"`
+	Kind       string                `json:"kind"`
+	Summary    string                `json:"summary"`
+	Refs       CommissionerEventRefs `json:"refs,omitempty"`
+	At         time.Time             `json:"at"`
 }
 
 // Announcement is one commissioner-posted league announcement (league-

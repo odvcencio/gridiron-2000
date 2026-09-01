@@ -113,12 +113,24 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		attention.Add("persistence_unavailable", commissionerhq.AttentionSeverityCritical, 1,
 			"League persistence needs operator attention.", commissionerhq.AttentionAreaRuntime)
 	}
+	// This switch must classify pool.Mode exactly the way
+	// playerPoolIsUnavailable (service.go) — the one gate that actually
+	// blocks draft-start and roster/waiver mutations — and poolFreshnessMap
+	// (/admin, /draft, /players) already do: "unavailable" is the only
+	// state with zero usable players; "offline" (the built-in embedded
+	// list) has real players and stays usable for browsing, rehearsal, and
+	// non-draft actions. A 2026-09-01 audit found HQ reporting "CRITICAL ·
+	// the player pool is unavailable" for the same offline pool /admin
+	// reported as a usable, player-bearing snapshot — this switch was
+	// treating "offline" as equivalent to zero players, which no other
+	// surface in the app does. See PlayerPoolStatus's own state vocabulary.
 	switch {
-	// Live, cached, stale, and degraded all carry a real last-success
-	// snapshot. Only offline/unavailable data is truly unavailable.
-	case pool.Mode != "live" && pool.Mode != "cached" && pool.Mode != "stale" && pool.Mode != "degraded":
+	case pool.Mode == "unavailable" || pool.Mode == "":
 		attention.Add("pool_unavailable", commissionerhq.AttentionSeverityCritical, 1,
 			"The player pool is unavailable.", commissionerhq.AttentionAreaPool)
+	case pool.Mode == "offline":
+		attention.Add("pool_offline", commissionerhq.AttentionSeverityWarning, 1,
+			"The player pool is running on the built-in offline list; a live sync has not completed.", commissionerhq.AttentionAreaPool)
 	case pool.Error != "":
 		attention.Add("pool_degraded", commissionerhq.AttentionSeverityWarning, 1,
 			"The player pool is usable, but its latest refresh is degraded.", commissionerhq.AttentionAreaPool)

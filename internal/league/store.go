@@ -42,7 +42,7 @@ var errStaleAutoPick = errors.New("auto-pick is stale")
 // currentSchemaVersion is the state file schema version this binary writes
 // and the highest version it accepts on load. See PersistedState's
 // SchemaVersion doc comment and Store.load.
-const currentSchemaVersion = 10
+const currentSchemaVersion = 11
 
 // errSchemaTooNew is returned by NewStore/load when the state file's
 // SchemaVersion exceeds currentSchemaVersion: an older binary must not
@@ -205,35 +205,36 @@ func NewStoreWithIdentity(filePath string, resolver identity.Resolver) *Store {
 		filePath: strings.TrimSpace(filePath),
 		shadow:   shadowIndex{},
 		state: PersistedState{
-			SchemaVersion:   currentSchemaVersion,
-			Ready:           map[string]bool{},
-			Picks:           []DraftPick{},
-			Members:         map[string]Member{},
-			Invites:         []string{},
-			Boards:          map[string][]string{},
-			TeamNames:       map[string]string{},
-			DraftOrder:      []string{},
-			Scoring:         map[string]float64{},
-			Pickems:         map[string]map[string]string{},
-			PickemEnteredAt: map[string]time.Time{},
-			PickemMarkets:   map[string]PickemMarket{},
-			BlitzEntries:    map[string]map[string]BlitzEntry{},
-			Autopick:        map[string]bool{},
-			SentLog:         map[string]time.Time{},
-			NotifyPrefs:     map[string]map[string]bool{},
-			BadgeClaims:     map[string]string{},
-			AvatarRefs:      map[string]string{},
-			Announcements:   []Announcement{},
-			Lineups:         map[string]map[int]map[string]string{},
-			Transactions:    []Transaction{},
-			WaiverClaims:    []WaiverClaim{},
-			WaiverReceipts:  []WaiverReceipt{},
-			TradeOffers:     []TradeOffer{},
-			RosterZones:     map[string]map[string]ZoneAssignment{},
-			CoInvites:       map[string]string{},
-			SeatRevisions:   map[string]uint64{},
-			TrimmedTeamIDs:  []string{},
-			LockerPosts:     []LockerPost{},
+			SchemaVersion:      currentSchemaVersion,
+			Ready:              map[string]bool{},
+			Picks:              []DraftPick{},
+			Members:            map[string]Member{},
+			Invites:            []string{},
+			Boards:             map[string][]string{},
+			TeamNames:          map[string]string{},
+			DraftOrder:         []string{},
+			Scoring:            map[string]float64{},
+			Pickems:            map[string]map[string]string{},
+			PickemEnteredAt:    map[string]time.Time{},
+			PickemMarkets:      map[string]PickemMarket{},
+			BlitzEntries:       map[string]map[string]BlitzEntry{},
+			Autopick:           map[string]bool{},
+			SentLog:            map[string]time.Time{},
+			NotifyPrefs:        map[string]map[string]bool{},
+			BadgeClaims:        map[string]string{},
+			AvatarRefs:         map[string]string{},
+			Announcements:      []Announcement{},
+			Lineups:            map[string]map[int]map[string]string{},
+			Transactions:       []Transaction{},
+			WaiverClaims:       []WaiverClaim{},
+			WaiverReceipts:     []WaiverReceipt{},
+			TradeOffers:        []TradeOffer{},
+			RosterZones:        map[string]map[string]ZoneAssignment{},
+			CoInvites:          map[string]string{},
+			SeatRevisions:      map[string]uint64{},
+			TrimmedTeamIDs:     []string{},
+			LockerPosts:        []LockerPost{},
+			CommissionerEvents: []CommissionerEvent{},
 		},
 	}
 	// An empty path is the explicit in-memory/test mode: the state this
@@ -4334,6 +4335,7 @@ func cloneState(in PersistedState) PersistedState {
 		SeatRevisions:           make(map[string]uint64, len(in.SeatRevisions)),
 		TrimmedTeamIDs:          append([]string(nil), in.TrimmedTeamIDs...),
 		LockerPosts:             append([]LockerPost(nil), in.LockerPosts...),
+		CommissionerEvents:      append([]CommissionerEvent(nil), in.CommissionerEvents...),
 	}
 	for key, value := range in.Ready {
 		out.Ready[key] = value

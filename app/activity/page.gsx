@@ -87,13 +87,33 @@ func Page() Node {
 			</If>
 			<div class="activity-feed">
 				<Each of={data.transactions} as="move">
-					<div class="activity-item">
-						<time class="mono">{move.Time}</time>
-						<p>
-							<strong>{move.Team}</strong>
-							{move.Action}
-							<b>{move.Player}</b>
-						</p>
+					<div class="activity-item" data-actor-class={move.ActorClass}>
+						<If cond={move.TimeISO != ""}>
+							<time class="mono" datetime={move.TimeISO}>
+								{move.Time}
+								<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
+							</time>
+						</If>
+						<If cond={move.TimeISO == ""}>
+							<time class="mono">
+								{move.Time}
+								<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If>
+							</time>
+						</If>
+						<If cond={move.ActorClass != ""}>
+							<p>
+								<span class="activity-actor-class mono">{move.ActorClass}</span> ·
+								<strong>{move.Team}</strong>
+								{move.Action}
+							</p>
+						</If>
+						<If cond={move.ActorClass == ""}>
+							<p>
+								<strong>{move.Team}</strong>
+								{move.Action}
+								<b>{move.Player}</b>
+							</p>
+						</If>
 					</div>
 				</Each>
 			</div>
@@ -134,7 +154,7 @@ func ActivityRegion() Node {
 		<If cond={data.filtered_count > 0}><p class="scoring-note" aria-live="polite">Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall</p></If>
 		<If cond={data.has_transactions == false}><div class="empty-tape"><strong>NO TRANSACTIONS YET</strong><p>Draft picks and roster moves appear here as they happen.</p></div></If>
 		<If cond={data.has_transactions && data.transactions_empty}><div class="empty-tape"><strong>NO MOVES MATCH</strong><p>Try another team or query, or clear the filters.</p><a class="filter-button" href="/activity" data-gosx-link>Clear filters</a></div></If>
-		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item"><time class="mono">{move.Time}</time><p><strong>{move.Team}</strong>{move.Action}<b>{move.Player}</b></p></div></Each></div>
+		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item" data-actor-class={move.ActorClass}><If cond={move.TimeISO != ""}><time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.TimeISO == ""}><time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.ActorClass != ""}><p><span class="activity-actor-class mono">{move.ActorClass}</span> · <strong>{move.Team}</strong>{move.Action}</p></If><If cond={move.ActorClass == ""}><p><strong>{move.Team}</strong>{move.Action}<b>{move.Player}</b></p></If></div></Each></div>
 		<nav class="pool-pagination" aria-label="Transaction feed pages"><If cond={data.has_previous}><a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a></If><span class="mono">Page {data.page} / {data.pages}</span><If cond={data.has_next}><a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a></If></nav>
 	</section>
 }
