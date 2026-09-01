@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"gridiron-2000/internal/actionui"
 	"gridiron-2000/internal/commissionerhq"
@@ -414,7 +415,7 @@ func init() {
 			"playoff-preview": func(ctx *action.Context) error {
 				preview, err := league.Default().AdminPreviewPlayoffs(ctx.Request, time.Now())
 				if err != nil {
-					return actionui.Validation(ctx, "admin", "admin", err)
+					return actionui.Validation(ctx, "admin", "admin", adminPlainLanguageError(err))
 				}
 				adminPlayoffRedirect(ctx, fmt.Sprintf("Playoff preview %s is ready for commissioner review; it is not published.", preview.PreviewID))
 				return nil
@@ -609,7 +610,7 @@ func init() {
 				}
 				scheduleCreated, receipt, err := league.Default().AdminRandomizeDraftOrder(ctx.Request, expectedToken)
 				if err != nil {
-					return actionui.Validation(ctx, "admin", "admin", err)
+					return actionui.Validation(ctx, "admin", "admin", adminPlainLanguageError(err))
 				}
 				notice := "Final draft order drawn after six shuffle passes. The regular-season schedule is published. " + adminNotificationReceiptText(receipt) + "."
 				if !scheduleCreated {
@@ -773,6 +774,28 @@ func init() {
 		},
 	}); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// adminPlainLanguageError rewrites the small set of internal/league store
+// errors that a UI gate (gap-audit item 3: DRAW ORDER, PLAYOFF PREVIEW) can
+// still reach through a stale render or a direct, un-rendered POST. The
+// gate is the primary defense; this is the fallback so a bypass still never
+// surfaces the store's own vocabulary ("reset the draft before changing the
+// order") to the commissioner. Unrecognized errors pass through unchanged —
+// actionui.Validation's own Message() still screens ErrInternal and any
+// MemberMessenger separately.
+func adminPlainLanguageError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch err.Error() {
+	case "reset the draft before changing the order":
+		return errors.New("draw order is unavailable: the draft has already started. Reset the draft in 99 // DANGER ZONE to change the order again")
+	case "playoff preview requires the playoffs phase":
+		return errors.New("preview is unavailable: the league is not in the playoffs phase yet")
+	default:
+		return err
 	}
 }
 

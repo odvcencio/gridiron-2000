@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -14,6 +15,30 @@ import (
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/session"
 )
+
+// TestAdminPlainLanguageErrorNeverEchoesAStoreError pins gap-audit item 3's
+// "never echo a store error" rule for the two errors a bypassed UI gate
+// (draw order, playoff preview) can still reach: DrawDraftOrder's and
+// AdminPreviewPlayoffs' own internal/league wording must never reach the
+// commissioner, even directly.
+func TestAdminPlainLanguageErrorNeverEchoesAStoreError(t *testing.T) {
+	for _, raw := range []string{
+		"reset the draft before changing the order",
+		"playoff preview requires the playoffs phase",
+	} {
+		mapped := adminPlainLanguageError(errors.New(raw))
+		if mapped == nil || mapped.Error() == raw {
+			t.Errorf("adminPlainLanguageError(%q) = %v, want a rewritten plain-language message", raw, mapped)
+		}
+	}
+	other := errors.New("some other admin store error")
+	if mapped := adminPlainLanguageError(other); mapped != other {
+		t.Errorf("adminPlainLanguageError must pass through unrecognized errors unchanged, got %v", mapped)
+	}
+	if adminPlainLanguageError(nil) != nil {
+		t.Error("adminPlainLanguageError(nil) must return nil")
+	}
+}
 
 // adminActionSection names every /admin/__actions/<name> handler's owning
 // section (gap-audit item 1). All 33 handlers in page.server.go's Actions

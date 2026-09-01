@@ -529,6 +529,107 @@ func TestAdminDraftOrderDrawIsOneShotAndRedrawIsExplicit(t *testing.T) {
 	}
 }
 
+// TestDrawOrderGatesOnDraftStartedNotOrderRandomized pins gap-audit item 3:
+// the primary "Draw order + schedule" control gated on
+// data.order_randomized == false (page.gsx:891), so on a league whose draft
+// had started but whose order was never drawn, the control stayed enabled
+// and answered the raw store error "reset the draft before changing the
+// order" on submit. draft_started is the real gate — DrawDraftOrder refuses
+// once picks can be on the clock, independent of order_randomized.
+func TestDrawOrderGatesOnDraftStartedNotOrderRandomized(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDrawOrderGatesOnDraftStartedFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_DRAW_ORDER_GATE_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("draw-order gate fixture: %v\n%s", err, output)
+	}
+}
+
+func TestDrawOrderGatesOnDraftStartedFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_DRAW_ORDER_GATE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	pool := adminTaskFixturePool(200)
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "demo" })
+	handler := adminTestHandler(t)
+
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	body := getRes.Body.String()
+
+	// Before the draft starts, order_randomized is false and the draw
+	// control must remain the primary, enabled button.
+	if !strings.Contains(body, "Draw order + schedule") {
+		t.Fatalf("draw-order control missing before draft start: %s", body)
+	}
+	if strings.Contains(body, "Draw order unavailable") {
+		t.Fatalf("draw-order control disabled before the draft has started: %s", body)
+	}
+
+	form := url.Values{"csrf_token": {adminCSRFToken(t, body)}, "confirm": {"START"}}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/draft-start", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("draft-start POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body = reloadRes.Body.String()
+
+	// The draft has started and order was never drawn (order_randomized is
+	// still false), so the pre-fix gate would still show the live button.
+	if strings.Contains(body, ">Draw order + schedule") {
+		t.Fatalf("draw-order control still enabled after the draft started: %s", body)
+	}
+	if !strings.Contains(body, "Draw order unavailable") {
+		t.Fatalf("draw-order control missing its disabled-with-reason state after the draft started: %s", body)
+	}
+	if strings.Contains(body, "reset the draft before changing the order") {
+		t.Fatal("admin page must never echo the raw store error")
+	}
+}
+
+// TestPlayoffPreviewGatesOnPlayoffsPhase pins gap-audit item 3: "Build
+// commissioner preview" rendered unconditionally, so a commissioner could
+// click it in PRESEASON and read back the raw store error "playoff preview
+// requires the playoffs phase". renderAdminPage always starts a fresh
+// league with no schedule, which SeasonPhase reports as preseason, so the
+// default render is enough to exercise the gate.
+func TestPlayoffPreviewGatesOnPlayoffsPhase(t *testing.T) {
+	body := renderAdminPage(t)
+	if strings.Contains(body, ">Build commissioner preview<") {
+		t.Fatalf("playoff preview control must not render enabled outside the playoffs phase: %s", body)
+	}
+	if !strings.Contains(body, "Preview unavailable") {
+		t.Fatalf("playoff preview control missing its disabled-with-reason state: %s", body)
+	}
+	if strings.Contains(body, "playoff preview requires the playoffs phase") {
+		t.Fatal("admin page must never echo the raw store error")
+	}
+}
+
 func TestAdminPageHasOnePageLevelIdentityWarning(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

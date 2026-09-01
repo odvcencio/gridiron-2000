@@ -680,10 +680,15 @@ func Page() Node {
 					</div>
 					<p class="scoring-note"><strong>STATUS:</strong> {data.playoff_truth.detail}</p>
 					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-					<form method="post" action={actionPath("playoff-preview")} data-gosx-managed="true" class="clock-controls">
-						<input type="hidden" name="csrf_token" value={csrf.token}></input>
-						<button class="button button--primary" type="submit">Build commissioner preview</button>
-					</form>
+					<If cond={data.playoff_truth.season_phase == "playoffs"}>
+						<form method="post" action={actionPath("playoff-preview")} data-gosx-managed="true" class="clock-controls">
+							<input type="hidden" name="csrf_token" value={csrf.token}></input>
+							<button class="button button--primary" type="submit">Build commissioner preview</button>
+						</form>
+					</If>
+					<If cond={data.playoff_truth.season_phase != "playoffs"}>
+						<button class="button button--primary" type="button" disabled="disabled">Preview unavailable - league is in {data.playoff_truth.season_phase_label}, not playoffs</button>
+					</If>
 					<If cond={data.playoff_truth.is_preview}>
 						<form method="post" action={actionPath("playoff-publish")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
@@ -888,33 +893,39 @@ func Page() Node {
 							</p>
 						</If>
 					</If>
-					<If cond={data.order_randomized == false}>
-						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
-							<input type="hidden" name="order_token" value=""></input>
-							<button class="button button--primary" type="submit">Draw order + schedule · queue reminders</button>
-						</form>
-						<p class="scoring-note">
-							One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then reports how many manager reminders were queued. Queued is not delivery.
-						</p>
+					<If cond={data.draft_started}>
+						<button class="button button--primary" type="button" disabled="disabled">Draw order unavailable - the draft has already started</button>
+						<p class="scoring-note">The order and schedule lock once the commissioner starts the draft. Reset the draft in 99 // DANGER ZONE to change them again.</p>
 					</If>
-					<If cond={data.order_randomized}>
-						<p class="demo-message">
-							<strong>FINAL ORDER PUBLISHED:</strong>
-							an ordinary second click cannot redraw it or queue the league again.
-						</p>
-						<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
-							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
-							<input type="hidden" name="order_token" value={data.draft_order_token}></input>
-							<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
-							<input id="draft-order-redraw-confirm" class="typed-confirm-input" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
-							<button class="button" type="submit">Redraw and queue replacement</button>
-						</form>
-						<p class="scoring-note">
-							Replacement draws run six passes, preserve the published schedule, and queue exactly one new notice. Queued is not delivery. Use only when the published draw must be replaced.
-						</p>
+					<If cond={data.draft_started == false}>
+						<If cond={data.order_randomized == false}>
+							<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
+								<input type="hidden" name="order_token" value=""></input>
+								<button class="button button--primary" type="submit">Draw order + schedule · queue reminders</button>
+							</form>
+							<p class="scoring-note">
+								One click runs six shuffle passes in memory, atomically publishes the final order and 14-week schedule, then reports how many manager reminders were queued. Queued is not delivery.
+							</p>
+						</If>
+						<If cond={data.order_randomized}>
+							<p class="demo-message">
+								<strong>FINAL ORDER PUBLISHED:</strong>
+								an ordinary second click cannot redraw it or queue the league again.
+							</p>
+							<form method="post" action={actionPath("order-randomize")} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
+								<input type="hidden" name="order_token" value={data.draft_order_token}></input>
+								<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
+								<input id="draft-order-redraw-confirm" class="typed-confirm-input" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
+								<button class="button" type="submit">Redraw and queue replacement</button>
+							</form>
+							<p class="scoring-note">
+								Replacement draws run six passes, preserve the published schedule, and queue exactly one new notice. Queued is not delivery. Use only when the published draw must be replaced.
+							</p>
+						</If>
 					</If>
 					<p class="scoring-note">Run this one hour before the draft. Locked once the commissioner starts the draft.</p>
 				</section>
