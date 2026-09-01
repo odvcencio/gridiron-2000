@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -76,6 +77,42 @@ func TestBuildAppServesLiveness(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/live = %d, want 200", response.StatusCode)
+	}
+}
+
+// TestBuildAppHealthReportsConfiguredState covers the design's slice-2
+// acceptance criterion "health reports the state truthfully": the
+// CONFIGURED app's own /api/health now names its state explicitly,
+// matching the SETUP and fail-closed apps' own health payloads.
+func TestBuildAppHealthReportsConfiguredState(t *testing.T) {
+	hermeticEnv(t)
+	cfg, err := AppConfigFromEnv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, rt, err := BuildApp(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if rt.StopNotify != nil {
+		defer rt.StopNotify()
+	}
+	rt.Start(ctx)
+	server := httptest.NewServer(app.Build())
+	defer server.Close()
+	response, err := http.Get(server.URL + "/api/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(response.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"state":"configured"`) {
+		t.Fatalf("health payload did not report state=configured:\n%s", body)
 	}
 }
 

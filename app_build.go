@@ -661,7 +661,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			// "file:<path>" once a league.json loads (productization spec
 			// section 4.3).
 			"leagueConfig": league.Default().Config().Source,
-			"time":         time.Now().UTC().Format(time.RFC3339),
+			// state names the boot state truthfully, matching the SETUP
+			// and fail-closed apps' own health payloads (setup_app.go,
+			// fail_closed_app.go) so a monitor reads one consistent field
+			// across every boot state instead of inferring CONFIGURED from
+			// the absence of a "state" key.
+			"state": "configured",
+			"time":  time.Now().UTC().Format(time.RFC3339),
 		}, nil
 	})
 	app.Mount("GET /api/live/week", liveWeekAPIHandler(requireLeagueAccess))
