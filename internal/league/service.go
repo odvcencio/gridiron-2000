@@ -3151,7 +3151,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"source":            live.Source,
 		"sourceLabel":       live.SourceLabel,
 		"week":              live.Week,
-		"weekLabel":         live.WeekLabel,
+		"weekLabel":         s.presentedWeekLabel(live),
 		"state":             live.State,
 		"status":            live.Status,
 		"warning":           live.Warning,
@@ -3986,6 +3986,24 @@ func matchupStaticPresentation(state string) map[string]string {
 	}
 }
 
+// presentedWeekLabel is the masthead's week/date phrase: MatchupsData's
+// "live.week_label" (initial render) and LiveScoresView's "weekLabel" (the
+// live poll bind) both read this key, so page.gsx's h1 shows the same text
+// before and after the runtime's first poll. feed.go's demoProvider embeds
+// cfg.SeasonStartAt straight into WeekLabel ("Week 1 · Sundays from January
+// 8"); before a commissioner sets a real date, SeasonStartAt still holds
+// the packaged example league's far-future placeholder (config.go's
+// 2099-01-08 sentinel), so the raw label would claim a season date had
+// already been published. DraftDatePublished already draws this exact
+// "implausibly far out or zero" line for the draft date; reusing it here
+// keeps "published" meaning one thing everywhere the app checks it.
+func (s *Service) presentedWeekLabel(live LiveSnapshot) string {
+	if live.State != MatchupStatePreseason || DraftDatePublished(s.clock(), s.cfg.SeasonStartAt) {
+		return live.WeekLabel
+	}
+	return fmt.Sprintf("Week %d · season start not published yet", live.Week)
+}
+
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	presentation := matchupPresentation(live.State)
 	if live.State == MatchupStatePreseason {
@@ -4001,7 +4019,7 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"source":              live.Source,
 		"source_label":        live.SourceLabel,
 		"week":                live.Week,
-		"week_label":          live.WeekLabel,
+		"week_label":          s.presentedWeekLabel(live),
 		"state":               live.State,
 		"status":              live.Status,
 		"live_state":          live.LiveState,

@@ -80,6 +80,48 @@ func TestMatchupsDataNoScheduleIsTruthful(t *testing.T) {
 	}
 }
 
+// TestMatchupsDataPreseasonWeekLabelHidesUnpublishedSeasonStart is the
+// gap-audit finding for the demo /matchups masthead: newTestService leaves
+// cfg.SeasonStartAt at DefaultConfig's packaged placeholder (config.go's
+// 2099-01-08 sentinel), so before this fix the preseason WeekLabel read
+// "Week 1 · Sundays from January 8" as if a commissioner had already
+// published a season date. The masthead must say so is not the case
+// instead of repeating the sentinel's date fragment.
+func TestMatchupsDataPreseasonWeekLabelHidesUnpublishedSeasonStart(t *testing.T) {
+	service := newTestService(t, false)
+	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
+
+	live := matchupLiveMap(t, data)
+	if live["state"] != MatchupStatePreseason {
+		t.Fatalf("live state = %v, want preseason", live["state"])
+	}
+	label, _ := live["week_label"].(string)
+	if strings.Contains(label, "January 8") || strings.Contains(label, "Sundays from") {
+		t.Fatalf("week_label = %q, leaked the unpublished sentinel date", label)
+	}
+	if !strings.Contains(label, "not published") {
+		t.Fatalf("week_label = %q, want an honest not-published label", label)
+	}
+}
+
+// TestLiveScoresViewPreseasonWeekLabelHidesUnpublishedSeasonStart covers the
+// live-poll bind (LiveScoresView's "weekLabel") the same way: matchups/
+// page.gsx's data-gosx-live-bind="weekLabel" re-reads this key on every
+// poll, so it must never re-introduce the sentinel date the initial render
+// already hid.
+func TestLiveScoresViewPreseasonWeekLabelHidesUnpublishedSeasonStart(t *testing.T) {
+	service := newTestService(t, false)
+	view := service.LiveScoresView(context.Background())
+
+	label, _ := view["weekLabel"].(string)
+	if strings.Contains(label, "January 8") || strings.Contains(label, "Sundays from") {
+		t.Fatalf("weekLabel = %q, leaked the unpublished sentinel date", label)
+	}
+	if !strings.Contains(label, "not published") {
+		t.Fatalf("weekLabel = %q, want an honest not-published label", label)
+	}
+}
+
 func TestMatchupsDataCurrentWeekKeepsLiveStateAndNavigation(t *testing.T) {
 	service, _ := matchupDataFixture(t)
 	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups"))
