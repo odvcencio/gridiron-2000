@@ -110,6 +110,27 @@ func TestPlayoffLedgerAdvancementUsesFinalCompleteWeeksAndCompletesPhase(t *test
 	}
 }
 
+// TestPlayoffLedgerAdvancementRecordsCommissionerEvent checks the wave-2
+// commissioner-console audit trail is wired at the actually-production
+// advance seam (AdminAdvancePlayoffsFromLedger, the one admin.go calls —
+// not the unwired legacy AdminAdvancePlayoffs).
+func TestPlayoffLedgerAdvancementRecordsCommissionerEvent(t *testing.T) {
+	svc, _, now := playoffLedgerFixture(t, 2)
+	stats := map[int][]WeekStatLine{
+		15: {{Key: normalizePlayerKey("Home QB", "QB"), Stats: map[string]float64{"passTD": 1}}, {Key: normalizePlayerKey("Away QB", "QB"), Stats: map[string]float64{"passTD": 2}}},
+		16: {{Key: normalizePlayerKey("Home QB", "QB"), Stats: map[string]float64{"passTD": 3}}, {Key: normalizePlayerKey("Away QB", "QB"), Stats: map[string]float64{"passTD": 1}}},
+	}
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return stats[week] })
+	request := httptest.NewRequest("POST", "/__actions/playoff-advance", nil)
+	if _, err := svc.AdminAdvancePlayoffsFromLedger(request, now); err != nil {
+		t.Fatal(err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "playoff.advance" || events[0].ActorEmail == "" || events[0].ActorName == "" {
+		t.Fatalf("commissioner events = %+v, want one playoff.advance row with actor identity", events)
+	}
+}
+
 func TestPlayoffLedgerRejectsPartialOrUnavailableWithoutMutation(t *testing.T) {
 	for _, test := range []struct {
 		name        string

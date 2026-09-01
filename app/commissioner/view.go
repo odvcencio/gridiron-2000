@@ -305,7 +305,7 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 			"seat": seat.Seat, "claimed": seat.Claimed, "ready": seat.Ready,
 		})
 	}
-	card.OpenData = openDataRows(summary.OpenData, location)
+	card.OpenData = openDataRows(summary.OpenData, now, location)
 	for _, item := range summary.Attention {
 		section := attentionSection(item)
 		attention := attentionView{
@@ -374,6 +374,14 @@ func (view fleetPageView) toData() map[string]any {
 		"drafts_live": view.DraftsLive, "attention_count": view.AttentionCount,
 		"critical_count": view.CriticalCount, "warning_count": view.WarningCount,
 		"generated_at": displayTime(view.Location, view.GeneratedAt), "generated_at_iso": isoTime(view.GeneratedAt),
+		// generated_at_relative is computed against the same generatedAt
+		// instant buildFleetView stamped the whole readout with — this
+		// snapshot's own generation time, not a later "now" read here — so
+		// the label stays "just now" at the moment the page renders, and
+		// the fragment's own 15s poll interval is what carries it forward
+		// as the browser re-fetches (2026-09-01 audit finding 2: GENERATED
+		// carried no relative marker at all).
+		"generated_at_relative": relativeText(view.GeneratedAt, view.GeneratedAt),
 	}
 }
 
@@ -432,15 +440,40 @@ func (card fleetCardView) toMap() map[string]any {
 	}
 }
 
-func openDataRows(data commissionerhq.OpenData, location *time.Location) []map[string]any {
-	return []map[string]any{
-		{"label": "SCHEDULES", "state": dataStateLabel(data.Schedules.State), "updated": displayTime(location, data.Schedules.LastUpdated)},
-		{"label": "PLAYER STATS", "state": dataStateLabel(data.PlayerStats.State), "updated": displayTime(location, data.PlayerStats.LastUpdated)},
-		{"label": "PREVIOUS STATS", "state": dataStateLabel(data.PlayerStatsPrev.State), "updated": displayTime(location, data.PlayerStatsPrev.LastUpdated)},
-		{"label": "INJURIES", "state": dataStateLabel(data.Injuries.State), "updated": displayTime(location, data.Injuries.LastUpdated)},
-		{"label": "TEAM STATS", "state": dataStateLabel(data.TeamStats.State), "updated": displayTime(location, data.TeamStats.LastUpdated)},
-		{"label": "PLAY-BY-PLAY", "state": dataStateLabel(data.PlayByPlay.State), "updated": displayTime(location, data.PlayByPlay.LastUpdated)},
+// openDataRows renders the NFL DATA list's six dataset rows. Each row
+// carries both an absolute, league-local "updated" label and — when
+// LastUpdated is a real instant — the RFC3339 value the template's
+// <time datetime=…> element needs plus a relative label ("checked 3
+// hours ago"). A never-synced dataset's LastUpdated stays the zero value,
+// so has_updated is false and the template renders the plain "—" text
+// instead of a <time> element with no real instant (2026-09-01 audit
+// finding 2: SCHEDULES READY / PREVIOUS STATS READY carried an absolute
+// stamp with no relative marker at all, and one row emitted a literal
+// datetime="" attribute).
+func openDataRows(data commissionerhq.OpenData, now time.Time, location *time.Location) []map[string]any {
+	rows := []struct {
+		label  string
+		status commissionerhq.DatasetStatus
+	}{
+		{"SCHEDULES", data.Schedules},
+		{"PLAYER STATS", data.PlayerStats},
+		{"PREVIOUS STATS", data.PlayerStatsPrev},
+		{"INJURIES", data.Injuries},
+		{"TEAM STATS", data.TeamStats},
+		{"PLAY-BY-PLAY", data.PlayByPlay},
 	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, map[string]any{
+			"label":            row.label,
+			"state":            dataStateLabel(row.status.State),
+			"updated":          displayTime(location, row.status.LastUpdated),
+			"updated_iso":      isoTime(row.status.LastUpdated),
+			"updated_relative": relativeText(now, row.status.LastUpdated),
+			"has_updated":      !row.status.LastUpdated.IsZero(),
+		})
+	}
+	return out
 }
 
 func attentionSection(item commissionerhq.Attention) string {

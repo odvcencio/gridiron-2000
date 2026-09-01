@@ -101,6 +101,13 @@ func TestCommissionerDraftDateGuardsSentinelAndAddsRelativeText(t *testing.T) {
 	if strings.Contains(unpublishedHTML, "2099") {
 		t.Fatalf("rendered draft control panel leaked the sentinel year: %s", unpublishedHTML)
 	}
+	// 2026-09-01 audit finding 2: an unpublished draft date rendered
+	// <time datetime="">Not published yet</time> — an empty datetime
+	// attribute is worse than none; the guard text must render with no
+	// <time> element (or no datetime attribute) at all.
+	if strings.Contains(unpublishedHTML, `datetime="">Not published yet`) {
+		t.Fatalf("rendered draft control panel emitted an empty datetime attribute: %s", unpublishedHTML)
+	}
 
 	publishedHTML, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
 		Values: map[string]any{"props": readoutFromView(fleetPageView{Location: time.UTC, Cards: []fleetCardView{published}}, true, true)},
@@ -110,6 +117,108 @@ func TestCommissionerDraftDateGuardsSentinelAndAddsRelativeText(t *testing.T) {
 	}
 	if !strings.Contains(publishedHTML, "(3 hours ago)") {
 		t.Fatalf("rendered draft control panel omitted the relative-time label: %s", publishedHTML)
+	}
+	if !strings.Contains(publishedHTML, `datetime="`+published.DraftAtISO+`"`) {
+		t.Fatalf("rendered draft control panel omitted a real datetime attribute for a published draft date: %s", publishedHTML)
+	}
+}
+
+// TestOpenDataRowsCarryRelativeTimeAndOmitEmptyDatetime is the wave-2
+// audit fix (finding 2): the NFL DATA list's SCHEDULES/PLAYER STATS/etc.
+// rows rendered an absolute stamp with no relative marker at all, with no
+// <time> element to carry a datetime attribute. A dataset that has never
+// synced (zero LastUpdated) must not get a fabricated instant either.
+func TestOpenDataRowsCarryRelativeTimeAndOmitEmptyDatetime(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 20, 0, 0, 0, time.UTC)
+	updated := now.Add(-3 * time.Hour)
+	data := commissionerhq.OpenData{
+		Schedules:   commissionerhq.DatasetStatus{State: "ready", LastUpdated: updated},
+		PlayerStats: commissionerhq.DatasetStatus{State: "ready"}, // never synced: zero LastUpdated
+	}
+	rows := openDataRows(data, now, time.UTC)
+	if len(rows) != 6 {
+		t.Fatalf("len(rows) = %d, want 6", len(rows))
+	}
+	schedules := rows[0]
+	if schedules["has_updated"] != true || schedules["updated_relative"] != "3 hours ago" || schedules["updated_iso"] != "2026-09-01T17:00:00Z" {
+		t.Fatalf("schedules row = %+v", schedules)
+	}
+	playerStats := rows[1]
+	if playerStats["has_updated"] != false || playerStats["updated_relative"] != "" || playerStats["updated_iso"] != "" || playerStats["updated"] != "—" {
+		t.Fatalf("never-synced player stats row = %+v, want an honest empty/em-dash state", playerStats)
+	}
+
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := cardView(commissionerhq.FleetEntry{
+		PeerID: "g2k", PublicURL: "https://gridiron.example",
+		Summary: commissionerhq.Summary{Instance: commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example"}, OpenData: data},
+	}, now, time.UTC, false)
+	html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": readoutFromView(fleetPageView{Location: time.UTC, Cards: []fleetCardView{card}}, true, true)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, `datetime="2026-09-01T17:00:00Z"`) {
+		t.Fatalf("rendered NFL DATA list omitted a real datetime attribute for a synced dataset: %s", html)
+	}
+	if !strings.Contains(html, "(3 hours ago)") {
+		t.Fatalf("rendered NFL DATA list omitted the relative-time label: %s", html)
+	}
+	if strings.Contains(html, `datetime="">`) {
+		t.Fatalf("rendered NFL DATA list emitted an empty datetime attribute: %s", html)
+	}
+}
+
+// TestFleetReadoutGeneratedAtCarriesRelativeMarker is the wave-2 audit
+// fix (finding 2): the masthead's GENERATED stamp rendered no relative
+// marker at all.
+func TestFleetReadoutGeneratedAtCarriesRelativeMarker(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 20, 0, 0, 0, time.UTC)
+	view := buildFleetView(nil, now, time.UTC)
+	data := view.toData()
+	if data["generated_at_relative"] != "just now" {
+		t.Fatalf("generated_at_relative = %v, want %q", data["generated_at_relative"], "just now")
+	}
+	readout := readoutFromView(view, true, true)
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": readout},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(html, "GENERATED") || !strings.Contains(html, "just now") {
+		t.Fatalf("rendered masthead omitted the GENERATED relative marker: %s", html)
+	}
+}
+
+// TestEmptyFleetReadoutMastheadNeverEmitsEmptyDatetime is the wave-2 audit
+// fix (finding 2): emptyFleetReadout's GeneratedAt stub ("—") carries no
+// real instant, so GeneratedAtISO stays empty — the masthead must not
+// render <time datetime="">GENERATED —</time> for that stub state.
+func TestEmptyFleetReadoutMastheadNeverEmitsEmptyDatetime(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": emptyFleetReadout(true, false)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, `datetime="">`) {
+		t.Fatalf("empty fleet readout emitted an empty datetime attribute: %s", html)
+	}
+	if !strings.Contains(html, "GENERATED —") {
+		t.Fatalf("empty fleet readout dropped the GENERATED stub text: %s", html)
 	}
 }
 

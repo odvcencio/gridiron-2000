@@ -4664,23 +4664,36 @@ func (s *Service) zoneOccupantRows(players []Player, scoringValues map[string]fl
 	return rows
 }
 
-// activityMaps merges Picks and Transactions into one time-sorted feed,
-// newest first (roster-ops spec section 7.2: "the feed composes at read
-// time" — this replaces the former transactionMaps() stub). limit caps
-// the returned row count; zero means unlimited. Draft-pick lines resolve
-// the player's live pool identity at read time; transaction lines render
-// the TransactionPlayer identity snapshotted at commit time (section
-// 7.1), so both survive pool churn. DashboardData calls this with limit 5
-// for its panel; ActivityData (the /activity page) calls it with 0.
+// activityActorClassCommissioner marks a feed row as a commissioner-actor
+// event ("kind") rather than an ordinary team roster move — /activity's
+// template uses this to render the "COMMISSIONER · <name> <summary>"
+// actor-class row instead of the usual team/action/player row (wave-2
+// commissioner console: commissioner actions had no durable record and no
+// distinct feed presence).
+const activityActorClassCommissioner = "commissioner"
+
+// activityMaps merges Picks, Transactions, and CommissionerEvents into one
+// time-sorted feed, newest first (roster-ops spec section 7.2: "the feed
+// composes at read time" — this replaces the former transactionMaps()
+// stub; CommissionerEvents joined in for the wave-2 commissioner-console
+// audit trail). limit caps the returned row count; zero means unlimited.
+// Draft-pick lines resolve the player's live pool identity at read time;
+// transaction lines render the TransactionPlayer identity snapshotted at
+// commit time (section 7.1), so both survive pool churn. DashboardData
+// calls this with limit 5 for its panel; ActivityData (the /activity
+// page) calls it with 0.
 func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any {
 	pool := s.pool()
 	type entry struct {
-		at      time.Time
-		teamIDs []string
-		action  string
-		player  string
+		at         time.Time
+		teamIDs    []string
+		action     string
+		player     string
+		kind       string // "" for an ordinary team move, activityActorClassCommissioner for a commissioner event
+		actorName  string
+		actorEmail string
 	}
-	entries := make([]entry, 0, len(state.Picks)+len(state.Transactions))
+	entries := make([]entry, 0, len(state.Picks)+len(state.Transactions)+len(state.CommissionerEvents))
 	for _, pick := range state.Picks {
 		label := pick.PlayerID
 		if player, ok := pool.byID[pick.PlayerID]; ok {
@@ -4692,35 +4705,82 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		action, player := activityLine(txn)
 		entries = append(entries, entry{at: txn.At, teamIDs: activityTeamIDs(txn), action: action, player: player})
 	}
+	for _, event := range state.CommissionerEvents {
+		teamIDs := []string{}
+		if event.Refs.TeamID != "" {
+			teamIDs = []string{event.Refs.TeamID}
+		}
+		player := ""
+		if event.Refs.PlayerID != "" {
+			player = event.Refs.PlayerID
+			if p, ok := pool.byID[event.Refs.PlayerID]; ok {
+				player = fmt.Sprintf("%s (%s)", p.Name, p.Position)
+			}
+		}
+		entries = append(entries, entry{
+			at: event.At, teamIDs: teamIDs, action: event.Summary, player: player,
+			kind: activityActorClassCommissioner, actorName: event.ActorName, actorEmail: event.ActorEmail,
+		})
+	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].at.After(entries[j].at) })
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
 	location := s.matchupLocation()
+	now := s.clock()
 	out := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
 		teamDisplay, teamAbbreviations, teamNames := s.activityTeamDisplay(state, e.teamIDs)
 		teamSearch := append(append([]string{}, teamAbbreviations...), teamNames...)
 		teamSearch = append(teamSearch, e.teamIDs...)
+		if e.kind == activityActorClassCommissioner {
+			// A commissioner event is attributed to the PERSON, not a team
+			// or seat code (wave-2 audit): the "team" column — the row's
+			// leading label — becomes the actor's own display name, with
+			// "actor_class" carrying the distinct "COMMISSIONER" marker the
+			// template renders ahead of it.
+			teamDisplay = e.actorName
+			teamSearch = append(teamSearch, "commissioner", e.actorName, e.actorEmail)
+		}
 		out = append(out, map[string]any{
-			"time":        e.at.In(location).Format("Jan 2, 3:04 PM MST"),
-			"timezone":    FriendlyTimezoneLabel(location.String()),
-			"team":        teamDisplay,
-			"teams":       teamAbbreviations,
-			"team_names":  teamNames,
-			"team_ids":    e.teamIDs,
-			"team_search": strings.Join(teamSearch, " "),
-			"action":      e.action,
-			"player":      e.player,
+			"time":                  e.at.In(location).Format("Jan 2, 3:04 PM MST"),
+			"time_iso":              formatClockInstant(e.at),
+			"time_relative":         relativeTime(now, e.at),
+			"timezone":              FriendlyTimezoneLabel(location.String()),
+			"team":                  teamDisplay,
+			"teams":                 teamAbbreviations,
+			"team_names":            teamNames,
+			"team_ids":              e.teamIDs,
+			"team_search":           strings.Join(teamSearch, " "),
+			"action":                e.action,
+			"player":                e.player,
+			"kind":                  e.kind,
+			"actor_class":           activityActorClassLabel(e.kind),
+			"actor_name":            e.actorName,
+			"is_commissioner_event": e.kind == activityActorClassCommissioner,
 		})
 	}
 	return out
 }
 
+// activityActorClassLabel renders one feed row's actor-class marker. Every
+// ordinary team roster move renders "" (the template shows no marker, the
+// existing "TEAM ↔ TEAM" row); a commissioner event renders "COMMISSIONER".
+func activityActorClassLabel(kind string) string {
+	if kind == activityActorClassCommissioner {
+		return "COMMISSIONER"
+	}
+	return ""
+}
+
 // activityTeamDisplay returns the parties represented by one feed entry.
 // Draft picks and ordinary roster moves pass one team ID; a trade passes both
 // sides so the one activity row remains truthful without duplicating the
-// transaction in the feed.
+// transaction in the feed. The composed label carries the team NAME with its
+// code as a parenthetical secondary label ("Eastside Elite (E1)"), never the
+// code alone (2026-09-01 audit: the feed read "E1 signs Tre Harris" with no
+// team name anywhere on the row, even though this function already returned
+// the name in its own third value — the template just never rendered it).
 func (s *Service) activityTeamDisplay(state PersistedState, teamIDs []string) (string, []string, []string) {
 	labels := make([]string, 0, len(teamIDs))
 	abbreviations := make([]string, 0, len(teamIDs))
@@ -4735,9 +4795,16 @@ func (s *Service) activityTeamDisplay(state PersistedState, teamIDs []string) (s
 		}
 		seen[teamID] = struct{}{}
 		team := s.teamView(state, teamID)
-		label := team.Abbreviation
-		if label == "" {
-			label = teamID
+		abbreviation := team.Abbreviation
+		if abbreviation == "" {
+			abbreviation = teamID
+		}
+		label := team.Name
+		switch {
+		case team.Name != "" && team.Abbreviation != "":
+			label = team.Name + " (" + team.Abbreviation + ")"
+		case team.Name == "":
+			label = abbreviation
 		}
 		labels = append(labels, label)
 		if team.Abbreviation != "" {

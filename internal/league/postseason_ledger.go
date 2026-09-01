@@ -2,6 +2,7 @@ package league
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -139,5 +140,8 @@ func (s *Service) AdminAdvancePlayoffsFromLedger(r *http.Request, at time.Time) 
 		return PlayoffState{}, err
 	}
 	s.notifyPlayoffUpdate(s.store.Snapshot(), advanced, "advanced", at)
+	if _, err := s.RecordCommissionerEvent(r, "playoff.advance", "advanced the playoff bracket", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: playoff.advance: %v", err)
+	}
 	return advanced, nil
 }

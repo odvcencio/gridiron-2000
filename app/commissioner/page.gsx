@@ -6,14 +6,16 @@ type FleetReadoutProps struct {
 	Cards             []map[string]any
 	AttentionQueue    []map[string]any
 	LeagueCount       int
+	LeagueWord        string
 	ClaimedSeats      int
 	TotalSeats        int
 	DraftsLive        int
 	AttentionCount    int
 	CriticalCount     int
 	WarningCount      int
-	GeneratedAt       string
-	GeneratedAtISO    string
+	GeneratedAt         string
+	GeneratedAtISO      string
+	GeneratedAtRelative string
 }
 
 func FleetReadout(props FleetReadoutProps) Node {
@@ -24,19 +26,26 @@ func FleetReadout(props FleetReadoutProps) Node {
 				<h1>EVERY LEAGUE.<br></br>ONE READOUT.</h1>
 				<p>One page for every league. Each league keeps its own record.<br></br>Every action stays on its owning league.</p>
 			</div>
-			<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">
-				<span>Fleet status</span>
-				<strong class="mono">{props.LeagueCount} LEAGUES</strong>
-				<div class="draft-clock-meta">
-					<span>{props.ClaimedSeats} / {props.TotalSeats} SEATS CLAIMED</span>
-					<span>{props.DraftsLive} DRAFTS LIVE</span>
+			<If cond={props.IsCommissioner}>
+				<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">
+					<span>Fleet status</span>
+					<strong class="mono">{props.LeagueCount} {props.LeagueWord}</strong>
+					<div class="draft-clock-meta">
+						<span>{props.ClaimedSeats} / {props.TotalSeats} SEATS CLAIMED</span>
+						<span>{props.DraftsLive} DRAFTS LIVE</span>
+					</div>
+					<div class="commissioner-hq__severity mono">
+						<span>{props.CriticalCount} CRITICAL</span>
+						<span>{props.WarningCount} WARNING</span>
+					</div>
+					<If cond={props.GeneratedAtISO != ""}>
+						<time class="commissioner-hq__generated mono" datetime={props.GeneratedAtISO}>GENERATED {props.GeneratedAt}<If cond={props.GeneratedAtRelative != ""}> · {props.GeneratedAtRelative}</If></time>
+					</If>
+					<If cond={props.GeneratedAtISO == ""}>
+						<span class="commissioner-hq__generated mono">GENERATED {props.GeneratedAt}</span>
+					</If>
 				</div>
-				<div class="commissioner-hq__severity mono">
-					<span>{props.CriticalCount} CRITICAL</span>
-					<span>{props.WarningCount} WARNING</span>
-				</div>
-				<time class="commissioner-hq__generated mono" datetime={props.GeneratedAtISO}>GENERATED {props.GeneratedAt}</time>
-			</div>
+			</If>
 		</section>
 		<If cond={props.IsCommissioner == false}>
 			<section class="player-pool"><div class="empty-tape">
@@ -47,7 +56,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 		</If>
 		<If cond={props.IsCommissioner}>
 			<p class="commissioner-hq__refresh-status mono" role="status" aria-live="polite" aria-atomic="true">
-				LEAGUE REPORT · {props.LeagueCount} LEAGUES · GENERATED {props.GeneratedAt}
+				LEAGUE REPORT · {props.LeagueCount} {props.LeagueWord} · GENERATED {props.GeneratedAt}<If cond={props.GeneratedAtRelative != ""}> · {props.GeneratedAtRelative}</If>
 			</p>
 			<If cond={props.FederationEnabled == false}>
 				<p class="demo-message"><strong>LOCAL-ONLY:</strong> this league is independent until commissioner peers are configured. This league stands alone until the commissioner adds another league.</p>
@@ -129,7 +138,11 @@ func FleetReadout(props FleetReadoutProps) Node {
 									<h3>DRAFT CONTROL</h3>
 									<p><strong>{card.draft_status}</strong> · <If cond={card.draft_started}>STARTED</If><If cond={card.draft_started == false}>NOT STARTED</If></p>
 									<p>{card.draft_start_copy}</p>
-									<p class="mono"><time datetime={card.draft_at_iso}>{card.draft_at}</time><If cond={card.draft_at_relative != ""}> ({card.draft_at_relative})</If> · {card.draft_order} · {card.clock_text}</p>
+									<p class="mono">
+									<If cond={card.draft_at_iso != ""}><time datetime={card.draft_at_iso}>{card.draft_at}</time></If>
+									<If cond={card.draft_at_iso == ""}>{card.draft_at}</If>
+									<If cond={card.draft_at_relative != ""}> ({card.draft_at_relative})</If> · {card.draft_order} · {card.clock_text}
+								</p>
 								</section>
 								<section class="commissioner-hq__detail">
 									<h3>SCHEDULE / WEEK CLOSE</h3>
@@ -148,7 +161,16 @@ func FleetReadout(props FleetReadoutProps) Node {
 								<section class="commissioner-hq__detail">
 									<h3>NFL DATA</h3>
 									<ul class="commissioner-hq__data-list">
-										<Each of={card.open_data} as="row"><li><strong>{row.label}</strong><span class="mono">{row.state} · {row.updated}</span></li></Each>
+										<Each of={card.open_data} as="row">
+											<li>
+												<strong>{row.label}</strong>
+												<span class="mono">
+													{row.state} ·
+													<If cond={row.has_updated}><time datetime={row.updated_iso}>{row.updated}</time><If cond={row.updated_relative != ""}> ({row.updated_relative})</If></If>
+													<If cond={row.has_updated == false}>{row.updated}</If>
+												</span>
+											</li>
+										</Each>
 									</ul>
 								</section>
 								<section class="commissioner-hq__detail">

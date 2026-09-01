@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gridiron-2000/internal/commissionerhq"
+	"m31labs.dev/gosx/route"
 )
 
 func TestCommissionerSSRIsRichReadOnlyAndPIIFree(t *testing.T) {
@@ -112,6 +113,74 @@ func TestNonCommissionerSSRDoesNotFetchFleet(t *testing.T) {
 	readout, ok := data["fleet"].(fleetReadoutProps)
 	if !ok || readout.IsCommissioner || readout.LeagueCount != 0 {
 		t.Fatalf("noncommissioner fleet readout = %#v", data["fleet"])
+	}
+}
+
+// TestNonCommissionerFleetReadoutHidesZeroedDashboard checks the wave-2
+// fix for a 2026-09-01 audit finding: a non-commissioner viewer saw the
+// zeroed masthead stats ("0 LEAGUES / 0 CRITICAL / GENERATED —") render
+// above the RESTRICTED notice. Those stats never apply to a viewer who
+// cannot see fleet data at all, so they must not render for one.
+func TestNonCommissionerFleetReadoutHidesZeroedDashboard(t *testing.T) {
+	program, err := route.LoadFileProgramHere("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readout := emptyFleetReadout(false, false)
+	html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": readout},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"0 LEAGUES", "0 CRITICAL", "GENERATED —", "commissioner-hq__fleet-total"} {
+		if strings.Contains(html, forbidden) {
+			t.Errorf("non-commissioner readout still rendered the zeroed fleet dashboard %q:\n%s", forbidden, html)
+		}
+	}
+	if !strings.Contains(html, "RESTRICTED") {
+		t.Fatalf("non-commissioner readout is missing the RESTRICTED notice:\n%s", html)
+	}
+
+	// A commissioner viewer still sees the fleet-total panel.
+	commissionerReadout := readoutFromView(buildFleetView(nil, time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC), time.UTC), true, true)
+	commissionerHTML, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": commissionerReadout},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(commissionerHTML, "Fleet status") || !strings.Contains(commissionerHTML, "0 LEAGUE") {
+		t.Fatalf("commissioner readout is missing the fleet-total panel:\n%s", commissionerHTML)
+	}
+}
+
+// TestFleetReadoutPluralizesLeagueCount checks the wave-2 plural fix: a
+// one-league fleet reads "1 LEAGUE," not "1 LEAGUES."
+func TestFleetReadoutPluralizesLeagueCount(t *testing.T) {
+	program, err := route.LoadFileProgramHere("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []commissionerhq.FleetEntry{{
+		PeerID: "g2k", PublicURL: "https://gridiron.example",
+		Summary: commissionerhq.Summary{
+			Instance: commissionerhq.Instance{Name: "GRIDIRON 2000", PublicURL: "https://gridiron.example"},
+		},
+	}}
+	view := buildFleetView(entries, time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC), time.UTC)
+	readout := readoutFromView(view, true, true)
+	if readout.LeagueCount != 1 || readout.LeagueWord != "LEAGUE" {
+		t.Fatalf("one-league readout = count %d word %q, want 1 LEAGUE", readout.LeagueCount, readout.LeagueWord)
+	}
+	html, err := route.RenderProgramComponent(program, "FleetReadout", route.ProgramRenderEnv{
+		Values: map[string]any{"props": readout},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(html, "1 LEAGUES") {
+		t.Fatalf("one-league readout rendered the plural %q, want the singular \"1 LEAGUE\":\n%s", "1 LEAGUES", html)
 	}
 }
 

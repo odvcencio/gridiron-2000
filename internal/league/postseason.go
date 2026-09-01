@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"reflect"
@@ -747,6 +748,9 @@ func (s *Service) AdminPreviewPlayoffs(r *http.Request, at time.Time) (PlayoffSt
 	if truth == nil {
 		return PlayoffState{}, fmt.Errorf("playoff preview was not persisted")
 	}
+	if _, err := s.RecordCommissionerEvent(r, "playoff.preview", "previewed the playoff bracket", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: playoff.preview: %v", err)
+	}
 	return *truth, nil
 }
 
@@ -759,6 +763,9 @@ func (s *Service) AdminPublishPlayoffs(r *http.Request, previewID, confirmation 
 		return PlayoffState{}, err
 	}
 	s.notifyPlayoffUpdate(s.store.Snapshot(), published, "published", at)
+	if _, err := s.RecordCommissionerEvent(r, "playoff.publish", "published the playoff bracket", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: playoff.publish: %v", err)
+	}
 	return published, nil
 }
 
@@ -771,6 +778,9 @@ func (s *Service) AdminAdvancePlayoffs(r *http.Request, results []PlayoffRoundRe
 		return PlayoffState{}, err
 	}
 	s.notifyPlayoffUpdate(s.store.Snapshot(), advanced, "advanced", s.clock())
+	if _, err := s.RecordCommissionerEvent(r, "playoff.advance", "advanced the playoff bracket", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: playoff.advance: %v", err)
+	}
 	return advanced, nil
 }
 
@@ -784,5 +794,8 @@ func (s *Service) AdminCorrectPlayoff(r *http.Request, correction PlayoffCorrect
 		return PlayoffState{}, err
 	}
 	s.notifyPlayoffUpdate(s.store.Snapshot(), corrected, "corrected", correction.At)
+	if _, err := s.RecordCommissionerEvent(r, "playoff.correct", "corrected the playoff bracket", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: playoff.correct: %v", err)
+	}
 	return corrected, nil
 }

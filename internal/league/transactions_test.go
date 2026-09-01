@@ -226,8 +226,8 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 		t.Fatalf("counterparty team filter rows = %+v, want one trade row", rows)
 	}
 	row := rows[0]
-	if row["team"] != "ALP ↔ BET" {
-		t.Fatalf("trade team display = %v, want both abbreviations", row["team"])
+	if row["team"] != "Alpha Aces (ALP) ↔ Beta Bears (BET)" {
+		t.Fatalf("trade team display = %v, want the team NAME with its code as a secondary label", row["team"])
 	}
 	teams, _ := row["teams"].([]string)
 	if len(teams) != 2 || teams[0] != "ALP" || teams[1] != "BET" {
@@ -284,6 +284,96 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 	}
 	if tradeRows != 1 {
 		t.Fatalf("trade rows = %d, want exactly one row", tradeRows)
+	}
+}
+
+// TestActivityMapsCarriesRFC3339InstantForEveryRow checks the wave-2 audit
+// fix (finding 1): every /activity row — an ordinary team move and a
+// commissioner event alike — must carry a real RFC3339 "time_iso" value
+// for the template's <time datetime=…> element; a page audit found every
+// row's <time> with no datetime attribute at all.
+func TestActivityMapsCarriesRFC3339InstantForEveryRow(t *testing.T) {
+	svc := newTestService(t, true)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	state := PersistedState{
+		Transactions: []Transaction{
+			{ID: "txn-1", Type: "add", TeamID: "team-2", Adds: []TransactionPlayer{{Name: "FA One", Position: "RB"}}, At: base},
+		},
+		CommissionerEvents: []CommissionerEvent{
+			{ID: "ce-1", ActorEmail: "alex@example.com", ActorName: "Alex", Kind: "announcement.post", Summary: "posted an announcement", At: base.Add(time.Hour)},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+	for _, row := range rows {
+		iso, _ := row["time_iso"].(string)
+		if iso == "" {
+			t.Fatalf("row %+v has no time_iso value", row)
+		}
+		if _, err := time.Parse(time.RFC3339, iso); err != nil {
+			t.Fatalf("time_iso %q does not parse as RFC3339: %v", iso, err)
+		}
+	}
+	if rows[0]["time_iso"] != "2026-09-01T13:00:00Z" {
+		t.Fatalf("commissioner row time_iso = %v, want %q", rows[0]["time_iso"], "2026-09-01T13:00:00Z")
+	}
+	if rows[1]["time_iso"] != "2026-09-01T12:00:00Z" {
+		t.Fatalf("team-move row time_iso = %v, want %q", rows[1]["time_iso"], "2026-09-01T12:00:00Z")
+	}
+}
+
+// TestActivityMapsRendersCommissionerEventAsDistinctActorClass checks the
+// wave-2 commissioner-console audit trail: a CommissionerEvent joins the
+// merged feed (newest-first, alongside ordinary team moves), attributed to
+// the acting PERSON — not a seat code — with a distinct "COMMISSIONER"
+// actor class, a plain-language summary, and both an exact league-local
+// time and a relative label.
+func TestActivityMapsRendersCommissionerEventAsDistinctActorClass(t *testing.T) {
+	svc := newTestService(t, true)
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return base.Add(2 * time.Hour) }
+	state := PersistedState{
+		Transactions: []Transaction{
+			{ID: "txn-1", Type: "add", TeamID: "team-2", Adds: []TransactionPlayer{{Name: "FA One", Position: "RB"}}, At: base},
+		},
+		CommissionerEvents: []CommissionerEvent{
+			{
+				ID: "ce-1", ActorEmail: "alex@example.com", ActorName: "Alex",
+				Kind: "announcement.post", Summary: "posted an announcement",
+				At: base.Add(time.Hour),
+			},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 2 {
+		t.Fatalf("len(rows) = %d, want 2", len(rows))
+	}
+	// Newest first: the commissioner event (base+1h) precedes the
+	// transaction (base).
+	row := rows[0]
+	if row["kind"] != activityActorClassCommissioner || row["actor_class"] != "COMMISSIONER" {
+		t.Fatalf("commissioner row kind/actor_class = %v/%v", row["kind"], row["actor_class"])
+	}
+	if row["team"] != "Alex" || row["actor_name"] != "Alex" {
+		t.Fatalf("commissioner row is attributed to %v, want the person's own name", row["team"])
+	}
+	if row["action"] != "posted an announcement" {
+		t.Fatalf("commissioner row action = %v", row["action"])
+	}
+	if row["is_commissioner_event"] != true {
+		t.Fatalf("is_commissioner_event = %v, want true", row["is_commissioner_event"])
+	}
+	if row["time_relative"] != "1 hour ago" {
+		t.Fatalf("commissioner row time_relative = %v, want %q", row["time_relative"], "1 hour ago")
+	}
+
+	// The ordinary team-move row is unchanged: no actor class, still a
+	// team-abbreviation row.
+	moveRow := rows[1]
+	if moveRow["kind"] != "" || moveRow["actor_class"] != "" || moveRow["is_commissioner_event"] != false {
+		t.Fatalf("ordinary move row leaked a commissioner actor class: %+v", moveRow)
 	}
 }
 

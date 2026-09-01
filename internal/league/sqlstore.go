@@ -72,6 +72,7 @@ var dbMigrations = []func(*sql.Tx) error{
 	migrate009LockerPosts,
 	migrate010SetupState,
 	migrate011SetupDraftAndInviteLinks,
+	migrate012CommissionerEvents,
 }
 
 // sqlitePersistVerify turns on the read-back check inside persistLocked:
@@ -414,6 +415,24 @@ func migrate011SetupDraftAndInviteLinks(tx *sql.Tx) error {
 	return nil
 }
 
+// migrate012CommissionerEvents adds the wave-2 commissioner-console audit
+// table (CommissionerEvent, model.go): the append-only, person-attributed
+// record of every commissioner-only action. It follows locker_posts'
+// shape (migrate009LockerPosts) — one flat table, ord-keyed, in the
+// PersistedState collection/shadow-diff system — and, like that table,
+// lifts the logical schema marker in lockstep with SQLite's user_version.
+func migrate012CommissionerEvents(tx *sql.Tx) error {
+	if _, err := tx.Exec(`CREATE TABLE commissioner_events (ord INTEGER PRIMARY KEY, id TEXT NOT NULL,
+		actor_email TEXT NOT NULL, actor_name TEXT NOT NULL, kind TEXT NOT NULL, summary TEXT NOT NULL,
+		team_id TEXT NOT NULL, player_id TEXT NOT NULL, week INTEGER NOT NULL, at TEXT NOT NULL)`); err != nil {
+		return fmt.Errorf("CREATE TABLE commissioner_events: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT OR REPLACE INTO kv (key, value) VALUES ('schema_version', '11')`); err != nil {
+		return fmt.Errorf("stamp schema_version 11: %w", err)
+	}
+	return nil
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '('); i > 0 {
 		return strings.TrimSpace(s[:i])
@@ -459,6 +478,7 @@ const (
 	colSchedule
 	colPlayoffs
 	colLockerPosts
+	colCommissionerEvents
 	collectionCount
 )
 
@@ -984,6 +1004,21 @@ var collectionSpecs = [collectionCount]collectionSpec{
 				sink.add("locker_posts", []any{i},
 					p.ID, p.ParentID, p.Body, p.AuthorEmail, p.AuthorName, p.AuthorTeamID,
 					encodeTime(p.PostedAt), encodeTime(p.RemovedAt), p.RemovedByRole)
+			}
+		},
+	},
+	colCommissionerEvents: {
+		tables: []tableDef{{
+			name:    "commissioner_events",
+			keyCols: []string{"ord"},
+			valCols: []string{"id", "actor_email", "actor_name", "kind", "summary",
+				"team_id", "player_id", "week", "at"},
+		}},
+		emit: func(st *PersistedState, sink *rowSink) {
+			for i, e := range st.CommissionerEvents {
+				sink.add("commissioner_events", []any{i},
+					e.ID, e.ActorEmail, e.ActorName, e.Kind, e.Summary,
+					e.Refs.TeamID, e.Refs.PlayerID, e.Refs.Week, encodeTime(e.At))
 			}
 		},
 	},
@@ -1958,6 +1993,25 @@ func loadStateFromDBMode(db *sql.DB, repairIdentity bool) (PersistedState, error
 		return state, err
 	}
 
+	if err := queryRows(db, `SELECT "id", "actor_email", "actor_name", "kind", "summary",
+		"team_id", "player_id", "week", "at" FROM commissioner_events ORDER BY "ord"`,
+		func(rows *sql.Rows) error {
+			var e CommissionerEvent
+			var at string
+			if err := rows.Scan(&e.ID, &e.ActorEmail, &e.ActorName, &e.Kind, &e.Summary,
+				&e.Refs.TeamID, &e.Refs.PlayerID, &e.Refs.Week, &at); err != nil {
+				return err
+			}
+			var err error
+			if e.At, err = decodeTime(at); err != nil {
+				return err
+			}
+			state.CommissionerEvents = append(state.CommissionerEvents, e)
+			return nil
+		}); err != nil {
+		return state, err
+	}
+
 	// v1 had no catalog-enforced identity boundary. Strip retired/unknown
 	// motifs and keep only one holder for each current canonical art before
 	// this state becomes the Store's read model. repairIdentityRows already
@@ -2247,6 +2301,9 @@ func normalizeState(state *PersistedState) {
 	}
 	if state.LockerPosts == nil {
 		state.LockerPosts = []LockerPost{}
+	}
+	if state.CommissionerEvents == nil {
+		state.CommissionerEvents = []CommissionerEvent{}
 	}
 	normalizeIdentityCollections(state)
 }

@@ -39,16 +39,23 @@ type fleetReadoutProps struct {
 	Cards             []map[string]any
 	AttentionQueue    []map[string]any
 	LeagueCount       int
-	ClaimedSeats      int
-	TotalSeats        int
-	DraftsLive        int
-	AttentionCount    int
-	CriticalCount     int
-	WarningCount      int
-	GeneratedAt       string
-	GeneratedAtISO    string
-	HQV1Enabled       bool
-	HQV1              hqV1PortfolioProps
+	// LeagueWord is LeagueCount's pluralized noun ("LEAGUE" for exactly
+	// one, "LEAGUES" otherwise — league.Plural), precomputed here because
+	// a GoSX template cannot call an arbitrary Go function inline
+	// (wave-2 audit: the masthead read "1 LEAGUES" for a single-league
+	// fleet).
+	LeagueWord          string
+	ClaimedSeats        int
+	TotalSeats          int
+	DraftsLive          int
+	AttentionCount      int
+	CriticalCount       int
+	WarningCount        int
+	GeneratedAt         string
+	GeneratedAtISO      string
+	GeneratedAtRelative string
+	HQV1Enabled         bool
+	HQV1                hqV1PortfolioProps
 }
 
 var hqV1Service *v1fleet.Service
@@ -63,6 +70,7 @@ func emptyFleetReadout(isCommissioner, federationEnabled bool) fleetReadoutProps
 	return fleetReadoutProps{
 		IsCommissioner: isCommissioner, FederationEnabled: federationEnabled,
 		Cards: []map[string]any{}, AttentionQueue: []map[string]any{},
+		LeagueWord:  league.Plural(0, "LEAGUE"),
 		GeneratedAt: "—",
 		HQV1:        emptyHQV1Portfolio(),
 	}
@@ -79,12 +87,14 @@ func readoutFromView(view fleetPageView, isCommissioner, federationEnabled bool)
 		IsCommissioner: isCommissioner, FederationEnabled: federationEnabled,
 		Cards:          data["cards"].([]map[string]any),
 		AttentionQueue: data["attention_queue"].([]map[string]any),
-		LeagueCount:    view.LeagueCount, ClaimedSeats: view.ClaimedSeats,
-		TotalSeats: view.TotalSeats, DraftsLive: view.DraftsLive,
+		LeagueCount:    view.LeagueCount, LeagueWord: league.Plural(view.LeagueCount, "LEAGUE"),
+		ClaimedSeats: view.ClaimedSeats,
+		TotalSeats:   view.TotalSeats, DraftsLive: view.DraftsLive,
 		AttentionCount: view.AttentionCount, CriticalCount: view.CriticalCount,
 		WarningCount: view.WarningCount, GeneratedAt: data["generated_at"].(string),
-		GeneratedAtISO: data["generated_at_iso"].(string),
-		HQV1:           emptyHQV1Portfolio(),
+		GeneratedAtISO:      data["generated_at_iso"].(string),
+		GeneratedAtRelative: data["generated_at_relative"].(string),
+		HQV1:                emptyHQV1Portfolio(),
 	}
 }
 
