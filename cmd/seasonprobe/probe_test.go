@@ -51,10 +51,27 @@ func tank01BoxEnvelope(gameID, away, home string) []byte {
 	return encoded
 }
 
+// tank01ScoresOnlyEnvelope builds a getNFLScoresOnly-shaped envelope
+// body: the per-date scoreboard object keyed by gameID, in the exact
+// shape of the real capture (internal/fantasy/testdata/
+// scoresonly-20250907.json).
+func tank01ScoresOnlyEnvelope(gameID, away, home, awayPts, homePts string) []byte {
+	body := map[string]any{gameID: map[string]any{
+		"gameID": gameID, "away": away, "home": home,
+		"awayPts": awayPts, "homePts": homePts, "gameClock": "",
+		"gameStatus": "Completed", "gameStatusCode": "2",
+		"lineScore": map[string]any{"period": "Final", "gameClock": "",
+			"away": map[string]any{"currentlyInPossession": "False", "teamAbv": away},
+			"home": map[string]any{"currentlyInPossession": "False", "teamAbv": home}},
+	}}
+	encoded, _ := json.Marshal(map[string]any{"statusCode": 200, "body": body})
+	return encoded
+}
+
 // newFixtureRelay serves the Tank01 shapes this probe reads: a
 // regular-season week-1 listing, a preseason week listing (one completed
-// game), and that game's box score.
-func newFixtureRelay(t *testing.T, regListing, preListing, box []byte) *httptest.Server {
+// game), that game's box score, and the scoreboard for that game's date.
+func newFixtureRelay(t *testing.T, regListing, preListing, box, scoresOnly []byte) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -66,6 +83,8 @@ func newFixtureRelay(t *testing.T, regListing, preListing, box []byte) *httptest
 			w.Write(regListing)
 		case "/getNFLBoxScore":
 			w.Write(box)
+		case "/getNFLScoresOnly":
+			w.Write(scoresOnly)
 		default:
 			http.NotFound(w, r)
 		}
@@ -88,7 +107,8 @@ func TestRunAllChecksPassAgainstMatchingFixtures(t *testing.T) {
 		{ID: "20260813_ARI@LV", Away: "ARI", Home: "LV", Date: "20260813", Status: "Completed", StatusCode: "2", Week: "Preseason Week 1"},
 	})
 	box := tank01BoxEnvelope("20260813_ARI@LV", "ARI", "LV")
-	server := newFixtureRelay(t, reg, pre, box)
+	scoresOnly := tank01ScoresOnlyEnvelope("20260813_ARI@LV", "ARI", "LV", "24", "17")
+	server := newFixtureRelay(t, reg, pre, box, scoresOnly)
 	defer server.Close()
 
 	root := t.TempDir()
@@ -113,8 +133,17 @@ func TestRunAllChecksPassAgainstMatchingFixtures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("capture dir has %d files, want 2 (games list + box score)", len(entries))
+	if len(entries) != 3 {
+		t.Fatalf("capture dir has %d files, want 3 (games list + box score + scoreboard)", len(entries))
+	}
+	var sawScoreboardCheck bool
+	for _, result := range results {
+		if result.Name == "parse live scoreboard row" {
+			sawScoreboardCheck = true
+		}
+	}
+	if !sawScoreboardCheck {
+		t.Fatal(`results carry no "parse live scoreboard row" check`)
 	}
 }
 
@@ -129,7 +158,8 @@ func TestRunDetectsAScheduleMismatch(t *testing.T) {
 		{ID: "20260813_ARI@LV", Away: "ARI", Home: "LV", Date: "20260813", Status: "Completed", StatusCode: "2", Week: "Preseason Week 1"},
 	})
 	box := tank01BoxEnvelope("20260813_ARI@LV", "ARI", "LV")
-	server := newFixtureRelay(t, reg, pre, box)
+	scoresOnly := tank01ScoresOnlyEnvelope("20260813_ARI@LV", "ARI", "LV", "24", "17")
+	server := newFixtureRelay(t, reg, pre, box, scoresOnly)
 	defer server.Close()
 
 	root := t.TempDir()
@@ -174,7 +204,7 @@ func TestRunFailsWhenNoCompletedPreseasonGameExists(t *testing.T) {
 	pre := tank01GamesEnvelope([]gameEntry{
 		{ID: "20260813_ARI@LV", Away: "ARI", Home: "LV", Date: "20260813", Status: "Scheduled", StatusCode: "0", Week: "Preseason Week 1"},
 	})
-	server := newFixtureRelay(t, reg, pre, nil)
+	server := newFixtureRelay(t, reg, pre, nil, nil)
 	defer server.Close()
 
 	root := t.TempDir()
@@ -199,7 +229,7 @@ func TestCLIExitsNonZeroOnFailure(t *testing.T) {
 		{ID: "20260910_KC@BUF", Away: "KC", Home: "BUF", Date: "20260910", Status: "Scheduled", StatusCode: "0", Week: "1"},
 	})
 	pre := tank01GamesEnvelope(nil)
-	server := newFixtureRelay(t, reg, pre, nil)
+	server := newFixtureRelay(t, reg, pre, nil, nil)
 	defer server.Close()
 
 	root := t.TempDir()
@@ -225,7 +255,8 @@ func TestCLIExitsZeroOnSuccess(t *testing.T) {
 		{ID: "20260813_ARI@LV", Away: "ARI", Home: "LV", Date: "20260813", Status: "Completed", StatusCode: "2", Week: "Preseason Week 1"},
 	})
 	box := tank01BoxEnvelope("20260813_ARI@LV", "ARI", "LV")
-	server := newFixtureRelay(t, reg, pre, box)
+	scoresOnly := tank01ScoresOnlyEnvelope("20260813_ARI@LV", "ARI", "LV", "24", "17")
+	server := newFixtureRelay(t, reg, pre, box, scoresOnly)
 	defer server.Close()
 
 	root := t.TempDir()

@@ -67,17 +67,24 @@ type Snapshot struct {
 
 // Health is the poller's provenance for the PAUSED decision.
 type Health struct {
-	Enabled          bool
-	Degraded         bool
-	Reason           string
-	Failures         int
-	ListingFailures  int
-	BudgetUsed       int
-	BudgetLimit      int
-	CircuitOpenUntil time.Time
-	LastSuccess      time.Time
-	LastError        string
-	InWindow         int
+	Enabled         bool
+	Degraded        bool
+	Reason          string
+	Failures        int
+	ListingFailures int
+	// ScoreboardFailures and LastScoreboardError track the layer-1
+	// getNFLScoresOnly endpoint apart from box and listing failures: a
+	// relay that serves boxes but fails every scoreboard call silently
+	// loses the change gate and the possession freshness it feeds, so it
+	// must degrade visibly.
+	ScoreboardFailures  int
+	LastScoreboardError string
+	BudgetUsed          int
+	BudgetLimit         int
+	CircuitOpenUntil    time.Time
+	LastSuccess         time.Time
+	LastError           string
+	InWindow            int
 	// Unmatched and UnmatchedGames are the in-window games the last tick
 	// could not map to a Tank01 listing (round-2 note 1) — a schedule row
 	// with no counterpart in the fetched listing, so it was never

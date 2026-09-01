@@ -415,6 +415,10 @@ func TestTTLTableAssignsExpectedBuckets(t *testing.T) {
 	}{
 		{"/getNFLBoxScore", boxLiveTTL},
 		{"/getNFLGamesForWeek", 24 * time.Hour},
+		// The layer-1 live scoreboard (GC-2): the whole slate's
+		// score/clock/possession in one call, polled at the same cadence
+		// the reg-season games-list query already caches at.
+		{"/getNFLScoresOnly", scoreboardTTL},
 		{"/getNFLPlayerList", defaultTTL},
 		{"/getNFLADP", defaultTTL},
 		{"/getNFLProjections", defaultTTL},

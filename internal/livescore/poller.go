@@ -19,22 +19,30 @@ import (
 type Fetcher interface {
 	FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error)
 	FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error)
+	// FetchScoresOnly is the layer-1 scoreboard call (getNFLScoresOnly):
+	// every game on one gameDate with live score, period, status, and the
+	// possession-bearing lineScore, in one small payload. An empty reply
+	// with a nil error is a real answer (no games that date), not a
+	// failure — refreshScoreboard treats the two differently.
+	FetchScoresOnly(ctx context.Context, gameDate string) ([]fantasy.ScoreboardGame, error)
 }
 
 const (
 	circuitOpenFor   = 60 * time.Second
 	failureThreshold = 3
-	// listingCacheFor collapses only truly-simultaneous listingsFor calls
-	// for the same week within one Tick pass; it is not a real cache
-	// layer. It was 15 minutes before GC-2 (round-2 note 1 already flagged
-	// that as long enough to hide a whole live Sunday's flex move or
-	// postponement); GC-2 lowers it further still, to well under
-	// scoreboardFloor, because Tick's own cadence (ScoreboardInterval, 5s
-	// floor) is now the real, and only, throttle on how often
-	// listingsFor's underlying network call happens — a second,
-	// independent cache here would let a stale listing silently outlive
-	// several scoreboard ticks.
-	listingCacheFor = time.Second
+	// listingCacheFor is how long one week's fetched game listing is
+	// reused before listingsFor re-fetches it. It was 15 minutes before
+	// GC-2 (round-2 note 1 flagged that as long enough to hide a whole
+	// live Sunday's flex move), then 1 second while the listing WAS the
+	// scoreboard tick. With getNFLScoresOnly carrying the live scoreboard
+	// (score, clock, status, possession — refreshScoreboard), the
+	// listing's only tick-time job is Tank01 ID matching, which changes on
+	// the scale of flex moves and postponements, not seconds: 60s keeps a
+	// moved game visible within a minute while cutting layer 1 from two
+	// upstream calls per tick to one plus one per minute. The live
+	// scoreboard is never cached here — refreshScoreboard fetches it every
+	// tick.
+	listingCacheFor = time.Minute
 	// triggerCooldown bounds a wire-triggered box fetch (GC-2 layer 3,
 	// TriggerBoxFetch) to at most one per game every 10 seconds — fixed,
 	// not environment-tunable: the spec's own acceptance criterion names
@@ -91,11 +99,18 @@ type Poller struct {
 	lastError        string
 	listingFailures  int
 	lastListingError string
-	circuitOpen      time.Time
-	budgetDate       string
-	budgetUsed       int
-	lastSuccess      time.Time
-	inWindow         int
+	// scoreboard is refreshScoreboard's per-game layer-1 state (see
+	// scoreboardRecord); scoreboardFailures/lastScoreboardError track the
+	// scoreboard endpoint apart from box and listing failures, same
+	// round-2-note-7 reasoning as listingFailures.
+	scoreboard          map[string]scoreboardRecord
+	scoreboardFailures  int
+	lastScoreboardError string
+	circuitOpen         time.Time
+	budgetDate          string
+	budgetUsed          int
+	lastSuccess         time.Time
+	inWindow            int
 	// windowLastOpen is whether any schedule game satisfied inWindow as
 	// of the last tick — tracked separately from inWindow/targets, which
 	// also excludes a game once isFinalDone is set for it. The schedule
@@ -211,6 +226,7 @@ func (p *Poller) Health() Health {
 	defer p.mu.Unlock()
 	now := p.cfg.Now()
 	h := Health{Enabled: p.cfg.Enabled, Failures: p.failures, ListingFailures: p.listingFailures,
+		ScoreboardFailures: p.scoreboardFailures, LastScoreboardError: p.lastScoreboardError,
 		BudgetUsed: p.budgetUsed, BudgetLimit: p.cfg.DailyBudget,
 		CircuitOpenUntil: p.circuitOpen, LastSuccess: p.lastSuccess, LastError: p.lastError,
 		InWindow: p.inWindow, Unmatched: p.unmatched, UnmatchedGames: append([]string(nil), p.unmatchedGames...)}
@@ -227,6 +243,8 @@ func (p *Poller) Health() Health {
 		h.Degraded, h.Reason = true, fmt.Sprintf("%d relay failures in a row", p.failures)
 	case p.listingFailures >= failureThreshold:
 		h.Degraded, h.Reason = true, fmt.Sprintf("%d listing failures in a row", p.listingFailures)
+	case p.scoreboardFailures >= failureThreshold:
+		h.Degraded, h.Reason = true, fmt.Sprintf("%d scoreboard failures in a row", p.scoreboardFailures)
 	case p.unmatched > 0:
 		h.Degraded, h.Reason = true, fmt.Sprintf("%d games in window have no Tank01 listing", p.unmatched)
 	}
@@ -345,6 +363,14 @@ func (p *Poller) Tick(ctx context.Context) {
 	p.tank01ID, p.trackedGame = tank01ByGame, trackedGame
 	p.mu.Unlock()
 
+	// Layer 1 proper: one shared getNFLScoresOnly call per matched game
+	// date, before the box loop, so this same tick's change gate
+	// (boxFetchDue) and tier classification (boxFetchTier) already see the
+	// fresh scoreboard. Runs after the matched maps are stored — the
+	// scoreboard keys rows by Tank01 ID, and matched is the bridge back to
+	// schedule game IDs.
+	p.refreshScoreboard(ctx, matched, now)
+
 	// boxTargets narrows targets to GC-2 layer 2's own gate, refined by
 	// GC-2b's tiered cadence (boxFetchTier/boxFetchDue): an idle game
 	// appears here at most once — its first sighting, never again after —
@@ -352,15 +378,16 @@ func (p *Poller) Tick(ctx context.Context) {
 	// own tier's interval without a successful fetch (including never yet
 	// fetched at all) — the safety net that keeps yardage and reception
 	// stats flowing between scoring plays, faster while a relevant
-	// possession is active. This tick has no scoreboard-delta gate
-	// layered on top (see ScoreboardInterval's own doc comment): GC-2
-	// shipped without one, for lack of a verified live score/period/clock
-	// field on the games-list response itself. A wire-triggered fetch
-	// (TriggerBoxFetch) reaches the same fetcher/record/budget path
-	// independently of this loop, between ticks, and skips an
-	// already-seen idle-tier game the same way this loop does (an unseen
-	// one is vanishingly unlikely to reach a trigger before Tick's own
-	// first-sighting fetch already ran).
+	// possession is active. The scoreboard-delta gate GC-2 originally
+	// wanted is layered on top now that the getNFLScoresOnly payload is
+	// verified (refreshScoreboard, and the changedAt check inside
+	// boxFetchDue): a score, possession, period, or status change on the
+	// shared scoreboard marks that game's box due immediately, inside its
+	// tier interval. A wire-triggered fetch (TriggerBoxFetch) reaches the
+	// same fetcher/record/budget path independently of this loop, between
+	// ticks, and skips an already-seen idle-tier game the same way this
+	// loop does (an unseen one is vanishingly unlikely to reach a trigger
+	// before Tick's own first-sighting fetch already ran).
 	var boxTargets []Game
 	tierByID := make(map[string]boxFetchTier, len(targets))
 	for _, game := range targets {
@@ -416,6 +443,7 @@ func (p *Poller) Tick(ctx context.Context) {
 		if rec.game.Week < currentWeek {
 			delete(p.games, id)
 			delete(p.finalDone, id)
+			delete(p.scoreboard, id)
 		}
 	}
 	p.mu.Unlock()
@@ -463,6 +491,19 @@ func (p *Poller) boxFetchDue(game Game, now time.Time) bool {
 	tier := p.boxFetchTier(game)
 	if tier == boxFetchIdle {
 		return false
+	}
+	// The change gate (GC-2's original design, grounded now that the
+	// scoreboard payload is verified): a scoreboard delta newer than this
+	// game's last recorded box fetch marks the box due immediately, inside
+	// the tier interval. Within one tick both timestamps are the same now
+	// (refreshScoreboard runs before the box loop), so a box fetched on
+	// the very tick that recorded the delta is already caught up — After
+	// is strict — and cannot re-trigger next tick.
+	p.mu.Lock()
+	scoreboardRec, hasScoreboard := p.scoreboard[game.ID]
+	p.mu.Unlock()
+	if hasScoreboard && scoreboardRec.changedAt.After(rec.at) {
+		return true
 	}
 	elapsed := now.Sub(rec.at)
 	return elapsed < 0 || elapsed >= p.intervalFor(tier)
@@ -695,6 +736,40 @@ func (p *Poller) Snapshot() Snapshot {
 		addBoxToSnapshot(&out, rec.game, rec.box, rec.at)
 	}
 	sortSnapshotLines(&out) // round-2 note 36: stable PlayerID order for callers
+	// Scoreboard display overlay: a layer-1 row at least as fresh as the
+	// game's last box fetch overrides the display fields (score, period,
+	// clock, final/in-progress, possession) — never a stat line; stats
+	// only ever come from box fetches. This is what keeps an idle-tier
+	// game's score current all day on one box fetch, and every game's
+	// clock live between box fetches (the clock is deliberately not a
+	// change-gate delta). A pre-game row never overrides — it carries
+	// nothing fresher than the box does. When a live row's possession is
+	// unknown the box's last-known possession stands: the seam never
+	// trades a known value for an unknown one (ExtractPossession's own
+	// never-guess rule cuts both ways).
+	for id, scoreboardRec := range p.scoreboard {
+		game, ok := out.Games[id]
+		if !ok {
+			continue
+		}
+		if boxRec, seen := p.games[id]; seen && scoreboardRec.at.Before(boxRec.at) {
+			continue
+		}
+		row := scoreboardRec.row
+		if !row.InProgress && !row.Final {
+			continue
+		}
+		game.AwayPoints, game.HomePoints = row.AwayPoints, row.HomePoints
+		game.Period, game.Clock = row.Period, row.Clock
+		game.Final, game.InProgress = row.Final, row.InProgress
+		if row.InProgress && scoreboardRec.possessionKnown {
+			game.Possession, game.PossessionKnown = scoreboardRec.possession, true
+		}
+		if !row.InProgress {
+			game.Possession, game.PossessionKnown = "", false
+		}
+		out.Games[id] = game
+	}
 	for id, game := range out.Games {
 		if game.InProgress && !game.Final && WindowClosed(game.Kickoff, now) {
 			game.InProgress = false

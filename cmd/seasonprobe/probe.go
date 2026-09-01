@@ -212,6 +212,41 @@ func checkPreseasonBox(ctx context.Context, cfg ProbeConfig, client *fantasy.Box
 	pass := box.Final && (len(box.Players) > 0 || len(box.DST) > 0)
 	out = append(out, Result{Name: "parse preseason box score", Pass: pass,
 		Detail: fmt.Sprintf("gameID=%s final=%v players=%d dst=%d", box.GameID, box.Final, len(box.Players), len(box.DST))})
+
+	// The layer-1 scoreboard the live poller change-gates on
+	// (getNFLScoresOnly, internal/livescore refreshScoreboard): fetch the
+	// picked game's date, parse it with the poller's own parser, and
+	// require the row to agree with the box score just parsed. Run on a
+	// live Thursday through gameday-preflight.sh, the written capture is
+	// also the pinning evidence for whether currentlyInPossession
+	// populates in-game (internal/livescore/possession.go).
+	if len(gameID) < 9 || gameID[8] != '_' {
+		out = append(out, Result{Name: "fetch live scoreboard", Pass: false,
+			Detail: fmt.Sprintf("game ID %q carries no YYYYMMDD_ prefix to derive a gameDate from", gameID)})
+		return out
+	}
+	gameDate := gameID[:8]
+	raw, err = fetchRaw(ctx, cfg.HTTPClient, cfg.Tank01BaseURL, "getNFLScoresOnly", map[string]string{"gameDate": gameDate})
+	if err != nil {
+		out = append(out, Result{Name: "fetch live scoreboard", Pass: false, Detail: err.Error()})
+		return out
+	}
+	out = append(out, Result{Name: "fetch live scoreboard", Pass: true, Detail: fmt.Sprintf("%d bytes for %s", len(raw), gameDate)})
+	writeCapture(cfg, "scoresonly-"+gameDate, raw)
+
+	rows := fantasy.ParseScoresOnly(raw)
+	var row fantasy.ScoreboardGame
+	rowFound := false
+	for _, candidate := range rows {
+		if candidate.GameID == gameID {
+			row, rowFound = candidate, true
+			break
+		}
+	}
+	rowPass := rowFound && row.Final && row.AwayPoints == box.AwayPoints && row.HomePoints == box.HomePoints
+	out = append(out, Result{Name: "parse live scoreboard row", Pass: rowPass,
+		Detail: fmt.Sprintf("rows=%d found=%v final=%v score=%v-%v (box %v-%v)",
+			len(rows), rowFound, row.Final, row.AwayPoints, row.HomePoints, box.AwayPoints, box.HomePoints)})
 	return out
 }
 

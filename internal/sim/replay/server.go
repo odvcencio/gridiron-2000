@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/livescore"
 )
@@ -61,6 +62,7 @@ func Serve(game *Game, step time.Duration, now func() time.Time) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/getNFLBoxScore", s.handleBoxScore)
 	mux.HandleFunc("/getNFLGamesForWeek", s.handleGamesForWeek)
+	mux.HandleFunc("/getNFLScoresOnly", s.handleScoresOnly)
 	mux.HandleFunc("/", s.handleNotFound)
 	s.http = httptest.NewServer(mux)
 	return s
@@ -197,6 +199,47 @@ func (s *Server) handleGamesForWeek(w http.ResponseWriter, r *http.Request) {
 		"gameStatusCode": statusCode,
 	}
 	writeEnvelope(w, []any{listing})
+}
+
+// handleScoresOnly answers the poller's layer-1 scoreboard call
+// (getNFLScoresOnly) with one row synthesized from the frame the box
+// endpoint would serve at this same instant, so score, clock, period,
+// status, and any lineScore possession shape all track the box exactly.
+// The date the poller asks by is the Tank01 game ID's own YYYYMMDD prefix
+// (livescore.scoreboardDates), which for a replayed recording is the
+// recorded date, not the wall date the replay pretends to run on — so
+// that prefix is what this handler matches. Any other date gets a real
+// empty answer, the live endpoint's own shape for a day with no games,
+// never a 404. Serving a scoreboard row does not count toward
+// ServedIndex/ServedAt: those track box frames.
+func (s *Server) handleScoresOnly(w http.ResponseWriter, r *http.Request) {
+	if len(s.game.ID) < 8 || r.URL.Query().Get("gameDate") != s.game.ID[:8] {
+		writeEnvelope(w, map[string]any{})
+		return
+	}
+	index := s.indexAt(s.now())
+	box := fantasy.ParseBoxScore(s.frames[index].Body)
+	status, statusCode := s.statusAt(index)
+	row := map[string]any{
+		"gameID":         s.game.ID,
+		"away":           box.Away,
+		"home":           box.Home,
+		"awayPts":        box.AwayPoints,
+		"homePts":        box.HomePoints,
+		"gameClock":      box.Clock,
+		"gameStatus":     status,
+		"gameStatusCode": statusCode,
+	}
+	lineScore, ok := box.Raw["lineScore"]
+	if !ok {
+		// The recorded frame carries no lineScore (the PBP-synthesized
+		// frames may not): give the row the period the box reports, the
+		// same field the real payload nests under lineScore.period, so
+		// the parser's period fallback still has nothing to invent.
+		lineScore = map[string]any{"period": box.Period, "gameClock": box.Clock}
+	}
+	row["lineScore"] = lineScore
+	writeEnvelope(w, map[string]any{s.game.ID: row})
 }
 
 func (s *Server) handleNotFound(w http.ResponseWriter, r *http.Request) {

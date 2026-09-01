@@ -8,7 +8,7 @@
 // fantasy pool use. It prints a PASS/FAIL verdict per check and exits
 // non-zero the moment any check fails.
 //
-// It costs a handful of real upstream calls (about five) every time it
+// It costs a handful of real upstream calls (about six) every time it
 // runs and MUST NOT be run against production or scheduled automatically;
 // an operator runs it by hand, through the port-forward pattern
 // scripts/gameday-preflight.sh already uses for other read-only checks.

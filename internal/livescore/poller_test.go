@@ -22,15 +22,54 @@ func mustEastern() *time.Location {
 }
 
 type fakeFetcher struct {
-	mu         sync.Mutex
-	boxes      map[string]fantasy.BoxScore
-	listings   []fantasy.GameListing
-	err        error
-	listingErr error
-	calls      int
-	callsByID  map[string]int
-	inflight   int
-	peak       int
+	mu           sync.Mutex
+	boxes        map[string]fantasy.BoxScore
+	listings     []fantasy.GameListing
+	err          error
+	listingErr   error
+	listingCalls int
+	calls        int
+	callsByID    map[string]int
+	inflight     int
+	peak         int
+	// scoreRows fakes FetchScoresOnly, keyed by gameDate; scoreErr fails
+	// it; scoreCallsByDate counts calls per date. A fake with none of
+	// these set serves an empty scoreboard (nil, nil) — the same "no rows
+	// for this date" answer the real endpoint gives for an off week, which
+	// the poller must treat as fall-back-to-tiers, never as an error.
+	scoreRows        map[string][]fantasy.ScoreboardGame
+	scoreErr         error
+	scoreCallsByDate map[string]int
+}
+
+func (f *fakeFetcher) FetchScoresOnly(ctx context.Context, gameDate string) ([]fantasy.ScoreboardGame, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.scoreCallsByDate == nil {
+		f.scoreCallsByDate = map[string]int{}
+	}
+	f.scoreCallsByDate[gameDate]++
+	if f.scoreErr != nil {
+		return nil, f.scoreErr
+	}
+	return f.scoreRows[gameDate], nil
+}
+
+func (f *fakeFetcher) scoreCalls(gameDate string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.scoreCallsByDate[gameDate]
+}
+
+// setScoreRow replaces the fake's whole scoreboard for gameDate with the
+// single given row — the shape every delta-gate test needs.
+func (f *fakeFetcher) setScoreRow(gameDate string, row fantasy.ScoreboardGame) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.scoreRows == nil {
+		f.scoreRows = map[string][]fantasy.ScoreboardGame{}
+	}
+	f.scoreRows[gameDate] = []fantasy.ScoreboardGame{row}
 }
 
 func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy.BoxScore, error) {
@@ -58,12 +97,19 @@ func (f *fakeFetcher) FetchBoxScore(ctx context.Context, gameID string) (fantasy
 
 func (f *fakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error) {
 	f.mu.Lock()
+	f.listingCalls++
 	err, listings := f.listingErr, f.listings
 	f.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
 	return listings, nil
+}
+
+func (f *fakeFetcher) listingCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listingCalls
 }
 
 func (f *fakeFetcher) count() int {

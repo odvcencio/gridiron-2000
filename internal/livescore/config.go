@@ -25,14 +25,18 @@ const boxFastFloor = 10 * time.Second
 type Config struct {
 	Enabled bool // LIVE_SCORING_ENABLED, default false (kill switch)
 	// ScoreboardInterval is LIVE_SCOREBOARD_INTERVAL, default 10s, floored
-	// at scoreboardFloor (5s): how often Run ticks and fetches one
-	// games-list call per in-window week (GC-2, layer 1) — Tank01 ID
-	// resolution for every target, and the cadence Tick itself runs at.
-	// It does not gate a game's own box fetch: no fixture or recorded
-	// payload in this repo confirms the games-list response carries a
-	// live score, period, or clock (see fantasy.PreseasonGame's own doc
-	// comment), so box fetches are gated by BoxBaseline and the wire
-	// trigger alone (layers 2 and 3), not a scoreboard delta.
+	// at scoreboardFloor (5s): how often Run ticks and fetches the live
+	// scoreboard — one getNFLScoresOnly call per in-window game date
+	// (GC-2, layer 1: score, clock, period, status, and possession for
+	// every game on the slate, verified against a real capture on
+	// 2026-08-31), plus one games-list call per in-window week for Tank01
+	// ID resolution, reused for listingCacheFor (60s). The scoreboard
+	// gates box fetches two ways: a delta (score, possession, period, or
+	// status — never the running clock) marks that game's box due
+	// immediately, and the row's possession/clock feed boxFetchTier's
+	// fast/baseline choice between box fetches. Neither scoreboard nor
+	// listing calls are charged against DailyBudget; STATRELAY_DAILY_BUDGET
+	// meters their real upstream cost.
 	// LIVE_POLL_INTERVAL is the deprecated alias ConfigFromEnv falls back
 	// to when LIVE_SCOREBOARD_INTERVAL is unset (logging the fallback
 	// once); see Interval below for the same fallback at the New() level,

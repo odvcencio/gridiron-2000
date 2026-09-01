@@ -80,6 +80,18 @@ func currentTTLTable() []ttlRule {
 			prefix: "/getNFLGamesForWeek",
 			ttl:    24 * time.Hour,
 		},
+		{
+			// The layer-1 live scoreboard (GC-2, grounded 2026-08-31 by a
+			// verified getNFLScoresOnly capture): the whole slate's
+			// score/clock/possession in one small payload, polled every
+			// LIVE_SCOREBOARD_INTERVAL by each league instance. One TTL
+			// for every status — the payload spans a whole gameDate, so
+			// per-game status can never pick a single lifetime for it,
+			// and at scoreboardTTL even an all-final date costs at most
+			// one upstream call per TTL window.
+			prefix: "/getNFLScoresOnly",
+			ttl:    scoreboardTTL,
+		},
 	}
 }
 

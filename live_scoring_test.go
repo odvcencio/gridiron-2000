@@ -133,6 +133,13 @@ func (f *seamFakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, wee
 	return f.listings, nil
 }
 
+// An empty scoreboard reply: the seam tests exercise the box and listing
+// paths; the tiered cadence governs exactly as before the scoreboard
+// endpoint existed.
+func (f *seamFakeFetcher) FetchScoresOnly(ctx context.Context, gameDate string) ([]fantasy.ScoreboardGame, error) {
+	return nil, nil
+}
+
 // seamTestOpenStats writes one week-1 ledger row for Josh Allen (QB, BUF)
 // to a temp cache directory and loads it through the real openstats CSV
 // parser (NewService reads its cache on construction; no network, no
@@ -542,6 +549,12 @@ func (f *wireTriggerFakeFetcher) FetchBoxScore(ctx context.Context, gameID strin
 
 func (f *wireTriggerFakeFetcher) FetchGamesForWeek(ctx context.Context, seasonType, week string) ([]fantasy.GameListing, error) {
 	return f.listings, nil
+}
+
+// An empty scoreboard reply: the wire-trigger tests assert trigger timing
+// against the tiered cadence alone, with no scoreboard deltas in play.
+func (f *wireTriggerFakeFetcher) FetchScoresOnly(ctx context.Context, gameDate string) ([]fantasy.ScoreboardGame, error) {
+	return nil, nil
 }
 
 func (f *wireTriggerFakeFetcher) count(gameID string) int {

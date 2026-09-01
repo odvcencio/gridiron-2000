@@ -124,9 +124,20 @@ func isBreakState(period, clock string) bool {
 // the poller's own last-recorded state for it (an unseen game is never
 // idle merely for lacking history — gameRelevance's hasStarter check
 // depends only on the schedule's two team names, never on rec).
+//
+// The possession/period/clock inputs come from whichever record is
+// fresher: the last box fetch, or the layer-1 scoreboard row
+// (refreshScoreboard), which refreshes every tick and therefore usually
+// wins. This is what lets a relevant drive engage the fast tier within
+// one ScoreboardInterval instead of one BoxBaseline — the box itself no
+// longer has to be fetched just to learn who has the ball. A scoreboard
+// row that is not in progress (pre-game, final) never overrides: its
+// possession and clock have no honest meaning (the same gate record()
+// applies to box extraction).
 func (p *Poller) boxFetchTier(game Game) boxFetchTier {
 	p.mu.Lock()
 	rec, seen := p.games[game.ID]
+	scoreboardRec, hasScoreboard := p.scoreboard[game.ID]
 	p.mu.Unlock()
 	var possessingTeam, period, clock string
 	var possessionKnown bool
@@ -135,6 +146,12 @@ func (p *Poller) boxFetchTier(game Game) boxFetchTier {
 		possessingTeam, possessionKnown = rec.possession, rec.possessionKnown
 		period, clock = rec.box.Period, rec.box.Clock
 		unchangedFast = rec.unchangedFastFetches
+	}
+	if hasScoreboard && scoreboardRec.row.InProgress && (!seen || !scoreboardRec.at.Before(rec.at)) {
+		period, clock = scoreboardRec.row.Period, scoreboardRec.row.Clock
+		if scoreboardRec.possessionKnown {
+			possessingTeam, possessionKnown = scoreboardRec.possession, true
+		}
 	}
 	hasStarter, possessionRelevant := p.gameRelevance(game, possessingTeam, possessionKnown)
 	switch {

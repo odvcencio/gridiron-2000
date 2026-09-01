@@ -17,14 +17,14 @@ import (
 //
 // GC-2 investigated adding a live score/period/clock to this type so the
 // live poller's scoreboard tick (internal/livescore) could change-gate a
-// game's box fetch off this one games-list call alone. No fixture, test
-// data, or recorded relay payload in this repo confirms Tank01's
-// getNFLGamesForWeek response actually carries those fields (only
-// getNFLBoxScore is confirmed to), so GC-2 shipped without them: the
-// scoreboard tick still fetches this call every LIVE_SCOREBOARD_INTERVAL
-// for Tank01 ID resolution, but box fetches are gated by LIVE_BOX_BASELINE
-// and the wire trigger alone, not a score/period/clock delta. Add the
-// fields here once the payload is verified.
+// game's box fetch off this one games-list call alone. A live probe on
+// 2026-08-31 settled it: the raw getNFLGamesForWeek entry carries only
+// schedule fields, status, and espn/cbs links — no score, clock, or
+// possession — so these fields do not belong here. The whole-slate live
+// scoreboard is a different endpoint, getNFLScoresOnly, verified the same
+// day (see ScoreboardGame and testdata/scoresonly-20250907.json); the
+// poller change-gates box fetches off that call, and this listing's
+// tick-time job is Tank01 ID resolution alone.
 type PreseasonGame struct {
 	ID         string
 	Label      string
