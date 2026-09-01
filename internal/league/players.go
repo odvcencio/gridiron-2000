@@ -257,7 +257,16 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 			if status.Reason == "kickoff" {
 				row["waiver_resolves"] = waiverKickoffPendingLabel
 			} else {
+				// Append the same relative-time idiom the MY CLAIMS row
+				// already carries (waiverClaimResolutionView's
+				// resolution_relative, deadlineRelativeTime) — the pool row
+				// used to show only the absolute time, so "ON WAIVERS · Sep
+				// 4, 9:00 AM EDT" disagreed with the desk's own "(in 2
+				// days)" for the exact same deadline (2026-08-31 gap audit).
 				row["waiver_resolves"] = formatResolvesAt(s.cfg, status.ResolvesAt)
+				if relative := deadlineRelativeTime(now, status.ResolvesAt); relative != "" {
+					row["waiver_resolves"] = row["waiver_resolves"].(string) + " · " + relative
+				}
 			}
 		}
 		ownerAbbr := ""
