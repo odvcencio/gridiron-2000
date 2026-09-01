@@ -85,7 +85,8 @@ func SeatRow(props SeatRowProps) Node {
 		<form method="post" action={props.RenameAction} data-gosx-managed="true">
 			<input type="hidden" name="csrf_token" value={props.CSRF}></input>
 			<input type="hidden" name="team_id" value={props.seat.id}></input>
-			<input type="text" name="name" placeholder="Rename team" maxlength="40"></input>
+			<label for={"seat-rename-" + props.seat.id} class="visually-hidden">Rename {props.seat.name}</label>
+			<input id={"seat-rename-" + props.seat.id} type="text" name="name" placeholder="Rename team" maxlength="40"></input>
 			<button class="board-button" type="submit">Set</button>
 		</form>
 		<If cond={props.seat.claimed}>
@@ -864,7 +865,9 @@ func Page() Node {
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
+						<label for="admin-invite-email" class="visually-hidden">Manager email to invite</label>
 						<input
+							id="admin-invite-email"
 							type="email"
 							name="email"
 							placeholder="manager@example.com"
@@ -1160,7 +1163,8 @@ func Page() Node {
 							<form method="post" action={actionPath("clock-extend")} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
-								<input class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
+								<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>
+								<input id="admin-clock-extend-seconds" class="scoring-input" type="number" name="seconds" placeholder="30" min="1" max="600"></input>
 								<button class="button" type="submit">Extend running pick</button>
 							</form>
 						</If>
@@ -1194,7 +1198,8 @@ func Page() Node {
 						</form>
 						<form method="post" action={actionPath("clock-set-duration")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
-							<input class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
+							<label for="admin-clock-set-duration-seconds" class="visually-hidden">Custom pick clock duration in seconds</label>
+							<input id="admin-clock-set-duration-seconds" class="scoring-input" type="number" name="seconds" placeholder="120" min="10" max="600"></input>
 							<button class="button" type="submit">Set duration</button>
 						</form>
 						<details class="draft-destructive-control">
@@ -1330,7 +1335,9 @@ func Page() Node {
 					<form method="post" action={actionPath("announcement-post")} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
-						<textarea name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3"></textarea>
+						<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>
+						<textarea id="admin-announcement-body" name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3" aria-describedby="admin-announcement-limit"></textarea>
+						<small id="admin-announcement-limit" class="scoring-note">Up to 500 characters.</small>
 						<If cond={data.mail_enabled}>
 							<label class="announcement-email-toggle">
 								<input type="checkbox" name="also_email" value="true"></input>
@@ -1363,11 +1370,16 @@ func Page() Node {
 										·
 										{note.posted_at}
 									</small>
-									<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
-										<input type="hidden" name="csrf_token" value={csrf.token}></input>
-										<input type="hidden" name="id" value={note.id}></input>
-										<button class="board-button board-button--cut" type="submit">✕</button>
-									</form>
+									<details class="announcement-delete-disclosure">
+										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at}>✕</summary>
+										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
+											<input type="hidden" name="csrf_token" value={csrf.token}></input>
+											<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
+											<input type="hidden" name="id" value={note.id}></input>
+											<p>Delete the announcement posted {note.posted_at}? This removes it from the league notes and the home page; it cannot be undone.</p>
+											<button class="board-button board-button--cut" type="submit">Confirm delete</button>
+										</form>
+									</details>
 								</div>
 							</article>
 						</Each>
@@ -1423,7 +1435,8 @@ func Page() Node {
 							<p>
 								Removes the most recent pick and re-arms the clock for that slot. The form is bound to the exact pick shown now; reload if another browser acts first.
 							</p>
-							<input type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
+							<label for="admin-draft-undo-confirm">Type <span class="mono">UNDO</span> to confirm.</label>
+							<input id="admin-draft-undo-confirm" type="text" name="confirm" placeholder="type UNDO" autocomplete="off"></input>
 							<button class="button button--danger" type="submit">Undo last pick</button>
 						</form>
 						<form method="post" action={actionPath("league-reset")} data-gosx-managed="true">

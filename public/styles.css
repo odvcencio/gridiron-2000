@@ -7199,10 +7199,26 @@ body.is-on-clock .draft-clock-panel {
 
 .announcement-item__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
   color: var(--color-text-muted);
+}
+
+/* gap-audit item 6: the announcement delete had no accessible name, no
+   confirmation step, and no stated undo. The summary now carries an
+   accessible name ("Delete announcement posted <date>") and opening it is
+   the review step before the real submit button; [open] claims the full
+   meta row so the confirmation sentence has room. */
+.announcement-delete-disclosure[open] {
+  flex-basis: 100%;
+}
+
+.announcement-delete-disclosure form {
+  margin-top: var(--space-xs);
+  display: grid;
+  gap: var(--space-xs);
 }
 
 .announcement-textarea {

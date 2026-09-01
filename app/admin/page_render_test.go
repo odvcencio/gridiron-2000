@@ -1248,6 +1248,85 @@ func TestWeekCloseTilesFixtureProcess(t *testing.T) {
 	}
 }
 
+// TestAnnouncementDeleteHasAccessibleNameAndReviewConfirmStep pins gap-audit
+// item 6: the announcement ✕ delete carried no accessible name and no
+// confirmation step, so one careless tap silently destroyed a posted note.
+// Opening the disclosure (whose summary now names the exact announcement
+// being deleted) is the review step; a second, explicit button submits it.
+func TestAnnouncementDeleteHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAnnouncementDeleteFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_ANNOUNCEMENT_DELETE_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("announcement-delete fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAnnouncementDeleteFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_ANNOUNCEMENT_DELETE_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"body":       {"Draft night is Saturday."},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/announcement-post", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("announcement-post POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+
+	data := league.Default().AdminData(httptest.NewRequest(http.MethodGet, "/admin", nil))
+	notes, _ := data["announcements"].([]map[string]any)
+	if len(notes) != 1 {
+		t.Fatalf("announcements = %#v, want exactly 1", notes)
+	}
+	postedAt, _ := notes[0]["posted_at"].(string)
+	if postedAt == "" {
+		t.Fatal("posted announcement has no posted_at timestamp to name the delete with")
+	}
+	wantAriaLabel := `aria-label="Delete announcement posted ` + postedAt + `"`
+	if !strings.Contains(body, wantAriaLabel) {
+		t.Errorf("announcement delete missing its accessible name: want %q in %s", wantAriaLabel, body)
+	}
+	if !strings.Contains(body, "Delete the announcement posted "+postedAt+"? This removes it from the league notes and the home page; it cannot be undone.") {
+		t.Errorf("announcement delete missing its review-confirm sentence: %s", body)
+	}
+	if !strings.Contains(body, ">Confirm delete<") {
+		t.Errorf("announcement delete missing its explicit confirm button: %s", body)
+	}
+	if !strings.Contains(body, `class="announcement-delete-disclosure"`) {
+		t.Errorf("announcement delete is not wrapped in the review-confirm disclosure: %s", body)
+	}
+}
+
 func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 	body := renderAdminPage(t)
 	for _, want := range []string{

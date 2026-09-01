@@ -91,6 +91,36 @@ func TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle(t *testing.T) {
 	}
 }
 
+// TestPreviouslyUnlabeledControlsNowHaveAccessibleNames pins gap-audit item
+// 6: twelve controls had no accessible name — the 8 per-team rename
+// inputs, the invite email field, the clock-extend and set-duration
+// seconds fields, the announcement textarea, and the "type UNDO" field.
+func TestPreviouslyUnlabeledControlsNowHaveAccessibleNames(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		`<label for={"seat-rename-" + props.seat.id} class="visually-hidden">Rename {props.seat.name}</label>`,
+		`<label for="admin-invite-email" class="visually-hidden">Manager email to invite</label>`,
+		`<label for="admin-clock-extend-seconds" class="visually-hidden">Seconds to add to the running pick</label>`,
+		`<label for="admin-clock-set-duration-seconds" class="visually-hidden">Custom pick clock duration in seconds</label>`,
+		`<label for="admin-announcement-body" class="visually-hidden">League announcement text</label>`,
+		`<label for="admin-draft-undo-confirm">Type <span class="mono">UNDO</span> to confirm.</label>`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("admin page missing accessible-name fix %q", want)
+		}
+	}
+	// Up to 500 characters is the closest static equivalent this template
+	// can render for a live counter without a client-side runtime feature;
+	// note it is at least stated next to the field it limits.
+	if !strings.Contains(markup, `aria-describedby="admin-announcement-limit"`) || !strings.Contains(markup, `id="admin-announcement-limit"`) {
+		t.Error("announcement textarea is missing its character-limit hint")
+	}
+}
+
 func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
