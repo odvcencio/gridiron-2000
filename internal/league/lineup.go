@@ -403,12 +403,21 @@ func lineupSlotByID(preset RosterPreset, id string) (SlotInstance, bool) {
 // GameInfo.Kickoff check) applied per player instead of per game. ok is
 // false when nflTeam has no week-W game (a bye) — a bye player never
 // kickoff-locks.
+//
+// Both sides go through normalizeNFLAbbreviation (matchup_ledger.go), the
+// same correction teamHasGame already applies and whose doc comment names
+// this exact hazard: a real pool player can carry a Tank01-sourced NFLTeam
+// ("LAR"), while GameInfo.Away/Home arrives nflverse-normalized ("LA"). A
+// raw string compare here missed every LAR/WSH/JAC starter's kickoff and
+// left them startable past game start — a cheating vector, not just a
+// display bug.
 func playerLockAt(games []GameInfo, week int, nflTeam string) (time.Time, bool) {
+	normalized := normalizeNFLAbbreviation(nflTeam)
 	for _, g := range games {
 		if g.Week != week {
 			continue
 		}
-		if g.Away == nflTeam || g.Home == nflTeam {
+		if normalizeNFLAbbreviation(g.Away) == normalized || normalizeNFLAbbreviation(g.Home) == normalized {
 			return g.Kickoff, true
 		}
 	}

@@ -216,6 +216,34 @@ func TestPlayerLockAtAndLocked(t *testing.T) {
 	}
 }
 
+// TestPlayerLockAtNormalizesTank01Abbreviation pins the gap-audit finding:
+// the schedule's own GameInfo.Away/Home arrives nflverse-normalized ("LA"),
+// while a real pool player can still carry a Tank01-sourced NFLTeam ("LAR",
+// defaultPlayers' Puka Nacua/Kyren Williams/Davante Adams/Matthew
+// Stafford/Blake Corum). Before normalizeNFLAbbreviation (matchup_ledger.go,
+// already used by teamHasGame for this exact hazard) was applied here too,
+// playerLockAt's raw string compare never matched "LAR" against "LA" and
+// five Rams starters stayed startable after kickoff — a cheating vector.
+func TestPlayerLockAtNormalizesTank01Abbreviation(t *testing.T) {
+	kickoff := time.Date(2026, 9, 14, 20, 25, 0, 0, time.UTC)
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: kickoff, Away: "LA", Home: "SF"}}
+
+	got, ok := playerLockAt(games, 1, "LAR")
+	if !ok || !got.Equal(kickoff) {
+		t.Fatalf("playerLockAt(LAR) = %v, %v; want %v, true", got, ok, kickoff)
+	}
+	if !playerLocked(games, 1, "LAR", kickoff) {
+		t.Error("a LAR starter must lock at the LA game's kickoff")
+	}
+	// The reverse direction (a schedule side already spelled the pool's own
+	// abbreviation) must resolve identically, and player-side variants that
+	// only differ by case or surrounding space must still match.
+	got, ok = playerLockAt(games, 1, " lar ")
+	if !ok || !got.Equal(kickoff) {
+		t.Fatalf("playerLockAt(\" lar \") = %v, %v; want %v, true", got, ok, kickoff)
+	}
+}
+
 // TestSlotWarnsInjuryPrefixes pins section 4.5's case-insensitive
 // Out/IR/Doubtful prefix match; an unrecognized free-text string never
 // warns.
