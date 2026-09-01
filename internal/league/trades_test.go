@@ -778,6 +778,30 @@ func TestTradeCounterSwapsSidesAndOpensOneChain(t *testing.T) {
 	}
 }
 
+// TestTradeOfferRowTimesUseLeagueZoneWithRelative is the gap-audit
+// finding: CreatedAt/ResolvedAt used to format offer.CreatedAt/ResolvedAt
+// (stored UTC) directly, in whatever zone the instant's own Location
+// carried — never the league's own timezone, and with no relative text.
+// newTradesTestService's fixture clock (2026-09-13T12:00:00Z) falls in
+// Eastern daylight time (EDT), the league's default zone.
+func TestTradeOfferRowTimesUseLeagueZoneWithRelative(t *testing.T) {
+	svc, now := newTradesTestService(t, "")
+	offer := TradeOffer{
+		ID: "trd-time", FromTeamID: "team-1", ToTeamID: "team-2",
+		Give: []string{"t1-a"}, Get: []string{"t2-a"},
+		Status:     TradeStatusExecuted,
+		CreatedAt:  now.Add(-2 * time.Hour).UTC(),
+		ResolvedAt: now.Add(-12 * time.Minute).UTC(),
+	}
+	row := svc.tradeOfferRow(svc.pool(), offer, "team-1", false, false, false, 0)
+	if row.CreatedAt != "Sep 13, 6:00 AM EDT · 2 hours ago" {
+		t.Fatalf("CreatedAt = %q, want the league-zone stamp plus relative suffix", row.CreatedAt)
+	}
+	if row.ResolvedAt != "Sep 13, 7:48 AM EDT · 12 minutes ago" {
+		t.Fatalf("ResolvedAt = %q, want the league-zone stamp plus relative suffix", row.ResolvedAt)
+	}
+}
+
 func TestTradeAcceptActorAndStatusChecks(t *testing.T) {
 	svc, now := newTradesTestService(t, "")
 	offerID := proposeFixtureOffer(t, svc)
@@ -807,6 +831,68 @@ func TestTradeAcceptActorAndStatusChecks(t *testing.T) {
 	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err == nil || err.Error() != "this offer is no longer open" {
 		t.Fatalf("accept on a resolved offer: err = %v", err)
 	}
+}
+
+// TestTradesDataAcceptedOfferRendersFromViewingSeat is the gap-audit
+// finding: after team-2 accepts team-1's offer, both seats used to see the
+// identical FromTeamID-anchored row under OUTBOX ("To East 2 · ... You
+// send Team1 A for Team2 A"), which is only true for team-1. For team-2 —
+// the accepting seat — that row named itself as the recipient of its own
+// offer and called it the sender of a player it never owned. Every row
+// must resolve against the viewing seat, and an offer the viewer received
+// and accepted belongs in "pending review", not "outbox" (outbox is only
+// ever offers the viewer sent).
+func TestTradesDataAcceptedOfferRendersFromViewingSeat(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	offerID := proposeFixtureOffer(t, svc) // team-1 (East 1) -> team-2 (East 2): give t1-a, get t2-a
+	acceptRequest, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.AcceptTrade(acceptRequest, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+		t.Fatalf("AcceptTrade: %v", err)
+	}
+
+	// team-1 proposed and sent this offer: it stays in the sender's own
+	// outbox, correctly framed as "you send".
+	withPublicEntryRequest(t, svc, "team-1@example.com", func(r *http.Request) {
+		data := svc.TradesData(r)
+		outbox, _ := data["outbox"].([]TradeOfferRow)
+		if len(outbox) != 1 || outbox[0].ID != offerID {
+			t.Fatalf("proposer outbox = %#v, want the one accepted offer", outbox)
+		}
+		if outbox[0].ToTeam != "East 2" || len(outbox[0].Give) != 1 || outbox[0].Give[0].ID != "t1-a" ||
+			len(outbox[0].Get) != 1 || outbox[0].Get[0].ID != "t2-a" {
+			t.Fatalf("proposer row = %+v, want To East 2 / send t1-a for t2-a", outbox[0])
+		}
+		pending, _ := data["pending_review"].([]TradeOfferRow)
+		if len(pending) != 0 {
+			t.Fatalf("proposer must not see its own sent offer under pending_review: %#v", pending)
+		}
+	})
+
+	// team-2 received and accepted this offer: it never sent anything, so
+	// outbox must be empty, and its pending_review row must name the real
+	// sender and the assets team-2 actually gets/gave — not repeat the
+	// sender's own framing.
+	withPublicEntryRequest(t, svc, "team-2@example.com", func(r *http.Request) {
+		data := svc.TradesData(r)
+		outbox, _ := data["outbox"].([]TradeOfferRow)
+		if len(outbox) != 0 {
+			t.Fatalf("acceptor outbox must stay empty, got %#v", outbox)
+		}
+		pending, _ := data["pending_review"].([]TradeOfferRow)
+		if len(pending) != 1 || pending[0].ID != offerID {
+			t.Fatalf("acceptor pending_review = %#v, want the one accepted offer", pending)
+		}
+		row := pending[0]
+		if row.FromTeam != "East 1" {
+			t.Fatalf("acceptor row FromTeam = %q, want the real sender East 1", row.FromTeam)
+		}
+		if len(row.Give) != 1 || row.Give[0].ID != "t1-a" {
+			t.Fatalf("acceptor row Give = %+v, want t1-a (what the acceptor gets)", row.Give)
+		}
+		if len(row.Get) != 1 || row.Get[0].ID != "t2-a" {
+			t.Fatalf("acceptor row Get = %+v, want t2-a (what the acceptor sent)", row.Get)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------

@@ -551,7 +551,7 @@ func (s *Service) announcementAdminMaps(state PersistedState) []map[string]any {
 			"id":        a.ID,
 			"body":      a.Body,
 			"posted_by": a.PostedBy,
-			"posted_at": a.PostedAt.Format("Jan 2, 3:04 PM MST"),
+			"posted_at": s.leagueTimeStamp(a.PostedAt),
 		})
 	}
 	return out

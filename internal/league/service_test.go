@@ -1472,3 +1472,52 @@ func TestDashboardStandingsWithoutScheduleIsExplicit(t *testing.T) {
 		t.Fatalf("preseason standings title = %v", data["standings_title"])
 	}
 }
+
+// TestLatestAnnouncementBannerUsesLeagueZoneWithRelativeLabel is the
+// gap-audit finding: the shared layout's shell banner showed "Sep 1, 8:35
+// PM UTC" on every page — PostedAt (stored UTC) formatted directly, no
+// league timezone conversion, no relative text. The layout markup
+// (app/layout.gsx) has no second binding for a relative value, so the
+// label folds into the same posted_at string, the wire time formatter's
+// own recipe (formatWireTime).
+func TestLatestAnnouncementBannerUsesLeagueZoneWithRelativeLabel(t *testing.T) {
+	service := newTestService(t, true)
+	postedAt := time.Date(2026, 9, 1, 20, 35, 0, 0, time.UTC)
+	if _, err := service.store.PostAnnouncement("Draft moved to Friday.", "Commissioner", postedAt); err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return postedAt.Add(12 * time.Minute) }
+
+	banner := service.latestAnnouncementBanner()
+	if banner["has"] != true {
+		t.Fatalf("banner = %+v, want has=true", banner)
+	}
+	if got := banner["posted_at"]; got != "Sep 1, 4:35 PM EDT · 12 minutes ago" {
+		t.Fatalf("posted_at = %v, want the league-zone stamp plus relative suffix", got)
+	}
+}
+
+// TestAnnouncementListMapsUsesLeagueZone is the home page announcements
+// list's half of the same finding: posted_at formatted the stored instant
+// without converting to the league zone. posted_ago already carried a
+// relative label (relativeTime) through a separate binding, so it stays a
+// second field here rather than folding into posted_at as the banner does.
+func TestAnnouncementListMapsUsesLeagueZone(t *testing.T) {
+	service := newTestService(t, true)
+	postedAt := time.Date(2026, 9, 1, 20, 35, 0, 0, time.UTC)
+	if _, err := service.store.PostAnnouncement("Draft moved to Friday.", "Commissioner", postedAt); err != nil {
+		t.Fatal(err)
+	}
+	service.now = func() time.Time { return postedAt.Add(12 * time.Minute) }
+
+	rows := service.announcementListMaps(5)
+	if len(rows) != 1 {
+		t.Fatalf("announcementListMaps = %+v, want 1 row", rows)
+	}
+	if got := rows[0]["posted_at"]; got != "Sep 1, 4:35 PM EDT" {
+		t.Fatalf("posted_at = %v, want the league-zone stamp", got)
+	}
+	if got := rows[0]["posted_ago"]; got != "12 minutes ago" {
+		t.Fatalf("posted_ago = %v, want the relative label", got)
+	}
+}

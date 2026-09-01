@@ -379,7 +379,7 @@ func TradeDeskRegion() Node {
 				<div class="empty-tape">
 					<strong>NO OPEN OR PENDING OFFERS</strong>
 					<p>
-						Offers you send, and offers under commissioner or league review, show here.
+						Offers you send show here, open or accepted and awaiting review.
 					</p>
 				</div>
 			</If>
@@ -457,11 +457,59 @@ func TradeDeskRegion() Node {
 				</Each>
 			</div>
 		</section>
+		<section class="player-pool" id="pending-review">
+			<div class="pool-toolbar">
+				<div>
+					<span class="section-index">04 // PENDING REVIEW</span>
+					<h2>Offers you accepted</h2>
+				</div>
+			</div>
+			<If cond={data.pending_review_empty}>
+				<div class="empty-tape">
+					<strong>NOTHING PENDING</strong>
+					<p>
+						Offers you received and accepted show here until the league review window closes.
+					</p>
+				</div>
+			</If>
+			<div class="pool-list">
+				<Each of={data.pending_review} as="offer">
+					<article class="rank-row rank-row--wide">
+						<div class="pool-player__text">
+							<strong>
+								{"From " + offer.FromTeam + " · " + offer.StatusLabel}
+							</strong>
+							<small>
+								You get
+								<Each of={offer.Give} as="p">
+									{" " + p.Name + " (" + p.Position + ")"}
+								</Each>
+								· you sent
+								<Each of={offer.Get} as="p">
+									{" " + p.Name + " (" + p.Position + ")"}
+								</Each>
+							</small>
+							<If cond={offer.HasReviewDeadline}>
+								<small>
+									Review window ends
+									{offer.ReviewDeadline}
+									·
+									{offer.VetoesCount}
+									of
+									{offer.VetoesThreshold}
+									vetoes filed
+								</small>
+							</If>
+						</div>
+					</article>
+				</Each>
+			</div>
+		</section>
 		<If cond={data.is_commissioner}>
 			<section class="player-pool" id="review">
 				<div class="pool-toolbar">
 					<div>
-						<span class="section-index">04 // COMMISSIONER REVIEW</span>
+						<span class="section-index">05 // COMMISSIONER REVIEW</span>
 						<h2>Trades awaiting a decision</h2>
 					</div>
 				</div>
@@ -554,7 +602,7 @@ func TradeDeskRegion() Node {
 			<section class="player-pool" id="vote">
 				<div class="pool-toolbar">
 					<div>
-						<span class="section-index">05 // LEAGUE VOTE</span>
+						<span class="section-index">06 // LEAGUE VOTE</span>
 						<h2>Trades open for a veto vote</h2>
 					</div>
 				</div>
@@ -611,7 +659,7 @@ func TradeDeskRegion() Node {
 		<section class="player-pool" id="history">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">06 // HISTORY</span>
+					<span class="section-index">07 // HISTORY</span>
 					<h2>Trade history</h2>
 				</div>
 			</div>

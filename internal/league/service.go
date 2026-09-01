@@ -2383,6 +2383,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
 		"starters_filled":      strconv.Itoa(filled),
 		"starters_total":       strconv.Itoa(len(lineup.Slots)),
+		// starters_empty/starters_empty_label back /team's persistent,
+		// beside-the-count warning (gap-audit finding: SET BEST LINEUP used
+		// to report plain success while a starting slot, e.g. K with no
+		// kicker rostered, stayed empty). This is state, read fresh on
+		// every render, so it stays honest independent of whether the
+		// empty slot came from SET BEST LINEUP, a drop, or a lock.
+		"starters_empty":       len(lineupEmptyStarterSlots(lineup)) > 0,
+		"starters_empty_label": lineupEmptySlotsWarning(lineupEmptyStarterSlots(lineup)),
 		"bench_capacity":       strconv.Itoa(preset.Bench),
 		"bench":                playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
 		"bench_empty":          len(lineup.Bench) == 0,
@@ -3151,7 +3159,7 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		"source":            live.Source,
 		"sourceLabel":       live.SourceLabel,
 		"week":              live.Week,
-		"weekLabel":         live.WeekLabel,
+		"weekLabel":         s.presentedWeekLabel(live),
 		"state":             live.State,
 		"status":            live.Status,
 		"warning":           live.Warning,
@@ -3720,7 +3728,7 @@ func (s *Service) latestAnnouncementBanner() map[string]any {
 	return map[string]any{
 		"has":       true,
 		"body":      latest.Body,
-		"posted_at": latest.PostedAt.Format("Jan 2, 3:04 PM MST"),
+		"posted_at": s.leagueTimeStamp(latest.PostedAt),
 	}
 }
 
@@ -3740,7 +3748,7 @@ func (s *Service) announcementListMaps(limit int) []map[string]any {
 			"id":         a.ID,
 			"body":       a.Body,
 			"posted_by":  a.PostedBy,
-			"posted_at":  a.PostedAt.Format("Jan 2, 3:04 PM MST"),
+			"posted_at":  a.PostedAt.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST"),
 			"posted_ago": relativeTime(now, a.PostedAt),
 		})
 	}
@@ -3761,6 +3769,26 @@ func RelativeTime(now, then time.Time) string { return relativeTime(now, then) }
 // Wire shipped on America/Los_Angeles for a while; the audit that caught
 // it is spore.2026-09-01.alder in the hyphae space).
 func (s *Service) LeagueLocation() *time.Location { return s.matchupLocation() }
+
+// leagueTimeStamp is the shared recipe every stored-instant display in
+// this package routes through (gap-audit finding: trades.go, admin.go,
+// and players.go each used to format a stored, often-UTC instant directly
+// — whatever zone it happened to carry, no relative text). It renders t in
+// the league's canonical zone (LeagueLocation) using this package's
+// existing "Jan 2, 3:04 PM MST" idiom, with RelativeTime's trailing label
+// folded into the same string rather than a second field: several
+// consuming templates — the shared layout's dismiss-free announcement
+// banner chief among them (app/layout.gsx, not this package) — have no
+// second binding to carry a relative value separately. now anchors the
+// relative label; callers pass s.clock() so a fixed test clock stays
+// deterministic. A zero instant renders "".
+func (s *Service) leagueTimeStamp(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	stamp := t.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST")
+	return stamp + " · " + RelativeTime(s.clock(), t)
+}
 
 // relativeTime renders a compact "N unit(s) ago" label for a past instant,
 // floored at "just now" for anything under a minute. Only the coarsest
@@ -4007,6 +4035,24 @@ func matchupStaticPresentation(state string) map[string]string {
 	}
 }
 
+// presentedWeekLabel is the masthead's week/date phrase: MatchupsData's
+// "live.week_label" (initial render) and LiveScoresView's "weekLabel" (the
+// live poll bind) both read this key, so page.gsx's h1 shows the same text
+// before and after the runtime's first poll. feed.go's demoProvider embeds
+// cfg.SeasonStartAt straight into WeekLabel ("Week 1 · Sundays from January
+// 8"); before a commissioner sets a real date, SeasonStartAt still holds
+// the packaged example league's far-future placeholder (config.go's
+// 2099-01-08 sentinel), so the raw label would claim a season date had
+// already been published. DraftDatePublished already draws this exact
+// "implausibly far out or zero" line for the draft date; reusing it here
+// keeps "published" meaning one thing everywhere the app checks it.
+func (s *Service) presentedWeekLabel(live LiveSnapshot) string {
+	if live.State != MatchupStatePreseason || DraftDatePublished(s.clock(), s.cfg.SeasonStartAt) {
+		return live.WeekLabel
+	}
+	return fmt.Sprintf("Week %d · season start not published yet", live.Week)
+}
+
 func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	presentation := matchupPresentation(live.State)
 	if live.State == MatchupStatePreseason {
@@ -4022,7 +4068,7 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 		"source":              live.Source,
 		"source_label":        live.SourceLabel,
 		"week":                live.Week,
-		"week_label":          live.WeekLabel,
+		"week_label":          s.presentedWeekLabel(live),
 		"state":               live.State,
 		"status":              live.Status,
 		"live_state":          live.LiveState,

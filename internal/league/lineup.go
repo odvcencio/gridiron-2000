@@ -403,12 +403,21 @@ func lineupSlotByID(preset RosterPreset, id string) (SlotInstance, bool) {
 // GameInfo.Kickoff check) applied per player instead of per game. ok is
 // false when nflTeam has no week-W game (a bye) — a bye player never
 // kickoff-locks.
+//
+// Both sides go through normalizeNFLAbbreviation (matchup_ledger.go), the
+// same correction teamHasGame already applies and whose doc comment names
+// this exact hazard: a real pool player can carry a Tank01-sourced NFLTeam
+// ("LAR"), while GameInfo.Away/Home arrives nflverse-normalized ("LA"). A
+// raw string compare here missed every LAR/WSH/JAC starter's kickoff and
+// left them startable past game start — a cheating vector, not just a
+// display bug.
 func playerLockAt(games []GameInfo, week int, nflTeam string) (time.Time, bool) {
+	normalized := normalizeNFLAbbreviation(nflTeam)
 	for _, g := range games {
 		if g.Week != week {
 			continue
 		}
-		if g.Away == nflTeam || g.Home == nflTeam {
+		if normalizeNFLAbbreviation(g.Away) == normalized || normalizeNFLAbbreviation(g.Home) == normalized {
 			return g.Kickoff, true
 		}
 	}
@@ -785,7 +794,105 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 	if err := s.store.SetLineupWeek(teamID, week, resolved); err != nil {
 		return "", err
 	}
-	return "Your best lineup is set.", nil
+	return lineupAutoResultMessage(preset, resolved), nil
+}
+
+// lineupPositionPlainName maps a slot-eligible position to the plain,
+// spelled-out noun the result message names it by — "kicker", not "K" —
+// so a manager who has never seen the roster abbreviation table still
+// knows what to sign (product experience contract: actions name the
+// affected player/position, not just a slot code).
+var lineupPositionPlainName = map[string]string{
+	"QB":  "quarterback",
+	"RB":  "running back",
+	"WR":  "wide receiver",
+	"TE":  "tight end",
+	"DST": "defense/special teams",
+	"K":   "kicker",
+	"P":   "punter",
+}
+
+// lineupSlotMissingReason names what a still-empty slot needs: a single-
+// position slot (K, QB, ...) names that one position; a multi-eligible
+// slot (FLEX, SUPERFLEX) names every position it could have taken, so the
+// manager knows exactly what to go sign rather than guessing from the
+// slot code alone.
+func lineupSlotMissingReason(slot SlotDef) string {
+	names := make([]string, len(slot.Eligible))
+	for i, position := range slot.Eligible {
+		if plain, ok := lineupPositionPlainName[position]; ok {
+			names[i] = plain
+		} else {
+			names[i] = position
+		}
+	}
+	if len(names) == 1 {
+		return "you have no " + names[0]
+	}
+	return "you have no eligible " + joinWithOr(names)
+}
+
+// joinWithOr renders items as an Oxford-comma "or" list ("a", "a or b", "a,
+// b, or c"); the empty case is unreachable (every SlotDef carries at least
+// one Eligible position) but returns "" rather than panicking.
+func joinWithOr(items []string) string {
+	switch len(items) {
+	case 0:
+		return ""
+	case 1:
+		return items[0]
+	case 2:
+		return items[0] + " or " + items[1]
+	default:
+		return strings.Join(items[:len(items)-1], ", ") + ", or " + items[len(items)-1]
+	}
+}
+
+// lineupEmptyStarterSlots returns lineup's still-empty starting slots, in
+// engine order — the shared list both SET BEST LINEUP's result message
+// (lineupAutoResultMessage) and /team's persistent starters-count warning
+// (lineupEmptySlotsWarning, Service.teamData) draw from, so the two
+// surfaces can never disagree about which slots count as empty.
+func lineupEmptyStarterSlots(lineup EffectiveLineup) []SlotInstance {
+	var missing []SlotInstance
+	for _, a := range lineup.Slots {
+		if !a.HasPlayer {
+			missing = append(missing, a.Slot)
+		}
+	}
+	return missing
+}
+
+// lineupEmptySlotsWarning renders missing as /team's persistent,
+// plain-language starters-count warning (product experience contract:
+// state is text, never color alone). An empty slice renders "" so the
+// caller can gate the warning's visibility on the same string.
+func lineupEmptySlotsWarning(missing []SlotInstance) string {
+	if len(missing) == 0 {
+		return ""
+	}
+	phrases := make([]string, len(missing))
+	for i, slot := range missing {
+		phrases[i] = fmt.Sprintf("%s is empty — %s", slot.ID, lineupSlotMissingReason(slot.Def))
+	}
+	return strings.Join(phrases, "; ") + ". Sign from the Player Pool."
+}
+
+// lineupAutoResultMessage is SET BEST LINEUP's result copy (section 4.7,
+// gap-audit finding: the action must never report plain success while a
+// starting slot stays empty). resolved is autoFillWeek's slotID -> playerID
+// map; any starting slot preset defines but resolved has no entry for
+// could not be filled (typically an empty position group, or every
+// candidate locked) and is named, in engine order, with where to fix it.
+func lineupAutoResultMessage(preset RosterPreset, resolved map[string]string) string {
+	message := "Best lineup set."
+	for _, slot := range lineupSlots(preset) {
+		if _, filled := resolved[slot.ID]; filled {
+			continue
+		}
+		message += fmt.Sprintf(" %s is still empty — %s. Sign one from the Player Pool.", slot.ID, lineupSlotMissingReason(slot.Def))
+	}
+	return message
 }
 
 // effectiveLineupForTeam snapshots state and resolves teamID's effective

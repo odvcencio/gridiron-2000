@@ -777,6 +777,47 @@ func TestPlayersDataMyClaimsPanel(t *testing.T) {
 	}
 }
 
+// TestPlayersDataWaiverTimesUseLeagueZoneWithRelative is the gap-audit
+// finding for players.go:153/:369: a waiver receipt's resolved_at and an
+// open claim's filed_at used to format the stored instant directly
+// (whatever zone it carried) with no relative text. newWaiversTestService's
+// fixture clock (2026-09-13T12:00:00Z) falls in Eastern daylight time.
+func TestPlayersDataWaiverTimesUseLeagueZoneWithRelative(t *testing.T) {
+	svc, now := newWaiversTestService(t)
+	request, _ := http.NewRequest(http.MethodPost, "/players", nil)
+	if _, err := svc.FileClaim(request, "team-1", "wv-open", "rb-open", 0); err != nil {
+		t.Fatal(err)
+	}
+	svc.store.mu.Lock()
+	svc.store.state.WaiverReceipts = []WaiverReceipt{
+		{
+			ClaimID: "receipt-time", Season: 2026, Week: 1, TeamID: "team-1",
+			Add:     TransactionPlayer{Name: "Receipt Player", Position: "WR"},
+			Outcome: "won", Reason: "Claim awarded.", ResolvedAt: now.Add(-90 * time.Minute).UTC(),
+		},
+	}
+	svc.store.mu.Unlock()
+
+	getRequest, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(getRequest)
+
+	claims, _ := data["my_claims"].([]map[string]any)
+	if len(claims) != 1 {
+		t.Fatalf("my_claims = %+v, want exactly 1", claims)
+	}
+	if got := claims[0]["filed_at"]; got != "Sep 13, 8:00 AM EDT · just now" {
+		t.Fatalf("filed_at = %v, want the league-zone stamp plus relative suffix", got)
+	}
+
+	receipts, _ := data["my_waiver_receipts"].([]map[string]any)
+	if len(receipts) != 1 {
+		t.Fatalf("my_waiver_receipts = %+v, want exactly 1", receipts)
+	}
+	if got := receipts[0]["resolved_at"]; got != "Sep 13, 6:30 AM EDT · 1 hour ago" {
+		t.Fatalf("resolved_at = %v, want the league-zone stamp plus relative suffix", got)
+	}
+}
+
 func TestPlayersDataWaiverReceiptsAreTeamPrivateAndIgnoreEmailPrefs(t *testing.T) {
 	svc, now := newWaiversTestService(t)
 	svc.store.mu.Lock()
