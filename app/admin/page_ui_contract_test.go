@@ -68,6 +68,29 @@ func TestTypedConfirmFieldsClaimAFullWidthRow(t *testing.T) {
 	}
 }
 
+// TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle pins gap-audit
+// item 9's ghost-style ask: FORCE CLOSE and force-run-waivers keep the
+// shared .button--ghost class (so /draft, /help, /login, /settings, and
+// /team's own ghost buttons are untouched), but the admin week-close
+// section further mutes it — a dashed border and muted text, one step
+// short of disabled — since it is the only clickable control once
+// readiness disables the normal close.
+func TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle(t *testing.T) {
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		"#admin-week-close .clock-controls .button--ghost {",
+		"border-style: dashed;",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("week-close force-button muting styles missing %q", want)
+		}
+	}
+}
+
 func TestStableAdminSectionsAndAllowlistedFocus(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {

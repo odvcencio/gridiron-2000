@@ -606,7 +606,7 @@ func Page() Node {
 							<div class="pool-stat"><span>Selected week</span><b class="mono">WEEK {data.schedule.close.week}</b></div>
 							<div class="pool-stat"><span>Games</span><b class="mono">{data.schedule.close.games_final}/{data.schedule.close.games_total} FINAL</b></div>
 							<div class="pool-stat"><span>Stats updated</span><b class="mono">{data.schedule.close.stats_updated}</b></div>
-							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready}</b></div>
+							<div class="pool-stat"><span>Readiness</span><b class="mono">{data.schedule.close.ready_label}</b></div>
 						</div>
 						<p class="scoring-note"><strong>WHY:</strong> {data.schedule.close.reason}</p>
 						<If cond={data.schedule.close.final}>
@@ -661,7 +661,7 @@ func Page() Node {
 							<button class="button" type="submit" disabled="disabled">No open claims to run</button>
 						</If>
 					</form>
-					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger. The prior release note that commissioner seeding automation is not wired into this release yet is retired; use PLAYOFF TRUTH below.</p>
+					<p class="demo-message"><strong>PLAYOFF TIMING:</strong> preview and publish the bracket only after final regular-season standings exist. Weekly advancement is gated on the authoritative starter ledger; use PLAYOFF TRUTH below.</p>
 				</section>
 				<section id="admin-playoffs" aria-labelledby="admin-playoffs-heading" tabindex="-1" data-admin-section="playoffs" class={"player-pool admin-season-ops" + data.section_class_playoffs}>
 					<div class="pool-toolbar">

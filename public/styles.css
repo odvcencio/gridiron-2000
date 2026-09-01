@@ -4745,6 +4745,21 @@ body.is-on-clock .draft-clock-panel {
   grid-column: 1 / -1;
 }
 
+/* Admin week-close: FORCE CLOSE is the only clickable control once
+   readiness disables the normal close, so it reads as the "bright" one by
+   contrast even under .button--ghost (gap-audit item 9) — that shared
+   class still carries full-weight uppercase text and a solid border, since
+   /draft, /help, /login, /settings, and /team all rely on it staying a
+   plain secondary button. Scoped here rather than touching that shared
+   rule: dashed border and muted text echo the disabled sibling button's
+   own styling one step short of disabled, signalling "use with care"
+   without blocking the legitimate override. */
+#admin-week-close .clock-controls .button--ghost {
+  border-style: dashed;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
 .board-row {
   position: relative;
   display: grid;

@@ -440,16 +440,28 @@ func (s *Service) adminScheduleMap(state PersistedState, now time.Time) map[stri
 	return base
 }
 
+// adminWeekCloseMap renders the week-close readiness tiles (gap-audit item
+// 9): "ready" stays the raw bool other callers switch on (adminScheduleMap,
+// close-week-ready's own gate), but ready_label carries the plain-language
+// word the tile actually prints — GoSX's raw-bool interpolation had shown
+// the Go literal "false" on screen. stats_updated similarly needs a value
+// or a reason in every tile, never a blank cell, so it falls back to
+// "NOT YET" before the first stats sync instead of an empty string.
 func adminWeekCloseMap(info WeekCloseInfo, location *time.Location) map[string]any {
-	statsUpdated := ""
+	statsUpdated := "NOT YET"
 	if !info.StatsUpdatedAt.IsZero() {
 		statsUpdated = info.StatsUpdatedAt.In(location).Format("Jan 2, 2006 · 3:04 PM MST")
+	}
+	readyLabel := "NOT READY"
+	if info.Ready {
+		readyLabel = "READY"
 	}
 	return map[string]any{
 		"week":          info.Week,
 		"exists":        info.Exists,
 		"final":         info.Final,
 		"ready":         info.Ready,
+		"ready_label":   readyLabel,
 		"games_known":   info.GamesKnown,
 		"games_total":   info.GamesTotal,
 		"games_final":   info.GamesFinal,

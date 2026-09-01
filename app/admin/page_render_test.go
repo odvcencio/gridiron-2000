@@ -774,11 +774,18 @@ func TestAdminSeasonControlsRenderAndRetainInvalidGenerationFixtureProcess(t *te
 		"Regular-season control",
 		"Generate regular-season schedule",
 		"Close a scoring week",
-		"commissioner seeding automation is not wired into this release yet",
 	} {
 		if !strings.Contains(body, snippet) {
 			t.Fatalf("admin page omitted %q: %s", snippet, body)
 		}
+	}
+	// gap-audit item 9: "commissioner seeding automation is not wired into
+	// this release yet" was engineering narration about the release itself,
+	// not a fact about the league — it leaked into the shipped PLAYOFF
+	// TIMING copy and this test used to pin its presence. It must not come
+	// back.
+	if strings.Contains(body, "commissioner seeding automation is not wired") {
+		t.Fatal("admin page must not print the leftover engineering release note")
 	}
 
 	cookie := getRes.Result().Cookies()[0]
@@ -1036,6 +1043,92 @@ func TestForceCloseWeekConfirmPlaceholderFixtureProcess(t *testing.T) {
 	}
 	if !strings.Contains(body, `placeholder="CLOSE WEEK 1"`) {
 		t.Fatalf("force-close confirm placeholder must show the selected week (week 1 after a fresh generate): %s", body)
+	}
+}
+
+// TestWeekCloseTilesRenderPlainLanguageNotBooleansOrEmptyValues pins
+// gap-audit item 9: the readiness tile printed the raw Go bool ("false")
+// instead of a word, and the stats-updated tile was empty with no value or
+// reason before any week ever closed. It also pins the release-note
+// sentence's removal — internal engineering narration ("The prior release
+// note that commissioner seeding automation is not wired into this release
+// yet is retired") had leaked into the shipped PLAYOFF TIMING copy.
+func TestWeekCloseTilesRenderPlainLanguageNotBooleansOrEmptyValues(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestWeekCloseTilesFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_WEEK_CLOSE_TILES_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("week-close tiles fixture: %v\n%s", err, output)
+	}
+}
+
+func TestWeekCloseTilesFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_WEEK_CLOSE_TILES_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	handler := adminTestHandler(t)
+	get := httptest.NewRequest(http.MethodGet, "/", nil)
+	getRes := httptest.NewRecorder()
+	handler.ServeHTTP(getRes, get)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET admin = %d: %s", getRes.Code, getRes.Body.String())
+	}
+	cookie := getRes.Result().Cookies()[0]
+	form := url.Values{
+		"csrf_token": {adminCSRFToken(t, getRes.Body.String())},
+		"weeks":      {"3"}, "start_week": {"1"}, "seed": {"11"},
+	}
+	post := httptest.NewRequest(http.MethodPost, "/__actions/schedule-generate", strings.NewReader(form.Encode()))
+	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	post.AddCookie(cookie)
+	postRes := httptest.NewRecorder()
+	handler.ServeHTTP(postRes, post)
+	if postRes.Code != http.StatusSeeOther {
+		t.Fatalf("schedule generation POST = %d: %s", postRes.Code, postRes.Body.String())
+	}
+
+	reload := httptest.NewRequest(http.MethodGet, "/", nil)
+	reload.AddCookie(postRes.Result().Cookies()[0])
+	reloadRes := httptest.NewRecorder()
+	handler.ServeHTTP(reloadRes, reload)
+	if reloadRes.Code != http.StatusOK {
+		t.Fatalf("reload admin = %d: %s", reloadRes.Code, reloadRes.Body.String())
+	}
+	body := reloadRes.Body.String()
+
+	readinessStart := strings.Index(body, "<span>Readiness</span>")
+	if readinessStart < 0 {
+		t.Fatalf("readiness tile is missing: %s", body)
+	}
+	readinessSnippet := body[readinessStart:min(readinessStart+80, len(body))]
+	if strings.Contains(readinessSnippet, ">false<") || strings.Contains(readinessSnippet, ">true<") {
+		t.Errorf("readiness tile renders a raw Go bool instead of a word: %q", readinessSnippet)
+	}
+	if !strings.Contains(readinessSnippet, "NOT READY") {
+		t.Errorf("readiness tile must render NOT READY for a freshly generated, unplayed week: %q", readinessSnippet)
+	}
+
+	statsStart := strings.Index(body, "<span>Stats updated</span>")
+	if statsStart < 0 {
+		t.Fatalf("stats-updated tile is missing: %s", body)
+	}
+	statsSnippet := body[statsStart:min(statsStart+80, len(body))]
+	if strings.Contains(statsSnippet, "<b class=\"mono\"></b>") {
+		t.Errorf("stats-updated tile must carry a value or reason, never empty: %q", statsSnippet)
+	}
+	if !strings.Contains(statsSnippet, "NOT YET") {
+		t.Errorf("stats-updated tile must state NOT YET before any stats sync: %q", statsSnippet)
+	}
+
+	if strings.Contains(body, "The prior release note") {
+		t.Error("week-close copy still carries the leftover engineering release note")
 	}
 }
 
