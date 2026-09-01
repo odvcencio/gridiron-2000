@@ -182,6 +182,26 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		}
 		seats = append(seats, item)
 	}
+	// seatlessMembers (gap-audit item 8): once every seat is claimed, "any
+	// Google account may claim a seat ... the next open seat is theirs" is
+	// false — there is no next seat. A signed-in member with no TeamID at
+	// that point is an admitted, seatless member waiting on the
+	// commissioner, not an invite still to be sent; the invites panel
+	// switches to naming them instead of repeating the now-false claim.
+	seatlessMembers := make([]map[string]any, 0)
+	for _, member := range state.Members {
+		if strings.TrimSpace(member.TeamID) != "" {
+			continue
+		}
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = "No display name yet"
+		}
+		seatlessMembers = append(seatlessMembers, map[string]any{"email": member.Email, "name": name})
+	}
+	slices.SortFunc(seatlessMembers, func(a, b map[string]any) int {
+		return strings.Compare(a["email"].(string), b["email"].(string))
+	})
 	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	envSet := make(map[string]bool, len(envEmails))
 	invites := make([]map[string]any, 0, len(envEmails)+len(state.Invites))
@@ -242,6 +262,12 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		"league_open":            domainGate == "" && len(invites) == 0,
 		"league_domain_gated":    domainGate != "",
 		"league_domain":          domainGate,
+		// seatless_members backs the invites panel's full-league state
+		// (gap-audit item 8): once every seat is claimed there is no "next
+		// open seat" left to promise a new sign-in, so the panel names the
+		// admitted members still waiting on one instead.
+		"seatless_members":       seatlessMembers,
+		"seatless_members_empty": len(seatlessMembers) == 0,
 		// The masthead labels this value SEATS. Seatless signed-in members and
 		// co-managers are real members but do not occupy additional team seats,
 		// so counting raw Member records overstates launch readiness.

@@ -838,20 +838,28 @@ func Page() Node {
 							</If>
 						</div>
 					</div>
-					<If cond={data.league_open}>
-						<p class="demo-message">
-							<strong>OPEN LEAGUE:</strong>
-							no invite list or membership domain is set, so any Google account may claim a seat. Add the
-							{data.league.seat_count_word}
-							manager emails below.
-						</p>
+					<If cond={data.has_unclaimed_seats}>
+						<If cond={data.league_open}>
+							<p class="demo-message">
+								<strong>OPEN LEAGUE:</strong>
+								no invite list or membership domain is set, so any Google account may claim a seat. Add the
+								{data.league.seat_count_word}
+								manager emails below.
+							</p>
+						</If>
+						<If cond={data.league_domain_gated}>
+							<p class="demo-message">
+								<strong>DOMAIN-GATED:</strong>
+								any Google account ending in
+								<b class="mono">@{data.league_domain}</b>
+								may claim a seat automatically. Add an email below only to invite someone outside that domain.
+							</p>
+						</If>
 					</If>
-					<If cond={data.league_domain_gated}>
+					<If cond={data.has_unclaimed_seats == false}>
 						<p class="demo-message">
-							<strong>DOMAIN-GATED:</strong>
-							any Google account ending in
-							<b class="mono">@{data.league_domain}</b>
-							may claim a seat automatically. Add an email below only to invite someone outside that domain.
+							<strong>SEATS FULL:</strong>
+							every seat is claimed; a new Google sign-in has no seat left to claim. Release a seat in 01 // SEATS to open one, or assign an admitted, seatless member below.
 						</p>
 					</If>
 					<form class="invite-form" method="post" action={actionPath("invite-add")} data-gosx-managed="true">
@@ -907,9 +915,30 @@ func Page() Node {
 							The league cannot send email yet. Use the Mail app links.
 						</p>
 					</If>
-					<p class="scout-callout">
-						Send managers this address: they sign in with Google and the next open seat is theirs.
-					</p>
+					<If cond={data.has_unclaimed_seats}>
+						<p class="scout-callout">
+							Send managers this address: they sign in with Google and the next open seat is theirs.
+						</p>
+					</If>
+					<If cond={data.has_unclaimed_seats == false}>
+						<If cond={data.seatless_members_empty == false}>
+							<h3 class="mono">SEATLESS MEMBERS — SIGNED IN, NO SEAT</h3>
+							<div class="invite-list">
+								<Each of={data.seatless_members} as="member">
+									<article class="invite-row">
+										<div class="invite-identity">
+											<b class="mono">{member.email}</b>
+											<small>{member.name}</small>
+										</div>
+										<small class="mono">Assign a seat in 01 // SEATS, or release a claimed one to make room.</small>
+									</article>
+								</Each>
+							</div>
+						</If>
+						<If cond={data.seatless_members_empty}>
+							<p class="scoring-note">Every admitted member already holds a seat.</p>
+						</If>
+					</If>
 				</section>
 
 				<section id="admin-draft-order" aria-labelledby="admin-draft-order-heading" tabindex="-1" data-admin-section="draft-order" class={"player-pool" + data.section_class_draft_order}>
@@ -1302,10 +1331,18 @@ func Page() Node {
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
 						<textarea name="body" class="announcement-textarea" placeholder="Post a note to the whole league..." maxlength="500" rows="3"></textarea>
-						<label class="announcement-email-toggle">
-							<input type="checkbox" name="also_email" value="true"></input>
-							Also queue an email to the league
-						</label>
+						<If cond={data.mail_enabled}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true"></input>
+								Also queue an email to the league
+							</label>
+						</If>
+						<If cond={data.mail_enabled == false}>
+							<label class="announcement-email-toggle">
+								<input type="checkbox" name="also_email" value="true" disabled="disabled"></input>
+								Also queue an email to the league — unavailable, delivery is off
+							</label>
+						</If>
 						<button class="button button--primary" type="submit">Post announcement</button>
 					</form>
 					<If cond={data.announcements_empty}>

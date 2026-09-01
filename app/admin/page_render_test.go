@@ -732,6 +732,76 @@ func TestAdminTaskBoardLinksLineupInterventionPerTeam(t *testing.T) {
 	}
 }
 
+// TestInvitesPanelBranchesOnOpenSeatCount pins gap-audit item 8: with
+// 8/8 seats claimed the invites panel still said "any Google account may
+// claim a seat ... the next open seat is theirs" — false once every seat
+// is gone. A ninth sign-in lands as an admitted, seatless member (no team
+// seat); the panel must name them instead of repeating the false promise.
+func TestInvitesPanelBranchesOnOpenSeatCount(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestInvitesPanelBranchesOnOpenSeatCountFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_INVITES_FULL_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("invites-full fixture: %v\n%s", err, output)
+	}
+}
+
+func TestInvitesPanelBranchesOnOpenSeatCountFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_INVITES_FULL_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	for i := 1; i <= 8; i++ {
+		email := fmt.Sprintf("manager%d@example.com", i)
+		if _, err := service.AssignManager(email, fmt.Sprintf("Manager %d", i)); err != nil {
+			t.Fatalf("assign manager %d: %v", i, err)
+		}
+	}
+	// The ninth sign-in has no seat left to claim; EnsureMember is the
+	// seatless-admission counterpart AssignManager itself now refuses to
+	// take once every seat is assigned.
+	if _, err := service.EnsureMember("extra@example.com", "Extra Manager"); err != nil {
+		t.Fatalf("admit seatless manager: %v", err)
+	}
+
+	body := renderAdminPage(t)
+	if strings.Contains(body, "any Google account may claim a seat") {
+		t.Errorf("invites panel still claims a seat is available with 8/8 claimed: %s", body)
+	}
+	if strings.Contains(body, "next open seat is theirs") {
+		t.Errorf("invites panel still promises a next open seat with 8/8 claimed: %s", body)
+	}
+	if !strings.Contains(body, "SEATS FULL") {
+		t.Errorf("invites panel missing its full-league state: %s", body)
+	}
+	if !strings.Contains(body, "extra@example.com") {
+		t.Errorf("invites panel missing the seatless member queue entry: %s", body)
+	}
+}
+
+// TestAnnouncementEmailToggleDisabledWithReasonWhenDeliveryOff pins the
+// second half of gap-audit item 8: the "Also queue an email" checkbox
+// stayed enabled when delivery was off, and the toast only revealed
+// "Email: delivery off" after the commissioner had already submitted.
+// renderAdminPage's fixture never configures SMTP, so mail_enabled is
+// false by default and this needs no extra setup.
+func TestAnnouncementEmailToggleDisabledWithReasonWhenDeliveryOff(t *testing.T) {
+	body := renderAdminPage(t)
+	if !strings.Contains(body, `name="also_email" value="true" disabled="disabled"`) {
+		t.Fatalf("also_email checkbox is not disabled when delivery is off: %s", body)
+	}
+	if !strings.Contains(body, "Also queue an email to the league — unavailable, delivery is off") {
+		t.Fatalf("also_email checkbox is missing its adjacent reason: %s", body)
+	}
+}
+
 func TestAdminPageRendersInvitationProgressContract(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
