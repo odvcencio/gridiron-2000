@@ -189,15 +189,43 @@ type waiverStatus struct {
 // kickoff-locked player can never show two different answers.
 const waiverKickoffPendingLabel = "Pending — resolves once this player's game is marked final."
 
-// lastDropInstant returns the At instant and Type ("drop" or "auto-drop")
-// of the most recent drop or auto-drop transaction naming playerID among
-// its Drops, and whether one exists at all. origin backs clearsAt's IR
-// auto-cut carve-out (SK spec): an "auto-drop" clears on a different,
-// deferred schedule than an ordinary manager drop — see
+// isFreeAgencyDrop reports whether txn moves a Drops-named player into free
+// agency — the one filter lastDropInstant and waiverClearBoundaryDigest
+// (boundary.go) must share, so both agree on exactly which transactions can
+// start a waiver clock. An ordinary "drop" and an IR "auto-drop" always
+// qualify. So does a roster-full "add" or "claim" combo that names its own
+// Drops entry: AddPlayer's add-with-drop (players.go) and
+// Store.ProcessWaivers' own roster-full claim-drop (store.go) both release
+// the named player to free agency exactly like a standalone drop, just
+// recorded under a different Type — before this filter widened, that release
+// never started a waiver clock, and since a freshly post-draft league has
+// every roster at capacity, this combo is the majority drop path there, so
+// almost no post-draft drop ever reached ON WAIVERS. A "trade" is excluded
+// even though it can carry Drops: a real trade always sets OtherTeamID, and
+// its Drops transfer straight to that team (currentRosters' trade-reversal
+// branch, roster.go), never through free agency, so a traded-away player
+// must never start a waiver clock.
+func isFreeAgencyDrop(txn Transaction) bool {
+	switch txn.Type {
+	case "drop", "auto-drop":
+		return true
+	case "add", "claim":
+		return len(txn.Drops) > 0
+	default:
+		return false
+	}
+}
+
+// lastDropInstant returns the At instant and Type of the most recent
+// isFreeAgencyDrop transaction naming playerID among its Drops, and whether
+// one exists at all. origin backs clearsAt's IR auto-cut carve-out (SK
+// spec): only an "auto-drop" origin clears on the different, deferred
+// schedule; every other origin this can now return ("drop", "add", or
+// "claim") clears on the ordinary clear_days schedule — see
 // playerWaiverStatus and deferredClearsAt (rosterops.go).
 func lastDropInstant(state PersistedState, playerID string) (at time.Time, origin string, found bool) {
 	for _, txn := range state.Transactions {
-		if txn.Type != "drop" && txn.Type != "auto-drop" {
+		if !isFreeAgencyDrop(txn) {
 			continue
 		}
 		for _, drop := range txn.Drops {

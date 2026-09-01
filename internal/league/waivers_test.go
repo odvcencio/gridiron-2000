@@ -1125,6 +1125,101 @@ func TestPlayerWaiverStatusDropThenClear(t *testing.T) {
 	}
 }
 
+// TestPlayerWaiverStatusAddWithDropComboOnWaivers covers AddPlayer's
+// roster-full add-with-drop combo (players.go: a Type "add" transaction
+// that also carries a Drops entry). In a freshly post-draft league every
+// roster starts at capacity, so this combo is the majority drop path
+// there; before isFreeAgencyDrop widened lastDropInstant's filter, this
+// player skipped the waiver window and showed FREE AGENT immediately.
+func TestPlayerWaiverStatusAddWithDropComboOnWaivers(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "UTC"
+	cfg.Waivers.ProcessTime = "09:00"
+	cfg.Waivers.ClearDays = 2
+	droppedAt := time.Date(2026, 9, 15, 21, 40, 0, 0, time.UTC)
+	state := PersistedState{Transactions: []Transaction{
+		{
+			Type:   "add",
+			TeamID: "team-5",
+			Adds:   []TransactionPlayer{{PlayerID: "p-2"}},
+			Drops:  []TransactionPlayer{{PlayerID: "p-1"}},
+			At:     droppedAt,
+		},
+	}}
+	games := []GameInfo{}
+
+	stillOnWaivers := playerWaiverStatus(state, cfg, games, "p-1", "PIT", droppedAt.Add(time.Hour))
+	if stillOnWaivers.State != AvailabilityOnWaivers || stillOnWaivers.Reason != "dropped" {
+		t.Fatalf("status = %+v, want ON WAIVERS (dropped) shortly after an add-with-drop combo", stillOnWaivers)
+	}
+	wantClears := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if !stillOnWaivers.ResolvesAt.Equal(wantClears) {
+		t.Fatalf("ResolvesAt = %v, want %v", stillOnWaivers.ResolvesAt, wantClears)
+	}
+
+	cleared := playerWaiverStatus(state, cfg, games, "p-1", "PIT", wantClears)
+	if cleared.State != AvailabilityFreeAgent {
+		t.Fatalf("status at clearsAt = %+v, want FREE AGENT (inclusive boundary)", cleared)
+	}
+}
+
+// TestPlayerWaiverStatusClaimWithDropComboOnWaivers covers
+// Store.ProcessWaivers' own roster-full claim-drop (store.go: a Type
+// "claim" transaction that also carries a Drops entry) — the same
+// isFreeAgencyDrop gap, on the claim-resolution path instead of AddPlayer.
+func TestPlayerWaiverStatusClaimWithDropComboOnWaivers(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Timezone = "UTC"
+	cfg.Waivers.ProcessTime = "09:00"
+	cfg.Waivers.ClearDays = 2
+	droppedAt := time.Date(2026, 9, 15, 21, 40, 0, 0, time.UTC)
+	state := PersistedState{Transactions: []Transaction{
+		{
+			Type:   "claim",
+			TeamID: "team-5",
+			Adds:   []TransactionPlayer{{PlayerID: "p-2"}},
+			Drops:  []TransactionPlayer{{PlayerID: "p-1"}},
+			At:     droppedAt,
+		},
+	}}
+	games := []GameInfo{}
+
+	stillOnWaivers := playerWaiverStatus(state, cfg, games, "p-1", "PIT", droppedAt.Add(time.Hour))
+	if stillOnWaivers.State != AvailabilityOnWaivers || stillOnWaivers.Reason != "dropped" {
+		t.Fatalf("status = %+v, want ON WAIVERS (dropped) shortly after a claim-with-drop combo", stillOnWaivers)
+	}
+	wantClears := time.Date(2026, 9, 18, 9, 0, 0, 0, time.UTC)
+	if !stillOnWaivers.ResolvesAt.Equal(wantClears) {
+		t.Fatalf("ResolvesAt = %v, want %v", stillOnWaivers.ResolvesAt, wantClears)
+	}
+
+	cleared := playerWaiverStatus(state, cfg, games, "p-1", "PIT", wantClears)
+	if cleared.State != AvailabilityFreeAgent {
+		t.Fatalf("status at clearsAt = %+v, want FREE AGENT (inclusive boundary)", cleared)
+	}
+}
+
+// TestLastDropInstantIgnoresTrade guards the one exclusion isFreeAgencyDrop
+// still enforces: a "trade" always sets OtherTeamID, and its Drops
+// transfer straight to that team (currentRosters' trade-reversal branch,
+// roster.go), never through free agency, so a trade must never start a
+// waiver clock even though it carries a Drops entry shaped exactly like a
+// real release.
+func TestLastDropInstantIgnoresTrade(t *testing.T) {
+	state := PersistedState{Transactions: []Transaction{
+		{
+			Type:        "trade",
+			TeamID:      "team-5",
+			OtherTeamID: "team-6",
+			Drops:       []TransactionPlayer{{PlayerID: "p-1"}},
+			At:          time.Date(2026, 9, 15, 21, 40, 0, 0, time.UTC),
+		},
+	}}
+	if _, _, found := lastDropInstant(state, "p-1"); found {
+		t.Fatalf("lastDropInstant recognized a trade's Drops entry; a trade must never start a waiver clock")
+	}
+}
+
 func TestPlayerWaiverStatusKickoffLockedFreeAgent(t *testing.T) {
 	cfg := DefaultConfig()
 	kickoff := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)

@@ -124,6 +124,74 @@ func TestBoundaryDigestMovesWhenAutoDroppedPlayerClears(t *testing.T) {
 	}
 }
 
+// TestBoundaryDigestMovesWhenAddWithDropComboClears covers
+// isFreeAgencyDrop's "add" branch: AddPlayer's roster-full add-with-drop
+// combo (players.go) carries Type "add", not "drop", so
+// waiverClearBoundaryDigest's own first-pass filter — not just
+// lastDropInstant — must recognize it, or the crossing is never folded
+// into the count even after lastDropInstant itself is fixed.
+func TestBoundaryDigestMovesWhenAddWithDropComboClears(t *testing.T) {
+	start := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service, clock := newPresenceTestService(t, false, start)
+	service.cfg.Timezone = "UTC"
+	service.store.mu.Lock()
+	service.store.state.Transactions = []Transaction{{
+		ID:     "txn-add-combo-boundary",
+		Type:   "add",
+		TeamID: "team-1",
+		Adds:   []TransactionPlayer{{PlayerID: "add-combo-added-player"}},
+		Drops:  []TransactionPlayer{{PlayerID: "add-combo-dropped-player"}},
+		At:     start,
+	}}
+	service.store.mu.Unlock()
+
+	clears := clearsAt(service.cfg, start)
+	*clock = clears.Add(-time.Second)
+	before := service.StateFingerprint(1)
+	*clock = clears
+	after := service.StateFingerprint(1)
+	if after == before {
+		t.Fatalf("fingerprint did not move at the add-with-drop combo's clear instant %s", clears)
+	}
+	*clock = clears.Add(time.Minute)
+	if quiet := service.StateFingerprint(1); quiet != after {
+		t.Fatalf("fingerprint churned after an add-with-drop combo cleared: %q then %q", after, quiet)
+	}
+}
+
+// TestBoundaryDigestMovesWhenClaimWithDropComboClears is the same coverage
+// as TestBoundaryDigestMovesWhenAddWithDropComboClears, for
+// Store.ProcessWaivers' own roster-full claim-drop (store.go: a Type
+// "claim" transaction that also carries a Drops entry).
+func TestBoundaryDigestMovesWhenClaimWithDropComboClears(t *testing.T) {
+	start := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service, clock := newPresenceTestService(t, false, start)
+	service.cfg.Timezone = "UTC"
+	service.store.mu.Lock()
+	service.store.state.Transactions = []Transaction{{
+		ID:     "txn-claim-combo-boundary",
+		Type:   "claim",
+		TeamID: "team-1",
+		Adds:   []TransactionPlayer{{PlayerID: "claim-combo-added-player"}},
+		Drops:  []TransactionPlayer{{PlayerID: "claim-combo-dropped-player"}},
+		At:     start,
+	}}
+	service.store.mu.Unlock()
+
+	clears := clearsAt(service.cfg, start)
+	*clock = clears.Add(-time.Second)
+	before := service.StateFingerprint(1)
+	*clock = clears
+	after := service.StateFingerprint(1)
+	if after == before {
+		t.Fatalf("fingerprint did not move at the claim-with-drop combo's clear instant %s", clears)
+	}
+	*clock = clears.Add(time.Minute)
+	if quiet := service.StateFingerprint(1); quiet != after {
+		t.Fatalf("fingerprint churned after a claim-with-drop combo cleared: %q then %q", after, quiet)
+	}
+}
+
 // TestBoundaryDigestMovesAtDraftStart covers the draft-start crossing:
 // canPick and the draft page's "started" flag both read now against
 // draftAt (service.go), and no state write marks the instant.

@@ -63,11 +63,13 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 		parts = append(parts, "trade:"+boundaryFlag(!now.Before(deadline)))
 	}
 
-	// A manager drop and an IR auto-drop become free agents at a daily
-	// processor boundary, even though no state write occurs at that instant.
-	// The schedule term above already covers a player's own kickoff lock; this
-	// term covers only the drop-clear half so an open Players/Team page learns
-	// that an add is available without waiting for another mutation.
+	// A manager drop, an IR auto-drop, and a roster-full add/claim combo's
+	// own Drops entry (isFreeAgencyDrop, waivers.go) all become free agents
+	// at a daily processor boundary, even though no state write occurs at
+	// that instant. The schedule term above already covers a player's own
+	// kickoff lock; this term covers only the drop-clear half so an open
+	// Players/Team page learns that an add is available without waiting for
+	// another mutation.
 	parts = append(parts, waiverClearBoundaryDigest(state, s.cfg, games, now))
 
 	// Preseason Blitz slate locks. The caller passes the games it already
@@ -85,11 +87,22 @@ func (s *Service) boundaryDigest(now time.Time, blitzGames []BlitzGame) string {
 // embedding IDs or timestamps) keeps the shared fingerprint quiet between
 // real availability changes. A player re-rostered after a drop is excluded;
 // the roster mutation itself already changes the persisted-state digest.
+//
+// This first pass and lastDropInstant below must use the exact same
+// isFreeAgencyDrop filter (waivers.go): a mismatch here would silently
+// exclude a player from droppedPlayers even after lastDropInstant itself
+// recognizes their drop, so this term would stay quiet at the very
+// crossing it exists to announce. Widening the filter changes which
+// players crossed can count, never how a crossing is counted — crossed
+// stays a plain int either way — so every case this digest already
+// covered (a "drop" or "auto-drop" transaction) renders the exact same
+// bytes as before; only a case it previously missed (an "add" or "claim"
+// combo's own Drops entry) can now move the count.
 func waiverClearBoundaryDigest(state PersistedState, cfg Config, games []GameInfo, now time.Time) string {
 	owner := rosterOwner(currentRosters(state))
 	droppedPlayers := make(map[string]struct{})
 	for _, txn := range state.Transactions {
-		if txn.Type != "drop" && txn.Type != "auto-drop" {
+		if !isFreeAgencyDrop(txn) {
 			continue
 		}
 		for _, drop := range txn.Drops {
