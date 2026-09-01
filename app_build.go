@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log"
@@ -285,6 +287,30 @@ func offlinePoolAsLive() league.PlayerSource {
 	}
 }
 
+// hashedPublicAssetHref returns name's public URL (see server.AssetURL) with
+// a content-hash query appended, computed from name's current bytes under
+// root/public. This is deliberately GoSX's own "?v=" content-addressing
+// convention, not a literal hashed filename: App.servePublic (see
+// m31labs.dev/gosx/server's server.go) already serves any request carrying
+// a non-empty "v" query as "Cache-Control: public, max-age=31536000,
+// immutable" and leaves every unversioned request under the previous
+// "public, max-age=0, must-revalidate" policy, so this href change is the
+// entire fix — no routing or header code needs to move out of the vendored
+// static handler. A missing or unreadable file falls back to the
+// unversioned href so a packaging error degrades to a revalidated
+// stylesheet rather than a broken page.
+func hashedPublicAssetHref(root, name string) string {
+	href := server.AssetURL(name)
+	data, err := os.ReadFile(filepath.Join(root, "public", filepath.FromSlash(name)))
+	if err != nil {
+		return href
+	}
+	sum := sha256.Sum256(data)
+	// 8 hex bytes (32 bits) is ample collision resistance for a single
+	// deploy's worth of asset versions and keeps the query string short.
+	return href + "?v=" + hex.EncodeToString(sum[:8])
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -508,12 +534,18 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		FailurePath: "/login?error=oauth",
 	})
 
+	// Hashed once at boot, not per request: styles.css only changes at
+	// deploy time, and BuildApp already runs once per process (see its own
+	// doc comment). See hashedPublicAssetHref's doc comment for why this is
+	// a query-string hash rather than a literal "/styles.<hash>.css" path.
+	stylesheetHref := hashedPublicAssetHref(root, "styles.css")
+
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
 		ctx.SetLanguage("en")
 		ctx.SetMetadata(server.Metadata{
 			Links: []server.LinkTag{
-				{Rel: "stylesheet", Href: "/styles.css"},
+				{Rel: "stylesheet", Href: stylesheetHref},
 				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
