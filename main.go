@@ -61,6 +61,15 @@ func main() {
 	if err := env.LoadDir(server.ResolveAppRoot(thisFile), ""); err != nil {
 		log.Fatal(err)
 	}
+	// Load runtime.env (design section 4.5 / owner decision 6) before
+	// anything reads process environment: COMMISSIONER_EMAILS,
+	// IDENTITY_ALIASES, and SESSION_SECRET, written by a completed setup
+	// wizard commit beside league.db. Absence is not an error — a
+	// checkout that has never run setup, or a Kubernetes bundle-mode
+	// instance, simply has no such file. Real env always wins.
+	if err := loadRuntimeEnvFile(dataDirFromEnv()); err != nil {
+		log.Fatal(err)
+	}
 	// The boot state decision runs before AppConfigFromEnv/BuildApp and
 	// before any league code: SETUP and FAIL_CLOSED never construct the
 	// league.Default() singleton at all (setup-wizard design section 3.1).

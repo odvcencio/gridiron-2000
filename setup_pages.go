@@ -53,18 +53,54 @@ func setupTokenEntryNode(ctx *route.RouteContext) gosx.Node {
 	)
 }
 
-// setupWizardEntryNode renders the post-claim landing. Slice 3 replaces
-// this placeholder with the real step-1 wizard page; the token-claim gate,
-// session binding, and health/route isolation this slice builds do not
-// change underneath it.
-func setupWizardEntryNode(ctx *route.RouteContext) gosx.Node {
+// metaRefreshNode is the zero-bespoke-JS answer to "a Route/PageHandler
+// cannot issue a raw HTTP redirect" (gosx's plain route.Route contract
+// returns a rendered Node, not response control — only a raw http.Handler,
+// registered via router.Handle, can call http.Redirect). A meta-refresh
+// plus a visible fallback link works in every browser (including with
+// JS/refresh disabled, via the link) and needs no client script. Used for
+// the bare /setup root's "go to the first incomplete step" bounce and the
+// review step's "come back once every step is done" bounce.
+func metaRefreshNode(target, message string) gosx.Node {
 	return gosx.El("main", gosx.Attrs(gosx.Attr("class", "page"), gosx.Attr("id", "main-content")),
-		gosx.El("section", gosx.Attrs(gosx.Attr("class", "login-stage")),
-			gosx.El("div", gosx.Attrs(gosx.Attr("class", "login-poster")),
-				gosx.El("span", gosx.Attrs(gosx.Attr("class", "signal-label")), gosx.Text("SETUP TOKEN ACCEPTED")),
-				gosx.El("h1", nil, gosx.Text("You're verified for setup")),
-				gosx.El("p", nil, gosx.Text("The setup wizard runs from here: league identity, teams, scoring, roster shape, draft meeting, waivers, trades, membership, and your commissioner account.")),
-			),
-		),
+		gosx.RawHTML(`<meta http-equiv="refresh" content="0; url=`+target+`">`),
+		gosx.El("p", nil, gosx.Text(message+" ")),
+		gosx.El("a", gosx.Attrs(gosx.Attr("href", target), gosx.Attr("data-gosx-link", true)), gosx.Text("Continue →")),
 	)
+}
+
+// setupCompletionNode renders the design's hybrid-restart completion page
+// (section 4.5, step 6): the invite links, one final display, the setup
+// summary, and truthful restart copy — a supervised restart's imminent
+// exit, or a plain instruction to restart manually. Every /setup request
+// renders this once rt.SetCompletion has been called, regardless of which
+// step or action it targeted: the wizard's job is over.
+func setupCompletionNode(ctx *route.RouteContext, result wizardCommitResult) gosx.Node {
+	var body []any
+	body = append(body, gosx.Attrs(gosx.Attr("class", "page"), gosx.Attr("id", "main-content")))
+	body = append(body,
+		gosx.El("span", gosx.Attrs(gosx.Attr("class", "signal-label")), gosx.Text("SETUP COMPLETE")),
+		gosx.El("h1", nil, gosx.Text("Your league is configured")),
+		gosx.El("p", nil, gosx.Text("league.json is written at "+result.ConfigPath+".")),
+	)
+	if len(result.InviteLinks) > 0 {
+		body = append(body, gosx.El("h2", nil, gosx.Text("Invite links (shown once — copy them now)")))
+		var items []any
+		for _, link := range result.InviteLinks {
+			items = append(items, gosx.El("li", nil, gosx.Text(link.Email+": "+link.URL)))
+		}
+		body = append(body, gosx.El("ul", items...))
+		body = append(body, gosx.El("p", nil, gosx.Text("Each link signs in as its member's email, once. /admin can mint a replacement later.")))
+	}
+	if result.Supervised {
+		body = append(body,
+			gosx.El("p", gosx.Attrs(gosx.Attr("class", "flash-message")), gosx.Text("The server restarts now.")),
+			gosx.RawHTML(`<meta http-equiv="refresh" content="3; url=/">`),
+		)
+	} else {
+		body = append(body,
+			gosx.El("p", gosx.Attrs(gosx.Attr("class", "flash-message")), gosx.Text("Restart this process now to finish loading your league. This instance does not restart itself.")),
+		)
+	}
+	return gosx.El("main", body...)
 }

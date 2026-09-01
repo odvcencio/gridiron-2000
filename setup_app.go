@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"gridiron-2000/internal/league"
@@ -44,12 +45,41 @@ func setupSessionOptions(appEnv string) session.Options {
 	}
 }
 
-// SetupRuntime holds what main() needs to keep after BuildSetupApp returns:
-// the token guard (whose Claim state is otherwise private to this file) and
-// the Store the wizard persists progress into.
+// SetupRuntime holds what main() needs to keep after BuildSetupApp
+// returns: the token guard, the Store the wizard persists progress into,
+// the wizard's in-memory state manager, and the commit completion state
+// (design section 4.5's hybrid restart behavior — see completion.go).
 type SetupRuntime struct {
-	Guard *setupTokenGuard
-	Store *league.Store
+	Guard  *setupTokenGuard
+	Store  *league.Store
+	Wizard *wizardStateManager
+	// Restart is the process-restart side effect a successful commit
+	// triggers (owner decision, design open decision 7): os.Exit(0) only
+	// when GRIDIRON_SUPERVISED=1; otherwise a no-op, and the process keeps
+	// serving the completion page. A field, not a bare function call, so
+	// a test can observe/replace it without ever invoking the real exit.
+	Restart func()
+
+	mu         sync.Mutex
+	completion *wizardCommitResult
+}
+
+// Completion returns the commit result once a commit has succeeded, or nil
+// before that.
+func (rt *SetupRuntime) Completion() *wizardCommitResult {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	return rt.completion
+}
+
+// SetCompletion records a successful commit. Every later /setup request —
+// including one that presents a still-valid session — renders the
+// completion state instead of any wizard page from this point on: the
+// process's SETUP lifetime is over even if it has not restarted yet.
+func (rt *SetupRuntime) SetCompletion(result wizardCommitResult) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.completion = &result
 }
 
 // publicBaseURLForSetup resolves the best-effort base URL for the boot
@@ -64,8 +94,21 @@ func publicBaseURLForSetup(cfg AppConfig) string {
 	return "http://localhost:" + cfg.Port
 }
 
+// defaultRestartHook implements the design's hybrid restart behavior
+// (owner decision): GRIDIRON_SUPERVISED=1 exits the process so the
+// supervisor (the compose lane's restart: policy) restarts it into
+// CONFIGURED; otherwise this is a no-op and the process keeps serving the
+// completion page until a human restarts it.
+func defaultRestartHook() func() {
+	return func() {
+		if strings.TrimSpace(os.Getenv("GRIDIRON_SUPERVISED")) == "1" {
+			osExit(0)
+		}
+	}
+}
+
 // BuildSetupApp assembles the SETUP-state HTTP application (design section
-// 3.4): only /setup (pages and its claim action), /styles.css and static
+// 3.4): only /setup and its step pages/actions, /styles.css and static
 // assets, /api/live, and /api/health (reporting state "setup", not ready).
 // It never touches league.Default() or runs any league code — see
 // BuildApp's own doc comment for the CONFIGURED-state twin. store is the
@@ -87,11 +130,17 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 		return nil, nil, err
 	}
 	limiter := newSetupRateLimiter(5, time.Minute, 30*time.Second, time.Now)
+	wizard, err := newWizardStateManager(store, time.Now)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	sessions, err := session.New(cfg.SessionKey, setupSessionOptions(cfg.AppEnv))
 	if err != nil {
 		return nil, nil, err
 	}
+
+	rt := &SetupRuntime{Guard: guard, Store: store, Wizard: wizard, Restart: defaultRestartHook()}
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
@@ -105,8 +154,9 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 		})
 		return server.HTMLDocument(ctx.Document("Gridiron Setup", body))
 	})
-	router.Add(route.Route{Pattern: "/setup", Handler: setupRootPageHandler(guard)})
-	router.Handle("POST /setup", setupClaimActionHandler(guard, limiter))
+	router.Add(route.Route{Pattern: "/setup", Handler: setupRootPageHandler(rt)})
+	router.Handle("POST /setup", setupClaimActionHandler(rt, limiter))
+	registerWizardRoutes(router, rt)
 
 	app := server.New()
 	app.EnableSecurityPolicy(gridironSecurityPolicy())
@@ -120,7 +170,7 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 	})
 	app.API("GET /api/health", func(ctx *server.Context) (any, error) {
 		ctx.NoStore()
-		return setupHealthPayload(), nil
+		return setupHealthPayload(rt), nil
 	})
 
 	rootHandler, err := router.BuildChecked()
@@ -129,19 +179,25 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 	}
 	app.Mount("/", rootHandler)
 
-	return app, &SetupRuntime{Guard: guard, Store: store}, nil
+	return app, rt, nil
 }
 
 // setupHealthPayload is the design's truthful "setup" health report: ready
-// is always false in this state (there is no league to be ready for yet),
-// and state names exactly which boot state is live so an operator or
-// orchestrator never has to infer it from the absence of other fields.
-func setupHealthPayload() map[string]any {
+// is always false until a commit has actually happened, and state names
+// exactly which boot state is live so an operator or orchestrator never
+// has to infer it from the absence of other fields. Once a commit
+// succeeds the state read "setup_complete_pending_restart" — the process
+// is still technically SETUP, but truthfully done and waiting to restart.
+func setupHealthPayload(rt *SetupRuntime) map[string]any {
+	state := "setup"
+	if rt.Completion() != nil {
+		state = "setup_complete_pending_restart"
+	}
 	return map[string]any{
 		"ok":         true,
 		"liveness":   true,
 		"readiness":  false,
-		"state":      "setup",
+		"state":      state,
 		"version":    appVersion,
 		"appVersion": appVersion,
 		"gitSHA":     appGitSHA,
@@ -150,23 +206,66 @@ func setupHealthPayload() map[string]any {
 	}
 }
 
-func setupRootPageHandler(guard *setupTokenGuard) route.PageHandler {
+// wizardAuthorized reports whether r's session still carries the setup
+// token guard's current claimed epoch.
+func wizardAuthorized(rt *SetupRuntime, r *http.Request) bool {
+	epoch := ""
+	if store := session.Current(r); store != nil {
+		epoch = store.String(setupSessionEpochKey)
+	}
+	return rt.Guard.Authorized(epoch)
+}
+
+// wizardPageGuard wraps a wizard page's real render function with the
+// completion check and the token-session authorization check, so every
+// GET route shares the exact same gate instead of repeating it. Touch
+// resets the 60-minute idle clock on every authorized wizard page view.
+func wizardPageGuard(rt *SetupRuntime, next func(ctx *route.RouteContext) gosx.Node) route.PageHandler {
 	return func(ctx *route.RouteContext) gosx.Node {
 		ctx.NoStore()
-		epoch := ""
-		if store := session.Current(ctx.Request); store != nil {
-			epoch = store.String(setupSessionEpochKey)
+		if result := rt.Completion(); result != nil {
+			return setupCompletionNode(ctx, *result)
 		}
-		if guard.Authorized(epoch) {
-			guard.Touch()
-			return setupWizardEntryNode(ctx)
+		if !wizardAuthorized(rt, ctx.Request) {
+			return setupTokenEntryNode(ctx)
 		}
-		return setupTokenEntryNode(ctx)
+		rt.Guard.Touch()
+		return next(ctx)
 	}
 }
 
-func setupClaimActionHandler(guard *setupTokenGuard, limiter *setupRateLimiter) http.Handler {
+// wizardActionGuard is wizardPageGuard's POST twin: it redirects to /setup
+// (which then renders whichever of completion/token-entry/wizard applies)
+// instead of rendering inline, since an action handler's job is to
+// mutate-then-redirect either way.
+func wizardActionGuard(rt *SetupRuntime, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rt.Completion() != nil {
+			http.Redirect(w, r, "/setup", http.StatusSeeOther)
+			return
+		}
+		if !wizardAuthorized(rt, r) {
+			http.Redirect(w, r, "/setup", http.StatusSeeOther)
+			return
+		}
+		rt.Guard.Touch()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func setupRootPageHandler(rt *SetupRuntime) route.PageHandler {
+	return wizardPageGuard(rt, func(ctx *route.RouteContext) gosx.Node {
+		target := "/setup/" + rt.Wizard.View().Status.FirstIncompleteStep()
+		return metaRefreshNode(target, "Continuing to the setup wizard.")
+	})
+}
+
+func setupClaimActionHandler(rt *SetupRuntime, limiter *setupRateLimiter) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if rt.Completion() != nil {
+			http.Redirect(w, r, "/setup", http.StatusSeeOther)
+			return
+		}
 		if !limiter.Allow(setupRequestIP(r)) {
 			session.AddFlash(r, "notice", "Too many attempts. Wait 30 seconds and try again.")
 			http.Redirect(w, r, "/setup", http.StatusSeeOther)
@@ -178,7 +277,7 @@ func setupClaimActionHandler(guard *setupTokenGuard, limiter *setupRateLimiter) 
 			return
 		}
 		candidate := strings.TrimSpace(r.PostFormValue("token"))
-		epoch, ok, already := guard.Claim(candidate)
+		epoch, ok, already := rt.Guard.Claim(candidate)
 		switch {
 		case already:
 			session.AddFlash(r, "notice", "This setup link has already been claimed. Restart the container to mint a fresh token.")

@@ -122,11 +122,13 @@ func TestSetupAppTokenSingleClaimEndToEnd(t *testing.T) {
 		t.Fatalf("a wrong token must not authorize /setup:\n%s", body)
 	}
 
-	// The correct token authorizes this session.
+	// The correct token authorizes this session: /setup now bounces (via
+	// meta-refresh — see metaRefreshNode's doc comment) to the first
+	// wizard step instead of showing the token form.
 	postClaim(t, client, server.URL, token)
 	status, body := getBody(t, client, server.URL+"/setup")
-	if status != http.StatusOK || !strings.Contains(body, "verified for setup") {
-		t.Fatalf("the correct token must authorize /setup; status=%d body:\n%s", status, body)
+	if status != http.StatusOK || !strings.Contains(body, "/setup/identity") {
+		t.Fatalf("the correct token must authorize /setup and bounce to the first step; status=%d body:\n%s", status, body)
 	}
 
 	// A second browser (its own cookie jar, no session) presenting the same
@@ -139,7 +141,7 @@ func TestSetupAppTokenSingleClaimEndToEnd(t *testing.T) {
 	second := &http.Client{Jar: secondJar}
 	postClaim(t, second, server.URL, token)
 	status, body = getBody(t, second, server.URL+"/setup")
-	if strings.Contains(body, "verified for setup") {
+	if strings.Contains(body, "/setup/identity") {
 		t.Fatal("a second session claimed an already-claimed token")
 	}
 	if !strings.Contains(body, "Enter the console token") {
