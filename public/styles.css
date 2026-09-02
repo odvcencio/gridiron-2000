@@ -1168,7 +1168,8 @@ h2 {
 }
 
 .draft-button:disabled,
-.button:disabled {
+.button:disabled,
+.google-button:disabled {
   transform: none;
   border-style: dashed;
   border-color: var(--color-border);
@@ -6520,6 +6521,18 @@ body.is-on-clock .draft-clock-panel {
   .login-stage {
     min-height: auto;
     grid-template-columns: 1fr;
+  }
+
+  /* gap-audit item 7 (wave 3): .login-console (the Google sign-in CTA)
+     renders after .login-poster (the event card and seat meter) in
+     source order, so the single-column stack above put the sign-in
+     console below the fold at narrow widths — the one control this page
+     exists for was not in the first mobile viewport. order reverses the
+     visual stack without touching DOM/tab order (.login-console's own
+     controls, not .login-poster's decorative content, are what a manager
+     needs first). */
+  .login-console {
+    order: -1;
   }
 
   /* P2-11 (UI pass 2026-08-30): minmax(0, 1fr), not a bare 1fr — a bare

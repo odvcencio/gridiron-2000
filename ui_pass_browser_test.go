@@ -409,6 +409,42 @@ func TestBrowserJoinFirstStepClearsStickyBar(t *testing.T) {
 	}
 }
 
+// TestBrowserLoginConsoleSitsAboveEventCardAtPhoneWidth covers gap-audit
+// item 7 (wave 3): .login-console (the Google sign-in CTA) rendered after
+// .login-poster (the event card and seat meter) in source order, so the
+// single-column phone stack put the one control this page exists for
+// below the fold. .login-console must sit above .login-poster on screen
+// at phone width. /login needs no sign-in and no built client runtime —
+// it is a plain server-rendered page — so this uses startSimChild
+// directly rather than startBrowserDraft.
+func TestBrowserLoginConsoleSitsAboveEventCardAtPhoneWidth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	chrome := chromePath(t)
+	child := startSimChild(t, "")
+	ctx := newBrowserContext(t, chrome)
+
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(uiPassPhoneWidth, uiPassPhoneHeight),
+		chromedp.Navigate(child.URL+"/login"),
+		chromedp.WaitVisible(`#main-content`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate to /login at %dx%d: %v", uiPassPhoneWidth, uiPassPhoneHeight, err)
+	}
+
+	var consoleTop, posterTop float64
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelector('.login-console').getBoundingClientRect().top`, &consoleTop),
+		chromedp.Evaluate(`document.querySelector('.login-poster').getBoundingClientRect().top`, &posterTop),
+	); err != nil {
+		t.Fatalf("read .login-console/.login-poster positions: %v", err)
+	}
+	if consoleTop >= posterTop {
+		t.Errorf(".login-console top=%.1f is not above .login-poster top=%.1f at %dpx", consoleTop, posterTop, uiPassPhoneWidth)
+	}
+}
+
 // actionConfirmationFixtureHTML is app/players/page.gsx's own
 // action-confirmation markup (the "Add and drop a player" gate,
 // player.needs_drop), copied verbatim. It renders only once a manager's

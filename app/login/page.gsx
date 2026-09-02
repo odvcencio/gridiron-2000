@@ -56,19 +56,27 @@ func Page() Node {
 							After sign-in, we'll return you to the page you requested.
 						</p>
 					</If>
-					<a href={data.oauth_start} class="google-button">
-						<span class="google-mark" aria-hidden="true">G</span>
-						Continue with Google
-					</a>
-					<If cond={data.viewer.demo}>
-						<a href="/" data-gosx-link class="button button--ghost">Explore demo league</a>
-					</If>
 					<If cond={data.configured == false}>
-						<div class="setup-note">
-							<p>
+						<div class="setup-note" role="alert">
+							<p id="google-setup-note">
 								Sign-in is not open yet. Ask the commissioner.
 							</p>
 						</div>
+					</If>
+					<If cond={data.configured}>
+						<a href={data.oauth_start} class="google-button">
+							<span class="google-mark" aria-hidden="true">G</span>
+							Continue with Google
+						</a>
+					</If>
+					<If cond={data.configured == false}>
+						<button type="button" class="google-button" disabled aria-describedby="google-setup-note">
+							<span class="google-mark" aria-hidden="true">G</span>
+							Continue with Google
+						</button>
+					</If>
+					<If cond={data.viewer.demo}>
+						<a href="/" data-gosx-link class="button button--ghost">Explore demo league</a>
 					</If>
 				</If>
 				<If cond={data.viewer.signed_in}>
