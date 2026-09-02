@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"net/url"
 	"strconv"
 	"strings"
@@ -610,6 +611,137 @@ const minMainContentFontSizeExactScript = `(function(){
 	});
 	return String(min);
 })()`
+
+// uiPassDesktopWidth/uiPassDesktopHeight is the gap audit's own desktop
+// baseline viewport (2026-09-01): the fold line item 1 and item 2's
+// masthead-spread probe below both measure against.
+const uiPassDesktopWidth, uiPassDesktopHeight = 1366, 900
+
+// TestBrowserPageTitleLeavesRoomAboveFold is item 1's own probe (2026-09-01
+// gap audit): before the --type-page-title retarget, the base h1 rule's
+// --type-display size (95.36px at 1366px, 0.82 line-height) pushed first
+// product content — #main-content's second top-level child, right after
+// the masthead — below the 900px fold on /wire (922px), /players (951px),
+// and /locker (1,038px). All three inherit the base h1 rule with no
+// per-route override, so the token retarget alone must close the gap.
+func TestBrowserPageTitleLeavesRoomAboveFold(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	navigateSignedInTo(t, ctx, child, viewer, "/wire", uiPassDesktopWidth, uiPassDesktopHeight)
+
+	for _, route := range []string{"/wire", "/players", "/locker"} {
+		navigateTo(t, ctx, child, route, uiPassDesktopWidth, uiPassDesktopHeight)
+		var top float64
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`document.querySelector('#main-content > *:nth-child(2)').getBoundingClientRect().top`, &top,
+		)); err != nil {
+			t.Fatalf("%s: read first product content position: %v", route, err)
+		}
+		if top >= 900 {
+			t.Errorf("%s: first product content top=%.1fpx at %dx%d, want < 900px (above the fold)", route, top, uiPassDesktopWidth, uiPassDesktopHeight)
+		}
+	}
+}
+
+// uiPassMastheadRoutes names the 8 routes item 2's own probe (2026-09-01
+// gap audit) measures the masthead-to-title lead on: main's top edge to
+// the page title's top edge. The pre-fix spread ran 64px (/matchups) to
+// 243px (/team); --masthead-lead/--masthead-title-gap collapse it to one
+// value across every masthead class.
+var uiPassMastheadRoutes = []string{"/matchups", "/scoring", "/activity", "/board", "/", "/players", "/wire", "/trades"}
+
+// uiPassMastheadLeadScript measures the vertical distance from
+// #main-content's top edge to the first h1 (or, if none renders,
+// [role="heading"] with the same effect) inside it — the "masthead lead"
+// item 2 collapses to one token pair across every masthead class.
+const uiPassMastheadLeadScript = `(function(){
+	var main = document.getElementById('main-content');
+	if (!main) return 'NO_MAIN_CONTENT';
+	var title = main.querySelector('h1');
+	if (!title) return 'NO_TITLE';
+	return String(title.getBoundingClientRect().top - main.getBoundingClientRect().top);
+})()`
+
+// TestBrowserMastheadLeadContract is item 2's own probe (2026-09-01 gap
+// audit): the distance from #main-content's top edge to the page title's
+// top edge across 8 routes spans no more than 16px between the widest and
+// narrowest measurement, once every masthead class shares
+// --masthead-lead/--masthead-title-gap.
+func TestBrowserMastheadLeadContract(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	navigateSignedInTo(t, ctx, child, viewer, uiPassMastheadRoutes[0], uiPassDesktopWidth, uiPassDesktopHeight)
+
+	var min, max float64 = math.MaxFloat64, -math.MaxFloat64
+	leads := make(map[string]float64, len(uiPassMastheadRoutes))
+	for _, route := range uiPassMastheadRoutes {
+		navigateTo(t, ctx, child, route, uiPassDesktopWidth, uiPassDesktopHeight)
+		var raw string
+		if err := chromedp.Run(ctx, chromedp.Evaluate(uiPassMastheadLeadScript, &raw)); err != nil {
+			t.Fatalf("%s: read masthead lead: %v", route, err)
+		}
+		if raw == "NO_MAIN_CONTENT" || raw == "NO_TITLE" {
+			t.Errorf("%s: %s", route, raw)
+			continue
+		}
+		lead, err := strconv.ParseFloat(raw, 64)
+		if err != nil {
+			t.Fatalf("%s: parse masthead lead %q: %v", route, raw, err)
+		}
+		leads[route] = lead
+		if lead < min {
+			min = lead
+		}
+		if lead > max {
+			max = lead
+		}
+	}
+	if spread := max - min; spread > 16 {
+		t.Errorf("masthead lead spread across routes = %.1fpx (max %.1f, min %.1f), want <= 16px; measurements: %v", spread, max, min, leads)
+	}
+}
+
+// TestBrowserMobileBottomBarVisibleExceptOnDraft is item 5's own probe
+// (2026-09-01 gap audit): the four-slot .app-tabbar is visible at phone
+// width on an ordinary route (/team) and absent on /draft, which keeps
+// its own nav.draft-tabbar instead of stacking two bottom bars.
+func TestBrowserMobileBottomBarVisibleExceptOnDraft(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	navigateSignedInTo(t, ctx, child, viewer, "/team", uiPassPhoneWidth, uiPassPhoneHeight)
+
+	appTabbarDisplayScript := `(function(){
+		var el = document.querySelector('.app-tabbar');
+		return el ? getComputedStyle(el).display : 'MISSING';
+	})()`
+
+	var teamDisplay string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(appTabbarDisplayScript, &teamDisplay)); err != nil {
+		t.Fatalf("/team: read .app-tabbar display: %v", err)
+	}
+	if teamDisplay != "flex" {
+		t.Errorf("/team: .app-tabbar display = %q, want \"flex\"", teamDisplay)
+	}
+	runTouchTargetSweep(t, ctx, ".app-tabbar", "/team bottom bar")
+
+	navigateTo(t, ctx, child, "/draft", uiPassPhoneWidth, uiPassPhoneHeight)
+	var draftDisplay string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(appTabbarDisplayScript, &draftDisplay)); err != nil {
+		t.Fatalf("/draft: read .app-tabbar display: %v", err)
+	}
+	if draftDisplay != "none" {
+		t.Errorf("/draft: .app-tabbar display = %q, want \"none\" (the draft room keeps its own nav.draft-tabbar)", draftDisplay)
+	}
+}
 
 // goStringLiteral quotes s as a JavaScript string literal via strconv.Quote
 // (backslash/quote escaping rules are a strict superset of JS's for the

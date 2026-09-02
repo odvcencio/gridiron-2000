@@ -54,34 +54,53 @@ func Page() Node {
 		t.Fatalf("write page fixture: %v", err)
 	}
 
+	// A second fixture page at the root route ("/") — the mobile bottom
+	// bar's own Home slot links there, so TestMobileBottomBar* below needs
+	// a route that path actually resolves to, not just the "/pickem"
+	// fixture every other navigation test in this file uses.
+	indexPagePath := filepath.Join(root, "page.gsx")
+	if err := os.WriteFile(indexPagePath, []byte(`package app
+
+func Page() Node {
+	return <main id="main-content">
+		<h1>Index fixture</h1>
+	</main>
+}
+`), 0o644); err != nil {
+		t.Fatalf("write index page fixture: %v", err)
+	}
+
+	fixtureData := func(*route.RouteContext, route.FilePage) (any, error) {
+		return map[string]any{
+			"viewer": map[string]any{
+				"signed_in":           viewer.signedIn,
+				"demo":                viewer.demo,
+				"has_seat":            viewer.hasSeat,
+				"seat_claim_eligible": viewer.canClaimSeat,
+				"is_commissioner":     viewer.commissioner,
+				"initials":            "QA",
+				"team_name":           "Quality Agents",
+			},
+			"league": map[string]any{
+				"name":                 "Test League",
+				"short_code":           "TL",
+				"tagline":              "Truth over folklore",
+				"fantasy_seats_open":   viewer.seatsOpen,
+				"latest_announcement":  map[string]any{"has": false, "body": "", "posted_at": ""},
+				"has_footer_line":      false,
+				"footer_line":          "",
+				"matchup_footer_live":  false,
+				"matchup_footer_label": "MATCHUPS SCHEDULED",
+			},
+		}, nil
+	}
+
 	modules := route.NewFileModuleRegistry()
-	if err := modules.Register(route.FileModuleFor(pagePath, route.FileModuleOptions{
-		Load: func(*route.RouteContext, route.FilePage) (any, error) {
-			return map[string]any{
-				"viewer": map[string]any{
-					"signed_in":           viewer.signedIn,
-					"demo":                viewer.demo,
-					"has_seat":            viewer.hasSeat,
-					"seat_claim_eligible": viewer.canClaimSeat,
-					"is_commissioner":     viewer.commissioner,
-					"initials":            "QA",
-					"team_name":           "Quality Agents",
-				},
-				"league": map[string]any{
-					"name":                 "Test League",
-					"short_code":           "TL",
-					"tagline":              "Truth over folklore",
-					"fantasy_seats_open":   viewer.seatsOpen,
-					"latest_announcement":  map[string]any{"has": false, "body": "", "posted_at": ""},
-					"has_footer_line":      false,
-					"footer_line":          "",
-					"matchup_footer_live":  false,
-					"matchup_footer_label": "MATCHUPS SCHEDULED",
-				},
-			}, nil
-		},
-	})); err != nil {
+	if err := modules.Register(route.FileModuleFor(pagePath, route.FileModuleOptions{Load: fixtureData})); err != nil {
 		t.Fatalf("register fixture module: %v", err)
+	}
+	if err := modules.Register(route.FileModuleFor(indexPagePath, route.FileModuleOptions{Load: fixtureData})); err != nil {
+		t.Fatalf("register index fixture module: %v", err)
 	}
 
 	router := route.NewRouter()
@@ -390,6 +409,77 @@ func TestSignOutFormIsNotManaged(t *testing.T) {
 	}
 }
 
+// TestMobileBottomBarFourSlotsWithCurrentMarker is item 5's own test
+// (2026-09-01 gap audit): the mobile bottom bar renders exactly four
+// links/controls — Home, Team, Matchups, More — with the active route
+// marked aria-current="page" (GoSX's Link sets this server-side, the same
+// queryless contract TestPrimaryNavigationQuerylessCurrentLinkUsesGoSXContract
+// already pins for the rail), and More opens the existing
+// #primary-navigation-dialog exactly like the phone header's own
+// disclosure trigger does.
+func TestMobileBottomBarFourSlotsWithCurrentMarker(t *testing.T) {
+	body := renderNavigationLayout(t, "/", navigationViewerFixture{signedIn: true, hasSeat: true})
+	document := parseNavigationDocument(t, body)
+	bars := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "app-tabbar")
+	})
+	if len(bars) != 1 {
+		t.Fatalf("app-tabbar count = %d, want 1", len(bars))
+	}
+	bar := bars[0]
+
+	tabs := findNodes(bar, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && (node.Data == "a" || node.Data == "button") && hasClass(node, "app-tabbar__tab")
+	})
+	if len(tabs) != 4 {
+		t.Fatalf("app-tabbar slot count = %d, want 4 (Home, Team, Matchups, More)", len(tabs))
+	}
+
+	home := findNodes(bar, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/" && hasClass(node, "app-tabbar__tab")
+	})
+	if len(home) != 1 {
+		t.Fatalf("app-tabbar Home link count = %d, want 1", len(home))
+	}
+	if got := nodeAttr(home[0], "aria-current"); got != "page" {
+		t.Errorf("app-tabbar Home link aria-current = %q, want \"page\" (the current route)", got)
+	}
+
+	team := findNodes(bar, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/team" && hasClass(node, "app-tabbar__tab")
+	})
+	if len(team) != 1 {
+		t.Errorf("app-tabbar Team link count = %d, want 1", len(team))
+	}
+
+	matchups := findNodes(bar, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && nodeAttr(node, "href") == "/matchups" && hasClass(node, "app-tabbar__tab")
+	})
+	if len(matchups) != 1 {
+		t.Errorf("app-tabbar Matchups link count = %d, want 1", len(matchups))
+	}
+
+	more := findNodes(bar, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "button" && hasClass(node, "app-tabbar__tab")
+	})
+	if len(more) != 1 {
+		t.Fatalf("app-tabbar More button count = %d, want 1", len(more))
+	}
+	if got := nodeAttr(more[0], "data-gosx-disclosure-target"); got != "#primary-navigation-dialog" {
+		t.Errorf("app-tabbar More button data-gosx-disclosure-target = %q, want \"#primary-navigation-dialog\"", got)
+	}
+}
+
+// TestMobileBottomBarSignedOutAbsent pins that the bottom bar renders only
+// for signed-in/demo viewers, matching the rail and phone header it sits
+// beside — a signed-out visitor gets the minimal public header instead.
+func TestMobileBottomBarSignedOutAbsent(t *testing.T) {
+	body := renderNavigationLayout(t, "/", navigationViewerFixture{})
+	if strings.Contains(body, "app-tabbar") {
+		t.Error("signed-out layout rendered the mobile bottom bar")
+	}
+}
+
 func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("public", "styles.css"))
 	if err != nil {
@@ -409,6 +499,12 @@ func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 		`.mobile-navigation-dialog:not([hidden])`,
 		`:focus-visible`,
 		`@media (prefers-reduced-motion: reduce)`,
+		// Item 5 (2026-09-01 gap audit): the four-slot mobile bottom bar,
+		// extracted from (and shared with) /draft's own nav.draft-tabbar.
+		`.app-tabbar`,
+		`.app-tabbar__tab`,
+		`env(safe-area-inset-bottom)`,
+		`body:has(.draft-shell) .app-tabbar`,
 	} {
 		if !strings.Contains(css, want) {
 			t.Errorf("navigation CSS omitted %q", want)
