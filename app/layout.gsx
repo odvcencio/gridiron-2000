@@ -165,6 +165,20 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 }
 
 // Layout renders the persistent chrome around every route's <Slot/>.
+//
+// The rail-head and mobile-navigation-enhanced attention chips (gap-audit
+// item 6, wave 4 — linden) are a distinct region from sycamore's own new
+// mobile bottom bar elsewhere in this file — see that work for the
+// four-slot bar itself. Both chips are gated the same way: has_seat (a
+// seatless visitor has no team-scoped task this list could name) and
+// attention.has_items (an honest empty state renders no chip at all,
+// never "0 URGENT"). data.league.attention is internal/league/
+// service.go's leagueMap() addition — see that function's own doc
+// comment for why it is league-wide, not per-viewer. Both chips link to
+// "/#home-action-center-heading" (the Action Center's existing heading
+// id, app/page.gsx) rather than a new "#action-center" id: this wave's
+// app/page.gsx scope is the playoff-card block only, so the chip targets
+// the id already in the DOM instead of adding one there.
 func Layout() Node {
 	return <div class="app-shell">
 		<a class="skip-link" href="#main-content">Skip to league content</a>
@@ -189,6 +203,17 @@ func Layout() Node {
 							<small>{data.league.tagline}</small>
 						</span>
 					</a>
+					<If cond={data.viewer.has_seat && data.league.attention.has_items}>
+						<a
+							href="/#home-action-center-heading"
+							data-gosx-link
+							class="rail-attention-chip"
+							aria-label={data.league.attention.urgent_count + " items need attention in the Action Center"}
+						>
+							<span class="signal-mark" aria-hidden="true"></span>
+							ACTION CENTER · {data.league.attention.urgent_count} URGENT
+						</a>
+					</If>
 				</div>
 				<PrimaryNavigation
 					SignedIn={data.viewer.signed_in}
@@ -206,6 +231,17 @@ func Layout() Node {
 					<span class="brand-badge">{data.league.short_code}</span>
 					<strong>{data.league.name}</strong>
 				</a>
+				<If cond={data.viewer.has_seat && data.league.attention.has_items}>
+					<a
+						href="/#home-action-center-heading"
+						data-gosx-link
+						class="rail-attention-chip rail-attention-chip--mobile"
+						aria-label={data.league.attention.urgent_count + " items need attention in the Action Center"}
+					>
+						<span class="signal-mark" aria-hidden="true"></span>
+						{data.league.attention.urgent_count} URGENT
+					</a>
+				</If>
 				<button
 					type="button"
 					class="mobile-navigation-open"

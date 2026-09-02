@@ -92,6 +92,32 @@ func TestLoginPageRendersSanitizedReturnCTA(t *testing.T) {
 		t.Fatalf("hostile next leaked into the login CTA: %s", hostile)
 	}
 }
+
+// TestLoginPageSeatMeterMarksTakenAndOpenSeatsByText is gap-audit item 8
+// (wave 4 — linden): the login seat meter used to render eight
+// identical, unlabeled pills — only a CSS fill distinguished taken from
+// open. Each pill now carries a visible/AT-reachable status and the
+// meter itself an aria-label naming the open-seat count. This exercises
+// the all-open state directly against a fresh reference league (every
+// pill OPEN, matching TestSeatMeterDataAllSeatsOpen's own league-level
+// coverage); TestSeatMeterDataMarksTakenAndOpenSeatsByText
+// (internal/league) is the data-level contract for the mixed
+// taken/open case this render wiring shares.
+func TestLoginPageSeatMeterMarksTakenAndOpenSeatsByText(t *testing.T) {
+	body := renderLoginPage(t, "%2F")
+	if !strings.Contains(body, `class="seat-meter" aria-label="8 of 8 seats open"`) {
+		t.Fatalf("login page seat meter carries no aria-label with the open-seat count: %s", body)
+	}
+	for _, want := range []string{`data-taken="false"`, "<small>OPEN</small>", `aria-label="Seat 1: open"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("login page seat meter missing taken/open text contract %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "<small>TAKEN</small>") {
+		t.Errorf("login page seat meter rendered TAKEN with no claimed seats: %s", body)
+	}
+}
+
 func TestLoginPageFallsBackFromAuthenticationReturnTargets(t *testing.T) {
 	tests := []struct {
 		name   string

@@ -18,6 +18,13 @@ func init() {
 			ctx.NoStore()
 			configured := strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_ID")) != "" && strings.TrimSpace(os.Getenv("GOOGLE_CLIENT_SECRET")) != ""
 			data := league.Default().LoginData(ctx.Request, configured)
+			// seat_meter (gap-audit item 8, wave 4 — linden): marks each seat
+			// taken/open by text, not colour alone, and carries the open-seat
+			// count as the meter's own accessible name. Merged in here
+			// (rather than inside LoginData/service.go) the same way
+			// has_notice/notice below are — see SeatMeterData's own doc
+			// comment for why this stays out of service.go.
+			data["seat_meter"] = league.Default().SeatMeterData()
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
