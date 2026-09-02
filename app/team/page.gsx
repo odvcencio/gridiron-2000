@@ -46,6 +46,7 @@ type RosterRowProps struct {
 type BadgeCellProps struct {
 	Slug          string
 	Name          string
+	MaskHref      string
 	Free          bool
 	Mine          bool
 	TakenByOther  bool
@@ -64,20 +65,20 @@ component BadgeCell(props: BadgeCellProps) {
 				<input type="hidden" name="motif" value={props.Slug}></input>
 				<input type="hidden" name="redirect_to" value={props.RedirectTo}></input>
 				<button type="submit" class="badge-option" title={props.Name} data-badge-state="available" aria-label={"Choose " + props.Name + " badge (available)"}>
-					<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);"} aria-hidden="true"></span>
+					<span class="badge-option__art" style={"mask-image:url(" + props.MaskHref + ");-webkit-mask-image:url(" + props.MaskHref + ");"} aria-hidden="true"></span>
 					<small>AVAILABLE · {props.Name}</small>
 				</button>
 			</form>
 		</If>
 		<If cond={props.Mine}>
 			<div class="badge-option badge-option--mine" role="img" title={props.Name} data-badge-state="current" aria-label={"Current badge: " + props.Name} aria-current="true">
-				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);"} aria-hidden="true"></span>
+				<span class="badge-option__art" style={"mask-image:url(" + props.MaskHref + ");-webkit-mask-image:url(" + props.MaskHref + ");"} aria-hidden="true"></span>
 				<small>CURRENT · {props.Name}</small>
 			</div>
 		</If>
 		<If cond={props.TakenByOther}>
 			<div class="badge-option badge-option--taken" role="img" title={props.Name} data-badge-state="taken" aria-label={props.Name + " badge is taken by " + props.ClaimedByAbbr} aria-disabled="true">
-				<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/mask/" + props.Slug + ".png);"} aria-hidden="true"></span>
+				<span class="badge-option__art" style={"mask-image:url(" + props.MaskHref + ");-webkit-mask-image:url(" + props.MaskHref + ");"} aria-hidden="true"></span>
 				<small>TAKEN · {props.ClaimedByAbbr}</small>
 			</div>
 		</If>

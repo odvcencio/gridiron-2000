@@ -27,12 +27,26 @@ func init() {
 			data["signup_error"] = ""
 			data["team_name_value"] = ""
 			data["selected_motif"] = ""
-			if badges, ok := data["badge_grid"].([]league.UnclaimedBadgeOption); ok && len(badges) > 0 {
-				// A concrete default means the normal path cannot fail merely
-				// because the manager missed a visually-hidden radio control.
-				// The action remains authoritative if this motif is claimed in
-				// the interval between render and submit.
-				data["selected_motif"] = badges[0].Slug
+			if badges, ok := data["badge_grid"].([]league.UnclaimedBadgeOption); ok {
+				// Rewrap into badgeMaskOption, unconditionally (even an empty
+				// grid), so data["badge_grid"] is always the one type
+				// page.gsx's <Each> renders: a mask-image swatch needs the
+				// same immutably-cacheable "?v=" href
+				// app/team/page.server.go's badgeGridProps stamps onto its own
+				// grid, from the one place that reads the file
+				// (league.Service.MotifMaskHref, internal/league/avatar.go) —
+				// see badgeMaskOption's own doc comment for why this wraps
+				// rather than extends league.UnclaimedBadgeOption.
+				wrapped := badgeMaskOptions(badges)
+				data["badge_grid"] = wrapped
+				if len(wrapped) > 0 {
+					// A concrete default means the normal path cannot fail
+					// merely because the manager missed a visually-hidden
+					// radio control. The action remains authoritative if
+					// this motif is claimed in the interval between render
+					// and submit.
+					data["selected_motif"] = wrapped[0].Slug
+				}
 			}
 			if view, ok := ctx.ActionState("signup-claim"); ok {
 				// Managed actions retain submitted values after validation. Do
@@ -78,6 +92,35 @@ func init() {
 	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// badgeMaskOption is league.UnclaimedBadgeOption (Slug, Name) plus MaskHref,
+// the mask-image swatch's public URL with a content-hash "?v=" query — see
+// league.Service.MotifMaskHref's own doc comment (internal/league/avatar.go)
+// for why that hash lives there rather than being computed here or in
+// page.gsx. A wrapping struct, not an added field on UnclaimedBadgeOption
+// itself: that type is internal/league's own, shared with every other
+// UnclaimedBadgeOption reader, and MaskHref is a join-page rendering
+// concern, not a league-data fact.
+type badgeMaskOption struct {
+	Slug     string
+	Name     string
+	MaskHref string
+}
+
+// badgeMaskOptions wraps every entry in badges with its MaskHref, preserving
+// order (badges[0] stays the "selected_motif" default the Load closure
+// above reads back out).
+func badgeMaskOptions(badges []league.UnclaimedBadgeOption) []badgeMaskOption {
+	out := make([]badgeMaskOption, 0, len(badges))
+	for _, badge := range badges {
+		out = append(out, badgeMaskOption{
+			Slug:     badge.Slug,
+			Name:     badge.Name,
+			MaskHref: league.Default().MotifMaskHref(badge.Slug),
+		})
+	}
+	return out
 }
 
 // signupClaimField consumes the typed service-boundary attribution. It

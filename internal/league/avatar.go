@@ -101,12 +101,18 @@ func (s *Service) seatActor(r *http.Request) seatActor {
 const defaultBadgeCacheTTL = 30 * time.Second
 
 // badgeToneCache is the cached result of scanning defaultBadgeRoot for
-// {tone}.png files. The zero value is ready to use: an empty tones map and
-// a zero scanAt just force one scan on first use.
+// {tone}.png files, plus each found file's content-hash "?v=" query
+// fragment (versions), lazily filled in by defaultBadgeHref and discarded
+// on the same scan that refreshes tones (see refreshBadgeToneCache) — a
+// redeployed default badge's href moves within one defaultBadgeCacheTTL
+// window rather than describing stale bytes forever. The zero value is
+// ready to use: an empty tones map and a zero scanAt just force one scan
+// on first use.
 type badgeToneCache struct {
-	mu     sync.Mutex
-	scanAt time.Time
-	tones  map[string]bool
+	mu       sync.Mutex
+	scanAt   time.Time
+	tones    map[string]bool
+	versions map[string]string
 }
 
 // avatarEnvString reads key from the environment, trimmed, falling back to
@@ -350,14 +356,126 @@ func (s *Service) defaultBadgeExists(tone string) bool {
 	if tone == "" {
 		return false
 	}
+	s.refreshBadgeToneCache()
+	s.badgeCache.mu.Lock()
+	defer s.badgeCache.mu.Unlock()
+	return s.badgeCache.tones[tone]
+}
+
+// refreshBadgeToneCache rescans defaultBadgeDir once defaultBadgeCacheTTL
+// has elapsed since the last scan (or on first use), and clears versions
+// alongside tones so a stale content hash can never survive past the same
+// window that already governs presence — see badgeToneCache's own doc
+// comment.
+func (s *Service) refreshBadgeToneCache() {
 	now := s.clock()
 	s.badgeCache.mu.Lock()
 	defer s.badgeCache.mu.Unlock()
-	if s.badgeCache.tones == nil || now.Sub(s.badgeCache.scanAt) > defaultBadgeCacheTTL {
-		s.badgeCache.tones = scanDefaultBadgeTones(s.defaultBadgeDir())
-		s.badgeCache.scanAt = now
+	if s.badgeCache.tones != nil && now.Sub(s.badgeCache.scanAt) <= defaultBadgeCacheTTL {
+		return
 	}
-	return s.badgeCache.tones[tone]
+	s.badgeCache.tones = scanDefaultBadgeTones(s.defaultBadgeDir())
+	s.badgeCache.versions = make(map[string]string, len(s.badgeCache.tones))
+	s.badgeCache.scanAt = now
+}
+
+// defaultBadgePath resolves the BadgeOutputSize {tone}.png default badge
+// file, the sibling this package's other path resolvers (avatarDir,
+// defaultBadgeLargePath) already follow the same "{root}/{tone}.png"
+// pattern for.
+func (s *Service) defaultBadgePath(tone string) string {
+	return filepath.Join(s.defaultBadgeDir(), tone+".png")
+}
+
+// defaultBadgeHref returns tone's default-badge public URL with a
+// content-hash "?v=" query appended when the file is present and
+// readable — the same GoSX content-addressing convention
+// hashedPublicAssetHref (main package, app_build.go) stamps onto
+// styles.css, so App.servePublic's vendored static handler already answers
+// this exact URL with "Cache-Control: public, max-age=31536000, immutable"
+// with no route change needed here. A missing or unreadable file falls
+// back to the unversioned href, matching hashedPublicAssetHref's own
+// fail-open contract, rather than a broken image. The hash is cached per
+// tone in badgeCache.versions (see refreshBadgeToneCache) so a standings
+// or roster page rendering the same tone across many teams hashes the file
+// once per defaultBadgeCacheTTL window, not once per team per request.
+func (s *Service) defaultBadgeHref(tone string) string {
+	href := fmt.Sprintf("/avatars/defaults/%s.png", tone)
+	s.refreshBadgeToneCache()
+	s.badgeCache.mu.Lock()
+	defer s.badgeCache.mu.Unlock()
+	if version, cached := s.badgeCache.versions[tone]; cached {
+		if version == "" {
+			return href
+		}
+		return href + "?v=" + version
+	}
+	version := hashedAssetQueryValue(s.defaultBadgePath(tone))
+	s.badgeCache.versions[tone] = version
+	if version == "" {
+		return href
+	}
+	return href + "?v=" + version
+}
+
+// defaultBadgeLargeHref is defaultBadgeHref's counterpart for the "large"
+// variant, deliberately uncached like defaultBadgeLargeExists's own doc
+// comment explains: avatarViewLarge's only caller renders exactly one
+// team's own hero mark per request, so there is no many-teams-per-page
+// cost here to amortize.
+func (s *Service) defaultBadgeLargeHref(tone string) string {
+	href := fmt.Sprintf("/avatars/defaults/large/%s.png", tone)
+	if version := hashedAssetQueryValue(s.defaultBadgeLargePath(tone)); version != "" {
+		return href + "?v=" + version
+	}
+	return href
+}
+
+// MotifMaskHref returns the public URL for slug's small, CSS-mask export
+// under motifDir()/mask (see motifDir's own doc comment for the
+// AVATAR_MOTIFS_ROOT override; motif_mask_asset_test.go in the main
+// package covers the export's own size/resolution ceiling), with a
+// content-hash "?v=" query appended so App.servePublic serves it
+// "Cache-Control: public, max-age=31536000, immutable" — the exact
+// mechanism hashedPublicAssetHref (app_build.go) established for
+// styles.css. Exported (not an unexported helper local to this file)
+// because both app/team/page.server.go's badge-picker grid and
+// app/join/page.server.go's unclaimed-motif grid render this same mask
+// swatch and need the identical href for the same slug. Deliberately
+// uncached, unlike defaultBadgeHref: the shipped motif catalog (16 slugs,
+// each capped at motifMaskMaxBytes in the main package's own test) never
+// changes at runtime the way a commissioner-supplied default badge can, so
+// there is no redeploy-lag hazard a cache would need to bound, and one
+// grid render costs at most 16 small reads. A missing or unreadable file,
+// or a slug outside the known catalog, falls back to the unversioned href
+// rather than refusing to render — matching hashedPublicAssetHref's own
+// fail-open contract for a packaging error.
+func (s *Service) MotifMaskHref(slug string) string {
+	slug = strings.TrimSpace(slug)
+	href := fmt.Sprintf("/avatars/motifs/mask/%s.png", slug)
+	if slug == "" || !knownMotif(slug) {
+		return href
+	}
+	version := hashedAssetQueryValue(filepath.Join(s.motifDir(), "mask", slug+".png"))
+	if version == "" {
+		return href
+	}
+	return href + "?v=" + version
+}
+
+// hashedAssetQueryValue reads path and returns the first 8 hex bytes (32
+// bits — ample collision resistance for a single deploy's worth of asset
+// versions) of its content's SHA-256 sum, or "" when the file is missing or
+// unreadable. Shared by defaultBadgeHref, defaultBadgeLargeHref, and
+// MotifMaskHref so all three follow hashedPublicAssetHref's exact hashing
+// recipe (app_build.go) rather than a second, silently divergent one.
+func hashedAssetQueryValue(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:8])
 }
 
 // scanDefaultBadgeTones lists dir and returns the set of tones with a
@@ -417,7 +535,7 @@ func (s *Service) avatarView(teamID, tone string) (hasAvatar, hasImage bool, url
 		return false, true, fmt.Sprintf("/avatars/badge/%s.png?v=%s", teamID, version)
 	}
 	if s.defaultBadgeExists(tone) {
-		return false, true, fmt.Sprintf("/avatars/defaults/%s.png", tone)
+		return false, true, s.defaultBadgeHref(tone)
 	}
 	return false, false, ""
 }
@@ -447,10 +565,10 @@ func (s *Service) avatarViewLarge(teamID, tone string) (hasAvatar, hasImage bool
 		return false, true, fmt.Sprintf("/avatars/badge/%s-lg.png?v=%s", teamID, version)
 	}
 	if s.defaultBadgeLargeExists(tone) {
-		return false, true, fmt.Sprintf("/avatars/defaults/large/%s.png", tone)
+		return false, true, s.defaultBadgeLargeHref(tone)
 	}
 	if s.defaultBadgeExists(tone) {
-		return false, true, fmt.Sprintf("/avatars/defaults/%s.png", tone)
+		return false, true, s.defaultBadgeHref(tone)
 	}
 	return false, false, ""
 }

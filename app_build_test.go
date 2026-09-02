@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -132,6 +135,64 @@ func TestBuildAppStylesheetHashedURLIsImmutable(t *testing.T) {
 	}
 	if got := plainRecorder.Header().Get("Cache-Control"); got != "public, max-age=0, must-revalidate" {
 		t.Fatalf("GET /styles.css Cache-Control = %q, want the compatibility revalidating policy", got)
+	}
+}
+
+// TestAvatarAndMotifHrefsCarryContentHashAndImmutableCache covers gap-audit
+// item 2 (wave 3): a badge/avatar href without hashedPublicAssetHref's "?v="
+// convention only ever gets App.servePublic's revalidating
+// "public, max-age=0, must-revalidate" policy — the every-4s league-version
+// poll (see TestRoutesPollLeagueVersionAtMostOnce) then makes every open
+// page re-request every rendered avatar and motif swatch it already has,
+// for bytes that only ever change at deploy time. This proves both
+// callers hawthorn's fix pattern was extended to
+// (league.Service.MotifMaskHref for the mask swatch app/team/page.server.go
+// and app/join/page.server.go both render, and the unexported
+// defaultBadgeHref underneath avatarView's tone-default tier) actually
+// reach App.servePublic with a query the vendored handler recognizes.
+func TestAvatarAndMotifHrefsCarryContentHashAndImmutableCache(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+
+	motifHref := league.Default().MotifMaskHref("wolf")
+	if !strings.Contains(motifHref, "?v=") {
+		t.Fatalf("MotifMaskHref(%q) = %q, want a \"?v=\" content-hash query", "wolf", motifHref)
+	}
+	motifRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(motifRecorder, httptest.NewRequest(http.MethodGet, motifHref, nil))
+	if motifRecorder.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", motifHref, motifRecorder.Code)
+	}
+	if got := motifRecorder.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("GET %s Cache-Control = %q, want the immutable policy", motifHref, got)
+	}
+	// The same file, unversioned, keeps the pre-fix revalidating policy —
+	// proving the immutable header above came from the query, not from
+	// App.servePublic treating every request under /avatars/ specially.
+	plainMotifRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(plainMotifRecorder, httptest.NewRequest(http.MethodGet, "/avatars/motifs/mask/wolf.png", nil))
+	if got := plainMotifRecorder.Header().Get("Cache-Control"); got != "public, max-age=0, must-revalidate" {
+		t.Fatalf("GET /avatars/motifs/mask/wolf.png Cache-Control = %q, want the compatibility revalidating policy", got)
+	}
+
+	// The tone-default tier's hashedAssetQueryValue helper is unexported
+	// (internal/league/avatar.go), so this proves the same contract from
+	// the outside: hash public/avatars/defaults/blue.png the identical way
+	// (sha256, first 8 hex bytes — hashedAssetQueryValue's own recipe) and
+	// request that exact href.
+	defaultsPath := filepath.Join("public", "avatars", "defaults", "blue.png")
+	data, err := os.ReadFile(defaultsPath)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", defaultsPath, err)
+	}
+	sum := sha256.Sum256(data)
+	defaultHref := "/avatars/defaults/blue.png?v=" + hex.EncodeToString(sum[:8])
+	defaultRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(defaultRecorder, httptest.NewRequest(http.MethodGet, defaultHref, nil))
+	if defaultRecorder.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", defaultHref, defaultRecorder.Code)
+	}
+	if got := defaultRecorder.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("GET %s Cache-Control = %q, want the immutable policy", defaultHref, got)
 	}
 }
 

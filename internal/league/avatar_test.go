@@ -37,6 +37,17 @@ func solidPNG(t *testing.T, width, height int, c color.Color) []byte {
 	return buf.Bytes()
 }
 
+// hashQueryValue reproduces hashedAssetQueryValue's exact recipe (first 8
+// hex bytes of the content's SHA-256 sum) so a test can assert the
+// production "?v=" query against a fixture's known bytes without hardcoding
+// a hash literal that would silently stop testing anything if the recipe
+// ever changed on only one side.
+func hashQueryValue(t *testing.T, data []byte) string {
+	t.Helper()
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:8])
+}
+
 // solidJPEG encodes a width x height solid-color JPEG.
 func solidJPEG(t *testing.T, width, height int, c color.Color) []byte {
 	t.Helper()
@@ -1092,8 +1103,9 @@ func TestAvatarViewFallbackChain(t *testing.T) {
 	if hasAvatar {
 		t.Fatal("hasAvatar must stay false for the default-badge tier")
 	}
-	if !hasImage || url != "/avatars/defaults/blue.png" {
-		t.Fatalf("tier b resolution wrong: hasImage=%v url=%q", hasImage, url)
+	wantBlueHref := "/avatars/defaults/blue.png?v=" + hashQueryValue(t, []byte("badge"))
+	if !hasImage || url != wantBlueHref {
+		t.Fatalf("tier b resolution wrong: hasImage=%v url=%q, want %q (a content-hash ?v= query, matching hashedPublicAssetHref's convention)", hasImage, url, wantBlueHref)
 	}
 
 	// Tier a: an uploaded avatar outranks the default badge.
@@ -1151,8 +1163,9 @@ func TestAvatarViewLargeFallbackChain(t *testing.T) {
 	if hasAvatar {
 		t.Fatal("hasAvatar must stay false for the default-badge tier")
 	}
-	if !hasImage || url != "/avatars/defaults/blue.png" {
-		t.Fatalf("tier c fallback resolution wrong: hasImage=%v url=%q", hasImage, url)
+	wantBlueHref := "/avatars/defaults/blue.png?v=" + hashQueryValue(t, []byte("badge"))
+	if !hasImage || url != wantBlueHref {
+		t.Fatalf("tier c fallback resolution wrong: hasImage=%v url=%q, want %q", hasImage, url, wantBlueHref)
 	}
 
 	// Tier c, a large default now exists: it outranks the fallback.
@@ -1167,8 +1180,9 @@ func TestAvatarViewLargeFallbackChain(t *testing.T) {
 	if hasAvatar {
 		t.Fatal("hasAvatar must stay false for the default-badge tier")
 	}
-	if !hasImage || url != "/avatars/defaults/large/blue.png" {
-		t.Fatalf("tier c large resolution wrong: hasImage=%v url=%q", hasImage, url)
+	wantLargeHref := "/avatars/defaults/large/blue.png?v=" + hashQueryValue(t, []byte("large badge"))
+	if !hasImage || url != wantLargeHref {
+		t.Fatalf("tier c large resolution wrong: hasImage=%v url=%q, want %q", hasImage, url, wantLargeHref)
 	}
 
 	// Tier b: a badge claim outranks the tone default, at the distinct
