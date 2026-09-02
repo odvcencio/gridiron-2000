@@ -12828,3 +12828,24 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     text-decoration: none;
   }
 }
+
+/* Item 3: /activity's pagination controls duplicate at the top of the
+   list (pool-pagination--top, app/activity/page.gsx/ActivityRegion) so a
+   manager filtering or paging a long feed does not have to scroll past
+   every entry to reach Next/Previous — hidden by default (desktop already
+   keeps the bottom copy within easy reach) and shown only at phone/tablet
+   width, where the audit found the feed ran to 5980px. */
+.pool-pagination--top {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .pool-pagination--top {
+    display: flex;
+    margin-top: 0;
+    padding-top: 0;
+    padding-bottom: var(--space-sm);
+    border-top: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+}

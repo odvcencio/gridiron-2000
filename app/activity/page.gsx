@@ -45,6 +45,7 @@ func Page() Node {
 					<h2>Every transaction</h2>
 				</div>
 			</div>
+			<div class="pool-filter-rail" id="activity-filters">
 			<form method="get" action="/activity" class="pool-search-bar">
 				<label class="mono" for="activity-team">TEAM //</label>
 				<select id="activity-team" name="team">
@@ -54,12 +55,13 @@ func Page() Node {
 					</Each>
 				</select>
 				<label class="mono" for="activity-search">SEARCH //</label>
-				<input id="activity-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
+				<input id="activity-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
 				<button class="filter-button" type="submit">Filter</button>
 				<If cond={data.has_filters}>
 					<a class="filter-button" href="/activity" data-gosx-link>Clear</a>
 				</If>
 			</form>
+			</div>
 			<If cond={data.filtered_count > 0}>
 				<p class="scoring-note" aria-live="polite">
 					Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall
@@ -82,6 +84,15 @@ func Page() Node {
 					<a class="filter-button" href="/activity" data-gosx-link>Clear filters</a>
 				</div>
 			</If>
+			<nav class="pool-pagination pool-pagination--top" aria-label="Transaction feed pages (top)">
+				<If cond={data.has_previous}>
+					<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
+				</If>
+				<span class="mono">Page {data.page} / {data.pages}</span>
+				<If cond={data.has_next}>
+					<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
+				</If>
+			</nav>
 			<div class="activity-feed">
 				<Each of={data.transactions} as="move">
 					<div class="activity-item" data-actor-class={move.ActorClass}>
@@ -111,6 +122,7 @@ func Page() Node {
 					</div>
 				</Each>
 			</div>
+			<a class="access-link activity-back-to-top" href="#activity-filters">↑ Back to filters</a>
 			<nav class="pool-pagination" aria-label="Transaction feed pages">
 				<If cond={data.has_previous}>
 					<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
@@ -136,19 +148,23 @@ func Page() Node {
 func ActivityRegion() Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar"><div><span class="section-index">01 // TRANSACTION FEED</span><h2>Every transaction</h2></div></div>
+		<div class="pool-filter-rail" id="activity-filters">
 		<form method="get" action="/activity" class="pool-search-bar">
 			<label class="mono" for="activity-sync-team">TEAM //</label>
 			<select id="activity-sync-team" name="team"><option value="">All teams</option><Each of={data.team_options} as="option"><option value={option.value} selected={option.selected}>{option.label}</option></Each></select>
 			<label class="mono" for="activity-sync-search">SEARCH //</label>
-			<input id="activity-sync-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
+			<input id="activity-sync-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
 			<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
 			<button class="filter-button" type="submit">Filter</button>
 			<If cond={data.has_filters}><a class="filter-button" href="/activity" data-gosx-link>Clear</a></If>
 		</form>
+		</div>
 		<If cond={data.filtered_count > 0}><p class="scoring-note" aria-live="polite">Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall</p></If>
 		<If cond={data.has_transactions == false}><div class="empty-tape"><strong>NO TRANSACTIONS YET</strong><p>Draft picks and roster moves appear here as they happen.</p></div></If>
 		<If cond={data.has_transactions && data.transactions_empty}><div class="empty-tape"><strong>NO MOVES MATCH</strong><p>Try another team or query, or clear the filters.</p><a class="filter-button" href="/activity" data-gosx-link>Clear filters</a></div></If>
+		<nav class="pool-pagination pool-pagination--top" aria-label="Transaction feed pages (top)"><If cond={data.has_previous}><a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a></If><span class="mono">Page {data.page} / {data.pages}</span><If cond={data.has_next}><a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a></If></nav>
 		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item" data-actor-class={move.ActorClass}><If cond={move.TimeISO != ""}><time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.TimeISO == ""}><time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.ActorClass != ""}><p><span class="activity-actor-class mono activity-token-gap">{move.ActorClass}</span> · <strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action}</span></p></If><If cond={move.ActorClass == ""}><p><strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action} </span><b class="activity-token-gap">{move.Player}</b></p></If></div></Each></div>
+		<a class="access-link activity-back-to-top" href="#activity-filters">↑ Back to filters</a>
 		<nav class="pool-pagination" aria-label="Transaction feed pages"><If cond={data.has_previous}><a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a></If><span class="mono">Page {data.page} / {data.pages}</span><If cond={data.has_next}><a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a></If></nav>
 	</section>
 }
