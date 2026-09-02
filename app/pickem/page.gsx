@@ -317,7 +317,7 @@ func PickemLiveRegion() Node {
 			</If>
 		</div>
 
-		<section class="player-pool">
+		<section class="player-pool" id="pickem-slate">
 			<div class="pool-toolbar">
 				<div>
 					<span class="section-index">
@@ -338,7 +338,7 @@ func PickemLiveRegion() Node {
 						<a href={data.prev_week_href} data-gosx-link class="board-button">← Prev</a>
 					</If>
 					<form method="get" action="/pickem" class="lineup-week-form">
-						<select name="week" aria-label="Select week">
+						<select name="week" class="board-button" aria-label="Select week">
 							<Each of={data.week_options} as="wk">
 								<option value={wk.value} selected={wk.selected}>{wk.label}</option>
 							</Each>

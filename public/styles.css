@@ -13326,3 +13326,24 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .announcement-email-toggle {
   min-height: var(--control-h);
 }
+
+/* Item 9: /pickem's game rows read as two-line cards on a phone —
+   kickoff + matchup label on their own line, then the market/pick
+   buttons/status line below (the existing wave-1/wave-2 flex-wrap
+   collapse already puts them in that order; this only adds the visual
+   card framing: a border and rounded corners per row, and spacing so
+   consecutive rows read as separate cards rather than a single flat
+   list). .pickem-buttons' own controls already share the app-wide
+   .filter-button recipe, which floors both dimensions at 44px
+   (public/styles.css, the button-family base rule), so no size change
+   is needed there — only the card treatment. */
+@media (max-width: 56.1875rem) {
+  .pickem-row {
+    margin-bottom: var(--space-sm);
+    border-radius: var(--radius-md);
+  }
+
+  .pickem-row:first-child {
+    border-radius: var(--radius-md);
+  }
+}
