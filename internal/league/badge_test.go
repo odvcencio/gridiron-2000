@@ -211,8 +211,9 @@ func TestAvatarViewBadgePrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	hasAvatar, hasImage, url := service.avatarView("team-2", "blue")
-	if hasAvatar || !hasImage || url != "/avatars/defaults/blue.png" {
-		t.Fatalf("tier c resolution wrong: hasAvatar=%v hasImage=%v url=%q", hasAvatar, hasImage, url)
+	wantHref := "/avatars/defaults/blue.png?v=" + hashQueryValue(t, []byte("badge"))
+	if hasAvatar || !hasImage || url != wantHref {
+		t.Fatalf("tier c resolution wrong: hasAvatar=%v hasImage=%v url=%q, want %q", hasAvatar, hasImage, url, wantHref)
 	}
 
 	// Tier b: a badge claim outranks the tone default.

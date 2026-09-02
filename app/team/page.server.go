@@ -68,10 +68,16 @@ type RosterCard struct {
 // "Claimed && Mine". CSRF, TeamID, and RedirectTo repeat on every entry
 // (rather than being passed once to the grid container) because a
 // strict component call accepts exactly one spread attribute and no
-// other named attributes.
+// other named attributes. MaskHref is precomputed here too, rather than
+// page.gsx concatenating "/avatars/motifs/mask/" + Slug + ".png" itself
+// (as it did before gap-audit item 2, wave 3): league.Service.MotifMaskHref
+// (internal/league/avatar.go) is the one place that reads the file to
+// compute its "?v=" content hash, so page.gsx never needs filesystem
+// access to render an immutably-cacheable mask swatch.
 type BadgeCard struct {
 	Slug          string
 	Name          string
+	MaskHref      string
 	Free          bool
 	Mine          bool
 	TakenByOther  bool
@@ -163,9 +169,11 @@ func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) 
 	for _, cell := range raw {
 		claimed := boolField(cell, "claimed")
 		mine := boolField(cell, "mine")
+		slug := stringField(cell, "slug")
 		out = append(out, BadgeCard{
-			Slug:          stringField(cell, "slug"),
+			Slug:          slug,
 			Name:          stringField(cell, "name"),
+			MaskHref:      league.Default().MotifMaskHref(slug),
 			Free:          claimed == false,
 			Mine:          claimed && mine,
 			TakenByOther:  claimed && mine == false,

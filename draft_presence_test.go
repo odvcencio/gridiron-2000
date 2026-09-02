@@ -33,8 +33,14 @@ func TestLeagueHeartbeatEndpointScopesDraftPresence(t *testing.T) {
 		{path: "/draft", want: leaguePresenceEndpoint},
 		{path: "/draft/", want: leaguePresenceEndpoint},
 		{path: "/draft?week=1", want: leaguePresenceEndpoint},
-		{path: "/team", want: leagueVersionEndpoint},
-		{path: "/", want: leagueVersionEndpoint},
+		// Every non-draft route returns "" (omit the body marker), not
+		// leagueVersionEndpoint: the heartbeat ping never reads its response,
+		// so pointing it at the version endpoint alongside a page's own
+		// data-gosx-revalidate-src="/api/league/version" fired that same URL
+		// twice per 4s tick. See leagueHeartbeatEndpoint's doc comment.
+		{path: "/team", want: ""},
+		{path: "/", want: ""},
+		{path: "/pickem", want: ""},
 	}
 	for _, test := range tests {
 		path := test.path
@@ -170,5 +176,46 @@ func TestPresenceHeartbeatEndToEndUsesServiceClock(t *testing.T) {
 	}
 	if !got.Equal(fixed) {
 		t.Fatalf("presence_seen_at = %v, want %v (the service clock, per draft_presence.go's RecordPresence call)", got, fixed)
+	}
+}
+
+// TestRoutesPollLeagueVersionAtMostOnce is a body-heartbeat regression: a
+// browser audit measured two /api/league/version requests per 4s tick on /
+// and /pickem, because the shared body heartbeat pointed at the same URL
+// each page's own data-gosx-revalidate-src already polled. This renders the
+// full document (through BuildApp's layout, not a page fragment) and counts
+// the literal URL, so a reintroduced duplicate marker fails here even if it
+// used a different attribute.
+func TestRoutesPollLeagueVersionAtMostOnce(t *testing.T) {
+	handler := buildHarnessApp(t, true)
+	for _, path := range []string{"/", "/pickem", "/draft"} {
+		t.Run(path, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, path, nil)
+			request.RemoteAddr = "127.0.0.1:1234" // httptest.NewRequest defaults to a non-loopback 192.0.2.1
+			request.Header.Set("X-Test-User", "poll-count@sim.test|Poll Count")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("GET %s = %d, want 200; body=%s", path, recorder.Code, recorder.Body.String())
+			}
+			body := recorder.Body.String()
+			if got := strings.Count(body, leagueVersionEndpoint); got > 1 {
+				t.Fatalf("GET %s referenced %s %d time(s), want at most 1 (one poller, not a duplicate): %s", path, leagueVersionEndpoint, got, body)
+			}
+			// The body heartbeat marker itself must be absent on every route
+			// besides /draft: leagueHeartbeatEndpoint returns "" elsewhere,
+			// and app_build.go's layout must skip ctx.BodyAttrs rather than
+			// emit an empty-src attribute the runtime would only warn about.
+			if path == "/draft" {
+				if !strings.Contains(body, `data-gosx-heartbeat="`+leaguePresenceEndpoint+`"`) {
+					t.Errorf("GET /draft is missing the presence heartbeat marker: %s", body)
+				}
+				if strings.Contains(body, `data-gosx-heartbeat="`+leagueVersionEndpoint+`"`) {
+					t.Errorf("GET /draft must not carry a version heartbeat: %s", body)
+				}
+			} else if strings.Contains(body, "data-gosx-heartbeat=") {
+				t.Errorf("GET %s carries a body heartbeat marker, want none: %s", path, body)
+			}
+		})
 	}
 }

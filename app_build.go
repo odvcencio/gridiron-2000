@@ -327,6 +327,32 @@ func navigationScriptNonceAttr(nonce string) string {
 	return ` nonce="` + html.EscapeString(nonce) + `"`
 }
 
+// csrfExemptClientEvents wraps protect (sessions.Protect) so it never
+// touches GoSX's own auto-mounted telemetry sink,
+// server.ClientEventsRoute ("/_gosx/client-events" — see
+// registerBuiltinRoutes in m31labs.dev/gosx/server's server.go, which
+// mounts it unconditionally unless the app has already registered that
+// exact route). ClientEventsHandler (server/client_events.go) only
+// forwards each batched client-side event to a slog.Logger, bounded by a
+// 64KB body cap and a per-remote-addr rate limit — no session read, no
+// state write, nothing a forged cross-origin request could exploit — so
+// CSRF protection has nothing to protect there. The bootstrap runtime's
+// telemetry beacon (navigator.sendBeacon on visibilitychange, or a
+// batched fetch every 2s) never attaches an X-CSRF-Token, so without this
+// exemption every page load logged one spurious 403 here.
+func csrfExemptClientEvents(protect func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		protected := protect(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == server.ClientEventsRoute {
+				next.ServeHTTP(w, r)
+				return
+			}
+			protected.ServeHTTP(w, r)
+		})
+	}
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -574,26 +600,31 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
 		})
-		// data-gosx-heartbeat/-interval (gosx#216) replaces gridiron.js's old
-		// sendPresenceHeartbeat loop on every page, not just the ones that
-		// also carry data-gosx-revalidate-interval: the heartbeat ping is
-		// visibility-aware (it pauses while the tab is hidden) but, unlike
-		// revalidation and every other periodic primitive here, it carries
-		// no focused-control interaction guard, so it keeps presence current
-		// while a manager is typing in a search box — the exact gap the old
-		// JS's focusedControlActive() special case existed only to close.
+		// data-gosx-heartbeat/-interval (gosx#216) is the Draft Room's
+		// attendance claim only. Its ping is visibility-aware (it pauses
+		// while the tab is hidden) and carries no focused-control interaction
+		// guard, so it keeps presence current while a manager is typing in a
+		// search box — the exact gap the old JS's focusedControlActive()
+		// special case existed only to close on the pre-gosx#216 sendPresence
+		// loop this replaced. It must stay off every route besides /draft:
+		// leagueHeartbeatEndpoint's own doc comment spells out why pointing
+		// it at leagueVersionEndpoint elsewhere either duplicated a page's
+		// own data-gosx-revalidate-src poll of that same URL every 4s tick,
+		// or (on a page with no revalidate poll) fired a GET whose response
+		// the client heartbeat always discards — never a real version-sync
+		// primitive. So an empty return here means "omit the body marker,"
+		// not "poll an empty src": ctx.BodyAttrs is skipped outright rather
+		// than emitting data-gosx-heartbeat="" for the runtime to reject.
 		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
-		// directly on <body>, so no wrapper element is needed. The endpoint is
-		// route-aware because the one body marker must not turn an ordinary
-		// page's version poll into a draft-room attendance claim. Draft's live
-		// hub and fragment regions own room/version updates; its body heartbeat
-		// is presence-only. The native route Document contract carries both
-		// through the framework shell and re-reads them after managed navigation.
-		heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path)
-		ctx.BodyAttrs(
-			gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
-			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
-		)
+		// directly on <body> when present, so no wrapper element is needed.
+		// The native route Document contract carries them through the
+		// framework shell and re-reads them after managed navigation.
+		if heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path); heartbeatEndpoint != "" {
+			ctx.BodyAttrs(
+				gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
+				gosx.Attr("data-gosx-heartbeat-interval", "4s"),
+			)
+		}
 		// Data density (P1-6, UI pass 2026-08-30): a viewer's session-carried
 		// preference (internal/density) becomes a body attribute every route
 		// picks up automatically, the same way the heartbeat attributes above
@@ -665,7 +696,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.EnableGzip()
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
-	app.Use(sessions.Protect)
+	app.Use(csrfExemptClientEvents(sessions.Protect))
 	app.Use(authManager.Middleware)
 	app.SetPublicDir(filepath.Join(root, "public"))
 	// Serves the externalized navigation runtime router.SetNavigationHead
