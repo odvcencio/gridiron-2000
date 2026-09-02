@@ -606,9 +606,21 @@ func TeamLineupRegion() Node {
 					<div class="roster-shape" aria-label="League roster shape">
 						<Each of={data.roster_shape} as="slot">
 							<span class="roster-shape__slot-wrap">
-								<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
+								// Item 5 (wave-7 re-audit — yew): title only renders when
+								// slot.eligible is non-empty — an unconditional
+								// title={slot.eligible} printed a bare title="" on every
+								// slot with no eligible positions of its own (the audit's
+								// own finding, 8 per roster). Two branches, not one
+								// attribute expression: GSX has no ternary/"omit when
+								// falsy" attribute syntax, so an empty title has to come
+								// from never rendering the attribute at all, not from
+								// rendering it with an empty value.
 								<If cond={slot.has_eligible}>
+									<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
 									<small class="roster-shape__eligible mono">ELIGIBLE: {slot.eligible}</small>
+								</If>
+								<If cond={slot.has_eligible == false}>
+									<span class="roster-shape__slot mono">{slot.label}</span>
 								</If>
 							</span>
 						</Each>

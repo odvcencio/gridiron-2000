@@ -125,6 +125,43 @@ func TestBrowserTeamMobileCardLayoutAt390(t *testing.T) {
 	}
 }
 
+// TestBrowserRosterShapeSlotsNeverCarryEmptyTitleAttribute is the
+// decisive browser check for wave-7 re-audit item 5 (yew): a real render
+// of /team's own roster-shape strip must never carry a bare title=""
+// attribute — before this fix every slot with no eligible positions of
+// its own rendered exactly that (the audit's own finding: 8 of the
+// default preset's 9 slots). page.gsx now branches on slot.has_eligible
+// so the not-eligible case renders the .roster-shape__slot span with no
+// title attribute at all, instead of one carrying an empty string.
+func TestBrowserRosterShapeSlotsNeverCarryEmptyTitleAttribute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	chrome := chromePath(t)
+	root := browserAppRoot(t)
+	child, fantasyLeague := startReplayLeague(t, "3s", "GOSX_APP_ROOT="+root)
+	ctx := newBrowserContext(t, chrome)
+	bot := fantasyLeague.bots[0]
+
+	navigateSignedInTo(t, ctx, child, bot, "/team", 1280, 900)
+
+	var slotCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('.roster-shape__slot').length`, &slotCount)); err != nil {
+		t.Fatalf("count .roster-shape__slot: %v", err)
+	}
+	if slotCount == 0 {
+		t.Fatal("no .roster-shape__slot rendered on /team — is the roster shape data populated for this fixture?")
+	}
+
+	var emptyTitleCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('.roster-shape__slot[title=""]').length`, &emptyTitleCount)); err != nil {
+		t.Fatalf("count .roster-shape__slot with an empty title: %v", err)
+	}
+	if emptyTitleCount != 0 {
+		t.Errorf(".roster-shape__slot[title=\"\"] count = %d, want 0 (a slot with no eligible positions should carry no title attribute at all)", emptyTitleCount)
+	}
+}
+
 // TestBrowserActionBarToastClearsActionBarOnSubmit is the decisive browser
 // check for wave-7 (re-audit) item 1: submitting /team's own SET BEST
 // LINEUP action through the fixed .page-action-bar (the bar's one control)

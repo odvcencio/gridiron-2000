@@ -683,6 +683,16 @@ func TestRosterShapeRendersVisibleEligibilityAndPositionalDepth(t *testing.T) {
 	if !strings.Contains(page, `title={slot.eligible}`) {
 		t.Error("roster-shape slot lost its title=\"\" eligibility tooltip")
 	}
+	// Item 5 (wave-7 re-audit — yew): the source now branches on
+	// slot.has_eligible instead of always rendering the title
+	// attribute — TestBrowserRosterShapeSlotsNeverCarryEmptyTitleAttri
+	// bute (team_wave7_mobile_browser_test.go) is this fix's own
+	// decisive render test, driving a real page render and reading the
+	// actual DOM back, since an empty attribute value and an absent
+	// attribute are indistinguishable in this source text alone.
+	if !strings.Contains(page, `<If cond={slot.has_eligible == false}>`) {
+		t.Error("roster-shape slot is missing its own not-eligible branch (the one that must render with no title attribute at all)")
+	}
 }
 
 // TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults covers
