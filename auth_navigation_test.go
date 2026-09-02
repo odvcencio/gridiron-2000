@@ -487,6 +487,46 @@ func TestGoogleOAuthWrappersPersistAndRecheckSafeTargets(t *testing.T) {
 	}
 }
 
+// TestGoogleStartHandlerUnconfiguredPreservesNext covers the unconfigured
+// branch of googleStartHandler: the sign-in control is disabled on /login
+// while Google OAuth is unset up, but the route itself stays reachable (a
+// direct GET, an old bookmark, or a stale link), and a visitor who arrived
+// there with a deep-link next (e.g. /login?next=%2Fdraft%3Fweek%3D1) must
+// not lose that destination on the bounce back to /login. next is
+// sanitized with the same navigation.SafeReturnPath the configured branch
+// and LoginData already apply, so a hostile value degrades to "/" rather
+// than round-tripping into an open redirect.
+func TestGoogleStartHandlerUnconfiguredPreservesNext(t *testing.T) {
+	handler := googleStartHandler(nil, false)
+	tests := []struct {
+		name string
+		next string
+		want string
+	}{
+		{name: "valid deep link", next: "/draft?week=1", want: "/login?setup=google&next=%2Fdraft%3Fweek%3D1"},
+		{name: "absent", next: "", want: "/login?setup=google&next=%2F"},
+		{name: "hostile absolute target", next: "https://evil.example/steal", want: "/login?setup=google&next=%2F"},
+		{name: "protocol-relative target", next: "//evil.example/steal", want: "/login?setup=google&next=%2F"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target := "/auth/google/start"
+			if tt.next != "" {
+				target += "?next=" + url.QueryEscape(tt.next)
+			}
+			request := httptest.NewRequest(http.MethodGet, target, nil)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusSeeOther {
+				t.Fatalf("status = %d, want %d", recorder.Code, http.StatusSeeOther)
+			}
+			if got := recorder.Header().Get("Location"); got != tt.want {
+				t.Fatalf("Location = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGoogleCallbackWrapperRejectsDeniedInvite(t *testing.T) {
 	membership := &fakeGoogleMembership{}
 	fixture := newGoogleOAuthFixtureWithMembership(t, "outsider@example.com", membership)

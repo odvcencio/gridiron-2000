@@ -823,7 +823,15 @@ func googleStartHandler(flow *auth.OAuth, configured bool) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		session.AddFlash(r, "notice", "Sign-in is not ready yet. Ask the commissioner to finish league setup.")
-		http.Redirect(w, r, "/login?setup=google", http.StatusSeeOther)
+		// A visitor who followed a deep link (e.g. /login?next=%2Fdraft%3Fweek%3D1)
+		// to the disabled-but-still-reachable Google start route must not lose
+		// that destination on the bounce back to /login: preserve the
+		// validated next through the same sanitizer LoginData already applies
+		// to the sign-in button's own href (navigation.SafeReturnPath), so a
+		// malformed or unsafe query value degrades to "/" instead of an open
+		// redirect, and a legitimate one survives round-trip.
+		next := navigation.SafeReturnPath(r.URL.Query().Get("next"))
+		http.Redirect(w, r, "/login?setup=google&next="+url.QueryEscape(next), http.StatusSeeOther)
 	})
 }
 
