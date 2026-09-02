@@ -574,26 +574,31 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
 		})
-		// data-gosx-heartbeat/-interval (gosx#216) replaces gridiron.js's old
-		// sendPresenceHeartbeat loop on every page, not just the ones that
-		// also carry data-gosx-revalidate-interval: the heartbeat ping is
-		// visibility-aware (it pauses while the tab is hidden) but, unlike
-		// revalidation and every other periodic primitive here, it carries
-		// no focused-control interaction guard, so it keeps presence current
-		// while a manager is typing in a search box — the exact gap the old
-		// JS's focusedControlActive() special case existed only to close.
+		// data-gosx-heartbeat/-interval (gosx#216) is the Draft Room's
+		// attendance claim only. Its ping is visibility-aware (it pauses
+		// while the tab is hidden) and carries no focused-control interaction
+		// guard, so it keeps presence current while a manager is typing in a
+		// search box — the exact gap the old JS's focusedControlActive()
+		// special case existed only to close on the pre-gosx#216 sendPresence
+		// loop this replaced. It must stay off every route besides /draft:
+		// leagueHeartbeatEndpoint's own doc comment spells out why pointing
+		// it at leagueVersionEndpoint elsewhere either duplicated a page's
+		// own data-gosx-revalidate-src poll of that same URL every 4s tick,
+		// or (on a page with no revalidate poll) fired a GET whose response
+		// the client heartbeat always discards — never a real version-sync
+		// primitive. So an empty return here means "omit the body marker,"
+		// not "poll an empty src": ctx.BodyAttrs is skipped outright rather
+		// than emitting data-gosx-heartbeat="" for the runtime to reject.
 		// PageState.BodyAttrs (v0.50.0) puts the two heartbeat attributes
-		// directly on <body>, so no wrapper element is needed. The endpoint is
-		// route-aware because the one body marker must not turn an ordinary
-		// page's version poll into a draft-room attendance claim. Draft's live
-		// hub and fragment regions own room/version updates; its body heartbeat
-		// is presence-only. The native route Document contract carries both
-		// through the framework shell and re-reads them after managed navigation.
-		heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path)
-		ctx.BodyAttrs(
-			gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
-			gosx.Attr("data-gosx-heartbeat-interval", "4s"),
-		)
+		// directly on <body> when present, so no wrapper element is needed.
+		// The native route Document contract carries them through the
+		// framework shell and re-reads them after managed navigation.
+		if heartbeatEndpoint := leagueHeartbeatEndpoint(ctx.Request.URL.Path); heartbeatEndpoint != "" {
+			ctx.BodyAttrs(
+				gosx.Attr("data-gosx-heartbeat", heartbeatEndpoint),
+				gosx.Attr("data-gosx-heartbeat-interval", "4s"),
+			)
+		}
 		// Data density (P1-6, UI pass 2026-08-30): a viewer's session-carried
 		// preference (internal/density) becomes a body attribute every route
 		// picks up automatically, the same way the heartbeat attributes above

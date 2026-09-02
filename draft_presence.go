@@ -12,10 +12,24 @@ const (
 	leaguePresenceEndpoint = "/api/league/presence"
 )
 
-// leagueHeartbeatEndpoint keeps the single GoSX body marker honest. The
-// version heartbeat is a global synchronization primitive, while presence is
-// an attendance claim and therefore belongs only to an open Draft Room. The
-// Draft Room's live hub continues to carry its room/workspace state.
+// leagueHeartbeatEndpoint keeps the single GoSX body marker honest. It must
+// return leaguePresenceEndpoint on /draft (an attendance claim; nowhere else
+// belongs there) and "" everywhere else, never leagueVersionEndpoint: the
+// client's heartbeat ping (gosx#216, client/runtime/host/navigation.ts
+// pingHeartbeat) is fire-and-forget by contract — it discards both a
+// network failure and a 2xx body alike, so it can never itself perform
+// version-fingerprint state sync. That sync is data-gosx-revalidate-src's
+// job (every page's own <main> declares it where freshness matters), which
+// actually reads the response and swaps the document. Before this endpoint
+// was route-aware, every non-draft page's heartbeat pointed at
+// leagueVersionEndpoint too, so a route that also declared
+// data-gosx-revalidate-src="/api/league/version" fired two identical GETs
+// to that URL every 4s tick — one that did the real work (revalidate) and
+// one whose response the runtime always threw away (heartbeat). Returning
+// "" here (which BuildApp's layout must treat as "omit the body marker
+// entirely," not as an empty-string src) removes that duplicate and, on the
+// handful of routes with no revalidate poll at all, removes a ping that
+// never had a client-visible effect to begin with.
 func leagueHeartbeatEndpoint(requestPath string) string {
 	path := requestPath
 	for len(path) > 1 && path[len(path)-1] == '/' {
@@ -24,7 +38,7 @@ func leagueHeartbeatEndpoint(requestPath string) string {
 	if path == "/draft" {
 		return leaguePresenceEndpoint
 	}
-	return leagueVersionEndpoint
+	return ""
 }
 
 type leaguePresenceRecorder interface {
