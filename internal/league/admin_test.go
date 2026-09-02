@@ -675,6 +675,35 @@ func TestAdminRunWaivers(t *testing.T) {
 			t.Fatalf("WaiversProcessedThrough = %v, want %v (the commissioner's own clock instant)", state.WaiversProcessedThrough, now)
 		}
 	})
+
+	// TestAdminRunWaivers/records a commissioner event checks the wave-2
+	// commissioner-console audit trail: a forced out-of-cycle run is a
+	// commissioner-gated mutation (F5), so it must leave a durable,
+	// person-attributed row the same way AdminForceAutopick does.
+	t.Run("records a commissioner event", func(t *testing.T) {
+		service := newTestService(t, true)
+		now := time.Date(2026, 9, 20, 15, 0, 0, 0, time.UTC)
+		service.now = func() time.Time { return now }
+		service.SetPlayerSource(func() ([]Player, int64, string) { return processWaiversPool(), 1, "test" })
+		service.SetScheduleSource(func() []GameInfo {
+			return []GameInfo{{ID: "g-fixture", Week: 1, Away: "AAA", Home: "BBB", Kickoff: now.Add(-24 * time.Hour), Final: true}}
+		})
+		if err := service.store.SetDraftOrder(defaultTeamIDs()); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.store.FileClaim(WaiverClaim{ID: "clm-audit", TeamID: "team-7", AddID: "wv-1", FiledAt: now.Add(-time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+		request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+		token := waiverRunToken(service.store.Snapshot())
+		if _, err := service.AdminRunWaivers(request, RunWaiversConfirmation, token); err != nil {
+			t.Fatalf("AdminRunWaivers: %v", err)
+		}
+		events := service.store.Snapshot().CommissionerEvents
+		if len(events) != 1 || events[0].Kind != "waivers.force_run" || events[0].ActorEmail == "" {
+			t.Fatalf("commissioner events = %+v, want one waivers.force_run row with actor identity", events)
+		}
+	})
 }
 
 // TestAdminWaiversMapHasOpenClaimsGatesTheForceRunControl pins finding 8

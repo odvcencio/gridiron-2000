@@ -286,5 +286,9 @@ func (s *Service) AdminRunWaivers(r *http.Request, confirmation, expectedToken s
 	for _, result := range results {
 		s.notifyWaiverResult(result, now)
 	}
+	summary := fmt.Sprintf("force-ran the waiver cycle (%s)", CountNoun(len(results), "claim"))
+	if _, err := s.RecordCommissionerEvent(r, "waivers.force_run", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: waivers.force_run: %v", err)
+	}
 	return results, nil
 }

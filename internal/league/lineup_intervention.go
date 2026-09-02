@@ -1,6 +1,7 @@
 package league
 
 import (
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -59,6 +60,40 @@ func (s *Service) lineupViewTargetForRequest(r *http.Request, state PersistedSta
 		return lineupViewTarget{TeamID: ownTeamID}
 	}
 	return lineupViewTarget{TeamID: requested, Intervention: true}
+}
+
+// lineupInterventionAudit reports whether a SetLineup/LineupAuto call
+// against teamID is a genuine commissioner intervention (dead-manager
+// insurance, lineupActingTeam's own doc comment) rather than an ordinary
+// manager — who may also hold the commissioner role — setting their own
+// lineup through the same shared call. Only a true intervention (the
+// commissioner acting on a claimed seat that is not their own) is a
+// commissioner-gated mutation worth a commissioner-console audit row; an
+// ordinary self-lineup edit must not become one merely because the actor
+// also happens to be the commissioner. own's error (no claimed seat of
+// the commissioner's own) counts as "not their own team" too.
+func (s *Service) lineupInterventionAudit(r *http.Request, teamID string) bool {
+	if teamID == "" || !s.IsCommissioner(r) {
+		return false
+	}
+	own, err := s.actingTeam(r, "")
+	return err != nil || own != teamID
+}
+
+// recordLineupInterventionEvent leaves a commissioner-console audit row
+// for a true SetLineup/LineupAuto intervention (lineupInterventionAudit
+// above), after the underlying store write has already succeeded. A
+// RecordCommissionerEvent failure is deliberately log-only here, matching
+// every other commissioner action's call site (RecordCommissionerEvent's
+// own doc comment, commissioner_event.go): the lineup write this audits
+// has already committed by the time this runs.
+func (s *Service) recordLineupInterventionEvent(r *http.Request, teamID string, week int, playerID, kind, summary string) {
+	if !s.lineupInterventionAudit(r, teamID) {
+		return
+	}
+	if _, err := s.RecordCommissionerEvent(r, kind, summary, CommissionerEventRefs{TeamID: teamID, PlayerID: playerID, Week: week}); err != nil {
+		log.Printf("commissioner event: %s: %v", kind, err)
+	}
 }
 
 // LineupTargetAllowed is the page/action return seam for one validated

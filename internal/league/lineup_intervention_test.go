@@ -177,3 +177,95 @@ func TestCommissionerLineupTargetAuthorizationAndWriteScope(t *testing.T) {
 		t.Fatal("commissioner must not auto-set an unknown franchise")
 	}
 }
+
+// TestSetLineupCommissionerInterventionRecordsCommissionerEvent checks the
+// wave-2 commissioner-console audit trail: a seatless commissioner setting
+// a claimed team's lineup (dead-manager insurance) is a true intervention
+// and must leave a durable, person-attributed row.
+func TestSetLineupCommissionerInterventionRecordsCommissionerEvent(t *testing.T) {
+	service, commissioner, _, _ := claimedLineupViewService(t)
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "lineup-event-open", Week: 2, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	service.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{{ID: "rb-event-open", Name: "Open Runner", Position: "RB", NFLTeam: "PIT", Projection: 10}}, 1, "test"
+	})
+	if _, err := service.store.MakePick("team-1", "filler-event", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.MakePick("team-2", "rb-event-open", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.SetLineup(commissioner, "team-2", 2, "RB1", "rb-event-open"); err != nil {
+		t.Fatalf("commissioner lineup intervention: %v", err)
+	}
+	events := service.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "lineup.intervention_set" || events[0].Refs.TeamID != "team-2" || events[0].Refs.Week != 2 {
+		t.Fatalf("commissioner events = %+v, want one lineup.intervention_set row for team-2 week 2", events)
+	}
+}
+
+// TestSetLineupOwnTeamDoesNotRecordCommissionerEvent checks the other half
+// of the same seam: an ordinary manager setting their own lineup through
+// the identical SetLineup call must never produce a commissioner-console
+// audit row.
+func TestSetLineupOwnTeamDoesNotRecordCommissionerEvent(t *testing.T) {
+	service, _, _, _ := claimedLineupViewService(t)
+	// claimedLineupViewService's own "manager" request is authenticated as
+	// team-1's primary, not team-2's; build team-2's own request here so
+	// this exercises the actual "own team" path (acting == teamID) rather
+	// than a cross-seat rejection.
+	manager := authenticatedLineupRequest(t, "lineup-secondary@example.com", "Secondary", "/team?team=team-2&week=2")
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "lineup-own-open", Week: 2, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	service.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{{ID: "rb-own-open", Name: "Own Runner", Position: "RB", NFLTeam: "PIT", Projection: 10}}, 1, "test"
+	})
+	if _, err := service.store.MakePick("team-1", "filler-own", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.MakePick("team-2", "rb-own-open", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.SetLineup(manager, "team-2", 2, "RB1", "rb-own-open"); err != nil {
+		t.Fatalf("own-team lineup set: %v", err)
+	}
+	if got := service.store.Snapshot().CommissionerEvents; len(got) != 0 {
+		t.Fatalf("commissioner events = %+v, want none for an ordinary manager's own lineup", got)
+	}
+}
+
+// TestLineupAutoCommissionerInterventionRecordsCommissionerEvent mirrors
+// the SetLineup case above for LineupAuto's SET BEST LINEUP action.
+func TestLineupAutoCommissionerInterventionRecordsCommissionerEvent(t *testing.T) {
+	service, commissioner, _, _ := claimedLineupViewService(t)
+	now := time.Date(2026, 8, 23, 18, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	service.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{ID: "lineup-auto-open", Week: 2, Kickoff: now.Add(time.Hour), Away: "PIT", Home: "NYJ"}}
+	})
+	service.SetPlayerSource(func() ([]Player, int64, string) {
+		return []Player{{ID: "rb-auto-open", Name: "Auto Runner", Position: "RB", NFLTeam: "PIT", Projection: 10}}, 1, "test"
+	})
+	if _, err := service.store.MakePick("team-1", "filler-auto", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.store.MakePick("team-2", "rb-auto-open", "manager", now, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.LineupAuto(commissioner, "team-2", 2); err != nil {
+		t.Fatalf("commissioner lineup-auto intervention: %v", err)
+	}
+	events := service.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "lineup.intervention_auto" || events[0].Refs.TeamID != "team-2" || events[0].Refs.Week != 2 {
+		t.Fatalf("commissioner events = %+v, want one lineup.intervention_auto row for team-2 week 2", events)
+	}
+}

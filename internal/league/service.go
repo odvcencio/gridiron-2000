@@ -1621,7 +1621,23 @@ func (s *Service) DetachCoManager(r *http.Request, teamID string) error {
 	if !s.canManageCoManager(r, teamID) {
 		return errors.New("only the seat's primary manager or the commissioner can detach a co-manager")
 	}
-	return s.store.DetachCoManager(teamID)
+	// intervention is true only when the commissioner is acting on a seat
+	// that is not their own — canManageCoManager also admits the seat's
+	// own primary manager, and that ordinary self-service path (which may
+	// coincidentally be exercised by a person who also holds the
+	// commissioner role) must never turn into a commissioner-console audit
+	// row (mirrors the lineup-intervention carve-out, lineup_intervention.go).
+	intervention := s.IsCommissioner(r) && !s.isPrimaryOfTeam(r, teamID)
+	if err := s.store.DetachCoManager(teamID); err != nil {
+		return err
+	}
+	if intervention {
+		summary := fmt.Sprintf("detached the co-manager for %s", s.TeamLabel(teamID))
+		if _, err := s.RecordCommissionerEvent(r, "seat.co_detach", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+			log.Printf("commissioner event: seat.co_detach: %v", err)
+		}
+	}
+	return nil
 }
 
 // NextOpenSeatTone resolves the tone the next AssignMember call would

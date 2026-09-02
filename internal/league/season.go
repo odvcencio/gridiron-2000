@@ -2,6 +2,7 @@ package league
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 )
@@ -145,7 +146,33 @@ func (s *Service) AdminCloseWeek(r *http.Request, week int) (ScheduleWeek, []Joi
 	if err := s.requireCommissioner(r); err != nil {
 		return ScheduleWeek{}, nil, err
 	}
-	return s.closeWeek(week, s.clock())
+	now := s.clock()
+	// info is read before the write so the audit row below can classify
+	// this close by the readiness the commissioner actually faced: "ready"
+	// (every WeekCloseReady condition already held) vs "force" (the
+	// commissioner is overriding a stall). Both the route's own
+	// close-week-ready/close-week-force gate and this classification read
+	// the same WeekCloseReady computation, so they can never disagree about
+	// what counts as a forced override.
+	info := s.AdminWeekCloseInfo(week, now)
+	updated, misses, err := s.closeWeek(week, now)
+	if err != nil {
+		return ScheduleWeek{}, nil, err
+	}
+	if !info.Final {
+		// info.Final means the week was already closed before this call —
+		// closeWeek's own idempotent short-circuit — so nothing new
+		// mutated and no audit row is warranted (a repeat close must not
+		// duplicate the original close's event).
+		kind, summary := "week.close", fmt.Sprintf("closed week %d", week)
+		if !info.Ready {
+			kind, summary = "week.force_close", fmt.Sprintf("force-closed week %d", week)
+		}
+		if _, err := s.RecordCommissionerEvent(r, kind, summary, CommissionerEventRefs{Week: week}); err != nil {
+			log.Printf("commissioner event: %s: %v", kind, err)
+		}
+	}
+	return updated, misses, nil
 }
 
 // closeWeek is AdminCloseWeek's core, clock-injected for tests. On success
