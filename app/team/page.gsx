@@ -366,6 +366,14 @@ func Page() Node {
 							<p id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert">{data.rename_error}</p>
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
+						<If cond={data.team.has_custom_name}>
+							<form method="post" action={actionPath("team-name-reset")} data-gosx-managed="true" class="team-rename-form">
+								<input type="hidden" name="csrf_token" value={csrf.token}></input>
+								<input type="hidden" name="team_id" value={data.team.id}></input>
+								<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
+								<button class="button button--secondary button--compact" type="submit">Reset to configured name</button>
+							</form>
+						</If>
 						<If cond={data.identity_available}>
 							<label class="team-identity-settings__field" for="team-avatar-upload">Custom team image</label>
 							<form method="post" action="/avatar/upload" enctype="multipart/form-data" data-gosx-managed="false" class="avatar-upload-form">

@@ -18,7 +18,7 @@ func TestManagedTeamFormsCarryCSRFToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(sourceBytes)
-	for _, action := range []string{"co-invite", "co-detach", "team-rename"} {
+	for _, action := range []string{"co-invite", "co-detach", "team-rename", "team-name-reset"} {
 		formStart := strings.Index(source, `action={actionPath("`+action+`")}`)
 		if formStart < 0 {
 			t.Fatalf("managed %s form not found", action)

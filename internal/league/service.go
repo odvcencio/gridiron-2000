@@ -2274,6 +2274,15 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		projected += player.Projection
 	}
 	teamMap := s.teamMap(team)
+	// has_custom_name (wave-6 glue item 5) gates the /team page's own
+	// "Reset to configured name" control (page.gsx): the control has
+	// nothing useful to do, and nothing to reset, for a team still
+	// carrying its configured default name. Computed only here (not
+	// inside teamMap itself, which every many-teams-per-page caller —
+	// matchups, draft, standings, admin — also shares, none of which
+	// render the Reset control) from state.TeamNames, the same override
+	// map ResetTeamName (avatar.go) clears.
+	teamMap["has_custom_name"] = strings.TrimSpace(state.TeamNames[teamID]) != ""
 	// This page's own .team-monogram hero (app/team/page.gsx) is the one
 	// render site that needs BadgeOutputSizeLarge instead of teamMap's own
 	// BadgeOutputSize avatar_image_url — see avatarViewLarge's doc comment.

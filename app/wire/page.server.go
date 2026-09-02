@@ -447,7 +447,7 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	}
 	return map[string]any{
 		"viewer":            viewer,
-		"league":            league.Default().LeagueIdentity(),
+		"league":            league.Default().LeagueIdentityForViewer(request),
 		"signals":           items,
 		"empty":             len(items) == 0,
 		"last_event_id":     lastID,

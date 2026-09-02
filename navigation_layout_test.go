@@ -32,6 +32,14 @@ type navigationViewerFixture struct {
 	pickemAttentionText string
 	tradesHot           bool
 	tradesAttentionText string
+	// attentionHasItems/attentionUrgentCount/attentionChipLabel drive the
+	// rail-head/mobile-bar attention chip (build item 1): chip_label is
+	// internal/league/service.go attentionChipLabel's pre-shaped
+	// aria-label, replacing the layout's old hand-concatenated
+	// urgent_count + " items need attention..." string.
+	attentionHasItems    bool
+	attentionUrgentCount int
+	attentionChipLabel   string
 }
 
 type renderedNavigationGroup struct {
@@ -106,6 +114,9 @@ func Page() Node {
 					"pickem_attention_text": viewer.pickemAttentionText,
 					"trades_hot":            viewer.tradesHot,
 					"trades_attention_text": viewer.tradesAttentionText,
+					"has_items":             viewer.attentionHasItems,
+					"urgent_count":          viewer.attentionUrgentCount,
+					"chip_label":            viewer.attentionChipLabel,
 				},
 			},
 		}, nil
@@ -466,6 +477,36 @@ func TestPrimaryNavigationAttentionDotOffWithoutSeat(t *testing.T) {
 		}
 		if got, want := descendantText(link), "07 Trades"; got != want {
 			t.Errorf("trades link %d text = %q, want plain %q", index, got, want)
+		}
+	}
+}
+
+// TestRailAttentionChipAriaLabelUsesChipLabel pins build item 1: the
+// rail-head and mobile-bar attention chips read their aria-label from
+// data.league.attention.chip_label (internal/league/service.go's
+// attentionChipLabel), not a hand-concatenated
+// urgent_count + " items need attention..." string, which pluralized
+// "item" wrong for a single urgent item. A seated, non-demo viewer with
+// one urgent item sees "1 item needs attention in the Action Center" on
+// both chips.
+func TestRailAttentionChipAriaLabelUsesChipLabel(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+		signedIn:             true,
+		hasSeat:              true,
+		attentionHasItems:    true,
+		attentionUrgentCount: 1,
+		attentionChipLabel:   "1 item needs attention in the Action Center",
+	})
+	document := parseNavigationDocument(t, body)
+	chips := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && hasClass(node, "rail-attention-chip")
+	})
+	if len(chips) != 2 {
+		t.Fatalf("rail-attention-chip count = %d, want 2 (desktop rail + mobile bar)", len(chips))
+	}
+	for index, chip := range chips {
+		if got, want := nodeAttr(chip, "aria-label"), "1 item needs attention in the Action Center"; got != want {
+			t.Errorf("chip %d aria-label = %q, want %q", index, got, want)
 		}
 	}
 }

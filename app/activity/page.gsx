@@ -49,8 +49,8 @@ func Page() Node {
 				<label class="mono" for="activity-team">TEAM //</label>
 				<select id="activity-team" name="team">
 					<option value="">All teams</option>
-					<Each of={data.teams} as="team">
-						<option value={team} selected={team == data.team}>{team}</option>
+					<Each of={data.team_options} as="option">
+						<option value={option.value} selected={option.selected}>{option.label}</option>
 					</Each>
 				</select>
 				<label class="mono" for="activity-search">SEARCH //</label>
@@ -138,7 +138,7 @@ func ActivityRegion() Node {
 		<div class="pool-toolbar"><div><span class="section-index">01 // TRANSACTION FEED</span><h2>Every transaction</h2></div></div>
 		<form method="get" action="/activity" class="pool-search-bar">
 			<label class="mono" for="activity-sync-team">TEAM //</label>
-			<select id="activity-sync-team" name="team"><option value="">All teams</option><Each of={data.teams} as="team"><option value={team} selected={team == data.team}>{team}</option></Each></select>
+			<select id="activity-sync-team" name="team"><option value="">All teams</option><Each of={data.team_options} as="option"><option value={option.value} selected={option.selected}>{option.label}</option></Each></select>
 			<label class="mono" for="activity-sync-search">SEARCH //</label>
 			<input id="activity-sync-search" type="search" name="q" value={data.query} placeholder="Player, move, or team" autocomplete="off"></input>
 			<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>

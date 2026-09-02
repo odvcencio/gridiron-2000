@@ -1452,6 +1452,44 @@ func TestPoolStatusMapExposesActualAndTargetCoverageSeparately(t *testing.T) {
 	}
 }
 
+// TestAdminDataUsesLeagueMapForViewer pins wave-6 glue item 2: AdminData's
+// "league" key must come from the viewer-aware leagueMapForViewer(r), not
+// the request-less leagueMap(), so an anonymous demo visitor's admin
+// console (demo mode grants commissioner authority without a signed-in
+// session) reads the same honest empty attention shape every other route's
+// shared chrome does — not a chip naming trades that belong to the real
+// seated managers. See
+// TestLeagueMapForViewerSuppressesAttentionForAnonymousDemoViewer in
+// attention_test.go for the underlying leagueMapForViewer contract.
+func TestAdminDataUsesLeagueMapForViewer(t *testing.T) {
+	teamIDs := defaultTeamIDs()
+	if len(teamIDs) < 2 {
+		t.Fatal("fixture league needs at least two teams")
+	}
+	service := newTestService(t, true) // demo mode grants commissioner
+	service.SetScheduleSource(func() []GameInfo { return nil })
+	service.store.state.TradeOffers = []TradeOffer{
+		{ID: "trd-admin", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusAccepted},
+	}
+	request, err := http.NewRequest(http.MethodGet, "/admin", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := service.AdminData(request)
+	league, ok := data["league"].(map[string]any)
+	if !ok {
+		t.Fatalf("AdminData()[league] = %#v, want map[string]any", data["league"])
+	}
+	attention, ok := league["attention"].(map[string]any)
+	if !ok {
+		t.Fatalf("AdminData()[league][attention] = %#v, want map[string]any", league["attention"])
+	}
+	if attention["has_items"] != false || attention["urgent_count"] != 0 {
+		t.Fatalf("anonymous demo admin attention = %+v, want the honest empty shape", attention)
+	}
+}
+
 func TestPluralRendersCountedNoun(t *testing.T) {
 	cases := []struct {
 		n    int
