@@ -114,3 +114,48 @@ func TestPageTitleTokenContract(t *testing.T) {
 		}
 	}
 }
+
+// TestTokenLeaksRemoved is item 4's own test (2026-09-01 gap audit): the
+// stylesheet named two competing tokens for the same hue
+// (--color-accent-magenta #ff5ec4 beside the canonical --color-accent-hot
+// #FF4FD8), three numeric spacing aliases running beside the t-shirt
+// scale (--space-2xs/--space-2/--space-3), three more color aliases
+// (--color-panel, --color-accent-lime, --color-accent-red), and three
+// hard-coded Tailwind rgba() literals with no token at all. Every one of
+// those names — declaration AND every var() reference — is gone; the
+// canonical token each pointed at carries the load instead.
+func TestTokenLeaksRemoved(t *testing.T) {
+	raw, err := os.ReadFile("public/styles.css")
+	if err != nil {
+		t.Fatalf("read styles.css: %v", err)
+	}
+	// stripCSSComments (mobile_touch_contract_test.go) so this scan checks
+	// live declarations and var() references only — this file's own doc
+	// comment above the :root block names every retired token in prose,
+	// which would otherwise false-positive against these same substrings.
+	css := stripCSSComments(string(raw))
+
+	for _, forbidden := range []string{
+		"--color-accent-magenta",
+		"--space-2xs",
+		"--space-2:",
+		"--space-2)",
+		"--space-2,",
+		"--space-3:",
+		"--space-3)",
+		"--space-3,",
+		"--space-3 ",
+		"--color-panel:",
+		"--color-panel)",
+		"--color-panel,",
+		"--color-accent-lime",
+		"--color-accent-red",
+		"rgba(34, 211, 238",
+		"rgba(251, 113, 133",
+		"rgba(251, 191, 36",
+	} {
+		if strings.Contains(css, forbidden) {
+			t.Errorf("styles.css retained leaked token/literal %q", forbidden)
+		}
+	}
+}

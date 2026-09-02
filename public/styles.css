@@ -106,18 +106,20 @@
   /* UI pass 2026-08-30 (P1-4): tokens the stylesheet referenced but never
      defined, some with an inline fallback and some without. Defined here
      from the existing palette/scale so every var() reference resolves and
-     the intended contrast (for example the urgent marker) actually shows. */
-  --color-panel: var(--color-surface);
+     the intended contrast (for example the urgent marker) actually shows.
+     Item 4 (2026-09-01 gap audit) removed --color-panel, --color-accent-
+     lime, --color-accent-red, --color-accent-magenta, --space-2xs,
+     --space-2, and --space-3 from this list: five were plain aliases for
+     an existing canonical token (--color-surface, --color-accent,
+     --color-danger) or a numeric duplicate of the t-shirt spacing scale
+     (--space-xs/--space-sm) sitting beside it, and --color-accent-magenta
+     named a second, slightly different hot-pink hex beside the canonical
+     --color-accent-hot. Every var() reference below now points at the
+     canonical name directly. */
   --color-panel-soft: var(--color-surface-soft);
-  --color-accent-lime: var(--color-accent);
-  --color-accent-red: var(--color-danger);
-  --color-accent-magenta: #ff5ec4;
   --color-warning: var(--color-gold);
   --color-black-faint: rgba(0, 0, 0, 0.14);
   --muted: var(--color-text-muted);
-  --space-2xs: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
   --board-columns: 8;
   --badge-tone: var(--color-accent);
 }
@@ -1214,14 +1216,14 @@ h2 {
    no shared danger button style existed before this — but only the admin
    danger-grid forms carry the class, so it is admin-scoped by usage. */
 .button--danger {
-  border-color: var(--color-accent-magenta, #ff5ec4);
-  color: var(--color-accent-magenta, #ff5ec4);
+  border-color: var(--color-accent-hot);
+  color: var(--color-accent-hot);
   background: transparent;
 }
 
 .button--danger:hover {
   color: var(--color-ink-on-accent);
-  background: var(--color-accent-magenta, #ff5ec4);
+  background: var(--color-accent-hot);
 }
 
 .button--compact {
@@ -2606,8 +2608,8 @@ button.badge-option:hover {
 
 .draft-region-stale {
   display: none;
-  margin: 0 0 var(--space-3);
-  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-warning);
   border-radius: var(--radius-sm);
   color: var(--color-warning);
@@ -2621,7 +2623,7 @@ button.badge-option:hover {
 }
 
 .draft-manual-refresh {
-  margin: var(--space-3) 0 0;
+  margin: var(--space-sm) 0 0;
   color: var(--muted);
   font-size: var(--type-sm);
   letter-spacing: 0.06em;
@@ -3746,7 +3748,7 @@ button.badge-option:hover {
 
 .admin-task-nav__lineup-list {
   display: grid;
-  gap: var(--space-2xs, 0.25rem);
+  gap: var(--space-xs);
   margin: var(--space-xs) 0 0;
   padding: 0;
   list-style: none;
@@ -3770,12 +3772,12 @@ button.badge-option:hover {
 }
 
 .admin-task-nav__group--danger {
-  border-color: var(--color-accent-magenta, #ff5ec4);
+  border-color: var(--color-accent-hot);
 }
 
 .admin-task-nav__group--danger h3,
 .admin-task-nav__group--danger .admin-task-nav__status {
-  color: var(--color-accent-magenta, #ff5ec4);
+  color: var(--color-accent-hot);
 }
 
 .admin-grid > section {
@@ -4535,7 +4537,7 @@ body.is-on-clock .draft-clock-panel {
 .waiver-receipt-player {
   display: grid;
   align-content: start;
-  gap: var(--space-2xs, 0.25rem);
+  gap: var(--space-xs);
   min-width: 0;
 }
 
@@ -4549,7 +4551,7 @@ body.is-on-clock .draft-clock-panel {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: var(--space-2xs, 0.25rem);
+  gap: var(--space-xs);
 }
 
 .waiver-claim-actions form {
@@ -4623,8 +4625,8 @@ body.is-on-clock .draft-clock-panel {
 .waiver-order-strip li {
   display: flex;
   align-items: baseline;
-  gap: var(--space-2xs, 0.25rem);
-  padding: var(--space-2xs, 0.25rem) var(--space-xs);
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-xs);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm, 4px);
   font-size: var(--type-xs);
@@ -5100,7 +5102,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .board-button--cut {
-  color: var(--color-accent-magenta, #ff5ec4);
+  color: var(--color-accent-hot);
 }
 
 /* .rank-row (defect 3, wave-1 UI repair): a dedicated 3-track row for
@@ -5431,7 +5433,7 @@ body.is-on-clock .draft-clock-panel {
   display: grid;
   gap: var(--space-xs);
   padding: var(--space-sm);
-  border: 1px solid var(--color-accent-magenta, #ff5ec4);
+  border: 1px solid var(--color-accent-hot);
 }
 
 .danger-grid input {
@@ -5448,7 +5450,7 @@ body.is-on-clock .draft-clock-panel {
   margin: 0;
   padding-left: 1.25rem;
   display: grid;
-  gap: var(--space-2xs, 0.25rem);
+  gap: var(--space-xs);
   font-size: var(--type-xs);
   line-height: 1.45;
 }
@@ -7657,8 +7659,14 @@ body.is-on-clock .draft-clock-panel {
   margin-bottom: var(--space-xl);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
+  /* Item 4 (2026-09-01 gap audit): this gradient stop and the hover
+     background below it were a hard-coded Tailwind cyan-400 rgba(), no
+     token at all — color-mix keeps the same tint but derives it from this
+     surface's own --color-accent-cyan, the token every sibling rule here
+     (.home-action-center__status, __task-top, :hover/:focus-visible
+     borders) already uses for the identical hue. */
   background:
-    linear-gradient(135deg, rgba(34, 211, 238, 0.08), transparent 42%),
+    linear-gradient(135deg, color-mix(in srgb, var(--color-accent-cyan) 8%, transparent), transparent 42%),
     var(--color-panel-glass);
   box-shadow: var(--shadow-panel);
   overflow: hidden;
@@ -7754,7 +7762,9 @@ body.is-on-clock .draft-clock-panel {
 
 .home-action-center__task:hover {
   border-color: var(--color-accent-cyan);
-  background: rgba(34, 211, 238, 0.08);
+  /* Item 4 (2026-09-01 gap audit): see the .home-action-center gradient's
+     own note above — same hard-coded Tailwind cyan literal, same fix. */
+  background: color-mix(in srgb, var(--color-accent-cyan) 8%, transparent);
   transform: translateY(-1px);
 }
 
@@ -7790,24 +7800,30 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .home-action-center__due {
-  color: var(--color-accent-red);
+  color: var(--color-danger);
   font-size: var(--type-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
 }
 
+/* Item 4 (2026-09-01 gap audit): the three rules below hard-coded a
+   Tailwind rose-400 rgba() (no token) for the same urgency this
+   component's own .home-action-center__due and __task-marker--urgent
+   already color with --color-danger, and a Tailwind amber-400 rgba() for
+   the softer "deadline" tint — color-mix derives both from the canonical
+   --color-danger/--color-gold tokens instead. */
 .home-action-center__task--entry,
 .home-action-center__task--on_clock,
 .home-action-center__task--deadline {
-  border-color: rgba(251, 113, 133, 0.42);
+  border-color: color-mix(in srgb, var(--color-danger) 42%, transparent);
 }
 
 .home-action-center__task--on_clock {
-  background: rgba(251, 113, 133, 0.08);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
 }
 
 .home-action-center__task--deadline {
-  background: rgba(251, 191, 36, 0.06);
+  background: color-mix(in srgb, var(--color-gold) 6%, transparent);
 }
 
 
@@ -7825,7 +7841,7 @@ body.is-on-clock .draft-clock-panel {
 .home-action-center__task-marker--urgent,
 .home-action-center__task--on_clock .home-action-center__task-top,
 .home-action-center__task--deadline .home-action-center__task-top {
-  color: var(--color-accent-red);
+  color: var(--color-danger);
 }
 
 .home-action-center__task--stable .home-action-center__task-top,
@@ -8630,7 +8646,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .commissioner-hq__refresh-status {
-  margin: 0 0 var(--space-3);
+  margin: 0 0 var(--space-sm);
   color: var(--muted);
   font-size: 0.72rem;
   letter-spacing: 0.08em;
@@ -8782,7 +8798,7 @@ body.is-on-clock .draft-clock-panel {
 .notification-choice-group form {
   margin: 0;
   display: grid;
-  gap: var(--space-2xs, 0.25rem);
+  gap: var(--space-xs);
   justify-items: center;
 }
 
@@ -9010,18 +9026,18 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-xs);
   margin-block: var(--space-md);
   padding: var(--space-md) var(--space-lg);
-  border: 1px solid var(--color-accent-lime);
-  border-inline-start: 0.35rem solid var(--color-accent-lime);
+  border: 1px solid var(--color-accent);
+  border-inline-start: 0.35rem solid var(--color-accent);
   border-radius: var(--radius-md);
   color: var(--color-text-primary);
   background:
     linear-gradient(135deg, rgba(208, 255, 45, 0.13), rgba(45, 224, 255, 0.06)),
-    var(--color-panel);
+    var(--color-surface);
   box-shadow: 0 0 1.5rem rgba(208, 255, 45, 0.08);
 }
 
 .lineup-intervention-banner .section-index {
-  color: var(--color-accent-lime);
+  color: var(--color-accent);
 }
 
 .lineup-intervention-banner strong {
@@ -9050,7 +9066,7 @@ body.is-on-clock .draft-clock-panel {
 
 .lineup-target-switcher > div {
   display: grid;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
 }
 
 .lineup-target-switcher .section-index {
@@ -9071,7 +9087,7 @@ body.is-on-clock .draft-clock-panel {
 .lineup-target-switcher__exit {
   grid-column: 2;
   justify-self: end;
-  color: var(--color-accent-lime);
+  color: var(--color-accent);
 }
 
 @media (max-width: 38rem) {
@@ -11522,7 +11538,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 .wizard-step-nav {
   display: grid;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   margin: 0 0 var(--space-md);
   padding: 0;
   list-style: none;
@@ -11531,7 +11547,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 }
 
 .wizard-step-nav__item {
-  padding: var(--space-2xs) var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
   border-left: 3px solid var(--color-border);
   color: var(--color-text-muted);
 }
@@ -11560,7 +11576,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .wizard-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2xs);
+  gap: var(--space-xs);
   margin-bottom: var(--space-sm);
 }
 
@@ -11583,7 +11599,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   display: flex;
   align-items: center;
   gap: var(--space-xs);
-  padding: var(--space-2xs) 0;
+  padding: var(--space-xs) 0;
 }
 
 .wizard-warning {
