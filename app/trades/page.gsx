@@ -21,20 +21,22 @@ func Page() Node {
 				<span>Veto policy</span>
 				<strong class="mono">{data.veto_mode}</strong>
 				<div class="draft-clock-meta">
-					<a href="/activity" data-gosx-link>Transaction feed →</a>
-					<If cond={data.can_edit}>
-						<a href="/team" data-gosx-link>Team terminal →</a>
-					</If>
-					<If cond={data.can_edit == false}>
-						<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
-							<a href={data.public_entry.action_href} data-gosx-link>
-								{data.public_entry.action_label}
-							</a>
+					<div class="trades-veto-links">
+						<a href="/activity" data-gosx-link>Transaction feed →</a>
+						<If cond={data.can_edit}>
+							<a href="/team" data-gosx-link>Team terminal →</a>
 						</If>
-					</If>
-					<If cond={data.public_entry.is_commissioner}>
-						<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
-					</If>
+						<If cond={data.can_edit == false}>
+							<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+								<a href={data.public_entry.action_href} data-gosx-link>
+									{data.public_entry.action_label}
+								</a>
+							</If>
+						</If>
+						<If cond={data.public_entry.is_commissioner}>
+							<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
+						</If>
+					</div>
 				</div>
 			</div>
 		</section>
@@ -47,10 +49,7 @@ func Page() Node {
 			</If>
 			<If cond={data.can_edit == false}>
 				<p class="demo-message">
-					<strong>
-						{data.public_entry.state_label}
-						:
-					</strong>
+					<strong>{data.public_entry.state_label}:</strong>
 					{data.public_entry.detail}
 					<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
 						<a href={data.public_entry.action_href} data-gosx-link>

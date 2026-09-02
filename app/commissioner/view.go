@@ -59,6 +59,7 @@ type fleetCardView struct {
 	FrameworkVersion string
 	GitSHA           string
 	Build            string
+	BuildISO         string
 	GeneratedAt      string
 	GeneratedAtISO   string
 
@@ -266,7 +267,8 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 		Season: summary.Instance.Season, PublicURL: publicURL, HostLabel: hostLabel(publicURL),
 		RuntimeReady: summary.Runtime.Ready, AppVersion: summary.Runtime.AppVersion,
 		FrameworkVersion: summary.Runtime.FrameworkVersion, GitSHA: sourceSHAView(summary.Runtime.GitSHA),
-		Build: summary.Runtime.Build, GeneratedAt: displayTime(location, summary.GeneratedAt),
+		Build: buildStampText(summary.Runtime.Build), BuildISO: buildStampISO(summary.Runtime.Build),
+		GeneratedAt:    displayTime(location, summary.GeneratedAt),
 		GeneratedAtISO: isoTime(summary.GeneratedAt), Seats: summary.Membership.Seats,
 		ClaimedSeats: summary.Membership.ClaimedSeats, ReadySeats: summary.Membership.ReadySeats,
 		DraftStatus: draftStatusLabel(summary.Draft.Status), DraftStarted: summary.Draft.Started,
@@ -404,7 +406,7 @@ func (card fleetCardView) toMap() map[string]any {
 		"short_code": card.ShortCode, "mode": card.Mode, "season": card.Season,
 		"public_url": card.PublicURL, "host_label": card.HostLabel, "error": card.Error,
 		"runtime_ready": card.RuntimeReady, "app_version": card.AppVersion,
-		"framework_version": card.FrameworkVersion, "git_sha": card.GitSHA, "build": card.Build,
+		"framework_version": card.FrameworkVersion, "git_sha": card.GitSHA, "build": card.Build, "build_iso": card.BuildISO,
 		"generated_at": card.GeneratedAt, "generated_at_iso": card.GeneratedAtISO,
 		"seats": card.Seats, "claimed_seats": card.ClaimedSeats, "ready_seats": card.ReadySeats,
 		"seat_ledger": card.SeatLedger, "draft_status": card.DraftStatus, "draft_started": card.DraftStarted,
@@ -698,6 +700,55 @@ func isoTime(value time.Time) string {
 		return ""
 	}
 	return value.Format(time.RFC3339)
+}
+
+// parseBuildStamp resolves a peer's wire-reported Runtime.Build string
+// (commissionerhq/protocol.go) to a time.Time. The field ships as an
+// opaque string, not a structured instant: buildinfo.go's own
+// appBuildDate defaults to the literal "unknown" whenever a build skips
+// ldflags version-stamping (a bare `go run`/`go test` binary, or an
+// unstamped dev build), and a real build stamps it RFC3339Nano
+// (commissioner_hq_v1.go's own release-snapshot parse). Both RFC3339Nano
+// and RFC3339 are tried since a peer running an older or differently
+// tooled build could emit either; anything else (including "unknown"
+// itself) reports ok=false.
+func parseBuildStamp(raw string) (value time.Time, ok bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, trimmed); err == nil {
+		return parsed, true
+	}
+	if parsed, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return parsed, true
+	}
+	return time.Time{}, false
+}
+
+// buildStampText and buildStampISO split a Runtime.Build string into a
+// display half and a datetime-attribute half (the DraftAt/DraftAtISO
+// idiom above), so page.gsx can render a real <time> only when there is a
+// real instant instead of the pre-fix `<time datetime="unknown">unknown
+// </time>` — an invalid datetime attribute, since "unknown" is not a
+// valid HTML5 global date and time string (wave-2-verification item 7).
+// The display text keeps the peer's raw reported stamp verbatim when it
+// parses (release metadata is exact-match copy elsewhere on this card,
+// e.g. the git SHA), falling back to the same "UNKNOWN" the sibling
+// APP VERSION / SOURCE GIT SHA / FRAMEWORK VERSION fields already use.
+func buildStampText(raw string) string {
+	if _, ok := parseBuildStamp(raw); !ok {
+		return "UNKNOWN"
+	}
+	return strings.TrimSpace(raw)
+}
+
+func buildStampISO(raw string) string {
+	value, ok := parseBuildStamp(raw)
+	if !ok {
+		return ""
+	}
+	return isoTime(value)
 }
 
 // relativeText renders league.RelativeTime's compact "N unit(s) ago" label

@@ -732,6 +732,114 @@ func TestAdminTaskBoardLinksLineupInterventionPerTeam(t *testing.T) {
 	}
 }
 
+// TestAdminPreDraftRunbookHeadingLinksTheTaskBoardOnAdmin pins wave-2-
+// verification item 4: "Step in on a lineup" (season-operations runbook
+// item 04, visible only once draft_complete — see
+// TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete) linked
+// "the task board" to /scoring, but the task board — the "Set a lineup
+// for a manager" per-team link list — lives on /admin itself, in the
+// admin-task-nav. The fix anchors directly at that control instead of
+// sending the commissioner to an unrelated route. Reuses
+// TestAdminTaskBoardDraftPhaseFixtureProcess's complete-draft subprocess
+// since the season-operations runbook only renders post-draft.
+func TestAdminPreDraftRunbookHeadingLinksTheTaskBoardOnAdmin(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminTaskBoardDraftPhaseFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_TASK_DRAFT_PHASE=complete",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("complete-draft fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+	if !strings.Contains(body, `id="admin-task-nav-lineup"`) {
+		t.Fatalf("task board's lineup-intervention control lost its anchor id: %s", body)
+	}
+	if !strings.Contains(body, `href="/admin#admin-task-nav-lineup" data-gosx-link>the task board</a>`) {
+		t.Errorf("runbook's task-board link must anchor at the admin lineup-intervention control: %s", body)
+	}
+	if strings.Contains(body, `href="/scoring" data-gosx-link>the task board</a>`) {
+		t.Errorf("runbook's task-board link must not point at /scoring: %s", body)
+	}
+}
+
+// TestAdminDraftNightHeadingDropsPlaceholderDateButKeepsPublishedForm pins
+// wave-2-verification item 3: draftSummaryForState (service.go) prints the
+// sentinel "TBD" into data.draft.date whenever the draft is neither
+// published nor started, and the heading's old `date != ""` check let that
+// sentinel through as "TBD runbook" / "00 // DRAFT NIGHT". The unpublished
+// case now titles the section "Draft night runbook" with no date
+// fragment; a published draft (or a started-but-unpublished one, which
+// draftSummaryForState already backfills with a real date) keeps its
+// "<date> runbook" form.
+func TestAdminDraftNightHeadingDropsPlaceholderDateButKeepsPublishedForm(t *testing.T) {
+	unpublished := renderAdminPage(t)
+	if !strings.Contains(unpublished, "Draft night runbook") {
+		t.Fatalf("unpublished draft must title the heading \"Draft night runbook\": %s", unpublished)
+	}
+	if strings.Contains(unpublished, "TBD runbook") {
+		t.Fatalf("unpublished draft heading must never interpolate the TBD placeholder: %s", unpublished)
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminDraftNightHeadingPublishedFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+		"ADMIN_TASK_DRAFT_PUBLISHED=true",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("published-draft fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	heading := regexp.MustCompile(`(?s)<h2 id="admin-draft-control-heading">(.*?)</h2>`).FindStringSubmatch(body)
+	if len(heading) != 2 {
+		t.Fatalf("published-draft fixture missing the runbook heading: %s", body)
+	}
+	text := strings.TrimSpace(heading[1])
+	if text == "Draft night runbook" {
+		t.Errorf("a published draft date must keep its date fragment, not fall back to the placeholder title: %q", text)
+	}
+	if strings.Contains(text, "TBD") {
+		t.Errorf("published draft heading must never print the TBD placeholder: %q", text)
+	}
+	if !strings.HasSuffix(text, "runbook") || text == "runbook" {
+		t.Errorf("published draft heading missing its date-prefixed runbook title: %q", text)
+	}
+}
+
+// TestAdminDraftNightHeadingPublishedFixtureProcess is
+// TestAdminDraftNightHeadingDropsPlaceholderDateButKeepsPublishedForm's
+// subprocess half: it needs a real, near-future, published DraftAt, which
+// only AdminRescheduleDraft (a Service method) can set — the fixture
+// mirrors TestAdminTaskBoardDraftPhaseFixtureProcess's own subprocess
+// pattern for the same reason (a fresh league.Default() singleton
+// initialized once per process from DATA_FILE).
+func TestAdminDraftNightHeadingPublishedFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_TASK_DRAFT_PUBLISHED") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	// AdminRescheduleDraft only accepts its own "2006-01-02T15:04" local
+	// datetime-local layout (draft_meeting.go's parseDraftMeetingLocal), not
+	// RFC3339; the exact timezone match does not matter here, only that the
+	// parsed instant lands well in the future.
+	meetingAt := time.Now().UTC().Add(14 * 24 * time.Hour).Format("2006-01-02T15:04")
+	if err := service.AdminRescheduleDraft(request, meetingAt); err != nil {
+		t.Fatalf("reschedule draft: %v", err)
+	}
+	fmt.Print(renderAdminPage(t))
+}
+
 // TestInvitesPanelBranchesOnOpenSeatCount pins gap-audit item 8: with
 // 8/8 seats claimed the invites panel still said "any Google account may
 // claim a seat ... the next open seat is theirs" — false once every seat
@@ -1312,9 +1420,21 @@ func TestAnnouncementDeleteFixtureProcess(t *testing.T) {
 	if postedAt == "" {
 		t.Fatal("posted announcement has no posted_at timestamp to name the delete with")
 	}
-	wantAriaLabel := `aria-label="Delete announcement posted ` + postedAt + `"`
+	postedAtAbsolute, _ := notes[0]["posted_at_absolute"].(string)
+	if postedAtAbsolute == "" || postedAtAbsolute == postedAt {
+		t.Fatalf("posted_at_absolute = %q, want a distinct absolute-only stamp (posted_at = %q)", postedAtAbsolute, postedAt)
+	}
+	// The aria-label uses the absolute-only stamp: a relative fragment like
+	// "3 minutes ago" baked into an accessible name goes stale in the
+	// accessibility tree, which caches the name at read time rather than
+	// live-updating it the way the visible row's own text node would
+	// (wave-2-verification item 5).
+	wantAriaLabel := `aria-label="Delete announcement posted ` + postedAtAbsolute + `"`
 	if !strings.Contains(body, wantAriaLabel) {
 		t.Errorf("announcement delete missing its accessible name: want %q in %s", wantAriaLabel, body)
+	}
+	if strings.Contains(body, `aria-label="Delete announcement posted `+postedAt+`"`) {
+		t.Errorf("announcement delete aria-label must not embed the relative-text stamp: %s", body)
 	}
 	if !strings.Contains(body, "Delete the announcement posted "+postedAt+"? This removes it from the league notes and the home page; it cannot be undone.") {
 		t.Errorf("announcement delete missing its review-confirm sentence: %s", body)

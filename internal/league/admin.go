@@ -135,7 +135,18 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		"presence_here": presenceCounts["here"], "presence_idle": presenceCounts["idle"],
 		"presence_away": presenceCounts["away"], "presence_not_seen": presenceCounts["not_seen"],
 		"presence_unclaimed": presenceCounts["unclaimed"],
-		"generated_at":       now.UTC().Format(time.RFC3339),
+		// generated_at used to be the bare now.UTC().Format(time.RFC3339)
+		// instant, printed straight into the "READ AT" row with no
+		// datetime attribute — a raw ISO stamp in the visible text and an
+		// invalid <time> element (wave-2-verification item 6). This now
+		// splits the same instant into the league-local display text,
+		// generated_at_relative always reading "just now" (the instant
+		// this projection was computed), and a datetime-valid ISO string,
+		// matching the fleet card's own GeneratedAt/GeneratedAtISO/
+		// GeneratedAtRelative split (app/commissioner/view.go).
+		"generated_at":          s.leagueAbsoluteTimeStamp(now),
+		"generated_at_iso":      now.UTC().Format(time.RFC3339),
+		"generated_at_relative": RelativeTime(now, now),
 	}
 }
 
@@ -619,6 +630,13 @@ func (s *Service) announcementAdminMaps(state PersistedState) []map[string]any {
 			"body":      a.Body,
 			"posted_by": a.PostedBy,
 			"posted_at": s.leagueTimeStamp(a.PostedAt),
+			// posted_at_absolute drops the relative-text half for the
+			// delete control's aria-label: that name is read once at
+			// activation, not live-updated the way the visible row's own
+			// text node is, so "3 minutes ago" baked into an accessible
+			// name goes stale in the accessibility tree (wave-2-
+			// verification item 5). The visible row keeps posted_at.
+			"posted_at_absolute": s.leagueAbsoluteTimeStamp(a.PostedAt),
 		})
 	}
 	return out
@@ -852,14 +870,14 @@ func requestOrigin(r *http.Request) string {
 
 // leagueJoinURL resolves the seat-claim link an invite points to. A real
 // deployment's own choice — league.json's url, or a LEAGUE_URL override —
-// always wins outright. Only the unconfigured default config (DefaultConfig,
-// url=http://localhost:8080) falls back to the viewing request's own
-// scheme+host: that placeholder is never a real address a manager could
-// reach, and printing it in invite copy was the 2026-09-01
-// wave-1-verification finding this fixes. r may be nil (an offline or
-// request-less caller); leaguePathURL's own default is the final fallback.
+// always wins outright. Only an unconfigured effective URL falls back to
+// the viewing request's own scheme+host: that placeholder is never a real
+// address a manager could reach, and printing it in invite copy was the
+// 2026-09-01 wave-1-verification finding this fixes. r may be nil (an
+// offline or request-less caller); leaguePathURL's own default is the
+// final fallback.
 func (s *Service) leagueJoinURL(r *http.Request) string {
-	if s.cfg.Source != "defaults" || strings.TrimSpace(os.Getenv("LEAGUE_URL")) != "" {
+	if s.leagueURLIsConfigured(r) {
 		return s.leaguePathURL("join")
 	}
 	if origin := requestOrigin(r); origin != "" {
@@ -869,6 +887,45 @@ func (s *Service) leagueJoinURL(r *http.Request) string {
 		return strings.TrimRight(origin, "/") + "/join"
 	}
 	return s.leaguePathURL("join")
+}
+
+// leagueURLIsConfigured reports whether the effective league URL
+// (leagueURL: LEAGUE_URL env override, else cfg.URL) is a real address
+// rather than the shipped placeholder — the original s.cfg.Source !=
+// "defaults" check only caught DefaultConfig()'s in-memory placeholder; a
+// file-sourced league.json copied from config/league.json.example (or any
+// league that never edited its "url" field) carries the identical
+// "http://localhost:8080" text with Source == "file:...", which read as
+// configured and printed the placeholder verbatim (wave-2-verification
+// finding). Two shapes now count as unconfigured regardless of Source:
+// the exact defaultConfigURL placeholder, and any URL whose host is
+// localhost or 127.0.0.1 while the viewing request's own host differs —
+// a loopback address a manager clicking the invite link from a real host
+// could never reach. A malformed or unparsable URL is left alone: that is
+// an operator's own (if broken) choice, not a placeholder to second-guess.
+func (s *Service) leagueURLIsConfigured(r *http.Request) bool {
+	raw := strings.TrimSpace(s.leagueURL())
+	if raw == "" || raw == defaultConfigURL {
+		return false
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Hostname() == "" {
+		return true
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "localhost" && host != "127.0.0.1" {
+		return true
+	}
+	origin := requestOrigin(r)
+	if origin == "" {
+		return true
+	}
+	reqParsed, err := url.Parse(origin)
+	if err != nil {
+		return true
+	}
+	reqHost := strings.ToLower(reqParsed.Hostname())
+	return reqHost == "" || reqHost == host
 }
 
 // InviteEmailTemplate builds the subject, plain-text body, and HTML body of

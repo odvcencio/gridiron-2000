@@ -116,8 +116,8 @@ func FleetReadout(props FleetReadoutProps) Node {
 								</span>
 								<span>
 									<strong>BUILD TIMESTAMP</strong>
-									<If cond={card.build != ""}><time class="mono" datetime={card.build}>{card.build}</time></If>
-									<If cond={card.build == ""}><span class="mono">UNKNOWN</span></If>
+									<If cond={card.build_iso != ""}><time class="mono" datetime={card.build_iso}>{card.build}</time></If>
+									<If cond={card.build_iso == ""}><span class="mono">{card.build}</span></If>
 								</span>
 								<span>
 									<strong>FRAMEWORK VERSION</strong>

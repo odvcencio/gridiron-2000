@@ -7,6 +7,19 @@ package admin
 // bounded-multipart contract; its outer middleware applies the complete-
 // envelope limit before sessions and CSRF parsing (see avatar_handlers.go in
 // the repo root).
+//
+// SeatRow's avatar-mark__photo image (and the matching one in the
+// 03 // DRAFT ORDER list below) carries width="42" height="42": .team-mark
+// is a fixed 2.6rem (42px at the 16px root) square (styles.css), and
+// .avatar-mark__photo fills it at width/height: 100%, so these attributes
+// exist purely to give the browser the badge's 1:1 aspect ratio before the
+// image itself loads or decodes. Without them a managed-action redirect's
+// scrollIntoView (navigation.ts) could run before every avatar above the
+// anchor had reserved its layout box, landing the viewport short of the
+// target once those images decoded and shifted content below them
+// downward — the ~19,700px admin console renders one avatar per seat and
+// per draft-order row, so this is not a one-image problem (wave-2-
+// verification item 11).
 type SeatRowProps struct {
 	Seat              map[string]any
 	ReleaseAction     string
@@ -25,6 +38,8 @@ func SeatRow(props SeatRowProps) Node {
 					class="avatar-mark__photo"
 					src={props.seat.avatar_image_url}
 					alt={props.seat.name}
+					width="42"
+					height="42"
 					loading="lazy"
 				 />
 			</If>
@@ -185,7 +200,15 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 			<span><strong>INVITES</strong><span class="mono">{props.InviteCount} PENDING</span></span>
 			<span><strong>BOARD GAPS</strong><span class="mono">{props.BoardGapCount}</span></span>
 			<span><strong>PRESENCE</strong><span class="mono">{props.PresenceHere} HERE · {props.PresenceIdle} IDLE · {props.PresenceAway} AWAY · {props.PresenceNotSeen} NOT SEEN · {props.PresenceUnclaimed} OPEN</span></span>
-			<span><strong>READ AT</strong><time class="mono">{props.GeneratedAt}</time></span>
+			<span>
+				<strong>READ AT</strong>
+				<If cond={props.GeneratedAtISO != ""}>
+					<time class="mono" datetime={props.GeneratedAtISO}>{props.GeneratedAt}<If cond={props.GeneratedAtRelative != ""}> · {props.GeneratedAtRelative}</If></time>
+				</If>
+				<If cond={props.GeneratedAtISO == ""}>
+					<span class="mono">{props.GeneratedAt}</span>
+				</If>
+			</span>
 		</div>
 		<div class="commissioner-hq__ledger" aria-label="Seat readiness and presence">
 			<Each of={props.Seats} as="seat">
@@ -202,6 +225,17 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 	</section>
 }
 
+// Page's 00 // DRAFT NIGHT heading: draftSummaryForState (service.go)
+// prints the sentinel "TBD" into data.draft.date whenever the draft is
+// neither published nor started (its default case) — a plain date != ""
+// check let "TBD runbook" through (wave-2-verification finding). The
+// heading below instead branches on published || started, which covers
+// both the normal published-date form and the rarer started-with-an-
+// unpublished-date override that draftSummaryForState already backfills
+// with a real date; only the true TBD case drops to "Draft night
+// runbook" with no date fragment. GoSX markup carries no comment syntax
+// of its own, hence this note living beside the enclosing Page() instead
+// of inline at the heading.
 func Page() Node {
 	return <main
 		class="page admin-page"
@@ -399,7 +433,7 @@ func Page() Node {
 							<AdminTaskLink Label="Manage seats and managers" Href="/admin?section=seats#admin-seats" Current={data.admin_section == "seats"} Status={data.ready_count + "/" + data.seat_count + " READY"} />
 							<AdminTaskLink Label="Manage invites" Href="/admin?section=invites#admin-invites" Current={data.admin_section == "invites"} Status="ACCESS LIST" />
 						</ul>
-						<details class="admin-task-nav__lineup-intervention">
+						<details id="admin-task-nav-lineup" class="admin-task-nav__lineup-intervention">
 							<summary class="admin-task-nav__lineup-summary">Set a lineup for a manager</summary>
 							<p class="admin-task-nav__hint">A commissioner can set any team's lineup on a missing manager's behalf; this never locks out the manager's own changes once they return.</p>
 							<ul class="admin-task-nav__lineup-list">
@@ -466,7 +500,7 @@ func Page() Node {
 							<div class="checklist-item__text">
 								<strong>Step in on a lineup</strong>
 								<small>
-									Set a lineup for a manager who cannot before kickoff from <a href="/scoring" data-gosx-link>the task board</a>.
+									Set a lineup for a manager who cannot before kickoff from <a href="/admin#admin-task-nav-lineup" data-gosx-link>the task board</a>.
 								</small>
 							</div>
 						</div>
@@ -486,8 +520,8 @@ func Page() Node {
 						<div>
 							<span class="section-index">00 // DRAFT NIGHT</span>
 							<h2 id="admin-draft-control-heading">
-								<If cond={data.draft.date != ""}>{data.draft.date} runbook</If>
-								<If cond={data.draft.date == ""}>Draft runbook</If>
+								<If cond={data.draft.published || data.draft.started}>{data.draft.date} runbook</If>
+								<If cond={data.draft.published == false && data.draft.started == false}>Draft night runbook</If>
 							</h2>
 						</div>
 					</div>
@@ -962,7 +996,7 @@ func Page() Node {
 							<article class="order-row">
 								<span class={"team-mark tone-" + team.tone}>
 									<If cond={team.has_avatar_image}>
-										<img class="avatar-mark__photo" src={team.avatar_image_url} alt={team.name} loading="lazy" />
+										<img class="avatar-mark__photo" src={team.avatar_image_url} alt={team.name} width="42" height="42" loading="lazy" />
 									</If>
 									<If cond={team.has_avatar_image == false}>
 										{team.abbreviation}
@@ -1371,7 +1405,7 @@ func Page() Node {
 										{note.posted_at}
 									</small>
 									<details class="announcement-delete-disclosure">
-										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at}>✕</summary>
+										<summary class="board-button board-button--cut" aria-label={"Delete announcement posted " + note.posted_at_absolute}>✕</summary>
 										<form method="post" action={actionPath("announcement-delete")} data-gosx-managed="true">
 											<input type="hidden" name="csrf_token" value={csrf.token}></input>
 											<input type="hidden" name={data.admin_return_target_field} value={data.admin_announcements_return_target}></input>
