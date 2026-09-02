@@ -114,18 +114,31 @@ func findBotWithLiveMatchup(t *testing.T, ctx context.Context, child *simChild, 
 // this fold target measures, and it passes.
 //
 // /players, /pickem, and /activity are measured and logged, not
-// asserted: a live breakdown (elementBoundingRect on each masthead
-// section) found .draft-masthead alone runs ~628px on /players — the
-// title/description copy, the roster-capacity-breakdown stat panel, and
-// the notice-stack above the sticky filter rail (which itself, still in
-// normal flow at first paint, adds another ~255px before the list even
-// starts) together leave the first row at ~1271-1369px, not the ~90-190px
-// gap a page-scoped CSS fix could reasonably close. Reaching < 787px here
-// needs a masthead-compaction pass (collapsing the roster-capacity panel
-// by default, trimming the descriptive paragraph, or moving the filter
-// rail out of normal flow) that items 2/3/9's own instructions did not
-// scope — logged as a concrete, numbered baseline for that follow-up
-// rather than landing a permanently red assertion.
+// asserted.
+//
+// Wave-7 re-audit item 4 (yew) landed the masthead compaction this
+// comment used to call out as a follow-up: /players' own roster-capacity
+// panel collapses to a single-line "Draft complete" strip once the draft
+// completes (.draft-clock-panel--compact, public/styles.css — a real,
+// dedicated, hard-asserting browser test covers that panel and the
+// notice-stack's own phone-only overflow collapse directly —
+// players_masthead_browser_test.go), and /activity's own "Recorded
+// moves" panel got the identical treatment. Both measurably shrink the
+// masthead itself (live-verified: /players' .draft-clock-panel--compact
+// clears at well under 100px, down from the audit's own 315px baseline).
+// The fold TARGET here still is not met, though, for a reason outside
+// either fix's own literal scope: /players' own .pool-filter-rail
+// (search bar plus position-filter chips, still in normal flow at first
+// paint, wrapping onto multiple lines at 390px) is now the single
+// largest remaining contributor — live-measured at ~255px, unchanged by
+// this item — and /activity's own masthead height turns out to be
+// dominated by its descriptive copy (h1 plus two paragraphs), not the
+// clock panel, so compacting the panel alone barely moves that page's
+// own total. Both are real, further, page-scoped compaction work (the
+// filter rail wrapping onto one line, matching item 8's own tab-bar
+// technique; trimming the masthead copy) outside items 2/3/4/9's own
+// instructions — logged as an updated, concrete baseline for that
+// follow-up rather than landing a permanently red assertion.
 func TestBrowserAshJobInFoldAcrossOwnedRoutes(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sim scenario: skipped under -short")

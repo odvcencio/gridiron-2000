@@ -1,5 +1,34 @@
 package players
 
+// Page is /players. Item 4 (wave-7 re-audit — yew) compacted its own
+// masthead and notice stack, both flagged by the audit at 628px combined
+// before the first .pool-row (target: under 787px at 390px).
+//
+// free_agency_open (players.go) is exactly draftComplete(state) —
+// "roster moves open after the draft," the same guard add_locked_reason
+// already reads. Once true, the roster-capacity panel below (its own
+// breakdown and link row) has nothing time-critical left to say: this
+// draws a single-line "Draft complete · Draft results →" strip instead,
+// cutting the masthead's own height by roughly the panel's full
+// ~260px. pool_unavailable still wins over this — a real pool outage
+// stays the more urgent message regardless of draft state, so that case
+// keeps the full panel (DATA PAUSED) rather than a plain "Draft
+// complete" strip that would bury the outage.
+//
+// notice_count/notice_first_kind (page.server.go's own
+// playersNoticeSummary) let the notice stack below show exactly ONE
+// notice unconditionally (whichever fires first, in the same priority
+// order this page already used before this item) plus, only once a
+// SECOND notice also fires, a phone-only <details> collecting the rest
+// behind "N notices" — public/styles.css hides that details element's
+// own summary/collapse behavior above the phone breakpoint, so a wide
+// viewport still sees every notice inline, unchanged from before. Every
+// notice condition below appears twice (once guarded FOR the always-
+// visible slot, once guarded AGAINST it, for the <details> slot) rather
+// than once, since GSX has no way to move one already-rendered block
+// between two positions at runtime — see playersNoticeSummary's own doc
+// comment for why a single shared <Each> (the pattern app/wire/page.gsx's
+// simpler, uniform overflow list already uses) does not fit here.
 func Page() Node {
 	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
@@ -13,68 +42,78 @@ func Page() Node {
 					Every pool player, rostered or free. Sign a free agent, claim a waiver, or drop one of your own — the transaction feed records every move.
 				</p>
 			</div>
-			<div class="draft-clock-panel">
-				<span>Draftable roster capacity</span>
-				<If cond={data.pool_unavailable}>
-					<strong class="mono">DATA PAUSED</strong>
-				</If>
-				<If cond={data.pool_unavailable == false && data.can_edit}>
-					<strong class="mono">
-						{data.roster_size}
-						/
-						{data.roster_cap}
-					</strong>
-					<div class="roster-capacity-breakdown" aria-label="Roster capacity breakdown">
-						<span>
-							<b>GENERAL</b>
-							<strong class="mono">{data.roster_general_size} / {data.roster_general_cap}</strong>
-						</span>
-						<span>
-							<b>RESERVE</b>
-							<strong class="mono">{data.roster_reserve_size} / {data.roster_reserve_cap}</strong>
-						</span>
-						<span>
-							<b>IR · OUTSIDE CAP</b>
-							<strong class="mono">{data.roster_ir_size} / {data.roster_ir_cap}</strong>
-						</span>
-					</div>
-					<p class="roster-capacity-note">Reserve counts toward draftable capacity. IR is owned roster space outside that cap.</p>
-				</If>
-				<If cond={data.pool_unavailable == false && data.can_edit == false}>
-					<strong class="mono">NO TEAM</strong>
-				</If>
-				<div class="draft-clock-meta">
-					<a href="/activity" data-gosx-link>Transaction feed →</a>
+			<If cond={data.pool_unavailable == false && data.free_agency_open}>
+				<div class="draft-clock-panel draft-clock-panel--compact">
+					<span>Draft complete</span>
+					<a href="/draft/results" data-gosx-link>Draft results →</a>
+				</div>
+			</If>
+			<If cond={data.pool_unavailable || data.free_agency_open == false}>
+				<div class="draft-clock-panel">
+					<span>Draftable roster capacity</span>
+					<If cond={data.pool_unavailable}>
+						<strong class="mono">DATA PAUSED</strong>
+					</If>
 					<If cond={data.pool_unavailable == false && data.can_edit}>
-						<a href="/team" data-gosx-link>Team terminal →</a>
+						<strong class="mono">
+							{data.roster_size}
+							/
+							{data.roster_cap}
+						</strong>
+						<div class="roster-capacity-breakdown" aria-label="Roster capacity breakdown">
+							<span>
+								<b>GENERAL</b>
+								<strong class="mono">{data.roster_general_size} / {data.roster_general_cap}</strong>
+							</span>
+							<span>
+								<b>RESERVE</b>
+								<strong class="mono">{data.roster_reserve_size} / {data.roster_reserve_cap}</strong>
+							</span>
+							<span>
+								<b>IR · OUTSIDE CAP</b>
+								<strong class="mono">{data.roster_ir_size} / {data.roster_ir_cap}</strong>
+							</span>
+						</div>
+						<p class="roster-capacity-note">Reserve counts toward draftable capacity. IR is owned roster space outside that cap.</p>
 					</If>
 					<If cond={data.pool_unavailable == false && data.can_edit == false}>
-						<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
-							<a href={data.public_entry.action_href} data-gosx-link>
-								{data.public_entry.action_label}
-							</a>
+						<strong class="mono">NO TEAM</strong>
+					</If>
+					<div class="draft-clock-meta">
+						<a href="/activity" data-gosx-link>Transaction feed →</a>
+						<If cond={data.pool_unavailable == false && data.can_edit}>
+							<a href="/team" data-gosx-link>Team terminal →</a>
 						</If>
-					</If>
-					<If cond={data.public_entry.is_commissioner}>
-						<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
-					</If>
+						<If cond={data.pool_unavailable == false && data.can_edit == false}>
+							<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+								<a href={data.public_entry.action_href} data-gosx-link>
+									{data.public_entry.action_label}
+								</a>
+							</If>
+						</If>
+						<If cond={data.public_entry.is_commissioner}>
+							<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
+						</If>
+					</div>
 				</div>
-			</div>
+			</If>
 		</section>
 		<div class="notice-stack" aria-live="polite">
-			<If cond={data.has_notice}>
+			<If cond={data.has_notice && (data.notice_count < 2 || data.notice_first_kind == "flash")}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
-			<If cond={data.has_players_error}>
+			<If cond={data.has_players_error && (data.notice_count < 2 || data.notice_first_kind == "error")}>
 				<p class="error-message">{data.players_error}</p>
 			</If>
 			<If cond={data.viewer.demo}>
-				<p class="demo-message">
-					<strong>REHEARSAL MODE:</strong>
-					the console is open to everyone while demo mode is on.
-				</p>
+				<If cond={data.notice_count < 2 || data.notice_first_kind == "demo"}>
+					<p class="demo-message">
+						<strong>REHEARSAL MODE:</strong>
+						the console is open to everyone while demo mode is on.
+					</p>
+				</If>
 			</If>
-			<If cond={data.pool_unavailable == false && data.can_edit == false}>
+			<If cond={data.pool_unavailable == false && data.can_edit == false && (data.notice_count < 2 || data.notice_first_kind == "public_entry")}>
 				<p class="demo-message">
 					<strong>{data.public_entry.state_label}:</strong>
 					{data.public_entry.detail}
@@ -88,13 +127,13 @@ func Page() Node {
 					</If>
 				</p>
 			</If>
-			<If cond={data.pool_unavailable == false && data.free_agency_open == false}>
+			<If cond={data.pool_unavailable == false && data.free_agency_open == false && (data.notice_count < 2 || data.notice_first_kind == "fa_closed")}>
 				<p class="demo-message">
 					<strong>FREE AGENCY OPENS AFTER THE DRAFT:</strong>
 					every undrafted player becomes a free agent the moment the draft completes.
 				</p>
 			</If>
-			<If cond={data.pool_status.has_notice}>
+			<If cond={data.pool_status.has_notice && (data.notice_count < 2 || data.notice_first_kind == "pool_status")}>
 				<p class="demo-message">
 					<strong>{data.pool_status.label}:</strong>
 					{data.pool_status.detail}
@@ -104,11 +143,64 @@ func Page() Node {
 					</If>
 				</p>
 			</If>
-			<If cond={data.has_matchup_source}>
+			<If cond={data.has_matchup_source && (data.notice_count < 2 || data.notice_first_kind == "matchup")}>
 				<p class="demo-message">
 					<strong>MATCHUP RANKS:</strong>
 					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
 				</p>
+			</If>
+			<If cond={data.notice_count >= 2}>
+				<details class="notice-stack__more">
+					<summary class="notice-stack__more-summary">{data.notice_count} notices</summary>
+					<If cond={data.has_notice && data.notice_first_kind != "flash"}>
+						<p class="flash-message">{data.notice}</p>
+					</If>
+					<If cond={data.has_players_error && data.notice_first_kind != "error"}>
+						<p class="error-message">{data.players_error}</p>
+					</If>
+					<If cond={data.viewer.demo && data.notice_first_kind != "demo"}>
+						<p class="demo-message">
+							<strong>REHEARSAL MODE:</strong>
+							the console is open to everyone while demo mode is on.
+						</p>
+					</If>
+					<If cond={data.pool_unavailable == false && data.can_edit == false && data.notice_first_kind != "public_entry"}>
+						<p class="demo-message">
+							<strong>{data.public_entry.state_label}:</strong>
+							{data.public_entry.detail}
+							<If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}>
+								<a href={data.public_entry.action_href} data-gosx-link>
+									{data.public_entry.action_label}
+								</a>
+							</If>
+							<If cond={data.public_entry.is_commissioner}>
+								<a href={data.public_entry.commissioner_href} data-gosx-link>{data.public_entry.commissioner_label}</a>
+							</If>
+						</p>
+					</If>
+					<If cond={data.pool_unavailable == false && data.free_agency_open == false && data.notice_first_kind != "fa_closed"}>
+						<p class="demo-message">
+							<strong>FREE AGENCY OPENS AFTER THE DRAFT:</strong>
+							every undrafted player becomes a free agent the moment the draft completes.
+						</p>
+					</If>
+					<If cond={data.pool_status.has_notice && data.notice_first_kind != "pool_status"}>
+						<p class="demo-message">
+							<strong>{data.pool_status.label}:</strong>
+							{data.pool_status.detail}
+							<If cond={data.pool_status.has_last_success}>
+								<br></br>
+								<span class="mono">LAST SUCCESS · {data.pool_status.last_success} · {data.pool_status.last_success_relative}</span>
+							</If>
+						</p>
+					</If>
+					<If cond={data.has_matchup_source && data.notice_first_kind != "matchup"}>
+						<p class="demo-message">
+							<strong>MATCHUP RANKS:</strong>
+							ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+						</p>
+					</If>
+				</details>
 			</If>
 		</div>
 		<div

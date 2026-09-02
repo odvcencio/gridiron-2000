@@ -1,5 +1,11 @@
 package activity
 
+// Page is /activity. Item 4 (wave-7 re-audit — yew) gave its own masthead
+// panel (the "Recorded moves" strip) the same draft-clock-panel--compact
+// treatment /players' own completed-draft strip uses (public/styles.css)
+// — the audit's own /activity masthead measured 516px, this panel's own
+// full-height base rule (padding: var(--space-xl), a stacked grid) most
+// of it, for a panel that never needed more than one or two lines.
 func Page() Node {
 	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
@@ -14,9 +20,8 @@ func Page() Node {
 					Draft picks, waiver and free-agent moves, and trades — one permanent league record, newest first.
 				</p>
 			</div>
-			<div class="draft-clock-panel">
-				<span>Recorded moves</span>
-				<strong class="mono">{data.transactions_count}</strong>
+			<div class="draft-clock-panel draft-clock-panel--compact">
+				<span>Recorded moves · <strong class="mono">{data.transactions_count}</strong></span>
 				<div class="draft-clock-meta">
 					<span class="mono">League time · {data.timezone}</span>
 					<a href="/players" data-gosx-link>Player pool →</a>

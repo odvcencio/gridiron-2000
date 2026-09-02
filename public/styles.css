@@ -4054,6 +4054,54 @@ button.badge-option:hover {
   font-size: var(--type-xl);
 }
 
+/* Item 4 (wave-7 re-audit — yew): a slim, one-or-two-line alternative to
+   the base .draft-clock-panel rule above, for a panel with nothing that
+   needs the base rule's full xl-padding/stacked-grid treatment.
+   /players (page.gsx): once the draft is complete, the roster-capacity
+   panel (the base rule's own full-height form) has nothing time-critical
+   left to say — that full version stays for pool_unavailable and the
+   pre/mid-draft states, but a completed draft gets this compact variant
+   instead, a real height win on its own (the audit's own /players
+   masthead measured 628px, most of it this panel).
+   /activity (page.gsx): "Recorded moves" plus its own link row never
+   needed the base rule's full padding/grid at all — the audit's own
+   516px masthead finding named this panel too, alongside /players', as
+   "same treatment."
+   Declared AFTER the base .draft-clock-panel rule on purpose: both
+   classes land on the same element in both callers, and equal-
+   specificity same-element rules resolve by source order, so this has to
+   come later to win padding/display over the base rule's own grid/xl-
+   padding shape — no !important needed. flex-wrap: wrap keeps /activity's
+   own extra .draft-clock-meta child (three links plus a league-time
+   span) from forcing an overflow rather than wrapping onto its own
+   line at narrow widths, the one shape difference from /players' own
+   plain span + single link. */
+.draft-clock-panel--compact {
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.draft-clock-panel--compact > span {
+  color: var(--color-accent-hot);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+/* .draft-clock-meta's own shared base rule (below, unscoped — every
+   other caller keeps it) has no flex-wrap, matching the same "shrink
+   into a narrow column instead" gap /trades' own scoped
+   .trades-veto-links fix (below) already found and fixed differently
+   there. Scoped here rather than changing the shared base rule, exactly
+   like that fix. */
+.draft-clock-panel--compact .draft-clock-meta {
+  flex-wrap: wrap;
+}
+
 .roster-capacity-breakdown {
   display: grid;
   gap: var(--space-xs);
@@ -4089,6 +4137,34 @@ button.badge-option:hover {
   font-size: var(--type-xs);
   line-height: 1.35;
 }
+
+/* Item 4 (wave-7 re-audit — yew): the breakdown's own base rule (above)
+   is display: grid with no explicit grid-template-columns, so its three
+   GENERAL/RESERVE/IR spans auto-place one per row — three stacked rows
+   of real height on a page whose own masthead the audit flagged at
+   628px. 56.1875rem (899px) matches the shell's own established phone/
+   tablet line (public/styles.css, the draft shell's "width <=" queries)
+   rather than introducing a second breakpoint value. Each span's own
+   label/value pair still shows both parts (no information dropped),
+   just stacked vertically inside a narrower column instead of side by
+   side across the row's own full width, which is what let three
+   side-by-side pairs fit one line even at 390px in practice. */
+@media (width <= 56.1875rem) {
+  .roster-capacity-breakdown {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+
+  .roster-capacity-breakdown > span {
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+}
+
 .admin-league-switcher {
   display: grid;
   gap: var(--space-xs);
@@ -4395,6 +4471,75 @@ body.is-on-clock .draft-clock-panel {
   margin-bottom: var(--space-md);
   display: grid;
   gap: var(--space-xs);
+}
+
+/* Item 4 (wave-7 re-audit — yew): .notice-stack__more (page.gsx) is the
+   phone-only overflow disclosure for every notice AFTER the first one
+   that fires — see playersNoticeSummary's own doc comment (page.server.
+   go) for how "first" is decided.
+   Explicit [open]-keyed hiding, not the browser's own native <details>-
+   closed behavior: .draft-command__sheet (this file, the draft pill's
+   own bottom-sheet disclosure) already established the exact same
+   pattern here, for the exact same reason its own doc comment gives —
+   full author control over a disclosure panel, not a browser-internal
+   state author CSS cannot reliably probe or reason about (measured live
+   against a freshly-inserted, closed <details>: even
+   getBoundingClientRect() on its own non-summary children — not exactly
+   the property this rule keys on, but the DECISIVE proof the browser's
+   own hiding is opaque to ordinary author-side layout queries — read a
+   real, non-zero size). No [open] attribute in the initial server render,
+   so a phone visitor sees the extra notices collapsed by default,
+   exactly the collapse the audit asked for; the media query below
+   removes the collapse entirely above the phone/tablet line, so a wide
+   viewport keeps showing every notice inline, unchanged from before this
+   item. */
+.notice-stack__more-summary {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.notice-stack__more-summary::-webkit-details-marker,
+.notice-stack__more-summary::marker {
+  display: none;
+  content: "";
+}
+
+.notice-stack__more > *:not(summary) {
+  display: none;
+}
+
+.notice-stack__more[open] > *:not(summary) {
+  display: block;
+  margin-top: var(--space-xs);
+}
+
+@media (width > 56.1875rem) {
+  /* Desktop/tablet: no collapse at all, regardless of [open] — every
+     notice stays visible inline, matching this page's own pre-item-4
+     behavior exactly. display: contents unboxes the <details> element
+     itself so its children rejoin .notice-stack's normal flow as
+     ordinary siblings, and the summary hides since there is nothing left
+     to disclose. */
+  .notice-stack__more {
+    display: contents;
+  }
+
+  .notice-stack__more-summary {
+    display: none;
+  }
+
+  .notice-stack__more > *:not(summary) {
+    display: block;
+    margin-top: 0;
+  }
 }
 
 .flash-message,

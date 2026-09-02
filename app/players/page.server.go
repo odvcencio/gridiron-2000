@@ -76,6 +76,56 @@ func playersFragmentURL(request *http.Request, kind string) string {
 	return target
 }
 
+// playersNoticeSummary (item 4, wave-7 re-audit — yew) counts how many of
+// the masthead's own conditional notices actually render, and names the
+// FIRST one true, in the exact source order page.gsx's own notice-stack
+// tests each condition in. Neither number nor name is used for anything
+// but display: page.gsx still owns every condition and every notice's own
+// markup, unchanged; this only lets it decide, per notice, whether that
+// notice belongs in the always-visible first slot or the phone-only
+// <details> "N notices" disclosure behind it (both copies of each
+// condition already exist in page.gsx — a notice's own rich, varied
+// markup, from a plain string to nested action links, cannot be
+// generically driven off one shared <Each> the way page.gsx's simpler
+// wire-source overflow list is, so each of the two slots is authored
+// once, both slots sharing this same struct's own boolean).
+func playersNoticeSummary(data map[string]any) (count int, firstKind string) {
+	viewer, _ := data["viewer"].(map[string]any)
+	viewerDemo, _ := viewer["demo"].(bool)
+	poolStatus, _ := data["pool_status"].(map[string]any)
+	poolStatusHasNotice, _ := poolStatus["has_notice"].(bool)
+	poolUnavailable, _ := data["pool_unavailable"].(bool)
+	canEdit, _ := data["can_edit"].(bool)
+	freeAgencyOpen, _ := data["free_agency_open"].(bool)
+	hasMatchupSource, _ := data["has_matchup_source"].(bool)
+	hasNotice, _ := data["has_notice"].(bool)
+	hasPlayersError, _ := data["has_players_error"].(bool)
+
+	// Order matches page.gsx's own notice-stack, top to bottom.
+	conditions := []struct {
+		kind string
+		on   bool
+	}{
+		{"flash", hasNotice},
+		{"error", hasPlayersError},
+		{"demo", viewerDemo},
+		{"public_entry", !poolUnavailable && !canEdit},
+		{"fa_closed", !poolUnavailable && !freeAgencyOpen},
+		{"pool_status", poolStatusHasNotice},
+		{"matchup", hasMatchupSource},
+	}
+	for _, condition := range conditions {
+		if !condition.on {
+			continue
+		}
+		count++
+		if firstKind == "" {
+			firstKind = condition.kind
+		}
+	}
+	return count, firstKind
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -120,6 +170,9 @@ func init() {
 					data["players_error"] = message
 				}
 			}
+			noticeCount, noticeFirstKind := playersNoticeSummary(data)
+			data["notice_count"] = noticeCount
+			data["notice_first_kind"] = noticeFirstKind
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
