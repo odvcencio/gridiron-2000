@@ -158,24 +158,17 @@ func TestBrowserDraftResultsTeamStripHasVisibleScrollCueAt390(t *testing.T) {
 
 	// Grid view's own sticky headers.
 	//
-	// FINDING (2026-08-31, measured live, not assumed): .board-grid__corner
-	// (position: sticky; left: 0, shared with /draft's own desktop board
-	// tab) sticks correctly for a SHORT scroll past its own resting
-	// position (holds flush against .results-board-scroll's own left edge
-	// through at least ~150px of scroll — the assertion below), then
-	// drifts with the content again on a longer scroll (measured: -76px at
-	// scrollLeft 350, not the ~8px a fully-stuck header would still read).
-	// This is CSS Grid's own documented limit, not a regression from this
-	// item's own work: a sticky grid item's stick range is bounded by its
-	// own grid area/track, not the whole scrolling container, and
-	// .board-grid__corner's own track is a fixed 6rem — a real, pre-
-	// existing limitation of the shared .board-grid CSS (desktop's own
-	// board tab shares the identical mechanics, just rarely scrolls far
-	// enough horizontally to expose it) that needs a bigger restructure
-	// (decoupling the sticky item's containing block from its own narrow
-	// track) than this item's safe scope covers. Flagged here rather than
-	// silently asserting a full-range guarantee CSS Grid does not actually
-	// keep.
+	// UPDATE (wave-7 re-audit item 3 — yew): the FINDING this test used to
+	// carry here (.board-grid__corner held its stuck position for only
+	// ~150px of scroll, then drifted -76px by 350px) is fixed, not a
+	// permanent CSS Grid limit as first assumed — see .board-grid's own
+	// doc comment (public/styles.css) for the two compounding bugs (an
+	// unconstrained-width grid clamped to the viewport instead of its own
+	// content, and a scroll container with no vertical overflow to engage
+	// sticky top against). TestBrowserDraftResultsBoardStickyHeadersHold
+	// FullScrollRange (below) is this item's own decisive, full-range
+	// check; this test keeps its own narrower, pre-existing scrollLeft
+	// 60/130 spot-check for continuity with wave 7b's own coverage.
 	navCtx, cancelNav := context.WithTimeout(ctx, browserFirstPaint)
 	defer cancelNav()
 	if err := chromedp.Run(navCtx,
@@ -206,5 +199,50 @@ func TestBrowserDraftResultsTeamStripHasVisibleScrollCueAt390(t *testing.T) {
 	scrollWidth, innerWidth := documentOverflowPx(t, ctx)
 	if scrollWidth > innerWidth {
 		t.Errorf("document overflows horizontally on the results grid at 390px: scrollWidth=%d innerWidth=%d", scrollWidth, innerWidth)
+	}
+}
+
+// TestBrowserDraftResultsBoardStickyHeadersHoldFullScrollRange is the
+// decisive browser check for wave-7 re-audit item 3 (yew): at 390px,
+// scrolling .results-board-scroll all the way to scrollLeft 400 (well
+// past the ~266px range the pre-fix bug held for) must still leave
+// .board-grid__round flush against the scroll container's own left edge,
+// and scrolling it down 300px must leave .board-grid__team flush against
+// the container's own top edge — "flush" meaning the round cell's own
+// left edge and the team header's own top edge coincide with the
+// scroll container's own content-box edges (both at the same coordinate,
+// not merely unchanged from some earlier reading), the literal "left
+// edge is 0 / top is 0" (relative to the container) the audit specified.
+func TestBrowserDraftResultsBoardStickyHeadersHoldFullScrollRange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	completeSimDraft(t, league)
+	viewer := league.bots[len(league.bots)-1]
+	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(child.URL+"/draft/results?view=board"),
+		chromedp.WaitVisible(`.board-grid`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate to /draft/results?view=board: %v", err)
+	}
+
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.results-board-scroll').scrollLeft = 400`, nil)); err != nil {
+		t.Fatalf("scroll the board grid horizontally to 400: %v", err)
+	}
+	roundRect := elementBoundingRect(t, ctx, ".board-grid__round")
+	containerRect := elementBoundingRect(t, ctx, ".results-board-scroll")
+	if diff := roundRect.Left - containerRect.Left; diff < -touchFloorTolerance || diff > touchFloorTolerance {
+		t.Errorf(".board-grid__round left (%.1f) is not flush with .results-board-scroll left (%.1f) at scrollLeft=400 — diff %.1f, want ~0", roundRect.Left, containerRect.Left, diff)
+	}
+
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.results-board-scroll').scrollLeft = 0; document.querySelector('.results-board-scroll').scrollTop = 300`, nil)); err != nil {
+		t.Fatalf("reset scrollLeft and scroll the board grid down 300: %v", err)
+	}
+	teamRect := elementBoundingRect(t, ctx, ".board-grid__team")
+	containerRect = elementBoundingRect(t, ctx, ".results-board-scroll")
+	if diff := teamRect.Top - containerRect.Top; diff < -touchFloorTolerance || diff > touchFloorTolerance {
+		t.Errorf(".board-grid__team top (%.1f) is not flush with .results-board-scroll top (%.1f) at scrollTop=300 — diff %.1f, want ~0", teamRect.Top, containerRect.Top, diff)
 	}
 }

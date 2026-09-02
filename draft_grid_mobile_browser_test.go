@@ -73,3 +73,47 @@ func TestBrowserDraftGridMobileTabScrollsWithoutPageOverflow(t *testing.T) {
 		t.Errorf("document.documentElement.scrollWidth (%d) > window.innerWidth (%d); the draft grid leaked page-level horizontal overflow", scrollWidth, innerWidth)
 	}
 }
+
+// TestBrowserDraftGridTabStickyHeadersHoldFullScrollRange is the decisive
+// browser check for wave-7 re-audit item 3 (yew) on /draft's OWN "Draft
+// grid" tab — the same fix draft_results_browser_test.go's own
+// TestBrowserDraftResultsBoardStickyHeadersHoldFullScrollRange proves for
+// /draft/results, since both routes render the identical DraftBoard
+// component (app/draft/page.gsx) and share every .board-grid* class.
+// Round rows exist from the moment the draft starts (every scheduled
+// round renders, filled or not — DraftBoard's own cell branches cover
+// both), so this does not need a completed draft the way the results
+// route's own coverage does.
+func TestBrowserDraftGridTabStickyHeadersHoldFullScrollRange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+
+	if err := chromedp.Run(ctx, chromedp.Click(`a.draft-tabbar__tab[href*="view=board"]`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("click the Draft grid tab: %v", err)
+	}
+	if err := chromedp.Run(ctx, chromedp.WaitVisible(`.board-grid__round`, chromedp.ByQuery)); err != nil {
+		t.Fatalf("no .board-grid__round rendered after clicking Draft grid: %v", err)
+	}
+
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.draft-history__view--board').scrollLeft = 400`, nil)); err != nil {
+		t.Fatalf("scroll the board grid horizontally to 400: %v", err)
+	}
+	roundRect := elementBoundingRect(t, ctx, ".board-grid__round")
+	containerRect := elementBoundingRect(t, ctx, ".draft-history__view--board")
+	if diff := roundRect.Left - containerRect.Left; diff < -touchFloorTolerance || diff > touchFloorTolerance {
+		t.Errorf(".board-grid__round left (%.1f) is not flush with .draft-history__view--board left (%.1f) at scrollLeft=400 — diff %.1f, want ~0", roundRect.Left, containerRect.Left, diff)
+	}
+
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.draft-history__view--board').scrollLeft = 0; document.querySelector('.draft-history__view--board').scrollTop = 300`, nil)); err != nil {
+		t.Fatalf("reset scrollLeft and scroll the board grid down 300: %v", err)
+	}
+	teamRect := elementBoundingRect(t, ctx, ".board-grid__team")
+	containerRect = elementBoundingRect(t, ctx, ".draft-history__view--board")
+	if diff := teamRect.Top - containerRect.Top; diff < -touchFloorTolerance || diff > touchFloorTolerance {
+		t.Errorf(".board-grid__team top (%.1f) is not flush with .draft-history__view--board top (%.1f) at scrollTop=300 — diff %.1f, want ~0", teamRect.Top, containerRect.Top, diff)
+	}
+}

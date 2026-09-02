@@ -2684,9 +2684,15 @@ button.badge-option:hover {
   min-width: 0;
 }
 
+/* .login-poster h2, not h1 (item 6, wave-7 re-audit — yew): the
+   league-name heading this gradient targets moved down to h2 once
+   .login-console gained its own, new, unconditional h1
+   (.login-console__page-name, below) — app/login/page.gsx's own doc
+   comment has the full reasoning. Same element, same text, same
+   gradient treatment; only its heading level changed. */
 .page-masthead h1,
 .draft-masthead h1,
-.login-poster h1,
+.login-poster h2,
 .error-page h1 {
   background: var(--gradient-chrome);
   background-clip: text;
@@ -4054,6 +4060,54 @@ button.badge-option:hover {
   font-size: var(--type-xl);
 }
 
+/* Item 4 (wave-7 re-audit — yew): a slim, one-or-two-line alternative to
+   the base .draft-clock-panel rule above, for a panel with nothing that
+   needs the base rule's full xl-padding/stacked-grid treatment.
+   /players (page.gsx): once the draft is complete, the roster-capacity
+   panel (the base rule's own full-height form) has nothing time-critical
+   left to say — that full version stays for pool_unavailable and the
+   pre/mid-draft states, but a completed draft gets this compact variant
+   instead, a real height win on its own (the audit's own /players
+   masthead measured 628px, most of it this panel).
+   /activity (page.gsx): "Recorded moves" plus its own link row never
+   needed the base rule's full padding/grid at all — the audit's own
+   516px masthead finding named this panel too, alongside /players', as
+   "same treatment."
+   Declared AFTER the base .draft-clock-panel rule on purpose: both
+   classes land on the same element in both callers, and equal-
+   specificity same-element rules resolve by source order, so this has to
+   come later to win padding/display over the base rule's own grid/xl-
+   padding shape — no !important needed. flex-wrap: wrap keeps /activity's
+   own extra .draft-clock-meta child (three links plus a league-time
+   span) from forcing an overflow rather than wrapping onto its own
+   line at narrow widths, the one shape difference from /players' own
+   plain span + single link. */
+.draft-clock-panel--compact {
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.draft-clock-panel--compact > span {
+  color: var(--color-accent-hot);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+}
+
+/* .draft-clock-meta's own shared base rule (below, unscoped — every
+   other caller keeps it) has no flex-wrap, matching the same "shrink
+   into a narrow column instead" gap /trades' own scoped
+   .trades-veto-links fix (below) already found and fixed differently
+   there. Scoped here rather than changing the shared base rule, exactly
+   like that fix. */
+.draft-clock-panel--compact .draft-clock-meta {
+  flex-wrap: wrap;
+}
+
 .roster-capacity-breakdown {
   display: grid;
   gap: var(--space-xs);
@@ -4089,6 +4143,34 @@ button.badge-option:hover {
   font-size: var(--type-xs);
   line-height: 1.35;
 }
+
+/* Item 4 (wave-7 re-audit — yew): the breakdown's own base rule (above)
+   is display: grid with no explicit grid-template-columns, so its three
+   GENERAL/RESERVE/IR spans auto-place one per row — three stacked rows
+   of real height on a page whose own masthead the audit flagged at
+   628px. 56.1875rem (899px) matches the shell's own established phone/
+   tablet line (public/styles.css, the draft shell's "width <=" queries)
+   rather than introducing a second breakpoint value. Each span's own
+   label/value pair still shows both parts (no information dropped),
+   just stacked vertically inside a narrower column instead of side by
+   side across the row's own full width, which is what let three
+   side-by-side pairs fit one line even at 390px in practice. */
+@media (width <= 56.1875rem) {
+  .roster-capacity-breakdown {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-sm);
+  }
+
+  .roster-capacity-breakdown > span {
+    flex: 1 1 0;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+}
+
 .admin-league-switcher {
   display: grid;
   gap: var(--space-xs);
@@ -4395,6 +4477,75 @@ body.is-on-clock .draft-clock-panel {
   margin-bottom: var(--space-md);
   display: grid;
   gap: var(--space-xs);
+}
+
+/* Item 4 (wave-7 re-audit — yew): .notice-stack__more (page.gsx) is the
+   phone-only overflow disclosure for every notice AFTER the first one
+   that fires — see playersNoticeSummary's own doc comment (page.server.
+   go) for how "first" is decided.
+   Explicit [open]-keyed hiding, not the browser's own native <details>-
+   closed behavior: .draft-command__sheet (this file, the draft pill's
+   own bottom-sheet disclosure) already established the exact same
+   pattern here, for the exact same reason its own doc comment gives —
+   full author control over a disclosure panel, not a browser-internal
+   state author CSS cannot reliably probe or reason about (measured live
+   against a freshly-inserted, closed <details>: even
+   getBoundingClientRect() on its own non-summary children — not exactly
+   the property this rule keys on, but the DECISIVE proof the browser's
+   own hiding is opaque to ordinary author-side layout queries — read a
+   real, non-zero size). No [open] attribute in the initial server render,
+   so a phone visitor sees the extra notices collapsed by default,
+   exactly the collapse the audit asked for; the media query below
+   removes the collapse entirely above the phone/tablet line, so a wide
+   viewport keeps showing every notice inline, unchanged from before this
+   item. */
+.notice-stack__more-summary {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+
+.notice-stack__more-summary::-webkit-details-marker,
+.notice-stack__more-summary::marker {
+  display: none;
+  content: "";
+}
+
+.notice-stack__more > *:not(summary) {
+  display: none;
+}
+
+.notice-stack__more[open] > *:not(summary) {
+  display: block;
+  margin-top: var(--space-xs);
+}
+
+@media (width > 56.1875rem) {
+  /* Desktop/tablet: no collapse at all, regardless of [open] — every
+     notice stays visible inline, matching this page's own pre-item-4
+     behavior exactly. display: contents unboxes the <details> element
+     itself so its children rejoin .notice-stack's normal flow as
+     ordinary siblings, and the summary hides since there is nothing left
+     to disclose. */
+  .notice-stack__more {
+    display: contents;
+  }
+
+  .notice-stack__more-summary {
+    display: none;
+  }
+
+  .notice-stack__more > *:not(summary) {
+    display: block;
+    margin-top: 0;
+  }
 }
 
 .flash-message,
@@ -6336,6 +6487,17 @@ body.is-on-clock .draft-clock-panel {
 
 .login-page {
   min-height: calc(100vh - 14rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     body/.app-shell already carry (this file, item 6, wave 7b mobile-
+     foundation audit), for the identical reason — 100vh on a phone
+     browser measures the LARGEST possible viewport (address bar
+     collapsed), not the one actually available on first paint, so a
+     raw calc(100vh - 14rem) under-reserved height whenever the address
+     bar was still expanded. The vh line stays first as the fallback for
+     a browser with no dvh support — a plain declaration a later,
+     recognized one overrides, never parsed at all by an engine that
+     does not know dvh, no @supports needed. */
+  min-height: calc(100dvh - 14rem);
   display: grid;
   align-items: center;
 }
@@ -6412,6 +6574,21 @@ body.is-on-clock .draft-clock-panel {
   align-self: center;
   display: grid;
   gap: var(--space-md);
+}
+
+/* Item 6 (wave-7 re-audit — yew): a small, quiet page-name label, not a
+   second headline competing with the branch-specific h2 right below it
+   ("Manager check-in" signed-out, the viewer's own name signed-in) —
+   this exists to give the page an h1 in .login-console's own visually-
+   first position (app/login/page.gsx's own doc comment has the full
+   reasoning), not to restate what the h2 already says louder. */
+.login-console__page-name {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .login-console h2 {
@@ -6538,6 +6715,10 @@ body.is-on-clock .draft-clock-panel {
 
 .error-page {
   min-height: calc(100vh - 15rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     as .login-page above — see that rule's own doc comment for the full
+     reasoning. */
+  min-height: calc(100dvh - 15rem);
   padding: var(--space-3xl) 0;
   display: flex;
   flex-direction: column;
@@ -6615,6 +6796,10 @@ body.is-on-clock .draft-clock-panel {
 .legal-page {
   max-width: 58rem;
   min-height: calc(100vh - 14rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     as .login-page above — see that rule's own doc comment for the full
+     reasoning. */
+  min-height: calc(100dvh - 14rem);
   padding: var(--space-3xl) 0;
 }
 
@@ -7151,10 +7336,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 72rem) {
-  .hero-command {
-    gap: var(--space-xl);
-  }
-
+  /* dead: see item 9 */
   .dashboard-split,
   .matchup-layout,
   .team-layout,
@@ -7706,25 +7888,7 @@ body.is-on-clock .draft-clock-panel {
     justify-content: flex-start;
   }
 
-  .pickem-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-  }
-
-  .pickem-buttons {
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-
-  .pickem-market {
-    flex: 1 1 100%;
-  }
-
-  .pickem-status {
-    justify-content: flex-start;
-  }
+  /* dead: see item 9 */
 
   .scoring-row {
     display: flex;
@@ -7739,12 +7903,7 @@ body.is-on-clock .draft-clock-panel {
     justify-content: flex-end;
   }
 
-  .seat-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-  }
+  /* dead: see item 9 */
 
   .seat-identity {
     flex: 1 1 100%;
@@ -8339,9 +8498,7 @@ body.is-on-clock .draft-clock-panel {
     grid-template-columns: 1fr;
   }
 
-  .pickem-boards {
-    grid-template-columns: 1fr;
-  }
+  /* dead: see item 9 */
 }
 
 /* Registration wave: dashboard dual-status cards (app/page.gsx), the
@@ -9014,6 +9171,22 @@ body.is-on-clock .draft-clock-panel {
 
   .gosx-toast__message {
     font-size: 0.875rem;
+  }
+
+  /* Item 1 (wave-7 audit — yew): a route that also renders the fixed
+     .page-action-bar (public/styles.css ~1276) stacks that bar's own
+     3.5rem height directly on top of the tab bar (see the
+     body:has(.app-tabbar):has(.page-action-bar) .site-frame
+     padding-bottom rule, ~1294) — the mobile-bar-height-only offset above
+     clears just the tab bar, so a toast's bottom edge lands inside the
+     action bar's own box (the pre-fix audit measured toast y 724-776
+     against the bar's own 728-784 on /team). Adding the action bar's
+     fixed height to the same offset lifts the toast clear of both fixed
+     bars. body:has(.page-action-bar) .toast-stack (0,2,1) outweighs the
+     plain .toast-stack rule above (0,1,0) on specificity alone, so this
+     always wins when the bar is present, with no !important needed. */
+  body:has(.page-action-bar) .toast-stack {
+    inset: auto 0 calc(var(--mobile-bar-height) + 3.5rem + env(safe-area-inset-bottom) + 0.5rem) 0;
   }
 }
 
@@ -9988,6 +10161,24 @@ body.is-on-clock .draft-clock-panel {
      #main-content gives this re-assert enough specificity to win
      honestly instead of needing !important. */
   .site-frame #main-content .lineup-week-form button {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+  }
+
+  /* Item 2 (wave-7 re-audit — yew): same re-assert as the two rules just
+     above. The draft pill's own ▾ toggle (.draft-command__pill-caret, a
+     <summary>) is the ONLY way to reach the pill sheet (sound, League,
+     autopick, force-pick) on a phone — but the generic .site-frame
+     summary rule above zeroes its min-width by design, and its own
+     min-height alone (both rules agree on 2.75rem) is not enough: with
+     no floor on the other axis, a single-glyph summary sized to its own
+     content, measuring 8.8px wide pre-fix. #main-content's ID
+     specificity beats the generic rule's five :not() exclusions
+     regardless of source order, so this wins honestly with no
+     !important. (page.gsx also gives the toggle a visible "MENU" label
+     alongside the glyph, so the wider floor here is a true minimum, not
+     the rendered width — see .draft-command__pill-caret-label below.) */
+  .site-frame #main-content .draft-command__pill-caret {
     min-width: 2.75rem;
     min-inline-size: 2.75rem;
   }
@@ -11549,8 +11740,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 /* overflow-x only: vertical scroll stays owned by .draft-pane__body (the
    shell's one established scroll axis per pane); a second overflow-y here
-   would nest two vertical scrollbars over the same content. */
-.draft-history__view--board,
+   would nest two vertical scrollbars over the same content.
+   Item 3 (wave-7 re-audit — yew): .draft-history__view--board dropped out
+   of this rule — it now also carries .results-board-scroll (page.gsx),
+   which owns BOTH axes itself with a bounded height, the fix the sticky
+   board headers need (see .board-grid's own doc comment, public/
+   styles.css). .draft-history__view--teams is untouched: DraftByTeam's
+   own columns need no sticky-header fix, so they keep the pane's shared
+   vertical scroll axis exactly as before. */
 .draft-history__view--teams {
   overflow-x: auto;
 }
@@ -11838,10 +12035,44 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 }
 
 /* Board (D4): round x team grid, one sticky team-column header row, then
-   one sticky round header plus one board-cell row per round. The pane
-   itself (.draft-history__view--board, above) owns overflow-x: auto, so
-   the grid scrolls horizontally at phone width; vertical scroll stays
-   with .draft-pane__body. */
+   one sticky round header plus one board-cell row per round. The shared
+   scroll container (.results-board-scroll, below) owns overflow on both
+   axes with a bounded height, so the grid scrolls both ways at phone
+   width and .board-grid__corner/.board-grid__team's own sticky top has
+   real vertical overflow to engage against.
+   Item 3 (wave-7 re-audit — yew): two independent, compounding bugs left
+   both sticky headers broken, live-measured (pre-fix) at .board-grid__
+   corner holding its stuck LEFT position for only ~150px of horizontal
+   scroll before drifting -76px by 350px, and .board-grid__team's own
+   sticky TOP never engaging at all.
+   Bug 1 (this rule): .board-grid, a display: grid container with no
+   explicit width, is an ordinary in-flow block box for SIZING purposes —
+   it fills its containing block's available width (the scroll
+   container's own clientWidth, ~374px at 390px) rather than shrinking to
+   its content's own real preferred width (~956px for 8 team columns).
+   Once the grid itself is clamped narrower than its own content needs,
+   every 1fr column track squeezes down to its minmax() floor and the
+   CELLS overflow the grid's own box without ever widening it —
+   .results-board-scroll's own overflow: auto still reports the true
+   (overflowing) scrollWidth correctly, so horizontal scrolling still
+   basically worked, but every sticky item's own containing block (the
+   grid's own too-narrow content box) ran out of room to hold a "stuck"
+   position long before the real ~580px of horizontal scroll finished.
+   width: fit-content grows .board-grid to its content's own real
+   preferred width instead (capped by available space only when content
+   is narrower), so its containing block genuinely spans the full
+   scrollable width and .board-grid__round/.board-grid__corner's own
+   sticky left now holds across the WHOLE scroll range, not just the
+   first ~40%.
+   Bug 2 (.results-board-scroll, below): that scroll container had
+   overflow-x only and no height bound, so it never had ANY vertical
+   overflow to engage sticky top against in the first place — a tall-
+   enough box with nothing to scroll past never "sticks," it is just
+   already fully visible. overflow: auto (both axes) plus a real
+   max-height fixes this the same way item 4's masthead collapse and
+   item 7's dvh pairing do elsewhere in this wave: give the box a real,
+   bounded viewport smaller than its own content so a browser actually
+   has scroll distance to hold a sticky position across. */
 .board-grid {
   display: grid;
   /* T2 (2026-08-30 polish pass): 6.25rem (not 7.5rem) so all 8 default
@@ -11850,6 +12081,8 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      :checked), above) alongside the still-300px my-team pane — 1fr still
      grows each column past that floor whenever more room is free. */
   grid-template-columns: 6rem repeat(var(--board-columns), minmax(6.25rem, 1fr));
+  /* Bug 1's own fix — see the doc comment above this rule. */
+  width: fit-content;
   gap: .375rem;
   padding: var(--space-sm);
 }
@@ -12325,9 +12558,27 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      <a> now, item 1a's own note below) moved to the combined
      .app-tabbar__tab, .draft-tabbar__tab rule near the top of this file;
      only the mono font family stays here, a draft-room idiom the mobile
-     bottom bar does not share. */
+     bottom bar does not share.
+     Item 8 (wave-7 re-audit — yew): 5 equal-width tabs at 390px leaves
+     each one only ~74.8px, and the shared rule's own 0.12em letter-
+     spacing (tuned for the mobile bottom bar's own shorter labels —
+     "Home", "Team", etc.) left "Draft grid" — this room's own longest
+     label — wide enough to wrap onto two lines there ("Big Board", the
+     next-longest, cleared it with only 2.9px to spare, a genuinely
+     borderline margin the wrap could tip on with only minor rendering
+     variance). Tightened here, not on the shared rule, so the mobile
+     bottom bar's own tracking is untouched. white-space: nowrap is the
+     hard guarantee regardless of any remaining margin: a label that
+     still could not fit would rather overflow its own track slightly
+     (visibly wrong, easy to spot and fix again) than silently wrap and
+     grow the whole bar's height, the wave-6 mobile-foundation audit's
+     own established fallback preference (draft_grid_mobile_browser_
+     test.go and this item's own TestBrowserDraftTabLabelsFitOneLineAt36
+     0To430 hold every label to a single line at 360/390/430px). */
   .draft-tabbar__tab {
     font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
   }
 
   .draft-tabbar input:focus-visible + .draft-tabbar__tab {
@@ -13354,8 +13605,21 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   background: var(--color-accent-haze);
 }
 
+/* Item 3 (wave-7 re-audit — yew): now the board grid's own single,
+   shared, both-axes scroll container (app/draft/page.gsx and app/draft/
+   results/page.gsx both wrap .board-grid in this one class, no longer
+   just /draft/results on its own). overflow-y: auto plus a real
+   max-height is the fix .board-grid's own sticky team-header row (top:
+   0) needs: before, this box had no vertical overflow to engage against
+   at all (its height simply grew to fit every round, so "top: 0" never
+   had anything to stick past). 70dvh keeps a many-round board within
+   reach on a phone without swallowing the whole viewport — dvh (not vh)
+   so a mobile browser's own collapsing address-bar chrome does not
+   leave a gap the way a static vh unit's own stale 100% would (the
+   same reasoning items 4 and 7 apply to .app-shell/.error-page/etc). */
 .results-board-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 70dvh;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -13867,11 +14131,24 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     min-width: 0;
   }
 
-  /* Same reasoning as .draft-command__pick above: the existing strong/
-     small pair hides in favor of .draft-command__pill-status, a new
-     sibling span carrying the SAME onclock.name live-bind key (proven
-     safe to bind twice; room.managers already does, .draft-command__room
-     below). */
+  /* Same reasoning as .draft-command__pick above: the existing idx/
+     strong/small trio hides in favor of .draft-command__pill-status, a
+     new sibling span carrying the SAME onclock.name live-bind key
+     (proven safe to bind twice; room.managers already does,
+     .draft-command__room below) and already ellipsis-protected
+     (overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+     below) against any width this flex row hands it. Item 2 (wave-7
+     re-audit — yew) added .idx to this hide list: .idx itself carries no
+     such overflow protection (the shared .draft-shell .idx rule is
+     color/font only), so once the pill toggle's own fix widened its
+     sibling caret from 8.8px to a real 44px+ target, .draft-command__team
+     shrank enough that the bare "On the clock"/"You are on the clock"
+     idx text WRAPPED onto multiple lines instead of eliding, growing
+     .draft-command__pill-row well past its own 76px bound (measured
+     93.2px) — pill-status already says the identical thing ("ON CLOCK:
+     <name>"/"YOU’RE UP") on one guaranteed line, so the idx line was
+     redundant here even before this fix. */
+  .draft-command__team > .idx,
   .draft-command__team > strong,
   .draft-command__team > small {
     display: none;
@@ -13914,18 +14191,38 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   /* list-style/marker-hiding mirrors .stat-tip__summary's own established
      shape (above, this file) — a <details>/<summary> pair used as a
      trigger, not a native expand/collapse affordance the browser draws
-     its own disclosure triangle for. */
+     its own disclosure triangle for.
+     Item 2 (wave-7 re-audit — yew): this was the ONLY way to reach the
+     pill sheet (sound, League, autopick, force-pick), but the ▾ glyph
+     alone rendered 8.8px wide — the generic mobile touch-floor rule
+     (public/styles.css, "Mobile interaction baseline") zeroes min-width
+     on every .site-frame summary by design (most controls rely on their
+     own content width) and, at (0,6,1) specificity from its five :not()
+     exclusions, always beat this rule's own min-width: 2.75rem below
+     regardless of source order — only min-height (2.75rem on both rules,
+     so no conflict there) actually held. The #main-content re-assert
+     above fixes the floor honestly; padding-inline plus the new visible
+     "MENU" label (page.gsx) plus gap now give the toggle a real, legible
+     width well past that floor rather than a bare glyph on a wide-but-
+     unlabeled hit box. */
   .draft-command__pill-caret {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 0.3rem;
     min-width: 2.75rem;
     min-height: 2.75rem;
+    padding-inline: 0.65rem;
     list-style: none;
     cursor: pointer;
     color: var(--color-text-secondary);
     font-size: var(--type-md);
     touch-action: manipulation;
+  }
+
+  .draft-command__pill-caret-label {
+    font-size: var(--type-xs);
+    letter-spacing: 0.02em;
   }
 
   .draft-command__pill-caret::-webkit-details-marker,

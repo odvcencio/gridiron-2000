@@ -60,13 +60,17 @@ func TestDraftCommandPillMarkupIsPresentAndSheetControlsAreReachableFixtureProce
 	// The pill row itself: team badge, compact round/pick, compact status,
 	// the clock (unmodified, still carrying data-pick-clock — see
 	// DraftCommandBar's own doc comment on why this element is never
-	// duplicated), and the ▾ toggle.
+	// duplicated), and the ▾ toggle — wave-7 re-audit item 2 (yew) gave
+	// the toggle a visible "MENU" label instead of a bare glyph (the
+	// glyph alone rendered a sub-9px-wide hit target), which also became
+	// the toggle's own accessible name in place of the old aria-label.
 	for _, want := range []string{
 		`class="draft-command__pill-row"`,
 		`class="draft-command__pill-meta mono"`,
 		`class="draft-command__pill-status mono"`,
 		`class="draft-command__pill-toggle"`,
-		`class="draft-command__pill-caret" aria-label="Show draft room controls"`,
+		`class="draft-command__pill-caret" aria-controls="draft-command-sheet"`,
+		`class="draft-command__pill-caret-label mono">MENU</span>`,
 		`data-pick-clock`,
 	} {
 		if !strings.Contains(html, want) {
