@@ -756,6 +756,15 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// doc comment). See hashedPublicAssetHref's doc comment for why this is
 	// a query-string hash rather than a literal "/styles.<hash>.css" path.
 	stylesheetHref := hashedPublicAssetHref(root, "styles.css")
+	// PWA basics (wave 7b mobile-foundation audit, item 10 — larch): the
+	// manifest and the apple-touch-icon are both deploy-time-static public
+	// files (public/manifest.webmanifest names the fixed product identity
+	// "Gridiron 2000" — a league's own commissioner-chosen data.league.name
+	// is per-request and cannot be baked into a file served byte-identical
+	// to every viewer, so this deliberately does not try), hashed the same
+	// way stylesheetHref is, for the identical reason.
+	manifestHref := hashedPublicAssetHref(root, "manifest.webmanifest")
+	appleTouchIconHref := hashedPublicAssetHref(root, "apple-touch-icon.png")
 	// The navigation runtime is a fixed, build-time string (compiled into
 	// this binary via runtimehost's go:embed), so its hash never changes
 	// mid-process either — hashed once here for the same reason
@@ -774,7 +783,47 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
+			// PWA basics (item 10): Manifest renders <link rel="manifest">;
+			// Icons.Apple renders <link rel="apple-touch-icon"> (both via
+			// server.ResolvedMetadata.Head — see m31labs.dev/gosx/server's
+			// metadata.go). apple-mobile-web-app-capable/-status-bar-style
+			// are the two meta names iOS itself still reads independently of
+			// the manifest's own "display": "standalone" (Android/desktop
+			// Chrome need only the manifest; iOS Safari's add-to-home-screen
+			// predates manifest support and never adopted it for this pair).
+			Manifest: manifestHref,
+			Icons: &server.Icons{
+				Apple: []server.IconAsset{
+					{URL: appleTouchIconHref, Sizes: "180x180", Type: "image/png"},
+				},
+			},
+			Other: []server.MetaTag{
+				{Name: "apple-mobile-web-app-capable", Content: "yes"},
+				{Name: "apple-mobile-web-app-status-bar-style", Content: "black-translucent"},
+			},
 		})
+		// Safe areas (item 5): App.HTMLDocument (m31labs.dev/gosx/server's
+		// server.go) hard-codes the shell's own
+		// <meta name="viewport" content="width=device-width, initial-scale=1">
+		// with no viewport-fit — see that file's own
+		// TestHTMLDocumentOwnsResponsiveViewportMetaTag/TestHTMLDocument
+		// PreservesArbitraryRawHeadWithoutInspection, which pin exactly this
+		// escape hatch: the shell's own tag is never rewritten or removed,
+		// but an application's own extra <meta name="viewport"> reaching the
+		// rendered document through Head (AddHead below) is preserved
+		// alongside it — and, empirically (Chrome/Safari, this wave's own
+		// audit), the LATER viewport meta in DOM order wins for every
+		// viewer, not just this app's own two-tag case. PageState.Head()
+		// (page_state.go) always renders the metadata contract before
+		// AddHead's own nodes, and renderDocumentHTML (server.go) always
+		// writes the framework's hard-coded tag before either, so this one
+		// call is unconditionally the LAST viewport meta in every response
+		// regardless of what the metadata contract above does. Without
+		// viewport-fit=cover, every env(safe-area-inset-*) below (the tab
+		// bar's own padding-bottom, the masthead's own padding-top) computes
+		// to 0 — this is the one line that turns those from dead code into
+		// a real notch/home-indicator accommodation.
+		ctx.AddHead(gosx.RawHTML(`<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">`))
 		// data-gosx-heartbeat/-interval (gosx#216) is the Draft Room's
 		// attendance claim only. Its ping is visibility-aware (it pauses
 		// while the tab is hidden) and carries no focused-control interaction
