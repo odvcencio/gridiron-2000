@@ -15,6 +15,14 @@
   --type-2xl: clamp(2rem, 1.55rem + 2vw, 2.441rem);
   --type-3xl: clamp(2.55rem, 1.82rem + 3.25vw, 3.052rem);
   --type-display: clamp(3.25rem, 2rem + 5.75vw, 5.96rem);
+  /* Page-title token (2026-09-01 gap audit, item 1): every h1 defaults to
+     this scale, not --type-display. --type-display clamped to 95.36px at
+     1366px with a 0.82 line-height, which pushed first product content
+     below a 900px fold on twelve routes plus /admin and clipped trailing
+     descenders/periods at that tight leading. .display--hero (below) opts
+     a heading back into the full display scale for the one place that
+     still wants it: the signed-out/demo home headline. */
+  --type-page-title: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);
 
   --color-canvas: #070A16;
   --color-canvas-deep: #03050B;
@@ -1062,14 +1070,24 @@ h3 {
 
 h1 {
   margin-bottom: var(--space-lg);
-  font-size: var(--type-display);
-  line-height: 0.82;
-  letter-spacing: -0.075em;
+  font-size: var(--type-page-title);
+  line-height: 1.05;
 }
 
 h1 span {
   color: var(--color-accent);
   text-shadow: 0.04em 0.04em 0 var(--color-accent-hot);
+}
+
+/* Hero size opt-in (item 1): the full --type-display scale, at its
+   original 0.82 line-height and -0.075em tracking, applied ONLY to the
+   signed-out/demo home headline (app/page.gsx's .hero-command__copy h1) —
+   the one place the audit kept as an intentional first-impression beat.
+   Every other h1 uses the page-title token above by default. */
+.display--hero {
+  font-size: var(--type-display);
+  line-height: 0.82;
+  letter-spacing: -0.075em;
 }
 
 h2 {
@@ -2954,10 +2972,13 @@ button.badge-option:hover {
   box-shadow: var(--shadow-signal);
 }
 
+/* Item 1 (2026-09-01 gap audit): the ad-hoc --type-3xl override (48.8px
+   at 1366px) is retired for the shared --type-page-title token so /team's
+   own first product content — already the lowest-measured fold of the
+   audited routes — gains back the vertical room a smaller title frees. */
 .team-hero h1 {
   margin: var(--space-sm) 0;
   color: var(--color-text-primary);
-  font-size: var(--type-3xl);
 }
 
 .team-hero p,
@@ -6766,9 +6787,11 @@ body.is-on-clock .draft-clock-panel {
     display: none;
   }
 
-  h1 {
-    font-size: var(--type-3xl);
-  }
+  /* Item 1 (2026-09-01 gap audit): this override forced --type-3xl
+     (40.8-48.8px) at phone width, bigger than --type-page-title's own
+     28-40px range — it would have made the mobile base h1 larger than
+     desktop after the token retarget above. --type-page-title is already
+     responsive down to 1.75rem, so no phone-width override is needed. */
 
   .guide-section,
   .guide-next {
@@ -7582,11 +7605,11 @@ body.is-on-clock .draft-clock-panel {
   max-width: 48rem;
 }
 
+/* Item 1 (2026-09-01 gap audit): the ad-hoc clamp(2rem, 5vw, 4.5rem)
+   override (68px at 1366px) is retired for the shared --type-page-title
+   token; the phone-width companion override below goes with it. */
 .home-action-center__header h1 {
   margin: var(--space-sm) 0;
-  font-size: clamp(2rem, 5vw, 4.5rem);
-  line-height: 0.96;
-  letter-spacing: -0.04em;
   text-wrap: balance;
 }
 
@@ -7795,10 +7818,6 @@ body.is-on-clock .draft-clock-panel {
   .home-action-center__header,
   .home-action-center__body {
     padding: var(--space-md);
-  }
-
-  .home-action-center__header h1 {
-    font-size: clamp(1.8rem, 10vw, 3rem);
   }
 
   .home-action-center__header p {
@@ -9335,10 +9354,11 @@ body.is-on-clock .draft-clock-panel {
   gap: var(--space-md);
 }
 
+/* Item 1 (2026-09-01 gap audit): this ad-hoc 30px override is retired in
+   favor of the shared --type-page-title token (h1 base rule) so /matchups
+   joins the one masthead-title contract instead of running its own size. */
 .matchups-masthead h1 {
   margin: 0;
-  font-size: 1.875rem;
-  line-height: 1.1;
 }
 
 .matchups-masthead__sub {

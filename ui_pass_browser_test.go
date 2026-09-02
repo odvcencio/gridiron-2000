@@ -555,6 +555,40 @@ const minMainContentFontSizeExactScript = `(function(){
 	return String(min);
 })()`
 
+// uiPassDesktopWidth/uiPassDesktopHeight is the gap audit's own desktop
+// baseline viewport (2026-09-01): the fold line probe below measures
+// against it.
+const uiPassDesktopWidth, uiPassDesktopHeight = 1366, 900
+
+// TestBrowserPageTitleLeavesRoomAboveFold is item 1's own probe (2026-09-01
+// gap audit): before the --type-page-title retarget, the base h1 rule's
+// --type-display size (95.36px at 1366px, 0.82 line-height) pushed first
+// product content — #main-content's second top-level child, right after
+// the masthead — below the 900px fold on /wire (922px), /players (951px),
+// and /locker (1,038px). All three inherit the base h1 rule with no
+// per-route override, so the token retarget alone must close the gap.
+func TestBrowserPageTitleLeavesRoomAboveFold(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	navigateSignedInTo(t, ctx, child, viewer, "/wire", uiPassDesktopWidth, uiPassDesktopHeight)
+
+	for _, route := range []string{"/wire", "/players", "/locker"} {
+		navigateTo(t, ctx, child, route, uiPassDesktopWidth, uiPassDesktopHeight)
+		var top float64
+		if err := chromedp.Run(ctx, chromedp.Evaluate(
+			`document.querySelector('#main-content > *:nth-child(2)').getBoundingClientRect().top`, &top,
+		)); err != nil {
+			t.Fatalf("%s: read first product content position: %v", route, err)
+		}
+		if top >= 900 {
+			t.Errorf("%s: first product content top=%.1fpx at %dx%d, want < 900px (above the fold)", route, top, uiPassDesktopWidth, uiPassDesktopHeight)
+		}
+	}
+}
+
 // goStringLiteral quotes s as a JavaScript string literal via strconv.Quote
 // (backslash/quote escaping rules are a strict superset of JS's for the
 // plain ASCII markup this file injects), collapsing the constant's own
