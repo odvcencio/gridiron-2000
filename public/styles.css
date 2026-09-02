@@ -12787,3 +12787,44 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     min-height: var(--control-h);
   }
 }
+
+/* Item 2/3/4: .pool-filter-rail wraps /players' position-filter chips and
+   search form (both Page()'s initial render and PlayerPoolRegion's
+   fragment copy, app/players/page.gsx — only one is ever in the DOM at
+   once, so the shared id below never duplicates); /activity's own filter
+   rail (app/activity/page.gsx) reuses this same class. Sticky at phone
+   width, directly under the fixed top bar, for the same reason and with
+   the same z-index as the .pickem-weeknav rule above: the pre-wave-7b
+   audit found re-filtering /players cost a 1200px scroll back up to
+   reach these controls, since they were position: static. */
+@media (max-width: 56.1875rem) {
+  .pool-filter-rail {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    padding-top: var(--space-xs);
+    background: var(--color-canvas-deep);
+  }
+
+  /* .pool-back-to-top / .activity-back-to-top (item 3) are only worth
+     showing once the list they follow is long enough to make a manual
+     scroll costly, i.e. only once the filter rail above has scrolled out
+     of view for real — but that is a scroll-position fact CSS alone
+     cannot key on. Rendering the link unconditionally, at every list
+     length, costs nothing broken: on a short list the rail is still one
+     scroll away regardless, and a manager who does not need it simply
+     never taps it. */
+  .pool-back-to-top,
+  .activity-back-to-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-h);
+    margin: var(--space-sm) 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    text-decoration: none;
+  }
+}

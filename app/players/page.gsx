@@ -126,6 +126,7 @@ func Page() Node {
 					<h2>Browse the pool</h2>
 				</div>
 			</div>
+			<div class="pool-filter-rail" id="pool-search">
 			<div class="position-filters" aria-label="Filter the player pool by position">
 				<Each of={data.positions} as="tab">
 					<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>
@@ -133,12 +134,13 @@ func Page() Node {
 			</div>
 			<form method="get" action="/players" class="pool-search-bar">
 				<label class="mono" for="players-search">SEARCH //</label>
-				<input id="players-search" type="search" name="q" value={data.query} placeholder="Search player or team" autocomplete="off"></input>
+				<input id="players-search" type="search" name="q" value={data.query} placeholder="Search player or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
 				<If cond={data.pos != ""}>
 					<input type="hidden" name="pos" value={data.pos}></input>
 				</If>
 				<button class="filter-button" type="submit">Search</button>
 			</form>
+			</div>
 			<p class="scoring-note" aria-live="polite">
 				<If cond={data.pool_total > 0}>
 					Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} players · page {data.pool_page} of {data.pool_pages}
@@ -303,7 +305,8 @@ func Page() Node {
 										</select>
 									</If>
 									<If cond={data.waivers_faab}>
-										<input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input>
+										<label class="visually-hidden" for={"players-bid-" + player.id}>{"Bid FAAB for " + player.name}</label>
+										<input id={"players-bid-" + player.id} type="number" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB"></input>
 									</If>
 									<button class="draft-button" type="submit">CLAIM</button>
 								</form>
@@ -346,6 +349,7 @@ func Page() Node {
 					</article>
 				</Each>
 			</div>
+			<a class="access-link pool-back-to-top" href="#pool-search">↑ Back to search and filters</a>
 			<nav class="pool-pagination" aria-label="Player pool pages">
 				<If cond={data.pool_has_previous}>
 					<a class="filter-button" href={data.pool_previous_href} data-gosx-link rel="prev">← Previous</a>
@@ -627,6 +631,7 @@ func PlayerPoolRegion() Node {
 				<h2>Browse the pool</h2>
 			</div>
 		</div>
+		<div class="pool-filter-rail" id="pool-search">
 		<div class="position-filters" aria-label="Filter the player pool by position">
 			<Each of={data.positions} as="tab">
 				<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>
@@ -634,7 +639,7 @@ func PlayerPoolRegion() Node {
 		</div>
 		<form method="get" action="/players" class="pool-search-bar">
 			<label class="mono" for="players-sync-search">SEARCH //</label>
-			<input id="players-sync-search" type="search" name="q" value={data.query} placeholder="Search player or team" autocomplete="off"></input>
+			<input id="players-sync-search" type="search" name="q" value={data.query} placeholder="Search player or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
 			<If cond={data.pos != ""}>
 				<input type="hidden" name="pos" value={data.pos}></input>
 			</If>
@@ -643,6 +648,7 @@ func PlayerPoolRegion() Node {
 			</If>
 			<button class="filter-button" type="submit">Search</button>
 		</form>
+		</div>
 		<p class="scoring-note" aria-live="polite">
 			<If cond={data.pool_total > 0}>Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} players · page {data.pool_page} of {data.pool_pages}</If>
 			<If cond={data.pool_total == 0 && data.pool_unavailable == false}>No players match this search.</If>
@@ -689,7 +695,7 @@ func PlayerPoolRegion() Node {
 							<If cond={player.can_claim}>
 								<form method="post" action={actionPath("claim-file") + "#waivers"} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh" class="lineup-slot__form">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="player_id" value={player.id}></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input>
-									<If cond={data.waivers_faab}><input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input></If><button class="draft-button" type="submit">CLAIM</button>
+									<If cond={data.waivers_faab}><label class="visually-hidden" for={"players-bid-sync-" + player.id}>{"Bid FAAB for " + player.name}</label><input id={"players-bid-sync-" + player.id} type="number" inputmode="numeric" pattern="[0-9]*" enterkeyhint="done" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB"></input></If><button class="draft-button" type="submit">CLAIM</button>
 								</form>
 							</If>
 							<If cond={player.claimed_by_me}><span class="position-chip">CLAIM FILED</span></If>
@@ -705,6 +711,7 @@ func PlayerPoolRegion() Node {
 				</article>
 			</Each>
 		</div>
+		<a class="access-link pool-back-to-top" href="#pool-search">↑ Back to search and filters</a>
 		<nav class="pool-pagination" aria-label="Player pool pages">
 			<If cond={data.pool_has_previous}><a class="filter-button" href={data.pool_previous_href} data-gosx-link rel="prev">← Previous</a></If>
 			<span class="mono">Page {data.pool_page} / {data.pool_pages}</span>

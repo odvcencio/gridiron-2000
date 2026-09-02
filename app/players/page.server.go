@@ -82,6 +82,12 @@ func init() {
 			ctx.NoStore()
 			ctx.Runtime().EnableBootstrap()
 			data := league.Default().PlayersData(ctx.Request)
+			// No primary_action (larch's PageActionBar contract, item 2, wave
+			// 7b): the sticky search-and-filter rail (.pool-filter-rail,
+			// page.gsx) already puts "Search players" one tap away from
+			// anywhere in the list, at every scroll position — a bar action
+			// pointing at the same #pool-search target would be a second,
+			// redundant control for the identical verb.
 			data["pool_fragment_url"] = playersFragmentURL(ctx.Request, "pool")
 			data["pool_fragment_interval"] = playersRegionInterval
 			data["waiver_fragment_url"] = playersFragmentURL(ctx.Request, "waivers")
