@@ -6,6 +6,13 @@ platform's isolation thesis: one codebase, two leagues, neither affects the
 other. See `deploy/README.md` for the shared conventions this set follows
 (ConfigMap-not-committed pattern, the statrelay topology).
 
+**2026 status:** the Stable Kernel league did not form for 2026. Flagship
+(`deploy/k8s/`) is the only live instance this season; this manifest set is
+not an active second league and every SK-first canary step is skipped for a
+2026 release (see `docs/launch-checklist.md` section 10). The manifests and
+first-install order below remain the documented path for a future season
+that provisions a live SK instance.
+
 ## What is here
 
 | File | Mirrors | Differs |

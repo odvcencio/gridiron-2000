@@ -12,11 +12,16 @@ Every league-specific fact — name, team count, divisions, draft date, and invi
 - A no-key RSS/Atom mesh with ESPN NFL, CBS Sports NFL, r/fantasyfootball, and Mastodon hashtag feeds enabled by default, plus optional curated Bluesky Jetstream identities.
 - A signed-in league form for tips, shared news, and human-entered market sightings—including observations from PrizePicks—without account automation or scraping.
 - Editable Arbiter classification and provenance rules, exact-link clustering, corroboration counts, conditional feed requests, source health, and a metadata-only audit journal.
-- An atomic local mirror of nflverse schedules, weekly injury reports, and corrected weekly player statistics under the CC-BY-4.0 license.
+- An atomic local mirror of nflverse schedules, weekly injury reports, corrected weekly player statistics, team-week defense/special-teams box scores, and play-by-play, under the CC-BY-4.0 license.
 - A draft pool service with a swappable provider seam: an embedded 182-player offline pool with approximate ranks, or a live Tank01 pool with ADP, projections, bye weeks, injuries, and news.
-- A seat-level Big Board at `/board`: the primary and co-manager share one private order, and the draft room/autopick surface that team's top available targets on the clock.
-- A commissioner console at `/admin` (`COMMISSIONER_EMAILS`): runtime invites, seat release, and typed-confirmation draft or league resets.
+- A draft room at `/draft` with four tabs — Pool (available players), Big Board (the seat's private queue, with a no-JS up/down reorder form), Picks (round-by-round history), and Teams (every roster grid) — plus a seat-level Big Board at `/board`: the primary and co-manager share one private order, and the draft room/autopick surface that team's top available targets on the clock.
+- A commissioner console at `/admin` (`COMMISSIONER_EMAILS`): a person-attributed commissioner event ledger, regular-season schedule generation, week close, runtime invites, seat release, league announcements, and typed-confirmation draft or league resets.
 - One-click league backup: a commissioner-downloadable snapshot archive from `/admin`, nightly local snapshots, and an offline `cmd/leaguerestore` restore path — see [Backup and restore](docs/backup-restore.md).
+- `/matchups` shows one live status line per matchup: the state chip reads `LIVE`, `PAUSED`, `FINAL`, or `LEDGER`, next to a freshness clause naming when the source was last checked — see [Live scoring and cost tiers](#live-scoring-and-cost-tiers).
+- A `/players` waiver desk: browse the pool, file claims, and bid FAAB (Free Agent Acquisition Budget) or use priority order, with private per-team receipts and a commissioner view of every outcome.
+- `/pickem`: an independent against-the-spread game with per-game locks, season standings, and a weekly leaderboard.
+- `/locker`: the Locker Room, a league-wide post feed for commissioner notes and manager activity.
+- `/settings`: per-manager notification preferences for delivery channels and category.
 - Honest empty states: seats show `UNCLAIMED` until a manager signs in, records start `0–0`, and rosters stay empty until picks are made.
 - Same-origin league APIs plus token-protected JSON, NDJSON, and CSV exports for future applications.
 - A complete demo experience while Google credentials and trusted social sources are being configured.
@@ -28,6 +33,19 @@ migration, rollback, and attribution follow-up are versioned in
 [Decision 0001](docs/decisions/0001-seat-scoped-big-board.md).
 
 There are no Sleeper, Genius Sports, sportsbook, PrizePicks, or NFL+ account integrations. No sports-data API key is required: without one the draft room runs on the embedded offline pool.
+
+## How the app treats you
+
+Every page in Gridiron follows the same product contract:
+
+- A value shows its true state — `LIVE`, `CACHE`, `STALE`, `DEGRADED`, `OFFLINE`, or `AWAITING_RELEASE` — never a guessed or hidden number.
+- Plain language comes first; a term links to its definition instead of assuming you already know it.
+- A disabled control names the reason next to it.
+- A displayed time is league-local, names its zone, and adds a relative phrase such as "in 3 hours."
+- An action returns you to the page, filter, and position you started from.
+- A destructive action — a reset, a drop, a trade decision — asks for a typed or checked confirmation before it runs.
+- Every workflow works with JavaScript off, through plain HTML forms.
+- Every page is usable on a phone.
 
 ## Run locally
 
@@ -81,66 +99,35 @@ Self-hosters who want a running league without a Kubernetes cluster can use [`de
 ## Author and publish a fleet
 
 Multi-instance operators can keep public topology in a strict fleet document.
-Start with config/fleet.json.example, keep each league_config_path relative to
-that document, and use the explicit compiler and publisher:
+Start with `config/fleet.json.example`, keep each `league_config_path` relative
+to that document, and use the explicit compiler and publisher:
 
     go run ./cmd/leaguecheck --file config/league.json.example
     go run ./cmd/fleetgen render --file config/fleet.json --out deploy/generated
     go run ./cmd/fleetgen check --file config/fleet.json --out deploy/generated
 
-The first-install order is: author and run leaguecheck; render and check the
-complete fleet bundle; review every generated YAML, ConfigMap, Secret example,
-and checklist; provision real Secrets, DNS, and OAuth registrations using the
-exact callbacks printed in the checklist; then apply the reviewed resources.
-The fleet document and generated bundle contain no Secret values or member
-identities. A generated callback is exactly
-<public_origin>/auth/google/callback for each instance.
+First-install order: author and validate the league; render and check the
+fleet bundle; review every generated manifest and Secret example; provision
+real Secrets, DNS, and OAuth registrations using the checklist's printed
+callbacks; then apply the reviewed resources. Neither the fleet document nor
+the generated bundle contains a Secret value or a member identity.
 
 For an existing immutable release, build and publish one image once, pin and
-record its digest, pass the Stable Kernel (SK) canary acceptance gates, and
-roll that identical digest through the flagship and any remaining fleet
-instances in the recorded order. fleetgen check verifies the reviewed bundle;
-it does not apply resources.
+record its digest, pass the Stable Kernel (SK) canary acceptance gates, then
+roll that identical digest through the flagship and remaining fleet instances
+in the recorded order. `fleetgen check` verifies the reviewed bundle; it never
+applies resources.
 
-The shared statrelay remains the sole owner of the real TANK01_API_KEY.
-Fleet-generated application Secrets receive only a relay URL. Each generated
-local-path PVC is ReadWriteOnce and node-local; inspect the StorageClass
-reclaim policy because deletion may retain or delete the local volume. Gridiron
-takes its own local nightly and on-demand snapshots (see
-[Backup and restore](docs/backup-restore.md)), but never copies them off the
-node; plan an off-host copy before node maintenance yourself. This setup makes
-no HA guarantee.
-
-The output directory is generated and fleetgen-owned, as shown by its fixed
-ownership marker. It replaces only an empty directory or a prior tree with
-that marker. Current hand-authored deploy/k8s/** manifests are not
-automatically adopted or regenerated by this lane; review and apply generated
-output explicitly. For an existing hand-authored fleet, the read-only
-adoption preflight compares a secret/PII-free inventory to the generated v2
-bundle before any operator applies a resource:
-
-    go run ./cmd/fleetgen adopt \
-      --file /secure/private/gridiron-fleet.json \
-      --inventory /secure/private/gridiron-fleet-adoption-inventory.json
-
-The inventory contains only stable resource names, immutable image references,
-public origins, legacy/v1 configuration booleans, and explicit state-preserve
-acknowledgements. It must never contain league JSON, member identities, OAuth
-values, or Secret values. Use `config/fleet.adoption.example.json` and
-`config/fleet.adoption.inventory.example.json` as public-shape examples, then
-copy them to private files outside the repository and replace the neutral
-league-config paths with each instance's offline, validated source.
-`--format json` emits a stable CI/receipt artifact. A ready plan also lists the exact
-`COMMISSIONER_HQ_PROVIDER_SECRET` and host
-`COMMISSIONER_HQ_V1_SECRET_<INSTANCE>` keys with `REPLACE_ME` markers; these
-are placeholders only and must be provisioned without display. A ready plan
-also emits a per-instance OAuth callback, private HQ Service/NetworkPolicy and
-host registry/client-Secret checklist, and the node-local PVC
-delete/recreate/reclaim-policy consequence. These are names, URLs, and
-operator instructions only: the plan never contains a Secret value, league
-content, or member identity. A ready plan still requires an operator-reviewed
-SK-first canary; `fleetgen adopt` never calls Kubernetes, writes a bundle, or
-changes the current hand-authored manifests.
+The shared `statrelay` remains the sole owner of the real `TANK01_API_KEY`;
+fleet-generated Secrets receive only a relay URL. Generated local-path PVCs
+are node-local ReadWriteOnce storage with no HA guarantee. Gridiron takes its
+own local nightly and on-demand snapshots (see
+[Backup and restore](docs/backup-restore.md)) but never copies them off the
+node; plan an off-host copy yourself. `fleetgen adopt` runs a read-only,
+secret-free preflight against an existing hand-authored fleet before any
+operator applies a resource. See [`deploy/README.md`](deploy/README.md) for
+the complete fleet-authoring, adoption-preflight, and Commissioner HQ v1
+topology reference.
 
 ### One person, multiple Google identities
 
@@ -153,20 +140,14 @@ IDENTITY_ALIASES=commissioner.alias@example.org=commissioner@example.com
 ```
 
 Mappings are explicit, one-way, and fail closed on malformed, chained, or
-ambiguous entries. Admission evaluates a provider email in this order:
-existing persisted membership; the canonical identities in
-`COMMISSIONER_EMAILS` and their explicit aliases; a raw configured domain;
-a raw environment or stored invitation; and finally the open-after-sign-in
-fallback only when both the domain and invitation sources are empty. This
-keeps a colleague-domain gate truthful while ensuring a configured
-commissioner—such as the commissioner's canonical identity and its explicit
-Stable Kernel alias—can still sign in. Alias canonicalization is not a
-general bypass for unrelated authorization. After admission, the canonical
-identity is used for commissioner authorization, seat/team ownership,
-co-manager bindings, Big Board, Pick'em, Blitz, notification preferences,
-sessions, and audit attribution. On startup, existing internal state is
-migrated idempotently; conflicting seats, roles, picks, or preferences stop
-startup for review. Invite entries themselves remain raw policy records.
+ambiguous entries. A configured commissioner's alias is admitted by this
+narrow exception; unrelated identities still need raw domain, allowlist, or
+invite policy. After admission, the canonical identity owns commissioner
+authorization, seat/team ownership, co-manager bindings, and every
+per-account feature — Big Board, Pick'em, Blitz, notification preferences,
+sessions, and audit attribution. See the membership section of
+[`docs/configuration.md`](docs/configuration.md) for the full admission-order
+table.
 
 ## Assemble the free Signal Wire
 
@@ -228,11 +209,13 @@ The same vendor publishes NBA, MLB, NHL, and WNBA APIs with the same envelope. P
 
 ## Open statistics mirror
 
-The app uses three nflverse release assets:
+The app uses five nflverse release assets:
 
 - `games.csv` for schedules and game-level scores, checked every five minutes with HTTP validators.
 - `injuries_2026.csv` for weekly report and practice statuses, checked every 15 minutes.
 - `stats_player_week_2026.csv` for corrected weekly player statistics and fantasy fields, checked every six hours.
+- `stats_team_week_2026.csv` for each team's defense/special-teams box score, checked every six hours.
+- `play_by_play_2026.csv.gz` for per-play detail (punts, in particular), checked every six hours.
 
 Downloads go to an owner-only temporary file, are size-limited and parsed, then replace the prior cache atomically. A manifest retains row counts, SHA-256 hashes, ETags, timestamps, source URLs, and license information. An unavailable preseason player asset is a waiting state, not an application error.
 
@@ -246,7 +229,19 @@ open nflverse files      -> slower corrected ledgers         -> scoring/reconcil
 
 The first layer provides the “something just happened” experience without paying a real-time vendor. The second provides reusable structured history and powers schedule-backed fantasy matchups. When `LIVE_SCORING_ENABLED=true` (the default is `false`), regular-season live scoring adds a third layer: `internal/livescore` fetches Tank01 through `statrelay` in three tiers — a games-list scoreboard tick every `LIVE_SCOREBOARD_INTERVAL`, a per-game box-score baseline every `LIVE_BOX_BASELINE`, and an out-of-band box fetch the Signal Wire triggers for a `Touchdown`/`Turnover`/`BigPlay`/`KickingPlay` signal naming a team with a game in progress (bounded to one triggered fetch per game per 10 seconds; this only changes fetch timing, never a stat or a score) — and overlays the result onto the mirrored ledger, player by player: the live row wins while that player's game is in progress, the mirrored ledger row wins once the game is final or whenever live has no data for that player. The nflverse file stays the close-week truth regardless: during an open week, matchup totals are provisional calculations from the current effective lineups and the best available source (live or mirrored); this is **not** official scoring. When the commissioner closes a week, Gridiron records the matchup results and pins every team's effective starters for that week. Later drops, trades, or roster-shape edits cannot rewrite that closed result; a repeated close is an idempotent no-op. A posted final score never changes once a week is closed, even if a later source correction disagrees. The commissioner close remains explicit even when the NFL schedule and corrected-stat freshness checks say the week is ready.
 
-Three cost tiers cover this feature. The corrected nflverse ledger gives next-morning truth for $0; the default `LIVE_SCORING_ENABLED=false` needs no Tank01 account at all. Tank01's free tier gives a slow-live feed for $0: set `LIVE_PROFILE=free` for a live score about every 30 minutes on game days. Tank01 Ultra gives the 10-second live experience for about $25 a month for the whole league. In every tier, the live feed only ever affects freshness — it never decides a closed week's score.
+See [Live scoring and cost tiers](#live-scoring-and-cost-tiers) for the three cost tiers this feature runs under.
+
+## Live scoring and cost tiers
+
+Three cost tiers cover regular-season live scoring. The live feed only ever affects an open week's freshness; it never decides a closed week's score. Full cadence, budget, and status-line detail live in [Game day](docs/season-operations.md#game-day).
+
+| Tier | Cost | Cadence | Monthly/daily budget |
+| --- | --- | --- | --- |
+| Offline (no Tank01 key) | $0 | No live poll; matchups read the mirrored nflverse ledger only (`LIVE_SCORING_ENABLED=false`, the default). | n/a |
+| `LIVE_PROFILE=free` (Tank01 free tier) | $0 | Scoreboard every 30 minutes, box scores every 6 hours baseline/fast, about a live score every 30 minutes on a game day. | About 780 requests/month, under the free tier's 1,000/month hard limit. |
+| Ultra (default `LIVE_PROFILE`) | About $25/month for the whole league | Scoreboard every 10 seconds, box scores every 20–30 seconds. | `LIVE_DAILY_BUDGET=9000` fetches/day per instance, against the verified 15,000/day soft-limited Ultra quota. |
+
+Every league instance behind one shared `statrelay` (see [Fantasy draft pool and shared relay](#fantasy-draft-pool-and-shared-relay)) draws on that relay's own `STATRELAY_DAILY_BUDGET` and cache, so several free-tier or Ultra-tier leagues do not each meter their own quota against the same Tank01 key.
 
 ## Private storage and exports
 
@@ -304,6 +299,9 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | --- | --- | --- |
 | `DRAFT_AT` | `2099-01-01T00:00:00Z` | Scheduled draft meeting/window as RFC3339; only the commissioner’s **Start draft** action begins pick one |
 | `DRAFT_TZ` | `America/New_York` | Timezone for displayed clock times |
+| `PICK_CLOCK` | `120` (seconds; also accepts a Go duration such as `90s`) | Overrides `draft.pick_clock_seconds`; clamped to 10–600 seconds |
+| `DRAFT_LIVE_MODE` | `target` | `fallback` restores the pre-GoSX-v0.53.10 refetch-and-swap draft-room wiring; only `target` and `fallback` are meaningful |
+| `GOSX_APP_ROOT` | current working directory | Overrides the app-root path `LEAGUE_FILE` lookup and GoSX's own asset resolution use |
 | `COMMISSIONER_EMAILS` | empty | Canonical accounts allowed into `/admin` |
 | `IDENTITY_ALIASES` | empty | Explicit `alias=canonical` mappings; a configured commissioner's aliases are admitted by the narrow commissioner exception, while unrelated identities still need raw policy |
 | `COMMISSIONER_INSTANCE_ID` | `local` | Stable ID for this isolated league in Commissioner HQ |
@@ -312,6 +310,7 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `COMMISSIONER_HQ_TIMEOUT` | `1.5s` | Per-peer read timeout, greater than zero and at most 10 seconds |
 | `COMMISSIONER_HQ_LEAGUE_ID` | unset | Stable expected league ID for the private v1 summary provider; setting it opts into the all-or-nothing provider configuration |
 | `COMMISSIONER_HQ_PROVIDER_KEY_ID` | unset | Opaque HMAC key ID for the private v1 provider; never reuse the legacy `COMMISSIONER_HQ_TOKEN` |
+| `COMMISSIONER_HQ_TOKEN` | empty | Legacy shared bearer token for the older peer-summary Commissioner HQ protocol; the v1 provider above uses `COMMISSIONER_HQ_PROVIDER_KEY_ID`/`COMMISSIONER_HQ_PROVIDER_SECRET` instead, never this value |
 | `COMMISSIONER_HQ_PROVIDER_SECRET` / `COMMISSIONER_HQ_PROVIDER_SECRET_FILE` | unset | Exactly one 32–4096 byte HMAC secret source; the file path must be absolute and bytes are not trimmed |
 | `COMMISSIONER_HQ_PROVIDER_ADDR` | `:8091` when configured | Private numeric bind address for the v1 provider; this listener must not be routed by the public Service or Ingress |
 | `COMMISSIONER_HQ_V1_REGISTRY_FILE` | unset | Absolute path to the strict v1 HQ-host connection registry; absence disables v1 fleet hosting, and the registry stores secret references rather than secret bytes |
@@ -319,6 +318,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `TANK01_API_KEY` | empty | Direct upstream credential for a standalone/local process; in the tracked Kubernetes topology only `statrelay-secrets` owns it |
 | `TANK01_BASE_URL` | empty | Override the provider base URL; point every Kubernetes league at the shared `statrelay` Service |
 | `TANK01_HOST` | Tank01 NFL host | Swap for another Tank01 sport later |
+| `BLITZ_DAILY_BUDGET` | `300` | Preseason Blitz's own daily cap on relayed Tank01 calls |
+| `BLITZ_POLL_INTERVAL` | `180s` | Preseason Blitz scoreboard poll interval |
 | `LIVE_SCORING_ENABLED` | `false` | Kill switch for regular-season live scoring; `internal/livescore` only polls in-progress box scores when this is exactly `true`. Exception: with `LIVE_REPLAY_FIXTURE` set, the poller runs unless this is exactly `false` — still gated by `LIVE_REPLAY_ALLOW_PRODUCTION` outside a local `APP_ENV` |
 | `LIVE_SCOREBOARD_INTERVAL` | `10s` (floor `5s`) | How often each instance fetches one games-list call, only while a game is inside its own poll window; `LIVE_POLL_INTERVAL` is the deprecated alias (a startup log line names the mapping when used) |
 | `LIVE_BOX_BASELINE` | `30s` | The flat/fallback cadence for an in-progress game's box score: used whenever GC-2b's adaptive cadence is not promoting the game to `LIVE_BOX_FAST` (unknown possession, a clock-stopped break, an unchanged-payload backoff) — see `LIVE_BOX_FAST` |
@@ -337,6 +338,8 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `FANTASY_POOL_LIMIT` | scaled default: `teams × roster spots × 2.5`, clamped to `200–800` | Optional maximum pool size override |
 | `AVATAR_ROOT` | `data/avatars` | Immutable avatar-object target; must remain strictly below `AVATAR_DURABLE_ROOT` |
 | `AVATAR_DURABLE_ROOT` | `data` (`/app/data` in the container) | Pre-existing PVC/storage anchor. Avatar writes never create or fsync outside this directory; custom roots require an existing matching anchor |
+| `AVATAR_DEFAULTS_ROOT` | `public/avatars/defaults` | Commissioner-supplied default tone badges; see [Default team badges](docs/avatar-default-badges.md) |
+| `AVATAR_MOTIFS_ROOT` | `public/avatars/motifs` | Source art for generated badge motifs |
 | `DATA_FILE` | `data/league-state.json` | Names the data directory, and the JSON state file to import once. The league database is `league.db` beside it |
 | `WIRE_ENABLED` | `true` | Enable the public signal listener |
 | `WIRE_FEEDS_ENABLED` | `true` | Enable the RSS/Atom source mesh |
@@ -351,8 +354,12 @@ CORS is intentionally disabled. Keep the bearer token server-side in any later a
 | `OPEN_STATS_ROOT` | `data/open-stats` | Private open-data cache |
 | `OPEN_STATS_SCHEDULE_INTERVAL` | `5m` | Schedule check interval |
 | `OPEN_STATS_PLAYER_INTERVAL` | `6h` | Player-ledger check interval |
+| `OPEN_STATS_PLAYER_PREV_INTERVAL` | `24h` | Previous-season player-ledger check interval |
 | `OPEN_STATS_INJURY_INTERVAL` | `15m` | Injury-report check interval |
+| `OPEN_STATS_TEAM_STATS_INTERVAL` | `6h` | Team-week defense/special-teams check interval |
+| `OPEN_STATS_PBP_INTERVAL` | `6h` | Play-by-play check interval |
 | `OPEN_STATS_MAX_DOWNLOAD_MB` | `128` | Per-download safety limit |
+| `NFLVERSE_SCHEDULE_URL` / `NFLVERSE_PLAYER_STATS_URL` / `NFLVERSE_PLAYER_STATS_PREV_URL` / `NFLVERSE_INJURY_URL` / `NFLVERSE_TEAM_STATS_URL` / `NFLVERSE_PBP_URL` | nflverse's GitHub release assets | Point one or more assets at a league-controlled mirror |
 | `DATA_API_TOKEN` | empty | Enables protected exports |
 
 See [`.env.example`](.env.example) for every endpoint and reconnect override.
@@ -371,6 +378,30 @@ docs/                 configuration, season operations, source policy, data cont
 ```
 
 The SQLite/WAL state store is deliberate for one private league and one application process. Keep one writer per league database. Running N leagues means running N isolated league instances and databases; Commissioner HQ federates read-only summaries and does not turn them into one shared transactional store.
+
+## Documentation
+
+Every file under `docs/`, indexed at [`docs/README.md`](docs/README.md):
+
+| Document | Covers |
+| --- | --- |
+| [`docs/quickstart.md`](docs/quickstart.md) | Ten-minute Docker Compose deployment walkthrough |
+| [`docs/configuration.md`](docs/configuration.md) | Every `league.json` field, boot states, and environment override |
+| [`docs/season-operations.md`](docs/season-operations.md) | Draft night through week close, live scoring, and degraded-data operations |
+| [`docs/launch-checklist.md`](docs/launch-checklist.md) | Kubernetes release, canary, and rollback runbook |
+| [`docs/backup-restore.md`](docs/backup-restore.md) | Backup archive contents and the offline restore procedure |
+| [`docs/data-pipeline.md`](docs/data-pipeline.md) | Signal Wire and open-stats mirror architecture |
+| [`docs/sources.md`](docs/sources.md) | The accepted source mesh and PrizePicks/market-data policy |
+| [`docs/design-spec.md`](docs/design-spec.md) | Visual-system tokens and the accessibility baseline |
+| [`docs/avatar-default-badges.md`](docs/avatar-default-badges.md) | Default team-badge naming convention and fallback chain |
+| [`docs/qa-1-acceptance-matrix.md`](docs/qa-1-acceptance-matrix.md) | The bounded QA-1 server-render acceptance matrix |
+| [`docs/px1_manager-handbook.md`](docs/px1_manager-handbook.md) | Five-minute manager orientation and data-state guidance |
+| [`docs/px1_commissioner-handbook.md`](docs/px1_commissioner-handbook.md) | Commissioner safe-operating loop and recovery links |
+| [`docs/px1_operator-help-projection.md`](docs/px1_operator-help-projection.md) | How to verify the public `/help` corpus is safe to publish |
+| [`docs/px1_help_corpus.md`](docs/px1_help_corpus.md) | The `/help` corpus contract: topics, search, and recovery guidance |
+| [`docs/px1_glossary.md`](docs/px1_glossary.md) | A projection of the in-app glossary |
+| [`docs/px1_concept-transition.md`](docs/px1_concept-transition.md) | A vocabulary map for managers migrating from another platform |
+| [`docs/decisions/0001-seat-scoped-big-board.md`](docs/decisions/0001-seat-scoped-big-board.md) | Seat-scoped Big Board ownership decision record |
 
 ## Upstream references
 
