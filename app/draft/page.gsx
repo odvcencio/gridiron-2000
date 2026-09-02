@@ -2212,8 +2212,10 @@ func DraftTapeRows(props DraftHistoryProps) Node {
 }
 
 // DraftBoard is the round x team grid (D4): a sticky team-column header row,
-// then one sticky round header and one board-cell row per round. The pane
-// owns overflow: auto so the grid scrolls both ways at phone width. The
+// then one sticky round header and one board-cell row per round. The
+// scroll container (.results-board-scroll, the caller's own wrapper div)
+// owns overflow on both axes, bounded to 70dvh, so the grid scrolls both
+// ways at phone width without growing the page past the viewport. The
 // header shows the team's full name under its badge, wrapped over up to
 // two lines (mockup divergence, 2026-08-30 review — it used to truncate
 // to one ellipsized line, "Kern…"); a filled cell reads "1.01 · WR · CIN"
@@ -2230,6 +2232,15 @@ func DraftTapeRows(props DraftHistoryProps) Node {
 // view within its nearest scrolling ancestor on both axes, and
 // .board-grid__team's own scroll-margin-left (styles.css) keeps the
 // sticky round column from covering it once it lands.
+//
+// Wave-7 re-audit item 3 (yew): .board-grid's own doc comment (public/
+// styles.css) has the full account of the two compounding bugs that used
+// to break both sticky headers here — in short, the grid had no explicit
+// width (so it clamped to the viewport instead of its own wider content,
+// starving every sticky item's containing block of the room it needed to
+// hold a "stuck" position) and the scroll container had no vertical
+// overflow at all (so sticky top never had anything to engage against).
+// Fixed at the CSS layer only; this component's own markup is unchanged.
 func DraftBoard(props BoardView) Node {
 	return <>
 		<If cond={props.HasMine}>
@@ -2331,8 +2342,13 @@ type DraftHistoryBoardTeamsLedgerProps struct {
 
 func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node {
 	return <>
+		// Item 3 (wave-7 re-audit — yew): results-board-scroll (shared
+		// with /draft/results, same class, public/styles.css) makes this
+		// the grid's own bounded, both-axes scroll container — see
+		// DraftBoard's own doc comment below for why a single-axis-only,
+		// unbounded wrapper broke both of the grid's sticky headers.
 		<If cond={props.ShowBoard}>
-			<div class="draft-history__view draft-history__view--board"><DraftBoard {...props.Board}></DraftBoard></div>
+			<div class="draft-history__view draft-history__view--board results-board-scroll"><DraftBoard {...props.Board}></DraftBoard></div>
 		</If>
 		<If cond={props.ShowTeams}>
 			<div class="draft-history__view draft-history__view--teams"><DraftByTeam Teams={props.Teams}></DraftByTeam></div>

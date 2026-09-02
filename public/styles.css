@@ -11583,8 +11583,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 /* overflow-x only: vertical scroll stays owned by .draft-pane__body (the
    shell's one established scroll axis per pane); a second overflow-y here
-   would nest two vertical scrollbars over the same content. */
-.draft-history__view--board,
+   would nest two vertical scrollbars over the same content.
+   Item 3 (wave-7 re-audit — yew): .draft-history__view--board dropped out
+   of this rule — it now also carries .results-board-scroll (page.gsx),
+   which owns BOTH axes itself with a bounded height, the fix the sticky
+   board headers need (see .board-grid's own doc comment, public/
+   styles.css). .draft-history__view--teams is untouched: DraftByTeam's
+   own columns need no sticky-header fix, so they keep the pane's shared
+   vertical scroll axis exactly as before. */
 .draft-history__view--teams {
   overflow-x: auto;
 }
@@ -11872,10 +11878,44 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 }
 
 /* Board (D4): round x team grid, one sticky team-column header row, then
-   one sticky round header plus one board-cell row per round. The pane
-   itself (.draft-history__view--board, above) owns overflow-x: auto, so
-   the grid scrolls horizontally at phone width; vertical scroll stays
-   with .draft-pane__body. */
+   one sticky round header plus one board-cell row per round. The shared
+   scroll container (.results-board-scroll, below) owns overflow on both
+   axes with a bounded height, so the grid scrolls both ways at phone
+   width and .board-grid__corner/.board-grid__team's own sticky top has
+   real vertical overflow to engage against.
+   Item 3 (wave-7 re-audit — yew): two independent, compounding bugs left
+   both sticky headers broken, live-measured (pre-fix) at .board-grid__
+   corner holding its stuck LEFT position for only ~150px of horizontal
+   scroll before drifting -76px by 350px, and .board-grid__team's own
+   sticky TOP never engaging at all.
+   Bug 1 (this rule): .board-grid, a display: grid container with no
+   explicit width, is an ordinary in-flow block box for SIZING purposes —
+   it fills its containing block's available width (the scroll
+   container's own clientWidth, ~374px at 390px) rather than shrinking to
+   its content's own real preferred width (~956px for 8 team columns).
+   Once the grid itself is clamped narrower than its own content needs,
+   every 1fr column track squeezes down to its minmax() floor and the
+   CELLS overflow the grid's own box without ever widening it —
+   .results-board-scroll's own overflow: auto still reports the true
+   (overflowing) scrollWidth correctly, so horizontal scrolling still
+   basically worked, but every sticky item's own containing block (the
+   grid's own too-narrow content box) ran out of room to hold a "stuck"
+   position long before the real ~580px of horizontal scroll finished.
+   width: fit-content grows .board-grid to its content's own real
+   preferred width instead (capped by available space only when content
+   is narrower), so its containing block genuinely spans the full
+   scrollable width and .board-grid__round/.board-grid__corner's own
+   sticky left now holds across the WHOLE scroll range, not just the
+   first ~40%.
+   Bug 2 (.results-board-scroll, below): that scroll container had
+   overflow-x only and no height bound, so it never had ANY vertical
+   overflow to engage sticky top against in the first place — a tall-
+   enough box with nothing to scroll past never "sticks," it is just
+   already fully visible. overflow: auto (both axes) plus a real
+   max-height fixes this the same way item 4's masthead collapse and
+   item 7's dvh pairing do elsewhere in this wave: give the box a real,
+   bounded viewport smaller than its own content so a browser actually
+   has scroll distance to hold a sticky position across. */
 .board-grid {
   display: grid;
   /* T2 (2026-08-30 polish pass): 6.25rem (not 7.5rem) so all 8 default
@@ -11884,6 +11924,8 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      :checked), above) alongside the still-300px my-team pane — 1fr still
      grows each column past that floor whenever more room is free. */
   grid-template-columns: 6rem repeat(var(--board-columns), minmax(6.25rem, 1fr));
+  /* Bug 1's own fix — see the doc comment above this rule. */
+  width: fit-content;
   gap: .375rem;
   padding: var(--space-sm);
 }
@@ -13388,8 +13430,21 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   background: var(--color-accent-haze);
 }
 
+/* Item 3 (wave-7 re-audit — yew): now the board grid's own single,
+   shared, both-axes scroll container (app/draft/page.gsx and app/draft/
+   results/page.gsx both wrap .board-grid in this one class, no longer
+   just /draft/results on its own). overflow-y: auto plus a real
+   max-height is the fix .board-grid's own sticky team-header row (top:
+   0) needs: before, this box had no vertical overflow to engage against
+   at all (its height simply grew to fit every round, so "top: 0" never
+   had anything to stick past). 70dvh keeps a many-round board within
+   reach on a phone without swallowing the whole viewport — dvh (not vh)
+   so a mobile browser's own collapsing address-bar chrome does not
+   leave a gap the way a static vh unit's own stale 100% would (the
+   same reasoning items 4 and 7 apply to .app-shell/.error-page/etc). */
 .results-board-scroll {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 70dvh;
   -webkit-overflow-scrolling: touch;
 }
 
