@@ -888,7 +888,16 @@ func TestBrowserSoundToggleMutesCuesAndSurvivesASwap(t *testing.T) {
 	}
 	child, league, ctx := startBrowserDraftWith(t, "PICK_CLOCK=12")
 	signInAsManager(t, ctx, child, league.bots[len(league.bots)-1])
-	const toggle = `[data-gosx-cue-toggle]`
+	// .draft-command__sound (not the bare [data-gosx-cue-toggle] attribute
+	// alone): wave 7b item 1 added a second cue-toggle button,
+	// .draft-command__pill-sound, inside DraftCommandBar's new phone-only
+	// pill sheet (display: none at this test's own 1440x900 desktop
+	// viewport, but still the FIRST [data-gosx-cue-toggle] match in DOM
+	// order — querySelector finds it regardless of visibility, and
+	// clicking a display: none element fails outright). The original
+	// element's own class scopes this test back to the one actually
+	// visible and interactive at desktop width.
+	const toggle = `.draft-command__sound[data-gosx-cue-toggle]`
 	pressed := func() string {
 		return evalString(t, ctx, `document.querySelector('`+toggle+`').getAttribute('aria-pressed')`)
 	}

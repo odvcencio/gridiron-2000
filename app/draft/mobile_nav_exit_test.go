@@ -16,6 +16,14 @@ import (
 // DraftMobileTabs doc comment on the League tab), leaving a phone-width
 // manager with no way out of the draft room to the rest of the league,
 // and /draft had no h1 at all.
+//
+// Wave 7b item 2 (2026-08-31 audit) moved the League-navigation trigger
+// out of the bottom tab bar (a sixth "flex: 1 1 0" slot squeezed all five
+// real content tabs, "Big Board" already the tightest label) and into
+// DraftCommandBar's own new .draft-command__pill-toggle sheet (wave 7b
+// item 1) instead — one tap from the always-visible pill rather than a
+// seventh-width tab-bar slot. The exit itself is unchanged: still the
+// SAME #primary-navigation-dialog Layout()'s hamburger button targets.
 func TestDraftPageHasSingleH1AndMobileNavExit(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess$")
 	cmd.Env = append(os.Environ(),
@@ -56,14 +64,20 @@ func TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess(t *testing.T) {
 		t.Fatalf("draft h1 omitted the round/pick summary: %s", html)
 	}
 
-	// The mobile bottom tab bar's fifth slot opens the standard site
+	// DraftCommandBar's pill sheet (wave 7b item 1) opens the standard site
 	// navigation dialog — the same one Layout()'s hamburger button
 	// targets (data-gosx-disclosure-target is a plain, delegated
 	// attribute selector, so a second trigger needs no new dialog
 	// markup) — so a phone-width visitor is never stuck inside the draft
-	// room with no way to reach the rest of the league.
-	if !strings.Contains(html, `class="draft-tabbar__tab" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog"`) {
-		t.Fatalf("draft-tabbar has no correctly wired trigger for the standard navigation dialog: %s", html)
+	// room with no way to reach the rest of the league. Wave 7b item 2
+	// moved this trigger off the bottom tab bar (its old home) into the
+	// pill sheet: a plain "btn btn-sm" button now, not a
+	// "draft-tabbar__tab".
+	if !strings.Contains(html, `class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog"`) {
+		t.Fatalf("draft-command pill sheet has no correctly wired trigger for the standard navigation dialog: %s", html)
+	}
+	if strings.Contains(html, `class="draft-tabbar__tab" aria-label="Open league navigation"`) {
+		t.Fatalf("the League trigger is still in the bottom tab bar; wave 7b item 2 moved it into the pill sheet: %s", html)
 	}
 }
 
