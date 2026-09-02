@@ -11843,3 +11843,136 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   font-size: var(--type-xs);
   white-space: pre;
 }
+
+/* wave 4 — linden ------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot
+   collide with a concurrent edit elsewhere in this stylesheet (sycamore
+   owns every non-admin rule above this point). Every selector below is
+   new; nothing above this comment is modified. Tokens only — no new
+   custom properties. */
+
+/* Item 6: the shared-chrome "ACTION CENTER · N URGENT" attention chip
+   (app/layout.gsx, internal/league/service.go leagueMap "attention").
+   .rail-head is already `display: flex; justify-content: space-between`
+   (see that rule above), so this chip simply becomes its second child. */
+.rail-attention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--color-accent-hot);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 79, 216, 0.12);
+  color: var(--color-accent-hot);
+  font-family: var(--font-mono);
+  font-size: var(--type-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.rail-attention-chip:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+  outline-offset: 2px;
+}
+
+/* The mobile-bar variant sits inside .mobile-navigation-enhanced, a
+   fixed-height flex row shared with the brand mark and the hamburger
+   button — a shorter chip (icon + count only, no "ACTION CENTER" label)
+   keeps that row from wrapping or overflowing at phone widths. */
+.rail-attention-chip--mobile {
+  padding: var(--space-2xs);
+}
+
+/* Item 7: FeaturedMatchup/Scorebug's role="table" wrapper
+   (app/matchups/page.gsx) exists purely to give the six-column starter
+   comparison an accessible name and ARIA table structure; display:
+   contents removes it from the box tree entirely, so it changes no
+   visual layout — .slot-row/.starter-cell's own grid rules (above) still
+   apply exactly as before this wave. */
+.matchup-pairs-table {
+  display: contents;
+}
+
+/* Item 1/2: the preseason-collapsed playoff card (app/team/page.gsx,
+   app/page.gsx) — one status line in place of the full
+   header/status-chip/detail/recovery/bracket-link card, while the phase
+   is PRESEASON and no bracket can exist yet. Reuses .score-command's own
+   card chrome (padding/border/background) from its base rule; only the
+   internal layout collapses to a single flexed line. */
+.playoff-truth-card--compact p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+/* Item 1: the matchup-rank glossary, now a collapsed <details> beside the
+   lineup slot list it explains (app/team/page.gsx) instead of a standing
+   banner in the top notice-stack. */
+.matchup-rank-glossary {
+  margin: 0 0 var(--space-sm);
+}
+
+.matchup-rank-glossary > summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+}
+
+.matchup-rank-glossary > summary::-webkit-details-marker {
+  display: none;
+}
+
+.matchup-rank-glossary[open] > summary {
+  margin-bottom: var(--space-2xs);
+}
+
+/* Item 8: the login seat meter (app/login/page.gsx) now marks each pill
+   taken/open with text, not the fill colour alone — the pill grows one
+   short line to hold that status word. */
+.seat-meter span {
+  aspect-ratio: auto;
+  min-height: 3rem;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.seat-meter span small {
+  display: block;
+  font-size: var(--type-2xs);
+  letter-spacing: 0.06em;
+  opacity: 0.8;
+}
+
+.seat-meter span[data-taken="true"] {
+  color: var(--color-text-muted);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* Item 5: hide the pick-history pane's own Tape/Board/Teams-turned-Picks/
+   Big-Board/Teams segment (app/draft/page.gsx DraftHistoryHead) once the
+   bottom tab bar takes over navigation between those same views — the
+   exact max-width: 56.1875rem breakpoint .draft-tabbar itself switches to
+   display: flex at (above, .draft-tabbar's own media block).
+   Before this rule, a manager at or below that width saw the same three
+   view names offered twice, once per navigation surface. This uses the
+   equivalent "screen and" query form, not a second bare max-width-only
+   block, and this comment deliberately avoids spelling that other exact
+   query text out: app/draft's own shell_css_test.go locates the real
+   .draft-tabbar/.draft-command__banner phone-width block by the LAST
+   occurrence of that literal text anywhere in this stylesheet, comments
+   included, so writing it here verbatim would relocate that test's
+   match to this unrelated rule instead. */
+@media screen and (max-width: 56.1875rem) {
+  .draft-history-head .segment {
+    display: none;
+  }
+}

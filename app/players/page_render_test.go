@@ -118,11 +118,15 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 	}
 
 	seated := renderPlayersForUser(t, handler, seatedEmail)
-	// The honest disabled Add now carries its plain-language reason
-	// adjacent to the control (contract: disabled styling is not the
-	// explanation; 2026-09-01 UX audit finding 7).
-	if !strings.Contains(seated, `disabled="disabled" title="Roster moves open after the draft.">Add`) {
-		t.Errorf("seated pre-draft page lost its honest disabled Add state: %s", seated)
+	// The honest disabled SIGN control now carries its plain-language
+	// reason adjacent to the control (contract: disabled styling is not
+	// the explanation; 2026-09-01 UX audit finding 7). The label itself
+	// is SIGN, not the generic "Add" — gap-audit item 4 (wave 4):
+	// /players' roster-add action changes league state (signing a free
+	// agent), so it carries the accent SIGN/CLAIM verbs, not the private
+	// list's neutral RANK.
+	if !strings.Contains(seated, `disabled="disabled" title="Roster moves open after the draft.">SIGN`) {
+		t.Errorf("seated pre-draft page lost its honest disabled SIGN state: %s", seated)
 	}
 	if !strings.Contains(seated, `<small class="control-locked__reason">Roster moves open after the draft.</small>`) {
 		t.Errorf("seated pre-draft disabled Add lost its adjacent reason: %s", seated)
@@ -140,5 +144,53 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 	}
 	if strings.Contains(seated, `role="tooltip"`) || strings.Contains(seated, `stat-tip" tabindex="0"`) {
 		t.Errorf("players page rendered a legacy tooltip trigger: %s", seated)
+	}
+	if !strings.Contains(seated, "<h1>PLAYER POOL.</h1>") {
+		t.Errorf("seated players page missing the PLAYER POOL. page-name h1: %s", seated)
+	}
+}
+
+// TestPlayersHeadlineNamesThePageNotTheWire is gap-audit item 3 (wave 4 —
+// linden): "wire" meant two things — this page's old h1 "THE WIRE OPENS
+// HERE." and /wire's own "SIGNAL WIRE." headline. The h1 on every page
+// this worker owns is the page NAME, with any slogan demoted to a
+// subhead; "wire" language belongs to /wire alone now.
+func TestPlayersHeadlineNamesThePageNotTheWire(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	if !strings.Contains(source, "<h1>PLAYER POOL.</h1>") {
+		t.Errorf("players page.gsx h1 is not the plain page name %q", "PLAYER POOL.")
+	}
+	if strings.Contains(source, "THE WIRE") {
+		t.Errorf("players page.gsx still claims the WIRE name /wire owns")
+	}
+}
+
+// TestPlayersSignClaimVocabularySourceContract is gap-audit item 4 (wave
+// 4 — linden): the roster-add action reads SIGN for a free agent and
+// CLAIM for a waiver row — both change league state, so both stay in the
+// accent .draft-button style, unlike /board and /draft's neutral-state
+// RANK. Asserted against the template source, not one render fixture:
+// CLAIM only ever renders for a waiver-eligible row post-draft, which the
+// seatless/seated pre-draft fixtures above do not construct.
+func TestPlayersSignClaimVocabularySourceContract(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		`<button class="draft-button" type="submit">SIGN</button>`,
+		`<button class="draft-button" type="submit">CLAIM</button>`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("players page.gsx missing SIGN/CLAIM contract %q", want)
+		}
+	}
+	if strings.Contains(source, `type="submit">Add</button>`) || strings.Contains(source, `type="submit">Claim</button>`) {
+		t.Error("players page.gsx retained the old generic Add/Claim labels")
 	}
 }

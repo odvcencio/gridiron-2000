@@ -35,9 +35,9 @@ func Page() Node {
 					</div>
 					<p class="event-note">{data.draft.status_note}</p>
 				</div>
-				<div class="seat-meter" aria-label={data.seats + " manager seats"}>
-					<Each of={data.seat_numbers} as="seat">
-						<span>{seat}</span>
+				<div class="seat-meter" aria-label={data.seat_meter.aria_label}>
+					<Each of={data.seat_meter.seats} as="seat">
+						<span data-taken={seat.taken} aria-label={seat.label}>{seat.number}<small>{seat.status}</small></span>
 					</Each>
 				</div>
 			</div>

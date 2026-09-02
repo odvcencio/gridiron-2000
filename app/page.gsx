@@ -374,6 +374,12 @@ func Page() Node {
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
+		<If cond={data.playoff_truth.season_phase == "preseason"}>
+			<section class="score-command playoff-truth-card playoff-truth-card--compact" aria-labelledby="home-playoff-truth-heading">
+				<p id="home-playoff-truth-heading"><span class="position-chip">{data.playoff_truth.status_label}</span> {data.playoff_truth.headline} — bracket truth opens after the regular season. <a href="/matchups" data-gosx-link class="access-link">Open Matchups →</a></p>
+			</section>
+		</If>
+		<If cond={data.playoff_truth.season_phase != "preseason"}>
 		<section class="score-command playoff-truth-card" aria-labelledby="home-playoff-truth-heading">
 			<header class="section-heading section-heading--split">
 				<div><span class="section-index">POSTSEASON // SHARED TRUTH</span><h2 id="home-playoff-truth-heading">{data.playoff_truth.headline}</h2></div>
@@ -387,6 +393,7 @@ func Page() Node {
 			<a href="/matchups" data-gosx-link class="access-link">Open Matchups and bracket truth →</a>
 			<If cond={data.viewer.is_commissioner}><a href="/admin?section=playoffs#admin-playoffs" data-gosx-link class="access-link">Open commissioner controls →</a></If>
 		</section>
+		</If>
 		<If cond={data.viewer.signed_in && data.has_seat}>
 		<section class="score-command" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
 			<header class="section-heading section-heading--split">

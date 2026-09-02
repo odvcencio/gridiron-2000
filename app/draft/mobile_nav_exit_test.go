@@ -66,3 +66,48 @@ func TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess(t *testing.T) {
 		t.Fatalf("draft-tabbar has no correctly wired trigger for the standard navigation dialog: %s", html)
 	}
 }
+
+// TestDraftTabVocabularyIsOneWordPerViewEverywhere is gap-audit item 5
+// (wave 4 — linden): three separate on-page vocabularies used to name the
+// same views differently — the bottom bar's "Players"/"Queue", the
+// pick-history pane's "Tape"/"Board", and the desktop rail's "Queue" all
+// meant the pool/Big Board views, so a screen reader or a mobile-then-
+// desktop manager heard three different names for one thing. This pins
+// the one-word-per-view outcome directly in the source: POOL, BIG BOARD,
+// PICKS, TEAMS, ROOM in all three navigations (Roster is desktop-rail-
+// only and does not collide with anything else, so it is untouched).
+func TestDraftTabVocabularyIsOneWordPerViewEverywhere(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		// Bottom bar (DraftMobileTabs): Players -> Pool, Queue -> Big Board.
+		`<label class="draft-tabbar__tab" for="tab-players">Pool</label>`,
+		`<label class="draft-tabbar__tab" for="tab-queue">Big Board</label>`,
+		`>Picks</a>`,
+		`>Teams</a>`,
+		// In-pane pick-history segment (DraftHistoryHead): Tape -> Picks,
+		// Board -> Big Board.
+		`aria-current={props.ShowTape}>Picks</a>`,
+		`aria-current={props.ShowBoard}>Big Board</a>`,
+		// Desktop rail "my team" segment (DraftMyTeam): Queue -> Big Board.
+		`<label class="segment__option" for="mine-queue">Big Board</label>`,
+		`<label class="segment__option" for="mine-room">Room</label>`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("draft page.gsx missing one-word-per-view tab contract %q", want)
+		}
+	}
+	for _, stale := range []string{
+		`for="tab-players">Players</label>`,
+		`for="tab-queue">Queue</label>`,
+		`>Tape</a>`,
+		`for="mine-queue">Queue</label>`,
+	} {
+		if strings.Contains(source, stale) {
+			t.Errorf("draft page.gsx retained a stale tab label %q", stale)
+		}
+	}
+}

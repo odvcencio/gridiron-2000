@@ -8,13 +8,9 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					PLAYER POOL
 				</span>
-				<h1>
-					THE WIRE
-					<br></br>
-					OPENS HERE.
-				</h1>
+				<h1>PLAYER POOL.</h1>
 				<p>
-					Every pool player, rostered or free. Sign a free agent, or drop one of your own — the transaction feed records every move.
+					Every pool player, rostered or free. Sign a free agent, claim a waiver, or drop one of your own — the transaction feed records every move.
 				</p>
 			</div>
 			<div class="draft-clock-panel">
@@ -269,7 +265,7 @@ func Page() Node {
 										</select>
 									</If>
 									<If cond={player.needs_drop == false}>
-										<button class="draft-button" type="submit">Add</button>
+										<button class="draft-button" type="submit">SIGN</button>
 									</If>
 									<If cond={player.needs_drop}>
 										<details class="action-confirmation">
@@ -303,7 +299,7 @@ func Page() Node {
 									<If cond={data.waivers_faab}>
 										<input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input>
 									</If>
-									<button class="draft-button" type="submit">Claim</button>
+									<button class="draft-button" type="submit">CLAIM</button>
 								</form>
 							</If>
 							<If cond={player.claimed_by_me}>
@@ -311,7 +307,7 @@ func Page() Node {
 							</If>
 							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}>
 								<span class="control-locked">
-									<button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>Add</button>
+									<button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>SIGN</button>
 									<If cond={data.add_locked_reason != ""}>
 										<small class="control-locked__reason">{data.add_locked_reason}</small>
 									</If>
@@ -681,17 +677,17 @@ func PlayerPoolRegion() Node {
 										<label><input type="checkbox" name="confirmation" value="add-drop-player" required="required"></input>I understand this replaces a rostered player.</label>
 										<button class="draft-button" type="submit">Confirm add and drop</button>
 									</If>
-									<If cond={player.needs_drop == false}><button class="draft-button" type="submit">Add</button></If>
+									<If cond={player.needs_drop == false}><button class="draft-button" type="submit">SIGN</button></If>
 								</form>
 							</If>
 							<If cond={player.can_claim}>
 								<form method="post" action={actionPath("claim-file") + "#waivers"} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh" class="lineup-slot__form">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="player_id" value={player.id}></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input>
-									<If cond={data.waivers_faab}><input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input></If><button class="draft-button" type="submit">Claim</button>
+									<If cond={data.waivers_faab}><input type="number" name="bid" min="0" max={data.my_faab_remaining} placeholder="Bid FAAB" aria-label={"Bid for " + player.name}></input></If><button class="draft-button" type="submit">CLAIM</button>
 								</form>
 							</If>
 							<If cond={player.claimed_by_me}><span class="position-chip">CLAIM FILED</span></If>
-							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}><span class="control-locked"><button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>Add</button><If cond={data.add_locked_reason != ""}><small class="control-locked__reason">{data.add_locked_reason}</small></If></span></If>
+							<If cond={player.can_add == false && player.can_claim == false && player.rostered == false && player.claimed_by_me == false}><span class="control-locked"><button class="draft-button" type="button" disabled="disabled" title={data.add_locked_reason}>SIGN</button><If cond={data.add_locked_reason != ""}><small class="control-locked__reason">{data.add_locked_reason}</small></If></span></If>
 							<If cond={player.can_drop}>
 								<form method="post" action={actionPath("player-drop")} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh">
 									<input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="player_id" value={player.id}></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input><label><input type="checkbox" name="confirmation" value="drop-player" required="required"></input>I understand this player will leave my roster.</label><button class="board-button board-button--cut" type="submit">Confirm drop</button>

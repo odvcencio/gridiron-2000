@@ -198,38 +198,12 @@ func Page() Node {
 			<If cond={data.has_co_error}>
 				<p class="error-message" role="alert">{data.co_error}</p>
 			</If>
-			<If cond={data.has_matchup_source}>
-				<p class="demo-message">
-					<strong>MATCHUP RANKS:</strong>
-					ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
-				</p>
-			</If>
 		</div>
 		<If cond={data.lineup_intervention}>
 			<section class="lineup-intervention-banner" aria-labelledby="lineup-intervention-title">
 				<span class="section-index">COMMISSIONER // LINEUP CONTROL</span>
 				<strong id="lineup-intervention-title">LINEUP INTERVENTION · {data.team.name}</strong>
 				<p>You are editing this claimed franchise for week {data.week}. Only lineup controls are enabled here; identity, ownership, badge, roster transactions, ready status, and autopick remain with the franchise manager.</p>
-			</section>
-		</If>
-		<If cond={data.is_commissioner}>
-			<section class="lineup-target-switcher" aria-label="Commissioner lineup target">
-				<div>
-					<span class="section-index">COMMISSIONER HQ // CLAIMED FRANCHISES</span>
-					<strong>Set lineup for another franchise</strong>
-				</div>
-				<form method="get" action="/team" class="lineup-target-switcher__form">
-					<input type="hidden" name="week" value={data.week}></input>
-					<select name="team" aria-label="Choose a claimed franchise lineup">
-						<Each of={data.lineup_target_options} as="option">
-							<option value={option.id} selected={option.selected}>{option.label}</option>
-						</Each>
-					</select>
-					<button class="button button--compact" type="submit">Open lineup</button>
-				</form>
-				<If cond={data.lineup_intervention}>
-					<a href={data.lineup_intervention_exit_href} data-gosx-link class="lineup-target-switcher__exit">Return to my lineup →</a>
-				</If>
 			</section>
 		</If>
 		<section class={"team-hero tone-" + data.team.tone} id="team-identity-hero">
@@ -286,13 +260,56 @@ func Page() Node {
 					</small>
 				</div>
 			</section>
-			<section class="score-command playoff-truth-card" aria-labelledby="team-playoff-truth-heading">
-				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // TEAM VIEW</span><h2 id="team-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-				<p>{data.playoff_truth.detail}</p>
-				<If cond={data.playoff_truth.has_bracket}><p class="scoring-note">Your team appears in the persisted bracket only when published; tie explanations and bye states remain attached to the matchup.</p></If>
-				<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-				<a href="/matchups" data-gosx-link class="access-link">Open bracket truth →</a>
-			</section>
+			<div
+				class="team-lineup-sync"
+				data-gosx-region
+				data-gosx-region-url={data.lineup_fragment_url}
+				data-gosx-region-interval={data.lineup_fragment_interval}
+				data-gosx-region-signal="$team.lineup.refresh"
+				data-gosx-region-on="scores:changed"
+				aria-label="Authoritative team lineup"
+			>
+				<TeamLineupRegion></TeamLineupRegion>
+			</div>
+			<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
+				Lineup state refreshes automatically within 4 seconds after a manager saves.
+				If a refresh fails, use
+				<button type="button" class="board-button" data-gosx-set="$team.lineup.refresh" data-gosx-set-value="manual">Refresh lineup now</button>.
+			</p>
+			<If cond={data.is_commissioner}>
+				<section class="lineup-target-switcher" aria-label="Commissioner lineup target">
+					<div>
+						<span class="section-index">COMMISSIONER HQ // CLAIMED FRANCHISES</span>
+						<strong>Set lineup for another franchise</strong>
+					</div>
+					<form method="get" action="/team" class="lineup-target-switcher__form">
+						<input type="hidden" name="week" value={data.week}></input>
+						<select name="team" aria-label="Choose a claimed franchise lineup">
+							<Each of={data.lineup_target_options} as="option">
+								<option value={option.id} selected={option.selected}>{option.label}</option>
+							</Each>
+						</select>
+						<button class="button button--compact" type="submit">Open lineup</button>
+					</form>
+					<If cond={data.lineup_intervention}>
+						<a href={data.lineup_intervention_exit_href} data-gosx-link class="lineup-target-switcher__exit">Return to my lineup →</a>
+					</If>
+				</section>
+			</If>
+			<If cond={data.playoff_truth.season_phase == "preseason"}>
+				<section class="score-command playoff-truth-card playoff-truth-card--compact" aria-labelledby="team-playoff-truth-heading">
+					<p id="team-playoff-truth-heading"><span class="position-chip">{data.playoff_truth.status_label}</span> {data.playoff_truth.headline} — bracket truth opens after the regular season. <a href="/matchups" data-gosx-link class="access-link">Open bracket truth →</a></p>
+				</section>
+			</If>
+			<If cond={data.playoff_truth.season_phase != "preseason"}>
+				<section class="score-command playoff-truth-card" aria-labelledby="team-playoff-truth-heading">
+					<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // TEAM VIEW</span><h2 id="team-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+					<p>{data.playoff_truth.detail}</p>
+					<If cond={data.playoff_truth.has_bracket}><p class="scoring-note">Your team appears in the persisted bracket only when published; tie explanations and bye states remain attached to the matchup.</p></If>
+					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+					<a href="/matchups" data-gosx-link class="access-link">Open bracket truth →</a>
+				</section>
+			</If>
 			<If cond={data.lineup_intervention == false}>
 			<details class="team-identity-settings" id="team-identity" open={data.identity_expanded}>
 				<summary>
@@ -392,22 +409,6 @@ func Page() Node {
 				</div>
 			</details>
 			</If>
-		<div
-			class="team-lineup-sync"
-			data-gosx-region
-			data-gosx-region-url={data.lineup_fragment_url}
-			data-gosx-region-interval={data.lineup_fragment_interval}
-			data-gosx-region-signal="$team.lineup.refresh"
-			data-gosx-region-on="scores:changed"
-			aria-label="Authoritative team lineup"
-		>
-			<TeamLineupRegion></TeamLineupRegion>
-		</div>
-		<p class="scoring-note lineup-sync-note" role="status" aria-live="polite">
-			Lineup state refreshes automatically within 4 seconds after a manager saves.
-			If a refresh fails, use
-			<button type="button" class="board-button" data-gosx-set="$team.lineup.refresh" data-gosx-set-value="manual">Refresh lineup now</button>.
-		</p>
 		</If>
 	</main>
 }
@@ -603,6 +604,15 @@ func TeamLineupRegion() Node {
 								<a href={data.team_terminal_secondary_href} data-gosx-link class="button button--ghost">{data.team_terminal_secondary_label} →</a>
 							</div>
 						</div>
+					</If>
+					<If cond={data.has_matchup_source}>
+						<details class="matchup-rank-glossary">
+							<summary>What do the matchup ranks mean?</summary>
+							<p class="demo-message">
+								<strong>MATCHUP RANKS:</strong>
+								ranked from the {data.matchup_source_label}. A higher "-toughest" number is a softer matchup; a lower one is tougher.
+							</p>
+						</details>
 					</If>
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">

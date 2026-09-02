@@ -3702,6 +3702,12 @@ func (s *Service) leagueMap() map[string]any {
 			footerLabel = "MATCHUP STATUS LIMITED"
 		}
 	}
+	// snapshot/now are captured once and reused by both fantasy_seats_open
+	// and attention below, rather than each calling s.store.Snapshot() (or
+	// s.clock()) a second time — leagueMap runs on every route's layout
+	// render (gap-audit item 6), so one extra read is worth avoiding.
+	snapshot := s.store.Snapshot()
+	now := s.clock()
 	return map[string]any{
 		"name":                 s.cfg.Name,
 		"short_code":           s.cfg.ShortCode,
@@ -3724,14 +3730,84 @@ func (s *Service) leagueMap() map[string]any {
 		// this, alongside the viewer's own has_seat, to show the /join link
 		// only "while seats remain" (the build directive's own phrase),
 		// without every page's own data function computing it separately.
-		"fantasy_seats_open": claimedSeatCount(s.store.Snapshot().Members) < len(s.Teams()),
+		"fantasy_seats_open": claimedSeatCount(snapshot.Members) < len(s.Teams()),
 		// latest_announcement carries the shared layout's dismiss-free
 		// banner data (league-announcements spec). It lives here, not in a
 		// separate data key, because leagueMap is the one map every page's
 		// data function already includes — see the doc comment above — so
 		// the layout's banner needs no per-page wiring to reach it.
 		"latest_announcement": s.latestAnnouncementBanner(),
+		// attention (gap-audit item 6): the same "leagueMap is the one map
+		// every page's data function already includes" property lets the
+		// shared layout show one small "urgent" chip everywhere, not just
+		// on the home Action Center. It is deliberately league-wide, not
+		// per-viewer — leagueMap takes no *http.Request and 19 call sites
+		// across 10 other files build the "league" key from it, so adding a
+		// request parameter here would ripple far outside this file. A
+		// per-viewer projection (the exact list an individual manager's
+		// home Action Center shows) belongs behind a request-aware method
+		// such as ActionCenterData; attentionMap instead surfaces the
+		// state-level facts most likely to matter to any seated viewer
+		// (an accepted trade awaiting review, this week's still-open
+		// pick'em games), so it never disagrees with what triggers those
+		// SAME home Action Center tasks, just without per-viewer framing.
+		"attention": s.attentionMap(snapshot, now),
 	}
+}
+
+// attentionMap is gap-audit item 6's small "urgent_count"/"items" projection
+// for the shared chrome (app/layout.gsx's rail-head and mobile-bar chip).
+// Each item names a route and a plain-language label; a trade item's route
+// carries the "#trade-<id>" fragment so the chip can deep-link straight to
+// the row awaiting review (item 6's explicit requirement) once app/trades
+// grows that anchor (rowan owns app/trades/page.gsx — see the integrator
+// note in this wave's report). Kept cheap and state-only, deliberately not
+// walking every team's live lineup (that facts pass belongs in
+// ActionCenterData, which already exists for the home page itself) — this
+// runs on the hot path of every route's layout render.
+func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]any {
+	items := make([]map[string]any, 0, 4)
+	for _, offer := range state.TradeOffers {
+		if offer.Status != TradeStatusAccepted {
+			continue
+		}
+		from := s.teamByID(offer.FromTeamID).Name
+		to := s.teamByID(offer.ToTeamID).Name
+		items = append(items, map[string]any{
+			"route": "/trades#trade-" + offer.ID,
+			"label": "Accepted trade between " + from + " and " + to + " is in review",
+		})
+	}
+	if open := s.openPickemGameCount(state, now); open > 0 {
+		items = append(items, map[string]any{
+			"route": "/pickem",
+			"label": CountNoun(open, "open pick'em game") + " this week",
+		})
+	}
+	return map[string]any{
+		"urgent_count": len(items),
+		"items":        items,
+		"has_items":    len(items) > 0,
+	}
+}
+
+// openPickemGameCount counts this pick'em week's games that are still open
+// for a pick (not yet kicked off, and not a void/no-line market) — a
+// league-wide fact, unlike pickemHomeSummaryFromSnapshot's "unpicked by
+// THIS viewer" count, so attentionMap can run without a *http.Request.
+func (s *Service) openPickemGameCount(state PersistedState, now time.Time) int {
+	games := s.schedule()
+	week := s.pickemWeek(games, now)
+	open := 0
+	for _, game := range gamesInWeek(games, week) {
+		if market, ok := state.PickemMarkets[game.ID]; ok && pickemMarketUnavailable(market) {
+			continue
+		}
+		if !game.Kickoff.IsZero() && now.Before(game.Kickoff) {
+			open++
+		}
+	}
+	return open
 }
 
 // announcementBannerWindow is how long a freshly posted announcement stays

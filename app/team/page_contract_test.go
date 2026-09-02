@@ -334,6 +334,115 @@ func TestTeamIdentityFormsExposeFailureValueAndA11yContracts(t *testing.T) {
 	}
 }
 
+// TestTeamContentOrderPutsLineupDirectlyAfterTheIdentityBar is gap-audit
+// item 1 (wave 4 — linden): the glossary banner, the full-height playoff
+// card, and the identity editor used to sit above the lineup — a manager
+// scrolled past roughly 1,750px of content before reaching the first
+// starting slot. The lineup region (with its own NEXT PLAYER LOCK
+// deadline block, part of TeamLineupRegion) must render directly after
+// the compact identity bar (team-hero), before the commissioner
+// lineup-target-switcher, the playoff card, and the identity-settings
+// editor — all now demoted below it. The commissioner "set lineup for
+// another franchise" strip must render below the lineup, matching the
+// instruction that it sit below the manager's own team.
+func TestTeamContentOrderPutsLineupDirectlyAfterTheIdentityBar(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	heroAt := strings.Index(page, `id="team-identity-hero"`)
+	lineupRegionAt := strings.Index(page, `class="team-lineup-sync"`)
+	switcherAt := strings.Index(page, `class="lineup-target-switcher"`)
+	playoffAt := strings.Index(page, `class="score-command playoff-truth-card playoff-truth-card--compact"`)
+	identityEditorAt := strings.Index(page, `id="team-identity" open={data.identity_expanded}`)
+	for name, index := range map[string]int{
+		"team-identity-hero": heroAt, "team-lineup-sync": lineupRegionAt,
+		"lineup-target-switcher": switcherAt, "playoff-truth-card--compact": playoffAt,
+		"team-identity editor": identityEditorAt,
+	} {
+		if index < 0 {
+			t.Fatalf("page.gsx missing expected block %q", name)
+		}
+	}
+	if heroAt > lineupRegionAt {
+		t.Fatal("the lineup region must render directly after the compact identity bar, not before it")
+	}
+	if lineupRegionAt > switcherAt {
+		t.Fatal("the commissioner lineup-target-switcher must render below the manager's own lineup")
+	}
+	if switcherAt > playoffAt {
+		t.Fatal("the playoff card must render below the commissioner lineup-target-switcher, not above it")
+	}
+	if playoffAt > identityEditorAt {
+		t.Fatal("the franchise identity editor must render below the playoff card")
+	}
+}
+
+// TestTeamPlayoffCardCollapsesToOneLineInPreseason is gap-audit item 1's
+// playoff half: the full "PLAYOFFS NOT ACTIVE" card (257px, headline,
+// status chip, detail paragraph, recovery note, and a bracket link) used
+// to render unconditionally, even in PRESEASON when no bracket can exist
+// yet. It now collapses to one status line while season_phase is
+// "preseason", and restores the full card once the phase moves on (the
+// same has_bracket-aware pattern app/matchups/page.gsx's playoff card
+// already establishes for showing/hiding bracket detail).
+func TestTeamPlayoffCardCollapsesToOneLineInPreseason(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<If cond={data.playoff_truth.season_phase == "preseason"}>`,
+		`class="score-command playoff-truth-card playoff-truth-card--compact"`,
+		`<If cond={data.playoff_truth.season_phase != "preseason"}>`,
+		`class="score-command playoff-truth-card" aria-labelledby="team-playoff-truth-heading">`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page.gsx missing preseason playoff-card collapse contract %q", want)
+		}
+	}
+	// The compact branch must not repeat the full card's own multi-element
+	// layout (header/status-chip/detail-paragraph/recovery-note as
+	// separate elements) — it is a single status line.
+	compactAt := strings.Index(page, `playoff-truth-card--compact`)
+	compactEnd := strings.Index(page[compactAt:], "</section>")
+	if compactAt < 0 || compactEnd < 0 {
+		t.Fatal("compact playoff card section has no closing </section>")
+	}
+	compactBlock := page[compactAt : compactAt+compactEnd]
+	if strings.Contains(compactBlock, "section-heading--split") || strings.Contains(compactBlock, "RECOVERY:") {
+		t.Errorf("compact preseason playoff card still carries the full card's layout: %s", compactBlock)
+	}
+}
+
+// TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup is gap-audit item
+// 1's glossary half: the "MATCHUP RANKS" explanation used to sit in the
+// top notice-stack, disconnected from the matchup-rank column
+// (MatchupChip/MatchupTier) it explains. It is now a collapsed <details>
+// immediately beside the lineup slot list that actually renders that
+// column, not a standing banner every manager sees on every visit.
+func TestTeamMatchupRankGlossaryIsADetailsBesideTheLineup(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<details class="matchup-rank-glossary">`) {
+		t.Fatal("page.gsx no longer renders the matchup-rank glossary as a <details>")
+	}
+	glossaryAt := strings.Index(page, `<details class="matchup-rank-glossary">`)
+	slotListAt := strings.Index(page, `<div class="lineup-slot-list">`)
+	if glossaryAt < 0 || slotListAt < 0 || glossaryAt > slotListAt {
+		t.Fatal("the matchup-rank glossary must render directly beside (immediately before) the lineup slot list")
+	}
+	noticeStackEnd := strings.Index(page, `<If cond={data.has_co_error}>`)
+	if noticeStackEnd >= 0 && glossaryAt < noticeStackEnd {
+		t.Fatal("the matchup-rank glossary must not still live in the top notice-stack")
+	}
+}
+
 func TestCommissionerLineupInterventionContracts(t *testing.T) {
 	pageBytes, err := os.ReadFile("page.gsx")
 	if err != nil {

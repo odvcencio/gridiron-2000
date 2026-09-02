@@ -70,8 +70,29 @@ func renderPublicEntryState(t *testing.T, mode, state string, signedIn bool, adm
 			"status_label": "SCHEDULED WINDOW",
 			"status_note":  "The commissioner controls when the room opens.",
 		},
-		"seats":           8,
-		"seat_numbers":    []int{1, 2, 3, 4, 5, 6, 7, 8},
+		"seats":        8,
+		"seat_numbers": []int{1, 2, 3, 4, 5, 6, 7, 8},
+		// seat_meter (gap-audit item 8, wave 4 — linden): the fixture's own
+		// hand-built shape for internal/league.Service.SeatMeterData's
+		// return value — one open seat, seven taken — matching this
+		// package's login/page.server.go wiring (data["seat_meter"] =
+		// league.Default().SeatMeterData()) so page.gsx's data.seat_meter.*
+		// reads resolve the same way a real request's data would.
+		"seat_meter": map[string]any{
+			"aria_label":  "1 of 8 seats open",
+			"open_count":  1,
+			"total_count": 8,
+			"seats": []map[string]any{
+				{"number": "1", "taken": true, "status": "TAKEN", "label": "Seat 1: taken"},
+				{"number": "2", "taken": true, "status": "TAKEN", "label": "Seat 2: taken"},
+				{"number": "3", "taken": true, "status": "TAKEN", "label": "Seat 3: taken"},
+				{"number": "4", "taken": true, "status": "TAKEN", "label": "Seat 4: taken"},
+				{"number": "5", "taken": true, "status": "TAKEN", "label": "Seat 5: taken"},
+				{"number": "6", "taken": true, "status": "TAKEN", "label": "Seat 6: taken"},
+				{"number": "7", "taken": true, "status": "TAKEN", "label": "Seat 7: taken"},
+				{"number": "8", "taken": false, "status": "OPEN", "label": "Seat 8: open"},
+			},
+		},
 		"has_return_path": false,
 		"oauth_start":     "/auth/google/start?next=%2F",
 		"configured":      true,

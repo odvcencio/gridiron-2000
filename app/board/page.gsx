@@ -119,13 +119,23 @@ func BoardRow(props BoardRowProps) Node {
 	</article>
 }
 
+// Page's can_edit branch (gap-audit item 8's second half) replaces the
+// seatless masthead that used to render the exact same "Private to this
+// team seat ... PLAYERS ON YOUR BOARD 0" copy a seated manager sees —
+// reason nowhere in it, and a zero counter that read as a bug, not a
+// state. The seatless branch leads with the reason instead (the same
+// public_entry projection team/page.gsx and app/blitz/page.gsx already
+// render from — seatless_surface_contract_test.go pins the same four
+// fields on this file), and drops the "players on your board" counter
+// entirely rather than showing a false floor.
 func Page() Node {
 	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
+		<If cond={data.can_edit}>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
 					<span class="signal-mark" aria-hidden="true"></span>
-					TEAM BIG BOARD
+					BIG BOARD
 				</span>
 				<h1>
 					RANK IT
@@ -147,19 +157,24 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
+		</If>
+		<If cond={data.can_edit == false}>
+		<section class="no-franchise tone-lime">
+			<div class="signal-label">
+				<span class="signal-mark" aria-hidden="true"></span>
+				BIG BOARD // NO FRANCHISE
+			</div>
+			<h1>{data.public_entry.state_label}</h1>
+			<p>{data.public_entry.detail}</p>
+			<a href={data.public_entry.action_href} data-gosx-link class="button button--primary">{data.public_entry.action_label}</a>
+		</section>
+		</If>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
 			<If cond={data.has_board_error}>
 				<p class="error-message">{data.board_error}</p>
-			</If>
-			<If cond={data.can_edit == false}>
-				<p class="demo-message">
-					<strong>{data.public_entry.state_label}:</strong>
-					{data.public_entry.detail}
-					<a class="filter-button" href={data.public_entry.action_href} data-gosx-link>{data.public_entry.action_label}</a>
-				</p>
 			</If>
 			<If cond={data.pool_status.has_notice}>
 				<p class="demo-message">
@@ -183,7 +198,7 @@ func Page() Node {
 				<div class="pool-toolbar">
 					<div>
 						<span class="section-index">01 // YOUR BOARD</span>
-						<h2>Ranked queue</h2>
+						<h2>Big Board</h2>
 					</div>
 					<If cond={data.board_count > 0}>
 						<form method="post" action={actionPath("board-clear")} data-gosx-managed="true">
@@ -348,10 +363,10 @@ func Page() Node {
 								<input type="hidden" name="page" value={data.pool_page}></input>
 								<input type="hidden" name={data.board_return_target_field} value={data.board_return_target}></input>
 								<If cond={data.can_edit}>
-									<button class="draft-button" type="submit">Add</button>
+									<button class="button button--ghost" type="submit">RANK</button>
 								</If>
 								<If cond={data.can_edit == false}>
-									<button class="draft-button" type="button" disabled="disabled">Locked</button>
+									<button class="button button--ghost" type="button" disabled="disabled">Locked</button>
 								</If>
 							</form>
 						</article>
