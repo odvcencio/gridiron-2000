@@ -1,8 +1,9 @@
 # Default team badges
 
-This directory holds the default avatar badges. A default badge shows for
-a team that has no uploaded avatar. The league ships this directory empty.
-Add badge files here to enable the default-badge fallback tier.
+This directory (`public/avatars/defaults`, or `AVATAR_DEFAULTS_ROOT` when
+set) holds the default avatar badges. A default badge shows for a team that
+has no uploaded avatar. The league ships this directory empty. Add badge
+files here to enable the default-badge fallback tier.
 
 ## Naming convention
 

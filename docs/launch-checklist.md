@@ -279,6 +279,15 @@ tracked Secret workflow.
 
 ## 10. Existing-instance release gate
 
+**2026 status:** the Stable Kernel league did not form for 2026 (see
+[section 13](#13-regular-season-live-scoring-rollout)), so `gridiron-2000-sk`
+is not a live second instance this season and flagship is the only live
+instance. Steps 10.3 and 10.4's SK canary are skipped for a 2026 release;
+apply only `deploy/k8s/deployment.yaml` and run flagship's own authenticated
+acceptance (step 11.2, read against one instance). This section's full
+two-instance sequence remains the documented path for the season SK is
+provisioned again.
+
 Use this sequence for the already-provisioned `gridiron-2000` and
 `gridiron-2000-sk` Deployments. Never roll both at once. The order is
 strictly Stable Kernel (SK) canary first, then flagship:
@@ -451,7 +460,16 @@ metadata was tested for this release. Do not run `kubectl rollout undo` to an
 incompatible binary. If the previous revision is too old, roll forward the
 candidate or apply the exact tested compatible fallback digest from the
 release record; do not invent a backup, promise old-binary compatibility, or
-assume an off-node backup exists.
+assume an off-node backup exists. When a release advances the logical
+schema (`internal/league/sqlmigrate.go`'s migration chain), the previous
+revision's binary refuses the migrated database outright (`errSchemaTooNew`
+in `internal/league/sqlstore.go`) rather than reading it incorrectly; rolling
+back from that release goes through the release record's pre-roll snapshot
+and `cmd/leaguerestore` (see [Backup and restore](backup-restore.md)), not
+`kubectl rollout undo` alone. `release-2026.09.02-ee12ed7-wave6` (logical
+schema 10 to 11, adding the commissioner event ledger; digest recorded in
+`deploy/k8s/deployment.yaml`) is the first flagship release this rule
+applies to.
 
 Use the exact old revision numbers and image references captured in step
 10.1; placeholders below are deliberately not current digests:
@@ -677,6 +695,10 @@ explicit action, never a batch.
 2. **Deploy `statrelay` first**, to the `gridiron` namespace. Confirm the
    `X-Statrelay-Budget-Remaining` response header on a manual `curl` against
    any relayed endpoint — the header appears only once a budget is set.
+   Rebuild and roll `statrelay` whenever `cmd/statrelay/relay.go`'s `ttlTable`
+   changes (for example, adding or changing the `/getNFLScoresOnly` prefix
+   rule); an unmatched path silently falls back to `defaultTTL` (6 hours),
+   which is stale for a live-scoring endpoint.
 3. **Deploy the app image to flagship** with `LIVE_SCORING_ENABLED=false`.
    The Stable Kernel league did not form for 2026, so flagship is the only
    live instance; its own canary is temporal, not a second instance — step 5
