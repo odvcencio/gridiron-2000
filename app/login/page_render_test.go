@@ -16,8 +16,13 @@ func renderLoginPage(t *testing.T, target string) string {
 	t.Helper()
 	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
 	t.Setenv("DEMO_MODE", "true")
-	t.Setenv("GOOGLE_CLIENT_ID", "")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	// This helper's tests cover "next" sanitization/fallback, a concern
+	// orthogonal to whether Google OAuth itself is configured — see
+	// page_google_setup_contract_test.go for the disabled-control,
+	// unconfigured-state coverage. A configured fixture keeps the Google
+	// control live here, so its href is still the thing under test.
+	t.Setenv("GOOGLE_CLIENT_ID", "fixture-client-id")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "fixture-client-secret")
 
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {

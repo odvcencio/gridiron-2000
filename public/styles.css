@@ -1013,7 +1013,14 @@ button.access-link {
 
 .page {
   padding: var(--space-2xl) 0 var(--space-3xl);
-  animation: page-enter var(--duration-cinematic) var(--ease-out) both;
+  /* gap-audit item 2 (wave 3): 720ms (--duration-cinematic) from opacity 0
+     left content invisible on the first frame and under half opacity for
+     ~80ms against a 3-33ms TTFB. 150ms (--duration-fast) from 0.85 opacity
+     is a subtle settle, not a fade-in from black. See the
+     "prefers-reduced-motion" block below (~line 6983) for the full
+     "animation: none" override, and the P3-19 comment there for why a
+     blanket 1ms rule alone is not enough. */
+  animation: page-enter var(--duration-fast) var(--ease-out) both;
 }
 
 .mono {
@@ -1161,7 +1168,8 @@ h2 {
 }
 
 .draft-button:disabled,
-.button:disabled {
+.button:disabled,
+.google-button:disabled {
   transform: none;
   border-style: dashed;
   border-color: var(--color-border);
@@ -6456,7 +6464,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @keyframes page-enter {
-  from { opacity: 0; transform: translateY(1rem); }
+  from { opacity: 0.85; transform: translateY(1rem); }
   to { opacity: 1; transform: translateY(0); }
 }
 
@@ -6513,6 +6521,18 @@ body.is-on-clock .draft-clock-panel {
   .login-stage {
     min-height: auto;
     grid-template-columns: 1fr;
+  }
+
+  /* gap-audit item 7 (wave 3): .login-console (the Google sign-in CTA)
+     renders after .login-poster (the event card and seat meter) in
+     source order, so the single-column stack above put the sign-in
+     console below the fold at narrow widths — the one control this page
+     exists for was not in the first mobile viewport. order reverses the
+     visual stack without touching DOM/tab order (.login-console's own
+     controls, not .login-poster's decorative content, are what a manager
+     needs first). */
+  .login-console {
+    order: -1;
   }
 
   /* P2-11 (UI pass 2026-08-30): minmax(0, 1fr), not a bare 1fr — a bare
@@ -7000,6 +7020,14 @@ body.is-on-clock .draft-clock-panel {
      perceptible flash rather than the "no motion" reduced-motion asks
      for. animation: none removes the keyframe outright. */
   .page {
+    animation: none;
+  }
+
+  /* gap-audit item 6 (wave 3): .chrome-disc's own "animation: disc-float
+     4s ... infinite" declaration beats the "*" selector above the same
+     way .page's did — a nonzero iteration-count still cycles forever, just
+     at 1ms per lap, which reads as constant motion rather than none. */
+  .chrome-disc {
     animation: none;
   }
 }
@@ -8837,8 +8865,15 @@ body.is-on-clock .draft-clock-panel {
    large intrinsic width. At phone widths those controls must reflow inside the
    roster panel instead of making the whole Team terminal horizontally scroll.
    The empty pre-draft preview already fits; keep the same one-column contract
-   after picks arrive. */
-@media (max-width: 38rem) {
+   after picks arrive.
+   gap-audit item 5 (wave 3): .lineup-slot's base rule sets a 716-738px
+   minimum grid (3.3rem + minmax(11rem, 1fr) + two auto columns), which
+   overflowed /team's viewport between this query's old 38rem (608px)
+   ceiling and the shell's own 56.1875rem (899px) desktop/mobile
+   breakpoint — 47px of horizontal overflow at 683px (200% zoom), 110px at
+   900px. Match the shell breakpoint so nothing between the two can
+   overflow. */
+@media (max-width: 56.1875rem) {
   .team-layout,
   .roster-panel,
   .lineup-slot-list,

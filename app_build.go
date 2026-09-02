@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -36,6 +39,7 @@ import (
 	"gridiron-2000/internal/wire"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/auth"
+	runtimehost "m31labs.dev/gosx/client/runtime/host"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
@@ -285,6 +289,44 @@ func offlinePoolAsLive() league.PlayerSource {
 	}
 }
 
+// hashedPublicAssetHref returns name's public URL (see server.AssetURL) with
+// a content-hash query appended, computed from name's current bytes under
+// root/public. This is deliberately GoSX's own "?v=" content-addressing
+// convention, not a literal hashed filename: App.servePublic (see
+// m31labs.dev/gosx/server's server.go) already serves any request carrying
+// a non-empty "v" query as "Cache-Control: public, max-age=31536000,
+// immutable" and leaves every unversioned request under the previous
+// "public, max-age=0, must-revalidate" policy, so this href change is the
+// entire fix — no routing or header code needs to move out of the vendored
+// static handler. A missing or unreadable file falls back to the
+// unversioned href so a packaging error degrades to a revalidated
+// stylesheet rather than a broken page.
+func hashedPublicAssetHref(root, name string) string {
+	href := server.AssetURL(name)
+	data, err := os.ReadFile(filepath.Join(root, "public", filepath.FromSlash(name)))
+	if err != nil {
+		return href
+	}
+	sum := sha256.Sum256(data)
+	// 8 hex bytes (32 bits) is ample collision resistance for a single
+	// deploy's worth of asset versions and keeps the query string short.
+	return href + "?v=" + hex.EncodeToString(sum[:8])
+}
+
+// navigationScriptNonceAttr renders nonce as a ` nonce="..."` attribute
+// fragment, or an empty string when nonce is empty — the same shape
+// GoSX's own unexported server.nonceAttr gives the framework's default
+// navigation script (server/navigation.go), reproduced here because that
+// helper is not exported and this app's replacement script (see
+// router.SetNavigationHead in BuildApp) needs the identical CSP-nonce
+// attribute.
+func navigationScriptNonceAttr(nonce string) string {
+	if nonce == "" {
+		return ""
+	}
+	return ` nonce="` + html.EscapeString(nonce) + `"`
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -508,12 +550,26 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		FailurePath: "/login?error=oauth",
 	})
 
+	// Hashed once at boot, not per request: styles.css only changes at
+	// deploy time, and BuildApp already runs once per process (see its own
+	// doc comment). See hashedPublicAssetHref's doc comment for why this is
+	// a query-string hash rather than a literal "/styles.<hash>.css" path.
+	stylesheetHref := hashedPublicAssetHref(root, "styles.css")
+	// The navigation runtime is a fixed, build-time string (compiled into
+	// this binary via runtimehost's go:embed), so its hash never changes
+	// mid-process either — hashed once here for the same reason
+	// stylesheetHref is. See the router.SetNavigationHead call below for
+	// why this replaces app.EnableNavigation's default inline script.
+	navigationRuntimeSum := sha256.Sum256([]byte(runtimehost.NavigationRuntime))
+	navigationRuntimeHash := hex.EncodeToString(navigationRuntimeSum[:8])
+	navigationRuntimeHref := "/gosx-nav/" + navigationRuntimeHash + ".js"
+
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
 		ctx.SetLanguage("en")
 		ctx.SetMetadata(server.Metadata{
 			Links: []server.LinkTag{
-				{Rel: "stylesheet", Href: "/styles.css"},
+				{Rel: "stylesheet", Href: stylesheetHref},
 				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
@@ -548,6 +604,39 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		}
 		return server.HTMLDocument(ctx.Document(appName, body))
 	})
+	// gap-audit "externalize the 88KB inline navigation runtime" (wave 3):
+	// App.EnableNavigation's default head builder inlines
+	// runtimehost.NavigationRuntime (88,076 bytes) as a literal <script>
+	// body on every single page render — 71-93% of a typical page's
+	// transfer. route.Router.SetNavigationHead lets an app supply its own
+	// <head> builder instead; called here rather than through
+	// app.EnableNavigation() (removed below, see the comment beside it),
+	// because App.Build's registerMountRoutes overwrites any
+	// router.SetNavigationHead already set with its own default
+	// (navigationScriptWithNonce) whenever App.navigation is true — see
+	// m31labs.dev/gosx@v0.53.10/server/server.go (registerMountRoutes,
+	// ~line 702). The per-request data-gosx-navigation-state/-current-path
+	// attributes and every other navigation-runtime behavior come from
+	// RouteContext.NavigationEnabled() (true whenever this router's
+	// navigationHead is non-nil — route.go's newRouteContext, ~line 644),
+	// not from App.EnableNavigation directly, so this router-level call is
+	// sufficient on its own for a route.Router-based, app.Mount-registered
+	// app like this one (server.go's other App.navigation reader, ~line
+	// 1007, only fires for app.Page/app.API document routes, which this
+	// app does not register — it uses app.Mount exclusively).
+	//
+	// The script loads synchronously (no "defer"): the runtime's own
+	// bottom-of-file bootstrap (client/runtime/host/navigation.ts, ~line
+	// 6658) only re-scans the initial document through a
+	// "DOMContentLoaded" listener when document.readyState is still
+	// "loading" at the moment the script executes. A deferred script runs
+	// after the parser has already flipped readyState to "interactive"
+	// (the HTML spec's own script-processing order), which would silently
+	// skip that re-scan; a plain blocking external script keeps the exact
+	// timing an inline script already has today.
+	router.SetNavigationHead(func(nonce string) gosx.Node {
+		return gosx.RawHTML(`<script data-gosx-navigation="true" src="` + navigationRuntimeHref + `"` + navigationScriptNonceAttr(nonce) + `></script>`)
+	})
 	// Authentication and onboarding redirects belong to the file routes
 	// themselves. GoSX applies this middleware only after a page or action
 	// route matches, so an unknown URL keeps the normal truthful 404 instead
@@ -567,7 +656,11 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	registerInviteConsumeRoutes(router, authManager, league.Default(), league.Default())
 
 	app := server.New()
-	app.EnableNavigation()
+	// app.EnableNavigation() is deliberately NOT called: its default head
+	// builder is exactly what router.SetNavigationHead (above) replaces.
+	// Calling both would let App.Build's registerMountRoutes overwrite the
+	// router's own navigationHead field with the framework default the
+	// instant this app builds — see the comment beside that call.
 	app.EnableSecurityPolicy(gridironSecurityPolicy())
 	app.EnableGzip()
 	app.Use(avatarMultipartEnvelopeLimit)
@@ -575,6 +668,18 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.Use(sessions.Protect)
 	app.Use(authManager.Middleware)
 	app.SetPublicDir(filepath.Join(root, "public"))
+	// Serves the externalized navigation runtime router.SetNavigationHead
+	// (above) now references. The hash is in the path (not a "?v=" query,
+	// unlike hashedPublicAssetHref) because this is a synthesized route,
+	// not a public/ file GoSX's own servePublic already conditions on a
+	// query string — a literal immutable Cache-Control here needs no such
+	// condition, since this exact path only ever serves these exact bytes.
+	app.Mount("GET "+navigationRuntimeHref, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		io.WriteString(w, runtimehost.NavigationRuntime)
+	}))
 
 	// Liveness is deliberately independent of league persistence and optional
 	// upstream feeds. A process that is still serving requests must not be

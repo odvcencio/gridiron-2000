@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -342,6 +343,25 @@ func TestBrowserHelpPageNeverScrollsAtPhoneWidth(t *testing.T) {
 	assertDocumentNeverScrolls(t, ctx, "/help at 390px")
 }
 
+// TestBrowserTeamLineupNeverScrollsBetweenReflowAndShellBreakpoints covers
+// gap-audit item 5 (wave 3, WCAG 1.4.10 reflow): .lineup-slot's base rule
+// sets a 716-738px minimum grid; its one-column reflow query used to sit
+// at 38rem (608px) while the shell's own desktop/mobile breakpoint is
+// 56.1875rem (899px), so /team overflowed horizontally at any width in
+// between — 47px at 683px (a 1366px display's 200% browser zoom) and
+// 110px at 900px. Both probe widths sit inside that old gap.
+func TestBrowserTeamLineupNeverScrollsBetweenReflowAndShellBreakpoints(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	for _, width := range []int64{683, 900} {
+		navigateSignedInTo(t, ctx, child, viewer, "/team", width, uiPassPhoneHeight)
+		assertDocumentNeverScrolls(t, ctx, fmt.Sprintf("/team at %dpx", width))
+	}
+}
+
 // TestBrowserJoinFirstStepClearsStickyBar is P2-18's own probe (UI pass
 // 2026-08-30): a fresh, never-seated identity reaches the real signup
 // form (an already-seated visitor is redirected to /team before it
@@ -386,6 +406,42 @@ func TestBrowserJoinFirstStepClearsStickyBar(t *testing.T) {
 	}
 	if stepTop < barHeight {
 		t.Errorf("/join's first step (.join-step) sits at top=%.1f, under the %.1fpx sticky bar", stepTop, barHeight)
+	}
+}
+
+// TestBrowserLoginConsoleSitsAboveEventCardAtPhoneWidth covers gap-audit
+// item 7 (wave 3): .login-console (the Google sign-in CTA) rendered after
+// .login-poster (the event card and seat meter) in source order, so the
+// single-column phone stack put the one control this page exists for
+// below the fold. .login-console must sit above .login-poster on screen
+// at phone width. /login needs no sign-in and no built client runtime —
+// it is a plain server-rendered page — so this uses startSimChild
+// directly rather than startBrowserDraft.
+func TestBrowserLoginConsoleSitsAboveEventCardAtPhoneWidth(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	chrome := chromePath(t)
+	child := startSimChild(t, "")
+	ctx := newBrowserContext(t, chrome)
+
+	if err := chromedp.Run(ctx,
+		chromedp.EmulateViewport(uiPassPhoneWidth, uiPassPhoneHeight),
+		chromedp.Navigate(child.URL+"/login"),
+		chromedp.WaitVisible(`#main-content`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate to /login at %dx%d: %v", uiPassPhoneWidth, uiPassPhoneHeight, err)
+	}
+
+	var consoleTop, posterTop float64
+	if err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.querySelector('.login-console').getBoundingClientRect().top`, &consoleTop),
+		chromedp.Evaluate(`document.querySelector('.login-poster').getBoundingClientRect().top`, &posterTop),
+	); err != nil {
+		t.Fatalf("read .login-console/.login-poster positions: %v", err)
+	}
+	if consoleTop >= posterTop {
+		t.Errorf(".login-console top=%.1f is not above .login-poster top=%.1f at %dpx", consoleTop, posterTop, uiPassPhoneWidth)
 	}
 }
 

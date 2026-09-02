@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -77,6 +78,60 @@ func TestBuildAppServesLiveness(t *testing.T) {
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
 		t.Fatalf("GET /api/live = %d, want 200", response.StatusCode)
+	}
+}
+
+// hashedStylesheetHrefPattern matches the layout's stylesheet <link> href
+// once it carries a content-hash query (gap-audit item 3, wave 3): the
+// hash is GoSX's own "?v=" content-addressing convention (see
+// m31labs.dev/gosx server.App's servePublic doc comment), not a literal
+// hashed filename, since that query param is what already switches the
+// response to an immutable cache policy.
+var hashedStylesheetHrefPattern = regexp.MustCompile(`href="(/styles\.css\?v=[0-9a-f]+)"`)
+
+// TestBuildAppStylesheetHashedURLIsImmutable covers gap-audit item 3
+// (wave 3, "feel and speed"): styles.css shipped as
+// "Cache-Control: public, max-age=0, must-revalidate" forces a
+// conditional round trip on every navigation for a 280KB/59.6KB-gz file
+// that only changes at deploy time. The layout must reference a
+// content-hashed URL, and that hashed URL must carry a year-long
+// immutable policy; the old unhashed path must keep resolving under the
+// previous revalidating policy for compatibility (an already-cached HTML
+// document, or a hand-typed URL, still finds the file).
+func TestBuildAppStylesheetHashedURLIsImmutable(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+
+	loginRequest := httptest.NewRequest(http.MethodGet, "/login", nil)
+	loginRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(loginRecorder, loginRequest)
+	if loginRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /login = %d, want 200", loginRecorder.Code)
+	}
+	body := loginRecorder.Body.String()
+	match := hashedStylesheetHrefPattern.FindStringSubmatch(body)
+	if match == nil {
+		t.Fatalf("GET /login: no content-hashed styles.css <link> href found in the rendered document")
+	}
+	hashedHref := match[1]
+
+	hashedRequest := httptest.NewRequest(http.MethodGet, hashedHref, nil)
+	hashedRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(hashedRecorder, hashedRequest)
+	if hashedRecorder.Code != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", hashedHref, hashedRecorder.Code)
+	}
+	if got := hashedRecorder.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("GET %s Cache-Control = %q, want the immutable policy", hashedHref, got)
+	}
+
+	plainRequest := httptest.NewRequest(http.MethodGet, "/styles.css", nil)
+	plainRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(plainRecorder, plainRequest)
+	if plainRecorder.Code != http.StatusOK {
+		t.Fatalf("GET /styles.css = %d, want 200", plainRecorder.Code)
+	}
+	if got := plainRecorder.Header().Get("Cache-Control"); got != "public, max-age=0, must-revalidate" {
+		t.Fatalf("GET /styles.css Cache-Control = %q, want the compatibility revalidating policy", got)
 	}
 }
 

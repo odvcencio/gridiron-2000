@@ -1389,6 +1389,19 @@ type DraftMobileTabsProps struct {
 // to be rendered last. TapeExplicit (its own doc comment above) keeps
 // #tab-picks and #tab-players mutually exclusive despite ShowTape being
 // true in BOTH the "just landed" and "just clicked Picks" cases.
+//
+// gap-audit item 8 (wave 3): the mobile top bar (brand and hamburger,
+// opening #primary-navigation-dialog) is deliberately hidden on /draft
+// (styles.css, "body:has(.draft-shell) .mobile-navigation-enhanced" --
+// the draft-shell's own height: 100dvh math needs that clearance back),
+// and the desktop command bar's own Rail toggle only affects the site
+// rail above the 56.25rem desktop breakpoint, leaving a phone-width
+// visitor with no way to reach the rest of the league at all. The fifth
+// "League" tab below reopens the SAME dialog Layout()'s hamburger button
+// targets: data-gosx-disclosure-target is a plain attribute selector the
+// runtime already delegates clicks for (client/runtime/host/
+// disclosure.ts), so a second trigger for the one existing dialog needs
+// no new markup or JS.
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
 		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false && props.TapeExplicit == false}></input>
@@ -1399,6 +1412,7 @@ func DraftMobileTabs(props DraftMobileTabsProps) Node {
 		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link aria-current={props.ShowTeams == false && (props.ShowBoard || props.Complete || props.TapeExplicit)}>Picks</a>
 		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
 		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
+		<button type="button" class="draft-tabbar__tab" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
 	</nav>
 }
 
@@ -2242,8 +2256,18 @@ func DraftHistory(props DraftHistoryProps) Node {
 // refetched on anything) — "Roster needs" and "AUTOPICK · ON/OFF" are
 // both server-computed off DraftMyTeam's Roster view, so a region
 // refetch, not a live bind, is what keeps them current.
+//
+// gap-audit item 8 (wave 3): /draft had no h1 at all (DraftRoom's own
+// "BUILD THE FUTURE." h1 belongs to a different, unrendered component --
+// see that component's doc comment). The h1 below is the document's
+// single one; .visually-hidden's own position: absolute takes it out of
+// .draft-shell's grid flow entirely, so it cannot disturb the explicit
+// grid-template-rows/order math the mobile tab-bar rules depend on.
+// Sentence case, matching every other heading on this page (h2
+// "Available now", "Pick history", etc.).
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
+		<h1 class="visually-hidden">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
 		<div class="draft-notice" aria-live="polite">
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>

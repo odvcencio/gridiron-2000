@@ -65,7 +65,7 @@ func Page() Node {
 							<Each of={data.badge_grid} as="badge">
 								<label class="badge-option badge-option--pick" title={badge.Name}>
 									<input type="radio" name="motif" value={badge.Slug} checked={badge.Slug == data.selected_motif} aria-describedby="badge-picker-help" class="badge-option__radio"></input>
-									<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/" + badge.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/" + badge.Slug + ".png);"} aria-hidden="true"></span>
+									<span class="badge-option__art" style={"mask-image:url(/avatars/motifs/mask/" + badge.Slug + ".png);-webkit-mask-image:url(/avatars/motifs/mask/" + badge.Slug + ".png);"} aria-hidden="true"></span>
 									<small>{badge.Name}</small>
 								</label>
 							</Each>
