@@ -1,7 +1,10 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -133,6 +136,77 @@ func TestTeamDataCarriesNormalizedWeekAndDeadlineView(t *testing.T) {
 	data = service.TeamData(request)
 	if data["week"] != "2" {
 		t.Fatalf("published future week selected = %#v, want 2", data["week"])
+	}
+}
+
+// fourteenWeekSeasonSchedule builds a minimal SeasonSchedule spanning
+// weeks 1 through 14 — the same shape a real fantasy league's own
+// published (commonly 14-week) season carries, distinct from the raw NFL
+// regular-season mirror (18 weeks) newLineupTestService's own games
+// fixture stands in for below.
+func fourteenWeekSeasonSchedule() *SeasonSchedule {
+	weeks := make([]ScheduleWeek, 0, 14)
+	for week := 1; week <= 14; week++ {
+		weeks = append(weeks, ScheduleWeek{Week: week})
+	}
+	return &SeasonSchedule{Weeks: weeks}
+}
+
+// TestTeamDataLimitsWeekSelectorToPublishedSeasonSchedule is item 6's own
+// regression test (2026-08-31 post-wave audit): /team's week selector
+// must offer only the weeks THIS league's own published season schedule
+// carries (14, in this fixture), not every week the raw NFL schedule
+// mirror carries (up to 18) — and every invalid/out-of-range request
+// (99, 0, "abc") must read the same "Week N is not on the published
+// schedule. Showing Week 1." notice /matchups uses, not a silent
+// fallback or one of three differently-worded messages.
+func TestTeamDataLimitsWeekSelectorToPublishedSeasonSchedule(t *testing.T) {
+	service, games, now := newLineupTestService(t)
+	// Widen the raw NFL mirror to 18 weeks (the real regular-season
+	// length) while the league's own published schedule stays at 14 —
+	// the exact real-world gap the bug report named.
+	for week := 2; week <= 18; week++ {
+		games = append(games, GameInfo{ID: fmt.Sprintf("g-wk%d", week), Week: week, Kickoff: now.Add(time.Duration(week) * 7 * 24 * time.Hour), Away: "PIT", Home: "NYJ"})
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+	service.store.state.Schedule = fourteenWeekSeasonSchedule()
+
+	base := service.TeamData(httptestNewGET("/team"))
+	weekOptions, ok := base["week_options"].([]map[string]any)
+	if !ok {
+		t.Fatalf("week_options = %#v, want []map[string]any", base["week_options"])
+	}
+	for _, option := range weekOptions {
+		value, _ := option["value"].(string)
+		n, err := strconv.Atoi(value)
+		if err != nil || n > 14 {
+			t.Errorf("week_options carries %q, want only published weeks 1-14", value)
+		}
+	}
+	if len(weekOptions) == 0 {
+		t.Fatal("week_options is empty, want at least the current week")
+	}
+
+	for _, tt := range []struct {
+		name string
+		raw  string
+	}{
+		{"beyond NFL and league schedule", "99"},
+		{"zero", "0"},
+		{"malformed", "abc"},
+		{"inside NFL calendar but past the league's own 14-week season", "15"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			data := service.TeamData(httptestNewGET("/team?week=" + tt.raw))
+			if data["has_week_notice"] != true {
+				t.Fatalf("week=%s produced no notice, want the out-of-range notice", tt.raw)
+			}
+			notice, _ := data["week_notice"].(string)
+			want := fmt.Sprintf("Showing Week %s.", data["week"])
+			if !strings.Contains(notice, "is not on the published schedule.") || !strings.Contains(notice, want) {
+				t.Fatalf("week=%s notice = %q, want the /matchups-style \"...is not on the published schedule. %s\" wording", tt.raw, notice, want)
+			}
+		})
 	}
 }
 

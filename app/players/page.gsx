@@ -200,7 +200,7 @@ func Page() Node {
 									<If cond={player.rostered}>
 										<div class="stat-tip__row">
 											<span>Availability</span>
-											<b class="mono">ROSTERED · {player.owner_abbr}</b>
+											<b class="mono" title={player.owner_name}>ROSTERED · {player.owner_abbr}</b>
 										</div>
 									</If>
 									<If cond={player.on_waivers}>
@@ -238,7 +238,7 @@ func Page() Node {
 						<span class="position-chip">{player.position}</span>
 						<b class="mono">{player.projection}</b>
 						<If cond={player.rostered}>
-							<span class="position-chip position-chip--locked">{player.owner_abbr}</span>
+							<span class="position-chip position-chip--locked" title={player.owner_name}>{player.owner_abbr}</span>
 						</If>
 						<If cond={player.on_waivers}>
 							<span class="position-chip">ON WAIVERS · {player.waiver_resolves}</span>
@@ -506,7 +506,7 @@ func Page() Node {
 				<Each of={data.waiver_order} as="slot">
 					<li aria-current={slot.mine}>
 						<span class="mono">{slot.position}</span>
-						<span>{slot.abbr}</span>
+						<span title={slot.name}>{slot.abbr}</span>
 					</li>
 				</Each>
 			</ol>
@@ -658,13 +658,13 @@ func PlayerPoolRegion() Node {
 						</summary>
 						<div class="stat-tip__panel">
 							<div class="stat-tip__head"><strong>{player.name}</strong><span class="mono">{player.position}</span><span class="mono stat-tip__team">{player.nfl_team}</span></div>
-							<div class="stat-tip__rows"><div class="stat-tip__row"><span>Projection</span><b class="mono">{player.projection}</b></div><If cond={player.rostered}><div class="stat-tip__row"><span>Availability</span><b class="mono">ROSTERED · {player.owner_abbr}</b></div></If><If cond={player.on_waivers}><div class="stat-tip__row"><span>Availability</span><span class="mono">ON WAIVERS</span><b class="mono">{player.waiver_resolves}</b></div></If><If cond={player.free_agent}><div class="stat-tip__row"><span>Availability</span><b class="mono">FREE AGENT</b></div></If><If cond={player.claimed_by_me}><p class="stat-tip__hist mono">Claim filed for this player.</p></If><If cond={player.needs_drop && player.can_add}><p class="stat-tip__hist mono">Adding requires a drop from your full roster.</p></If></div>
+							<div class="stat-tip__rows"><div class="stat-tip__row"><span>Projection</span><b class="mono">{player.projection}</b></div><If cond={player.rostered}><div class="stat-tip__row"><span>Availability</span><b class="mono" title={player.owner_name}>ROSTERED · {player.owner_abbr}</b></div></If><If cond={player.on_waivers}><div class="stat-tip__row"><span>Availability</span><span class="mono">ON WAIVERS</span><b class="mono">{player.waiver_resolves}</b></div></If><If cond={player.free_agent}><div class="stat-tip__row"><span>Availability</span><b class="mono">FREE AGENT</b></div></If><If cond={player.claimed_by_me}><p class="stat-tip__hist mono">Claim filed for this player.</p></If><If cond={player.needs_drop && player.can_add}><p class="stat-tip__hist mono">Adding requires a drop from your full roster.</p></If></div>
 							<If cond={player.has_opponent}><p class="stat-tip__hist mono">{player.opponent}</p><If cond={player.has_matchup}><p class="stat-tip__hist mono">{player.matchup_detail}</p></If></If><If cond={player.has_hist}><p class="stat-tip__hist mono">{player.hist}</p><p class="stat-tip__hist-note">{player.hist_label}</p></If>
 						</div>
 					</details>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
-					<If cond={player.rostered}><span class="position-chip position-chip--locked">{player.owner_abbr}</span></If>
+					<If cond={player.rostered}><span class="position-chip position-chip--locked" title={player.owner_name}>{player.owner_abbr}</span></If>
 					<If cond={player.on_waivers}><span class="position-chip">ON WAIVERS · {player.waiver_resolves}</span></If>
 					<If cond={player.free_agent}><span class="position-chip">FREE AGENT</span></If>
 					<If cond={data.can_edit}>
@@ -710,18 +710,26 @@ func PlayerPoolRegion() Node {
 // WaiverDeskRegion keeps private claims/receipts and the league order in one
 // server-authoritative swap. Query/filter/page values are carried by the
 // fragment URL and every native form, so a failed refresh never resets them.
+//
+// Its own waiver-desk-explainer paragraph, below, is a hand-duplicated copy
+// of Page()'s (item 10, 2026-08-31 post-wave audit): the two drifted apart
+// ("controls which requests run first" here vs "controls which of your
+// requests runs first" in Page()), so a manager reading the fragment's 4s
+// interval refresh saw different wording than the initial page load. Keep
+// this paragraph's text byte-for-byte identical to Page()'s own
+// waiver-desk-explainer <p> if either ever needs to change.
 func WaiverDeskRegion() Node {
 	return <section class="player-pool">
 		<div class="pool-toolbar"><div><span class="section-index">02 // WAIVER DESK</span><If cond={data.pool_unavailable}><h2>Player data unavailable</h2></If><If cond={data.pool_unavailable == false && data.can_edit}><h2>My claims</h2></If><If cond={data.pool_unavailable == false && data.can_edit == false}><h2>Waiver access</h2></If></div><If cond={data.can_edit}><If cond={data.waivers_faab == false}><span class="mono">Team waiver position {data.my_waiver_position} of {data.waiver_team_count}</span></If><If cond={data.waivers_faab}><span class="mono">Budget {data.my_faab_remaining} FAAB</span></If></If></div>
 		<If cond={data.pool_unavailable}><div class="empty-tape"><strong>WAIVER ACTIONS PAUSED</strong><p>Claims and roster changes are blocked until the authoritative player list is available again.</p></div></If>
 		<If cond={data.pool_unavailable == false && data.can_edit == false}><div class="empty-tape"><strong>{data.public_entry.state_label}</strong><p>{data.public_entry.detail}</p><If cond={data.public_entry.can_claim || data.public_entry.action_href != "/join"}><a class="draft-button" href={data.public_entry.action_href} data-gosx-link>{data.public_entry.action_label}</a></If></div></If>
 		<If cond={data.can_edit}>
-			<p class="scoring-note waiver-desk-explainer">Your numbered claim order is private to this team and controls which requests run first. Team waiver position is the public league tiebreaker.<If cond={data.waivers_faab}> Higher FAAB bids run first; ties use public team waiver position.</If></p>
+			<p class="scoring-note waiver-desk-explainer">Your numbered claim order is private to this team and controls which of your requests runs first. Team waiver position is the separate public league tiebreaker.<If cond={data.waivers_faab}> Higher FAAB bids run first; tied bids use public team waiver position, then this private order for claims from the same team.</If></p>
 			<If cond={data.my_claims_empty}><div class="empty-tape"><strong>NO OPEN CLAIMS</strong><p>File a claim from an ON WAIVERS row above; it resolves once waivers clear.</p></div></If>
 			<div class="pool-list waiver-claim-list"><Each of={data.my_claims} as="claim"><article class="waiver-claim-row"><div class="pool-player"><div class="pool-player__text"><strong>{claim.add_name}</strong><small><If cond={claim.has_drop}>drops {claim.drop_label} ·</If> filed {claim.filed_at}</small></div></div><div class="waiver-claim-meta"><span class="position-chip">{claim.add_position}</span><b class="mono">Claim order {claim.priority} of {claim.claim_count}</b><span class="mono">Team waiver position {claim.waiver_position} of {claim.waiver_team_count}</span><If cond={claim.faab}><span class="mono">Bid {claim.bid} FAAB</span></If><If cond={claim.resolution_state == "scheduled"}><span class="mono">RESOLVES {claim.resolution_at} ({claim.resolution_relative})</span></If><If cond={claim.resolution_state == "overdue"}><span class="position-chip position-chip--warn">RESOLUTION OVERDUE</span><small>{claim.resolution_at} ({claim.resolution_relative})</small></If><If cond={claim.resolution_state == "degraded"}><span class="position-chip position-chip--warn">RESOLUTION DEGRADED</span><small>{claim.resolution_label}</small></If><If cond={claim.resolution_state == "unknown"}><span class="position-chip position-chip--warn">RESOLUTION UNKNOWN</span><small>{claim.resolution_label}</small></If><If cond={claim.resolution_state == "deferred"}><span class="position-chip position-chip--warn">CLAIM DEFERRED</span><small>{claim.resolution_label}</small></If></div><div class="waiver-claim-actions" aria-label={"Filing-order controls for " + claim.add_name}><If cond={claim.can_move_up}><form method="post" action={actionPath("claim-move") + "#waivers"} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh"><input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="claim_id" value={claim.id}></input><input type="hidden" name="direction" value="up"></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input><button class="board-button" type="submit">Move up</button></form></If><If cond={claim.can_move_down}><form method="post" action={actionPath("claim-move") + "#waivers"} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh"><input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="claim_id" value={claim.id}></input><input type="hidden" name="direction" value="down"></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input><button class="board-button" type="submit">Move down</button></form></If><form method="post" action={actionPath("claim-cancel") + "#waivers"} data-gosx-managed="true" data-gosx-action-signal="$players.state.refresh"><input type="hidden" name="csrf_token" value={csrf.token}></input><input type="hidden" name="team_id" value={data.viewer.team_id}></input><input type="hidden" name="claim_id" value={claim.id}></input><input type="hidden" name="pos" value={data.pos}></input><input type="hidden" name="q" value={data.query}></input><input type="hidden" name="page" value={data.pool_page}></input><button class="board-button board-button--cut" type="submit">Cancel</button></form></div></article></Each></div>
 		</If>
 		<div class="pool-toolbar"><div><span class="section-index">03 // WAIVER ORDER</span><h2>This week's claim order</h2></div></div>
-		<ol class="waiver-order-strip"><Each of={data.waiver_order} as="slot"><li aria-current={slot.mine}><span class="mono">{slot.position}</span><span>{slot.abbr}</span></li></Each></ol>
+		<ol class="waiver-order-strip"><Each of={data.waiver_order} as="slot"><li aria-current={slot.mine}><span class="mono">{slot.position}</span><span title={slot.name}>{slot.abbr}</span></li></Each></ol>
 		<If cond={data.can_edit}><div class="pool-toolbar waiver-receipts-heading"><div><span class="section-index">PRIVATE RECEIPTS</span><h2>Recent waiver outcomes</h2></div><span class="mono">THIS TEAM ONLY</span></div><p class="scoring-note">Receipts persist independently of email settings.</p><If cond={data.my_receipts_empty}><div class="empty-tape"><strong>NO WAIVER RECEIPTS YET</strong><p>Won, beaten, and failed claims appear after processing.</p></div></If><div class="waiver-receipt-list"><Each of={data.my_waiver_receipts} as="receipt"><article class="waiver-receipt-row"><div class="waiver-receipt-outcome"><strong class="mono">{receipt.outcome}</strong><span>Week {receipt.week} · {receipt.resolved_at}</span></div><div class="waiver-receipt-player"><strong>{receipt.add_name} <span class="position-chip">{receipt.add_position}</span></strong><If cond={receipt.has_drop}><span>Drops {receipt.drop_label}</span></If><span>{receipt.reason}</span></div><div class="waiver-receipt-order mono"><span>Filed order {receipt.submitted_order}</span><span>Team position {receipt.waiver_position} of {receipt.waiver_team_count}</span></div></article></Each></div></If>
 		<If cond={data.is_commissioner}><div class="pool-toolbar waiver-receipts-heading"><div><span class="section-index">COMMISSIONER RECEIPTS</span><h2>All teams' waiver outcomes</h2></div><span class="mono">COMMISSIONER ONLY</span></div><p class="scoring-note">The newest 50 outcomes across every team.</p><If cond={data.commissioner_receipts_empty}><div class="empty-tape"><strong>NO WAIVER RECEIPTS YET</strong><p>Won, beaten, and failed claims appear after processing.</p></div></If><div class="waiver-receipt-list"><Each of={data.commissioner_waiver_receipts} as="receipt"><article class="waiver-receipt-row"><div class="waiver-receipt-outcome"><strong class="mono">{receipt.outcome}</strong><span>{receipt.team_abbr} · Week {receipt.week} · {receipt.resolved_at}</span></div><div class="waiver-receipt-player"><strong>{receipt.add_name} <span class="position-chip">{receipt.add_position}</span></strong><If cond={receipt.has_drop}><span>Drops {receipt.drop_label}</span></If><span>{receipt.reason}</span><If cond={receipt.has_winner}><span>Winner: {receipt.winner_name} ({receipt.winner_abbr})</span></If><If cond={receipt.has_winning_bid}><span>Winning bid: {receipt.winning_bid} FAAB</span></If></div><div class="waiver-receipt-order mono"><span>Filed order {receipt.submitted_order}</span><span>Team position {receipt.waiver_position} of {receipt.waiver_team_count}</span></div></article></Each></div></If>
 	</section>

@@ -84,6 +84,34 @@ func TestActivityLineForwardCompatTypes(t *testing.T) {
 	}
 }
 
+// TestActivityLineTradeReadsFromTheActingTeamsOwnPerspective is item 8's
+// own regression test (2026-08-31 post-wave audit): ExecuteTradeOffer
+// (store.go) sets a trade Transaction's TeamID to the acting
+// (initiating) side, with Adds = what that team RECEIVED (offer.Get) and
+// Drops = what that team GAVE UP (offer.Give). The feed row leads with
+// this same team (activityTeamIDs, activity.go), so the line must read
+// "gives <what they gave> for <what they got>" — before this fix,
+// activityLine returned "trades " + adds + " for " + drops, naming what
+// the acting team RECEIVED first: "Kernel Panic trades Jerry Jeudy for
+// Chris Olave" read as if Kernel Panic gave up Jeudy, when they actually
+// gave up Olave and received Jeudy.
+func TestActivityLineTradeReadsFromTheActingTeamsOwnPerspective(t *testing.T) {
+	txn := Transaction{
+		Type:        "trade",
+		TeamID:      "team-kernel-panic",
+		OtherTeamID: "team-other",
+		Adds:        []TransactionPlayer{{Name: "Jerry Jeudy", Position: "WR"}}, // what team-kernel-panic RECEIVED
+		Drops:       []TransactionPlayer{{Name: "Chris Olave", Position: "WR"}}, // what team-kernel-panic GAVE UP
+	}
+	action, player := activityLine(txn)
+	if action != "gives" {
+		t.Fatalf("action = %q, want %q", action, "gives")
+	}
+	if want := "Chris Olave (WR) for Jerry Jeudy (WR)"; player != want {
+		t.Fatalf("player = %q, want %q (gives what they GAVE UP first, then what they RECEIVED)", player, want)
+	}
+}
+
 // TestActivityMapsOrderingAndLimit checks activityMaps merges Picks and
 // Transactions newest-first and honors the row limit (the dashboard's
 // "newest five" contract, section 8.4).
@@ -190,6 +218,36 @@ func TestActivityDataFiltersByTeamAndQueryAndPreservesState(t *testing.T) {
 	}
 }
 
+// TestActivityDataTeamOptionsCarryTheTeamNameWithTheCodeSecondary is item
+// 9's own regression test (2026-08-31 post-wave audit): the /activity
+// team filter used to expose only bare abbreviations ("teams", still kept
+// for backward compatibility) with no team name anywhere — team_options
+// pairs each option's value (the abbreviation the "team" query param and
+// activityTeamMatches key on) with a label naming the team ("Team Name
+// (CODE)"), so app/activity/page.gsx (tamarack) can render the filter
+// <select> the same "name with code secondary" way the /players owner
+// chip and waiver-order strip now do.
+func TestActivityDataTeamOptionsCarryTheTeamNameWithTheCodeSecondary(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.teams = []Team{
+		{ID: "team-1", Name: "Alpha Aces", Abbreviation: "ALP"},
+		{ID: "team-2", Name: "Beta Bears", Abbreviation: "BET"},
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/activity?team=BET", nil)
+	data := svc.ActivityData(request)
+	options, ok := data["team_options"].([]map[string]any)
+	if !ok || len(options) != 2 {
+		t.Fatalf("team_options = %#v, want 2 entries", data["team_options"])
+	}
+	if options[0]["value"] != "ALP" || options[0]["label"] != "Alpha Aces (ALP)" || options[0]["selected"] != false {
+		t.Fatalf("team_options[0] = %+v, want value=ALP label=\"Alpha Aces (ALP)\" selected=false", options[0])
+	}
+	if options[1]["value"] != "BET" || options[1]["label"] != "Beta Bears (BET)" || options[1]["selected"] != true {
+		t.Fatalf("team_options[1] = %+v, want value=BET label=\"Beta Bears (BET)\" selected=true", options[1])
+	}
+}
+
 func activityParityService(t *testing.T) *Service {
 	t.Helper()
 	svc := newTestService(t, true)
@@ -241,14 +299,14 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 	request, _ = http.NewRequest(http.MethodGet, "/activity?q=Beta+Bears", nil)
 	data = svc.ActivityData(request)
 	rows, _ = data["transactions"].([]map[string]any)
-	if len(rows) != 1 || rows[0]["action"] != "trades" {
+	if len(rows) != 1 || rows[0]["action"] != "gives" {
 		t.Fatalf("counterparty name search rows = %+v, want the trade", rows)
 	}
 
 	request, _ = http.NewRequest(http.MethodGet, "/activity?q=BET", nil)
 	data = svc.ActivityData(request)
 	rows, _ = data["transactions"].([]map[string]any)
-	if len(rows) != 1 || rows[0]["action"] != "trades" {
+	if len(rows) != 1 || rows[0]["action"] != "gives" {
 		t.Fatalf("counterparty abbreviation search rows = %+v, want the trade", rows)
 	}
 
@@ -265,7 +323,7 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 		if len(rows) != tc.want {
 			t.Fatalf("team ID search %q rows = %+v, want %d", tc.query, rows, tc.want)
 		}
-		if rows[0]["action"] != "trades" {
+		if rows[0]["action"] != "gives" {
 			t.Fatalf("team ID search %q newest row = %+v, want trade", tc.query, rows[0])
 		}
 	}
@@ -278,7 +336,7 @@ func TestActivityTradeAppearsForBothPartiesWithoutDuplicating(t *testing.T) {
 	}
 	tradeRows := 0
 	for _, candidate := range rows {
-		if candidate["action"] == "trades" {
+		if candidate["action"] == "gives" {
 			tradeRows++
 		}
 	}

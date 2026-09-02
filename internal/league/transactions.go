@@ -102,7 +102,20 @@ func activityLine(t Transaction) (action string, player string) {
 		}
 		return "claims", adds
 	case "trade":
-		return "trades", adds + " for " + drops
+		// Item 8 (2026-08-31 post-wave audit): t.TeamID is the acting
+		// (initiating) side — ExecuteTradeOffer (store.go) sets it to
+		// offer.FromTeamID, with Adds = offer.Get (what that team
+		// RECEIVES) and Drops = offer.Give (what that team GIVES UP). The
+		// feed row's own "team" label leads with this same TeamID
+		// (activityTeamIDs, activity.go: [t.TeamID, t.OtherTeamID], joined
+		// "TeamA ↔ TeamB" by activityTeamDisplay) — so the sentence reads
+		// from the acting team's own perspective, and "gives X for Y" must
+		// name X (what they gave) before Y (what they got). The old
+		// "trades " + adds + " for " + drops read backwards: it put what
+		// the acting team RECEIVED first, so "Kernel Panic trades Jerry
+		// Jeudy for Chris Olave" appeared to claim Kernel Panic gave up
+		// Jeudy, when they actually gave up Olave and received Jeudy.
+		return "gives", drops + " for " + adds
 	case "auto-drop":
 		return "auto-drops", drops
 	case "commissioner":

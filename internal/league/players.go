@@ -269,11 +269,19 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 				}
 			}
 		}
-		ownerAbbr := ""
+		// owner_name (item 9, 2026-08-31 post-wave audit) rides beside
+		// owner_abbr so the compact chip that shows the abbreviation
+		// (page.gsx's position-chip--locked, e.g. "W4") can also carry the
+		// full team name as a title/aria-label — the chip carried no name
+		// anywhere before this, only the bare code, with no title at all.
+		ownerAbbr, ownerName := "", ""
 		if rostered {
-			ownerAbbr = s.teamByID(ownerID).Abbreviation
+			owningTeam := s.teamByID(ownerID)
+			ownerAbbr = owningTeam.Abbreviation
+			ownerName = owningTeam.Name
 		}
 		row["owner_abbr"] = ownerAbbr
+		row["owner_name"] = ownerName
 		row["can_add"] = canEdit && open && freeAgent
 		row["can_claim"] = canEdit && open && onWaivers && !claimedByMe
 		row["claimed_by_me"] = claimedByMe

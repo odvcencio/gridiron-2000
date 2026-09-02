@@ -1,6 +1,7 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -48,8 +49,27 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	filtered = filtered[pagination.Start:pagination.End]
 
 	teams := make([]string, 0, len(s.Teams()))
+	// teamOptions (item 9, 2026-08-31 post-wave audit) carries the team
+	// NAME with its code as a secondary label ("Eastside Elite (E1)"),
+	// value still the bare abbreviation the "team" query param and
+	// activityTeamMatches already key on — teams (above) stays abbreviation
+	// -only for backward compatibility with existing callers/fixtures; the
+	// /activity team filter <select> (app/activity/page.gsx) should read
+	// this instead of building "{team}" option text from the bare code
+	// alone, the same code-with-no-name gap the /players owner chip and
+	// waiver-order strip had (players.go, page.gsx).
+	teamOptions := make([]map[string]any, 0, len(s.Teams()))
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
+		label := candidate.Abbreviation
+		if candidate.Name != "" {
+			label = fmt.Sprintf("%s (%s)", candidate.Name, candidate.Abbreviation)
+		}
+		teamOptions = append(teamOptions, map[string]any{
+			"value":    candidate.Abbreviation,
+			"label":    label,
+			"selected": candidate.Abbreviation == team,
+		})
 	}
 	timezone := FriendlyTimezoneLabel(s.matchupLocation().String())
 	return map[string]any{
@@ -64,6 +84,7 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 		"filtered_count":     pagination.Total,
 		"team":               team,
 		"teams":              teams,
+		"team_options":       teamOptions,
 		"query":              rawQuery,
 		"has_filters":        team != "" || rawQuery != "",
 		"page":               pagination.Page,

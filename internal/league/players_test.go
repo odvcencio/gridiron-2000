@@ -335,6 +335,13 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	if got := byID["rb-open"]["owner_abbr"]; got != svc.teamByID("team-1").Abbreviation {
 		t.Fatalf("rb-open owner_abbr = %v, want %s", got, svc.teamByID("team-1").Abbreviation)
 	}
+	// owner_name is item 9's own regression check (2026-08-31 post-wave
+	// audit): the owner chip (page.gsx's position-chip--locked span) used
+	// to carry only the bare abbreviation with no title attribute at all
+	// — a manager had no way to learn which team "W4" even was.
+	if got := byID["rb-open"]["owner_name"]; got != svc.teamByID("team-1").Name {
+		t.Fatalf("rb-open owner_name = %v, want %s", got, svc.teamByID("team-1").Name)
+	}
 	if canAdd, _ := byID["fa-open"]["can_add"].(bool); !canAdd {
 		t.Fatal("fa-open must be addable")
 	}

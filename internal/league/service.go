@@ -2057,7 +2057,15 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
 	teamID, _ := viewer["team_id"].(string)
-	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, currentWeek)
+	// lockWeek is the lineup-lock authority (item 7, 2026-08-31 post-wave
+	// audit): the same lineupCurrentWeekAt concept /team's own week
+	// selector (teamWeekOptions, lineup_deadline.go) already uses to
+	// decide which weeks are still editable. featuredMatchupMap uses it,
+	// together with the VIEWED week (selectedWeek), to target its own
+	// "Set lineup for Week N" CTA at whichever week is actually
+	// editable — see that function's own doc comment.
+	lockWeek := lineupCurrentWeekAt(s.schedule(), s.clock())
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, selectedWeek, lockWeek)
 	return map[string]any{
 		"viewer":             viewer,
 		"live":               s.liveMapForWeek(live, isCurrentWeek),
@@ -2300,7 +2308,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	}
 
 	games := s.schedule()
-	weekSelection := normalizeLineupWeek(r.URL.Query().Get("week"), games, now)
+	// teamWeekOptions (item 6, 2026-08-31 post-wave audit) replaces a bare
+	// normalizeLineupWeek + sortedFutureLineupWeeks pair here: those two
+	// draw their offered/valid week set from games alone (the raw NFL
+	// schedule mirror, up to 18 weeks), never from this league's own
+	// published season length (state.Schedule). See teamWeekOptions' own
+	// doc comment (lineup_deadline.go) for the full "1-18 on a 14-week
+	// league" bug this closes.
+	weekSelection := teamWeekOptions(r.URL.Query().Get("week"), state.Schedule, games, now)
 	week := weekSelection.Week
 	preset := CurrentRoster()
 	// Zone occupants (RESERVE, IR) never reach the lineup engine: general
@@ -2318,7 +2333,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		}
 	}
 	weekOptions := make([]map[string]any, 0, len(weekSelection.Weeks))
-	for _, w := range sortedFutureLineupWeeks(games, weekSelection.CurrentWeek) {
+	for _, w := range weekSelection.Weeks {
 		weekOptions = append(weekOptions, map[string]any{
 			"value":    strconv.Itoa(w),
 			"label":    fmt.Sprintf("WEEK %d", w),
@@ -4567,7 +4582,7 @@ func otherMatchupsCountLabel(count int) string {
 // threaded down to every starterProjections call this function and
 // featuredMatchupMap make, rather than each call taking the pool itself
 // (round-2 review of commit 133d1d7, finding 3).
-func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, currentWeek int) (map[string]any, []map[string]any) {
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, viewedWeek, lockWeek int) (map[string]any, []map[string]any) {
 	status, hasLive := s.liveStatus()
 	pool := s.pool()
 	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
@@ -4602,7 +4617,7 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 	if index < 0 {
 		return emptyFeaturedMatchup(), other
 	}
-	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, currentWeek, status, hasLive, pool.byID), other
+	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, viewedWeek, lockWeek, status, hasLive, pool.byID), other
 }
 
 // emptyFeaturedMatchup is my_matchup's shape when the week has no
@@ -4624,7 +4639,7 @@ func emptyFeaturedMatchup() map[string]any {
 // nothing distinguishes the two sides for a spectator. byID is the
 // caller's single s.pool().byID read for the whole render (see
 // featuredMatchupViews).
-func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, currentWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
+func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, viewedWeek, lockWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
 	mine, theirs := m.Home, m.Away
 	if isViewer && m.Away.ID == teamID {
 		mine, theirs = m.Away, m.Home
@@ -4645,11 +4660,27 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	if !isViewer {
 		label = "FEATURED"
 	}
-	// next_week/has_next_week clamp the footer's "set lineup" link to the
-	// schedule's own last week — currentWeek+1 alone could name a week
-	// that was never generated once the season is on its final week
+	// next_week/has_next_week target the VIEWED week (viewedWeek) when its
+	// own lineup slots are still editable — not yet kicked off, the same
+	// lockWeek authority /team's own week selector uses
+	// (lineupCurrentWeekAt, teamWeekOptions) — or lockWeek itself (the
+	// next actually-editable week) when the viewed week has already
+	// closed. Both are then clamped to the schedule's own last week — a
+	// week that was never generated once the season is on its final week
 	// (round-2 review of commit 133d1d7, finding 4).
-	nextWeek := currentWeek + 1
+	//
+	// Item 7 (2026-08-31 post-wave audit): this used to be a flat
+	// currentWeek+1 — currentWeek here was MatchupsData's own
+	// currentScheduleWeek (a SCORING-finality concept, the first
+	// not-all-final week), not lineupCurrentWeekAt's LOCK concept, and it
+	// never read viewedWeek at all. A manager browsing /matchups?week=1
+	// while the site's scoring-current week sat at 2 always saw "Set
+	// lineup for Week 2," even when Week 1's own slots were the ones
+	// still open.
+	nextWeek := viewedWeek
+	if viewedWeek < lockWeek {
+		nextWeek = lockWeek
+	}
 	hasNextWeek := state.Schedule != nil
 	if state.Schedule != nil {
 		if weeks := seasonScheduleWeeks(*state.Schedule); len(weeks) > 0 && nextWeek > weeks[len(weeks)-1] {
