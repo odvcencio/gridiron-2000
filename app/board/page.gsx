@@ -278,6 +278,7 @@ func Page() Node {
 						</If>
 					</div>
 				</div>
+				<div class="pool-filter-rail" id="board-search-rail">
 				<div class="position-filters" aria-label="Filter available players by position">
 					<Each of={data.position_filters} as="filter">
 						<a href={filter.href} data-gosx-link class="filter-button" aria-current={filter.active}>{filter.label}</a>
@@ -291,6 +292,8 @@ func Page() Node {
 						name="q"
 						value={data.pool_query}
 						placeholder="Search player, team, or position"
+						inputmode="search"
+						enterkeyhint="search"
 						autocomplete="off"
 					 />
 					<If cond={data.pool_position != ""}>
@@ -301,6 +304,7 @@ func Page() Node {
 						<a class="filter-button" href={data.clear_filters_href} data-gosx-link>Clear</a>
 					</If>
 				</form>
+				</div>
 				<If cond={data.matching_count > 0}>
 					<p class="scoring-note" aria-live="polite">
 						Showing {data.pool_page_start}–{data.pool_page_end} of {data.matching_count} matching players · {data.available_count} available overall · page {data.pool_page} of {data.pool_pages}

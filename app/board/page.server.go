@@ -99,6 +99,11 @@ func init() {
 				}
 			}
 			data := league.Default().BoardData(request)
+			// No primary_action (larch's PageActionBar contract, item 4, wave
+			// 7b): every board/pool row posts its own RANK/move/remove form —
+			// there is no single "submit the rank form" verb the whole page
+			// shares the way /wire's sighting form or /pickem's picks do, so
+			// a bar action here would have to point at an arbitrary row.
 			data["board_return_target_field"] = boardReturnTargetField
 			data["board_return_target"] = boardReturnTargetForData(data)
 			data["has_notice"] = false

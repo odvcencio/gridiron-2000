@@ -68,6 +68,22 @@ func init() {
 					}
 				}
 			}
+			// primary_action (larch's PageActionBar contract, item 10, wave
+			// 7b): each player picks itself with its own small blitz-add/
+			// blitz-remove form (BlitzRow, page.gsx) — no single entry form
+			// to submit — so this links to the entry section
+			// (#blitz-entry, already this page's own anchor target for a
+			// mutation redirect, blitzEntryAnchor above) instead. Gated on
+			// can_enter: an archived contest or a seatless viewer has
+			// nothing to pick.
+			if canEnter, _ := data["can_enter"].(bool); canEnter {
+				data["primary_action"] = map[string]any{
+					"label": "Pick your five",
+					"href":  blitzEntryAnchor,
+					"kind":  "link",
+					"tone":  "primary",
+				}
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {

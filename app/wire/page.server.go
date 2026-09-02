@@ -15,6 +15,7 @@ import (
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/auth"
+	"m31labs.dev/gosx/ir"
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
@@ -48,6 +49,63 @@ const (
 	wireCommunityAnchor   = "#community-input"
 	wireReturnTargetField = action.ReturnTargetField
 )
+
+// wireVisibleSignalCount/wireVisibleFeedCount/wireVisibleSourceCount cap
+// how many rows each of /wire's three list-shaped sections (the news
+// feed, the RSS/syndication feed list, and the tracked Bluesky accounts)
+// render open by default (item 5, wave 7b): the 2026-08-31 audit found
+// the page ran 14,933px (17.7 screens) tall at 390px, almost entirely the
+// uncollapsed feed. Anything past the cap still renders — inside a native
+// <details data-> "Show N more" the manager opens locally, no fetch — so
+// nothing is ever hidden from a no-JS reader, just deferred past a fold.
+const (
+	wireVisibleSignalCount = 6
+	wireVisibleFeedCount   = 6
+	wireVisibleSourceCount = 6
+)
+
+// WireFeedListView is WireFeedList's (page.gsx) spread source: the same
+// visible-head/collapsed-tail split both Page()'s first render and
+// FeedFragmentWithError's poll response build from splitSignalCards, so
+// neither path can drift from the other's idea of where the fold sits.
+type WireFeedListView struct {
+	Visible       []WireSignalCard
+	Overflow      []WireSignalCard
+	HasOverflow   bool
+	OverflowCount int
+}
+
+func wireFeedListView(items []WireSignalCard, n int) WireFeedListView {
+	visible, overflow := splitSignalCards(items, n)
+	return WireFeedListView{
+		Visible:       visible,
+		Overflow:      overflow,
+		HasOverflow:   len(overflow) > 0,
+		OverflowCount: len(overflow),
+	}
+}
+
+// splitSignalCards divides items at n, returning the whole slice as
+// "visible" and a nil "overflow" when there is nothing past the cap to
+// collapse — so a short feed (the common case outside a busy game day)
+// never renders an empty, pointless "Show 0 more" toggle.
+func splitSignalCards(items []WireSignalCard, n int) (visible, overflow []WireSignalCard) {
+	if len(items) <= n {
+		return items, nil
+	}
+	return items[:n], items[n:]
+}
+
+// splitMaps is splitSignalCards' twin for the source-panel's two
+// map-shaped lists (feeds, Bluesky sources) — same cap/overflow shape,
+// generic over the "any" fields those maps carry rather than
+// WireSignalCard's typed struct fields.
+func splitMaps(items []map[string]any, n int) (visible, overflow []map[string]any) {
+	if len(items) <= n {
+		return items, nil
+	}
+	return items[:n], items[n:]
+}
 
 // wireCategory is the single allowlist boundary for the category query used
 // by the page, feed fragment, and submit form. Unknown or hostile values are
@@ -180,6 +238,23 @@ func init() {
 			data["wire_return_target_field"] = wireReturnTargetField
 			data["wire_return_target"] = wireReturnTargetForData(data)
 			applySubmissionState(ctx, data)
+			// primary_action (larch's PageActionBar contract, item 5, wave
+			// 7b): the sighting form (#wire-sighting-form, page.gsx) is the
+			// one verb worth surfacing — /wire's whole reason for a
+			// manager to scroll past the feed. Set only when a form is
+			// actually on the page to submit (data.can_submit, computed
+			// above by wirePageData): a signed-out visitor sees a sign-in
+			// link instead of the form, and a bar action naming a
+			// nonexistent form id would be a dead control.
+			if canSubmit, _ := data["can_submit"].(bool); canSubmit {
+				data["primary_action"] = map[string]any{
+					"label": "Transmit sighting",
+					"href":  "#community-input",
+					"kind":  "submit",
+					"form":  "wire-sighting-form",
+					"tone":  "primary",
+				}
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
@@ -445,22 +520,33 @@ func wirePageData(request *http.Request, signals *signalwire.Service, stats *ope
 	if len(recent) > 0 {
 		lastID = recent[0].ID
 	}
+	visibleFeeds, overflowFeeds := splitMaps(feeds, wireVisibleFeedCount)
+	visibleSources, overflowSources := splitMaps(sources, wireVisibleSourceCount)
 	return map[string]any{
-		"viewer":            viewer,
-		"league":            league.Default().LeagueIdentityForViewer(request),
-		"signals":           items,
-		"empty":             len(items) == 0,
-		"last_event_id":     lastID,
-		"category":          category,
-		"filters":           wireFilterMaps(category),
-		"fragment_url":      wireFragmentURL(category),
-		"wire_mode":         wirePresentationLabel(wireStatus, now),
-		"wire_health":       wireHealthLabel(wireStatus, now),
-		"wire_indicator":    wireLiveIndicator(wireStatus, now),
-		"wire_configured":   wireStatus.Configured,
-		"wire_issue":        wireStatus.ConfigurationIssue,
-		"wire_source_issue": wireStatus.SourceIssue,
-		"wire_error":        wireStatus.LastError,
+		"viewer":                 viewer,
+		"league":                 league.Default().LeagueIdentityForViewer(request),
+		"signals":                items,
+		"feed_list":              wireFeedListView(items, wireVisibleSignalCount),
+		"feeds_visible":          visibleFeeds,
+		"feeds_overflow":         overflowFeeds,
+		"has_feeds_overflow":     len(overflowFeeds) > 0,
+		"feeds_overflow_count":   len(overflowFeeds),
+		"sources_visible":        visibleSources,
+		"sources_overflow":       overflowSources,
+		"has_sources_overflow":   len(overflowSources) > 0,
+		"sources_overflow_count": len(overflowSources),
+		"empty":                  len(items) == 0,
+		"last_event_id":          lastID,
+		"category":               category,
+		"filters":                wireFilterMaps(category),
+		"fragment_url":           wireFragmentURL(category),
+		"wire_mode":              wirePresentationLabel(wireStatus, now),
+		"wire_health":            wireHealthLabel(wireStatus, now),
+		"wire_indicator":         wireLiveIndicator(wireStatus, now),
+		"wire_configured":        wireStatus.Configured,
+		"wire_issue":             wireStatus.ConfigurationIssue,
+		"wire_source_issue":      wireStatus.SourceIssue,
+		"wire_error":             wireStatus.LastError,
 		// wire_empty is WireEmptyState's spread source: a strict component
 		// called from this legacy Page() body must receive one {...} spread,
 		// never named attributes built from separate map keys (gosx's
@@ -529,18 +615,60 @@ func FeedFragmentWithError(request *http.Request, signals *signalwire.Service) (
 			},
 		})
 	}
-	cards := make([]gosx.Node, 0, len(recent))
+	items := make([]WireSignalCard, 0, len(recent))
 	for _, signal := range recent {
-		card := wireSignalCard(signal, wireStatus, now)
+		items = append(items, wireSignalCard(signal, wireStatus, now))
+	}
+	// The same visible-head/collapsed-tail split wireFeedListView gives
+	// Page()'s own first render (item 5, wave 7b) — so a 20s /wire/fragment
+	// poll can never silently uncollapse, or re-collapse past a different
+	// count than, whatever a manager left open. RenderProgramComponentNode
+	// only resolves "component"-keyword declarations by name (empirically:
+	// pointing it at WireFeedList, a plain func, rendered zero cards with
+	// no error — the reflection-driven Props binding that lookup uses does
+	// not walk a func-style entry point the way it does SignalCard/
+	// WireEmptyState), so the overflow <details> wrapper is hand-built
+	// here from gosx's own node primitives around per-card
+	// RenderProgramComponentNode("SignalCard", ...) calls, rather than by
+	// invoking WireFeedList through that same lookup.
+	visible, overflow := splitSignalCards(items, wireVisibleSignalCount)
+	visibleNodes, err := renderSignalCardNodes(program, visible)
+	if err != nil {
+		return gosx.Node{}, err
+	}
+	if len(overflow) == 0 {
+		return gosx.Fragment(visibleNodes...), nil
+	}
+	overflowNodes, err := renderSignalCardNodes(program, overflow)
+	if err != nil {
+		return gosx.Node{}, err
+	}
+	detailsArgs := []any{
+		gosx.Attrs(gosx.Attr("class", "wire-more")),
+		gosx.El("summary", gosx.Attrs(gosx.Attr("class", "wire-more__summary")), gosx.Text(fmt.Sprintf("Show %d more", len(overflow)))),
+	}
+	for _, node := range overflowNodes {
+		detailsArgs = append(detailsArgs, node)
+	}
+	details := gosx.El("details", detailsArgs...)
+	return gosx.Fragment(append(visibleNodes, details)...), nil
+}
+
+// renderSignalCardNodes renders each item through the same typed SignalCard
+// component (page.gsx) the initial page uses, so a card's markup can never
+// drift between the first render and a later /wire/fragment poll.
+func renderSignalCardNodes(program *ir.Program, items []WireSignalCard) ([]gosx.Node, error) {
+	nodes := make([]gosx.Node, 0, len(items))
+	for _, card := range items {
 		node, err := route.RenderProgramComponentNode(program, "SignalCard", route.ProgramRenderEnv{
 			Props: card,
 		})
 		if err != nil {
-			return gosx.Node{}, fmt.Errorf("render wire SignalCard %q: %w", card.ID, err)
+			return nil, fmt.Errorf("render wire SignalCard %q: %w", card.ID, err)
 		}
-		cards = append(cards, node)
+		nodes = append(nodes, node)
 	}
-	return gosx.Fragment(cards...), nil
+	return nodes, nil
 }
 
 // PulseData is the small polled JSON object /api/wire/pulse answers with

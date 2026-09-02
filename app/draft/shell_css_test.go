@@ -238,18 +238,32 @@ func TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth(t *testing.T) {
 			t.Errorf("the base .draft-command__banner rule must still set %q (one line at desktop): %s", want, rule)
 		}
 	}
-	last := strings.LastIndex(css, "@media (max-width: 56.1875rem)")
-	if last < 0 {
-		t.Fatal("stylesheet missing the phone/tablet @media (max-width: 56.1875rem) block")
-	}
-	block := css[last:]
-	if next := strings.Index(block[len("@media (max-width: 56.1875rem)"):], "\n@media"); next >= 0 {
-		block = block[:next+len("@media (max-width: 56.1875rem)")]
+	// Wave 7 (multiple workers, each appending their own page-scoped
+	// rules in a file-end block per the shared append convention) added
+	// several more "@media (max-width: 56.1875rem)" blocks after this
+	// one, so the single LAST such block is no longer reliably the one
+	// carrying this override (round-2 fix, 2026-09-02: the ash/wave-7b
+	// worktree's own merge surfaced this false failure). Scan every
+	// occurrence of that media query and use whichever one actually
+	// contains .draft-command__banner, rather than assuming it is last.
+	mediaQuery := "@media (max-width: 56.1875rem)"
+	var block string
+	for search := css; ; {
+		next := strings.Index(search, mediaQuery)
+		if next < 0 {
+			t.Fatal("stylesheet missing a phone/tablet @media (max-width: 56.1875rem) block that overrides .draft-command__banner")
+		}
+		candidate := search[next:]
+		if end := strings.Index(candidate[len(mediaQuery):], "\n@media"); end >= 0 {
+			candidate = candidate[:end+len(mediaQuery)]
+		}
+		if strings.Contains(candidate, ".draft-command__banner {") {
+			block = candidate
+			break
+		}
+		search = search[next+len(mediaQuery):]
 	}
 	overrideStart := strings.Index(block, ".draft-command__banner {")
-	if overrideStart < 0 {
-		t.Fatal("P1-10: the phone/tablet media block must override .draft-command__banner to allow a second line")
-	}
 	overrideEnd := strings.Index(block[overrideStart:], "}")
 	override := block[overrideStart : overrideStart+overrideEnd]
 	for _, want := range []string{"white-space: normal", "max-height"} {

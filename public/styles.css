@@ -9399,10 +9399,15 @@ body.is-on-clock .draft-clock-panel {
   min-width: 0;
 }
 
+/* Item 8 (wave 7b, mobile pass): 0.72rem (11.52px) sat below the 13px
+   sub-body floor every other status/freshness line in the app holds —
+   var(--type-xs) is that same floor (touch_and_type_floor_contract_test.go's
+   own pin, matched by the "wave-6 audit" .state-chip/.state fix in this
+   file for the identical reason). */
 .commissioner-hq__refresh-status {
   margin: 0 0 var(--space-sm);
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--type-xs);
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -13316,5 +13321,331 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   .results-team-card {
     flex: 0 0 88vw;
     scroll-snap-align: start;
+  }
+}
+
+/* wave 7b — ash ------------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention "wave 6 — rowan" and "wave 7 — hazel" (above) already use.
+   Every selector below is new; nothing above this comment is modified
+   except where an inline "wave 7b — ash" comment elsewhere in this file
+   says so. */
+
+/* Item 1/9: .pickem-weeknav is shared by /matchups (WeekBrowser,
+   app/matchups/page.gsx) and /pickem (PickemLiveRegion's own week nav,
+   app/pickem/page.gsx) — see WeekBrowserProps' own doc comment for why
+   matchups keeps this exact class. On a phone the week strip becomes a
+   sticky, horizontally snap-scrolling row of chips directly under the
+   fixed top bar (.mobile-navigation-static, top: 0, z-index 50 — this
+   strip's own z-index sits below that so the two never fight during an
+   overscroll): the wrap layout it used at every other width buried the
+   current week several lines down a manager had to hunt for, and the
+   status-line prose that follows it in the DOM (both pages) stays in
+   normal flow beneath it, never covered. Every existing child
+   (.board-button, .lineup-week-form, the "Back to current week"
+   .access-link) already renders at the 44px floor elsewhere in this file
+   (.pickem-weeknav .board-button above; the #main-content re-assert for
+   .pickem-weeknav > a[data-gosx-link] and .lineup-week-form button); this
+   rule only changes how they lay out and scroll, not their own size — it
+   stays inside the page's own padded content column (no full-bleed
+   negative margin) so it cannot introduce horizontal document overflow. */
+@media (max-width: 56.1875rem) {
+  .pickem-weeknav {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-block: var(--space-xs);
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .pickem-weeknav > a,
+  .pickem-weeknav > .access-link,
+  .pickem-weeknav .lineup-week-form {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* /pickem's own <select> carries no .board-button class (unlike
+     /matchups' WeekBrowser, which sets one) — floor it directly here so
+     both pages' week-select reach the same 44px chip height inside the
+     strip. */
+  .pickem-weeknav select {
+    min-height: var(--control-h);
+  }
+}
+
+/* Item 2/3/4: .pool-filter-rail wraps /players' position-filter chips and
+   search form (both Page()'s initial render and PlayerPoolRegion's
+   fragment copy, app/players/page.gsx — only one is ever in the DOM at
+   once, so the shared id below never duplicates); /activity's own filter
+   rail (app/activity/page.gsx) reuses this same class. Sticky at phone
+   width, directly under the fixed top bar, for the same reason and with
+   the same z-index as the .pickem-weeknav rule above: the pre-wave-7b
+   audit found re-filtering /players cost a 1200px scroll back up to
+   reach these controls, since they were position: static. */
+@media (max-width: 56.1875rem) {
+  .pool-filter-rail {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    padding-top: var(--space-xs);
+    background: var(--color-canvas-deep);
+  }
+
+  /* .pool-back-to-top / .activity-back-to-top (item 3) are only worth
+     showing once the list they follow is long enough to make a manual
+     scroll costly, i.e. only once the filter rail above has scrolled out
+     of view for real — but that is a scroll-position fact CSS alone
+     cannot key on. Rendering the link unconditionally, at every list
+     length, costs nothing broken: on a short list the rail is still one
+     scroll away regardless, and a manager who does not need it simply
+     never taps it. */
+  .pool-back-to-top,
+  .activity-back-to-top {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-h);
+    margin: var(--space-sm) 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    text-decoration: none;
+  }
+}
+
+/* Item 3: /activity's pagination controls duplicate at the top of the
+   list (pool-pagination--top, app/activity/page.gsx/ActivityRegion) so a
+   manager filtering or paging a long feed does not have to scroll past
+   every entry to reach Next/Previous — hidden by default (desktop already
+   keeps the bottom copy within easy reach) and shown only at phone/tablet
+   width, where the audit found the feed ran to 5980px. */
+.pool-pagination--top {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .pool-pagination--top {
+    display: flex;
+    margin-top: 0;
+    padding-top: 0;
+    padding-bottom: var(--space-sm);
+    border-top: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+}
+
+/* Item 5: /wire's section strip (Feed · Sources · Sighting) — plain
+   in-page anchors (#wire-feed, #wire-sources, #community-input), no JS,
+   so it works exactly the same with scripting off. Hidden above the
+   phone/tablet breakpoint: at desktop width .wire-layout is already a
+   two-column grid with every section on screen at once (public/styles.css,
+   .wire-layout), so a jump strip has nothing to add there. */
+.wire-section-strip {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .wire-section-strip {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    display: flex;
+    gap: var(--space-xs);
+    overflow-x: auto;
+    padding: var(--space-xs) 0;
+    margin-bottom: var(--space-sm);
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .wire-section-strip > a {
+    flex: 0 0 auto;
+    min-height: var(--control-h);
+  }
+
+  /* scroll-margin-top clears both the fixed top bar and this sticky
+     strip sitting right beneath it, so a tap on Feed/Sources/Sighting
+     lands the target section's own heading below both rather than
+     partially hidden under them (the same #main-content scroll-margin
+     idiom this file already uses for the fixed bar alone). */
+  #wire-feed,
+  #wire-sources,
+  #community-input {
+    scroll-margin-top: calc(var(--mobile-bar-height) * 2);
+  }
+}
+
+/* Item 5: the collapsed "Show N more" tail (.wire-more, WireFeedList in
+   page.gsx and the source-panel feed/account lists) — a native <details>,
+   so a manager on a script-disabled browser still reaches every signal,
+   feed, and tracked account, just past one extra tap. Sized like the
+   other section toggles in this file (.board-jump, wave 7 — hazel) so it
+   reads as a real control, not a stray label. */
+.wire-more {
+  margin-top: var(--space-sm);
+}
+
+.wire-more__summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wire-more__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Item 6: the shared .guide-toc jump strip (/scoring, /help, /guide — the
+   only three pages that use this class) is already position: sticky at
+   every width (public/styles.css, above) — a 2026-09-01 UX audit
+   (finding 10, that rule's own comment) deliberately rejected a
+   horizontally scrolling strip here after measuring four links fully
+   off-screen with no cue at 390px, the exact failure mode a "no hidden
+   horizontal scroll" product rule exists to prevent; it wraps onto a
+   second row instead, staying sticky and fully reachable at any width.
+   Item 6's own sticky/no-JS intent is already met by that wrap — this
+   rule only re-pins the strip's stick offset under the FIXED top bar at
+   phone/tablet width, so it does not try to stick 3px from the true
+   viewport top and sit half-covered by that fixed bar's own z-index 50. */
+@media (max-width: 56.1875rem) {
+  .guide-toc {
+    top: var(--mobile-bar-height);
+  }
+}
+
+/* /scoring's own jump targets are <details class="player-pool" id="...">
+   sections (unlike /help and /guide's <section class="guide-section">,
+   which already carries scroll-margin-top: 5rem above) — same landing
+   clearance under the sticky .guide-toc strip, on the page that does not
+   share that base class. */
+.scoring-page .player-pool[id] {
+  scroll-margin-top: 5rem;
+}
+
+/* Item 6: "Back to top" affordance for the three long reference pages
+   (/scoring, /help, /guide) — #main-content (every page's own root,
+   set by the shared layout) is already a valid anchor target, so this
+   needs no new id. */
+.back-to-top-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  margin: var(--space-lg) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-decoration: none;
+}
+
+/* Item 7: /admin's compact section strip — a short, sticky companion to
+   the fuller .admin-task-nav task board above it (same section anchors
+   that nav's own AdminTaskLink hrefs already use), for jumping straight
+   to a section while scrolled deep into the ~19,700px console. Unlike
+   /scoring, /help, /guide's .guide-toc (a handful of full-sentence
+   links, deliberately wrapped per that rule's own audit-finding
+   comment), this strip's 13 short one/two-word chips read fine as a
+   horizontally snap-scrolled row, the same pattern /wire's own section
+   strip and /matchups'/pickem's week nav already use. */
+.admin-section-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+@media (max-width: 56.1875rem) {
+  .admin-section-strip {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding: var(--space-xs) 0;
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .admin-section-strip > a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* Every jump target this strip's own hrefs land on is one of the
+     <section id="admin-*" data-admin-section="..."> wrappers
+     (app/admin/page.gsx) — clear the sticky strip the same way the
+     other pages' anchors clear their own sticky nav. */
+  [data-admin-section] {
+    scroll-margin-top: calc(var(--mobile-bar-height) * 2);
+  }
+}
+
+/* Item 7: the eight per-seat "Set" (rename) buttons — measured at
+   39.7×44 (width short of the 44px floor even though .board-button's
+   own min-width: var(--control-h) already sets one, public/styles.css)
+   — and every other .board-button in the same flex form
+   (.seat-row form, SeatRow's rename/detach/autopick controls,
+   app/admin/page.gsx). The real cause (found re-measuring live, wave 7b
+   browser sweep): larch's "Mobile interaction baseline" block
+   (public/styles.css) sets min-width: 0 on .site-frame button at the
+   coarse-pointer/narrow-viewport query, and its own #main-content-id
+   specificity beats a bare two-class selector — the identical problem
+   that block's own comments already document and fix the same way for
+   .lineup-week-form button and .position-filters > .filter-button, so
+   this re-assert copies that #main-content-anchored pattern rather than
+   reaching for !important. */
+.site-frame #main-content .seat-row .board-button {
+  flex-shrink: 0;
+  min-width: var(--control-h);
+}
+
+/* Item 7: the "Also queue an email to the league" checkbox row
+   (.announcement-email-toggle, app/admin/page.gsx) is already a real
+   wrapping <label> — not a missing-label defect — but its own rule
+   (public/styles.css) set no min-height, so its clickable row measured
+   40.6px, short of the 44px floor. */
+.announcement-email-toggle {
+  min-height: var(--control-h);
+}
+
+/* Item 9: /pickem's game rows read as two-line cards on a phone —
+   kickoff + matchup label on their own line, then the market/pick
+   buttons/status line below (the existing wave-1/wave-2 flex-wrap
+   collapse already puts them in that order; this only adds the visual
+   card framing: a border and rounded corners per row, and spacing so
+   consecutive rows read as separate cards rather than a single flat
+   list). .pickem-buttons' own controls already share the app-wide
+   .filter-button recipe, which floors both dimensions at 44px
+   (public/styles.css, the button-family base rule), so no size change
+   is needed there — only the card treatment. */
+@media (max-width: 56.1875rem) {
+  .pickem-row {
+    margin-bottom: var(--space-sm);
+    border-radius: var(--radius-md);
+  }
+
+  .pickem-row:first-child {
+    border-radius: var(--radius-md);
   }
 }

@@ -81,3 +81,9 @@ func elementBoundingRect(t *testing.T, ctx context.Context, selector string) wav
 	}
 	return rect
 }
+
+// newCoarsePointerBrowserContext (the "coarse-pointer emulation" browser
+// context wave 7b's own mobile checks need) now lives in
+// wave7b_mobile_foundation_browser_test.go (larch's merged mobile
+// foundation) — this package independently added an identical copy;
+// removed here rather than kept as a duplicate declaration.

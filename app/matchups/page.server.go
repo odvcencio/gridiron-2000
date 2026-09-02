@@ -2,6 +2,7 @@ package matchups
 
 import (
 	"log"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -361,6 +362,50 @@ func matchupsPageScorebugs(raw []map[string]any) []ScorebugData {
 	return out
 }
 
+// matchupsIsGameDay reports whether the viewed week has at least one
+// matchup that is LIVE, PAUSED, or FINAL (wave 7b, item 1): LiveState
+// (matchupStatusLine's own "live_state" field, internal/league/service.go)
+// is documented as "the first of PAUSED, LIVE, FINAL, LEDGER present in
+// any matchup", but in practice a week with no schedule published yet
+// (the preseason fixture, page_render_test.go) leaves it at the Go zero
+// value "" rather than the explicit LEDGER sentinel — an equally
+// not-game-day state, so this checks the positive LIVE/PAUSED/FINAL set
+// rather than "!= LEDGER", to read both the same way. Page() renders the
+// score content (MatchupScoreBlock) ahead of the status-line prose
+// (MatchupStatusBlock) only once this is true: a still-scheduled or
+// not-yet-published week has no score worth leading with, so it keeps the
+// status-line context first instead.
+func matchupsIsGameDay(statusLineRaw any) bool {
+	statusLine, _ := statusLineRaw.(map[string]any)
+	switch stringField(statusLine, "live_state") {
+	case league.LiveStateLive, league.LiveStatePaused, league.LiveStateFinal:
+		return true
+	default:
+		return false
+	}
+}
+
+// matchupsPrimaryAction resolves larch's PageActionBar contract for
+// /matchups (wave 7b, item 1): the featured matchup's own "Set lineup for
+// Week N" link is the one verb worth surfacing when that CTA exists (a
+// viewer's own matchup, with a next editable week) — MatchupsData already
+// resolves its href server-side (featuredMatchupMap, internal/league/
+// service.go), so this only ever points at a week actually still open for
+// edits. Every other matchups view (no seated viewer matchup, or nothing
+// left to edit) returns nil: the page is read-only for that manager, and
+// the bar should not invent a verb it does not have.
+func matchupsPrimaryAction(myMatchup FeaturedMatchupData) map[string]any {
+	if !myMatchup.IsViewer || !myMatchup.HasNextWeek {
+		return nil
+	}
+	return map[string]any{
+		"label": "Set lineup for Week " + strconv.Itoa(myMatchup.NextWeek),
+		"href":  myMatchup.NextLineupHref,
+		"kind":  "link",
+		"tone":  "primary",
+	}
+}
+
 func init() {
 	if err := route.RegisterFileModuleHere(route.FileModuleOptions{
 		Load: func(ctx *route.RouteContext, page route.FilePage) (any, error) {
@@ -368,8 +413,13 @@ func init() {
 			ctx.Runtime().EnableBootstrap()
 			ctx.Runtime().BindHub(ScoresLiveHubName, ScoresLiveBindingPath(), nil)
 			data := league.Default().MatchupsData(ctx.Request.Context(), ctx.Request)
+			data["is_game_day"] = matchupsIsGameDay(data["status_line"])
 			if myMatchup, ok := data["my_matchup"].(map[string]any); ok {
-				data["my_matchup"] = featuredMatchupData(myMatchup)
+				typedMyMatchup := featuredMatchupData(myMatchup)
+				data["my_matchup"] = typedMyMatchup
+				if action := matchupsPrimaryAction(typedMyMatchup); action != nil {
+					data["primary_action"] = action
+				}
 			}
 			if others, ok := data["other_matchups"].([]map[string]any); ok {
 				data["other_matchups"] = matchupsPageScorebugs(others)

@@ -518,5 +518,6 @@ func Page() Node {
 			RULES RENDERED //
 			{data.rules_version.generated_at}
 		</p>
+		<a class="access-link back-to-top-link" href="#main-content">↑ Back to top</a>
 	</main>
 }

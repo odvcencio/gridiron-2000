@@ -184,6 +184,24 @@ func init() {
 					}
 				}
 			}
+			// primary_action (larch's PageActionBar contract, item 9, wave
+			// 7b): each game picks itself with its own small managed form
+			// (PickemRow, page.gsx) -- there is no single "submit picks"
+			// form the whole page shares, so this links to the slate
+			// section (#pickem-slate) instead of naming a form id. Set
+			// only when the viewer can actually pick (data.can_pick,
+			// PickemData/pickem.go): a signed-out visitor sees a
+			// sign-in prompt in that same section, not a pick control,
+			// so a bar action would send them somewhere with nothing to
+			// do.
+			if canPick, _ := data["can_pick"].(bool); canPick {
+				data["primary_action"] = map[string]any{
+					"label": "Make your picks",
+					"href":  "#pickem-slate",
+					"kind":  "link",
+					"tone":  "primary",
+				}
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {

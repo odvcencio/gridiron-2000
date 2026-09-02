@@ -258,6 +258,24 @@ func init() {
 			if view, ok := ctx.ActionState("trade-counter"); ok && !view.OK() {
 				applyTradeCounterRecovery(data, view)
 			}
+			// primary_action (larch's PageActionBar contract, item 10, wave
+			// 7b): "Propose a trade" links to the composer's own stable
+			// wrapper id (#trades-live-region, Page()'s own div — it
+			// survives the region's live swaps, unlike anything inside
+			// TradeDeskRegion) rather than submitting a form: the compose
+			// form itself only exists once a counterparty is chosen
+			// (data.compose_active, TradeDeskRegion), so a link that lands
+			// a manager on the counterparty picker is the one target that
+			// is always present. Gated on can_compose: a seatless viewer
+			// has no roster to trade from.
+			if canCompose, _ := data["can_compose"].(bool); canCompose {
+				data["primary_action"] = map[string]any{
+					"label": "Propose a trade",
+					"href":  "#trades-live-region",
+					"kind":  "link",
+					"tone":  "primary",
+				}
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {

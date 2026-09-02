@@ -127,6 +127,22 @@ func init() {
 					}
 				}
 			}
+			// primary_action (larch's PageActionBar contract, item 10, wave
+			// 7b): unlike /board, /blitz, or /pickem, /locker has exactly
+			// one page-wide form worth a bar action — the new-post composer
+			// (#locker-post-form, page.gsx) — so this submits it directly
+			// rather than only linking to its section. Gated on can_post: a
+			// read-only viewer (no delivery, no seat) sees a sign-in
+			// prompt instead of the form.
+			if canPost, _ := data["can_post"].(bool); canPost {
+				data["primary_action"] = map[string]any{
+					"label": "Post to the locker room",
+					"href":  "#locker-composer",
+					"kind":  "submit",
+					"form":  "locker-post-form",
+					"tone":  "primary",
+				}
+			}
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {
