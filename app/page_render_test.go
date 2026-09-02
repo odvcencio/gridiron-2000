@@ -66,6 +66,40 @@ func renderLandingPage(t *testing.T) string {
 	return rec.Body.String()
 }
 
+// TestHomePlayoffCardCollapsesToOneLineInPreseason is gap-audit item 2
+// (wave 4 — linden): during draft week the home page's second card was
+// the full 257px "PLAYOFFS NOT ACTIVE" layout even though the phase is
+// PRESEASON and no bracket can exist yet. It now collapses to one status
+// line while season_phase is "preseason" — the identical pattern
+// app/team/page.gsx's own playoff card uses (gap-audit item 1) — and
+// restores the full card once the phase moves past preseason.
+func TestHomePlayoffCardCollapsesToOneLineInPreseason(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<If cond={data.playoff_truth.season_phase == "preseason"}>`,
+		`class="score-command playoff-truth-card playoff-truth-card--compact"`,
+		`<If cond={data.playoff_truth.season_phase != "preseason"}>`,
+		`class="score-command playoff-truth-card" aria-labelledby="home-playoff-truth-heading">`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page.gsx missing preseason playoff-card collapse contract %q", want)
+		}
+	}
+	compactAt := strings.Index(page, `playoff-truth-card--compact`)
+	compactEnd := strings.Index(page[compactAt:], "</section>")
+	if compactAt < 0 || compactEnd < 0 {
+		t.Fatal("compact playoff card section has no closing </section>")
+	}
+	compactBlock := page[compactAt : compactAt+compactEnd]
+	if strings.Contains(compactBlock, "section-heading--split") || strings.Contains(compactBlock, "pool-stats") {
+		t.Errorf("compact preseason playoff card still carries the full card's layout: %s", compactBlock)
+	}
+}
+
 func TestPublicLandingPreservesConfiguredModeAndEventTruth(t *testing.T) {
 	body := renderLandingPage(t)
 
