@@ -9136,10 +9136,15 @@ body.is-on-clock .draft-clock-panel {
   min-width: 0;
 }
 
+/* Item 8 (wave 7b, mobile pass): 0.72rem (11.52px) sat below the 13px
+   sub-body floor every other status/freshness line in the app holds —
+   var(--type-xs) is that same floor (touch_and_type_floor_contract_test.go's
+   own pin, matched by the "wave-6 audit" .state-chip/.state fix in this
+   file for the identical reason). */
 .commissioner-hq__refresh-status {
   margin: 0 0 var(--space-sm);
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--type-xs);
   letter-spacing: 0.08em;
   overflow-wrap: anywhere;
   white-space: normal;
