@@ -40,6 +40,12 @@ type navigationViewerFixture struct {
 	attentionHasItems    bool
 	attentionUrgentCount int
 	attentionChipLabel   string
+	// draftComplete (wave 7, item 6) mirrors leagueMap's own
+	// "draft_complete" field (internal/league/service.go) — the fixture's
+	// "league" map below carries it exactly the same way, so
+	// PrimaryNavigation's "Draft results" link renders only when this is
+	// true, matching the real leagueMap-driven contract.
+	draftComplete bool
 }
 
 type renderedNavigationGroup struct {
@@ -118,6 +124,7 @@ func Page() Node {
 					"urgent_count":          viewer.attentionUrgentCount,
 					"chip_label":            viewer.attentionChipLabel,
 				},
+				"draft_complete": viewer.draftComplete,
 			},
 		}, nil
 	}
@@ -227,12 +234,17 @@ func surfaceGroups(surface *html.Node) []renderedNavigationGroup {
 }
 
 func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigationGroup {
+	gameDay := []string{"/draft|08 Draft"}
+	if viewer.draftComplete {
+		gameDay = append(gameDay, "/draft/results|09 Draft results")
+	}
+	gameDay = append(gameDay, "/blitz|10 Preseason Blitz")
 	groups := []renderedNavigationGroup{
 		{Name: "today", Links: []string{"/|01 Home", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
 		{Name: "my-team"},
-		{Name: "game-day", Links: []string{"/draft|08 Draft", "/blitz|09 Preseason Blitz"}},
-		{Name: "league", Links: []string{"/wire|10 Signal Wire", "/activity|11 Activity", "/locker|12 Locker Room", "/scoring|13 Rules & scoring"}},
-		{Name: "help", Links: []string{"/guide|14 Manager guide", "/help|15 Help center"}},
+		{Name: "game-day", Links: gameDay},
+		{Name: "league", Links: []string{"/wire|11 Signal Wire", "/activity|12 Activity", "/locker|13 Locker Room", "/scoring|14 Rules & scoring"}},
+		{Name: "help", Links: []string{"/guide|15 Manager guide", "/help|16 Help center"}},
 	}
 	team := &groups[1].Links
 	switch {
@@ -255,8 +267,8 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	}
 	if viewer.commissioner {
 		groups = append(groups, renderedNavigationGroup{Name: "commissioner", Links: []string{
-			"/commissioner|16 All leagues",
-			"/admin|17 League settings",
+			"/commissioner|17 All leagues",
+			"/admin|18 League settings",
 		}})
 	}
 	return groups
@@ -306,6 +318,9 @@ func TestPrimaryNavigationRoleSeatAndSurfaceMatrix(t *testing.T) {
 		{name: "pending co-manager with opening", viewer: navigationViewerFixture{signedIn: true, seatsOpen: true}},
 		{name: "seatless full", viewer: navigationViewerFixture{signedIn: true}},
 		{name: "demo commissioner without signed in", viewer: navigationViewerFixture{demo: true, commissioner: true}},
+		// Wave 7 item 6: the post-draft fixture — "Draft results" joins
+		// the game-day group only once the draft has actually completed.
+		{name: "seated manager post-draft", viewer: navigationViewerFixture{signedIn: true, hasSeat: true, seatsOpen: true, draftComplete: true}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

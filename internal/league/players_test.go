@@ -353,6 +353,50 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	}
 }
 
+// TestPlayersDataOwnerChipCarriesDraftedRoundAndPick is wave 7's item 2:
+// a rostered row's own draft pick (the fixture drafts rb-open through a
+// real store.MakePick call, newPlayersTestServiceWithPicks) surfaces its
+// round/pick as drafted_round/drafted_pick/drafted_label ("R# · P#") for
+// the /players owner chip — the same playerMap keys draftedByPlayerID
+// feeds. other-team-player is drafted too, onto team-2, so this also
+// checks the label is not accidentally pinned to team-1's own picks.
+func TestPlayersDataOwnerChipCarriesDraftedRoundAndPick(t *testing.T) {
+	svc, _ := newPlayersTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	data := svc.PlayersData(request)
+	rows, _ := data["players"].([]map[string]any)
+	byID := map[string]map[string]any{}
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		byID[id] = row
+	}
+	for _, id := range []string{"rb-open", "other-team-player"} {
+		row, ok := byID[id]
+		if !ok {
+			t.Fatalf("%s must appear in the Player Pool", id)
+		}
+		if row["is_drafted"] != true {
+			t.Fatalf("%s is_drafted = %v, want true", id, row["is_drafted"])
+		}
+		round, _ := row["drafted_round"].(int)
+		pick, _ := row["drafted_pick"].(int)
+		if round < 1 || pick < 1 {
+			t.Fatalf("%s drafted_round/drafted_pick = %d/%d, want both >= 1", id, round, pick)
+		}
+		want := fmt.Sprintf("R%d · P%d", round, pick)
+		if row["drafted_label"] != want {
+			t.Fatalf("%s drafted_label = %v, want %q", id, row["drafted_label"], want)
+		}
+	}
+	// fa-open sits undrafted (a free agent in the fixture pool), so it
+	// must carry the same false/zero/"" default playerMap sets for any
+	// caller that never passes drafted at all.
+	freeAgent := byID["fa-open"]
+	if freeAgent["is_drafted"] != false || freeAgent["drafted_label"] != "" {
+		t.Fatalf("fa-open drafted fields = is_drafted %v label %q, want false/\"\"", freeAgent["is_drafted"], freeAgent["drafted_label"])
+	}
+}
+
 // TestPlayersDataPlayerDetailContextKeepsDecisionFields checks that the
 // native Player Pool disclosure can explain the same roster, projection,
 // matchup, and availability decisions already carried by PlayersData.

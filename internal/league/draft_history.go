@@ -137,6 +137,22 @@ func boardCellNumber(round, column, teamCount int) int {
 	return round*teamCount - column + 1
 }
 
+// draftedByPlayerID returns every made pick's DraftPick, keyed by player
+// ID — the same pickByPlayer shape rosterForTeam (service.go) already
+// builds ad hoc for its own "Rd %d · Pick %d" Status string, exposed once
+// here (wave 7, item 2) so any other caller in this package — playerMap's
+// drafted parameter (the /players owner chip, service.go), a /team
+// roster chip, or a future one — can resolve "which pick landed this
+// player" without repeating the O(picks) build. state is a PersistedState
+// snapshot; a state with no picks yet returns an empty, non-nil map.
+func draftedByPlayerID(state PersistedState) map[string]DraftPick {
+	out := make(map[string]DraftPick, len(state.Picks))
+	for _, pick := range state.Picks {
+		out[pick.PlayerID] = pick
+	}
+	return out
+}
+
 // DraftHistory builds every history view from one persisted state. viewer
 // is the viewer's team ID, "" when seatless.
 func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistoryView {
@@ -363,6 +379,84 @@ func valueVsADPLabel(pickNumber int, adp float64) string {
 		return "−" + fmt.Sprintf("%d", -value)
 	}
 	return fmt.Sprintf("+%d", value)
+}
+
+// ViewerFirstPickTeaser answers the home page's post-draft "Draft
+// results" card (wave 7, item 3): the viewer's own earliest pick,
+// rendered as "Ja'Marr Chase at 1.01" — playerName plus label
+// (pickLabel's own "round.slot" form). hasPick is false when the viewer
+// holds no seat, or their team has made no pick at all yet (the draft
+// has not reached their turn). state.Picks is already Number-ascending
+// (MakePick only ever appends), so the first match for teamID is that
+// team's earliest pick — no sort needed.
+//
+// has_seat, not a bare non-empty team_id, gates this: viewerReadOnly
+// (draftlive.go) fills team_id with Teams()[0]'s own id for EVERY
+// signed-out or seatless request (its own read-only-fragment-polling
+// placeholder identity), so team_id alone would tint that team's picks
+// as "the viewer's own" for a visitor who never claimed a seat at all.
+func (s *Service) ViewerFirstPickTeaser(r *http.Request) (playerName, label string, hasPick bool) {
+	state := s.store.Snapshot()
+	viewer := s.viewerReadOnly(r, state)
+	if hasSeat, _ := viewer["has_seat"].(bool); !hasSeat {
+		return "", "", false
+	}
+	teamID, _ := viewer["team_id"].(string)
+	if teamID == "" {
+		return "", "", false
+	}
+	order := state.DraftOrder
+	if len(order) == 0 {
+		order = defaultTeamIDs()
+	}
+	teamCount := len(order)
+	pool := s.pool()
+	for _, pick := range state.Picks {
+		if pick.TeamID != teamID {
+			continue
+		}
+		return pool.byID[pick.PlayerID].Name, pickLabel(pick.Number, teamCount), true
+	}
+	return "", "", false
+}
+
+// DraftResultsData answers /draft/results (wave 7, item 4): the full
+// DraftHistoryView (Teams in draft order, the viewer's own team, if any,
+// reordered to lead — app/draft/results' own page layer does that
+// reshaping, the same "convert the canonical view into a page-specific
+// shape" pattern app/draft's tapePickProps/boardViewProps already use),
+// plus the header facts DraftHistoryView alone does not carry: the
+// draft's own league-local date/time (draftSummaryForState, the same
+// map /draft's command bar and the home page's own teaser both already
+// read), and its round/team counts. ViewerTeamID is "" for a seatless
+// viewer — has_seat gates it the same way ViewerFirstPickTeaser does
+// (see that function's own doc comment for why a bare team_id is not
+// enough: viewerReadOnly fills it with a placeholder team for every
+// signed-out or seatless request).
+func (s *Service) DraftResultsData(r *http.Request) map[string]any {
+	state := s.store.Snapshot()
+	viewer := s.viewerReadOnly(r, state)
+	viewerTeamID := ""
+	if hasSeat, _ := viewer["has_seat"].(bool); hasSeat {
+		viewerTeamID, _ = viewer["team_id"].(string)
+	}
+	history := s.DraftHistory(state, viewerTeamID)
+	order := state.DraftOrder
+	if len(order) == 0 {
+		order = defaultTeamIDs()
+	}
+	summary := s.draftSummaryForState(s.clock(), state)
+	return map[string]any{
+		"history":        history,
+		"viewer_team_id": viewerTeamID,
+		"complete":       history.Complete,
+		"rounds":         CurrentDraftRounds(),
+		"team_count":     len(order),
+		"long_date":      summary["long_date"],
+		"time":           summary["time"],
+		"timezone":       summary["timezone"],
+		"published":      summary["published"],
+	}
 }
 
 // DraftLedger returns every pick in ascending order (DraftHistoryView.Picks,

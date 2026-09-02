@@ -131,7 +131,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		// (S6's zero-fetch-per-pick budget).
 		`data-gosx-live-mode="event"`, `data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state"`,
 		`draft-pane--history`, `data-gosx-region-url="/draft/fragment/tape-rows"`,
-		`id="tab-players"`, `id="tab-picks"`, `class="draft-tabbar"`,
+		`id="tab-players"`, `id="tab-picks"`, `id="tab-board"`, `>Draft grid<`, `class="draft-tabbar"`,
 		`aria-live="polite"`, `<nav class="pool-pagination" aria-label="Draft pool pages">`,
 		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // live on v0.53.10
 		`class="live-dot live-dot--bound" aria-hidden="true"`,
@@ -215,6 +215,19 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	board := renderDraftForUserPath(t, handler, seated, "/?view=board")
 	if strings.Contains(board, `class="draft-history-filters"`) {
 		t.Error("Board view must not render the tape's own filter chips (item 9)")
+	}
+	// Wave 7 item 1: the seated viewer's own column exists on the grid
+	// (BoardView.HasMine), so the "Jump to my picks" affordance must
+	// render, targeting that same column's own anchor id.
+	if !strings.Contains(board, `class="board-jump"`) || !strings.Contains(board, `id="board-team-`) {
+		t.Error("Board view missing the seated viewer's own jump-to-my-picks link/anchor (wave 7 item 1)")
+	}
+	// The Board tab (#tab-board) must be the one checked when "?view=board"
+	// is the live view — a soft-navigated viewer reloading at that URL
+	// (or resizing from desktop) must land on the SAME tab a phone-width
+	// click on "Draft grid" would itself have checked.
+	if !strings.Contains(board, `id="tab-board" class="visually-hidden" checked`) {
+		t.Error("Board view must render #tab-board checked (wave 7 item 1)")
 	}
 	teamsView := renderDraftForUserPath(t, handler, seated, "/?view=teams")
 	if strings.Contains(teamsView, `class="draft-history-filters"`) {

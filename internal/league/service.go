@@ -4016,6 +4016,13 @@ func (s *Service) leagueMap() map[string]any {
 		// pick'em games), so it never disagrees with what triggers those
 		// SAME home Action Center tasks, just without per-viewer framing.
 		"attention": s.attentionMap(snapshot, now),
+		// draft_complete (wave 7, item 6): the same "leagueMap is the one
+		// map every page's data function already includes" property attention
+		// (above) already relies on lets the shared layout's nav show a
+		// "Draft results" destination only once the draft has actually
+		// finished, with no per-page wiring — app/layout.gsx's own
+		// PrimaryNavigation reads it as props.DraftComplete.
+		"draft_complete": draftComplete(snapshot),
 	}
 }
 
@@ -5135,7 +5142,19 @@ const histScoringLabel = "Scored under this league's own rules"
 // matchup once and reuse them — see playerMapsWithScoring — rather than
 // call playerMap in a bare loop, which forces every breakdown onto the
 // default-only path and repeats the schedule scan per row.
-func playerMap(player Player, scoringValues map[string]float64, matchup matchupIndex) map[string]any {
+//
+// drafted is an optional (variadic, so every existing call site keeps
+// compiling unchanged) pickByPlayer lookup — draftedByPlayerID's own
+// return shape (draft_history.go) — keyed by player ID. Passing it adds
+// is_drafted/drafted_round/drafted_pick/drafted_label ("R3 · P28") for a
+// player this league's own draft already selected; a caller that never
+// needs the round/pick chip (the lineup, board, and blitz pool renders)
+// omits it and still gets those four keys, always present with their
+// zero values, so a template can read player.drafted_label unconditionally
+// with no missing-key branch (wave 7, item 2). Only drafted[0] is read —
+// a second argument is never meaningful, but the variadic shape avoids
+// forcing a nil at every one of playerMap's nine pre-existing call sites.
+func playerMap(player Player, scoringValues map[string]float64, matchup matchupIndex, drafted ...map[string]DraftPick) map[string]any {
 	// ADPRank (real market ADP) always wins when present. Punters carry no
 	// market ADP at all (blitz.go's ADPRank>0 market-ADP signal), so their
 	// positional rank — PunterRank, from the league's own embedded 2025
@@ -5212,6 +5231,23 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"is_rookie":         player.Rookie,
 		"draft_capital":     player.DraftCapital,
 		"has_draft_capital": player.DraftCapital != "",
+		// is_drafted/drafted_round/drafted_pick/drafted_label back the /players
+		// owner chip and any other "which pick landed this player" surface
+		// (wave 7, item 2): this league's OWN fantasy draft, never the NFL
+		// draft capital above. Zero values (false/0/0/"") unless a caller
+		// passed drafted and this player's ID is a key in it.
+		"is_drafted":    false,
+		"drafted_round": 0,
+		"drafted_pick":  0,
+		"drafted_label": "",
+	}
+	if len(drafted) > 0 {
+		if pick, ok := drafted[0][player.ID]; ok {
+			out["is_drafted"] = true
+			out["drafted_round"] = pick.Round
+			out["drafted_pick"] = pick.Number
+			out["drafted_label"] = fmt.Sprintf("R%d · P%d", pick.Round, pick.Number)
+		}
 	}
 	for k, v := range matchup.fields(player) {
 		out[k] = v
@@ -5305,6 +5341,12 @@ func (s *Service) activityMaps(state PersistedState, limit int) []map[string]any
 		if player, ok := pool.byID[pick.PlayerID]; ok {
 			label = fmt.Sprintf("%s (%s)", player.Name, player.Position)
 		}
+		// " — R1 · P1" (wave 7, item 2): the round/pick this activity row's
+		// own DraftPick already carries, appended to the same player label
+		// every other row's "player" field already holds — activityLine
+		// (adds/drops/trades) never sets this suffix, so it stays specific
+		// to a draft pick's own row.
+		label = fmt.Sprintf("%s — R%d · P%d", label, pick.Round, pick.Number)
 		entries = append(entries, entry{at: pick.MadeAt, teamIDs: []string{pick.TeamID}, action: "drafts", player: label})
 	}
 	for _, txn := range state.Transactions {

@@ -374,6 +374,23 @@ func Page() Node {
 		<If cond={data.viewer.signed_in}>
 			<ActionCenterPanel {...data.action_center}></ActionCenterPanel>
 		</If>
+		<If cond={data.viewer.signed_in && data.draft.complete}>
+			<section class="score-command draft-results-card" aria-labelledby="home-draft-results-heading">
+				<header class="section-heading section-heading--split">
+					<div>
+						<span class="section-index">DRAFT // COMPLETE</span>
+						<h2 id="home-draft-results-heading">Draft results</h2>
+					</div>
+				</header>
+				<If cond={data.draft_first_pick_has}>
+					<p>You opened with {data.draft_first_pick_name} at {data.draft_first_pick_label}.</p>
+				</If>
+				<If cond={data.draft_first_pick_has == false}>
+					<p>Every pick is locked. See who drafted whom, round by round.</p>
+				</If>
+				<a href="/draft/results" data-gosx-link class="access-link">Open Draft results →</a>
+			</section>
+		</If>
 		<If cond={data.playoff_truth.season_phase == "preseason"}>
 			<section class="score-command playoff-truth-card playoff-truth-card--compact" aria-labelledby="home-playoff-truth-heading">
 				<p id="home-playoff-truth-heading"><span class="position-chip">{data.playoff_truth.status_label}</span> {data.playoff_truth.headline} — bracket truth opens after the regular season. <a href="/matchups" data-gosx-link class="access-link">Open Matchups →</a></p>
