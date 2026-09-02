@@ -446,6 +446,67 @@ func TestCoManagerFullLifecycle(t *testing.T) {
 	}
 }
 
+// TestDetachCoManagerByCommissionerInterventionRecordsEvent checks the
+// wave-2 commissioner-console audit trail: DetachCoManager is shared by
+// both the seat's own primary manager and the commissioner
+// (canManageCoManager), so only a genuine commissioner intervention — the
+// commissioner acting on a seat that is not their own — is a
+// commissioner-gated mutation worth a durable row.
+func TestDetachCoManagerByCommissionerInterventionRecordsEvent(t *testing.T) {
+	service := newTestService(t, false)
+	t.Setenv("COMMISSIONER_EMAILS", "boss-detach@example.com")
+	primary, err := service.AssignManager("primary-detach@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamID := primary.TeamID
+	primaryRequest := commissionerRequest("primary-detach@example.com", "Primary")
+	if err := service.InviteCoManager(primaryRequest, teamID, "co-detach@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.BindCoManagerOnSignIn("co-detach@example.com", "Co"); err != nil {
+		t.Fatal(err)
+	}
+
+	commissioner := commissionerRequest("boss-detach@example.com", "Boss")
+	if err := service.DetachCoManager(commissioner, teamID); err != nil {
+		t.Fatal(err)
+	}
+	events := service.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "seat.co_detach" || events[0].Refs.TeamID != teamID {
+		t.Fatalf("commissioner events = %+v, want one seat.co_detach row for %s", events, teamID)
+	}
+}
+
+// TestDetachCoManagerBySelfDoesNotRecordCommissionerEvent checks the other
+// half of the same seam: the seat's own primary manager detaching their
+// own co-manager through the identical DetachCoManager call must not
+// produce a commissioner-console audit row — it is ordinary self-service,
+// not a commissioner-gated mutation, even though canManageCoManager's own
+// authorization check happens to allow both actors.
+func TestDetachCoManagerBySelfDoesNotRecordCommissionerEvent(t *testing.T) {
+	service := newTestService(t, false)
+	primary, err := service.AssignManager("primary-self-detach@example.com", "Primary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	teamID := primary.TeamID
+	primaryRequest := commissionerRequest("primary-self-detach@example.com", "Primary")
+	if err := service.InviteCoManager(primaryRequest, teamID, "co-self-detach@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.BindCoManagerOnSignIn("co-self-detach@example.com", "Co"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := service.DetachCoManager(primaryRequest, teamID); err != nil {
+		t.Fatal(err)
+	}
+	if got := service.store.Snapshot().CommissionerEvents; len(got) != 0 {
+		t.Fatalf("commissioner events = %+v, want none for a self-service co-detach", got)
+	}
+}
+
 // TestInviteCoManagerRejectsAlreadySeatedEmail checks that a person who
 // already operates a seat (primary or co, any team) cannot also be
 // invited as a co-manager elsewhere.

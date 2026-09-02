@@ -1305,6 +1305,34 @@ func TestResetAvatarClearsReferenceAndIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestResetAvatarRecordsCommissionerEventOnlyOnRealChange checks the wave-2
+// commissioner-console audit trail: the first reset (a real mutation)
+// leaves one avatar.reset row, and the second, idempotent reset of an
+// already-clean seat leaves no second row — mirroring
+// TestResetAvatarClearsReferenceAndIsIdempotent's own no-op-is-not-an-error
+// contract, extended to the audit trail.
+func TestResetAvatarRecordsCommissionerEventOnlyOnRealChange(t *testing.T) {
+	service := newTestService(t, true) // demo mode grants commissioner
+	request, _ := http.NewRequest(http.MethodPost, "/admin", nil)
+	data := solidPNG(t, 100, 100, color.RGBA{R: 7, G: 8, B: 9, A: 255})
+	if _, err := service.UploadAvatar(request, "team-6", data); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.ResetAvatar(request, "team-6"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	events := service.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "avatar.reset" || events[0].Refs.TeamID != "team-6" {
+		t.Fatalf("commissioner events = %+v, want one avatar.reset row for team-6", events)
+	}
+	if err := service.ResetAvatar(request, "team-6"); err != nil {
+		t.Fatalf("idempotent reset: %v", err)
+	}
+	if got := service.store.Snapshot().CommissionerEvents; len(got) != 1 {
+		t.Fatalf("commissioner events after a no-op reset = %+v, want still exactly one row", got)
+	}
+}
+
 // TestMatchupMapsCarriesAvatarFields checks the one TeamMark render path
 // that does not build its team maps through teamMap (matchupMaps builds its
 // own away/home maps to carry the live score) — see matchupMaps's doc

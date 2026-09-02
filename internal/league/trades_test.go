@@ -1347,6 +1347,26 @@ func TestApproveTradeExecutesUnderCommissionerMode(t *testing.T) {
 	}
 }
 
+// TestApproveTradeRecordsCommissionerEvent checks the wave-2
+// commissioner-console audit trail: an early-execution approval is a
+// commissioner-gated mutation (T13) and must leave a durable,
+// person-attributed row naming both trading teams.
+func TestApproveTradeRecordsCommissionerEvent(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	offerID := proposeFixtureOffer(t, svc)
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ApproveTrade(request, offerID, tradeApproveConfirmation); err != nil {
+		t.Fatalf("ApproveTrade: %v", err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "trade.approve" || events[0].ActorEmail == "" {
+		t.Fatalf("commissioner events = %+v, want one trade.approve row with actor identity", events)
+	}
+}
+
 func TestApproveTradeRejectedUnderVoteMode(t *testing.T) {
 	svc, _ := newTradesTestService(t, "")
 	svc.cfg.Trades.Veto = "vote"
@@ -1382,6 +1402,24 @@ func TestCommissionerVetoTradeFiresN17(t *testing.T) {
 		if _, sent := state.SentLog[key]; !sent {
 			t.Fatalf("N17 was not recorded for %s", email)
 		}
+	}
+}
+
+// TestCommissionerVetoTradeRecordsCommissionerEvent mirrors
+// TestApproveTradeRecordsCommissionerEvent for the veto path.
+func TestCommissionerVetoTradeRecordsCommissionerEvent(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	offerID := proposeFixtureOffer(t, svc)
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+	if _, err := svc.AcceptTrade(request, "team-2", offerID, tradeAcceptConfirmation); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.CommissionerVetoTrade(request, offerID, tradeVetoConfirmation); err != nil {
+		t.Fatalf("CommissionerVetoTrade: %v", err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "trade.veto" || events[0].ActorEmail == "" {
+		t.Fatalf("commissioner events = %+v, want one trade.veto row with actor identity", events)
 	}
 }
 

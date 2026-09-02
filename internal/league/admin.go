@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -684,6 +685,9 @@ func (s *Service) AdminSetRosterShape(r *http.Request, o RosterOverride) (Roster
 	// HouseRank stays computed against the shape that just changed (see
 	// invalidatePoolCache's doc comment, service.go).
 	s.invalidatePoolCache()
+	if _, err := s.RecordCommissionerEvent(r, "roster.shape_set", "set the roster shape", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: roster.shape_set: %v", err)
+	}
 	return preset, nil
 }
 
@@ -705,6 +709,9 @@ func (s *Service) AdminResetRosterShape(r *http.Request) error {
 	// invalidate the pool cache directly too, or HouseRank stays computed
 	// against the override that was just cleared.
 	s.invalidatePoolCache()
+	if _, err := s.RecordCommissionerEvent(r, "roster.shape_reset", "reset the roster shape", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: roster.shape_reset: %v", err)
+	}
 	return nil
 }
 
@@ -736,6 +743,10 @@ func (s *Service) TrimUnclaimedSeats(r *http.Request, confirmation, token string
 	// Service instance, so both agree from this call onward.
 	applySeatTrim(kept)
 	s.setTeams(kept)
+	summary := fmt.Sprintf("trimmed %s", CountNoun(len(removed), "unclaimed seat"))
+	if _, err := s.RecordCommissionerEvent(r, "seat.trim", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: seat.trim: %v", err)
+	}
 	return kept, removed, nil
 }
 
@@ -757,6 +768,9 @@ func (s *Service) AdminPostAnnouncement(r *http.Request, body string, alsoEmail 
 	if alsoEmail {
 		receipt = s.notifyAnnouncement(announcement)
 	}
+	if _, err := s.RecordCommissionerEvent(r, "announcement.post", "posted an announcement", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: announcement.post: %v", err)
+	}
 	return announcement, receipt, nil
 }
 
@@ -765,7 +779,13 @@ func (s *Service) AdminDeleteAnnouncement(r *http.Request, id string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.DeleteAnnouncement(id)
+	if err := s.store.DeleteAnnouncement(id); err != nil {
+		return err
+	}
+	if _, err := s.RecordCommissionerEvent(r, "announcement.delete", "deleted an announcement", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: announcement.delete: %v", err)
+	}
+	return nil
 }
 
 // AdminAddInvite adds a manager email to the invite list.
@@ -773,7 +793,14 @@ func (s *Service) AdminAddInvite(r *http.Request, email string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.AddInvite(email)
+	if err := s.store.AddInvite(email); err != nil {
+		return err
+	}
+	summary := fmt.Sprintf("invited %s", strings.TrimSpace(email))
+	if _, err := s.RecordCommissionerEvent(r, "invite.add", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: invite.add: %v", err)
+	}
+	return nil
 }
 
 // inviteBlurb renders the invite's opening description: the config's own
@@ -1067,6 +1094,9 @@ func (s *Service) AdminSendInvite(r *http.Request, email string) (bool, error) {
 	if err := s.store.AddInvite(email); err != nil {
 		return false, err
 	}
+	if _, err := s.RecordCommissionerEvent(r, "invite.send", fmt.Sprintf("invited %s", email), CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: invite.send: %v", err)
+	}
 	subject, text, htmlBody := s.InviteEmailTemplate(r, email)
 	config := mailer.FromEnv()
 	if !config.Enabled() {
@@ -1081,7 +1111,14 @@ func (s *Service) AdminRemoveInvite(r *http.Request, email string) error {
 	if err := s.requireCommissioner(r); err != nil {
 		return err
 	}
-	return s.store.RemoveInvite(email)
+	if err := s.store.RemoveInvite(email); err != nil {
+		return err
+	}
+	summary := fmt.Sprintf("removed the invite for %s", strings.TrimSpace(email))
+	if _, err := s.RecordCommissionerEvent(r, "invite.remove", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: invite.remove: %v", err)
+	}
+	return nil
 }
 
 // AdminReleaseSeat unbinds whoever holds the team seat.
@@ -1092,7 +1129,12 @@ func (s *Service) AdminReleaseSeat(r *http.Request, teamID, confirmation, token 
 	if err := s.store.ReleaseSeatConfirmed(teamID, confirmation, token); err != nil {
 		return Team{}, err
 	}
-	return s.teamView(s.store.Snapshot(), teamID), nil
+	team := s.teamView(s.store.Snapshot(), teamID)
+	summary := fmt.Sprintf("released seat %s", team.Name)
+	if _, err := s.RecordCommissionerEvent(r, "seat.release", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+		log.Printf("commissioner event: seat.release: %v", err)
+	}
+	return team, nil
 }
 
 // AdminResetDraft clears the draft-scoped state after an exact confirmation.
@@ -1112,6 +1154,9 @@ func (s *Service) AdminResetDraft(r *http.Request, confirmation string) error {
 	// latch so a later pick that completes the new draft emits draft:state.
 	s.draftCompleteEmitted.Store(false)
 	s.emitDraftState(s.store.Snapshot(), s.clock(), false, false)
+	if _, err := s.RecordCommissionerEvent(r, "draft.reset", "reset the draft", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: draft.reset: %v", err)
+	}
 	return nil
 }
 
@@ -1137,7 +1182,13 @@ func (s *Service) AdminRescheduleDraft(r *http.Request, raw string) error {
 	if !at.After(s.clock()) {
 		return errors.New("the new draft meeting must be strictly in the future")
 	}
-	return s.store.SetDraftAtOverride(at)
+	if err := s.store.SetDraftAtOverride(at); err != nil {
+		return err
+	}
+	if _, err := s.RecordCommissionerEvent(r, "draft.reschedule", "rescheduled the draft meeting", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: draft.reschedule: %v", err)
+	}
+	return nil
 }
 
 // AdminResetLeague clears competitive-season state and seat-bound identity
@@ -1160,6 +1211,15 @@ func (s *Service) AdminResetLeague(r *http.Request, confirmation string) error {
 	clearRosterShape()
 	clearSeatTrim()
 	s.setTeams(activeTeams)
+	// CommissionerEvents is deliberately outside Store.ResetLeague's own
+	// collection list above: the audit trail an action just performed
+	// must survive the very reset it is recording, the same "a league
+	// reset restores topology but never erases history" contract the
+	// franchise-name-override/invite/scoring preservation note (this
+	// method's own doc comment) already promises for other durable state.
+	if _, err := s.RecordCommissionerEvent(r, "league.reset", "reset the league", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: league.reset: %v", err)
+	}
 	return nil
 }
 
@@ -1172,7 +1232,12 @@ func (s *Service) AdminRenameTeam(r *http.Request, teamID, name string) (Team, e
 	if err := s.store.SetTeamName(teamID, name); err != nil {
 		return Team{}, err
 	}
-	return s.teamView(s.store.Snapshot(), teamID), nil
+	team := s.teamView(s.store.Snapshot(), teamID)
+	summary := fmt.Sprintf("renamed a team to %s", team.Name)
+	if _, err := s.RecordCommissionerEvent(r, "seat.rename", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+		log.Printf("commissioner event: seat.rename: %v", err)
+	}
+	return team, nil
 }
 
 // RenameTeam sets teamID's display name for the seat's own manager, or
@@ -1243,6 +1308,17 @@ func (s *Service) AdminRandomizeDraftOrder(r *http.Request, expectedToken string
 	// N4 runs only after the one final order commits. Intermediate shuffle
 	// passes never touch persistence or the notification ledger.
 	receipt := s.notifyDraftOrderDrawn(order)
+	summary := "drew the draft order"
+	if strings.TrimSpace(expectedToken) != "" {
+		// A non-empty expectedToken means the commissioner confirmed
+		// REDRAW ORDER against an already-published order (the route's
+		// own "redraw" branch, app/admin/page.server.go); the first draw
+		// never has a prior order to confirm against.
+		summary = "redrew the draft order"
+	}
+	if _, err := s.RecordCommissionerEvent(r, "draft.order_randomize", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: draft.order_randomize: %v", err)
+	}
 	return scheduleCreated, receipt, nil
 }
 
@@ -1277,6 +1353,10 @@ func (s *Service) AdminSetScoring(r *http.Request, key, rawValue string) (Scorin
 	// the same cache-key gap AdminSetRosterShape's own invalidatePoolCache
 	// call documents (service.go).
 	s.invalidatePoolCache()
+	summary := fmt.Sprintf("set the %s scoring rule to %v", key, points)
+	if _, err := s.RecordCommissionerEvent(r, "scoring.set", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: scoring.set: %v", err)
+	}
 	return rule, nil
 }
 
@@ -1294,6 +1374,9 @@ func (s *Service) AdminResetScoring(r *http.Request) error {
 	}
 	// Same cache-key gap as AdminSetScoring above.
 	s.invalidatePoolCache()
+	if _, err := s.RecordCommissionerEvent(r, "scoring.reset", "reset scoring to the defaults", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: scoring.reset: %v", err)
+	}
 	return nil
 }
 
@@ -1311,6 +1394,9 @@ func (s *Service) AdminPauseClock(r *http.Request) error {
 		return err
 	}
 	s.emitDraftClock(s.store.Snapshot())
+	if _, err := s.RecordCommissionerEvent(r, "clock.pause", "paused the pick clock", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: clock.pause: %v", err)
+	}
 	return nil
 }
 
@@ -1336,6 +1422,9 @@ func (s *Service) AdminResumeClock(r *http.Request) error {
 		return err
 	}
 	s.emitDraftClock(s.store.Snapshot())
+	if _, err := s.RecordCommissionerEvent(r, "clock.resume", "resumed the pick clock", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: clock.resume: %v", err)
+	}
 	return nil
 }
 
@@ -1366,6 +1455,9 @@ func (s *Service) AdminStartDraft(r *http.Request) (bool, error) {
 	snapshot := s.store.Snapshot()
 	s.emitDraftState(snapshot, now, true, false)
 	s.emitDraftClock(snapshot)
+	if _, err := s.RecordCommissionerEvent(r, "draft.start", "started the draft", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: draft.start: %v", err)
+	}
 	return started, nil
 }
 
@@ -1428,6 +1520,9 @@ func (s *Service) AdminUndoPick(r *http.Request, expectedToken string) error {
 		s.draftCompleteEmitted.Store(false)
 		s.emitDraftState(snapshot, now, true, false)
 	}
+	if _, err := s.RecordCommissionerEvent(r, "draft.undo_pick", "undid the last pick", CommissionerEventRefs{TeamID: removed.TeamID, PlayerID: removed.PlayerID}); err != nil {
+		log.Printf("commissioner event: draft.undo_pick: %v", err)
+	}
 	return nil
 }
 
@@ -1446,6 +1541,10 @@ func (s *Service) AdminExtendClock(r *http.Request, secs int, expectedToken stri
 		return err
 	}
 	s.emitDraftClock(s.store.Snapshot())
+	summary := fmt.Sprintf("extended the pick clock by %d seconds", secs)
+	if _, err := s.RecordCommissionerEvent(r, "clock.extend", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: clock.extend: %v", err)
+	}
 	return nil
 }
 
@@ -1466,6 +1565,10 @@ func (s *Service) AdminSetClockSeconds(r *http.Request, secs int) error {
 		return nil
 	}
 	s.emitDraftClock(after)
+	summary := fmt.Sprintf("set the pick clock to %d seconds", after.ClockDurationSec)
+	if _, err := s.RecordCommissionerEvent(r, "clock.set_duration", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: clock.set_duration: %v", err)
+	}
 	return nil
 }
 
@@ -1485,6 +1588,14 @@ func (s *Service) AdminSetAutopick(r *http.Request, teamID string, on bool) erro
 		return nil
 	}
 	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
+	status := "off"
+	if after.Autopick[teamID] {
+		status = "on"
+	}
+	summary := fmt.Sprintf("turned autopick %s for %s", status, s.TeamLabel(teamID))
+	if _, err := s.RecordCommissionerEvent(r, "clock.set_autopick", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+		log.Printf("commissioner event: clock.set_autopick: %v", err)
+	}
 	return nil
 }
 
@@ -1506,6 +1617,14 @@ func (s *Service) AdminSetReady(r *http.Request, teamID string, on bool) error {
 		return nil
 	}
 	s.emitDraft("draft:seat", s.seatBinds(after, teamID, s.clock()))
+	status := "not ready"
+	if after.Ready[teamID] {
+		status = "ready"
+	}
+	summary := fmt.Sprintf("set %s to %s", s.TeamLabel(teamID), status)
+	if _, err := s.RecordCommissionerEvent(r, "clock.set_ready", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+		log.Printf("commissioner event: clock.set_ready: %v", err)
+	}
 	return nil
 }
 
@@ -1561,7 +1680,13 @@ func (s *Service) AdminForceAutopick(r *http.Request, confirmation, expectedToke
 	// is provenance-agnostic and already fires for MadeBy=="commissioner"
 	// from clockTick's path, but nothing called it from here.
 	s.notifyAutopickMade(state, pick, "commissioner", now)
-	return pick, s.pool().byID[playerID], s.teamByID(teamID), nil
+	player := s.pool().byID[playerID]
+	team := s.teamByID(teamID)
+	summary := fmt.Sprintf("forced an autopick: %s selects %s", team.Name, player.Name)
+	if _, err := s.RecordCommissionerEvent(r, "clock.force_autopick", summary, CommissionerEventRefs{TeamID: teamID, PlayerID: playerID}); err != nil {
+		log.Printf("commissioner event: clock.force_autopick: %v", err)
+	}
+	return pick, player, team, nil
 }
 
 // AdminGenerateSchedule generates and persists the first regular-season
@@ -1582,7 +1707,15 @@ func (s *Service) AdminGenerateSchedule(r *http.Request, weeks, startWeek int, s
 	if state.Schedule != nil {
 		return SeasonSchedule{}, fmt.Errorf("a schedule already exists; regenerate it instead")
 	}
-	return s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-generate-before-store")
+	sched, err := s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-generate-before-store")
+	if err != nil {
+		return SeasonSchedule{}, err
+	}
+	summary := fmt.Sprintf("generated the season schedule (%d weeks)", len(sched.Weeks))
+	if _, err := s.RecordCommissionerEvent(r, "schedule.generate", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: schedule.generate: %v", err)
+	}
+	return sched, nil
 }
 
 // AdminRegenerateSchedule redraws the schedule with a fresh seed. The
@@ -1616,7 +1749,14 @@ func (s *Service) AdminRegenerateSchedule(r *http.Request, weeks, startWeek int)
 	if err != nil {
 		return SeasonSchedule{}, err
 	}
-	return s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-regenerate-before-store")
+	sched, err := s.buildAndStoreSchedule(weeks, startWeek, seed, "schedule-regenerate-before-store")
+	if err != nil {
+		return SeasonSchedule{}, err
+	}
+	if _, err := s.RecordCommissionerEvent(r, "schedule.regenerate", "regenerated the season schedule", CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: schedule.regenerate: %v", err)
+	}
+	return sched, nil
 }
 
 // buildAndStoreSchedule runs the pure GenerateSchedule against the

@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg" // format sniffer + decoder for image.DecodeConfig / image.Decode
 	"image/png"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -563,8 +564,23 @@ func (s *Service) ResetAvatar(r *http.Request, teamID string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
 	}
+	// hadAvatar is read before the write so the audit row below only fires
+	// on a real change — clearAvatar is deliberately idempotent (see its
+	// own doc comment/TestResetAvatarClearsReferenceAndIsIdempotent), and a
+	// repeat reset of an already-clean seat must not duplicate the
+	// original reset's event.
+	_, hadAvatar := s.store.AvatarRef(teamID)
 	actor := s.seatActor(r)
-	return s.store.clearAvatar(teamID, actor)
+	if err := s.store.clearAvatar(teamID, actor); err != nil {
+		return err
+	}
+	if hadAvatar {
+		summary := fmt.Sprintf("reset the badge for %s", s.TeamLabel(teamID))
+		if _, err := s.RecordCommissionerEvent(r, "avatar.reset", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
+			log.Printf("commissioner event: avatar.reset: %v", err)
+		}
+	}
+	return nil
 }
 
 // processAvatarImage validates raw upload bytes and normalizes them into a

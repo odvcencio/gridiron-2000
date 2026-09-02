@@ -14,6 +14,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -606,6 +607,15 @@ func (s *Service) ApproveTrade(r *http.Request, offerID, confirmation string) (s
 		return "", err
 	}
 	s.notifyTradeExecuted(offer, txn)
+	// Refs is left empty: a trade touches two franchises (offer.FromTeamID
+	// and offer.ToTeamID), and CommissionerEventRefs.TeamID names at most
+	// one — picking either side arbitrarily would mislead a future
+	// per-team filter more than naming neither. Both teams are named in
+	// the summary text instead.
+	summary := fmt.Sprintf("approved the trade between %s and %s", s.TeamLabel(offer.FromTeamID), s.TeamLabel(offer.ToTeamID))
+	if _, err := s.RecordCommissionerEvent(r, "trade.approve", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: trade.approve: %v", err)
+	}
 	return fmt.Sprintf("Trade approved and executed: %s for %s.", tradePlayerNames(pool.byID, offer.Get), tradePlayerNames(pool.byID, offer.Give)), nil
 }
 
@@ -634,6 +644,12 @@ func (s *Service) CommissionerVetoTrade(r *http.Request, offerID, confirmation s
 		return "", err
 	}
 	s.notifyTradeVetoed(offer, "commissioner review")
+	// Refs left empty for the same two-franchise reason as ApproveTrade
+	// above.
+	summary := fmt.Sprintf("vetoed the trade between %s and %s", s.TeamLabel(offer.FromTeamID), s.TeamLabel(offer.ToTeamID))
+	if _, err := s.RecordCommissionerEvent(r, "trade.veto", summary, CommissionerEventRefs{}); err != nil {
+		log.Printf("commissioner event: trade.veto: %v", err)
+	}
 	return "Trade vetoed.", nil
 }
 

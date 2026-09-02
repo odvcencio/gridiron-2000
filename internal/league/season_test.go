@@ -119,6 +119,90 @@ func TestCloseWeekRejectsUnknownWeek(t *testing.T) {
 	}
 }
 
+// TestAdminCloseWeekRecordsForceCloseCommissionerEvent checks the wave-2
+// commissioner-console audit trail distinguishes an override close (the
+// kickoff-timing-unavailable fixture from
+// TestAdminCloseWeekRemainsForceOverrideWhenKickoffTimingIsUnavailable
+// above, where AdminWeekCloseInfo.Ready is false) with kind
+// "week.force_close", not the ordinary "week.close".
+func TestAdminCloseWeekRecordsForceCloseCommissionerEvent(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	now := time.Date(2026, 9, 16, 14, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Final: true}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+	svc.SetStatsUpdatedSource(func() time.Time { return now })
+	if info := svc.AdminWeekCloseInfo(week, now); info.Ready {
+		t.Fatalf("fixture must not be ready: %+v", info)
+	}
+
+	request, _ := http.NewRequest(http.MethodPost, "/admin/close-week", nil)
+	if _, _, err := svc.AdminCloseWeek(request, week); err != nil {
+		t.Fatal(err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "week.force_close" || events[0].Refs.Week != week {
+		t.Fatalf("commissioner events = %+v, want one week.force_close row for week %d", events, week)
+	}
+}
+
+// TestAdminCloseWeekRecordsCloseCommissionerEventWhenReady mirrors
+// TestAdminWeekCloseInfoSeparatesReadinessFromOverride's own ready fixture
+// (every game final, stats fresh 24h past the last kickoff): a close under
+// those conditions is an ordinary "week.close", not a forced override.
+func TestAdminCloseWeekRecordsCloseCommissionerEventWhenReady(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	kickoff := time.Date(2026, 9, 14, 13, 0, 0, 0, time.UTC)
+	now := kickoff.Add(25 * time.Hour)
+	svc.now = func() time.Time { return now }
+	svc.SetScheduleSource(func() []GameInfo {
+		return []GameInfo{{Week: week, Kickoff: kickoff, Final: true}}
+	})
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+	svc.SetStatsUpdatedSource(func() time.Time { return now })
+	if info := svc.AdminWeekCloseInfo(week, now); !info.Ready {
+		t.Fatalf("fixture must be ready: %+v", info)
+	}
+
+	request, _ := http.NewRequest(http.MethodPost, "/admin/close-week", nil)
+	if _, _, err := svc.AdminCloseWeek(request, week); err != nil {
+		t.Fatal(err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 || events[0].Kind != "week.close" || events[0].Refs.Week != week {
+		t.Fatalf("commissioner events = %+v, want one week.close row for week %d", events, week)
+	}
+}
+
+// TestAdminCloseWeekIdempotentRecloseDoesNotDuplicateCommissionerEvent
+// checks closeWeek's own idempotent-close guard (scheduleWeekIsFinal) also
+// gates the audit row: a repeat close of an already-final week performs no
+// new mutation, so it must not log a second event.
+func TestAdminCloseWeekIdempotentRecloseDoesNotDuplicateCommissionerEvent(t *testing.T) {
+	svc := schedulerTestService(t)
+	schedule := svc.store.Snapshot().Schedule
+	week := schedule.Weeks[0].Week
+	svc.SetWeekStatsSource(func(week int) []WeekStatLine { return nil })
+
+	request, _ := http.NewRequest(http.MethodPost, "/admin/close-week", nil)
+	if _, _, err := svc.AdminCloseWeek(request, week); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.AdminCloseWeek(request, week); err != nil {
+		t.Fatal(err)
+	}
+	events := svc.store.Snapshot().CommissionerEvents
+	if len(events) != 1 {
+		t.Fatalf("commissioner events = %+v, want exactly one row after a no-op re-close", events)
+	}
+}
+
 func TestCloseWeekRequiresSchedule(t *testing.T) {
 	svc := newTestService(t, true)
 	if _, _, err := svc.closeWeek(1, svc.clock()); err == nil {

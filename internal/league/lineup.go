@@ -786,6 +786,8 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 		if err := s.store.SetLineupSlot(teamID, week, slot.ID, "", now); err != nil {
 			return "", err
 		}
+		s.recordLineupInterventionEvent(r, teamID, week, "", "lineup.intervention_set",
+			fmt.Sprintf("cleared %s for %s in week %d", slot.ID, s.TeamLabel(teamID), week))
 		return fmt.Sprintf("%s cleared.", slot.ID), nil
 	}
 
@@ -805,6 +807,8 @@ func (s *Service) SetLineup(r *http.Request, requestedTeam string, week int, slo
 	if err := s.store.SetLineupSlot(teamID, week, slot.ID, player.ID, now); err != nil {
 		return "", err
 	}
+	s.recordLineupInterventionEvent(r, teamID, week, player.ID, "lineup.intervention_set",
+		fmt.Sprintf("set %s to start %s for %s in week %d", slot.ID, player.Name, s.TeamLabel(teamID), week))
 	return fmt.Sprintf("%s starts at %s.", player.Name, slot.ID), nil
 }
 
@@ -831,6 +835,8 @@ func (s *Service) LineupAuto(r *http.Request, requestedTeam string, week int) (s
 	if err := s.store.SetLineupWeek(teamID, week, resolved); err != nil {
 		return "", err
 	}
+	s.recordLineupInterventionEvent(r, teamID, week, "", "lineup.intervention_auto",
+		fmt.Sprintf("auto-filled the week %d lineup for %s", week, s.TeamLabel(teamID)))
 	return lineupAutoResultMessage(preset, resolved), nil
 }
 
