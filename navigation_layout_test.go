@@ -230,14 +230,7 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		// app/layout.gsx (hickory's file, unchanged in this range) still
-		// renders "Team status" for this seatless/ineligible branch — a
-		// prior wave-6 commit updated this expectation to "Team terminal"
-		// without a matching layout.gsx edit. Reverted to match the
-		// PrimaryNavigation component's actual current output; flagged in
-		// the wave-6 report for hickory/tamarack to reconcile if a label
-		// change was genuinely intended.
-		*team = append(*team, "/team|04 Team status")
+		*team = append(*team, "/team|04 Team terminal")
 	}
 	*team = append(*team, "/board|05 Big Board")
 	if viewer.hasSeat || viewer.signedIn {
