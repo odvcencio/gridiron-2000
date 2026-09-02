@@ -2395,6 +2395,22 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		})
 	}
 
+	// starterRows/benchRows are built once here (rather than inline in the
+	// data literal below) so wave 7's row decorators — group headers
+	// (item 1), the unconditional kickoff/bye second line (item 4), and
+	// the drafted-round chip (item 5) — have a live map to write onto
+	// before the page ever sees it. Each decorator only ever ADDS keys;
+	// none removes or replaces one starterRowMaps/playerMapsWithScoring
+	// already set.
+	starterRows := s.starterRowMaps(lineup, general, games, now, scoringValues)
+	benchRows := playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week))
+	addBenchGroupHeaders(benchRows)
+	addScheduleLabels(benchRows, lineup.Bench, games, week, s.matchupLocation())
+	draftedLabels := draftedLabelsByPlayerID(state, teamID)
+	decorateDraftedLabels(starterRows, draftedLabels)
+	decorateDraftedLabels(benchRows, draftedLabels)
+	draftClass := s.draftClassTeaser(state, teamID, 3)
+
 	data := map[string]any{
 		"viewer":                        viewer,
 		"playoff_truth":                 s.playoffTruthMap(state, now, s.IsCommissioner(r)),
@@ -2425,14 +2441,25 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"identity_error":       identityError,
 		"roster_shape":         rosterShapeRows(),
 		"shape_summary":        rosterShapeSummary(len(general) + len(reserveOccupants)),
-		"week":                 strconv.Itoa(week),
-		"week_options":         weekOptions,
-		"week_notice":          weekSelection.Notice,
-		"has_week_notice":      weekSelection.Notice != "",
-		"lineup_deadline":      lineupDeadlineMap,
-		"starters":             s.starterRowMaps(lineup, general, games, now, scoringValues),
-		"starters_filled":      strconv.Itoa(filled),
-		"starters_total":       strconv.Itoa(len(lineup.Slots)),
+		// positional_depth (wave 7 item 2) is the general roster's own
+		// position counts — "2 QB · 4 RB · 5 WR · 2 TE · 1 K · 1 DST" — in
+		// the same QB/RB/WR/TE/K/DST order the bench grouping
+		// (addBenchGroupHeaders/benchPositionOrder, lineup.go) uses, so a
+		// manager can see at a glance whether an empty FLEX is a real
+		// shortage or just an unset lineup. general (not roster) is
+		// deliberate: reserve/IR occupants sit outside the countable
+		// lineup pool (roster-ops SK spec), the same slice effectiveLineup
+		// itself draws starters and bench from.
+		"positional_depth":       positionalDepthSummary(general),
+		"positional_depth_chips": positionalDepthChips(general),
+		"week":                   strconv.Itoa(week),
+		"week_options":           weekOptions,
+		"week_notice":            weekSelection.Notice,
+		"has_week_notice":        weekSelection.Notice != "",
+		"lineup_deadline":        lineupDeadlineMap,
+		"starters":               starterRows,
+		"starters_filled":        strconv.Itoa(filled),
+		"starters_total":         strconv.Itoa(len(lineup.Slots)),
 		// starters_empty/starters_empty_label back /team's persistent,
 		// beside-the-count warning (gap-audit finding: SET BEST LINEUP used
 		// to report plain success while a starting slot, e.g. K with no
@@ -2442,7 +2469,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"starters_empty":       len(lineupEmptyStarterSlots(lineup)) > 0,
 		"starters_empty_label": lineupEmptySlotsWarning(lineupEmptyStarterSlots(lineup)),
 		"bench_capacity":       strconv.Itoa(preset.Bench),
-		"bench":                playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week)),
+		"bench":                benchRows,
 		"bench_empty":          len(lineup.Bench) == 0,
 		// RESERVE and IR sections (roster-ops SK spec): render-tolerant —
 		// has_reserve/has_ir are false, and the section stays hidden,
@@ -2475,6 +2502,17 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"fantasy_card":         s.fantasyCardData(state, viewer),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
+		// draft_class_* (wave 7 item 6) back the post-draft "Your draft
+		// class" callout: draft_class_href is the URL this wave agreed
+		// with app/draft's own results page (hazel), and
+		// draft_class_teaser carries the team's first three picks (by
+		// pick order) as the teaser list. The callout itself is gated in
+		// page.gsx on team_terminal_roster_complete (merged in from
+		// terminalData just below) — draft_class_teaser_empty exists so
+		// the template never needs a bare len() check of its own.
+		"draft_class_href":         "/draft/results?team=" + url.QueryEscape(team.Abbreviation),
+		"draft_class_teaser":       draftClass,
+		"draft_class_teaser_empty": len(draftClass) == 0,
 	}
 	for key, value := range terminalData {
 		data[key] = value
@@ -2614,12 +2652,15 @@ func rosterShapeSummary(filled int) string {
 // state.
 func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, bool) {
 	pool := s.pool()
-	pickByPlayer := make(map[string]DraftPick, len(state.Picks))
-	for _, pick := range state.Picks {
-		if pick.TeamID == teamID {
-			pickByPlayer[pick.PlayerID] = pick
-		}
-	}
+	// pickByPlayer backed the old "Rd %d · Pick %d" Status branch below,
+	// which never actually fired: every pool player already carries
+	// Status: "Available" (players.go), so the "player.Status == \"\""
+	// guard's dead-code condition was never true, and the draft round/pick
+	// never reached a rendered row this way. Wave 7 item 5 renders the
+	// same information honestly instead — draftedLabelsByPlayerID
+	// (below) resolves the identical state.Picks ledger into its own
+	// "R<round> · P<pick>" chip, applied to both starter and bench rows
+	// in teamData, rather than smuggling it through Status.
 	ids := currentRosters(state)[teamID]
 	roster := make([]Player, 0, len(ids))
 	for _, id := range ids {
@@ -2627,16 +2668,190 @@ func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, 
 		if !ok {
 			continue
 		}
-		if player.Status == "" {
-			if pick, ok := pickByPlayer[id]; ok {
-				player.Status = fmt.Sprintf("Rd %d · Pick %d", pick.Round, pick.Number)
-			} else {
-				player.Status = "Free agency add"
-			}
-		}
 		roster = append(roster, player)
 	}
 	return roster, len(roster) > 0
+}
+
+// positionalDepthSummary renders general's position counts (wave 7 item
+// 2) as one compact line — "2 QB · 4 RB · 5 WR · 2 TE · 1 K · 1 DST" —
+// in the same QB/RB/WR/TE/K/DST reading order the bench grouping
+// (lineup.go's benchPositionOrder) uses, so a manager can see at a
+// glance whether an empty FLEX slot is a real positional shortage or
+// just an unset lineup. general is starters+bench only — the same
+// reserve/IR-excluded slice effectiveLineup itself draws from (roster-
+// ops SK spec: zone occupants sit outside the countable lineup pool).
+// Any position outside the six named groups (a rostered P, or a shape
+// this league's active preset never carries) still counts, appended in
+// playerPoolPositions order after the six named groups, so a punter or
+// an unusual position never silently drops off the end of the line.
+func positionalDepthSummary(general []Player) string {
+	return strings.Join(positionalDepthParts(general), " · ")
+}
+
+// positionalDepthChips renders the same counts positionalDepthSummary
+// joins into one string, but as individual "label" entries instead —
+// /team's own mobile layout (wave 7 item 8) renders each entry as its
+// own wrapping chip rather than relying on a joined string to wrap
+// mid-word. Both functions share positionalDepthParts so the two
+// renderings can never drift out of sync with each other.
+func positionalDepthChips(general []Player) []map[string]any {
+	parts := positionalDepthParts(general)
+	out := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		out = append(out, map[string]any{"label": part})
+	}
+	return out
+}
+
+// positionalDepthParts is positionalDepthSummary/positionalDepthChips'
+// shared count-and-order pass: see positionalDepthSummary's own doc
+// comment for the ordering rule (QB/RB/WR/TE/K/DST, then anything else)
+// and why "general", not the full roster, is the right input.
+func positionalDepthParts(general []Player) []string {
+	counts := make(map[string]int, len(playerPoolPositions))
+	for _, p := range general {
+		counts[p.Position]++
+	}
+	parts := make([]string, 0, len(playerPoolPositions))
+	for _, position := range benchPositionOrder {
+		if n := counts[position]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, position))
+		}
+	}
+	for _, position := range playerPoolPositions {
+		if benchPositionRank(position) < len(benchPositionOrder) {
+			continue
+		}
+		if n := counts[position]; n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, position))
+		}
+	}
+	return parts
+}
+
+// addBenchGroupHeaders decorates bench's per-row view-model maps (already
+// grouped into QB/RB/WR/TE/K/DST order by effectiveLineup's own bench
+// sort — see lineup.go's benchPositionOrder) with a "group_header" label
+// on the first row of each new position and a blank one on every other
+// row (wave 7 item 1), so /team's flat <Each> bench list still reads as
+// grouped even though GoSX has no native list-grouping construct.
+// Reserve and IR occupants never pass through here — they render
+// through zoneOccupantRows' own separate list — so this never touches
+// those zones.
+func addBenchGroupHeaders(rows []map[string]any) {
+	last := ""
+	for _, row := range rows {
+		position, _ := row["position"].(string)
+		hasHeader := position != last
+		row["has_group_header"] = hasHeader
+		row["group_header"] = ""
+		if hasHeader {
+			row["group_header"] = position
+		}
+		last = position
+	}
+}
+
+// addScheduleLabels decorates rows (already-rendered playerMap output, in
+// the same order as players) with the same unconditional kickoff_label/
+// bye_label pair starterRowMaps emits for starters (wave 7 item 4):
+// "SUN 4:25 PM" and "BYE N", present whether or not the player is
+// anywhere near locked — lock only ever gates the WRITE side, never
+// selection or render (see effectiveLineup's own doc comment on the P0
+// this invariant fixed). rows and players must be the same length, in
+// the same order; playerMapsWithScoring iterates its input in order and
+// appends exactly one row per player, so this zip is always safe for
+// its own output.
+func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo, week int, location *time.Location) {
+	for i, row := range rows {
+		if i >= len(players) {
+			return
+		}
+		player := players[i]
+		kickoffLabel := ""
+		if kickoff, ok := playerLockAt(games, week, player.NFLTeam); ok && !kickoff.IsZero() {
+			kickoffLabel = strings.ToUpper(kickoff.In(location).Format("Mon 3:04 PM"))
+		}
+		row["kickoff_label"] = kickoffLabel
+		row["has_kickoff_label"] = kickoffLabel != ""
+		byeLabel := ""
+		if player.ByeWeek > 0 {
+			byeLabel = fmt.Sprintf("BYE %d", player.ByeWeek)
+		}
+		row["bye_label"] = byeLabel
+		row["has_bye_label"] = byeLabel != ""
+	}
+}
+
+// draftedLabelsByPlayerID resolves teamID's drafted players to a compact
+// "R<round> · P<pick>" chip label from the draft's own picks ledger
+// (state.Picks) — wave 7 item 5. This is the same lookup rosterForTeam's
+// old dead Status branch attempted (see that function's doc comment): a
+// player with no matching pick (a free-agency add) is simply absent from
+// the map, and callers render no chip for that row.
+func draftedLabelsByPlayerID(state PersistedState, teamID string) map[string]string {
+	out := make(map[string]string, len(state.Picks))
+	for _, pick := range state.Picks {
+		if pick.TeamID != teamID {
+			continue
+		}
+		out[pick.PlayerID] = fmt.Sprintf("R%d · P%d", pick.Round, pick.Number)
+	}
+	return out
+}
+
+// decorateDraftedLabels applies draftedLabelsByPlayerID's lookup onto
+// already-rendered player-row maps (starters and bench both call this in
+// teamData), keyed by each row's own "id" field. An empty starter slot's
+// row carries no "id" at all; the zero-value lookup misses cleanly and
+// has_drafted_label renders false, same as any other undrafted row.
+func decorateDraftedLabels(rows []map[string]any, labels map[string]string) {
+	for _, row := range rows {
+		id, _ := row["id"].(string)
+		label := labels[id]
+		row["drafted_label"] = label
+		row["has_drafted_label"] = label != ""
+	}
+}
+
+// draftClassTeaser renders teamID's first limit draft picks (by pick
+// order — round then overall pick number) as /team's post-draft "Your
+// draft class" callout teaser (wave 7 item 6): each entry names the
+// player and its slot ("R3 · P28"). Returns an empty slice for a team
+// that holds no picks yet; the caller (teamData) gates the whole
+// callout section on team_terminal_roster_complete, so this never needs
+// to render its own empty state.
+func (s *Service) draftClassTeaser(state PersistedState, teamID string, limit int) []map[string]any {
+	pool := s.pool()
+	picks := make([]DraftPick, 0, len(state.Picks))
+	for _, pick := range state.Picks {
+		if pick.TeamID == teamID {
+			picks = append(picks, pick)
+		}
+	}
+	sort.Slice(picks, func(i, j int) bool {
+		if picks[i].Round != picks[j].Round {
+			return picks[i].Round < picks[j].Round
+		}
+		return picks[i].Number < picks[j].Number
+	})
+	if len(picks) > limit {
+		picks = picks[:limit]
+	}
+	out := make([]map[string]any, 0, len(picks))
+	for _, pick := range picks {
+		player, ok := pool.byID[pick.PlayerID]
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"name":     player.Name,
+			"position": player.Position,
+			"label":    fmt.Sprintf("R%d · P%d", pick.Round, pick.Number),
+		})
+	}
+	return out
 }
 
 // topAvailable lists the best unpicked pool players for the waiver radar.

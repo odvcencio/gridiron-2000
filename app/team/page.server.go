@@ -30,27 +30,35 @@ import (
 // name would collide with page.gsx's own RosterRowProps.Breakdown element
 // type if declared again in this package.
 type RosterCard struct {
-	Position       string
-	HasHeadshot    bool
-	Headshot       string
-	Name           string
-	NFLTeam        string
-	Opponent       string
-	HasOpponent    bool
-	HasMatchup     bool
-	MatchupTier    string
-	MatchupChip    string
-	MatchupDetail  string
-	Jersey         string
-	HasBreakdown   bool
-	Breakdown      []league.BreakdownRow
-	BreakdownTotal string
-	HasHist        bool
-	Hist           string
-	HistLabel      string
-	Status         string
-	Projection     string
-	Points         string
+	Position        string
+	HasHeadshot     bool
+	Headshot        string
+	Name            string
+	NFLTeam         string
+	Opponent        string
+	HasOpponent     bool
+	HasMatchup      bool
+	MatchupTier     string
+	MatchupChip     string
+	MatchupDetail   string
+	Jersey          string
+	HasBreakdown    bool
+	Breakdown       []league.BreakdownRow
+	BreakdownTotal  string
+	HasHist         bool
+	Hist            string
+	HistLabel       string
+	Status          string
+	Projection      string
+	Points          string
+	HasKickoff      bool
+	Kickoff         string
+	HasBye          bool
+	Bye             string
+	HasDraftedLabel bool
+	DraftedLabel    string
+	HasGroupHeader  bool
+	GroupHeader     string
 }
 
 // BadgeCard is the typed data.badge_grid entry spread into strict
@@ -151,6 +159,18 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			Status:         stringField(player, "status"),
 			Projection:     stringField(player, "projection"),
 			Points:         stringField(player, "points"),
+			// Kickoff/Bye/DraftedLabel/GroupHeader (wave 7 items 1/4/5) come
+			// from league.addScheduleLabels/addBenchGroupHeaders/
+			// decorateDraftedLabels, which teamData applies to every bench
+			// row before this conversion runs.
+			HasKickoff:      boolField(player, "has_kickoff_label"),
+			Kickoff:         stringField(player, "kickoff_label"),
+			HasBye:          boolField(player, "has_bye_label"),
+			Bye:             stringField(player, "bye_label"),
+			HasDraftedLabel: boolField(player, "has_drafted_label"),
+			DraftedLabel:    stringField(player, "drafted_label"),
+			HasGroupHeader:  boolField(player, "has_group_header"),
+			GroupHeader:     stringField(player, "group_header"),
 		})
 	}
 	return out

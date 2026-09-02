@@ -29,6 +29,23 @@ type RosterRowProps struct {
 	Status         string
 	Projection     string
 	Points         string
+	// Kickoff/Bye (wave 7 item 4) render unconditionally — before lock,
+	// not only once a slot has locked — as the row's own second line:
+	// "CIN · vs SF · SUN 4:25 PM · BYE 5". See league.addScheduleLabels.
+	HasKickoff bool
+	Kickoff    string
+	HasBye     bool
+	Bye        string
+	// DraftedLabel (wave 7 item 5) is a compact "R3 · P28" chip for a
+	// drafted roster player; empty (HasDraftedLabel false) for a
+	// free-agency add. See league.draftedLabelsByPlayerID.
+	HasDraftedLabel bool
+	DraftedLabel    string
+	// GroupHeader (wave 7 item 1) renders once, on the first bench row of
+	// each new position group (QB, RB, WR, TE, K, DST) — blank on every
+	// other row. See league.addBenchGroupHeaders.
+	HasGroupHeader bool
+	GroupHeader    string
 }
 
 // BadgeCellProps is one cell of the team-badge picker grid: a free
@@ -87,6 +104,9 @@ component BadgeCell(props: BadgeCellProps) {
 
 component RosterRow(props: RosterRowProps) {
 	return <div class="roster-row">
+		<If cond={props.HasGroupHeader}>
+			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
+		</If>
 		<div class="position-chip">{props.Position}</div>
 		<details class="player-identity stat-tip">
 			<summary class="stat-tip__summary">
@@ -98,6 +118,9 @@ component RosterRow(props: RosterRowProps) {
 			</If>
 			<span class="player-identity__text">
 				<strong>{props.Name}</strong>
+				<If cond={props.HasDraftedLabel}>
+					<span class="drafted-chip mono">{props.DraftedLabel}</span>
+				</If>
 				<small>
 					{props.NFLTeam}
 					<If cond={props.HasOpponent}>
@@ -107,6 +130,21 @@ component RosterRow(props: RosterRowProps) {
 							·
 							<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
 						</If>
+					</If>
+				</small>
+				<small class="roster-row__schedule mono">
+					{props.NFLTeam}
+					<If cond={props.HasOpponent}>
+						·
+						{props.Opponent}
+					</If>
+					<If cond={props.HasKickoff}>
+						·
+						{props.Kickoff}
+					</If>
+					<If cond={props.HasBye}>
+						·
+						{props.Bye}
 					</If>
 				</small>
 			</span>
@@ -566,10 +604,38 @@ func TeamLineupRegion() Node {
 					</section>
 					<div class="roster-shape" aria-label="League roster shape">
 						<Each of={data.roster_shape} as="slot">
-							<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
+							<span class="roster-shape__slot-wrap">
+								<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
+								<If cond={slot.has_eligible}>
+									<small class="roster-shape__eligible mono">ELIGIBLE: {slot.eligible}</small>
+								</If>
+							</span>
 						</Each>
 						<p class="roster-shape__summary mono">{data.shape_summary}</p>
+						<div class="roster-shape__depth" role="list" aria-label={"Roster positional depth: " + data.positional_depth}>
+							<Each of={data.positional_depth_chips} as="chip">
+								<span class="roster-shape__depth-chip mono" role="listitem">{chip.label}</span>
+							</Each>
+						</div>
 					</div>
+					<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false}>
+						<section class="draft-class-callout" aria-labelledby="draft-class-callout-title">
+							<div>
+								<span class="section-index">DRAFT COMPLETE // YOUR CLASS</span>
+								<strong id="draft-class-callout-title">Your draft class</strong>
+							</div>
+							<ul class="draft-class-callout__list">
+								<Each of={data.draft_class_teaser} as="pick">
+									<li>
+										<span class="position-chip">{pick.position}</span>
+										{pick.name}
+										<small class="mono">{pick.label}</small>
+									</li>
+								</Each>
+							</ul>
+							<a href={data.draft_class_href} data-gosx-link class="access-link">View your full draft class →</a>
+						</section>
+					</If>
 					<div class="lineup-toolbar">
 						<form method="get" action="/team" class="lineup-week-form">
 							<If cond={data.lineup_intervention}>
@@ -583,11 +649,11 @@ func TeamLineupRegion() Node {
 							<button class="board-button" type="submit">Go</button>
 						</form>
 						<If cond={data.team_terminal_roster_complete}>
-							<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true">
+							<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
 								<input type="hidden" name="week" value={data.week}></input>
-								<button class="button button--compact" type="submit">Set best lineup</button>
+								<button class="button button--compact lineup-auto-form__button" type="submit">Set best lineup</button>
 							</form>
 							<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster, highest projection first. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
 						</If>
@@ -643,6 +709,9 @@ func TeamLineupRegion() Node {
 											</If>
 											<span class="player-identity__text">
 												<strong>{slot.name}</strong>
+												<If cond={slot.has_drafted_label}>
+													<span class="drafted-chip mono">{slot.drafted_label}</span>
+												</If>
 												<small>
 													{slot.position}
 													·
@@ -654,6 +723,21 @@ func TeamLineupRegion() Node {
 															·
 															<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
 														</If>
+													</If>
+												</small>
+												<small class="roster-row__schedule mono">
+													{slot.nfl_team}
+													<If cond={slot.has_opponent}>
+														·
+														{slot.opponent}
+													</If>
+													<If cond={slot.has_kickoff_label}>
+														·
+														{slot.kickoff_label}
+													</If>
+													<If cond={slot.has_bye_label}>
+														·
+														{slot.bye_label}
 													</If>
 												</small>
 											</span>
@@ -697,6 +781,9 @@ func TeamLineupRegion() Node {
 										</If>
 									</If>
 									<div class="lineup-slot__chips">
+										<If cond={slot.has_player}>
+											<span class="position-chip lineup-slot__position">{slot.position}</span>
+										</If>
 										<If cond={slot.auto_filled}>
 											<span class="position-chip" title="Filled automatically by SET BEST LINEUP">AUTO</span>
 										</If>

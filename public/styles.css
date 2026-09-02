@@ -3702,10 +3702,19 @@ button.badge-option:hover {
   gap: var(--space-xs);
 }
 
+/* Item 7 (wave 7 — elm): 11rem's own minimum truncated a starter's name
+   to "Kyler …" at 1280px, where .lineup-slot's base (desktop) rule is
+   still in force — the identity column's own minmax(11rem, 1fr) floor
+   sat well below most starter names' natural width once the two auto
+   chip/form columns and the fixed 3.3rem slot-id column claimed their
+   share of a 1280px .roster-panel. 14rem raises the floor and 2fr (up
+   from 1fr) gives the identity column first claim on any leftover
+   width, so a long name wraps onto a second line (align-items: start
+   below lets the row grow to fit it) instead of ellipsizing. */
 .lineup-slot {
   position: relative;
   display: grid;
-  grid-template-columns: 3.3rem minmax(11rem, 1fr) auto auto;
+  grid-template-columns: 3.3rem minmax(14rem, 2fr) auto auto;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-sm);
@@ -3750,7 +3759,32 @@ button.badge-option:hover {
 
 .lineup-slot__form {
   display: inline-flex;
+  /* Item 7 (wave 7 — elm): the identity column's own widened floor
+     (minmax(14rem, 2fr), above) can leave this auto-sized column less
+     room at in-between desktop widths; wrap the select below the
+     button instead of forcing either one to overflow its column. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--space-xs);
+}
+
+/* Item 7 (wave 7 — elm) — the actual overflow driver: an auto-sized
+   grid TRACK (.lineup-slot's own column 4) sizes itself to this
+   select's max-content width, which is the widest lineupSlotOptions
+   label ("Full Name · POS · TEAM", easily 200px+) — unbounded, that
+   demand alone forced the identity column's own minmax(14rem, 2fr)
+   track below its stated 14rem floor once total column demand
+   exceeded .roster-panel's available width (verified: raising the
+   floor from 11rem to 14rem alone measured 80px clientWidth on the
+   name, no different from before — the select, not the floor, was
+   the real ceiling). Capping the select's own width caps column 4's
+   max-content contribution instead, the same fix "let the form wrap"
+   names. The browser truncates the select's own closed-state label
+   when it is wider than this box, exactly like any other overflowing
+   inline control. */
+.lineup-slot__form select {
+  min-width: 0;
+  max-width: 11rem;
 }
 
 .lineup-bench-title {
@@ -12472,4 +12506,206 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .draft-destructive-control form > p,
 .draft-destructive-control form > label {
   flex: 1 1 100%;
+}
+
+/* wave 7 — elm ---------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot
+   collide with a concurrent edit elsewhere in this stylesheet — the
+   same append convention the "wave 4 — linden" and "wave 6 — hickory"
+   blocks above use. Every selector below is new; the only in-place
+   edits this wave makes are .lineup-slot's grid-template-columns/
+   align-items and .lineup-slot__form's flex-wrap/justify-content, both
+   near their own existing rules earlier in the file (item 7). This
+   block deliberately never repeats the shell's own phone-width media
+   query text — mobile_touch_contract_test.go's mobileRules() takes
+   strings.LastIndex of that exact media-query text to find "the"
+   mobile rules block (even inside a comment — a literal quoted copy of
+   it right here, earlier, briefly broke both tests that call it), and
+   a second occurrence appended after the real one would silently steal
+   every test that calls it. Every breakpoint below uses a distinct rem
+   value for that reason, not just style. */
+
+/* Item 1: the bench-grouping header (RosterRow, page.gsx) renders once
+   per new position and spans .roster-row's full grid width so the
+   row's other five cells (position chip, identity, game state, PROJ,
+   PTS) still land in their own five-column row directly beneath it —
+   see .roster-labels/.roster-row's own grid-template-columns, which
+   this never redefines. */
+.roster-group-header {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: var(--space-xs);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.roster-row:first-child .roster-group-header {
+  padding-top: 0;
+}
+
+/* Item 5: the drafted-round chip ("R3 · P28") sits beside the player
+   name on both a starter slot and a bench row. Sized and colored like
+   the existing .matchup-chip beside it rather than the taller
+   .position-chip, since it shares that chip's inline position inside a
+   name line, not a fixed-size grid cell. */
+.drafted-chip {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+/* Item 4: the unconditional kickoff/bye second line — "CIN · vs SF ·
+   SUN 4:25 PM · BYE 5" — renders under the existing position/opponent
+   line on every starter slot and bench row, before as well as after
+   lock (starterRowMaps/addScheduleLabels never gate this on
+   a.Locked — see lineup.go's own doc comment on why selection/render
+   never consult lock status). min-width: 0 plus overflow-wrap keeps a
+   long combined line from forcing its own column wider than the text
+   truncation rule (product rule: no element narrower than its text). */
+.roster-row__schedule {
+  display: block;
+  min-width: 0;
+  margin-top: 0.1rem;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Item 3: FLEX (and any other multi-position slot)'s eligible-position
+   text now renders as its own visible line under the slot chip, not
+   only inside a title="" tooltip a touch device can never reveal. */
+.roster-shape__slot-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.roster-shape__eligible {
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+/* Item 2: the positional-depth line ("2 QB · 4 RB · 5 WR · 2 TE · 1 K ·
+   1 DST") sits beside .roster-shape__summary, one wrapping chip per
+   position (positionalDepthChips, service.go) rather than one joined
+   string — a chip wraps as a whole unit onto the next line at any
+   width, never splitting "2 QB" across two lines the way a joined
+   string's own word-wrap could. */
+.roster-shape__depth {
+  flex-basis: 100%;
+  margin: 0.1rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.roster-shape__depth-chip {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+}
+
+/* Item 6: the post-draft "Your draft class" callout mirrors
+   .predraft-progress's own card treatment (border + panel background)
+   so it reads as one more lifecycle card in the same visual family,
+   not a one-off. */
+.draft-class-callout {
+  margin: var(--space-sm) 0 var(--space-md);
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
+  border: 1px solid var(--color-accent-cyan);
+  border-left: 0.3rem solid var(--color-accent);
+  background: var(--color-cyan-haze);
+}
+
+.draft-class-callout__list {
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-xs);
+  list-style: none;
+}
+
+.draft-class-callout__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.draft-class-callout__list li > small {
+  margin-left: auto;
+  color: var(--color-text-muted);
+}
+
+/* Item 8: phone-width card treatment for /team, target viewport 390px.
+   26.75rem (428px) covers the common iOS/Android phone width band with
+   margin, sitting well inside the shell's existing 56.1875rem
+   desktop/mobile switch (899px) so nothing here fights that switch —
+   it only refines what a phone gets within the "mobile" side of it. */
+@media (max-width: 26.75rem) {
+  /* Two-line starter card: the slot ID is the bold left rail, the
+     position chip (already rendered first inside .lineup-slot__chips,
+     page.gsx) and the item-4 schedule line carry the row's own detail,
+     and the SET control (.lineup-slot__form button.board-button)
+     already holds the 44px touch floor from the shared 38rem rule
+     re-assert list — this block only handles the layout those pieces
+     sit in. */
+  .lineup-slot__id {
+    font-weight: 700;
+  }
+
+  /* SET BEST LINEUP as a full-width primary button above the starting-
+     slot list: .lineup-toolbar already renders this form before
+     .lineup-slot-list in document order (page.gsx), so width alone
+     moves it into that role at phone width. button--primary is not
+     the desktop class here on purpose — .lineup-auto-form__button
+     stays button--compact everywhere except this override so a
+     narrower tablet width never gets a surprise full-bleed button. */
+  .lineup-auto-form {
+    width: 100%;
+  }
+
+  .lineup-auto-form__button {
+    width: 100%;
+    min-height: 2.75rem;
+  }
+
+  /* Bench group headers stick just below the mobile top bar while the
+     page scrolls, the same clearance .guide-toc's own sticky rule
+     reserves. */
+  .roster-group-header {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 1;
+    padding: var(--space-xs) 0;
+    /* .roster-panel's own background (see its rule earlier in this
+       file) — matched here, not re-derived, so the sticky header
+       covers a scrolling row behind it cleanly instead of showing a
+       seam against the panel's own semi-transparent glass tone. */
+    background: var(--color-panel-glass);
+  }
+
+  /* Week selector at the 44px touch floor, full width so the native
+     <select> (week_options) and GO button share one comfortable row
+     instead of squeezing into a shrinking one alongside the toolbar's
+     other controls. */
+  .lineup-week-form {
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  .lineup-week-form select,
+  .lineup-week-form button {
+    flex: 0 0 auto;
+    min-height: 2.75rem;
+  }
 }
