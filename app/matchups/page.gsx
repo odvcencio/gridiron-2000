@@ -239,13 +239,17 @@ func Scorebug(props ScorebugData) Node {
 
 // Page's status line (below) is one composed sentence for assistive tech
 // (AT) — state, source phrase, ledger stamp, games-final count, in the
-// mockup's own order: the three raw bookkeeping spans a poll needs
-// (checkedAt/liveStatus/refreshLabel) carry no reading-order meaning of
-// their own, so they sit outside the role="status" region entirely rather
-// than fragmenting it (item 7, round-2 fidelity pass) — aria-live="polite"
-// announces the region's own text as it changes, and a value no sighted
-// or AT user is meant to read should not be part of that text. LEDGER's
-// own sourceLine value is the literal string "Weekly ledger (nflverse)"
+// mockup's own order. wave-6 item 8: the three raw bookkeeping spans a
+// poll needs (checkedAt/liveStatus/refreshLabel) used to sit outside the
+// role="status" region entirely, visually-hidden — a sighted user saw no
+// freshness clause anywhere on the page at all (the 2026-09-01 re-audit),
+// even though the live-bind values already carried one, e.g. "Waiting
+// for kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger unavailable".
+// They are now the status line's own trailing clause, visible to sighted
+// and AT users alike (role="status"/aria-live="polite" announces this
+// whole paragraph's text as it changes), keeping every data-gosx-live-bind
+// attribute so a poll still updates them in place. LEDGER's own
+// sourceLine value is the literal string "Weekly ledger (nflverse)"
 // (liveSourceLine, feed.go): the same words the static ledger-stamp span
 // always opens with, so that span only renders once the live state has
 // moved off LEDGER and the two no longer say the same thing back to back
@@ -267,8 +271,8 @@ func Page() Node {
 				<span class="mono muted matchup-status-line__ledger">Weekly ledger (nflverse) · <span data-gosx-live-bind="statsUpdatedAt">{data.status_line.stats_updated_at}</span></span>
 			</If>
 			<span class="mono muted matchup-status-line__games" data-gosx-live-bind="gamesFinal">{data.status_line.games_final}</span>
+			<span class="mono muted matchup-status-line__freshness">· <span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
 		</p>
-		<span class="visually-hidden" data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span><span class="visually-hidden" data-gosx-live-bind="liveStatus">{data.live.live_status}</span><span class="visually-hidden" data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
 		<If cond={data.has_week_notice}><p class="matchup-week-notice" role="status">{data.week_notice}</p></If>
 		<div class="matchup-layout">
 			<If cond={data.my_matchup.HasMatchup}><FeaturedMatchup {...data.my_matchup}></FeaturedMatchup></If>

@@ -11976,3 +11976,80 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     display: none;
   }
 }
+
+/* wave 6 — tamarack */
+
+/* Item 3: every slogan h1 this worker owns (/activity, /pickem, /blitz,
+   /settings) moved its old sloganistic line to a subhead paragraph
+   between the h1 and the page's own description paragraph, in sentence
+   case — no text-transform here, unlike .page-kicker/.section-index:
+   the whole point of the sentence-case markup is that textContent, a
+   screen reader, find-in-page, and copy-paste all read the same words a
+   sighted user sees, so this rule must never force a different case. */
+.page-subhead {
+  margin: 0 0 var(--space-sm);
+  color: var(--color-accent);
+  font-size: var(--type-md);
+  font-weight: 600;
+}
+
+/* Item 2a: /draft's own visible page title, inside the sticky command
+   header, ahead of DraftCommandBar. Small and muted by design (item 2a
+   calls for "a small visible page title") — the command bar's own
+   ROUND/PICK numbers already carry the same information at a much
+   larger size; this line exists so a document-outline reader and a
+   sighted user share one real title, not to compete with the numbers
+   for visual weight. */
+.draft-command__title {
+  margin: 0;
+  padding: var(--space-xs) var(--space-md) 0;
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* Item 10: a locked, picked Pick'em side used to be distinguishable only
+   by .filter-button[aria-pressed="true"]'s own border/background/color
+   swap — the 2026-09-01 re-audit found that color-only. The glyph text
+   itself (page.gsx, "✓ YOUR PICK") is the fix; this only keeps it from
+   forcing the button noticeably wider than its unpicked neighbor. */
+.pickem-your-pick {
+  font-size: var(--type-2xs);
+  font-weight: 700;
+}
+
+/* Item 7a: the mobile /team hero (.team-hero) measured 524px tall, and
+   the stat strip beneath it (.team-command-strip: Projected, Starters,
+   Roster, Division, League, plus the "View matchup" button) ran the
+   combined identity bar to 1121px before the STARTING LINEUP section
+   ever appeared. The existing ≤54rem/≤38rem breakpoints already shrink
+   both, but only down to a 2-column stat grid (2-3 stacked rows). This
+   collapses the strip into one horizontally scrolling row instead —
+   every stat stays fully readable (team division/league labels vary in
+   length, so truncating them was not an option) while trading a
+   vertical stack for one short horizontal swipe, and tightens the hero
+   itself a further notch below the existing ≤54rem padding. 899px (not
+   the equivalent "56.1875rem" spelling app/draft's own shell_css_test.go
+   locates its own phone-width block by, matching that test's own
+   documented reason for avoiding the string elsewhere in this file) is
+   the same width app/draft already treats as its own tablet-and-below
+   line. */
+@media (max-width: 899px) {
+  .team-hero {
+    padding: var(--space-lg);
+    min-height: 0;
+  }
+
+  .team-command-strip {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(6rem, auto);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .team-command-strip .button {
+    grid-column: auto;
+  }
+}

@@ -229,7 +229,7 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		*team = append(*team, "/team|04 Team status")
+		*team = append(*team, "/team|04 Team terminal")
 	}
 	*team = append(*team, "/board|05 Big Board")
 	if viewer.hasSeat || viewer.signedIn {

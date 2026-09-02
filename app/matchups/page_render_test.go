@@ -216,6 +216,52 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 	}
 }
 
+// TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine pins wave-6
+// item 8: checkedAt/liveStatus/refreshLabel used to sit outside the
+// status line, visually-hidden — a sighted user saw no freshness clause
+// anywhere on the page, even though the live-bind values already carried
+// one ("Waiting for kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger
+// unavailable"). They must now render inside .matchup-status-line, not
+// hidden, keeping their own data-gosx-live-bind attributes so a poll
+// still updates them in place.
+func TestMatchupsFreshnessClauseIsVisibleInsideTheStatusLine(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(), "MATCHUPS_RENDER_FIXTURE=live",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	statusLineStart := strings.Index(body, `class="matchup-status-line"`)
+	if statusLineStart < 0 {
+		t.Fatalf("live fixture is missing the status line: %s", body)
+	}
+	statusLineEndOffset := strings.Index(body[statusLineStart:], `</p>`)
+	if statusLineEndOffset < 0 {
+		t.Fatalf("status line paragraph never closes: %s", body)
+	}
+	statusLine := body[statusLineStart : statusLineStart+statusLineEndOffset]
+	for _, want := range []string{
+		`data-gosx-live-bind="checkedAt"`,
+		`data-gosx-live-bind="liveStatus"`,
+		`data-gosx-live-bind="refreshLabel"`,
+	} {
+		if !strings.Contains(statusLine, want) {
+			t.Errorf("status line is missing the freshness bind %q: %s", want, statusLine)
+		}
+	}
+	for _, hidden := range []string{
+		`<span class="visually-hidden" data-gosx-live-bind="checkedAt">`,
+		`<span class="visually-hidden" data-gosx-live-bind="liveStatus">`,
+		`<span class="visually-hidden" data-gosx-live-bind="refreshLabel">`,
+	} {
+		if strings.Contains(body, hidden) {
+			t.Errorf("freshness span is still visually-hidden: %q", hidden)
+		}
+	}
+}
+
 func TestMatchupsMastheadCanShrinkBesideNavigationRail(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {

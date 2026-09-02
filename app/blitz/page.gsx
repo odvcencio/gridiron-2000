@@ -248,11 +248,8 @@ func Page() Node {
 					PRESEASON BLITZ //
 					{data.slate_label}
 				</span>
-				<h1>
-					FIVE PICKS.
-					<br></br>
-					TWO WEEKS.
-				</h1>
+				<h1>Preseason Blitz</h1>
+				<p class="page-subhead">Five picks. Two weeks.</p>
 				<p>
 					Play money. Bragging rights. Nothing else.
 				</p>
