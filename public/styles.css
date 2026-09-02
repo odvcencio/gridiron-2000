@@ -11570,8 +11570,16 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   flex-shrink: 0;
 }
 
+/* Wave 7b item 3 (type floor audit): 0.75rem (12px) was the smallest
+   rendered type in the whole draft room, one size step under the 0.8125rem
+   (13px) floor every other .draft-* rule in this file already honors
+   (var(--type-xs) clamps 0.8125rem-0.875rem at the default, comfortable
+   density). var(--type-xs), not a hardcoded 0.8125rem literal, matches
+   every other rule in this section (see the font-size grep list this
+   comment is the one exception to) and keeps this line on the same
+   responsive clamp the rest of the room already reads from. */
 .tape-round__meta {
-  font-size: 0.75rem;
+  font-size: var(--type-xs);
   overflow: hidden;
   text-overflow: ellipsis;
 }
