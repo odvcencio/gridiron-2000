@@ -56,22 +56,27 @@ func TestCommissionerHQDeploymentsUseExplicitTrustedPeerOrigins(t *testing.T) {
 }
 
 // TestLiveScoringDeploymentValuesArePinnedAndMirrored is rider item 12
-// (review of ff2a9b3): the live-scoring env values must be present, with
-// the kill switch off, on both the flagship and Stable Kernel app
-// manifests. The Stable Kernel league did not form for the 2026 season —
-// flagship is the only live instance, enabled behind a replay rehearsal
-// and the Thursday-night kill-switch watch (docs/launch-checklist.md) —
-// so deploy/k8s/sk/deployment.yaml is not a live canary today; it stays
-// tracked as the template a future second live instance rolls from, and
-// its values still must not drift from the flagship's. Neither manifest
+// (review of ff2a9b3): the live-scoring cadence values must be present
+// and identical on both the flagship and Stable Kernel app manifests.
+// The kill switch is pinned per manifest: the flagship flipped it to
+// "true" on 2026-09-02 with release-2026.09.02-ee12ed7-wave6, ahead of
+// the 2026-09-10 Thursday-night canary and kill-switch drill
+// (docs/launch-checklist.md section 13); the Stable Kernel league did
+// not form for the 2026 season, so deploy/k8s/sk/deployment.yaml is not
+// a live canary today and keeps the switch "false" as the template a
+// future second live instance rolls from. Its cadence values still must
+// not drift from the flagship's. Neither manifest
 // may carry the deprecated LIVE_POLL_INTERVAL: a stale tracked 5s value
 // would silently restore the pre-GC-2 blanket-polling cadence the moment
 // someone re-added it, even though the code still accepts it as a
 // self-hoster's alias. STATRELAY_DAILY_BUDGET must be pinned on the
 // shared relay's own manifest.
 func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
+	killSwitch := map[string]string{
+		"deploy/k8s/deployment.yaml":    "name: LIVE_SCORING_ENABLED\n              value: \"true\"",
+		"deploy/k8s/sk/deployment.yaml": "name: LIVE_SCORING_ENABLED\n              value: \"false\"",
+	}
 	liveScoringEnv := []string{
-		"name: LIVE_SCORING_ENABLED\n              value: \"false\"",
 		"name: LIVE_SCOREBOARD_INTERVAL\n              value: \"10s\"",
 		"name: LIVE_BOX_BASELINE\n              value: \"30s\"",
 		"name: LIVE_BOX_FAST\n              value: \"20s\"",
@@ -85,6 +90,9 @@ func TestLiveScoringDeploymentValuesArePinnedAndMirrored(t *testing.T) {
 				t.Fatal(err)
 			}
 			manifest := string(raw)
+			if !strings.Contains(manifest, killSwitch[path]) {
+				t.Errorf("%s omitted the pinned kill switch %q", path, killSwitch[path])
+			}
 			for _, want := range liveScoringEnv {
 				if !strings.Contains(manifest, want) {
 					t.Errorf("%s omitted %q", path, want)
