@@ -30,9 +30,12 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.01-3f78a44-adoption-wave; built from
-          # 3f78a4452ece50879478efe3ec62ab029de1e2aa.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:c87dc3bf0b53f7502947ab065bf03babe18e6d56cb96eba3ad33043df22003e9
+          # release-2026.09.02-ee12ed7-wave6; built from
+          # ee12ed7 (main, 2026-09-02). Advances the logical state schema
+          # 10 -> 11 (commissioner event ledger), so the previous revision
+          # refuses this database: roll back only through the release
+          # record's pre-roll snapshot, never `rollout undo` alone.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:c0564e3a9bd74408cecff4ee1b8375f338eddfed5c064904b9933d5fb7efc656
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -66,8 +69,11 @@ spec:
             - name: FANTASY_SYNC_INTERVAL
               value: "1h"
             # Regular-season live scoring kill switch (internal/livescore).
-            # "false" until docs/launch-checklist.md's live-scoring rollout
-            # section explicitly flips it. LIVE_SCOREBOARD_INTERVAL/
+            # Flipped to "true" on 2026-09-02 with the wave-6 release, ahead
+            # of the 2026-09-10 Thursday Night Football canary window in
+            # docs/launch-checklist.md section 13 (the poller idles outside
+            # a game's poll window, so the early flip costs no budget). The
+            # section-13 kill-switch drill still runs that night. LIVE_SCOREBOARD_INTERVAL/
             # LIVE_BOX_BASELINE/LIVE_BOX_FAST/LIVE_DAILY_BUDGET are GC-2b's
             # verified Ultra quota numbers (15,000 requests/day,
             # soft-limited — see docs/season-operations.md's Game day
@@ -77,7 +83,7 @@ spec:
             # manifest may carry the old name, or a stale 5s value would
             # silently restore blanket-polling cadence.
             - name: LIVE_SCORING_ENABLED
-              value: "false"
+              value: "true"
             - name: LIVE_SCOREBOARD_INTERVAL
               value: "10s"
             - name: LIVE_BOX_BASELINE
