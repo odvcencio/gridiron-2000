@@ -9015,6 +9015,22 @@ body.is-on-clock .draft-clock-panel {
   .gosx-toast__message {
     font-size: 0.875rem;
   }
+
+  /* Item 1 (wave-7 audit — yew): a route that also renders the fixed
+     .page-action-bar (public/styles.css ~1276) stacks that bar's own
+     3.5rem height directly on top of the tab bar (see the
+     body:has(.app-tabbar):has(.page-action-bar) .site-frame
+     padding-bottom rule, ~1294) — the mobile-bar-height-only offset above
+     clears just the tab bar, so a toast's bottom edge lands inside the
+     action bar's own box (the pre-fix audit measured toast y 724-776
+     against the bar's own 728-784 on /team). Adding the action bar's
+     fixed height to the same offset lifts the toast clear of both fixed
+     bars. body:has(.page-action-bar) .toast-stack (0,2,1) outweighs the
+     plain .toast-stack rule above (0,1,0) on specificity alone, so this
+     always wins when the bar is present, with no !important needed. */
+  body:has(.page-action-bar) .toast-stack {
+    inset: auto 0 calc(var(--mobile-bar-height) + 3.5rem + env(safe-area-inset-bottom) + 0.5rem) 0;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
