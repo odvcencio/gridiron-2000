@@ -112,7 +112,7 @@ func TestStarterRowMapsCarriesPossessionOnlyForOccupiedSlots(t *testing.T) {
 			Player: Player{ID: "p-06", Name: "Lamar Jackson", Position: "QB", NFLTeam: "BAL"}},
 		{Slot: SlotInstance{ID: "BENCH1", Def: SlotDef{Eligible: []string{"QB"}}}, HasPlayer: false},
 	}}
-	rows := svc.starterRowMaps(lineup, nil, nil, time.Now(), nil)
+	rows := svc.starterRowMaps(lineup, nil, nil, time.Now(), nil, nil)
 	if len(rows) != 3 {
 		t.Fatalf("rows = %d, want 3", len(rows))
 	}

@@ -560,7 +560,7 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 		"has_group_header": true, "group_header": "RB",
 		"has_kickoff_label": true, "kickoff_label": "SUN 4:25 PM",
 		"has_bye_label": true, "bye_label": "BYE 9",
-		"has_drafted_label": true, "drafted_label": "R6 · P70",
+		"is_drafted": true, "drafted_label": "R6 · P70",
 	}}
 	cards := rosterRowProps(raw)
 	if len(cards) != 1 {
@@ -634,7 +634,7 @@ func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) 
 	page := string(pageBytes)
 	for _, want := range []string{
 		`<span class="position-chip lineup-slot__position">{slot.position}</span>`,
-		`<If cond={slot.has_drafted_label}>`,
+		`<If cond={slot.is_drafted}>`,
 		`<span class="drafted-chip mono">{slot.drafted_label}</span>`,
 		`<small class="roster-row__schedule mono">`,
 		`<If cond={slot.has_kickoff_label}>`,

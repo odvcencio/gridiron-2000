@@ -1051,8 +1051,11 @@ func slotWarningLabel(a SlotAssignment) (label string, warns bool) {
 // app/team's per-slot assignment forms: each row carries the assigned
 // player (playerMap's shape, merged in) or an empty state, plus the
 // lock/warning/auto-fill chips and, when unlocked, the eligible-player
-// <select> options (lineupSlotOptions).
-func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games []GameInfo, now time.Time, scoringValues map[string]float64) []map[string]any {
+// <select> options (lineupSlotOptions). drafted is playerMap's own
+// optional league-wide playerID->DraftPick lookup (draftedByPlayerID,
+// draft_history.go) — a nil map renders every row's is_drafted false,
+// the same honest empty state playerMap's own doc comment promises.
+func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games []GameInfo, now time.Time, scoringValues map[string]float64, drafted map[string]DraftPick) []map[string]any {
 	location := s.draftTZ
 	if location == nil {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
@@ -1074,7 +1077,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		currentID := ""
 		if a.HasPlayer {
 			currentID = a.Player.ID
-			for k, v := range playerMap(a.Player, scoringValues, matchup) {
+			for k, v := range playerMap(a.Player, scoringValues, matchup, drafted) {
 				row[k] = v
 			}
 			label := starterPossessionLabel(a.Player, live, hasLive)

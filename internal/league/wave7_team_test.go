@@ -90,37 +90,15 @@ func TestAddScheduleLabelsAppliesUnconditionalKickoffAndBye(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------
-// Wave 7 item 5: draftedLabelsByPlayerID/decorateDraftedLabels.
+// Wave 7 item 5: the drafted-round chip now comes from playerMap's own
+// is_drafted/drafted_round/drafted_pick/drafted_label fields (hazel's
+// draftedByPlayerID, draft_history.go), threaded through starterRowMaps
+// and playerMapsWithScoring — see draft_history_test.go for
+// draftedByPlayerID's own coverage and service_test.go/players_test.go
+// for playerMap's. This file covers only the /team-specific wiring
+// (below): that teamData actually passes drafted through to both row
+// builders.
 // ---------------------------------------------------------------------
-
-func TestDraftedLabelsByPlayerIDOnlyCoversTeamsOwnPicks(t *testing.T) {
-	state := PersistedState{Picks: []DraftPick{
-		{Round: 3, Number: 28, TeamID: "team-1", PlayerID: "p-mine"},
-		{Round: 1, Number: 2, TeamID: "team-2", PlayerID: "p-rival"},
-	}}
-	labels := draftedLabelsByPlayerID(state, "team-1")
-	if labels["p-mine"] != "R3 · P28" {
-		t.Fatalf("labels[p-mine] = %q, want \"R3 · P28\"", labels["p-mine"])
-	}
-	if _, ok := labels["p-rival"]; ok {
-		t.Fatalf("labels carries a rival team's pick: %+v", labels)
-	}
-}
-
-func TestDecorateDraftedLabelsAppliesLookupByRowID(t *testing.T) {
-	rows := []map[string]any{{"id": "p-mine"}, {"id": "p-free-agent"}, {}}
-	labels := map[string]string{"p-mine": "R3 · P28"}
-	decorateDraftedLabels(rows, labels)
-	if rows[0]["has_drafted_label"] != true || rows[0]["drafted_label"] != "R3 · P28" {
-		t.Fatalf("drafted row = %+v, want has_drafted_label=true drafted_label=\"R3 · P28\"", rows[0])
-	}
-	if rows[1]["has_drafted_label"] != false || rows[1]["drafted_label"] != "" {
-		t.Fatalf("free-agent row = %+v, want has_drafted_label=false", rows[1])
-	}
-	if rows[2]["has_drafted_label"] != false {
-		t.Fatalf("empty-slot row (no id key) = %+v, want has_drafted_label=false, not a panic", rows[2])
-	}
-}
 
 // ---------------------------------------------------------------------
 // Wave 7 item 6: draftClassTeaser.
@@ -208,13 +186,13 @@ func TestTeamDataCarriesPositionalDepthAndDraftedLabels(t *testing.T) {
 		if slot["has_player"] != true {
 			continue
 		}
-		if _, hasKey := slot["has_drafted_label"]; !hasKey {
-			t.Fatalf("occupied starter slot %+v carries no has_drafted_label key", slot)
+		if _, hasKey := slot["is_drafted"]; !hasKey {
+			t.Fatalf("occupied starter slot %+v carries no is_drafted key", slot)
 		}
-		if slot["has_drafted_label"] == true {
+		if slot["is_drafted"] == true {
 			sawDraftedStarter = true
 			if slot["drafted_label"] == "" {
-				t.Fatalf("starter slot has_drafted_label=true but drafted_label is empty: %+v", slot)
+				t.Fatalf("starter slot is_drafted=true but drafted_label is empty: %+v", slot)
 			}
 		}
 	}

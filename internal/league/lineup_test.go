@@ -1159,7 +1159,7 @@ func TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels(t *testing.T) {
 		{Slot: SlotInstance{ID: "QB2", Def: SlotDef{Eligible: []string{"QB"}}}, HasPlayer: true,
 			Player: Player{ID: "p-bye", Name: "On Bye", Position: "QB", NFLTeam: "TB", ByeWeek: 1}},
 	}}
-	rows := svc.starterRowMaps(lineup, nil, games, now, nil)
+	rows := svc.starterRowMaps(lineup, nil, games, now, nil, nil)
 	if len(rows) != 2 {
 		t.Fatalf("rows = %d, want 2", len(rows))
 	}

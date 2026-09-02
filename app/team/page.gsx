@@ -38,7 +38,8 @@ type RosterRowProps struct {
 	Bye        string
 	// DraftedLabel (wave 7 item 5) is a compact "R3 · P28" chip for a
 	// drafted roster player; empty (HasDraftedLabel false) for a
-	// free-agency add. See league.draftedLabelsByPlayerID.
+	// free-agency add. Sourced from playerMap's own is_drafted/
+	// drafted_label fields (league.draftedByPlayerID).
 	HasDraftedLabel bool
 	DraftedLabel    string
 	// GroupHeader (wave 7 item 1) renders once, on the first bench row of
@@ -709,7 +710,7 @@ func TeamLineupRegion() Node {
 											</If>
 											<span class="player-identity__text">
 												<strong>{slot.name}</strong>
-												<If cond={slot.has_drafted_label}>
+												<If cond={slot.is_drafted}>
 													<span class="drafted-chip mono">{slot.drafted_label}</span>
 												</If>
 												<small>

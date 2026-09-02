@@ -2397,18 +2397,20 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 
 	// starterRows/benchRows are built once here (rather than inline in the
 	// data literal below) so wave 7's row decorators — group headers
-	// (item 1), the unconditional kickoff/bye second line (item 4), and
-	// the drafted-round chip (item 5) — have a live map to write onto
-	// before the page ever sees it. Each decorator only ever ADDS keys;
-	// none removes or replaces one starterRowMaps/playerMapsWithScoring
-	// already set.
-	starterRows := s.starterRowMaps(lineup, general, games, now, scoringValues)
-	benchRows := playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week))
+	// (item 1) and the unconditional kickoff/bye second line (item 4) —
+	// have a live map to write onto before the page ever sees it. Each
+	// decorator only ever ADDS keys; none removes or replaces one
+	// starterRowMaps/playerMapsWithScoring already set. drafted (item 5)
+	// is draft_history.go's own league-wide playerID->DraftPick lookup
+	// (hazel's helper, shared with /players' owner chip) threaded straight
+	// into playerMap's variadic drafted param — is_drafted/drafted_round/
+	// drafted_pick/drafted_label are playerMap's own fields, not a
+	// second, locally reinvented lookup.
+	drafted := draftedByPlayerID(state)
+	starterRows := s.starterRowMaps(lineup, general, games, now, scoringValues, drafted)
+	benchRows := playerMapsWithScoring(lineup.Bench, scoringValues, s.matchupIndexFor(games, week), drafted)
 	addBenchGroupHeaders(benchRows)
 	addScheduleLabels(benchRows, lineup.Bench, games, week, s.matchupLocation())
-	draftedLabels := draftedLabelsByPlayerID(state, teamID)
-	decorateDraftedLabels(starterRows, draftedLabels)
-	decorateDraftedLabels(benchRows, draftedLabels)
 	draftClass := s.draftClassTeaser(state, teamID, 3)
 
 	data := map[string]any{
@@ -2657,10 +2659,11 @@ func (s *Service) rosterForTeam(state PersistedState, teamID string) ([]Player, 
 	// Status: "Available" (players.go), so the "player.Status == \"\""
 	// guard's dead-code condition was never true, and the draft round/pick
 	// never reached a rendered row this way. Wave 7 item 5 renders the
-	// same information honestly instead — draftedLabelsByPlayerID
-	// (below) resolves the identical state.Picks ledger into its own
-	// "R<round> · P<pick>" chip, applied to both starter and bench rows
-	// in teamData, rather than smuggling it through Status.
+	// same information honestly instead — draftedByPlayerID
+	// (draft_history.go) resolves the identical state.Picks ledger into
+	// playerMap's own is_drafted/drafted_round/drafted_pick/drafted_label
+	// fields, threaded through both starter and bench rows in teamData,
+	// rather than smuggling it through Status.
 	ids := currentRosters(state)[teamID]
 	roster := make([]Player, 0, len(ids))
 	for _, id := range ids {
@@ -2781,37 +2784,6 @@ func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo
 		}
 		row["bye_label"] = byeLabel
 		row["has_bye_label"] = byeLabel != ""
-	}
-}
-
-// draftedLabelsByPlayerID resolves teamID's drafted players to a compact
-// "R<round> · P<pick>" chip label from the draft's own picks ledger
-// (state.Picks) — wave 7 item 5. This is the same lookup rosterForTeam's
-// old dead Status branch attempted (see that function's doc comment): a
-// player with no matching pick (a free-agency add) is simply absent from
-// the map, and callers render no chip for that row.
-func draftedLabelsByPlayerID(state PersistedState, teamID string) map[string]string {
-	out := make(map[string]string, len(state.Picks))
-	for _, pick := range state.Picks {
-		if pick.TeamID != teamID {
-			continue
-		}
-		out[pick.PlayerID] = fmt.Sprintf("R%d · P%d", pick.Round, pick.Number)
-	}
-	return out
-}
-
-// decorateDraftedLabels applies draftedLabelsByPlayerID's lookup onto
-// already-rendered player-row maps (starters and bench both call this in
-// teamData), keyed by each row's own "id" field. An empty starter slot's
-// row carries no "id" at all; the zero-value lookup misses cleanly and
-// has_drafted_label renders false, same as any other undrafted row.
-func decorateDraftedLabels(rows []map[string]any, labels map[string]string) {
-	for _, row := range rows {
-		id, _ := row["id"].(string)
-		label := labels[id]
-		row["drafted_label"] = label
-		row["has_drafted_label"] = label != ""
 	}
 }
 
@@ -5267,10 +5239,18 @@ func playerMaps(players []Player) []map[string]any {
 // already-resolved scoringValues map and matchupIndex, so a page with
 // hundreds of players pays for one store snapshot and one schedule scan,
 // not one per player. See currentScoringValues and matchupIndexFor.
-func playerMapsWithScoring(players []Player, scoringValues map[string]float64, matchup matchupIndex) []map[string]any {
+// drafted is the same optional, single-value variadic playerMap itself
+// accepts (draftedByPlayerID's league-wide playerID->DraftPick lookup) —
+// forwarded through unchanged so a many-players caller (wave 7's /team
+// bench, item 5) gets is_drafted/drafted_round/drafted_pick/
+// drafted_label on every row without a second, locally reinvented
+// lookup. Omitting it (every pre-existing caller) renders those four
+// fields at their honest zero value, exactly as playerMap's own doc
+// comment already promises.
+func playerMapsWithScoring(players []Player, scoringValues map[string]float64, matchup matchupIndex, drafted ...map[string]DraftPick) []map[string]any {
 	out := make([]map[string]any, 0, len(players))
 	for _, player := range players {
-		out = append(out, playerMap(player, scoringValues, matchup))
+		out = append(out, playerMap(player, scoringValues, matchup, drafted...))
 	}
 	return out
 }

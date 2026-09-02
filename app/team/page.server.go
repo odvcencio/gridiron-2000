@@ -159,15 +159,17 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			Status:         stringField(player, "status"),
 			Projection:     stringField(player, "projection"),
 			Points:         stringField(player, "points"),
-			// Kickoff/Bye/DraftedLabel/GroupHeader (wave 7 items 1/4/5) come
-			// from league.addScheduleLabels/addBenchGroupHeaders/
-			// decorateDraftedLabels, which teamData applies to every bench
-			// row before this conversion runs.
+			// Kickoff/Bye/GroupHeader (wave 7 items 1/4) come from
+			// league.addScheduleLabels/addBenchGroupHeaders, which teamData
+			// applies to every bench row before this conversion runs.
+			// HasDraftedLabel/DraftedLabel (item 5) read playerMap's own
+			// is_drafted/drafted_label fields (draftedByPlayerID,
+			// draft_history.go), threaded through playerMapsWithScoring.
 			HasKickoff:      boolField(player, "has_kickoff_label"),
 			Kickoff:         stringField(player, "kickoff_label"),
 			HasBye:          boolField(player, "has_bye_label"),
 			Bye:             stringField(player, "bye_label"),
-			HasDraftedLabel: boolField(player, "has_drafted_label"),
+			HasDraftedLabel: boolField(player, "is_drafted"),
 			DraftedLabel:    stringField(player, "drafted_label"),
 			HasGroupHeader:  boolField(player, "has_group_header"),
 			GroupHeader:     stringField(player, "group_header"),
