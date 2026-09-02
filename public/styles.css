@@ -623,8 +623,57 @@ button.access-link {
 .mobile-navigation-enhanced,
 .mobile-navigation-dialog,
 .mobile-navigation-backdrop,
-.mobile-navigation-static {
+.mobile-navigation-static,
+.app-tabbar {
   display: none;
+}
+
+/* Item 5 (2026-09-01 gap audit): the four-slot mobile bottom bar's own
+   tab styling, shared with /draft's nav.draft-tabbar__tab (extracted from
+   it — this rule now carries the box both bars use: equal flex, height,
+   alignment, color states, and tracking; .draft-tabbar__tab's own rule,
+   below in the draft-room section, only adds its mono font family, a
+   draft-room idiom this item does not otherwise touch — .app-tabbar__tab
+   uses the body font instead, matching the "mono is for data, not
+   actions" rule the button-system pass (item 3) already applied
+   everywhere else). text-decoration: none undoes the underline an <a>
+   would otherwise carry — every /draft tab but Teams is a <label>, which
+   never needed it, but the mobile bottom bar's tabs are real <a>/<button>
+   controls throughout. */
+.app-tabbar__tab,
+.draft-tabbar__tab {
+  flex: 1 1 0;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-decoration: none;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.app-tabbar__tab {
+  font-family: var(--font-body);
+  font-weight: 700;
+}
+
+.app-tabbar__icon {
+  font-size: 1.25rem;
+}
+
+.app-tabbar__tab:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+.app-tabbar__tab[aria-current="page"] {
+  color: var(--color-accent);
 }
 
 /* visually-hidden: content read by assistive tech and reachable by
@@ -1018,6 +1067,46 @@ button.access-link {
 
     html:has(script[data-gosx-navigation="true"]) .announcement-banner + .site-frame {
       padding-top: var(--space-lg);
+    }
+
+    /* Item 5 (2026-09-01 gap audit): the four-slot mobile bottom bar —
+       fixed like the enhanced top header above, gated behind the same
+       double check (a media feature and an actual loaded runtime script)
+       so a no-JS or print context never fixes an unreachable control in
+       place. /draft keeps its own nav.draft-tabbar (body:has(.draft-shell)
+       below hides this one instead of stacking two bars). */
+    html:has(script[data-gosx-navigation="true"]) .app-tabbar {
+      display: flex;
+      position: fixed;
+      inset: auto 0 0 0;
+      z-index: 50;
+      border-top: 1px solid var(--color-border);
+      background: var(--color-canvas-deep);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    /* :has(.app-tabbar) matches on the element's presence in the DOM, not
+       its visibility — .app-tabbar is always rendered (app/layout.gsx),
+       display:none only on /draft — so this needs the same
+       :not(:has(.draft-shell)) exclusion the display:none override below
+       carries, or /draft's own .site-frame gains dead reserve space for
+       a bar it never shows (this padding-bottom, invisibly, is exactly
+       what made /draft's document scroll at phone width until this
+       exclusion was added). */
+    html:has(script[data-gosx-navigation="true"]) body:has(.app-tabbar):not(:has(.draft-shell)) .site-frame {
+      padding-bottom: calc(var(--mobile-bar-height) + var(--space-lg));
+    }
+
+    /* /draft keeps its own nav.draft-tabbar and must not stack a second
+       fixed bar under it. Specificity, not just source order, has to win
+       here: html:has(script[...]) .app-tabbar above already carries an
+       attribute selector inside its own :has(), so a plain
+       body:has(.draft-shell) .app-tabbar override sits BELOW it on
+       specificity and would lose regardless of which rule comes later in
+       the file — repeating the same html:has(script[...]) prefix matches
+       it exactly. */
+    html:has(script[data-gosx-navigation="true"]) body:has(.draft-shell) .app-tabbar {
+      display: none;
     }
   }
 
@@ -11461,22 +11550,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     padding-bottom: env(safe-area-inset-bottom);
   }
 
+  /* Item 5 (2026-09-01 gap audit): the shared box (flex, height,
+     alignment, color, size, tracking, no underline — the Teams tab is an
+     <a> now, item 1a's own note below) moved to the combined
+     .app-tabbar__tab, .draft-tabbar__tab rule near the top of this file;
+     only the mono font family stays here, a draft-room idiom the mobile
+     bottom bar does not share. */
   .draft-tabbar__tab {
-    flex: 1 1 0;
-    min-height: 3.5rem;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    color: var(--color-text-muted);
     font-family: var(--font-mono);
-    font-size: var(--type-xs);
-    letter-spacing: .12em;
-    text-transform: uppercase;
-    /* Item 1a (2026-08-30 review): the Teams tab is an <a> now
-       (DraftMobileTabs' own doc comment, page.gsx), which carries a
-       default underline the other three <label> tabs never had. */
-    text-decoration: none;
   }
 
   .draft-tabbar input:focus-visible + .draft-tabbar__tab {

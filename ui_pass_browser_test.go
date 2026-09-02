@@ -651,6 +651,42 @@ func TestBrowserMastheadLeadContract(t *testing.T) {
 	}
 }
 
+// TestBrowserMobileBottomBarVisibleExceptOnDraft is item 5's own probe
+// (2026-09-01 gap audit): the four-slot .app-tabbar is visible at phone
+// width on an ordinary route (/team) and absent on /draft, which keeps
+// its own nav.draft-tabbar instead of stacking two bottom bars.
+func TestBrowserMobileBottomBarVisibleExceptOnDraft(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	navigateSignedInTo(t, ctx, child, viewer, "/team", uiPassPhoneWidth, uiPassPhoneHeight)
+
+	appTabbarDisplayScript := `(function(){
+		var el = document.querySelector('.app-tabbar');
+		return el ? getComputedStyle(el).display : 'MISSING';
+	})()`
+
+	var teamDisplay string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(appTabbarDisplayScript, &teamDisplay)); err != nil {
+		t.Fatalf("/team: read .app-tabbar display: %v", err)
+	}
+	if teamDisplay != "flex" {
+		t.Errorf("/team: .app-tabbar display = %q, want \"flex\"", teamDisplay)
+	}
+	runTouchTargetSweep(t, ctx, ".app-tabbar", "/team bottom bar")
+
+	navigateTo(t, ctx, child, "/draft", uiPassPhoneWidth, uiPassPhoneHeight)
+	var draftDisplay string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(appTabbarDisplayScript, &draftDisplay)); err != nil {
+		t.Fatalf("/draft: read .app-tabbar display: %v", err)
+	}
+	if draftDisplay != "none" {
+		t.Errorf("/draft: .app-tabbar display = %q, want \"none\" (the draft room keeps its own nav.draft-tabbar)", draftDisplay)
+	}
+}
+
 // goStringLiteral quotes s as a JavaScript string literal via strconv.Quote
 // (backslash/quote escaping rules are a strict superset of JS's for the
 // plain ASCII markup this file injects), collapsing the constant's own

@@ -279,6 +279,45 @@ func Layout() Node {
 					CSRFToken={csrf.token}
 				></PrimaryNavigation>
 			</details>
+			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">
+				<Link href="/" class="app-tabbar__tab">
+					<span class="app-tabbar__icon" aria-hidden="true">&#8962;</span>
+					Home
+				</Link>
+				<If cond={data.viewer.has_seat}>
+					<Link href="/team" class="app-tabbar__tab">
+						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						Team
+					</Link>
+				</If>
+				<If cond={data.viewer.has_seat == false && data.league.fantasy_seats_open && data.viewer.seat_claim_eligible}>
+					<Link href="/join" class="app-tabbar__tab">
+						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						Team
+					</Link>
+				</If>
+				<If cond={data.viewer.has_seat == false && (data.league.fantasy_seats_open == false || data.viewer.seat_claim_eligible == false)}>
+					<Link href="/team" class="app-tabbar__tab">
+						<span class="app-tabbar__icon" aria-hidden="true">&#9689;</span>
+						Team
+					</Link>
+				</If>
+				<Link href="/matchups" class="app-tabbar__tab">
+					<span class="app-tabbar__icon" aria-hidden="true">&#9917;</span>
+					Matchups
+				</Link>
+				<button
+					type="button"
+					class="app-tabbar__tab"
+					aria-label="More"
+					aria-controls="primary-navigation-dialog"
+					aria-expanded="false"
+					data-gosx-disclosure-target="#primary-navigation-dialog"
+				>
+					<span class="app-tabbar__icon" aria-hidden="true">&#8942;</span>
+					More
+				</button>
+			</nav>
 		</If>
 		<If cond={(data.viewer.signed_in || data.viewer.demo) == false}>
 			<header class="minimal-bar">
