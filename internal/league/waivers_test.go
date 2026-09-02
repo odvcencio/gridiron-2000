@@ -1241,6 +1241,25 @@ func TestPlayerWaiverStatusKickoffLockedFreeAgent(t *testing.T) {
 	}
 }
 
+// TestPlayerWaiverStatusKickoffLockNormalizesTank01Abbreviations is item
+// 2's own regression test (2026-08-31 post-wave audit): kickoffLockedGame
+// must resolve a Tank01-sourced "LAR" player against an nflverse-
+// normalized "LA" schedule entry, the same normalization teamHasGame/
+// playerLockAt already apply. Before this fix a LAR player's in-progress
+// game never matched, so they stayed FREE AGENT (addable/droppable)
+// straight through their own kickoff instead of locking ON WAIVERS.
+func TestPlayerWaiverStatusKickoffLockNormalizesTank01Abbreviations(t *testing.T) {
+	cfg := DefaultConfig()
+	kickoff := time.Date(2026, 9, 13, 13, 0, 0, 0, time.UTC)
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: kickoff, Away: "LA", Home: "SF", Final: false}} // nflverse-normalized
+	state := PersistedState{}
+
+	locked := playerWaiverStatus(state, cfg, games, "p-1", "LAR", kickoff.Add(time.Minute)) // Tank01-style
+	if locked.State != AvailabilityOnWaivers || locked.Reason != "kickoff" {
+		t.Fatalf("in-progress LAR status = %+v, want ON WAIVERS (kickoff)", locked)
+	}
+}
+
 func TestPlayerWaiverStatusRosteredPlayerNeverOnWaivers(t *testing.T) {
 	cfg := DefaultConfig()
 	state := PersistedState{Picks: []DraftPick{{Number: 1, TeamID: "team-1", PlayerID: "p-1"}}}

@@ -63,8 +63,12 @@ func TestPageActionsUseSharedRedirectFeedbackInventory(t *testing.T) {
 	// ...) calls to RedirectBackWithNotice(ctx, adminSectionTarget(<section>),
 	// ...), so redirects fell by 27 (38 -> 11) and redirectBacks rose by the
 	// same 27 (12 -> 39).
+	// Item 4, 2026-08-31 post-wave audit: app/team/page.server.go adds a
+	// "team-name-reset" action (league.Service.ResetTeamName's explicit
+	// counterpart to the now-blank-rejecting "team-rename"), one more
+	// RedirectBackWithNotice call (39 -> 40).
 	const wantRedirects = 11
-	const wantRedirectBacks = 39
+	const wantRedirectBacks = 40
 	redirects := 0
 	redirectBacks := 0
 	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, walkErr error) error {

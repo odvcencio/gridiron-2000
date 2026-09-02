@@ -154,7 +154,7 @@ func (s *Service) NotificationSettingsData(r *http.Request) map[string]any {
 	}
 	return map[string]any{
 		"viewer":                 viewer,
-		"league":                 s.leagueMap(),
+		"league":                 s.leagueMapForViewer(r),
 		"email":                  owner,
 		"has_email":              owner != "",
 		"signed_in":              signedIn,

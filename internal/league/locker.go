@@ -281,7 +281,7 @@ func (s *Service) LockerData(r *http.Request) map[string]any {
 	}
 	return map[string]any{
 		"viewer":           s.Viewer(r),
-		"league":           s.leagueMap(),
+		"league":           s.leagueMapForViewer(r),
 		"timezone":         FriendlyTimezoneLabel(location.String()),
 		"admitted":         admitted,
 		"is_commissioner":  commissioner,

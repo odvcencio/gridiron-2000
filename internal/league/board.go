@@ -165,7 +165,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"position_filters":     boardPositionFilters(position, rawQuery),
 		"pool_status":          s.poolFreshnessMap(pool),
 		"is_commissioner":      s.IsCommissioner(r),
-		"league":               s.leagueMap(),
+		"league":               s.leagueMapForViewer(r),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 	}

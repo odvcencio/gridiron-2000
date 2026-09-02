@@ -329,8 +329,15 @@ func nextKickoffForTeam(games []GameInfo, nflTeam string, now time.Time) (time.T
 	cutoff := now.Add(-nextKickoffGrace)
 	var best time.Time
 	found := false
+	// Item 2 (2026-08-31 post-wave audit): normalize before comparing, the
+	// same fix teamHasGame/playerLockAt/starterGameState already apply —
+	// a LAR/WSH/JAC player's raw NFLTeam never matched games' nflverse-
+	// normalized Away/Home, so the IR healed-deadline label
+	// (zoneOccupantRows, service.go) silently rendered empty for exactly
+	// those teams.
+	team := normalizeNFLAbbreviation(nflTeam)
 	for _, g := range games {
-		if g.Away != nflTeam && g.Home != nflTeam {
+		if normalizeNFLAbbreviation(g.Away) != team && normalizeNFLAbbreviation(g.Home) != team {
 			continue
 		}
 		if g.Kickoff.Before(cutoff) {

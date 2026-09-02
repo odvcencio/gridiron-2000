@@ -483,13 +483,31 @@ func (s *Service) draftBoardBinds(state PersistedState) (cell, cellpos, player, 
 func (s *Service) draftLiveTail(state PersistedState, now time.Time, onClockID string, next int) map[string]any {
 	teams := activeTeamCount(state.DraftOrder)
 	total := draftTeamCount() * CurrentDraftRounds()
+	// Item 1 (2026-08-31 post-wave audit): every caller passes next =
+	// len(state.Picks)+1 (or, for draftPickPayload's final-pick event,
+	// pick.Number+1) — "the next pick to make." That keeps climbing past
+	// total once the draft is complete, because there is no pick 121 to
+	// make. buildDraftData (service.go) already clamps this for the SSR
+	// bind: displayPickNumber = len(state.Picks) and round =
+	// CurrentDraftRounds() once draftComplete(state). This function feeds
+	// every hub broadcast and DraftLiveView (the WebSocket repair and
+	// /draft/live.json) and never got the matching guard, so a completed
+	// room's live payload published pick.number=121/pick.round=16 over
+	// data-gosx-live-bind (page.gsx) and clobbered the correct SSR text
+	// with "ROUND 16 · PICK 121 / 120" beside "DRAFT COMPLETE". Clamp to
+	// the final pick so the SSR bind and every live update agree once the
+	// draft is done.
+	displayNext := next
+	if draftComplete(state) {
+		displayNext = total
+	}
 	return map[string]any{
 		"yourpick": s.yourPickBinds(state),
 		"room":     s.roomBinds(state, now),
 		"onclock":  s.onClockBinds(state, onClockID),
-		"round":    s.roundBinds(state, next),
+		"round":    s.roundBinds(state, displayNext),
 		"pick": map[string]any{
-			"number": next, "round": pickRound(teams, next), "direction": snakeDirection(teams, next),
+			"number": displayNext, "round": pickRound(teams, displayNext), "direction": snakeDirection(teams, displayNext),
 			"made": len(state.Picks), "total": total,
 		},
 	}

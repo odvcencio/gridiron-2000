@@ -262,11 +262,18 @@ func TestSetTeamName(t *testing.T) {
 		t.Error("names over 40 characters must be rejected")
 	}
 
-	if err := store.SetTeamName("team-1", ""); err != nil {
-		t.Fatal(err)
+	// Item 4 (2026-08-31 post-wave audit): a blank/whitespace-only name is
+	// now rejected outright, not treated as an implicit reset — see
+	// errBlankTeamName's doc comment. TestResetTeamName (below) exercises
+	// the explicit ResetTeamName clear path SetTeamName("") used to do.
+	if err := store.SetTeamName("team-1", ""); err != errBlankTeamName {
+		t.Fatalf("SetTeamName(\"\") = %v, want errBlankTeamName", err)
 	}
-	if _, ok := store.Snapshot().TeamNames["team-1"]; ok {
-		t.Error("empty name must clear the override")
+	if err := store.SetTeamName("team-1", "   "); err != errBlankTeamName {
+		t.Fatalf("SetTeamName(whitespace) = %v, want errBlankTeamName", err)
+	}
+	if got := store.Snapshot().TeamNames["team-1"]; got != "The Rebrand" {
+		t.Fatalf("a rejected blank rename must not disturb the existing override, got %q", got)
 	}
 
 	if err := store.SetTeamName("team-99", "Ghost"); err == nil {
@@ -281,6 +288,35 @@ func TestSetTeamName(t *testing.T) {
 	}
 	if got := store.Snapshot().TeamNames["team-2"]; got != "Kept After Reset" {
 		t.Fatalf("league reset must keep team name overrides, got %q", got)
+	}
+}
+
+// TestResetTeamName is item 4's own regression test (2026-08-31 post-wave
+// audit): ResetTeamName is the explicit clear action SetTeamName("") used
+// to perform implicitly. It must clear an existing override, error on an
+// unknown team, and be a harmless no-op idempotent call on a team that
+// already carries no override (mirrors clearAvatar's own idempotence
+// contract, avatar.go).
+func TestResetTeamName(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	store := NewStore(path)
+
+	if err := store.SetTeamName("team-1", "The Rebrand"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ResetTeamName("team-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.Snapshot().TeamNames["team-1"]; ok {
+		t.Error("ResetTeamName must clear the override")
+	}
+
+	if err := store.ResetTeamName("team-1"); err != nil {
+		t.Fatalf("resetting an already-default team must be a harmless no-op, got %v", err)
+	}
+
+	if err := store.ResetTeamName("team-99"); err == nil {
+		t.Error("unknown team must error")
 	}
 }
 
@@ -1304,7 +1340,11 @@ func TestOrdinaryWriteFailureSurvivesEmptyDiffUntilRealChange(t *testing.T) {
 	store.persistHook = nil
 	// FirstSend rolled its state back but left its dirty collection marked;
 	// this call therefore exercises a successful empty-diff transaction.
-	if err := store.SetTeamName("team-2", ""); err != nil {
+	// ResetTeamName on a team with no override hits the same
+	// writeErrorLocked-then-persistLocked no-op path SetTeamName("") used
+	// to (item 4, 2026-08-31 post-wave audit: SetTeamName itself now
+	// rejects a blank name before reaching persistLocked at all).
+	if err := store.ResetTeamName("team-2"); err != nil {
 		t.Fatalf("empty-diff retry = %v, want nil", err)
 	}
 	if got := store.PersistenceError(); !errors.Is(got, errInjectedPersist) {

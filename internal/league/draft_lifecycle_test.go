@@ -217,3 +217,50 @@ func TestDraftDataPublishesTerminalCompletionState(t *testing.T) {
 		t.Fatalf("terminal clock remains armed: %+v", clock)
 	}
 }
+
+// TestDraftLiveViewClampsCompletedPick is item 1's own regression test
+// (2026-08-31 post-wave audit): a completed draft's live payload
+// (DraftLiveView, the same builder every draft:pick/draft:state broadcast
+// and the /draft/live.json handler share) must publish the same final pick
+// the SSR path renders (TestDraftDataPublishesTerminalCompletionState,
+// above), not "picks made + 1" run past the last real pick. Before the fix,
+// a completed draft published pick.number=121/pick.round=16 against a
+// 120-pick, 15-round draft, and the live hub's data-gosx-live-bind
+// (app/draft/page.gsx) overwrote the room's correct "PICK 120 / 120" text
+// with that out-of-range value.
+func TestDraftLiveViewClampsCompletedPick(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	if _, err := service.store.StartDraft(now, DefaultPickClock); err != nil {
+		t.Fatalf("start draft: %v", err)
+	}
+	total := len(defaultTeams()) * CurrentDraftRounds()
+	for number := 1; number <= total; number++ {
+		teamID := teamOnClock(nil, number)
+		if _, err := service.store.MakePick(teamID, fmt.Sprintf("terminal-pick-%03d", number), "commissioner", now, now.Add(DefaultPickClock)); err != nil {
+			t.Fatalf("pick %d: %v", number, err)
+		}
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft/live.json", nil)
+	view := service.DraftLiveView(request)
+	if view["complete"] != true {
+		t.Fatalf("complete = %v, want true", view["complete"])
+	}
+	pick, ok := view["pick"].(map[string]any)
+	if !ok {
+		t.Fatalf("view[\"pick\"] = %#v, want map[string]any", view["pick"])
+	}
+	if pick["number"] != total || pick["round"] != CurrentDraftRounds() {
+		t.Fatalf("live pick = %+v, want number:%d round:%d (matching the SSR clamp in DraftData)", pick, total, CurrentDraftRounds())
+	}
+	if pick["made"] != total || pick["total"] != total {
+		t.Fatalf("live pick made/total = %+v, want %d/%d", pick, total, total)
+	}
+	if onclock, _ := view["onclock"].(map[string]any); onclock != nil {
+		if id, _ := onclock["team_id"].(string); id != "" {
+			t.Fatalf("terminal onclock team_id = %q, want empty", id)
+		}
+	}
+}

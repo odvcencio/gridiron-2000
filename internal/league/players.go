@@ -432,7 +432,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	return map[string]any{
 		"viewer":             viewer,
 		"public_entry":       publicEntry,
-		"league":             s.leagueMap(),
+		"league":             s.leagueMapForViewer(r),
 		"can_edit":           canEdit,
 		"pool_unavailable":   poolUnavailable,
 		"free_agency_open":   open,

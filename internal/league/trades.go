@@ -1322,7 +1322,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	return map[string]any{
 		"viewer":                    viewer,
 		"public_entry":              publicEntry,
-		"league":                    s.leagueMap(),
+		"league":                    s.leagueMapForViewer(r),
 		"can_edit":                  canEdit,
 		"can_compose":               canCompose,
 		"is_commissioner":           isCommissioner,

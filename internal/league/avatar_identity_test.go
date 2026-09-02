@@ -127,7 +127,7 @@ func expectedStorePersistMutators() map[persistCallerID]struct{} {
 		"SetClockDuration", "ClearClock", "SetAutopick", "SetAutopickIfClaimed",
 		"AssignMember", "EnsureMember", "AddInvite", "RemoveInvite",
 		"releaseSeat", "InviteCoManager", "BindCoManager", "DetachCoManager",
-		"ResetDraft", "ResetLeague", "SetDraftAtOverride", "SetTeamName", "SetDraftOrder", "DrawDraftOrder",
+		"ResetDraft", "ResetLeague", "SetDraftAtOverride", "SetTeamName", "ResetTeamName", "SetDraftOrder", "DrawDraftOrder",
 		"TrimUnclaimedSeatsConfirmed", "SetScoringValue", "ResetScoring", "InitReceptionFromScoringFormat",
 		"BoardAdd", "BoardMove", "BoardMoveTo", "BoardRemove", "BoardClear",
 		"SetPickem", "BackfillPickemEnteredAt", "BlitzSetEntry", "FirstSend", "FirstSendBatch",
@@ -1448,8 +1448,12 @@ func TestIdentityWriteFailureSurvivesEmptyDiffUntilRealDurableChange(t *testing.
 	// This mutator declares a collection but makes no state change, so the
 	// SQLite transaction has an empty diff. It must not make readiness look
 	// recovered merely because the empty transaction itself succeeded.
+	// ResetTeamName on a team with no override hits the same empty-diff
+	// persistLocked path SetTeamName("") used to (item 4, 2026-08-31
+	// post-wave audit: SetTeamName itself now rejects a blank name before
+	// reaching persistLocked at all).
 	store.persistHook = nil
-	if err := store.SetTeamName("team-1", ""); err != nil {
+	if err := store.ResetTeamName("team-1"); err != nil {
 		t.Fatalf("idempotent empty-diff write = %v, want nil", err)
 	}
 	if got := store.PersistenceError(); !errors.Is(got, errInjectedPersist) {

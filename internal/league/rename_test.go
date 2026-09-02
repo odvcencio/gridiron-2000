@@ -36,3 +36,36 @@ func TestRenameTeamAuthority(t *testing.T) {
 		t.Fatal("expected the 40-character cap to apply")
 	}
 }
+
+// TestRenameTeamRejectsBlankNameInsteadOfSilentlyErasingTheCustomOne is
+// item 4's own regression test (2026-08-31 post-wave audit): a
+// whitespace-only rename used to silently succeed as an implicit reset —
+// "West 4 is set." — erasing a manager's custom name with no error and
+// no indication the typed text never took. RenameTeam must now refuse it
+// with a plain-language error and leave the existing custom name
+// untouched; ResetTeamName is the explicit action that clears it.
+func TestRenameTeamRejectsBlankNameInsteadOfSilentlyErasingTheCustomOne(t *testing.T) {
+	service := newTestService(t, true)
+	request := httptest.NewRequest("POST", "/team", nil)
+
+	if _, err := service.RenameTeam(request, "team-1", "West 4"); err != nil {
+		t.Fatalf("set the custom name: %v", err)
+	}
+
+	if _, err := service.RenameTeam(request, "team-1", "   "); err == nil {
+		t.Fatal("a whitespace-only rename must be rejected, not treated as a reset")
+	} else if err.Error() != "Enter a team name, or use Reset to the configured name" {
+		t.Fatalf("wrong refusal message: %q", err.Error())
+	}
+	if got := service.teamView(service.store.Snapshot(), "team-1").Name; got != "West 4" {
+		t.Fatalf("rejected blank rename erased the custom name: got %q, want \"West 4\" preserved", got)
+	}
+
+	team, err := service.ResetTeamName(request, "team-1")
+	if err != nil {
+		t.Fatalf("explicit reset: %v", err)
+	}
+	if team.Name == "West 4" {
+		t.Fatalf("ResetTeamName did not clear the override: %q", team.Name)
+	}
+}

@@ -731,7 +731,7 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 		"leaderboard_empty":      len(seasonLeaderboard) == 0,
 		"week_leaderboard":       weekLeaderboard,
 		"week_leaderboard_empty": len(weekLeaderboard) == 0,
-		"league":                 s.leagueMap(),
+		"league":                 s.leagueMapForViewer(r),
 	}
 }
 
