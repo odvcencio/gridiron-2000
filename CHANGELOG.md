@@ -7,6 +7,29 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.02-1d2b7e4-wave7] — 2026-09-02
+
+Scope: draft results and roster clarity, plus the mobile pass across every
+page. Rolled to the flagship as revision 93; no schema change.
+
+### Added
+- `/draft/results`: the draft by team (viewer first), by round, and as a grid with sticky headers; vs-ADP on every pick; a CSV link; a home card and a nav entry after the draft completes.
+- Draft round and pick (`R3 · P28`) on /players rows, the activity feed, and every /team roster row; a "Your draft class" callout on /team.
+- /team: bench grouped by position with sticky headers, a positional depth line, visible FLEX eligibility, kickoff and bye on every row before lock.
+- A phone action bar that keeps each page's primary verb under the thumb (/team submits SET BEST LINEUP from it); a web app manifest and home-screen icons.
+
+### Changed
+- The 44 px touch floor and 16 px inputs now key on `pointer: coarse` and `hover: none`, so landscape phones keep them; press feedback on touch; toasts anchor above the tab bar.
+- The draft room's command bar collapses to a 56 px "on the clock" pill on phones with a bottom sheet for sound, League, autopick, and force-pick; the Draft grid tab is reachable on phones with "Jump to my picks".
+- /matchups shows scores first on game day with a sticky week strip; /players, /activity, and /board keep search and filters sticky; /wire collapses long feeds; long documents and the console get sticky section strips.
+- `viewport-fit=cover` with safe-area padding on every fixed bar; `100dvh`; the scanline overlay is off on touch devices.
+
+### Fixed
+- Sticky round and team headers on both draft grids no longer drift off-screen.
+- /players no longer shows a finished draft's clock panel above the pool; the notice stack collapses on phones.
+- Keyboard hints (`enterkeyhint`, `inputmode`) and email autocomplete on forms; empty `title` attributes removed; the sign-in page's heading is in the first viewport.
+
+
 ## [release-2026.09.02-ee12ed7-wave6] — 2026-09-02
 
 Scope: a cumulative wave 1-6 UX and accessibility audit pass across every
