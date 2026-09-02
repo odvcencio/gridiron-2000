@@ -87,11 +87,7 @@ func Page() Node {
 					PRIVATE LEAGUE NEWS
 				</span>
 				<p class="page-kicker">News, community tips, and social · always free</p>
-				<h1>
-					SIGNAL
-					<br></br>
-					WIRE.
-				</h1>
+				<h1>Signal Wire</h1>
 			</div>
 			<div class="masthead-console wire-console">
 				<div>

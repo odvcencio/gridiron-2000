@@ -198,6 +198,12 @@ func Page() Node {
 			<If cond={data.has_co_error}>
 				<p class="error-message" role="alert">{data.co_error}</p>
 			</If>
+			<If cond={data.viewer.demo}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					the console is open to everyone while demo mode is on.
+				</p>
+			</If>
 		</div>
 		<If cond={data.lineup_intervention}>
 			<section class="lineup-intervention-banner" aria-labelledby="lineup-intervention-title">
@@ -323,7 +329,7 @@ func Page() Node {
 				<div class="team-identity-settings__body">
 					<section class="team-identity-settings__panel" aria-labelledby="team-profile-settings-title">
 						<header>
-							<span class="section-index">01 // PROFILE</span>
+							<span class="section-index">PROFILE</span>
 							<h2 id="team-profile-settings-title">Manager and team details</h2>
 						</header>
 						<If cond={data.co_manager.has_pending}>
@@ -381,7 +387,7 @@ func Page() Node {
 					</section>
 					<section class="team-identity-settings__panel" aria-labelledby="team-badge-settings-title">
 						<header>
-							<span class="section-index">02 // LEAGUE BADGE</span>
+							<span class="section-index">LEAGUE BADGE</span>
 							<h2 id="team-badge-settings-title">Choose one shared badge</h2>
 						</header>
 						<If cond={data.identity_available}>
@@ -575,7 +581,7 @@ func TeamLineupRegion() Node {
 								<input type="hidden" name="week" value={data.week}></input>
 								<button class="button button--compact" type="submit">Set best lineup</button>
 							</form>
-							<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster and Big Board order. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
+							<p class="scoring-note lineup-action-note">Set best lineup rewrites every currently unlocked starter slot using your roster, highest projection first. Locked slots stay exactly where they are; run it again any time before those players kick off.</p>
 						</If>
 					</div>
 					<If cond={data.team_terminal_pre_draft && data.lineup_intervention == false}>

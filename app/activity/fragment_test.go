@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,17 @@ import (
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx/route"
 )
+
+// activityTextContent approximates a DOM node's textContent from rendered
+// HTML: it drops every tag, the same way a browser, a screen reader, or
+// find-in-page collapses markup away and reads only what is left. A real
+// space character survives this exactly when it survives the browser's
+// own textContent — a CSS-only gap (margin, padding) does not.
+var activityTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+func activityTextContent(html string) string {
+	return activityTagPattern.ReplaceAllString(html, "")
+}
 
 func TestActivityFragmentURLPreservesBrowseState(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/activity?team=AAA&q=drop+result&page=4&ignored=private", nil)
@@ -111,22 +123,21 @@ func TestActivityRegionRendersDatetimeAttributeForEveryRow(t *testing.T) {
 	}
 }
 
-// TestActivityRegionTokensCarryGapClassAcrossWhitespaceFreeJunctions pins
-// wave-2-verification item 9: ActivityRegion() — the component that
-// replaces the live DOM on every poll via data-gosx-region-url, unlike
-// Page()'s own once-per-load SSR markup — is hand-written with zero
-// whitespace between </strong>{move.Action} and {move.Action}<b>, so a
-// commissioner-actor-class row rendered "COMMISSIONER ·
-// Commissionerdeleted an announcement" and a team-move row rendered
-// "Hot Path (W4)draftsBills D/ST (DST)" on every single re-render, not
-// only after a morph strips an already-present space. This first proves
-// those exact junctions are still bare of any literal whitespace
-// character in ActivityRegion()'s output (so the test would fail if the
-// CSS fix were the only thing holding the row together and someone
-// reverted it), then asserts the token elements bordering each junction
-// carry activity-token-gap, the class page_ui_contract's styles.css
-// check pins to margin-inline: 0.3ch.
-func TestActivityRegionTokensCarryGapClassAcrossWhitespaceFreeJunctions(t *testing.T) {
+// TestActivityRegionVerbJunctionsCarryARealSpace pins wave-6 item 1:
+// ActivityRegion() — the component that replaces the live DOM on every
+// poll via data-gosx-region-url — used to butt </strong> straight against
+// {move.Action} and {move.Action} straight against <b> with zero
+// whitespace, so a commissioner-actor-class row's textContent read
+// "Commissionerdeleted an announcement" and a team-move row's read "Hot
+// Path (W4)draftsBills D/ST (DST)". The previous fix (wave-2-verification
+// item 9) left those junctions bare and relied on .activity-token-gap's
+// margin-inline for the visible gap alone, which does not help
+// textContent, a screen reader, find-in-page, or copy-paste. The fix
+// wraps move.Action in a <span class="activity-verb"> that carries the
+// space itself as a real character, so the gap survives every render
+// path, not only the CSS-painted one. This asserts the space is a literal
+// character in the rendered HTML, not just a class name.
+func TestActivityRegionVerbJunctionsCarryARealSpace(t *testing.T) {
 	program, err := route.LoadFileProgram("page.gsx")
 	if err != nil {
 		t.Fatal(err)
@@ -148,26 +159,71 @@ func TestActivityRegionTokensCarryGapClassAcrossWhitespaceFreeJunctions(t *testi
 		t.Fatal(err)
 	}
 
-	// The junctions this fix targets carry no literal space character at
-	// all in this component's own markup (it is hand-minified, unlike
-	// Page()'s SSR version) — reproducing "Commissionerdeleted an
-	// announcement" and "Hot Path (W4)draftsBills D/ST (DST)" exactly.
 	for _, junction := range []string{
 		"</strong>deleted an announcement",
 		"</strong>drafts<b",
 	} {
-		if !strings.Contains(html, junction) {
-			t.Fatalf("fixture no longer reproduces the whitespace-free junction this fix targets: want %q in %s", junction, html)
+		if strings.Contains(html, junction) {
+			t.Fatalf("rendered activity row still concatenates Team and Action with no space: found %q in %s", junction, html)
 		}
 	}
 
 	for _, want := range []string{
-		`<span class="activity-actor-class mono activity-token-gap">COMMISSIONER</span>`,
-		`<strong class="activity-token-gap">Commissioner</strong>deleted an announcement`,
-		`<strong class="activity-token-gap">Hot Path (W4)</strong>drafts<b class="activity-token-gap">Bills D/ST (DST)</b>`,
+		`<strong class="activity-token-gap">Commissioner</strong><span class="activity-verb"> deleted an announcement</span>`,
+		`<strong class="activity-token-gap">Hot Path (W4)</strong><span class="activity-verb"> drafts </span><b class="activity-token-gap">Bills D/ST (DST)</b>`,
 	} {
 		if !strings.Contains(html, want) {
-			t.Errorf("rendered activity row token is missing its CSS-supplied gap class: want %q in %s", want, html)
+			t.Errorf("rendered activity row is missing the real-space verb wrapper: want %q in %s", want, html)
+		}
+	}
+
+	if text := activityTextContent(html); !strings.Contains(text, "Commissioner deleted an announcement") {
+		t.Errorf("rendered activity row's own textContent does not read as a real sentence: %q", text)
+	}
+}
+
+// TestActivityFeedTextReadsAsARealSentence pins wave-6 item 1's literal
+// acceptance test: both Page() (once-per-load SSR) and ActivityRegion()
+// (the 4s poll fragment that replaces the live DOM) must render an actor
+// row so its own rendered text contains "Commissioner posted" — a real
+// space character between the actor and the verb — not the concatenated
+// "Commissionerposted" a screen reader, find-in-page, and copy-paste all
+// read before this fix.
+func TestActivityFeedTextReadsAsARealSentence(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := activityRows([]map[string]any{
+		{"time": "Sep 1, 4:41 PM EDT", "time_iso": "2026-09-01T20:41:00Z", "time_relative": "just now", "team": "Commissioner", "action": "posted an announcement", "player": "", "actor_class": "COMMISSIONER"},
+	})
+	fragmentData := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 1, "transactions_count": 1, "page": 1, "pages": 1,
+		"page_start": 1, "page_end": 1, "has_previous": false, "has_next": false,
+		"has_transactions": true, "transactions_empty": false,
+		"transactions": row,
+	}
+	pageData := map[string]any{
+		"timezone": "EDT", "activity_fragment_url": "/activity/fragment", "activity_fragment_interval": "4s",
+		"playoff_truth": map[string]any{"headline": "", "status_label": "", "detail": "", "recovery": ""},
+	}
+	for key, value := range fragmentData {
+		pageData[key] = value
+	}
+	for component, data := range map[string]map[string]any{"Page": pageData, "ActivityRegion": fragmentData} {
+		html, err := route.RenderProgramComponent(program, component, route.ProgramRenderEnv{
+			Values: map[string]any{"data": data},
+		})
+		if err != nil {
+			t.Fatalf("%s: %v", component, err)
+		}
+		text := activityTextContent(html)
+		if !strings.Contains(text, "Commissioner posted") {
+			t.Errorf("%s rendered textContent does not contain \"Commissioner posted\": %q", component, text)
+		}
+		if strings.Contains(text, "Commissionerposted") {
+			t.Errorf("%s rendered textContent concatenates the actor and verb with no space: %q", component, text)
 		}
 	}
 }

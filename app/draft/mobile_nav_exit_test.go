@@ -72,10 +72,18 @@ func TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess(t *testing.T) {
 // same views differently — the bottom bar's "Players"/"Queue", the
 // pick-history pane's "Tape"/"Board", and the desktop rail's "Queue" all
 // meant the pool/Big Board views, so a screen reader or a mobile-then-
-// desktop manager heard three different names for one thing. This pins
-// the one-word-per-view outcome directly in the source: POOL, BIG BOARD,
-// PICKS, TEAMS, ROOM in all three navigations (Roster is desktop-rail-
-// only and does not collide with anything else, so it is untouched).
+// desktop manager heard three different names for one thing. Wave 4's own
+// fix over-corrected: it renamed the pick-history pane's "Board" segment
+// (DraftHistoryHead's BoardHref tab, the LEAGUE-WIDE pick grid — every
+// team's picks laid out by round) to "Big Board" too, so the page carried
+// two different .segment controls both reading "Big Board" — one the
+// manager's own private ranked list (DraftMyTeam's mine-queue tab, the
+// actual Big Board), one the shared draft grid. Wave 6 item 2b renames
+// the pick-history pane's tab to "Draft grid", leaving "Big Board" for
+// the private list alone. This pins the one-word-per-view outcome
+// directly in the source: POOL, BIG BOARD, DRAFT GRID, PICKS, TEAMS,
+// ROOM in all three navigations (Roster is desktop-rail-only and does
+// not collide with anything else, so it is untouched).
 func TestDraftTabVocabularyIsOneWordPerViewEverywhere(t *testing.T) {
 	page, err := os.ReadFile("page.gsx")
 	if err != nil {
@@ -89,10 +97,13 @@ func TestDraftTabVocabularyIsOneWordPerViewEverywhere(t *testing.T) {
 		`>Picks</a>`,
 		`>Teams</a>`,
 		// In-pane pick-history segment (DraftHistoryHead): Tape -> Picks,
-		// Board -> Big Board.
+		// Board -> Draft grid — the league-wide grid, never the manager's
+		// own private list.
 		`aria-current={props.ShowTape}>Picks</a>`,
-		`aria-current={props.ShowBoard}>Big Board</a>`,
-		// Desktop rail "my team" segment (DraftMyTeam): Queue -> Big Board.
+		`aria-current={props.ShowBoard}>Draft grid</a>`,
+		// Desktop rail "my team" segment (DraftMyTeam): Queue -> Big Board —
+		// the manager's own private ranked list, the only "Big Board" on
+		// the page.
 		`<label class="segment__option" for="mine-queue">Big Board</label>`,
 		`<label class="segment__option" for="mine-room">Room</label>`,
 	} {
@@ -105,9 +116,16 @@ func TestDraftTabVocabularyIsOneWordPerViewEverywhere(t *testing.T) {
 		`for="tab-queue">Queue</label>`,
 		`>Tape</a>`,
 		`for="mine-queue">Queue</label>`,
+		`aria-current={props.ShowBoard}>Big Board</a>`,
 	} {
 		if strings.Contains(source, stale) {
 			t.Errorf("draft page.gsx retained a stale tab label %q", stale)
 		}
+	}
+	// "Big Board" names the manager's own private ranked list on the two
+	// navs that offer it (the mobile bottom bar's queue tab, the desktop
+	// rail's mine-queue tab) — never the league-wide draft grid.
+	if got := strings.Count(source, ">Big Board<"); got != 2 {
+		t.Errorf("draft page.gsx must say \"Big Board\" exactly twice (the private list, on its two navs) — the league-wide grid is a different name: found %d occurrences", got)
 	}
 }
