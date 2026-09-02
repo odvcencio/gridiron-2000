@@ -544,3 +544,349 @@ func TestLineupSlotPossessionChipRenderContract(t *testing.T) {
 		t.Fatal("stylesheet is missing the shared .possession-chip rule the team and matchups pages both use")
 	}
 }
+
+// ---------------------------------------------------------------------
+// Wave 7
+// ---------------------------------------------------------------------
+
+// TestRosterRowPropsCarriesWave7Fields covers page.server.go's
+// rosterRowProps mapping (items 1/4/5): the bench row's group header,
+// schedule line, and drafted chip all flow through from the raw
+// map[string]any view-model into the typed RosterCard the strict
+// {...player} spread requires.
+func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
+	raw := []map[string]any{{
+		"position": "RB", "name": "Bench Back", "nfl_team": "SF",
+		"has_group_header": true, "group_header": "RB",
+		"has_kickoff_label": true, "kickoff_label": "SUN 4:25 PM",
+		"has_bye_label": true, "bye_label": "BYE 9",
+		"is_drafted": true, "drafted_label": "R6 · P70",
+	}}
+	cards := rosterRowProps(raw)
+	if len(cards) != 1 {
+		t.Fatalf("rosterRowProps returned %d cards, want 1", len(cards))
+	}
+	card := cards[0]
+	if !card.HasGroupHeader || card.GroupHeader != "RB" {
+		t.Errorf("card group header = %v/%q, want true/\"RB\"", card.HasGroupHeader, card.GroupHeader)
+	}
+	if !card.HasKickoff || card.Kickoff != "SUN 4:25 PM" {
+		t.Errorf("card kickoff = %v/%q, want true/\"SUN 4:25 PM\"", card.HasKickoff, card.Kickoff)
+	}
+	if !card.HasBye || card.Bye != "BYE 9" {
+		t.Errorf("card bye = %v/%q, want true/\"BYE 9\"", card.HasBye, card.Bye)
+	}
+	if !card.HasDraftedLabel || card.DraftedLabel != "R6 · P70" {
+		t.Errorf("card drafted label = %v/%q, want true/\"R6 · P70\"", card.HasDraftedLabel, card.DraftedLabel)
+	}
+}
+
+// TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine covers item
+// 1 (bench position-group header), item 4 (the unconditional schedule
+// second line), and item 5 (the drafted-round chip) on RosterRow, the
+// bench's own component.
+func TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	rowStart := strings.Index(page, "component RosterRow(props: RosterRowProps) {")
+	if rowStart < 0 {
+		t.Fatal("RosterRow component not found")
+	}
+	rowEnd := strings.Index(page[rowStart:], "\ncomponent ")
+	if rowEnd < 0 {
+		rowEnd = strings.Index(page[rowStart:], "\nfunc ")
+	}
+	if rowEnd < 0 {
+		t.Fatal("RosterRow component has no following declaration to bound the search")
+	}
+	block := page[rowStart : rowStart+rowEnd]
+	for _, want := range []string{
+		`<If cond={props.HasGroupHeader}>`,
+		`<h4 class="roster-group-header mono">{props.GroupHeader}</h4>`,
+		`<If cond={props.HasDraftedLabel}>`,
+		`<span class="drafted-chip mono">{props.DraftedLabel}</span>`,
+		`<small class="roster-row__schedule mono">`,
+		`<If cond={props.HasKickoff}>`,
+		`{props.Kickoff}`,
+		`<If cond={props.HasBye}>`,
+		`{props.Bye}`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("RosterRow component missing %q", want)
+		}
+	}
+}
+
+// TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine covers
+// the same three items on a starting slot (TeamLineupRegion), the
+// separate render site from RosterRow: the position chip (item 8's
+// mobile card), the drafted chip (item 5), and the unconditional
+// schedule line (item 4), gated on has_kickoff_label/has_bye_label, not
+// on lock.
+func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<span class="position-chip lineup-slot__position">{slot.position}</span>`,
+		`<If cond={slot.is_drafted}>`,
+		`<span class="drafted-chip mono">{slot.drafted_label}</span>`,
+		`<small class="roster-row__schedule mono">`,
+		`<If cond={slot.has_kickoff_label}>`,
+		`{slot.kickoff_label}`,
+		`<If cond={slot.has_bye_label}>`,
+		`{slot.bye_label}`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("starter slot render missing %q", want)
+		}
+	}
+	// The schedule line must render unconditionally (not nested inside
+	// slot.locked) — the P0 invariant this item extends: auto-fill
+	// selection, and now render, never consult lock status.
+	scheduleAt := strings.Index(page, `<small class="roster-row__schedule mono">`)
+	lockAt := strings.Index(page, `<If cond={slot.locked}>`)
+	if scheduleAt < 0 || lockAt < 0 || scheduleAt > lockAt {
+		t.Fatal("the schedule line must render before the lock-gated chip block, not nested inside it")
+	}
+}
+
+// TestRosterShapeRendersVisibleEligibilityAndPositionalDepth covers
+// item 3 (FLEX/SUPERFLEX eligible positions as visible text, not only a
+// title="" tooltip) and item 2 (the positional-depth chip row beside
+// the shape summary).
+func TestRosterShapeRendersVisibleEligibilityAndPositionalDepth(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<Each of={data.roster_shape} as="slot">`,
+		`<If cond={slot.has_eligible}>`,
+		`<small class="roster-shape__eligible mono">ELIGIBLE: {slot.eligible}</small>`,
+		`<Each of={data.positional_depth_chips} as="chip">`,
+		`<span class="roster-shape__depth-chip mono" role="listitem">{chip.label}</span>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("roster-shape render missing %q", want)
+		}
+	}
+	// The title="" attribute must still carry the same text too — a
+	// visible line is additive, not a replacement of the existing
+	// tooltip a pointer-driven visitor already relies on.
+	if !strings.Contains(page, `title={slot.eligible}`) {
+		t.Error("roster-shape slot lost its title=\"\" eligibility tooltip")
+	}
+}
+
+// TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults covers
+// item 6: the callout only renders once team_terminal_roster_complete
+// (and the teaser itself is non-empty), and it links to
+// /draft/results?team=<code> — the URL this wave agreed with app/draft.
+func TestDraftClassCalloutGatedOnRosterCompleteAndLinksDraftResults(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	gateAt := strings.Index(page, `<If cond={data.team_terminal_roster_complete && data.draft_class_teaser_empty == false}>`)
+	if gateAt < 0 {
+		t.Fatal("draft-class callout is not gated on team_terminal_roster_complete && draft_class_teaser_empty == false")
+	}
+	closeAt := strings.Index(page[gateAt:], "</If>")
+	if closeAt < 0 {
+		t.Fatal("draft-class callout <If> has no closing </If>")
+	}
+	block := page[gateAt : gateAt+closeAt]
+	for _, want := range []string{
+		`class="draft-class-callout"`,
+		`<Each of={data.draft_class_teaser} as="pick">`,
+		`href={data.draft_class_href}`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("draft-class callout missing %q: %s", want, block)
+		}
+	}
+}
+
+// TestLineupSlotIdentityColumnWidenedAtDesktopWidth covers item 7: the
+// base (desktop) .lineup-slot rule's identity column floor is raised to
+// 14rem (from 11rem) so a starter's full name no longer ellipsizes at
+// 1280px, and .lineup-slot__form may wrap instead of overflowing when
+// that leaves less room for the SET control's own column.
+func TestLineupSlotIdentityColumnWidenedAtDesktopWidth(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	if !strings.Contains(styles, "grid-template-columns: 3.3rem minmax(14rem, 2fr) auto auto;") {
+		t.Fatal(".lineup-slot's base rule no longer widens the identity column to minmax(14rem, 2fr)")
+	}
+	if strings.Contains(styles, "grid-template-columns: 3.3rem minmax(11rem, 1fr) auto auto;") {
+		t.Fatal(".lineup-slot's old 11rem identity-column floor is still present somewhere in the stylesheet")
+	}
+	formAt := strings.Index(styles, ".lineup-slot__form {")
+	if formAt < 0 {
+		t.Fatal(".lineup-slot__form base rule not found")
+	}
+	formEnd := strings.Index(styles[formAt:], "}")
+	if formEnd < 0 || !strings.Contains(styles[formAt:formAt+formEnd], "flex-wrap: wrap;") {
+		t.Error(".lineup-slot__form's base rule must allow wrapping now that the identity column beside it is wider")
+	}
+}
+
+// TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText
+// covers item 8's phone-width layout plus the load-bearing constraint
+// that made it possible: mobile_touch_contract_test.go's mobileRules()
+// takes strings.LastIndex of the shell's own exact phone-width media
+// query text (both a real rule and a stray comment quoting it count) to
+// find "the" mobile rules block; a wave-7 rule (or comment) repeating
+// that exact text after the real block would silently steal every test
+// that calls it — see mobile_touch_contract_test.go and
+// lineup_slot_set_button_touch_target_contract_test.go, both of which
+// this would otherwise break silently.
+func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	waveAt := strings.Index(styles, "/* wave 7 — elm ")
+	if waveAt < 0 {
+		t.Fatal("wave 7 — elm append block not found")
+	}
+	const sharedBreakpoint = "@media (max-width: 38rem)"
+	if strings.Contains(styles[waveAt:], sharedBreakpoint) {
+		t.Fatal("the wave-7 append block repeats the shell's exact phone-width media-query text, live or in a comment — this steals mobileRules()'s strings.LastIndex lookup from the real block")
+	}
+	for _, want := range []string{
+		".roster-group-header {",
+		"grid-column: 1 / -1;",
+		".drafted-chip {",
+		".roster-row__schedule {",
+		".roster-shape__slot-wrap {",
+		".roster-shape__depth-chip {",
+		".draft-class-callout {",
+		".lineup-auto-form__button {",
+	} {
+		if !strings.Contains(styles[waveAt:], want) {
+			t.Errorf("wave 7 — elm block missing %q", want)
+		}
+	}
+	phoneAt := strings.Index(styles[waveAt:], "@media (max-width: 26.75rem) {")
+	if phoneAt < 0 {
+		t.Fatal("wave 7 — elm block missing its phone-width (390px-class) media query")
+	}
+	phoneBlock := styles[waveAt+phoneAt:]
+	for _, want := range []string{
+		"position: sticky;",
+		"width: 100%;",
+		"min-height: 2.75rem;",
+	} {
+		if !strings.Contains(phoneBlock, want) {
+			t.Errorf("wave 7 — elm phone-width block missing %q", want)
+		}
+	}
+}
+
+// TestTeamCommandStripScrollCueAndTouchFloor covers item 9 (mobile-audit
+// pass): the ≤899px horizontal-scroll .team-command-strip now carries a
+// scroll-snap resting point, contains its own overscroll instead of
+// rubber-banding the page behind it, a right-edge fade cue so a hidden
+// tile is visibly implied rather than silently absent, and a 44px floor
+// on every tile.
+func TestTeamCommandStripScrollCueAndTouchFloor(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	blockAt := strings.Index(styles, "@media (max-width: 899px) {")
+	if blockAt < 0 {
+		t.Fatal("the 899px .team-command-strip scroll block was not found")
+	}
+	blockEnd := strings.Index(styles[blockAt:], "\n}\n\n")
+	if blockEnd < 0 {
+		t.Fatal("the 899px .team-command-strip scroll block has no closing brace")
+	}
+	block := styles[blockAt : blockAt+blockEnd]
+	for _, want := range []string{
+		"scroll-snap-type: x proximity;",
+		"overscroll-behavior-x: contain;",
+		"mask-image: linear-gradient(",
+		"-webkit-mask-image: linear-gradient(",
+		"min-height: 2.75rem;",
+		"scroll-snap-align: start;",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("899px .team-command-strip block missing %q: %s", want, block)
+		}
+	}
+}
+
+// TestTeamAutoChipCarriesAccessibleEquivalentToItsTitle covers item 10:
+// a title="" attribute is never reachable on a touch device, so the
+// AUTO chip's explanation ("Filled automatically by SET BEST LINEUP")
+// also needs an aria-label, not only a title, alongside its own visible
+// "AUTO" text.
+func TestTeamAutoChipCarriesAccessibleEquivalentToItsTitle(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<span class="position-chip" title="Filled automatically by SET BEST LINEUP" aria-label="Filled automatically by SET BEST LINEUP">AUTO</span>`) {
+		t.Fatal("the AUTO chip is missing an aria-label matching its title")
+	}
+	if !strings.Contains(page, `<abbr title="injured reserve" aria-label="injured reserve">IR</abbr>`) {
+		t.Fatal("the IR abbr is missing an aria-label matching its title")
+	}
+}
+
+// TestTeamInputsCarryLabelsAutocompleteAndEnterKeyHint covers item 11:
+// every real (non-hidden) /team input has a <label for=...>, and the
+// co-manager email field in particular offers the browser's own email
+// keyboard/autofill instead of opting out of autocomplete entirely.
+func TestTeamInputsCarryLabelsAutocompleteAndEnterKeyHint(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<label class="team-identity-settings__field" for="co-manager-email">Co-manager email</label>`,
+		`autocomplete="email" inputmode="email" enterkeyhint="done"`,
+		`<label class="team-identity-settings__field" for="team-name-input">Team name</label>`,
+		`id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" enterkeyhint="done"`,
+		`<label class="team-identity-settings__field" for="team-avatar-upload">Custom team image</label>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("team input a11y contract missing %q", want)
+		}
+	}
+	if strings.Contains(page, `autocomplete="off"`) {
+		t.Error("a /team input still opts out of autocomplete entirely")
+	}
+}
+
+// TestTeamPrimaryActionFeedsPhoneActionBar covers item 11's other half:
+// the SET BEST LINEUP form carries a stable id, and teamData's own
+// primary_action points at it by that id with a submit kind so the
+// phone-only PageActionBar (larch) can trigger it from the thumb zone.
+func TestTeamPrimaryActionFeedsPhoneActionBar(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<form id="lineup-auto-form" method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">`) {
+		t.Fatal("the SET BEST LINEUP form no longer carries id=\"lineup-auto-form\"")
+	}
+}

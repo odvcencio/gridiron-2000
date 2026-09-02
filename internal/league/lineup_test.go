@@ -1071,3 +1071,115 @@ func TestCloseWeekPinsFullSlateAutoFillInsteadOfDegradingIt(t *testing.T) {
 		t.Fatalf("lineupStarters (the closed-week scorer path) = %d players, want %d — it must read the same pin closeWeek wrote", len(starters), len(want))
 	}
 }
+
+// ---------------------------------------------------------------------
+// Wave 7 item 1: bench groups by position (QB, RB, WR, TE, K, DST, then
+// anything else), then by projection within a group, highest first.
+// ---------------------------------------------------------------------
+
+// TestBenchPositionRankOrdersNamedGroupsThenAnythingElse pins
+// benchPositionRank's pure ordering rule: each of the six named
+// positions ranks below the one before it, and an unrecognized position
+// (P, or any other string) ranks after all six rather than colliding
+// with QB's rank 0.
+func TestBenchPositionRankOrdersNamedGroupsThenAnythingElse(t *testing.T) {
+	ranks := make([]int, len(benchPositionOrder))
+	for i, position := range benchPositionOrder {
+		ranks[i] = benchPositionRank(position)
+	}
+	for i := 1; i < len(ranks); i++ {
+		if ranks[i] <= ranks[i-1] {
+			t.Fatalf("benchPositionOrder ranks not strictly increasing: %v", ranks)
+		}
+	}
+	for _, unknown := range []string{"P", "FLEX", ""} {
+		if got := benchPositionRank(unknown); got != len(benchPositionOrder) {
+			t.Errorf("benchPositionRank(%q) = %d, want %d (after every named group)", unknown, got, len(benchPositionOrder))
+		}
+	}
+}
+
+// TestEffectiveLineupBenchGroupsByPositionThenProjection is the P0-
+// grade regression pin for gap-audit item 1: an empty-slots preset
+// (Bench-only, no starting slots at all) sends every roster player
+// straight to Bench with no auto-fill competing for placement, so the
+// resulting Bench order is entirely the sort under test. Fixture IDs are
+// deliberately NOT already in the wanted output order (the old bare
+// "sort by ID" bug would have produced a-dst, b-qb-lo, c-qb-hi, d-k,
+// e-rb, f-te, g-punter, z-wr here) — passing proves position grouping,
+// not an accidental ID-order coincidence.
+func TestEffectiveLineupBenchGroupsByPositionThenProjection(t *testing.T) {
+	preset := RosterPreset{Name: "bench-only", Slots: map[string]int{}, Bench: 10}
+	roster := []Player{
+		{ID: "z-wr", Name: "Z WR", Position: "WR", Projection: 5},
+		{ID: "a-dst", Name: "A DST", Position: "DST", Projection: 1},
+		{ID: "b-qb-lo", Name: "B QB Low", Position: "QB", Projection: 10},
+		{ID: "c-qb-hi", Name: "C QB High", Position: "QB", Projection: 20},
+		{ID: "d-k", Name: "D K", Position: "K", Projection: 7},
+		{ID: "e-rb", Name: "E RB", Position: "RB", Projection: 9},
+		{ID: "f-te", Name: "F TE", Position: "TE", Projection: 4},
+		{ID: "g-punter", Name: "G Punter", Position: "P", Projection: 2},
+	}
+	lineup := effectiveLineup(preset, roster, nil, 1, nil, time.Now())
+	want := []string{"c-qb-hi", "b-qb-lo", "e-rb", "z-wr", "f-te", "d-k", "a-dst", "g-punter"}
+	if len(lineup.Bench) != len(want) {
+		t.Fatalf("bench length = %d, want %d", len(lineup.Bench), len(want))
+	}
+	for i, id := range want {
+		if lineup.Bench[i].ID != id {
+			got := make([]string, len(lineup.Bench))
+			for j, p := range lineup.Bench {
+				got[j] = p.ID
+			}
+			t.Fatalf("bench[%d] = %q, want %q (full order: %v)", i, lineup.Bench[i].ID, id, got)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------
+// Wave 7 item 4: kickoff_label/bye_label render unconditionally on every
+// starter row, before as well as after lock.
+// ---------------------------------------------------------------------
+
+// TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels covers the
+// P0 invariant this item extends to a new field pair: kickoff_label and
+// bye_label must be present and correct on an UNLOCKED occupied slot,
+// not only a locked one (lock_label's own pre-existing gate). A bye
+// player (no week-1 game at all) carries has_kickoff_label=false and
+// has_bye_label=true; a scheduled, not-yet-kicked-off player carries
+// the reverse.
+func TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	kickoff := now.Add(2 * time.Hour)
+	games := []GameInfo{{ID: "g1", Week: 1, Kickoff: kickoff, Away: "PIT", Home: "NYJ"}}
+	lineup := EffectiveLineup{Week: 1, Slots: []SlotAssignment{
+		{Slot: SlotInstance{ID: "QB", Def: SlotDef{Eligible: []string{"QB"}}}, HasPlayer: true,
+			Player: Player{ID: "p-unlocked", Name: "Not Locked Yet", Position: "QB", NFLTeam: "PIT"}},
+		{Slot: SlotInstance{ID: "QB2", Def: SlotDef{Eligible: []string{"QB"}}}, HasPlayer: true,
+			Player: Player{ID: "p-bye", Name: "On Bye", Position: "QB", NFLTeam: "TB", ByeWeek: 1}},
+	}}
+	rows := svc.starterRowMaps(lineup, nil, games, now, nil, nil)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	if rows[0]["locked"] != false {
+		t.Fatalf("QB row locked = %v, want false (kickoff is two hours out)", rows[0]["locked"])
+	}
+	if rows[0]["has_kickoff_label"] != true {
+		t.Fatalf("unlocked QB row has_kickoff_label = %v, want true — kickoff must render before lock, not only after", rows[0]["has_kickoff_label"])
+	}
+	wantKickoff := strings.ToUpper(kickoff.Format("Mon 3:04 PM"))
+	if got, _ := rows[0]["kickoff_label"].(string); !strings.Contains(got, wantKickoff[:3]) {
+		t.Errorf("QB row kickoff_label = %q, want it to contain the weekday abbreviation %q", got, wantKickoff[:3])
+	}
+	if rows[0]["has_bye_label"] != false || rows[0]["bye_label"] != "" {
+		t.Errorf("QB row (no bye) has_bye_label/bye_label = %v/%q, want false/\"\"", rows[0]["has_bye_label"], rows[0]["bye_label"])
+	}
+	if rows[1]["has_kickoff_label"] != false {
+		t.Fatalf("bye QB2 row has_kickoff_label = %v, want false (TB has no week-1 game)", rows[1]["has_kickoff_label"])
+	}
+	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "BYE 1" {
+		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"BYE 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
+	}
+}
