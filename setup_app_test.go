@@ -86,6 +86,39 @@ func TestSetupAppServesTokenEntryFormWhenUnauthorized(t *testing.T) {
 	}
 }
 
+// TestSetupAppStylesheetHashedURLIsImmutable is setup_app.go's twin of
+// app_build_test.go's TestBuildAppStylesheetHashedURLIsImmutable: SETUP
+// serves the identical public/styles.css file through the identical GoSX
+// servePublic handler as CONFIGURED, so it needs the same content-hashed,
+// immutable-cache href rather than the old "max-age=0, must-revalidate"
+// one (gap-audit item 3, wave 3).
+func TestSetupAppStylesheetHashedURLIsImmutable(t *testing.T) {
+	server, client, tokens := newSetupTestApp(t)
+	_ = mustReadToken(t, tokens)
+
+	status, body := getBody(t, client, server.URL+"/setup")
+	if status != http.StatusOK {
+		t.Fatalf("GET /setup = %d, want 200", status)
+	}
+	match := hashedStylesheetHrefPattern.FindStringSubmatch(body)
+	if match == nil {
+		t.Fatal("GET /setup: no content-hashed styles.css <link> href found in the rendered document")
+	}
+	hashedHref := match[1]
+
+	response, err := client.Get(server.URL + hashedHref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d, want 200", hashedHref, response.StatusCode)
+	}
+	if got := response.Header.Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("GET %s Cache-Control = %q, want the immutable policy", hashedHref, got)
+	}
+}
+
 func TestSetupAppHealthReportsSetupState(t *testing.T) {
 	server, client, _ := newSetupTestApp(t)
 	status, body := getBody(t, client, server.URL+"/api/health")

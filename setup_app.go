@@ -142,12 +142,19 @@ func buildSetupAppWithTokenSink(cfg AppConfig, store *league.Store, tokenSink fu
 
 	rt := &SetupRuntime{Guard: guard, Store: store, Wizard: wizard, Restart: defaultRestartHook()}
 
+	// Same content-hashed, immutable-cache href BuildApp's CONFIGURED-state
+	// layout uses for styles.css (see hashedPublicAssetHref's doc comment,
+	// app_build.go) — SETUP serves the identical public/styles.css file
+	// through the identical GoSX servePublic handler, so it gets the same
+	// fix rather than shipping the old "max-age=0, must-revalidate" href.
+	stylesheetHref := hashedPublicAssetHref(cfg.Root, "styles.css")
+
 	router := route.NewRouter()
 	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
 		ctx.SetLanguage("en")
 		ctx.SetMetadata(server.Metadata{
 			Links: []server.LinkTag{
-				{Rel: "stylesheet", Href: "/styles.css"},
+				{Rel: "stylesheet", Href: stylesheetHref},
 				{Rel: "icon", Href: "/favicon.svg", Type: "image/svg+xml"},
 			},
 			ThemeColor: []server.ThemeColor{{Color: "#070A16"}},
