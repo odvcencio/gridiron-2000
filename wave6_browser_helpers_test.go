@@ -82,26 +82,8 @@ func elementBoundingRect(t *testing.T, ctx context.Context, selector string) wav
 	return rect
 }
 
-// newCoarsePointerBrowserContext is newBrowserContext (sim_browser_test.go)
-// with Chrome's touch input and coarse/no-hover pointer media features
-// forced on — wave 7b's own "coarse-pointer emulation" flags. A phone
-// viewport emulated through chromedp.EmulateViewport alone still reports
-// pointer:fine/hover:hover, the desktop mouse profile: any CSS keyed on
-// @media (pointer: coarse) or (hover: none), or any JS reading
-// PointerEvent.pointerType, needs these flags at browser launch (not a
-// per-navigation option) to see the same signal a real phone gives.
-func newCoarsePointerBrowserContext(t *testing.T, chrome string) context.Context {
-	t.Helper()
-	options := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(chrome), chromedp.NoSandbox,
-		chromedp.Flag("touch-events", "enabled"),
-		chromedp.Flag("blink-settings", "primaryPointerType=2,availablePointerTypes=2,primaryHoverType=0,availableHoverTypes=0"),
-	)
-	allocator, closeAllocator := chromedp.NewExecAllocator(context.Background(), options...)
-	t.Cleanup(closeAllocator)
-	ctx, closeBrowser := chromedp.NewContext(allocator)
-	t.Cleanup(closeBrowser)
-	ctx, cancelBudget := context.WithTimeout(ctx, browserBudget)
-	t.Cleanup(cancelBudget)
-	return ctx
-}
+// newCoarsePointerBrowserContext (the "coarse-pointer emulation" browser
+// context wave 7b's own mobile checks need) now lives in
+// wave7b_mobile_foundation_browser_test.go (larch's merged mobile
+// foundation) — this package independently added an identical copy;
+// removed here rather than kept as a duplicate declaration.
