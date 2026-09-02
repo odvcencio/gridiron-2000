@@ -12849,3 +12849,74 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* Item 5: /wire's section strip (Feed · Sources · Sighting) — plain
+   in-page anchors (#wire-feed, #wire-sources, #community-input), no JS,
+   so it works exactly the same with scripting off. Hidden above the
+   phone/tablet breakpoint: at desktop width .wire-layout is already a
+   two-column grid with every section on screen at once (public/styles.css,
+   .wire-layout), so a jump strip has nothing to add there. */
+.wire-section-strip {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .wire-section-strip {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    display: flex;
+    gap: var(--space-xs);
+    overflow-x: auto;
+    padding: var(--space-xs) 0;
+    margin-bottom: var(--space-sm);
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .wire-section-strip > a {
+    flex: 0 0 auto;
+    min-height: var(--control-h);
+  }
+
+  /* scroll-margin-top clears both the fixed top bar and this sticky
+     strip sitting right beneath it, so a tap on Feed/Sources/Sighting
+     lands the target section's own heading below both rather than
+     partially hidden under them (the same #main-content scroll-margin
+     idiom this file already uses for the fixed bar alone). */
+  #wire-feed,
+  #wire-sources,
+  #community-input {
+    scroll-margin-top: calc(var(--mobile-bar-height) * 2);
+  }
+}
+
+/* Item 5: the collapsed "Show N more" tail (.wire-more, WireFeedList in
+   page.gsx and the source-panel feed/account lists) — a native <details>,
+   so a manager on a script-disabled browser still reaches every signal,
+   feed, and tracked account, just past one extra tap. Sized like the
+   other section toggles in this file (.board-jump, wave 7 — hazel) so it
+   reads as a real control, not a stray label. */
+.wire-more {
+  margin-top: var(--space-sm);
+}
+
+.wire-more__summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.wire-more__summary::-webkit-details-marker {
+  display: none;
+}

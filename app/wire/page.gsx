@@ -54,6 +54,43 @@ component SignalCard(props: SignalCardProps) {
 	</article>
 }
 
+// WireFeedListProps structurally mirrors page.server.go's WireFeedListView
+// (the "same-file schema" rule SignalCardProps' own doc comment explains):
+// Visible/Overflow are []SignalCardProps, not []WireSignalCard, for that
+// same reason. Splitting the feed into a visible head and a collapsed
+// overflow tail (item 5, wave 7b — the audit found /wire ran 17.7 screens
+// tall at 390px, mostly the feed) has to happen in exactly one place, not
+// once per caller: both Page()'s own first render AND FeedFragmentWithError
+// (page.server.go, the data-gosx-region poll target) call this same
+// component, so a phone reader who opens the "Show N more" details on
+// first load does not lose that open state (a native <details> element's
+// own open/closed state is a DOM node the poll's data-gosx-region primitive
+// patches in place, not a node it recreates from scratch, the same reason
+// the matchup-ledger <details> in app/matchups/page.gsx survives its own
+// page's poll) the next time this same region refreshes.
+type WireFeedListProps struct {
+	Visible       []SignalCardProps
+	Overflow      []SignalCardProps
+	HasOverflow   bool
+	OverflowCount int
+}
+
+func WireFeedList(props WireFeedListProps) Node {
+	return <>
+		<Each of={props.Visible} as="signal">
+			<SignalCard {...signal}></SignalCard>
+		</Each>
+		<If cond={props.HasOverflow}>
+			<details class="wire-more">
+				<summary class="wire-more__summary">Show {props.OverflowCount} more</summary>
+				<Each of={props.Overflow} as="signal">
+					<SignalCard {...signal}></SignalCard>
+				</Each>
+			</details>
+		</If>
+	</>
+}
+
 type WireEmptyStateProps struct {
 	WireConfigured bool
 	WireIssue      string
@@ -109,6 +146,12 @@ func Page() Node {
 			</div>
 		</header>
 
+		<nav class="wire-section-strip" aria-label="Jump to a wire section">
+			<a href="#wire-feed" class="board-button">Feed</a>
+			<a href="#wire-sources" class="board-button">Sources</a>
+			<a href="#community-input" class="board-button">Sighting</a>
+		</nav>
+
 		<section class="wire-trust-strip" aria-label="Data confidence">
 			<div>
 				<span>01</span>
@@ -130,7 +173,7 @@ func Page() Node {
 		</section>
 
 		<div class="wire-layout">
-			<section class="wire-stage">
+			<section class="wire-stage" id="wire-feed">
 				<header class="section-heading section-heading--split">
 					<div>
 						<span class="section-index">NEWS DESK</span>
@@ -158,9 +201,7 @@ func Page() Node {
 					<If cond={data.empty}>
 						<WireEmptyState {...data.wire_empty}></WireEmptyState>
 					</If>
-					<Each of={data.signals} as="signal">
-						<SignalCard {...signal}></SignalCard>
-					</Each>
+					<WireFeedList {...data.feed_list}></WireFeedList>
 				</div>
 			</section>
 
@@ -210,13 +251,13 @@ func Page() Node {
 					<p class="wire-license">Stat source: public NFL data</p>
 				</section>
 
-				<section class="wire-source-panel">
+				<section class="wire-source-panel" id="wire-sources">
 					<header>
 						<span class="section-index">NEWS SOURCES</span>
 						<b>Sources</b>
 					</header>
 					<div class="wire-source-list">
-						<Each of={data.feeds} as="feed">
+						<Each of={data.feeds_visible} as="feed">
 							<div>
 								<a href={feed.url} target="_blank" rel="noreferrer"><strong>{feed.name} ↗</strong></a>
 								<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
@@ -226,12 +267,38 @@ func Page() Node {
 								</If>
 							</div>
 						</Each>
-						<Each of={data.sources} as="source">
+						<If cond={data.has_feeds_overflow}>
+							<details class="wire-more">
+								<summary class="wire-more__summary">Show {data.feeds_overflow_count} more feed<If cond={data.feeds_overflow_count != 1}>s</If></summary>
+								<Each of={data.feeds_overflow} as="feed">
+									<div>
+										<a href={feed.url} target="_blank" rel="noreferrer"><strong>{feed.name} ↗</strong></a>
+										<small class="mono">{feed.evidence} · {feed.state} · {feed.accepted} kept</small>
+										<small class="mono">LAST CHECK · {feed.checked} · LAST PUBLISHED · {feed.published}</small>
+										<If cond={feed.has_error}>
+											<small class="mono">ERROR · {feed.last_error}</small>
+										</If>
+									</div>
+								</Each>
+							</details>
+						</If>
+						<Each of={data.sources_visible} as="source">
 							<div>
 								<strong>Bluesky · @{source.name}</strong>
 								<small class="mono">CURATED SOCIAL</small>
 							</div>
 						</Each>
+						<If cond={data.has_sources_overflow}>
+							<details class="wire-more">
+								<summary class="wire-more__summary">Show {data.sources_overflow_count} more account<If cond={data.sources_overflow_count != 1}>s</If></summary>
+								<Each of={data.sources_overflow} as="source">
+									<div>
+										<strong>Bluesky · @{source.name}</strong>
+										<small class="mono">CURATED SOCIAL</small>
+									</div>
+								</Each>
+							</details>
+						</If>
 					</div>
 				</section>
 
@@ -244,7 +311,7 @@ func Page() Node {
 						<p class="flash-message" role="status">{data.notice}</p>
 					</If>
 					<If cond={data.can_submit}>
-						<form method="post" action={actionPath("submit-sighting")} data-gosx-managed="true">
+						<form id="wire-sighting-form" method="post" action={actionPath("submit-sighting")} data-gosx-managed="true">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="category" value={data.category}></input>
 							<input type="hidden" name={data.wire_return_target_field} value={data.wire_return_target}></input>
