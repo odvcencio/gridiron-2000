@@ -8,11 +8,8 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					TRANSACTION FEED
 				</span>
-				<h1>
-					EVERY MOVE
-					<br></br>
-					ON THE RECORD.
-				</h1>
+				<h1>Activity</h1>
+				<p class="page-subhead">Every move on the record.</p>
 				<p>
 					Draft picks, waiver and free-agent moves, and trades — one permanent league record, newest first.
 				</p>
@@ -44,7 +41,7 @@ func Page() Node {
 		<section class="player-pool">
 			<div class="pool-toolbar">
 				<div>
-					<span class="section-index">01 // LEAGUE WIRE</span>
+					<span class="section-index">01 // TRANSACTION FEED</span>
 					<h2>Every transaction</h2>
 				</div>
 			</div>
@@ -103,15 +100,12 @@ func Page() Node {
 						<If cond={move.ActorClass != ""}>
 							<p>
 								<span class="activity-actor-class mono activity-token-gap">{move.ActorClass}</span> ·
-								<strong class="activity-token-gap">{move.Team}</strong>
-								{move.Action}
+								<strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action}</span>
 							</p>
 						</If>
 						<If cond={move.ActorClass == ""}>
 							<p>
-								<strong class="activity-token-gap">{move.Team}</strong>
-								{move.Action}
-								<b class="activity-token-gap">{move.Player}</b>
+								<strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action} </span><b class="activity-token-gap">{move.Player}</b>
 							</p>
 						</If>
 					</div>
@@ -141,7 +135,7 @@ func Page() Node {
 // never resets a manager's current browse state or active input.
 func ActivityRegion() Node {
 	return <section class="player-pool">
-		<div class="pool-toolbar"><div><span class="section-index">01 // LEAGUE WIRE</span><h2>Every transaction</h2></div></div>
+		<div class="pool-toolbar"><div><span class="section-index">01 // TRANSACTION FEED</span><h2>Every transaction</h2></div></div>
 		<form method="get" action="/activity" class="pool-search-bar">
 			<label class="mono" for="activity-sync-team">TEAM //</label>
 			<select id="activity-sync-team" name="team"><option value="">All teams</option><Each of={data.teams} as="team"><option value={team} selected={team == data.team}>{team}</option></Each></select>
@@ -154,7 +148,7 @@ func ActivityRegion() Node {
 		<If cond={data.filtered_count > 0}><p class="scoring-note" aria-live="polite">Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall</p></If>
 		<If cond={data.has_transactions == false}><div class="empty-tape"><strong>NO TRANSACTIONS YET</strong><p>Draft picks and roster moves appear here as they happen.</p></div></If>
 		<If cond={data.has_transactions && data.transactions_empty}><div class="empty-tape"><strong>NO MOVES MATCH</strong><p>Try another team or query, or clear the filters.</p><a class="filter-button" href="/activity" data-gosx-link>Clear filters</a></div></If>
-		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item" data-actor-class={move.ActorClass}><If cond={move.TimeISO != ""}><time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.TimeISO == ""}><time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.ActorClass != ""}><p><span class="activity-actor-class mono activity-token-gap">{move.ActorClass}</span> · <strong class="activity-token-gap">{move.Team}</strong>{move.Action}</p></If><If cond={move.ActorClass == ""}><p><strong class="activity-token-gap">{move.Team}</strong>{move.Action}<b class="activity-token-gap">{move.Player}</b></p></If></div></Each></div>
+		<div class="activity-feed"><Each of={data.transactions} as="move"><div class="activity-item" data-actor-class={move.ActorClass}><If cond={move.TimeISO != ""}><time class="mono" datetime={move.TimeISO}>{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.TimeISO == ""}><time class="mono">{move.Time}<If cond={move.TimeRelative != ""}> · {move.TimeRelative}</If></time></If><If cond={move.ActorClass != ""}><p><span class="activity-actor-class mono activity-token-gap">{move.ActorClass}</span> · <strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action}</span></p></If><If cond={move.ActorClass == ""}><p><strong class="activity-token-gap">{move.Team}</strong><span class="activity-verb"> {move.Action} </span><b class="activity-token-gap">{move.Player}</b></p></If></div></Each></div>
 		<nav class="pool-pagination" aria-label="Transaction feed pages"><If cond={data.has_previous}><a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a></If><span class="mono">Page {data.page} / {data.pages}</span><If cond={data.has_next}><a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a></If></nav>
 	</section>
 }

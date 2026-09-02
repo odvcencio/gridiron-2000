@@ -134,6 +134,31 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	if !strings.Contains(body, "consensus") {
 		t.Fatalf("expected the locked, picked game's consensus bar to render, got: %s", body)
 	}
+	// wave-6 item 10: a locked, picked side must carry a visible glyph/text
+	// ("✓ YOUR PICK"), not only the color-only aria-pressed/CSS state — the
+	// 2026-09-01 re-audit found the lock/pick state indistinguishable
+	// without color vision. g-final's seeded pick is BUF (the away team).
+	finalStart := strings.Index(body, `data-game-id="g-final"`)
+	if finalStart < 0 {
+		t.Fatalf("locked, picked game row did not render: %s", body)
+	}
+	finalEnd := strings.Index(body[finalStart:], "</article>")
+	if finalEnd < 0 {
+		t.Fatalf("locked, picked game row was not closed: %s", body)
+	}
+	finalRow := body[finalStart : finalStart+finalEnd]
+	if got := strings.Count(finalRow, "pickem-your-pick"); got != 1 {
+		t.Fatalf("locked, picked row must carry the YOUR PICK glyph exactly once (the picked side only), got %d: %s", got, finalRow)
+	}
+	if !strings.Contains(finalRow, "✓ YOUR PICK") {
+		t.Fatalf("locked, picked row is missing the visible YOUR PICK glyph: %s", finalRow)
+	}
+	pickedButtonStart := strings.Index(finalRow, `aria-pressed="true"`)
+	yourPickStart := strings.Index(finalRow, "pickem-your-pick")
+	pickedButtonEnd := strings.Index(finalRow[pickedButtonStart:], "</button>")
+	if pickedButtonStart < 0 || yourPickStart < 0 || pickedButtonEnd < 0 || yourPickStart > pickedButtonStart+pickedButtonEnd {
+		t.Fatalf("YOUR PICK glyph must render inside the picked (aria-pressed=true) button: %s", finalRow)
+	}
 	if !strings.Contains(body, "rank-row") {
 		t.Fatalf("expected the graded pick to reach the season leaderboard as a real rank-row, got: %s", body)
 	}
