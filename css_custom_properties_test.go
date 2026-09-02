@@ -159,3 +159,52 @@ func TestTokenLeaksRemoved(t *testing.T) {
 		}
 	}
 }
+
+// TestButtonSystemContract is item 3's own test (2026-09-01 gap audit):
+// five button systems (.button + variants, .btn/.btn-sm/.btn-ghost,
+// .board-button, .filter-button, .draft-button) rendered seven distinct
+// heights across Plus Jakarta and IBM Plex Mono. --control-h/
+// --control-h-compact become the only two heights every one of those
+// classes resolves to, and mono stops being a button font (data only);
+// .button--secondary — already referenced by app/join/page.gsx with no
+// matching rule — gets a real style.
+func TestButtonSystemContract(t *testing.T) {
+	raw, err := os.ReadFile("public/styles.css")
+	if err != nil {
+		t.Fatalf("read styles.css: %v", err)
+	}
+	css := stripCSSComments(string(raw))
+
+	for _, want := range []string{
+		// The two control-height tokens.
+		"--control-h: 44px;",
+		"--control-h-compact: 36px;",
+		// .button and its legacy siblings share the default height.
+		".button,\n.google-button,\n.draft-button,\n.filter-button,\n.board-button {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--space-sm);\n  min-height: var(--control-h);",
+		// .button--compact and the three legacy classes share the compact height.
+		".button--compact {\n  min-height: var(--control-h-compact);",
+		".filter-button {\n  min-height: var(--control-h-compact);",
+		".draft-button {\n  min-height: var(--control-h-compact);",
+		".draft-shell .btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--space-xs);\n  min-height: var(--control-h);",
+		".draft-shell .btn-sm {\n  min-height: var(--control-h-compact);",
+		// .board-button keeps the default (non-compact) height, still square.
+		".board-button {\n  min-height: var(--control-h);\n  min-width: var(--control-h);\n  min-block-size: var(--control-h);\n  min-inline-size: var(--control-h);",
+		// .button--secondary now has a real rule.
+		".button--secondary {",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("styles.css omitted %q", want)
+		}
+	}
+
+	for _, forbidden := range []string{
+		// Buttons render in the body font; mono is for data only now.
+		".filter-button {\n  min-height: var(--control-h-compact);\n  padding: 0.35rem var(--space-sm);\n  font-family: var(--font-mono);",
+		".board-button {\n  min-height: var(--control-h);\n  min-width: var(--control-h);\n  min-block-size: var(--control-h);\n  min-inline-size: var(--control-h);\n  padding: 0.2rem 0.45rem;\n  font-family: var(--font-mono);",
+		".draft-shell .btn {\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  gap: var(--space-xs);\n  min-height: var(--control-h);\n  padding: var(--space-xs) var(--space-sm);\n  border: 1px solid var(--color-border-strong);\n  border-radius: var(--radius-sm);\n  color: var(--color-text-primary);\n  background: var(--color-white-faint);\n  font-family: var(--font-mono);",
+	} {
+		if strings.Contains(css, forbidden) {
+			t.Errorf("styles.css still sets a button's font-family to mono: %q", forbidden)
+		}
+	}
+}

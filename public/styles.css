@@ -92,6 +92,16 @@
   --space-2xl: clamp(3rem, 2.18rem + 3.2vw, 4rem);
   --space-3xl: clamp(4rem, 2.55rem + 5.7vw, 6rem);
 
+  /* One button system (2026-09-01 gap audit, item 3): five systems
+     (.button + variants, .btn/.btn-sm/.btn-ghost, .board-button,
+     .filter-button, .draft-button) rendered seven distinct heights across
+     two font families. These two tokens are the only heights any of them
+     resolves to now — --control-h for a default control, --control-h-
+     compact for a dense one (.button--compact and the three legacy
+     classes below the base .button height). */
+  --control-h: 44px;
+  --control-h-compact: 36px;
+
   --radius-sm: 0.45rem;
   --radius-md: 0.8rem;
   --radius-lg: 1.25rem;
@@ -1160,7 +1170,7 @@ h2 {
   align-items: center;
   justify-content: center;
   gap: var(--space-sm);
-  min-height: 3rem;
+  min-height: var(--control-h);
   padding: var(--space-xs) var(--space-md);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
@@ -1210,6 +1220,23 @@ h2 {
   background: transparent;
 }
 
+/* One button system (item 3): app/join/page.gsx already renders
+   class="button button--secondary" for the commissioner-contact link on
+   a full league (a real action, but not one that changes league state) —
+   there was no matching rule, so it silently fell back to the neutral
+   .button style. Cyan reads as a distinct, calmer accent from primary's
+   lime and danger's hot pink. */
+.button--secondary {
+  border-color: var(--color-accent-cyan);
+  color: var(--color-accent-cyan);
+  background: transparent;
+}
+
+.button--secondary:hover {
+  color: var(--color-ink-on-accent);
+  background: var(--color-accent-cyan);
+}
+
 /* gap-audit item 7: the 99 // DANGER ZONE reset buttons used the neutral
    .button style, matching every routine control on /admin instead of
    naming their own destructive classification. New rather than reused —
@@ -1227,7 +1254,7 @@ h2 {
 }
 
 .button--compact {
-  min-height: 2.55rem;
+  min-height: var(--control-h-compact);
   padding: var(--space-xs) var(--space-sm);
   font-size: var(--type-xs);
 }
@@ -4430,10 +4457,12 @@ body.is-on-clock .draft-clock-panel {
   justify-content: center;
 }
 
+/* One button system (item 3): .filter-button used to run Plex Mono at its
+   own 38px height — body font now (mono stays for actual data, not an
+   action control), and the compact control-height token. */
 .filter-button {
-  min-height: 2.35rem;
+  min-height: var(--control-h-compact);
   padding: 0.35rem var(--space-sm);
-  font-family: var(--font-mono);
   font-size: var(--type-xs);
 }
 
@@ -5087,13 +5116,15 @@ body.is-on-clock .draft-clock-panel {
   display: flex;
 }
 
+/* One button system (item 3): .board-button used to run Plex Mono at its
+   own 44/58px heights — body font now, and the (already 44px) default
+   control-height token in place of the literal. */
 .board-button {
-  min-height: 2.75rem;
-  min-width: 2.75rem;
-  min-block-size: 44px;
-  min-inline-size: 44px;
+  min-height: var(--control-h);
+  min-width: var(--control-h);
+  min-block-size: var(--control-h);
+  min-inline-size: var(--control-h);
   padding: 0.2rem 0.45rem;
-  font-family: var(--font-mono);
   font-size: var(--type-xs);
 }
 
@@ -5611,8 +5642,10 @@ body.is-on-clock .draft-clock-panel {
   text-align: right;
 }
 
+/* One button system (item 3): .draft-button used to run its own 38px
+   height beside .button's 43/48px — the compact control-height token now. */
 .draft-button {
-  min-height: 2.35rem;
+  min-height: var(--control-h-compact);
   padding: 0.35rem var(--space-sm);
   font-size: var(--type-xs);
 }
@@ -10548,25 +10581,27 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   outline: 2px solid var(--color-accent-cyan);
 }
 
-/* btn: the compact mono action idiom the available/queue rows, the
-   command bar's Sound/Commissioner/Rail buttons, and the drawer's close
-   button share. Every .btn is still a plain <button>, so the touch
-   baseline block above widens it on a phone without a bespoke rule. */
+/* btn: the compact action idiom the available/queue rows, the command
+   bar's Sound/Commissioner/Rail buttons, and the drawer's close button
+   share. Every .btn is still a plain <button>, so the touch baseline
+   block above widens it on a phone without a bespoke rule.
+   One button system (item 3): this used to run its own Plex Mono at a
+   third pair of heights (40/36px) beside .button's — body font (the
+   Sound toggle, Commissioner disclosure, Draft, and ready-check controls
+   here are actions, not data) and the shared control-height tokens now. */
 .draft-shell .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  min-height: 2.5rem;
+  min-height: var(--control-h);
   padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   color: var(--color-text-primary);
   background: var(--color-white-faint);
-  font-family: var(--font-mono);
   font-size: var(--type-xs);
   font-weight: 700;
-  letter-spacing: 0.04em;
   text-decoration: none;
   text-transform: uppercase;
   cursor: pointer;
@@ -10578,7 +10613,7 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
 }
 
 .draft-shell .btn-sm {
-  min-height: 2.25rem;
+  min-height: var(--control-h-compact);
   padding: 0.3rem var(--space-xs);
 }
 
