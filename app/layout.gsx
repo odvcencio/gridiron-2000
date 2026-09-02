@@ -251,7 +251,7 @@ func Layout() Node {
 							href="/#home-action-center-heading"
 							data-gosx-link
 							class="rail-attention-chip"
-							aria-label={data.league.attention.urgent_count + " items need attention in the Action Center"}
+							aria-label={data.league.attention.chip_label}
 						>
 							<span class="signal-mark" aria-hidden="true"></span>
 							ACTION CENTER · {data.league.attention.urgent_count} URGENT
@@ -283,7 +283,7 @@ func Layout() Node {
 						href="/#home-action-center-heading"
 						data-gosx-link
 						class="rail-attention-chip rail-attention-chip--mobile"
-						aria-label={data.league.attention.urgent_count + " items need attention in the Action Center"}
+						aria-label={data.league.attention.chip_label}
 					>
 						<span class="signal-mark" aria-hidden="true"></span>
 						{data.league.attention.urgent_count} URGENT

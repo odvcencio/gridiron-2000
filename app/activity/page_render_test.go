@@ -62,3 +62,42 @@ func TestActivityPageRendersWithRealData(t *testing.T) {
 		t.Fatalf("expected the honest empty-transactions state on a fresh league, got: %s", body)
 	}
 }
+
+// TestActivityPageTeamFilterOptionsCarryTeamName pins wave-6 glue item 3:
+// the team filter <select> reads data.team_options (internal/league's
+// ActivityData), not the bare "teams" abbreviation list, so each option's
+// visible text carries the team NAME with its code as a secondary label
+// ("East 1 (E1)") instead of the code alone — the same code-with-no-name
+// gap the /players owner chip and waiver-order strip had.
+func TestActivityPageTeamFilterOptionsCarryTeamName(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (activity page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	// The shipped, unconfigured checkout's neutral team seed (config.go's
+	// neutralTeams) names its first East team "East 1", abbreviation "E1".
+	if !strings.Contains(body, "East 1 (E1)") {
+		t.Fatalf("expected a team filter option reading the team name \"East 1 (E1)\", not the bare code alone: %s", body)
+	}
+}

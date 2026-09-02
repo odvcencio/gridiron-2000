@@ -332,7 +332,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// are wired and enabled, queue depth, the last transport failure,
 		// and how many sends landed in the last 24 hours.
 		"mail":   s.notifyMailMap(now),
-		"league": s.leagueMap(),
+		"league": s.leagueMapForViewer(r),
 		// config_source shows which league.json is live (productization
 		// spec section 3.4): "defaults" on an unconfigured checkout, or
 		// "file:<path>" once one loads. is_default_config drives the
