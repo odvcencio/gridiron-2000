@@ -12586,9 +12586,27 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      <a> now, item 1a's own note below) moved to the combined
      .app-tabbar__tab, .draft-tabbar__tab rule near the top of this file;
      only the mono font family stays here, a draft-room idiom the mobile
-     bottom bar does not share. */
+     bottom bar does not share.
+     Item 8 (wave-7 re-audit — yew): 5 equal-width tabs at 390px leaves
+     each one only ~74.8px, and the shared rule's own 0.12em letter-
+     spacing (tuned for the mobile bottom bar's own shorter labels —
+     "Home", "Team", etc.) left "Draft grid" — this room's own longest
+     label — wide enough to wrap onto two lines there ("Big Board", the
+     next-longest, cleared it with only 2.9px to spare, a genuinely
+     borderline margin the wrap could tip on with only minor rendering
+     variance). Tightened here, not on the shared rule, so the mobile
+     bottom bar's own tracking is untouched. white-space: nowrap is the
+     hard guarantee regardless of any remaining margin: a label that
+     still could not fit would rather overflow its own track slightly
+     (visibly wrong, easy to spot and fix again) than silently wrap and
+     grow the whole bar's height, the wave-6 mobile-foundation audit's
+     own established fallback preference (draft_grid_mobile_browser_
+     test.go and this item's own TestBrowserDraftTabLabelsFitOneLineAt36
+     0To430 hold every label to a single line at 360/390/430px). */
   .draft-tabbar__tab {
     font-family: var(--font-mono);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
   }
 
   .draft-tabbar input:focus-visible + .draft-tabbar__tab {
