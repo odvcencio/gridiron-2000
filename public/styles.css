@@ -3739,9 +3739,18 @@ button.badge-option:hover {
   letter-spacing: 0.05em;
 }
 
+/* Item 7 (wave 7 — elm): flex-wrap alone never shrinks this column's own
+   max-content contribution to .lineup-slot's "auto" grid track — a grid
+   auto track sizes to an item's UNWRAPPED preferred width regardless of
+   flex-wrap, so a slot carrying its position chip plus a long LOCKED ·
+   <time> chip (easily 200px unwrapped) claimed most of the row, leaving
+   the identity column's own minmax(14rem, 2fr) track stuck at its bare
+   14rem floor with no leftover for the 2fr share. Capping this column's
+   own width forces wrapping to actually engage, freeing that space. */
 .lineup-slot__chips {
   display: inline-flex;
   flex-wrap: wrap;
+  max-width: 9rem;
   gap: var(--space-xs);
 }
 
@@ -12400,12 +12409,31 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     min-height: 0;
   }
 
+  /* Item 9 (wave 7 — elm, mobile-audit pass): the horizontal-scroll
+     strip above carried no cue that 3 of its 6 tiles (including the
+     VIEW MATCHUP button) sit off-screen — scrollWidth 681px against a
+     372px client box, and nothing at the right edge hinted more
+     content was there. scroll-snap-type gives each swipe a resting
+     point instead of a mid-tile stop; overscroll-behavior-x keeps that
+     swipe from also rubber-banding the page behind it; the mask-image
+     fade is the visible cue itself (a soft edge reads as "more here",
+     a hard clip reads as "that's everything"). */
   .team-command-strip {
     grid-template-columns: none;
     grid-auto-flow: column;
     grid-auto-columns: minmax(6rem, auto);
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+    mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+  }
+
+  .team-command-strip > div,
+  .team-command-strip .button {
+    min-height: 2.75rem;
+    scroll-snap-align: start;
   }
 
   .team-command-strip .button {
@@ -12541,6 +12569,21 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    a second occurrence appended after the real one would silently steal
    every test that calls it. Every breakpoint below uses a distinct rem
    value for that reason, not just style. */
+
+/* Item 7 (second pass): even with the identity column's own floor
+   raised to 14rem and .lineup-slot__chips capped (both above/nearby),
+   .player-identity__text's own base rule (shared with every other
+   .player-identity host sitewide — pool rows, board rows, roster rows)
+   never sets flex-grow, so it only ever shrinks to fit its content,
+   never grows to fill leftover row space; the ::after "DETAILS +"
+   affordance (.stat-tip__summary::after, fixed-size, flex: 0 0 auto)
+   was claiming most of a narrow flex row instead. Scoped to
+   .lineup-slot specifically — not a change to the shared rule other
+   pages rely on — so the identity text is the flexible element in this
+   row, the fixed-size avatar and "DETAILS +" affordance are not. */
+.lineup-slot .player-identity__text {
+  flex: 1 1 0%;
+}
 
 /* Item 1: the bench-grouping header (RosterRow, page.gsx) renders once
    per new position and spans .roster-row's full grid width so the
@@ -12714,13 +12757,25 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   /* Week selector at the 44px touch floor, full width so the native
      <select> (week_options) and GO button share one comfortable row
      instead of squeezing into a shrinking one alongside the toolbar's
-     other controls. */
+     other controls. The select stays the FLEXIBLE item (flex: 1 1 auto,
+     matching the shared 56.1875rem block's own width: 100%/max-width:
+     100% for it, just above) — giving it flex: 0 0 auto here as well
+     pinned its flex-basis to that same 100% while flex-shrink: 0 forbid
+     it from ever giving the fixed-size GO button room, overflowing the
+     row by exactly the button's own width (measured: document.
+     scrollWidth 27px past window.innerWidth at 390px). Only the button
+     — a fixed three-letter label — is the flex: 0 0 auto item. */
   .lineup-week-form {
     flex-wrap: nowrap;
     width: 100%;
   }
 
-  .lineup-week-form select,
+  .lineup-week-form select {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 2.75rem;
+  }
+
   .lineup-week-form button {
     flex: 0 0 auto;
     min-height: 2.75rem;

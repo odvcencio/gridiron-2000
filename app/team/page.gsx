@@ -383,7 +383,7 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
 								<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
-								<input id="co-manager-email" type="email" name="email" value={data.co_manager.invite_email} placeholder="co-manager@example.com" autocomplete="off" required="required" aria-invalid={data.has_co_error} aria-describedby="co-manager-email-error"></input>
+								<input id="co-manager-email" type="email" name="email" value={data.co_manager.invite_email} placeholder="co-manager@example.com" autocomplete="email" inputmode="email" enterkeyhint="done" required="required" aria-invalid={data.has_co_error} aria-describedby="co-manager-email-error"></input>
 								<p id="co-manager-email-error" class="error-message form-error" data-gosx-field-error="email" role="alert">{data.co_error}</p>
 								<button class="button button--compact" type="submit">Invite co-manager</button>
 							</form>
@@ -401,7 +401,7 @@ func Page() Node {
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<input type="hidden" name="team_id" value={data.team.id}></input>
 							<input type="hidden" name={data.team_return_target_field} value={data.team_return_target}></input>
-							<input id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" aria-invalid={data.has_rename_error} aria-describedby="team-name-error"></input>
+							<input id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" enterkeyhint="done" aria-invalid={data.has_rename_error} aria-describedby="team-name-error"></input>
 							<p id="team-name-error" class="error-message form-error" data-gosx-field-error="name" role="alert">{data.rename_error}</p>
 							<button class="button button--compact" type="submit">Rename</button>
 						</form>
@@ -650,7 +650,7 @@ func TeamLineupRegion() Node {
 							<button class="board-button" type="submit">Go</button>
 						</form>
 						<If cond={data.team_terminal_roster_complete}>
-							<form method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">
+							<form id="lineup-auto-form" method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="team_id" value={data.team.id}></input>
 								<input type="hidden" name="week" value={data.week}></input>
@@ -786,7 +786,7 @@ func TeamLineupRegion() Node {
 											<span class="position-chip lineup-slot__position">{slot.position}</span>
 										</If>
 										<If cond={slot.auto_filled}>
-											<span class="position-chip" title="Filled automatically by SET BEST LINEUP">AUTO</span>
+											<span class="position-chip" title="Filled automatically by SET BEST LINEUP" aria-label="Filled automatically by SET BEST LINEUP">AUTO</span>
 										</If>
 										<If cond={slot.has_warning}>
 											<span class="position-chip position-chip--warn">{slot.warning_label}</span>
@@ -893,7 +893,7 @@ func TeamLineupRegion() Node {
 							</If>
 							<If cond={data.has_ir && data.lineup_intervention == false}>
 								<h3 class="lineup-bench-title">
-									<abbr title="injured reserve">IR</abbr>
+									<abbr title="injured reserve" aria-label="injured reserve">IR</abbr>
 									<small class="mono">{data.ir_capacity}</small>
 								</h3>
 								<If cond={data.ir_occupants_empty}>

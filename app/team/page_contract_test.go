@@ -795,3 +795,98 @@ func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing
 		}
 	}
 }
+
+// TestTeamCommandStripScrollCueAndTouchFloor covers item 9 (mobile-audit
+// pass): the ≤899px horizontal-scroll .team-command-strip now carries a
+// scroll-snap resting point, contains its own overscroll instead of
+// rubber-banding the page behind it, a right-edge fade cue so a hidden
+// tile is visibly implied rather than silently absent, and a 44px floor
+// on every tile.
+func TestTeamCommandStripScrollCueAndTouchFloor(t *testing.T) {
+	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	styles := string(stylesBytes)
+	blockAt := strings.Index(styles, "@media (max-width: 899px) {")
+	if blockAt < 0 {
+		t.Fatal("the 899px .team-command-strip scroll block was not found")
+	}
+	blockEnd := strings.Index(styles[blockAt:], "\n}\n\n")
+	if blockEnd < 0 {
+		t.Fatal("the 899px .team-command-strip scroll block has no closing brace")
+	}
+	block := styles[blockAt : blockAt+blockEnd]
+	for _, want := range []string{
+		"scroll-snap-type: x proximity;",
+		"overscroll-behavior-x: contain;",
+		"mask-image: linear-gradient(",
+		"-webkit-mask-image: linear-gradient(",
+		"min-height: 2.75rem;",
+		"scroll-snap-align: start;",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("899px .team-command-strip block missing %q: %s", want, block)
+		}
+	}
+}
+
+// TestTeamAutoChipCarriesAccessibleEquivalentToItsTitle covers item 10:
+// a title="" attribute is never reachable on a touch device, so the
+// AUTO chip's explanation ("Filled automatically by SET BEST LINEUP")
+// also needs an aria-label, not only a title, alongside its own visible
+// "AUTO" text.
+func TestTeamAutoChipCarriesAccessibleEquivalentToItsTitle(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<span class="position-chip" title="Filled automatically by SET BEST LINEUP" aria-label="Filled automatically by SET BEST LINEUP">AUTO</span>`) {
+		t.Fatal("the AUTO chip is missing an aria-label matching its title")
+	}
+	if !strings.Contains(page, `<abbr title="injured reserve" aria-label="injured reserve">IR</abbr>`) {
+		t.Fatal("the IR abbr is missing an aria-label matching its title")
+	}
+}
+
+// TestTeamInputsCarryLabelsAutocompleteAndEnterKeyHint covers item 11:
+// every real (non-hidden) /team input has a <label for=...>, and the
+// co-manager email field in particular offers the browser's own email
+// keyboard/autofill instead of opting out of autocomplete entirely.
+func TestTeamInputsCarryLabelsAutocompleteAndEnterKeyHint(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<label class="team-identity-settings__field" for="co-manager-email">Co-manager email</label>`,
+		`autocomplete="email" inputmode="email" enterkeyhint="done"`,
+		`<label class="team-identity-settings__field" for="team-name-input">Team name</label>`,
+		`id="team-name-input" type="text" name="name" value={data.team_name_value} maxlength="40" enterkeyhint="done"`,
+		`<label class="team-identity-settings__field" for="team-avatar-upload">Custom team image</label>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("team input a11y contract missing %q", want)
+		}
+	}
+	if strings.Contains(page, `autocomplete="off"`) {
+		t.Error("a /team input still opts out of autocomplete entirely")
+	}
+}
+
+// TestTeamPrimaryActionFeedsPhoneActionBar covers item 11's other half:
+// the SET BEST LINEUP form carries a stable id, and teamData's own
+// primary_action points at it by that id with a submit kind so the
+// phone-only PageActionBar (larch) can trigger it from the thumb zone.
+func TestTeamPrimaryActionFeedsPhoneActionBar(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<form id="lineup-auto-form" method="post" action={actionPath("lineup-auto")} data-gosx-managed="true" class="lineup-auto-form">`) {
+		t.Fatal("the SET BEST LINEUP form no longer carries id=\"lineup-auto-form\"")
+	}
+}

@@ -2515,6 +2515,15 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"draft_class_href":         "/draft/results?team=" + url.QueryEscape(team.Abbreviation),
 		"draft_class_teaser":       draftClass,
 		"draft_class_teaser_empty": len(draftClass) == 0,
+		// primary_action (wave 7 item 11) feeds the phone-only
+		// PageActionBar (larch, layout-level): a thumb-zone shortcut to
+		// this page's own primary verb. On /team that is SET BEST LINEUP
+		// — the same gate (team_terminal_roster_complete) and the same
+		// form (#lineup-auto-form, page.gsx) the toolbar's own inline
+		// button already uses; an empty map when the form is not on the
+		// page at all, matching an absent/no-op action rather than a
+		// dangling form id.
+		"primary_action": teamPrimaryAction(lifecycle.Phase == TeamTerminalRosterComplete),
 	}
 	for key, value := range terminalData {
 		data[key] = value
@@ -2824,6 +2833,25 @@ func (s *Service) draftClassTeaser(state PersistedState, teamID string, limit in
 		})
 	}
 	return out
+}
+
+// teamPrimaryAction renders /team's own primary_action entry (wave 7
+// item 11) for the phone-only PageActionBar: a thumb-zone shortcut that
+// submits the SET BEST LINEUP form (#lineup-auto-form, page.gsx) — the
+// same team_terminal_roster_complete gate that form's own inline toolbar
+// button already uses. rosterComplete false renders an empty map (no
+// primary verb this page has to offer yet), never a dangling form id.
+func teamPrimaryAction(rosterComplete bool) map[string]any {
+	if !rosterComplete {
+		return map[string]any{}
+	}
+	return map[string]any{
+		"label": "Set best lineup",
+		"href":  "",
+		"kind":  "submit",
+		"form":  "lineup-auto-form",
+		"tone":  "primary",
+	}
 }
 
 // topAvailable lists the best unpicked pool players for the waiver radar.

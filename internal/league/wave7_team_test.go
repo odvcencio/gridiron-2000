@@ -236,3 +236,54 @@ func TestTeamDataDraftClassTeaserPopulatesOnceRosterIsComplete(t *testing.T) {
 		t.Fatalf("draft_class_teaser = %#v, want 1-3 entries", data["draft_class_teaser"])
 	}
 }
+
+// ---------------------------------------------------------------------
+// Wave 7 item 11: primary_action feeds the phone-only PageActionBar
+// (larch) with /team's own primary verb — SET BEST LINEUP, submitted
+// through #lineup-auto-form (page.gsx) — gated on the exact same
+// team_terminal_roster_complete condition the inline toolbar button
+// already uses.
+// ---------------------------------------------------------------------
+
+func TestTeamPrimaryActionSubmitsLineupAutoFormOnlyOnceRosterComplete(t *testing.T) {
+	off := teamPrimaryAction(false)
+	if len(off) != 0 {
+		t.Fatalf("teamPrimaryAction(false) = %+v, want an empty map (no primary verb yet)", off)
+	}
+	on := teamPrimaryAction(true)
+	if on["label"] != "Set best lineup" || on["kind"] != "submit" || on["form"] != "lineup-auto-form" || on["tone"] != "primary" {
+		t.Fatalf("teamPrimaryAction(true) = %+v, want the SET BEST LINEUP submit action", on)
+	}
+}
+
+func TestTeamDataCarriesPrimaryActionMatchingRosterCompleteGate(t *testing.T) {
+	// Before roster completion: no primary action.
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+	if data["team_terminal_roster_complete"] == true {
+		t.Fatal("fixture unexpectedly reached ROSTER_COMPLETE; test assumption invalid")
+	}
+	action, ok := data["primary_action"].(map[string]any)
+	if !ok || len(action) != 0 {
+		t.Fatalf("primary_action before roster completion = %#v, want an empty map", data["primary_action"])
+	}
+
+	// After roster completion: the SET BEST LINEUP submit action.
+	complete := newTestService(t, true)
+	teams := defaultTeams()
+	players := defaultPlayers()
+	totalPicks := len(teams) * CurrentDraftRounds()
+	complete.store.mu.Lock()
+	complete.store.state.DraftStarted = true
+	complete.store.state.Picks = terminalDraftPicks(players, teams, totalPicks, nil)
+	complete.store.mu.Unlock()
+	completeData := complete.TeamData(request)
+	if completeData["team_terminal_roster_complete"] != true {
+		t.Fatal("fixture did not reach ROSTER_COMPLETE")
+	}
+	completeAction, ok := completeData["primary_action"].(map[string]any)
+	if !ok || completeAction["form"] != "lineup-auto-form" || completeAction["kind"] != "submit" {
+		t.Fatalf("primary_action after roster completion = %#v, want the SET BEST LINEUP submit action", completeData["primary_action"])
+	}
+}
