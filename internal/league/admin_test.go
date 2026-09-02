@@ -1421,6 +1421,37 @@ func TestAdminClockActionsRejectImpossibleTransitions(t *testing.T) {
 // 11): admin and HQ console copy printed "1 LEAGUES", "1 occurrence(s)", and
 // "2 day(s)" instead of "1 league" and "2 days". Only the exact count 1 gets
 // the singular form; every other count, including 0, gets the plural.
+// TestPoolStatusMapExposesActualAndTargetCoverageSeparately guards
+// wave-6 item 7(k): /admin's "Pool coverage" stat printed the TARGET
+// ratio bare (status.Target / rosterCapacity), reading as a live
+// measurement of the actual pool. It now also exposes actual_coverage
+// (status.Players / rosterCapacity), matching Commissioner HQ's own
+// "ACTUAL {x} · TARGET {y}" presentation.
+func TestPoolStatusMapExposesActualAndTargetCoverageSeparately(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+	pool := service.poolStatusMap()
+
+	actual, ok := pool["actual_coverage"].(string)
+	if !ok || actual == "" {
+		t.Fatalf("pool actual_coverage = %#v, want a formatted ratio string", pool["actual_coverage"])
+	}
+	target, ok := pool["coverage"].(string)
+	if !ok || target == "" {
+		t.Fatalf("pool coverage = %#v, want a formatted ratio string", pool["coverage"])
+	}
+	if !strings.HasSuffix(actual, "×") || !strings.HasSuffix(target, "×") {
+		t.Fatalf("actual_coverage=%q coverage=%q, want both formatted as N.N×", actual, target)
+	}
+	// This fixture's 20-player pool is far below its target/roster
+	// capacity, so the two ratios must differ — proving actual_coverage
+	// is a genuinely distinct, live measurement, not a copy of the
+	// static target.
+	if actual == target {
+		t.Fatalf("actual_coverage (%q) == coverage (%q); fixture pool (20 players) should diverge from the configured target", actual, target)
+	}
+}
+
 func TestPluralRendersCountedNoun(t *testing.T) {
 	cases := []struct {
 		n    int

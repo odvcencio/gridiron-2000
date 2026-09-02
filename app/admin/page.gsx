@@ -1096,7 +1096,7 @@ func Page() Node {
 						</div>
 						<div class="pool-stat">
 							<span>Pool coverage</span>
-							<b class="mono">{data.pool.coverage}</b>
+							<b class="mono">ACTUAL {data.pool.actual_coverage} · TARGET {data.pool.coverage}</b>
 						</div>
 						<div class="pool-stat">
 							<span>Players / roster slots</span>

@@ -44,7 +44,7 @@ func Page() Node {
 			<If cond={data.demo_mode}>
 				<p class="demo-message">
 					<strong>REHEARSAL MODE:</strong>
-					trade actions are open to everyone while demo mode is on.
+					the console is open to everyone while demo mode is on.
 				</p>
 			</If>
 			<If cond={data.has_notice}>

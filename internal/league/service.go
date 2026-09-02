@@ -1278,8 +1278,10 @@ func (s *Service) poolStatusMap() map[string]any {
 	rosterCapacity := s.TeamCount() * CurrentDraftRounds()
 	cushion := max(0, status.Players-rosterCapacity)
 	coverage := 0.0
+	actualCoverage := 0.0
 	if rosterCapacity > 0 {
 		coverage = float64(status.Target) / float64(rosterCapacity)
+		actualCoverage = float64(status.Players) / float64(rosterCapacity)
 	}
 	errorMessage := ""
 	if status.LastError != "" {
@@ -1299,7 +1301,15 @@ func (s *Service) poolStatusMap() map[string]any {
 		"target":          status.Target,
 		"roster_capacity": rosterCapacity,
 		"cushion":         cushion,
+		// coverage (wave-6 item 7k) is the TARGET ratio only (status.Target
+		// / rosterCapacity) — /admin's "Pool coverage" stat printed this
+		// bare, reading as a live measurement rather than the configured
+		// target it actually is. actual_coverage is the same ratio against
+		// the pool's real current player count, matching Commissioner HQ's
+		// own "ACTUAL {x} · TARGET {y}" presentation (app/commissioner/
+		// view.go's ratio helper, card.PoolActualCoverage/PoolTargetCoverage).
 		"coverage":        fmt.Sprintf("%.1f×", coverage),
+		"actual_coverage": fmt.Sprintf("%.1f×", actualCoverage),
 		"with_adp":        status.WithADP,
 		"with_proj":       status.WithProjection,
 		"with_bye":        status.WithBye,

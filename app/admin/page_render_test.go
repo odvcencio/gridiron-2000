@@ -1500,6 +1500,24 @@ func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 	}
 }
 
+// TestAdminPoolCoverageLabelsActualAndTarget guards wave-6 item 7(k): the
+// "Pool coverage" stat printed the bare TARGET ratio only, reading as a
+// live measurement. It must label both the actual and target ratios,
+// matching Commissioner HQ's own "ACTUAL {x} · TARGET {y}" presentation.
+func TestAdminPoolCoverageLabelsActualAndTarget(t *testing.T) {
+	body := renderAdminPage(t)
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "ACTUAL {data.pool.actual_coverage} · TARGET {data.pool.coverage}") {
+		t.Error("Pool coverage stat does not label both actual and target ratios")
+	}
+	if !strings.Contains(body, "ACTUAL") || !strings.Contains(body, "TARGET") {
+		t.Errorf("rendered Pool coverage stat is missing ACTUAL/TARGET labels: %s", body)
+	}
+}
+
 // TestAdminMastheadIsCommissionerOnly guards wave-6 item 7(g): the
 // masthead's "League status" panel (seats/picks/draft date/ready count)
 // rendered unconditionally, above the RESTRICTED panel — a non-

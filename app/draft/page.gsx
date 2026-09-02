@@ -1854,7 +1854,7 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 		<div class="draft-history-head__row">
 			<nav class="segment" aria-label="Pick history panels">
 				<a class="segment__option" href={props.TapeHref} data-gosx-link aria-current={props.ShowTape}>Picks</a>
-				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Big Board</a>
+				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
 				<a class="segment__option" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
 			</nav>
 			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>
@@ -2259,27 +2259,46 @@ func DraftHistory(props DraftHistoryProps) Node {
 //
 // gap-audit item 8 (wave 3): /draft had no h1 at all (DraftRoom's own
 // "BUILD THE FUTURE." h1 belongs to a different, unrendered component --
-// see that component's doc comment). The h1 below is the document's
-// single one; .visually-hidden's own position: absolute takes it out of
-// .draft-shell's grid flow entirely, so it cannot disturb the explicit
-// grid-template-rows/order math the mobile tab-bar rules depend on.
-// Sentence case, matching every other heading on this page (h2
-// "Available now", "Pick history", etc.).
+// see that component's doc comment). wave-6 item 2a: that first fix hid
+// the one h1 (.visually-hidden), so a sighted user still saw no page
+// title anywhere — the only visible round/pick numbers lived inside
+// DraftCommandBar's own props.Data (data.command), which can read stale
+// or clamped relative to this page's own authoritative data.round/
+// data.pick_number/data.picks_total. The h1 is now the document's single
+// one AND the visible title, reading this page's own authoritative
+// fields directly, not data.command's copy — one copy per <header
+// class="draft-command" ...> branch below (target/fallback), never a
+// SIBLING of either: an h1 sitting between .draft-notice and the header
+// would add a sixth top-level child to .draft-shell's own explicit
+// grid-template-rows track list, which is sized for exactly the five
+// existing children (notice, command, tabbar, panes, pickbar) — see
+// the ≤56.1875rem block's own comment on that grid. Inside the fallback
+// branch's header, the h1 sits ahead of a NEW inner div that now alone
+// carries data-gosx-region: CommandFragmentHandler's own response is
+// still DraftCommandBar's .draft-command__inner alone (fragment_test.go
+// pins that exact class), so had the h1 stayed a direct child of the
+// region-carrying header itself, it would render once at first load and
+// vanish on the header's first region-swap. Sentence case, matching
+// every other heading on this page (h2 "Available now", "Pick history",
+// etc.).
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
-		<h1 class="visually-hidden">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
 		<div class="draft-notice" aria-live="polite">
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_pick_error}><p class="error-message">{data.pick_error}</p></If>
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
+			<h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
-		<header class="draft-command" data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
-			<DraftCommandBar {...data.command}></DraftCommandBar>
+		<header class="draft-command">
+			<h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
+			<div data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
+				<DraftCommandBar {...data.command}></DraftCommandBar>
+			</div>
 		</header>
 		</If>
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>

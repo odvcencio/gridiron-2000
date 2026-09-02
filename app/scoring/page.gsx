@@ -394,10 +394,7 @@ func Page() Node {
 				</If>
 				<div class="pool-stat">
 					<span>Clear window</span>
-					<b class="mono">
-						{data.waivers_rules.clear_days}
-						day(s)
-					</b>
+					<b class="mono">{data.waivers_rules.clear_days_label}</b>
 				</div>
 				<div class="pool-stat">
 					<span>Claims process</span>
@@ -444,10 +441,7 @@ func Page() Node {
 				</div>
 				<div class="pool-stat">
 					<span>Offer expiry</span>
-					<b class="mono">
-						{data.trades_rules.expiry_days}
-						day(s)
-					</b>
+					<b class="mono">{data.trades_rules.expiry_days_label}</b>
 				</div>
 				<If cond={data.trades_rules.has_deadline}>
 					<div class="pool-stat">
@@ -525,7 +519,7 @@ func Page() Node {
 			<a href="/blitz" data-gosx-link class="button button--compact">Open Preseason Blitz →</a>
 		</details>
 		<p class="scoring-note mono">
-			RULES LAST CONFIRMED //
+			RULES RENDERED //
 			{data.rules_version.generated_at}
 		</p>
 	</main>

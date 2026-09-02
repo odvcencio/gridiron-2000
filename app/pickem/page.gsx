@@ -127,7 +127,7 @@ component PickemRow(props: PickemRowProps) {
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedAway}>{props.Game.AwayLine}<If cond={props.Game.PickedAway}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
 			</If>
 			<If cond={props.Game.Locked == false}>
 				<form method="post" action={props.Action} data-gosx-managed="true" data-gosx-action-signal="$pickem.state.refresh">
@@ -139,7 +139,7 @@ component PickemRow(props: PickemRowProps) {
 				</form>
 			</If>
 			<If cond={props.Game.Locked}>
-				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}</button>
+				<button class="filter-button" type="button" disabled="disabled" aria-pressed={props.Game.PickedHome}>{props.Game.HomeLine}<If cond={props.Game.PickedHome}><span class="pickem-your-pick"> ✓ YOUR PICK</span></If></button>
 			</If>
 			</If>
 		</div>
@@ -239,11 +239,8 @@ func PickemLiveRegion() Node {
 					PICK 'EM HQ // WEEK
 					{data.week}
 				</span>
-				<h1>
-					CALL YOUR
-					<br></br>
-					SHOTS.
-				</h1>
+				<h1>Pick'em</h1>
+				<p class="page-subhead">Call your shots.</p>
 				<p>
 					Pick against the frozen market spread. Each game stays open until its own kickoff.
 					Your first valid pick enters you for the season. After entry, every unpicked kickoff is a loss — later games still stay open.
@@ -310,6 +307,12 @@ func PickemLiveRegion() Node {
 				<p class="demo-message">
 					<strong>SIGN IN REQUIRED:</strong>
 					use League access to lock in picks. No fantasy team seat needed.
+				</p>
+			</If>
+			<If cond={data.viewer.demo}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					the console is open to everyone while demo mode is on.
 				</p>
 			</If>
 		</div>
