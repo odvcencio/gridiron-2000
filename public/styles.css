@@ -13211,3 +13211,47 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .wire-more__summary::-webkit-details-marker {
   display: none;
 }
+
+/* Item 6: the shared .guide-toc jump strip (/scoring, /help, /guide — the
+   only three pages that use this class) is already position: sticky at
+   every width (public/styles.css, above) — a 2026-09-01 UX audit
+   (finding 10, that rule's own comment) deliberately rejected a
+   horizontally scrolling strip here after measuring four links fully
+   off-screen with no cue at 390px, the exact failure mode a "no hidden
+   horizontal scroll" product rule exists to prevent; it wraps onto a
+   second row instead, staying sticky and fully reachable at any width.
+   Item 6's own sticky/no-JS intent is already met by that wrap — this
+   rule only re-pins the strip's stick offset under the FIXED top bar at
+   phone/tablet width, so it does not try to stick 3px from the true
+   viewport top and sit half-covered by that fixed bar's own z-index 50. */
+@media (max-width: 56.1875rem) {
+  .guide-toc {
+    top: var(--mobile-bar-height);
+  }
+}
+
+/* /scoring's own jump targets are <details class="player-pool" id="...">
+   sections (unlike /help and /guide's <section class="guide-section">,
+   which already carries scroll-margin-top: 5rem above) — same landing
+   clearance under the sticky .guide-toc strip, on the page that does not
+   share that base class. */
+.scoring-page .player-pool[id] {
+  scroll-margin-top: 5rem;
+}
+
+/* Item 6: "Back to top" affordance for the three long reference pages
+   (/scoring, /help, /guide) — #main-content (every page's own root,
+   set by the shared layout) is already a valid anchor target, so this
+   needs no new id. */
+.back-to-top-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  margin: var(--space-lg) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-decoration: none;
+}

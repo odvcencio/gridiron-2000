@@ -175,5 +175,6 @@ func Page() Node {
 			<div><span class="section-index">NEXT TRANSMISSION</span><h2>Make the live rules your source of truth.</h2><p>When a guide sentence and the configured league disagree, the current league page wins. Ask the commissioner before a deadline if the state is unclear.</p></div>
 			<div class="guide-actions"><a href="/scoring" data-gosx-link class="button button--primary" title="Sign-in required">Open rules + scoring →<span class="visually-hidden"> (sign-in required)</span></a><a href="/help" data-gosx-link class="button button--ghost">Open help center →</a><a href="/" data-gosx-link class="button button--ghost">Back to league HQ</a></div>
 		</footer>
+		<a class="access-link back-to-top-link" href="#main-content">↑ Back to top</a>
 	</main>
 }
