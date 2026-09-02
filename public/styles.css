@@ -6487,6 +6487,17 @@ body.is-on-clock .draft-clock-panel {
 
 .login-page {
   min-height: calc(100vh - 14rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     body/.app-shell already carry (this file, item 6, wave 7b mobile-
+     foundation audit), for the identical reason — 100vh on a phone
+     browser measures the LARGEST possible viewport (address bar
+     collapsed), not the one actually available on first paint, so a
+     raw calc(100vh - 14rem) under-reserved height whenever the address
+     bar was still expanded. The vh line stays first as the fallback for
+     a browser with no dvh support — a plain declaration a later,
+     recognized one overrides, never parsed at all by an engine that
+     does not know dvh, no @supports needed. */
+  min-height: calc(100dvh - 14rem);
   display: grid;
   align-items: center;
 }
@@ -6704,6 +6715,10 @@ body.is-on-clock .draft-clock-panel {
 
 .error-page {
   min-height: calc(100vh - 15rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     as .login-page above — see that rule's own doc comment for the full
+     reasoning. */
+  min-height: calc(100dvh - 15rem);
   padding: var(--space-3xl) 0;
   display: flex;
   flex-direction: column;
@@ -6781,6 +6796,10 @@ body.is-on-clock .draft-clock-panel {
 .legal-page {
   max-width: 58rem;
   min-height: calc(100vh - 14rem);
+  /* Item 7 (wave-7 re-audit — yew): same 100vh -> 100dvh fallback pair
+     as .login-page above — see that rule's own doc comment for the full
+     reasoning. */
+  min-height: calc(100dvh - 14rem);
   padding: var(--space-3xl) 0;
 }
 

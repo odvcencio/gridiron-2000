@@ -141,6 +141,46 @@ func TestBodyMinHeightFallsBackFrom100vhTo100dvh(t *testing.T) {
 	}
 }
 
+// TestFullBleedPagesFallBackFrom100vhTo100dvh is wave-7 re-audit item 7's
+// own decisive contract test (yew): .login-page, .error-page, and
+// .legal-page each declare a calc(100vh - Nrem) min-height BEFORE the
+// matching calc(100dvh - Nrem) — the same vh-then-dvh fallback pair
+// TestBodyMinHeightFallsBackFrom100vhTo100dvh above already pins for
+// body/.app-shell, and for the identical reason: a raw calc(100vh - ...)
+// under-reserves height on a phone browser whenever its address bar is
+// still expanded (100vh always measures the LARGEST possible viewport,
+// not the one actually available at first paint). Each page's own Nrem
+// offset must match between its vh and dvh declarations — a mismatched
+// pair would silently reserve the WRONG height once a dvh-aware browser
+// picks up the second line.
+func TestFullBleedPagesFallBackFrom100vhTo100dvh(t *testing.T) {
+	css := wave7bStyles(t)
+	for selector, rem := range map[string]string{
+		".login-page": "14rem",
+		".error-page": "15rem",
+		".legal-page": "14rem",
+	} {
+		pattern := regexp.MustCompile(`(?s)\n` + regexp.QuoteMeta(selector) + ` \{([^}]*)\}`)
+		match := pattern.FindStringSubmatch(css)
+		if match == nil {
+			t.Fatalf("no rule found for %s", selector)
+		}
+		vhDecl := "min-height: calc(100vh - " + rem + ");"
+		dvhDecl := "min-height: calc(100dvh - " + rem + ");"
+		vh := strings.Index(match[1], vhDecl)
+		dvh := strings.Index(match[1], dvhDecl)
+		if vh < 0 {
+			t.Fatalf("%s missing its own %q vh floor: %q", selector, vhDecl, match[1])
+		}
+		if dvh < 0 {
+			t.Fatalf("%s missing its own %q dvh upgrade (offset must match the vh line's own %s): %q", selector, dvhDecl, rem, match[1])
+		}
+		if vh > dvh {
+			t.Errorf("%s declares its dvh line before its own vh fallback (source order must be vh, then dvh): %q", selector, match[1])
+		}
+	}
+}
+
 // TestScanlineHiddenUnderCoarsePointer covers item 8: body::after (the
 // full-screen, fixed, mix-blend-mode: multiply scanline layer) is turned
 // off under pointer: coarse — a composited full-viewport blend layer that
