@@ -327,6 +327,32 @@ func navigationScriptNonceAttr(nonce string) string {
 	return ` nonce="` + html.EscapeString(nonce) + `"`
 }
 
+// csrfExemptClientEvents wraps protect (sessions.Protect) so it never
+// touches GoSX's own auto-mounted telemetry sink,
+// server.ClientEventsRoute ("/_gosx/client-events" — see
+// registerBuiltinRoutes in m31labs.dev/gosx/server's server.go, which
+// mounts it unconditionally unless the app has already registered that
+// exact route). ClientEventsHandler (server/client_events.go) only
+// forwards each batched client-side event to a slog.Logger, bounded by a
+// 64KB body cap and a per-remote-addr rate limit — no session read, no
+// state write, nothing a forged cross-origin request could exploit — so
+// CSRF protection has nothing to protect there. The bootstrap runtime's
+// telemetry beacon (navigator.sendBeacon on visibilitychange, or a
+// batched fetch every 2s) never attaches an X-CSRF-Token, so without this
+// exemption every page load logged one spurious 403 here.
+func csrfExemptClientEvents(protect func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		protected := protect(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == server.ClientEventsRoute {
+				next.ServeHTTP(w, r)
+				return
+			}
+			protected.ServeHTTP(w, r)
+		})
+	}
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -670,7 +696,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.EnableGzip()
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
-	app.Use(sessions.Protect)
+	app.Use(csrfExemptClientEvents(sessions.Protect))
 	app.Use(authManager.Middleware)
 	app.SetPublicDir(filepath.Join(root, "public"))
 	// Serves the externalized navigation runtime router.SetNavigationHead

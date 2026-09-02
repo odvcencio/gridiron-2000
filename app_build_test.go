@@ -18,6 +18,7 @@ import (
 	"gridiron-2000/internal/league"
 
 	"m31labs.dev/gosx/auth"
+	"m31labs.dev/gosx/server"
 	"m31labs.dev/gosx/session"
 )
 
@@ -500,5 +501,28 @@ func TestBuildAppWithoutTestAuthIgnoresTestUserHeader(t *testing.T) {
 	location := recorder.Header().Get("Location")
 	if recorder.Code != http.StatusSeeOther || !strings.HasPrefix(location, "/login") {
 		t.Fatalf("GET /draft = %d location %q, want 303 to /login", recorder.Code, location)
+	}
+}
+
+// TestClientEventsRouteIsExemptFromCSRF covers GoSX's own auto-mounted
+// telemetry sink (server.ClientEventsRoute, "/_gosx/client-events"): the
+// bootstrap runtime's beacon POSTs there with no X-CSRF-Token (see
+// csrfExemptClientEvents' own doc comment for why that is safe — the
+// handler only logs, it never reads or writes session state), so an
+// anonymous POST — no session cookie at all — must reach the handler
+// rather than being rejected by sessions.Protect. A regression here would
+// again log one spurious 403 on every page load.
+func TestClientEventsRouteIsExemptFromCSRF(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+	body := strings.NewReader(`{"sid":"test","sent_at":0,"events":[{"ts":0,"lvl":"info","cat":"test","msg":"csrf-exempt-check"}]}`)
+	request := httptest.NewRequest(http.MethodPost, server.ClientEventsRoute, body)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusForbidden {
+		t.Fatalf("POST %s = 403 (CSRF-rejected); want the route exempt from CSRF: body=%s", server.ClientEventsRoute, recorder.Body.String())
+	}
+	if recorder.Code != http.StatusNoContent {
+		t.Fatalf("POST %s = %d, want 204 (ClientEventsHandler's success response); body=%s", server.ClientEventsRoute, recorder.Code, recorder.Body.String())
 	}
 }
