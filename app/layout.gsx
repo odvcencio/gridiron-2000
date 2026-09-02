@@ -13,6 +13,19 @@ type PrimaryNavigationProps struct {
 	Initials      string
 	TeamName      string
 	CSRFToken     string
+	// PickemHot/TradesHot and their AttentionText counterparts (build item
+	// 2, rail-dot leftover) come pre-shaped from
+	// data.league.attention.{pickem,trades}_hot/_attention_text
+	// (internal/league/service.go attentionMap): PrimaryNavigation is a
+	// legacy (non-island) GoSX component, and the Phase 4
+	// filter()/startsWith() expression forms only lower for //gosx:island
+	// bytecode, never the server-rendered legacy runtime — so the
+	// route-prefix match against attention.items happens once in Go, not
+	// per render here.
+	PickemHot           bool
+	PickemAttentionText string
+	TradesHot           bool
+	TradesAttentionText string
 }
 
 // PrimaryNavigation's sign-out form posts to /auth/logout as a plain,
@@ -35,10 +48,19 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="navigation-link__index mono">01</span>
 					Home
 				</Link>
-				<Link href="/pickem" class="navigation-link navigation-link--hot">
-					<span class="navigation-link__index mono">02</span>
-					Pick'em
-				</Link>
+				<If cond={props.HasSeat && props.PickemHot}>
+					<Link href="/pickem" class="navigation-link navigation-link--hot">
+						<span class="navigation-link__index mono">02</span>
+						Pick'em
+						<span class="visually-hidden">{props.PickemAttentionText}</span>
+					</Link>
+				</If>
+				<If cond={(props.HasSeat && props.PickemHot) == false}>
+					<Link href="/pickem" class="navigation-link">
+						<span class="navigation-link__index mono">02</span>
+						Pick'em
+					</Link>
+				</If>
 				<Link href="/matchups" class="navigation-link">
 					<span class="navigation-link__index mono">03</span>
 					Matchups
@@ -66,7 +88,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				</If>
 				<Link href="/board" class="navigation-link">
 					<span class="navigation-link__index mono">05</span>
-					Draft board
+					Big Board
 				</Link>
 				<If cond={props.HasSeat || props.SignedIn}>
 					<Link href="/players" class="navigation-link">
@@ -74,7 +96,14 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 						Player pool
 					</Link>
 				</If>
-				<If cond={props.HasSeat || props.Commissioner}>
+				<If cond={(props.HasSeat || props.Commissioner) && props.HasSeat && props.TradesHot}>
+					<Link href="/trades" class="navigation-link navigation-link--hot">
+						<span class="navigation-link__index mono">07</span>
+						Trades
+						<span class="visually-hidden">{props.TradesAttentionText}</span>
+					</Link>
+				</If>
+				<If cond={(props.HasSeat || props.Commissioner) && (props.HasSeat && props.TradesHot) == false}>
 					<Link href="/trades" class="navigation-link">
 						<span class="navigation-link__index mono">07</span>
 						Trades
@@ -199,6 +228,10 @@ func Layout() Node {
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
 					CSRFToken={csrf.token}
+					PickemHot={data.league.attention.pickem_hot}
+					PickemAttentionText={data.league.attention.pickem_attention_text}
+					TradesHot={data.league.attention.trades_hot}
+					TradesAttentionText={data.league.attention.trades_attention_text}
 				></PrimaryNavigation>
 			</aside>
 			<header class="mobile-navigation-enhanced" data-navigation-surface="mobile-enhanced-bar">
@@ -258,6 +291,10 @@ func Layout() Node {
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
 					CSRFToken={csrf.token}
+					PickemHot={data.league.attention.pickem_hot}
+					PickemAttentionText={data.league.attention.pickem_attention_text}
+					TradesHot={data.league.attention.trades_hot}
+					TradesAttentionText={data.league.attention.trades_attention_text}
 				></PrimaryNavigation>
 			</aside>
 			<details class="mobile-navigation-static" data-navigation-surface="mobile-static">
@@ -277,6 +314,10 @@ func Layout() Node {
 					Initials={data.viewer.initials}
 					TeamName={data.viewer.team_name}
 					CSRFToken={csrf.token}
+					PickemHot={data.league.attention.pickem_hot}
+					PickemAttentionText={data.league.attention.pickem_attention_text}
+					TradesHot={data.league.attention.trades_hot}
+					TradesAttentionText={data.league.attention.trades_attention_text}
 				></PrimaryNavigation>
 			</details>
 		</If>

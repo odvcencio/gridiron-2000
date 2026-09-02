@@ -22,6 +22,15 @@ type navigationViewerFixture struct {
 	commissioner bool
 	seatsOpen    bool
 	canClaimSeat bool
+	// pickemHot/tradesHot and their AttentionText counterparts mirror
+	// internal/league/service.go attentionMap's pre-shaped rail-dot
+	// fields (build item 2), so this fixture can drive
+	// PrimaryNavigation's attention-driven hot dot the same way the real
+	// leagueMap does.
+	pickemHot           bool
+	pickemAttentionText string
+	tradesHot           bool
+	tradesAttentionText string
 }
 
 type renderedNavigationGroup struct {
@@ -77,6 +86,12 @@ func Page() Node {
 					"footer_line":          "",
 					"matchup_footer_live":  false,
 					"matchup_footer_label": "MATCHUPS SCHEDULED",
+					"attention": map[string]any{
+						"pickem_hot":            viewer.pickemHot,
+						"pickem_attention_text": viewer.pickemAttentionText,
+						"trades_hot":            viewer.tradesHot,
+						"trades_attention_text": viewer.tradesAttentionText,
+					},
 				},
 			}, nil
 		},
@@ -197,7 +212,7 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	default:
 		*team = append(*team, "/team|04 Team status")
 	}
-	*team = append(*team, "/board|05 Draft board")
+	*team = append(*team, "/board|05 Big Board")
 	if viewer.hasSeat || viewer.signedIn {
 		*team = append(*team, "/players|06 Player pool")
 	}
@@ -346,6 +361,88 @@ func TestPrimaryNavigationQuerylessCurrentLinkUsesGoSXContract(t *testing.T) {
 	for index, link := range links {
 		if got := nodeAttr(link, "aria-current"); got != "page" {
 			t.Errorf("pickem link %d aria-current = %q, want page", index, got)
+		}
+	}
+}
+
+// TestPrimaryNavigationAttentionDotDrivenByLeagueAttention is build item
+// 2's contract: PrimaryNavigation's hot dot comes from
+// data.league.attention's pre-shaped per-route fields (internal/league's
+// attentionMap), not the old colour-only class the rail hardcoded on
+// /pickem. A seated manager with a hot /trades item (an accepted trade
+// in review) sees the dot and its visually-hidden count on every
+// surface; with no hot /pickem item, /pickem stays plain.
+func TestPrimaryNavigationAttentionDotDrivenByLeagueAttention(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+		signedIn:            true,
+		hasSeat:             true,
+		tradesHot:           true,
+		tradesAttentionText: "1 item needs attention",
+	})
+	document := parseNavigationDocument(t, body)
+	surfaces := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "primary-navigation")
+	})
+	if len(surfaces) != 3 {
+		t.Fatalf("primary navigation surface count = %d, want desktop/enhanced/static", len(surfaces))
+	}
+	for index, surface := range surfaces {
+		tradesLinks := findNodes(surface, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" &&
+				nodeAttr(node, "href") == "/trades" && hasClass(node, "navigation-link")
+		})
+		if len(tradesLinks) != 1 {
+			t.Fatalf("surface %d trades link count = %d, want 1", index, len(tradesLinks))
+		}
+		if !hasClass(tradesLinks[0], "navigation-link--hot") {
+			t.Errorf("surface %d trades link missing navigation-link--hot with a hot trades item", index)
+		}
+		if got := descendantText(tradesLinks[0]); !strings.Contains(got, "1 item needs attention") {
+			t.Errorf("surface %d trades link text = %q, want it to carry the visually-hidden count text", index, got)
+		}
+
+		pickemLinks := findNodes(surface, func(node *html.Node) bool {
+			return node.Type == html.ElementNode && node.Data == "a" &&
+				nodeAttr(node, "href") == "/pickem" && hasClass(node, "navigation-link")
+		})
+		if len(pickemLinks) != 1 {
+			t.Fatalf("surface %d pickem link count = %d, want 1", index, len(pickemLinks))
+		}
+		if hasClass(pickemLinks[0], "navigation-link--hot") {
+			t.Errorf("surface %d pickem link carries navigation-link--hot with no pickem attention item", index)
+		}
+		if got, want := descendantText(pickemLinks[0]), "02 Pick'em"; got != want {
+			t.Errorf("surface %d pickem link text = %q, want plain %q", index, got, want)
+		}
+	}
+}
+
+// TestPrimaryNavigationAttentionDotOffWithoutSeat pins "keep the dot off
+// for viewers without a seat": a hot trades item must not surface a dot
+// or hidden text for a seatless commissioner, even though the /trades
+// link itself still renders for them (props.Commissioner gates the
+// link's own visibility independently of the seat-gated dot).
+func TestPrimaryNavigationAttentionDotOffWithoutSeat(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{
+		signedIn:            true,
+		commissioner:        true,
+		tradesHot:           true,
+		tradesAttentionText: "1 item needs attention",
+	})
+	document := parseNavigationDocument(t, body)
+	tradesLinks := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" &&
+			nodeAttr(node, "href") == "/trades" && hasClass(node, "navigation-link")
+	})
+	if len(tradesLinks) != 3 {
+		t.Fatalf("trades link count = %d, want 3 (commissioner sees /trades without a seat)", len(tradesLinks))
+	}
+	for index, link := range tradesLinks {
+		if hasClass(link, "navigation-link--hot") {
+			t.Errorf("trades link %d carries navigation-link--hot for a seatless viewer", index)
+		}
+		if got, want := descendantText(link), "07 Trades"; got != want {
+			t.Errorf("trades link %d text = %q, want plain %q", index, got, want)
 		}
 	}
 }
