@@ -32,6 +32,36 @@ func TestAdminAttentionRegionContract(t *testing.T) {
 	}
 }
 
+// TestAdminAttentionReadAtRendersValidDateTimeWithRelativeText pins
+// wave-2-verification item 6: the "READ AT" row printed a bare
+// now.UTC().Format(time.RFC3339) stamp straight into <time class="mono">
+// with no datetime attribute — an invalid <time> element and a raw ISO
+// stamp in visible text, unlike every other timestamp on the page. The
+// markup now mirrors the fleet card's own GeneratedAt/GeneratedAtISO/
+// GeneratedAtRelative split (app/commissioner/page.gsx), falling back to
+// a plain span when no instant is available rather than an empty
+// datetime attribute.
+func TestAdminAttentionReadAtRendersValidDateTimeWithRelativeText(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		`<If cond={props.GeneratedAtISO != ""}>`,
+		`<time class="mono" datetime={props.GeneratedAtISO}>{props.GeneratedAt}<If cond={props.GeneratedAtRelative != ""}> · {props.GeneratedAtRelative}</If></time>`,
+		`<If cond={props.GeneratedAtISO == ""}>`,
+		`<span class="mono">{props.GeneratedAt}</span>`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("READ AT markup missing %q", want)
+		}
+	}
+	if strings.Contains(source, `<time class="mono">{props.GeneratedAt}</time>`) {
+		t.Error("READ AT still renders an unconditional <time> with no datetime attribute")
+	}
+}
+
 func sampleAdminAttention() adminAttentionReadoutProps {
 	return adminAttentionReadoutProps{
 		Phase: "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftAt: "2026-08-29T17:00:00Z",

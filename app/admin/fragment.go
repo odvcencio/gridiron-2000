@@ -13,25 +13,27 @@ import (
 const adminAttentionFragmentInterval = "4s"
 
 type adminAttentionReadoutProps struct {
-	Phase             string
-	DraftStatus       string
-	DraftAt           string
-	ScheduleStatus    string
-	ScheduleWeek      int
-	ScheduleReady     bool
-	ScheduleReason    string
-	SeatCount         int
-	ClaimedCount      int
-	ReadyCount        int
-	InviteCount       int
-	BoardGapCount     int
-	PresenceHere      int
-	PresenceIdle      int
-	PresenceAway      int
-	PresenceNotSeen   int
-	PresenceUnclaimed int
-	GeneratedAt       string
-	Seats             []adminAttentionSeatView
+	Phase               string
+	DraftStatus         string
+	DraftAt             string
+	ScheduleStatus      string
+	ScheduleWeek        int
+	ScheduleReady       bool
+	ScheduleReason      string
+	SeatCount           int
+	ClaimedCount        int
+	ReadyCount          int
+	InviteCount         int
+	BoardGapCount       int
+	PresenceHere        int
+	PresenceIdle        int
+	PresenceAway        int
+	PresenceNotSeen     int
+	PresenceUnclaimed   int
+	GeneratedAt         string
+	GeneratedAtISO      string
+	GeneratedAtRelative string
+	Seats               []adminAttentionSeatView
 }
 
 type adminAttentionSeatView struct {
@@ -63,6 +65,8 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 	view.PresenceNotSeen = intValue(data, "presence_not_seen")
 	view.PresenceUnclaimed = intValue(data, "presence_unclaimed")
 	view.GeneratedAt = stringValue(data, "generated_at", "UNKNOWN")
+	view.GeneratedAtISO = stringValue(data, "generated_at_iso", "")
+	view.GeneratedAtRelative = stringValue(data, "generated_at_relative", "")
 	if draft, ok := data["draft"].(map[string]any); ok {
 		view.DraftStatus = stringValue(draft, "status", "UNKNOWN")
 		view.DraftAt = stringValue(draft, "at", "UNKNOWN")

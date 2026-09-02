@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,48 @@ func TestTypedConfirmFieldsClaimAFullWidthRow(t *testing.T) {
 		if !strings.Contains(style, want) {
 			t.Errorf("admin typed-confirm styles missing %q", want)
 		}
+	}
+}
+
+// TestTypedConfirmInputsAreNotWidthCappedByContainers pins a wave-2
+// verification residual: TestTypedConfirmFieldsClaimAFullWidthRow already
+// pinned the typed-confirm-input class landing on every confirm field, but
+// two width-cap rules still re-narrowed two of them after that class won
+// the width: 100% cascade. .seat-row input[type="text"] (9rem, a
+// descendant selector) matched the nested seat-release confirm input at
+// equal specificity and later source order, re-narrowing it to 144px; a
+// browser measurement found the eight per-seat inputs still clipped their
+// "RELEASE <team>" phrase at both viewports even though the markup and the
+// width: 100% rule were already correct. #admin-force-current-pick-confirm
+// had no such override but sat in a details element
+// (.draft-destructive-control) with no flex-basis of its own inside the
+// desktop row-direction .clock-controls, so it shrink-wrapped to content
+// and measured 75px against the 180px "FORCE CURRENT PICK" phrase needs.
+func TestTypedConfirmInputsAreNotWidthCappedByContainers(t *testing.T) {
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		// The seat-rename 9rem cap must name its exclusion so a future edit
+		// cannot silently recapture the seat-release confirm input by
+		// specificity or source order.
+		`.seat-row input[type="text"]:not(.typed-confirm-input) {`,
+		// The force-current-pick details element needs its own full-row
+		// flex-basis; typed-confirm-input's width: 100% only fills whatever
+		// width this parent already claimed.
+		".draft-destructive-control {\n  flex: 1 1 100%;\n}",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("typed-confirm width-cap fix missing %q", want)
+		}
+	}
+	// The un-scoped 9rem rule must not still exist alongside the scoped
+	// one — that would mean the exclusion was added without removing the
+	// original catch-all, leaving both in the cascade.
+	if strings.Contains(style, ".seat-row input[type=\"text\"] {\n") {
+		t.Error("unscoped .seat-row input[type=\"text\"] rule still present; it re-caps typed-confirm-input at equal specificity")
 	}
 }
 
@@ -532,6 +575,46 @@ func TestCommissionerLeagueSwitcherMarkupAndRouteContract(t *testing.T) {
 	}
 	if !strings.Contains(rootPackageSource(t), `app.Mount("GET /commissioner/switch", adminpage.SwitchHandler(hqService))`) {
 		t.Fatal("commissioner league switch route is not mounted")
+	}
+}
+
+// adminImgTag matches one <img ...> or <img .../> opening tag (self- or
+// non-self-closing; GoSX renders every element as a void tag on img
+// regardless of the source's own closing style) so the layout-stability
+// test below can inspect each element's own attribute list independent
+// of how it is spaced or closed in the source.
+var adminImgTag = regexp.MustCompile(`<img\b[^>]*>`)
+
+// TestAdminImagesCarryExplicitDimensions pins wave-2-verification item
+// 11: a managed-action redirect lands on a /admin section anchor via
+// scrollIntoView (navigation.ts), but the ~19,700px console renders one
+// avatar <img> per seat row and per draft-order row with no intrinsic
+// width/height — so a browser could still be reserving each image's
+// layout box (decoding, then applying .avatar-mark__photo's width/
+// height: 100% against an unknown intrinsic size) after the scroll ran,
+// shifting content below every not-yet-decoded avatar downward and
+// landing the viewport short of the anchor. Every <img> in page.gsx must
+// carry both width and height so the browser can reserve that space
+// immediately from the HTML alone, before either the stylesheet or the
+// image itself finishes loading.
+func TestAdminImagesCarryExplicitDimensions(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := adminImgTag.FindAllString(string(source), -1)
+	if len(tags) == 0 {
+		t.Fatal("admin page.gsx has no <img> elements to check; this test's fixture is stale")
+	}
+	widthAttr := regexp.MustCompile(`\swidth="\d+"`)
+	heightAttr := regexp.MustCompile(`\sheight="\d+"`)
+	for _, tag := range tags {
+		if !widthAttr.MatchString(tag) {
+			t.Errorf("admin <img> is missing a width attribute: %s", tag)
+		}
+		if !heightAttr.MatchString(tag) {
+			t.Errorf("admin <img> is missing a height attribute: %s", tag)
+		}
 	}
 }
 

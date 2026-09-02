@@ -3794,11 +3794,24 @@ func (s *Service) LeagueLocation() *time.Location { return s.matchupLocation() }
 // relative label; callers pass s.clock() so a fixed test clock stays
 // deterministic. A zero instant renders "".
 func (s *Service) leagueTimeStamp(t time.Time) string {
+	stamp := s.leagueAbsoluteTimeStamp(t)
+	if stamp == "" {
+		return ""
+	}
+	return stamp + " · " + RelativeTime(s.clock(), t)
+}
+
+// leagueAbsoluteTimeStamp is leagueTimeStamp without the trailing relative
+// label — for the rare surface where the relative half would go stale
+// somewhere the accessibility tree caches it (an aria-label is read once
+// at focus/activation, not live-updated the way the visible row's own DOM
+// node is; wave-2-verification item 5, the announcement delete control's
+// accessible name). A zero instant renders "".
+func (s *Service) leagueAbsoluteTimeStamp(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	stamp := t.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST")
-	return stamp + " · " + RelativeTime(s.clock(), t)
+	return t.In(s.LeagueLocation()).Format("Jan 2, 3:04 PM MST")
 }
 
 // relativeTime renders a compact "N unit(s) ago" label for a past instant,

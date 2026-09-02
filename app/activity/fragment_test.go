@@ -111,6 +111,67 @@ func TestActivityRegionRendersDatetimeAttributeForEveryRow(t *testing.T) {
 	}
 }
 
+// TestActivityRegionTokensCarryGapClassAcrossWhitespaceFreeJunctions pins
+// wave-2-verification item 9: ActivityRegion() — the component that
+// replaces the live DOM on every poll via data-gosx-region-url, unlike
+// Page()'s own once-per-load SSR markup — is hand-written with zero
+// whitespace between </strong>{move.Action} and {move.Action}<b>, so a
+// commissioner-actor-class row rendered "COMMISSIONER ·
+// Commissionerdeleted an announcement" and a team-move row rendered
+// "Hot Path (W4)draftsBills D/ST (DST)" on every single re-render, not
+// only after a morph strips an already-present space. This first proves
+// those exact junctions are still bare of any literal whitespace
+// character in ActivityRegion()'s output (so the test would fail if the
+// CSS fix were the only thing holding the row together and someone
+// reverted it), then asserts the token elements bordering each junction
+// carry activity-token-gap, the class page_ui_contract's styles.css
+// check pins to margin-inline: 0.3ch.
+func TestActivityRegionTokensCarryGapClassAcrossWhitespaceFreeJunctions(t *testing.T) {
+	program, err := route.LoadFileProgram("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := map[string]any{
+		"teams": []string{}, "team": "", "query": "", "has_filters": false,
+		"filtered_count": 2, "transactions_count": 2, "page": 1, "pages": 1,
+		"page_start": 1, "page_end": 2, "has_previous": false, "has_next": false,
+		"has_transactions": true, "transactions_empty": false,
+		"transactions": activityRows([]map[string]any{
+			{"time": "Sep 1, 8:08 PM EDT", "time_iso": "2026-09-01T00:08:00Z", "time_relative": "3 minutes ago", "team": "Commissioner", "action": "deleted an announcement", "player": "", "actor_class": "COMMISSIONER"},
+			{"time": "Sep 1, 7:00 PM EDT", "time_iso": "2026-08-31T23:00:00Z", "time_relative": "1 hour ago", "team": "Hot Path (W4)", "action": "drafts", "player": "Bills D/ST (DST)", "actor_class": ""},
+		}),
+	}
+	html, err := route.RenderProgramComponent(program, "ActivityRegion", route.ProgramRenderEnv{
+		Values: map[string]any{"data": data},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The junctions this fix targets carry no literal space character at
+	// all in this component's own markup (it is hand-minified, unlike
+	// Page()'s SSR version) — reproducing "Commissionerdeleted an
+	// announcement" and "Hot Path (W4)draftsBills D/ST (DST)" exactly.
+	for _, junction := range []string{
+		"</strong>deleted an announcement",
+		"</strong>drafts<b",
+	} {
+		if !strings.Contains(html, junction) {
+			t.Fatalf("fixture no longer reproduces the whitespace-free junction this fix targets: want %q in %s", junction, html)
+		}
+	}
+
+	for _, want := range []string{
+		`<span class="activity-actor-class mono activity-token-gap">COMMISSIONER</span>`,
+		`<strong class="activity-token-gap">Commissioner</strong>deleted an announcement`,
+		`<strong class="activity-token-gap">Hot Path (W4)</strong>drafts<b class="activity-token-gap">Bills D/ST (DST)</b>`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("rendered activity row token is missing its CSS-supplied gap class: want %q in %s", want, html)
+		}
+	}
+}
+
 // TestActivityPageRendersCommissionerActorClassMarkup checks page.gsx
 // carries the distinct actor-class markup ahead of an actor's name — the
 // literal "COMMISSIONER · <name> <summary>" shape a commissioner event
@@ -124,7 +185,7 @@ func TestActivityPageRendersCommissionerActorClassMarkup(t *testing.T) {
 	for _, want := range []string{
 		`data-actor-class={move.ActorClass}`,
 		`<If cond={move.ActorClass != ""}>`,
-		`class="activity-actor-class mono"`,
+		`class="activity-actor-class mono activity-token-gap"`,
 		`{move.ActorClass}</span> ·`,
 		`move.TimeRelative`,
 	} {

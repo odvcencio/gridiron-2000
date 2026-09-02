@@ -149,6 +149,64 @@ func TestInviteEmailTemplateUsesRequestOriginWhenUnconfigured(t *testing.T) {
 	}
 }
 
+// TestInviteEmailTemplateUsesRequestOriginForFileSourcedPlaceholder pins
+// the wave-2-verification finding: config/league.json.example line 8 ships
+// "url": "http://localhost:8080" verbatim, so any league.json copied from
+// it (and never edited) loads with Source == "file:..." and the identical
+// placeholder text DefaultConfig() carries. The original fix only checked
+// cfg.Source != "defaults", so a file-sourced config with this placeholder
+// read as "configured" and still printed the unreachable loopback address.
+func TestInviteEmailTemplateUsesRequestOriginForFileSourcedPlaceholder(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "")
+	service.cfg.Source = "file:league.json"
+	service.cfg.URL = defaultConfigURL
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	request.Host = "gridiron.example.org"
+
+	_, text, htmlBody := service.InviteEmailTemplate(request, "manager@example.com")
+	if !strings.Contains(text, "1. Open http://gridiron.example.org/join") {
+		t.Errorf("text body did not use the request's own origin for a file-sourced placeholder:\n%s", text)
+	}
+	if !strings.Contains(htmlBody, `href="http://gridiron.example.org/join"`) {
+		t.Errorf("html body did not use the request's own origin for a file-sourced placeholder:\n%s", htmlBody)
+	}
+	if strings.Contains(text, "localhost:8080") || strings.Contains(htmlBody, "localhost:8080") {
+		t.Errorf("file-sourced placeholder URL must never print in invite copy:\ntext:\n%s\nhtml:\n%s", text, htmlBody)
+	}
+}
+
+// TestInviteEmailTemplateUsesRequestOriginForLoopbackHostMismatch pins the
+// broader unconfigured shape: an operator's league.json url need not be
+// the exact defaultConfigURL string to be a placeholder — any localhost or
+// 127.0.0.1 host is unreachable from a real request landing on a
+// different host, so it falls back the same way. A request that also
+// lands on localhost (matching the configured host) is left alone; that
+// is a legitimate same-host local deployment, not a stale placeholder.
+func TestInviteEmailTemplateUsesRequestOriginForLoopbackHostMismatch(t *testing.T) {
+	service := newTestService(t, true)
+	t.Setenv("LEAGUE_URL", "")
+	service.cfg.Source = "file:league.json"
+	service.cfg.URL = "http://127.0.0.1:9090"
+
+	mismatched, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	mismatched.Host = "gridiron.example.org"
+	_, text, _ := service.InviteEmailTemplate(mismatched, "manager@example.com")
+	if !strings.Contains(text, "1. Open http://gridiron.example.org/join") {
+		t.Errorf("a loopback config url must fall back to the request origin:\n%s", text)
+	}
+	if strings.Contains(text, "127.0.0.1") {
+		t.Errorf("loopback config url leaked into copy despite a mismatched request host:\n%s", text)
+	}
+
+	sameHost, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	sameHost.Host = "127.0.0.1:9090"
+	_, sameHostText, _ := service.InviteEmailTemplate(sameHost, "manager@example.com")
+	if !strings.Contains(sameHostText, "1. Open http://127.0.0.1:9090/join") {
+		t.Errorf("a loopback config url matching the request host must stay configured:\n%s", sameHostText)
+	}
+}
+
 // TestInviteEmailTemplateConfiguredURLOutranksRequestOrigin keeps a real
 // deployment's own configured URL authoritative even when a request is
 // available — the request origin is strictly a fallback for the
@@ -442,6 +500,41 @@ func TestAnnouncementAdminMapsUsesLeagueZoneWithRelative(t *testing.T) {
 	}
 	if got := rows[0]["posted_at"]; got != "Sep 13, 5:00 AM EDT · 3 hours ago" {
 		t.Fatalf("posted_at = %v, want the league-zone stamp plus relative suffix", got)
+	}
+	// wave-2-verification item 5: the delete control's aria-label needs the
+	// absolute stamp alone — a relative fragment like "3 hours ago" baked
+	// into an accessible name goes stale in the accessibility tree, which
+	// reads the name once rather than live-updating it.
+	if got := rows[0]["posted_at_absolute"]; got != "Sep 13, 5:00 AM EDT" {
+		t.Fatalf("posted_at_absolute = %v, want the league-zone stamp with no relative suffix", got)
+	}
+}
+
+// TestCommissionerAttentionReadOnlyGeneratedAtSplitsDisplayISOAndRelative
+// pins wave-2-verification item 6: the "READ AT" row's generated_at field
+// used to be a bare now.UTC().Format(time.RFC3339) instant with no
+// datetime-valid pairing and no league-local display — every other stored
+// instant on the console routes through leagueTimeStamp's split. This
+// splits the same instant into a league-local display stamp (no relative
+// suffix; the caller supplies its own relative label), a datetime-valid
+// ISO string, and a relative label — mirroring the fleet card's
+// GeneratedAt/GeneratedAtISO/GeneratedAtRelative fields
+// (app/commissioner/view.go).
+func TestCommissionerAttentionReadOnlyGeneratedAtSplitsDisplayISOAndRelative(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+
+	data := service.CommissionerAttentionDataReadOnly(request)
+	if got := data["generated_at"]; got != "Sep 13, 8:00 AM EDT" {
+		t.Errorf("generated_at = %v, want the league-zone stamp with no relative suffix", got)
+	}
+	if got := data["generated_at_iso"]; got != "2026-09-13T12:00:00Z" {
+		t.Errorf("generated_at_iso = %v, want a datetime-valid RFC3339 instant", got)
+	}
+	if got := data["generated_at_relative"]; got != "just now" {
+		t.Errorf(`generated_at_relative = %v, want "just now" (relative to the same generation instant)`, got)
 	}
 }
 

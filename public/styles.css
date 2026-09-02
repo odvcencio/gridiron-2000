@@ -2047,10 +2047,19 @@ button.badge-option:hover {
   color: var(--color-text-muted);
 }
 
+/* wave-2-verification item 8: the 3.5rem (56px) time column was sized for
+   a bare "3:04 PM"-shaped stamp; once RelativeTime's " · N minutes ago"
+   suffix joined it (league time everywhere), the <time> text wrapped to
+   4-6 lines and each row grew to 102-130px tall. minmax(9rem, auto) gives
+   the column room for the full absolute-plus-relative phrase on one line
+   at desktop widths while still shrinking to fit a short one; the ≤38rem
+   rule below (with the other narrow-viewport .activity-item rules)
+   collapses to a single column so time stacks above the text instead of
+   fighting it for horizontal room on a narrow screen. */
 .activity-item {
   padding: var(--space-sm) 0;
   display: grid;
-  grid-template-columns: 3.5rem 1fr;
+  grid-template-columns: minmax(9rem, auto) 1fr;
   gap: var(--space-sm);
   border-top: 1px solid var(--color-border);
 }
@@ -2068,6 +2077,24 @@ button.badge-option:hover {
 
 .activity-item b {
   color: var(--color-text-primary);
+}
+
+/* wave-2-verification item 9: GoSX's live document-swap morph drops
+   whitespace-only text nodes between elements — a documented runtime
+   behavior, not something the page can turn off — so the template's own
+   newline+tab-only nodes between </strong>{move.Action} and
+   {move.Action}<b> supplied the visible space in the served (first-load)
+   HTML but vanished after the runtime's re-render, concatenating
+   "Commissionerdeleted an announcement" and "Hot Path (W4)draftsBills
+   D/ST (DST)". margin-inline supplies the same visual gap from CSS on
+   each token element instead of relying on a text node that may or may
+   not survive, so the row reads correctly whether the whitespace nodes
+   are present or stripped. Applied to the actor-class span, the actor
+   <strong>, and the player <b> (page.gsx); move.Action itself stays
+   unwrapped since its neighbors' margins already cover both of its
+   junctions. */
+.activity-token-gap {
+  margin-inline: 0.3ch;
 }
 
 .commissioner-note,
@@ -3704,6 +3731,20 @@ button.badge-option:hover {
   font-size: var(--type-sm);
 }
 
+/* wave-2-verification item 10, /trades only: .draft-clock-meta (shared by
+   several pages, so left untouched here) has no flex-wrap, so its default
+   nowrap forced /trades' three links (Transaction feed, Team terminal or
+   the seatless entry link, Open Commissioner HQ) onto one row and shrank
+   each into a narrow column, wrapping mid-word; the last link's trailing
+   "→" ran into the card border. This new, page-scoped class nests inside
+   .draft-clock-meta's single remaining child and wraps the links onto
+   their own row(s) with a real gap instead of shrinking them. */
+.trades-veto-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
 /* body.is-on-clock marks the moment the viewer's own seat is on the
    clock: a restrained gold glow layered onto the pick clock panel's
    existing --shadow-panel, matching the presence dot's own "idle" glow
@@ -5256,7 +5297,14 @@ body.is-on-clock .draft-clock-panel {
   font-size: var(--type-xs);
 }
 
-.seat-row input[type="text"] {
+/* wave-2 residual: this 9rem cap targets the seat-rename field but, as a
+   descendant selector, also matched the nested seat-release-form's
+   typed-confirm-input at equal specificity (0,2,1) and later source
+   order, silently re-narrowing it to 144px after .seat-release-form
+   input[type="text"] and .typed-confirm-input had already widened it.
+   :not() excludes typed-confirm-input by name instead of relying on
+   future cascade order. */
+.seat-row input[type="text"]:not(.typed-confirm-input) {
   width: 9rem;
   min-height: 2.35rem;
   padding: 0.35rem var(--space-sm);
@@ -5438,6 +5486,20 @@ body.is-on-clock .draft-clock-panel {
   width: 100%;
   max-width: 30rem;
   min-height: 2.35rem;
+}
+
+/* wave-2 residual: unlike .seat-release-disclosure, this details element
+   inside .clock-controls (a row-direction flex container at desktop
+   widths) had no flex-basis rule of its own, so its flex-basis defaulted
+   to shrink-to-fit content — measured 75px for
+   #admin-force-current-pick-confirm against the 180px "FORCE CURRENT
+   PICK" needs, even though typed-confirm-input's width: 100% was already
+   winning the cascade; 100% of a 75px shrink-wrapped parent is still
+   75px. Below 54rem .clock-controls switches to flex-direction: column
+   with align-items: stretch, which already fills the cross axis, so this
+   rule only has to carry the desktop row case. */
+.draft-destructive-control {
+  flex: 1 1 100%;
 }
 
 /* The playoff-correct confirm field's grid item is the wrapping
@@ -6806,6 +6868,14 @@ body.is-on-clock .draft-clock-panel {
   .wire-source-panel,
   .wire-submit-panel {
     padding: var(--space-md);
+  }
+
+  /* wave-2-verification item 8: below 38rem there is no horizontal room
+     left for a minmax(9rem, auto) time column beside the feed text, so
+     the row collapses to one column and the <time> (the activity-item's
+     first child) stacks above the <p> instead of squeezing it. */
+  .activity-item {
+    grid-template-columns: 1fr;
   }
 
   .wire-event header {
