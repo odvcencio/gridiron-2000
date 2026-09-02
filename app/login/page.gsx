@@ -1,5 +1,13 @@
 package login
 
+// Page's signed-in sign-out form must be a native document navigation, the
+// same as the shell's own copy (app/layout.gsx PrimaryNavigation):
+// /auth/logout answers a plain 303 and rotates the session cookie, and a
+// managed submit swallows that redirect. The runtime parses the HTML 303
+// body as JSON, fails, and leaves this signed-in console on screen with a
+// generic "Action completed." toast and no URL change (2026-09-01 UX
+// audit, entry #1). data-gosx-managed="false" opts the form out so the
+// browser follows the 303 natively.
 func Page() Node {
 	return <main class="page login-page" id="main-content">
 		<section class="login-stage">
@@ -42,6 +50,9 @@ func Page() Node {
 				</div>
 			</div>
 			<aside class="login-console">
+				<If cond={data.has_notice}>
+					<p class="flash-message" role="alert">{data.notice}</p>
+				</If>
 				<If cond={data.viewer.signed_in == false}>
 					<span class="section-index">GOOGLE SIGN-IN</span>
 					<h2>Manager check-in</h2>
@@ -117,13 +128,10 @@ func Page() Node {
 					<If cond={data.public_entry.is_commissioner}>
 						<a href={data.public_entry.commissioner_href} data-gosx-link class="button button--ghost">{data.public_entry.commissioner_label}</a>
 					</If>
-					<form method="post" action="/auth/logout" data-gosx-managed="true">
+					<form method="post" action="/auth/logout" data-gosx-managed="false">
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<button type="submit" class="button button--ghost">Sign out</button>
 					</form>
-				</If>
-				<If cond={data.has_notice}>
-					<p class="flash-message">{data.notice}</p>
 				</If>
 			</aside>
 		</section>

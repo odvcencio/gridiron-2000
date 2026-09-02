@@ -21,7 +21,7 @@ func TestSeatlessSeatTiedSurfacesRenderBrowseOnlyBranches(t *testing.T) {
 			gate: "data.can_edit",
 			manager: []string{
 				"Add players from the pool on the right. Your order is saved to your seat.",
-				"<h2>Add to board</h2>",
+				"<h2>Rank on your Big Board</h2>",
 			},
 			browseOnly: []string{
 				"BROWSE THE PLAYER POOL",

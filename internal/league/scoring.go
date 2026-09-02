@@ -468,11 +468,17 @@ func slotEligibilityNote(key string) string {
 func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]any {
 	draft := s.draftSummary(now)
 	return map[string]any{
-		"date":          draft["date"],
-		"long_date":     draft["long_date"],
-		"time":          draft["time"],
-		"format":        draft["format"],
-		"timezone":      FriendlyTimezoneLabel(s.cfg.Timezone),
+		"date":      draft["date"],
+		"long_date": draft["long_date"],
+		"time":      draft["time"],
+		"format":    draft["format"],
+		"timezone":  FriendlyTimezoneLabel(s.cfg.Timezone),
+		// published (wave-6 item 7) lets the page gate the "· {time}"
+		// segment the same way app/page.gsx's own public draft-transmission
+		// panel already does — this map previously dropped the field
+		// entirely, so section 04 had no way to guard it and rendered a
+		// dangling "TBD ·" separator with nothing after it.
+		"published":     draft["published"],
 		"clock_seconds": int(s.pickClock(state).Seconds()),
 	}
 }
@@ -555,7 +561,12 @@ func (s *Service) rulesWaiversMap() map[string]any {
 		"weekly_weight_pct": 100 - w.SeasonWeightPct,
 		"faab_budget":       w.FAABBudget,
 		"clear_days":        w.ClearDays,
-		"process_display":   fmt.Sprintf("%02d:%02d %s", hour, minute, loc.String()),
+		// clear_days_label (wave-6 item 7h) is the count-agreement phrase
+		// league.CountNoun already renders elsewhere in this console
+		// (gap-audit item 11) — the template printed the literal field
+		// name "day(s)" instead of pluralizing it.
+		"clear_days_label": CountNoun(w.ClearDays, "day"),
+		"process_display":  fmt.Sprintf("%02d:%02d %s", hour, minute, loc.String()),
 	}
 }
 
@@ -576,17 +587,18 @@ func (s *Service) rulesTradesMap() map[string]any {
 	}
 	seats := len(defaultTeamIDs())
 	return map[string]any{
-		"veto_mode":       t.Veto,
-		"is_commissioner": t.Veto == "commissioner",
-		"is_vote":         t.Veto == "vote",
-		"is_both":         t.Veto == "both",
-		"is_none":         t.Veto == "none",
-		"review_hours":    t.ReviewHours,
-		"has_deadline":    hasDeadline,
-		"deadline":        deadlineDisplay,
-		"expiry_days":     int(tradeOfferMaxAge.Hours() / 24),
-		"veto_threshold":  tradeVetoThreshold(seats),
-		"seat_count":      seats,
+		"veto_mode":         t.Veto,
+		"is_commissioner":   t.Veto == "commissioner",
+		"is_vote":           t.Veto == "vote",
+		"is_both":           t.Veto == "both",
+		"is_none":           t.Veto == "none",
+		"review_hours":      t.ReviewHours,
+		"has_deadline":      hasDeadline,
+		"deadline":          deadlineDisplay,
+		"expiry_days":       int(tradeOfferMaxAge.Hours() / 24),
+		"expiry_days_label": CountNoun(int(tradeOfferMaxAge.Hours()/24), "day"),
+		"veto_threshold":    tradeVetoThreshold(seats),
+		"seat_count":        seats,
 	}
 }
 

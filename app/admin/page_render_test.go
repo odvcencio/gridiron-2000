@@ -1499,3 +1499,154 @@ func TestAdminPageRendersActionSafetyContracts(t *testing.T) {
 		t.Error("seat release action boundary does not forward the opaque current-seat token")
 	}
 }
+
+// TestAdminPoolCoverageLabelsActualAndTarget guards wave-6 item 7(k): the
+// "Pool coverage" stat printed the bare TARGET ratio only, reading as a
+// live measurement. It must label both the actual and target ratios,
+// matching Commissioner HQ's own "ACTUAL {x} · TARGET {y}" presentation.
+func TestAdminPoolCoverageLabelsActualAndTarget(t *testing.T) {
+	body := renderAdminPage(t)
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(source), "ACTUAL {data.pool.actual_coverage} · TARGET {data.pool.coverage}") {
+		t.Error("Pool coverage stat does not label both actual and target ratios")
+	}
+	if !strings.Contains(body, "ACTUAL") || !strings.Contains(body, "TARGET") {
+		t.Errorf("rendered Pool coverage stat is missing ACTUAL/TARGET labels: %s", body)
+	}
+}
+
+// TestAdminMastheadIsCommissionerOnly guards wave-6 item 7(g): the
+// masthead's "League status" panel (seats/picks/draft date/ready count)
+// rendered unconditionally, above the RESTRICTED panel — a non-
+// commissioner viewer (demo mode's IsCommissioner short-circuit does not
+// apply outside demo mode) could read live league status the RESTRICTED
+// panel right below it says the console itself is off-limits for.
+//
+// league.Default() is a process-wide sync.Once singleton, and every other
+// test in this file's package renders it through renderAdminPage's own
+// DEMO_MODE=true harness — once any of those runs first, DEMO_MODE=false
+// set here would have no effect on the already-latched singleton. This
+// runs in its own subprocess for a genuinely fresh, non-demo singleton,
+// the same isolation TestAnnouncementDeleteFixtureProcess already uses.
+func TestAdminMastheadIsCommissionerOnly(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAdminMastheadIsCommissionerOnlyFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_MASTHEAD_COMMISSIONER_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=false",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("admin masthead commissioner-only fixture: %v\n%s", err, output)
+	}
+}
+
+func TestAdminMastheadIsCommissionerOnlyFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_MASTHEAD_COMMISSIONER_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	body := renderAdminPageNonDemo(t)
+
+	if !strings.Contains(body, "RESTRICTED") {
+		t.Fatalf("non-commissioner admin render did not show the RESTRICTED panel: %s", body)
+	}
+	for _, leaked := range []string{"League status", "SEATS ·", "PICKS", "READY", "draft-clock-panel"} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("non-commissioner admin render leaked masthead status %q: %s", leaked, body)
+		}
+	}
+}
+
+// renderAdminPageNonDemo mirrors renderAdminPage, but leaves DEMO_MODE at
+// whatever the calling (sub)process already set (false, for
+// TestAdminMastheadIsCommissionerOnlyFixtureProcess), instead of forcing
+// DEMO_MODE=true — IsCommissioner()'s demo-mode short-circuit would
+// otherwise make a non-commissioner render impossible to exercise.
+func renderAdminPageNonDemo(t *testing.T) string {
+	t.Helper()
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+
+	// No session/auth middleware is registered by this minimal harness, so
+	// this anonymous request resolves to IsCommissioner() == false outside
+	// demo mode — the exact non-commissioner viewer this fix protects.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (admin page, non-commissioner) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
+}
+
+// TestAdminUnpublishedDraftHasNoDanglingSeparatorOrFabricatedPrefill guards
+// wave-6 items 7(c) and 7(d): a fresh league (the neutral reference
+// league's far-future 2098-12-31 placeholder, never started) rendered
+// "Draft TBD ·" with nothing after the separator in the clock masthead,
+// "Current meeting: <b></b> on Draft time not published yet (...)." in the
+// reschedule copy, and prefilled the reschedule datetime-local control
+// with the fabricated 2098-12-31T19:00 placeholder as if it were a real,
+// decided meeting time.
+func TestAdminUnpublishedDraftHasNoDanglingSeparatorOrFabricatedPrefill(t *testing.T) {
+	body := renderAdminPage(t)
+
+	if strings.Contains(body, "Draft TBD ·") {
+		t.Error("clock masthead still renders a dangling separator after an unpublished TBD date")
+	}
+	if strings.Contains(body, "Current meeting: <b></b>") {
+		t.Error("reschedule copy still renders the empty-<b> unpublished contradiction")
+	}
+	if !strings.Contains(body, "No draft meeting is published yet.") {
+		t.Error("reschedule copy is missing the honest unpublished sentence")
+	}
+	if strings.Contains(body, `value="2098-12-31T19:00"`) {
+		t.Error("reschedule datetime-local control is still prefilled with the fabricated placeholder instant")
+	}
+	if !strings.Contains(body, `id="admin-draft-meeting-at" class="scoring-input" type="datetime-local" name="meeting_at" value=""`) {
+		t.Error("reschedule datetime-local control is not empty for an unpublished draft date")
+	}
+}
+
+// TestInviteRemoveHasAccessibleNameAndReviewConfirmStep guards wave-6
+// item 7(b): the invite-remove ✕ button carried no accessible name and no
+// confirmation step, so one careless tap silently revoked an invitation.
+// It now uses the same review-confirm disclosure shape as the
+// announcement delete: opening the disclosure (whose summary names the
+// exact invited email) is the review step, a second explicit button
+// submits it.
+func TestInviteRemoveHasAccessibleNameAndReviewConfirmStep(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	for _, want := range []string{
+		`class="invite-remove-disclosure"`,
+		`aria-label={"Remove invitation for " + invite.email}`,
+		"Remove the invitation for {invite.email}?",
+		">Confirm remove<",
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("invite remove source contract missing %q", want)
+		}
+	}
+	if strings.Contains(markup, `<button class="board-button board-button--cut" type="submit">✕</button>`) {
+		t.Error("invite remove still exposes a bare, unnamed ✕ submit button outside a review-confirm disclosure")
+	}
+}

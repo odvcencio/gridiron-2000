@@ -216,6 +216,32 @@ func TestRequireLeagueSessionKeepsPublicRoutesOpen(t *testing.T) {
 	}
 }
 
+// TestRequireLeagueSessionKeepsHelpPublicOnEveryInstance guards wave-6
+// item 8: /help's gating used to differ from the demo build purely as a
+// side effect of this allowlist (public on demo — demoMode() short-
+// circuits — blocked on the harness, since /help was absent from open).
+// /help and every /help/{topic-id} page carry no seat-scoped or
+// league-private content, the same reason /guide is already public, so
+// both must reach the handler on every instance, demo or not.
+func TestRequireLeagueSessionKeepsHelpPublicOnEveryInstance(t *testing.T) {
+	tests := []string{"/help", "/help/", "/help/concept-transition", "/help/data-state-and-freshness"}
+	for _, target := range tests {
+		t.Run(target, func(t *testing.T) {
+			called := false
+			handler := requireLeagueSessionWithDemoMode(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			}), func() bool { return false })
+
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, target, nil))
+			if res.Code != http.StatusNoContent || !called {
+				t.Fatalf("%s status=%d called=%v, want 204/true (public on the harness too)", target, res.Code, called)
+			}
+		})
+	}
+}
+
 func TestGridironSessionOptionsRespectEnvironmentPolicy(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -480,11 +506,62 @@ func TestGoogleOAuthWrappersPersistAndRecheckSafeTargets(t *testing.T) {
 		t.Fatalf("OAuth fixture touched default league store %q: stat error = %v", dataFile, err)
 	}
 
+	// Wave-6 item 4: an invalid-state callback failure must not drop the
+	// deep-link next the earlier, successful start step stored — the
+	// visitor is bounced to /login, not silently sent to "/".
 	_, _, invalidCookie := startGoogleOAuth(t, fixture.start, "/draft/")
 	invalidRes := callbackGoogleOAuth(t, fixture.callback, "wrong-state", invalidCookie, "")
-	if got := invalidRes.Header().Get("Location"); got != "/login?error=oauth" {
-		t.Fatalf("invalid state location = %q, want /login?error=oauth", got)
+	if got := invalidRes.Header().Get("Location"); got != "/login?error=oauth&next=%2Fdraft%2F" {
+		t.Fatalf("invalid state location = %q, want /login?error=oauth&next=%%2Fdraft%%2F", got)
 	}
+}
+
+// TestGoogleCallbackFailurePathsPreserveNext covers wave-6 item 4: both
+// callback failure branches (unconfigured, and an OAuth error such as an
+// expired or replayed state) previously dropped the deep-link next
+// entirely, forcing a visitor who retries sign-in from /login back to the
+// site root instead of the page they originally asked for.
+func TestGoogleCallbackFailurePathsPreserveNext(t *testing.T) {
+	t.Run("unconfigured", func(t *testing.T) {
+		handler := googleCallbackHandlerWithMembership(nil, nil, false, nil)
+		request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?next="+url.QueryEscape("/draft?week=1"), nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusSeeOther {
+			t.Fatalf("status = %d, want %d", recorder.Code, http.StatusSeeOther)
+		}
+		if got := recorder.Header().Get("Location"); got != "/login?setup=google&next=%2Fdraft%3Fweek%3D1" {
+			t.Fatalf("unconfigured callback location = %q, want next preserved", got)
+		}
+	})
+
+	t.Run("unconfigured hostile next degrades safely", func(t *testing.T) {
+		handler := googleCallbackHandlerWithMembership(nil, nil, false, nil)
+		request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?next="+url.QueryEscape("https://evil.example/steal"), nil)
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, request)
+		if got := recorder.Header().Get("Location"); got != "/login?setup=google&next=%2F" {
+			t.Fatalf("unconfigured hostile-next callback location = %q, want /login?setup=google&next=%%2F", got)
+		}
+	})
+
+	t.Run("expired or stale state still bounces with next", func(t *testing.T) {
+		dataFile := filepath.Join(t.TempDir(), "oauth-expired-state.db")
+		t.Setenv("DATA_FILE", dataFile)
+		fixture := newGoogleOAuthFixture(t, "expired-state-manager@example.com")
+		_, state, cookie := startGoogleOAuth(t, fixture.start, "/matchups")
+		// Simulate an expired/garbled code exchange (missing code triggers
+		// auth.ErrOAuthCodeMissing) with the CORRECT state, so consumeState
+		// itself succeeds and deletes the session entry exactly as a real
+		// expired-state failure would, and Callback still fails downstream.
+		request := httptest.NewRequest(http.MethodGet, "/auth/google/callback?state="+url.QueryEscape(state), nil)
+		request.AddCookie(cookie)
+		res := httptest.NewRecorder()
+		fixture.callback.ServeHTTP(res, request)
+		if got := res.Header().Get("Location"); got != "/login?error=oauth&next=%2Fmatchups" {
+			t.Fatalf("stale-code callback location = %q, want /login?error=oauth&next=%%2Fmatchups", got)
+		}
+	})
 }
 
 // TestGoogleStartHandlerUnconfiguredPreservesNext covers the unconfigured

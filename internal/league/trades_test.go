@@ -745,7 +745,7 @@ func TestTradeDeclineWithdrawActorChecks(t *testing.T) {
 	offerID := proposeFixtureOffer(t, svc)
 	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
 
-	if _, err := svc.DeclineTrade(request, "team-3", offerID); err == nil || err.Error() != "only the receiving manager can decline this offer" {
+	if _, err := svc.DeclineTrade(request, "team-3", offerID, "decline-trade"); err == nil || err.Error() != "only the receiving manager can decline this offer" {
 		t.Fatalf("decline by a non-party team: err = %v", err)
 	}
 	if _, err := svc.WithdrawTrade(request, "team-3", offerID); err == nil || err.Error() != "only the proposing manager can withdraw this offer" {
@@ -755,7 +755,7 @@ func TestTradeDeclineWithdrawActorChecks(t *testing.T) {
 		t.Fatalf("withdraw by the receiving team: err = %v", err)
 	}
 
-	message, err := svc.DeclineTrade(request, "team-2", offerID)
+	message, err := svc.DeclineTrade(request, "team-2", offerID, "decline-trade")
 	if err != nil || message != "Offer declined." {
 		t.Fatalf("decline by the receiving team: message=%q err=%v", message, err)
 	}
@@ -765,8 +765,30 @@ func TestTradeDeclineWithdrawActorChecks(t *testing.T) {
 	}
 
 	// T9: a second decline on the now-declined offer fails.
-	if _, err := svc.DeclineTrade(request, "team-2", offerID); err == nil || err.Error() != "this offer is no longer open" {
+	if _, err := svc.DeclineTrade(request, "team-2", offerID, "decline-trade"); err == nil || err.Error() != "this offer is no longer open" {
 		t.Fatalf("decline on a resolved offer: err = %v", err)
+	}
+}
+
+// TestTradeDeclineRequiresExplicitConfirmation guards wave-6 item 9's
+// server-side enforcement of the page's gated <details> disclosure: a
+// decline without the exact confirmation value must fail, the same way
+// AcceptTrade already requires "accept-trade".
+func TestTradeDeclineRequiresExplicitConfirmation(t *testing.T) {
+	svc, _ := newTradesTestService(t, "")
+	offerID := proposeFixtureOffer(t, svc)
+	request, _ := http.NewRequest(http.MethodPost, "/trades", nil)
+
+	if _, err := svc.DeclineTrade(request, "team-2", offerID, ""); err == nil || err.Error() != "this action requires explicit confirmation" {
+		t.Fatalf("decline without confirmation: err = %v", err)
+	}
+	state := svc.store.Snapshot()
+	if state.TradeOffers[0].Status != TradeStatusOpen {
+		t.Fatalf("unconfirmed decline mutated offer status to %q, want open", state.TradeOffers[0].Status)
+	}
+
+	if _, err := svc.DeclineTrade(request, "team-2", offerID, "decline-trade"); err != nil {
+		t.Fatalf("decline with correct confirmation: err = %v", err)
 	}
 }
 

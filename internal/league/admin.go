@@ -946,7 +946,6 @@ func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, t
 	shortDate, _ := draft["date"].(string)
 	longDate, _ := draft["long_date"].(string)
 	draftTime, _ := draft["time"].(string)
-	published, _ := draft["published"].(bool)
 	joinURL := s.leagueJoinURL(r)
 	blurb := s.inviteBlurb()
 
@@ -956,6 +955,20 @@ func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, t
 	}
 	seasonText, _ := inviteSeasonPosture(s.cfg.ModeLabel)
 
+	// hasDraftDate (wave-6 item 7e) is the one guard the subject and the
+	// body both derive from. draftSummaryForState (service.go) leaves
+	// time "" in every branch with nothing real to report — the default
+	// unpublished TBD case, and the already-started-with-no-recorded-
+	// instant edge case — and a real, non-empty value in every other
+	// branch, including "the draft already started, but the originally
+	// scheduled date was never published," where the summary's own
+	// "published" bool stays false even though a genuine start date/time
+	// now exists. The prior code used "published" only for the body's
+	// sentence while the subject always used the raw date fields
+	// directly, so a started-but-unpublished league's subject could read
+	// a real "draft TUE · SEP 1" beside a body claiming no date was
+	// published at all.
+	hasDraftDate := draftTime != ""
 	// An unpublished draft date leaves long_date as the placeholder "Draft
 	// time not published yet" and time as "" (draftSummaryForState,
 	// service.go); interpolating those straight into "is %s at %s." read
@@ -963,11 +976,13 @@ func (s *Service) InviteEmailTemplate(r *http.Request, email string) (subject, t
 	// wave-1-verification finding). State the unpublished date as its own
 	// clean sentence instead, with no dangling "at" clause.
 	draftSentence := fmt.Sprintf("The startup snake draft is %s at %s.", longDate, draftTime)
-	if !published {
+	subjectDate := shortDate
+	if !hasDraftDate {
 		draftSentence = "The startup snake draft date is not published yet."
+		subjectDate = "TBD"
 	}
 
-	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), shortDate)
+	subject = fmt.Sprintf("You're invited: %s — %s league, draft %s", s.cfg.Name, strings.ToLower(s.cfg.ModeLabel), subjectDate)
 	text = fmt.Sprintf(`Hi there,
 
 You've got a seat waiting in %s, %s.
@@ -983,7 +998,7 @@ Here's what to do before then:
 The full scoring system is on the Rules page.%s
 
 — The Commissioner`, s.cfg.Name, blurb, draftSentence, venueClause, joinURL, email, seasonText)
-	htmlBody = s.inviteEmailHTML(shortDate, longDate, draftTime, joinURL, email, blurb)
+	htmlBody = s.inviteEmailHTML(subjectDate, longDate, draftTime, joinURL, email, blurb)
 	return subject, text, htmlBody
 }
 
@@ -1286,11 +1301,18 @@ func (s *Service) AdminRenameTeam(r *http.Request, teamID, name string) (Team, e
 	if err := s.requireCommissioner(r); err != nil {
 		return Team{}, err
 	}
+	// previous names the seat and its old name (wave-6 item 7f): a bare
+	// "renamed a team to West 4" audit line, read days later beside a
+	// dozen other seat.rename entries, does not say which seat or what it
+	// was called before. Abbreviation is the stable seat reference (it
+	// survives the very rename this event records), so the summary reads
+	// "renamed Hot Path (W4) to West 4."
+	previous := s.teamView(s.store.Snapshot(), teamID)
 	if err := s.store.SetTeamName(teamID, name); err != nil {
 		return Team{}, err
 	}
 	team := s.teamView(s.store.Snapshot(), teamID)
-	summary := fmt.Sprintf("renamed a team to %s", team.Name)
+	summary := fmt.Sprintf("renamed %s (%s) to %s", previous.Name, previous.Abbreviation, team.Name)
 	if _, err := s.RecordCommissionerEvent(r, "seat.rename", summary, CommissionerEventRefs{TeamID: teamID}); err != nil {
 		log.Printf("commissioner event: seat.rename: %v", err)
 	}

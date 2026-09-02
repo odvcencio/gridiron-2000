@@ -76,7 +76,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 							<div class="commissioner-hq__attention-copy">
 								<span class="section-index">{item.severity} · {item.league}</span>
 								<strong>{item.message}</strong>
-								<span class="mono">{item.count} occurrence(s)</span>
+								<span class="mono">{item.count_label}</span>
 							</div>
 							<a href={item.owner_url}>{item.owner_text} →</a>
 						</article>

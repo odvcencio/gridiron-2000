@@ -323,6 +323,48 @@ func TestInviteEmailTemplateStatesUnpublishedDraftDateCleanly(t *testing.T) {
 	}
 }
 
+// TestInviteEmailTemplateSubjectAndBodyAgreeOnDraftDate guards wave-6 item
+// 7(e): the subject always interpolated the raw draft-summary date fields
+// directly, while the body's sentence separately guarded on the summary's
+// "published" bool. A league whose draft already started — with a real,
+// audited start date/time — but whose originally scheduled date was never
+// published kept "published" false, so the subject showed a real date
+// ("draft TUE · SEP 1") beside a body claiming no date was published at
+// all. Both must now derive from the same signal.
+func TestInviteEmailTemplateSubjectAndBodyAgreeOnDraftDate(t *testing.T) {
+	t.Run("unpublished and never started", func(t *testing.T) {
+		service := newTestService(t, true)
+		service.draftAt = time.Now().Add(500 * 24 * time.Hour)
+
+		subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+		if !strings.Contains(subject, "draft TBD") {
+			t.Errorf("subject = %q, want it to state TBD, not a fabricated date", subject)
+		}
+		if !strings.Contains(text, "The startup snake draft date is not published yet.") {
+			t.Errorf("text body must state the unpublished date cleanly:\n%s", text)
+		}
+	})
+
+	t.Run("started with a real recorded instant, schedule never published", func(t *testing.T) {
+		service := newTestService(t, true)
+		service.draftAt = time.Now().Add(500 * 24 * time.Hour)
+		started := time.Date(2026, time.September, 1, 19, 0, 0, 0, time.UTC)
+		service.store.state.DraftStarted = true
+		service.store.state.DraftStartedAt = started
+
+		subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+		if strings.Contains(subject, "draft TBD") {
+			t.Errorf("subject dropped the real started date: %q", subject)
+		}
+		if strings.Contains(text, "date is not published yet") {
+			t.Errorf("body claims unpublished despite a real recorded start instant:\n%s", text)
+		}
+		if !strings.Contains(text, "The startup snake draft is") {
+			t.Errorf("body did not state the real draft date/time:\n%s", text)
+		}
+	})
+}
+
 // referenceDeploymentConfig builds the config equivalent of this project's
 // own reference deployment's (gitignored) league.json — the same shape
 // config/league-real.json.example documents — so tests can pin
@@ -1379,6 +1421,37 @@ func TestAdminClockActionsRejectImpossibleTransitions(t *testing.T) {
 // 11): admin and HQ console copy printed "1 LEAGUES", "1 occurrence(s)", and
 // "2 day(s)" instead of "1 league" and "2 days". Only the exact count 1 gets
 // the singular form; every other count, including 0, gets the plural.
+// TestPoolStatusMapExposesActualAndTargetCoverageSeparately guards
+// wave-6 item 7(k): /admin's "Pool coverage" stat printed the TARGET
+// ratio bare (status.Target / rosterCapacity), reading as a live
+// measurement of the actual pool. It now also exposes actual_coverage
+// (status.Players / rosterCapacity), matching Commissioner HQ's own
+// "ACTUAL {x} · TARGET {y}" presentation.
+func TestPoolStatusMapExposesActualAndTargetCoverageSeparately(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(20), 1, "live" })
+	pool := service.poolStatusMap()
+
+	actual, ok := pool["actual_coverage"].(string)
+	if !ok || actual == "" {
+		t.Fatalf("pool actual_coverage = %#v, want a formatted ratio string", pool["actual_coverage"])
+	}
+	target, ok := pool["coverage"].(string)
+	if !ok || target == "" {
+		t.Fatalf("pool coverage = %#v, want a formatted ratio string", pool["coverage"])
+	}
+	if !strings.HasSuffix(actual, "×") || !strings.HasSuffix(target, "×") {
+		t.Fatalf("actual_coverage=%q coverage=%q, want both formatted as N.N×", actual, target)
+	}
+	// This fixture's 20-player pool is far below its target/roster
+	// capacity, so the two ratios must differ — proving actual_coverage
+	// is a genuinely distinct, live measurement, not a copy of the
+	// static target.
+	if actual == target {
+		t.Fatalf("actual_coverage (%q) == coverage (%q); fixture pool (20 players) should diverge from the configured target", actual, target)
+	}
+}
+
 func TestPluralRendersCountedNoun(t *testing.T) {
 	cases := []struct {
 		n    int

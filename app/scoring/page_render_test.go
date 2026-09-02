@@ -104,6 +104,15 @@ func TestScoringPageGuardsSentinelDraftAndSeasonDates(t *testing.T) {
 	if !strings.Contains(body, "Season start not published yet") {
 		t.Fatalf("scoring page did not render the unpublished-season-start guard text: %s", body)
 	}
+	// wave-6 item 7(c)/7(i): section 04's "Date" tile interpolated "TBD"
+	// (draft_rules.date) followed by an unconditional "· {time}" — with
+	// time empty on an unpublished draft, this rendered a dangling "TBD ·"
+	// separator with nothing after it. rulesDraftMap (scoring.go) now
+	// forwards the same "published" signal app/page.gsx's own public
+	// draft-transmission panel already gates its time display on.
+	if strings.Contains(body, "TBD\n\t\t\t\t\t\t·") || strings.Contains(body, "TBD ·") {
+		t.Fatalf("scoring page section 04 still renders a dangling separator after the unpublished TBD date: %s", body)
+	}
 }
 
 // TestScoringPageJumpListMatchesSectionsOneToOne is P2-13's own render
@@ -186,5 +195,42 @@ func TestScoringPageJumpListMatchesSectionsOneToOne(t *testing.T) {
 	openSectionRE := regexp.MustCompile(`<details class="player-pool"[^>]*\bopen\b`)
 	if got := len(openSectionRE.FindAllString(body, -1)); got != len(sectionIDs) {
 		t.Errorf("%d <details class=\"player-pool\"> sections rendered open, want all %d", got, len(sectionIDs))
+	}
+}
+
+// TestScoringPageFooterNamesTheRenderClock guards wave-6 item 7(j): the
+// footer's "RULES LAST CONFIRMED" label claimed rules_version.generated_at
+// was a confirmation timestamp; it is the page's own render clock
+// (rulesVersionMap's doc comment, internal/league/scoring.go). The label
+// must say what the value actually is.
+func TestScoringPageFooterNamesTheRenderClock(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "true")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	router := route.NewRouter()
+	router.SetLayout(func(ctx *route.RouteContext, body gosx.Node) gosx.Node {
+		ctx.SetLanguage("en")
+		return server.HTMLDocument(ctx.Document("Test", body))
+	})
+	if err := router.AddDir(".", route.FileRoutesOptions{}); err != nil {
+		t.Fatalf("AddDir: %v", err)
+	}
+	handler, err := router.BuildChecked()
+	if err != nil {
+		t.Fatalf("BuildChecked: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / (scoring page) = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, "RULES LAST CONFIRMED") {
+		t.Error("scoring page still claims the render clock is a confirmation timestamp")
+	}
+	if !strings.Contains(body, "RULES RENDERED") {
+		t.Error("scoring page footer is missing the honest RULES RENDERED label")
 	}
 }

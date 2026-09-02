@@ -172,7 +172,7 @@ func init() {
 				return nil
 			},
 			"board-clear": func(ctx *action.Context) error {
-				if err := league.Default().BoardClear(ctx.Request); err != nil {
+				if err := league.Default().BoardClear(ctx.Request, ctx.FormData["confirmation"]); err != nil {
 					return action.Error(http.StatusUnauthorized, err.Error())
 				}
 				actionui.RedirectBackWithNotice(ctx, boardRedirectTarget(ctx.FormData["pos"], ctx.FormData["q"], ctx.FormData["page"]), "Your board is cleared.")

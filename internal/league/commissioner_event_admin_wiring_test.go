@@ -100,12 +100,21 @@ func TestAdminReleaseSeatRecordsCommissionerEvent(t *testing.T) {
 func TestAdminRenameTeamRecordsCommissionerEvent(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	before := service.teamView(service.store.Snapshot(), "team-1")
 	if _, err := service.AdminRenameTeam(request, "team-1", "Renamed Franchise"); err != nil {
 		t.Fatal(err)
 	}
 	events := service.store.Snapshot().CommissionerEvents
 	if len(events) != 1 || events[0].Kind != "seat.rename" || events[0].Refs.TeamID != "team-1" {
 		t.Fatalf("commissioner events = %+v, want one seat.rename row for team-1", events)
+	}
+	// wave-6 item 7(f): the summary must name the seat (its stable
+	// abbreviation) and the old name, not just the new one — "renamed a
+	// team to Renamed Franchise" reads identically for every seat once a
+	// dozen rename events pile up in the audit trail.
+	want := "renamed " + before.Name + " (" + before.Abbreviation + ") to Renamed Franchise"
+	if events[0].Summary != want {
+		t.Fatalf("seat.rename summary = %q, want %q", events[0].Summary, want)
 	}
 }
 
