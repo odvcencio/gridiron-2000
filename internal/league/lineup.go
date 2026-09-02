@@ -646,9 +646,47 @@ func effectiveLineup(preset RosterPreset, roster []Player, stored map[int]map[st
 			bench = append(bench, p)
 		}
 	}
-	sort.Slice(bench, func(i, j int) bool { return bench[i].ID < bench[j].ID })
+	// Wave 7 item 1: group by position (QB, RB, WR, TE, K, DST, then
+	// anything else) before ranking within a group by projection, highest
+	// first — a manager scans a bench by position, not by the player-ID
+	// insertion order the old bare ID sort produced (QB, WR, WR, WR, QB,
+	// WR with no visible grouping at all). The final ID tiebreak keeps
+	// ordering fully deterministic when two bench players share both a
+	// position and a projection. Reserve and IR occupants never reach
+	// this slice (splitRosterZones removes them before effectiveLineup
+	// ever sees "roster"), so this sort never touches those zones.
+	sort.Slice(bench, func(i, j int) bool {
+		ri, rj := benchPositionRank(bench[i].Position), benchPositionRank(bench[j].Position)
+		if ri != rj {
+			return ri < rj
+		}
+		if bench[i].Projection != bench[j].Projection {
+			return bench[i].Projection > bench[j].Projection
+		}
+		return bench[i].ID < bench[j].ID
+	})
 
 	return EffectiveLineup{Week: week, Slots: assignments, Bench: bench}
+}
+
+// benchPositionOrder is the bench-grouping reading order wave 7 item 1
+// renders on /team (and the matching positional_depth summary, item 2):
+// QB first, then the offensive skill positions in the order a manager
+// scans a roster, then the two team-defense/kicking positions last.
+var benchPositionOrder = []string{"QB", "RB", "WR", "TE", "K", "DST"}
+
+// benchPositionRank returns position's index in benchPositionOrder, or
+// len(benchPositionOrder) for anything else (P, or any position this
+// league's active roster shape does not carry) — an unrecognized
+// position always sorts after the six named groups instead of matching
+// QB's rank 0 by falling through a missing-key zero value.
+func benchPositionRank(position string) int {
+	for i, p := range benchPositionOrder {
+		if p == position {
+			return i
+		}
+	}
+	return len(benchPositionOrder)
 }
 
 // slotAssignment finds slotID's resolved assignment within lineup, if any.
@@ -1013,8 +1051,11 @@ func slotWarningLabel(a SlotAssignment) (label string, warns bool) {
 // app/team's per-slot assignment forms: each row carries the assigned
 // player (playerMap's shape, merged in) or an empty state, plus the
 // lock/warning/auto-fill chips and, when unlocked, the eligible-player
-// <select> options (lineupSlotOptions).
-func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games []GameInfo, now time.Time, scoringValues map[string]float64) []map[string]any {
+// <select> options (lineupSlotOptions). drafted is playerMap's own
+// optional league-wide playerID->DraftPick lookup (draftedByPlayerID,
+// draft_history.go) — a nil map renders every row's is_drafted false,
+// the same honest empty state playerMap's own doc comment promises.
+func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games []GameInfo, now time.Time, scoringValues map[string]float64, drafted map[string]DraftPick) []map[string]any {
 	location := s.draftTZ
 	if location == nil {
 		location, _ = time.LoadLocation(DefaultDraftTZ)
@@ -1036,7 +1077,7 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 		currentID := ""
 		if a.HasPlayer {
 			currentID = a.Player.ID
-			for k, v := range playerMap(a.Player, scoringValues, matchup) {
+			for k, v := range playerMap(a.Player, scoringValues, matchup, drafted) {
 				row[k] = v
 			}
 			label := starterPossessionLabel(a.Player, live, hasLive)
@@ -1047,6 +1088,27 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 					row["lock_label"] = "LOCKED · " + kickoff.In(location).Format("3:04 PM MST")
 				}
 			}
+			// Wave 7 item 4: kickoff_label/bye_label render unconditionally
+			// (on every row, not only once a slot has locked) — the P0
+			// "auto-fill never consults lock status" invariant applies to
+			// every read path, this one included: a manager deciding
+			// whether to bench a bye player needs that fact BEFORE kickoff,
+			// not only in the lock_label chip that appears after. kickoff
+			// reuses playerLockAt, the same section-4.3 kickoff resolver
+			// lock_label already calls, just without gating the read on
+			// a.Locked.
+			kickoffLabel := ""
+			if kickoff, ok := playerLockAt(games, lineup.Week, a.Player.NFLTeam); ok && !kickoff.IsZero() {
+				kickoffLabel = strings.ToUpper(kickoff.In(location).Format("Mon 3:04 PM"))
+			}
+			row["kickoff_label"] = kickoffLabel
+			row["has_kickoff_label"] = kickoffLabel != ""
+			byeLabel := ""
+			if a.Player.ByeWeek > 0 {
+				byeLabel = fmt.Sprintf("BYE %d", a.Player.ByeWeek)
+			}
+			row["bye_label"] = byeLabel
+			row["has_bye_label"] = byeLabel != ""
 		}
 		label, warns := slotWarningLabel(a)
 		row["has_warning"] = warns
