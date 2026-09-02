@@ -35,6 +35,12 @@ func Page() Node {
 		</section>
 
 		<div class="locker-notice" aria-live="polite">
+			<If cond={data.demo_mode}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					posting and moderation are read-only while demo mode is on. Sign in to participate.
+				</p>
+			</If>
 			<If cond={data.has_notice}><p class="flash-message">{data.notice}</p></If>
 			<If cond={data.has_locker_error}><p class="error-message">{data.locker_error}</p></If>
 		</div>
@@ -110,7 +116,17 @@ func LockerBoard() Node {
 								<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 								<input type="hidden" name="post_id" value={post.ID}></input>
 								<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
-								<button class="board-button" type="submit">Remove</button>
+								<details class="action-confirmation">
+									<summary>Remove post</summary>
+									<p>
+										Removing replaces this post with a removal notice for the whole league. This cannot be undone from this screen.
+									</p>
+									<label>
+										<input type="checkbox" name="confirmation" value="remove-locker-item" required="required"></input>
+										I understand this post cannot be restored.
+									</label>
+									<button class="board-button" type="submit">Confirm remove</button>
+								</details>
 							</form>
 						</If>
 					</If>
@@ -140,7 +156,17 @@ func LockerBoard() Node {
 											<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 											<input type="hidden" name="post_id" value={reply.ID}></input>
 											<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
-											<button class="board-button" type="submit">Remove</button>
+											<details class="action-confirmation">
+												<summary>Remove reply</summary>
+												<p>
+													Removing replaces this reply with a removal notice for the whole league. This cannot be undone from this screen.
+												</p>
+												<label>
+													<input type="checkbox" name="confirmation" value="remove-locker-item" required="required"></input>
+													I understand this reply cannot be restored.
+												</label>
+												<button class="board-button" type="submit">Confirm remove</button>
+											</details>
 										</form>
 									</If>
 								</If>

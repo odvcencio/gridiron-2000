@@ -170,6 +170,12 @@ func Page() Node {
 		</section>
 		</If>
 		<div class="notice-stack" aria-live="polite">
+			<If cond={data.demo_mode}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					the Big Board is open to everyone while demo mode is on.
+				</p>
+			</If>
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
@@ -207,7 +213,17 @@ func Page() Node {
 							<input type="hidden" name="q" value={data.pool_query}></input>
 							<input type="hidden" name="page" value={data.pool_page}></input>
 							<input type="hidden" name={data.board_return_target_field} value={data.board_return_target}></input>
-							<button class="filter-button" type="submit">Clear board</button>
+							<details class="action-confirmation">
+								<summary>Clear board</summary>
+								<p>
+									Clearing removes every ranked player from your Big Board. Rebuilding the order after this is manual, one player at a time.
+								</p>
+								<label>
+									<input type="checkbox" name="confirmation" value="clear-board" required="required"></input>
+									I understand this clears my whole Big Board.
+								</label>
+								<button class="filter-button" type="submit">Confirm clear board</button>
+							</details>
 						</form>
 					</If>
 				</div>
@@ -259,7 +275,7 @@ func Page() Node {
 					<div>
 						<span class="section-index">02 // PLAYER POOL</span>
 						<If cond={data.can_edit}>
-							<h2>Add to board</h2>
+							<h2>Rank on your Big Board</h2>
 						</If>
 						<If cond={data.can_edit == false}>
 							<h2>Browse available players</h2>

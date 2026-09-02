@@ -278,7 +278,12 @@ func requireLeagueSession(next http.Handler) http.Handler {
 
 func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) http.Handler {
 	open := map[string]bool{
-		"/": true, "/guide": true, "/login": true, "/privacy": true, "/terms": true,
+		// /help is public on every instance (wave-6 item 8): its own gating
+		// used to differ from the demo build (public there, blocked here)
+		// purely as a side effect of this allowlist, not a deliberate
+		// membership decision — the page carries no seat-scoped or
+		// league-private content, the same reason /guide is already open.
+		"/": true, "/guide": true, "/help": true, "/login": true, "/privacy": true, "/terms": true,
 		"/open-source": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -294,7 +299,10 @@ func requireLeagueSessionWithDemoMode(next http.Handler, demoMode func() bool) h
 		if path == "" {
 			path = "/"
 		}
-		if open[path] {
+		// /help/{topic-id} shares its parent's public status: every link
+		// into a topic (from /help or /guide) must resolve for the same
+		// anonymous visitor who can already open /help itself.
+		if open[path] || strings.HasPrefix(path, "/help/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -849,13 +857,28 @@ func googleCallbackHandler(flow *auth.OAuth, manager *auth.Manager, configured b
 func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager, configured bool, membership googleMembership) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !configured {
-			http.Redirect(w, r, "/login?setup=google", http.StatusSeeOther)
+			// Mirrors googleStartHandler's own unconfigured branch: this route
+			// is unreachable through the normal /login → /auth/google/start
+			// path while unconfigured (that redirect already carries next),
+			// but a stale bookmark or a manually edited URL can still land
+			// here directly, and the deep-link destination it carried must
+			// not be dropped on the bounce back to /login.
+			next := navigation.SafeReturnPath(r.URL.Query().Get("next"))
+			http.Redirect(w, r, "/login?setup=google&next="+url.QueryEscape(next), http.StatusSeeOther)
 			return
 		}
+		// Peeked before flow.Callback runs: auth.OAuth.Callback only returns
+		// its stored "next" (state.Next) on success — a failure discards it,
+		// dropping the destination the visitor was trying to reach. The same
+		// session key holds it non-destructively until Callback's own
+		// consumeState deletes it, so a plain, sanitized peek here recovers
+		// it for the failure redirect below without altering the library's
+		// own consume-once contract.
+		next := oauthNextFromSession(r)
 		user, target, err := flow.Callback(r, "google")
 		if err != nil {
 			session.AddFlash(r, "notice", "Google sign-in did not finish. Try again, or tell the commissioner.")
-			http.Redirect(w, r, "/login?error=oauth", http.StatusSeeOther)
+			http.Redirect(w, r, "/login?error=oauth&next="+url.QueryEscape(next), http.StatusSeeOther)
 			return
 		}
 		completeSignIn(w, r, manager, membership, user, target, completeSignInOptions{
@@ -863,6 +886,36 @@ func googleCallbackHandlerWithMembership(flow *auth.OAuth, manager *auth.Manager
 			ErrorRedirect:       "/login?error=oauth",
 		})
 	})
+}
+
+// oauthSessionNext mirrors the one field this package needs from the
+// vendored m31labs.dev/gosx/auth package's own unexported oauthState: its
+// "next" JSON field, persisted on the session key auth.NewOAuth defaults
+// to ("auth.oauth", never overridden by this app's OAuthOptions) while a
+// Google round trip is in flight. See oauthNextFromSession's own comment
+// for why this app reads it directly instead of through auth.OAuth.
+type oauthSessionNext struct {
+	Next string `json:"next,omitempty"`
+}
+
+// oauthNextFromSession peeks the deep-link destination the OAuth start
+// handler saved for the in-flight round trip, sanitized the same way the
+// start handler already sanitizes its own next query value. It is a
+// read-only Decode (session.Store.Decode never deletes), so it never
+// interferes with auth.OAuth.Callback's own single-consume of the same
+// key later in the same request. An absent or malformed session value
+// degrades to "/" through navigation.SafeReturnPath, matching every other
+// next-preservation path in this file.
+func oauthNextFromSession(r *http.Request) string {
+	store := session.Current(r)
+	if store == nil {
+		return navigation.SafeReturnPath("")
+	}
+	var decoded oauthSessionNext
+	if !store.Decode("auth.oauth", &decoded) {
+		return navigation.SafeReturnPath("")
+	}
+	return navigation.SafeReturnPath(decoded.Next)
 }
 
 // completeSignInOptions lets each provider name its own truthful redirect

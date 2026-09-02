@@ -135,7 +135,7 @@ func TestSeatTiedMutationsRejectSeatlessIdentitiesWithoutStateLeak(t *testing.T)
 						return service.BoardRemove(r, "p-kc-1")
 					}},
 					{name: "board clear", call: func() error {
-						return service.BoardClear(r)
+						return service.BoardClear(r, "clear-board")
 					}},
 					{name: "blitz add", call: func() error {
 						return service.BlitzAdd(r, "pre2", "p-kc-1")

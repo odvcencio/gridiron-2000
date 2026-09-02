@@ -468,11 +468,17 @@ func slotEligibilityNote(key string) string {
 func (s *Service) rulesDraftMap(state PersistedState, now time.Time) map[string]any {
 	draft := s.draftSummary(now)
 	return map[string]any{
-		"date":          draft["date"],
-		"long_date":     draft["long_date"],
-		"time":          draft["time"],
-		"format":        draft["format"],
-		"timezone":      FriendlyTimezoneLabel(s.cfg.Timezone),
+		"date":      draft["date"],
+		"long_date": draft["long_date"],
+		"time":      draft["time"],
+		"format":    draft["format"],
+		"timezone":  FriendlyTimezoneLabel(s.cfg.Timezone),
+		// published (wave-6 item 7) lets the page gate the "· {time}"
+		// segment the same way app/page.gsx's own public draft-transmission
+		// panel already does — this map previously dropped the field
+		// entirely, so section 04 had no way to guard it and rendered a
+		// dangling "TBD ·" separator with nothing after it.
+		"published":     draft["published"],
 		"clock_seconds": int(s.pickClock(state).Seconds()),
 	}
 }

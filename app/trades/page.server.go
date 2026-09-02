@@ -291,7 +291,7 @@ func init() {
 				return tradeMutationSuccess(ctx, message)
 			},
 			"trade-decline": func(ctx *action.Context) error {
-				message, err := league.Default().DeclineTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"])
+				message, err := league.Default().DeclineTrade(ctx.Request, ctx.FormData["team_id"], ctx.FormData["offer_id"], ctx.FormData["confirmation"])
 				if err != nil {
 					return actionui.Validation(ctx, "trades", "offer_id", err)
 				}

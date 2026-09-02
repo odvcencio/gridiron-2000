@@ -194,8 +194,10 @@ func Page() Node {
 					<span>Date</span>
 					<b class="mono">
 						{data.draft_rules.date}
-						·
-						{data.draft_rules.time}
+						<If cond={data.draft_rules.published}>
+							·
+							{data.draft_rules.time}
+						</If>
 					</b>
 				</div>
 				<div class="pool-stat">

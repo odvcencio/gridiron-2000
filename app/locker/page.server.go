@@ -154,7 +154,7 @@ func init() {
 				return lockerMutationSuccess(ctx, message)
 			},
 			"locker-remove": func(ctx *action.Context) error {
-				if err := league.Default().RemoveLockerPost(ctx.Request, ctx.FormData["post_id"]); err != nil {
+				if err := league.Default().RemoveLockerPost(ctx.Request, ctx.FormData["post_id"], ctx.FormData["confirmation"]); err != nil {
 					return lockerValidation(ctx, err)
 				}
 				return lockerMutationSuccess(ctx, "Post removed.")

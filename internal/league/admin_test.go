@@ -323,6 +323,48 @@ func TestInviteEmailTemplateStatesUnpublishedDraftDateCleanly(t *testing.T) {
 	}
 }
 
+// TestInviteEmailTemplateSubjectAndBodyAgreeOnDraftDate guards wave-6 item
+// 7(e): the subject always interpolated the raw draft-summary date fields
+// directly, while the body's sentence separately guarded on the summary's
+// "published" bool. A league whose draft already started — with a real,
+// audited start date/time — but whose originally scheduled date was never
+// published kept "published" false, so the subject showed a real date
+// ("draft TUE · SEP 1") beside a body claiming no date was published at
+// all. Both must now derive from the same signal.
+func TestInviteEmailTemplateSubjectAndBodyAgreeOnDraftDate(t *testing.T) {
+	t.Run("unpublished and never started", func(t *testing.T) {
+		service := newTestService(t, true)
+		service.draftAt = time.Now().Add(500 * 24 * time.Hour)
+
+		subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+		if !strings.Contains(subject, "draft TBD") {
+			t.Errorf("subject = %q, want it to state TBD, not a fabricated date", subject)
+		}
+		if !strings.Contains(text, "The startup snake draft date is not published yet.") {
+			t.Errorf("text body must state the unpublished date cleanly:\n%s", text)
+		}
+	})
+
+	t.Run("started with a real recorded instant, schedule never published", func(t *testing.T) {
+		service := newTestService(t, true)
+		service.draftAt = time.Now().Add(500 * 24 * time.Hour)
+		started := time.Date(2026, time.September, 1, 19, 0, 0, 0, time.UTC)
+		service.store.state.DraftStarted = true
+		service.store.state.DraftStartedAt = started
+
+		subject, text, _ := service.InviteEmailTemplate(nil, "manager@example.com")
+		if strings.Contains(subject, "draft TBD") {
+			t.Errorf("subject dropped the real started date: %q", subject)
+		}
+		if strings.Contains(text, "date is not published yet") {
+			t.Errorf("body claims unpublished despite a real recorded start instant:\n%s", text)
+		}
+		if !strings.Contains(text, "The startup snake draft is") {
+			t.Errorf("body did not state the real draft date/time:\n%s", text)
+		}
+	})
+}
+
 // referenceDeploymentConfig builds the config equivalent of this project's
 // own reference deployment's (gitignored) league.json — the same shape
 // config/league-real.json.example documents — so tests can pin

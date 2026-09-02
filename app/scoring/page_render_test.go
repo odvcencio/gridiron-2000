@@ -104,6 +104,15 @@ func TestScoringPageGuardsSentinelDraftAndSeasonDates(t *testing.T) {
 	if !strings.Contains(body, "Season start not published yet") {
 		t.Fatalf("scoring page did not render the unpublished-season-start guard text: %s", body)
 	}
+	// wave-6 item 7(c)/7(i): section 04's "Date" tile interpolated "TBD"
+	// (draft_rules.date) followed by an unconditional "· {time}" — with
+	// time empty on an unpublished draft, this rendered a dangling "TBD ·"
+	// separator with nothing after it. rulesDraftMap (scoring.go) now
+	// forwards the same "published" signal app/page.gsx's own public
+	// draft-transmission panel already gates its time display on.
+	if strings.Contains(body, "TBD\n\t\t\t\t\t\t·") || strings.Contains(body, "TBD ·") {
+		t.Fatalf("scoring page section 04 still renders a dangling separator after the unpublished TBD date: %s", body)
+	}
 }
 
 // TestScoringPageJumpListMatchesSectionsOneToOne is P2-13's own render

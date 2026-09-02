@@ -11976,3 +11976,22 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     display: none;
   }
 }
+
+/* wave 6 — magnolia */
+
+/* Item 7(b): the invite-remove control gains the same review-confirm
+   disclosure shape .announcement-delete-disclosure already established
+   (accessible-name summary trigger, opened disclosure claims the full
+   row so the confirmation sentence has room). Declared as its own class,
+   not a shared selector with .announcement-delete-disclosure, since the
+   two live in unrelated flex containers (.invite-actions vs.
+   .announcement-item__meta) with their own row-claiming needs. */
+.invite-remove-disclosure[open] {
+  flex-basis: 100%;
+}
+
+.invite-remove-disclosure form {
+  margin-top: var(--space-xs);
+  display: grid;
+  gap: var(--space-xs);
+}

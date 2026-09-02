@@ -168,6 +168,9 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"league":               s.leagueMap(),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
+		// demo_mode (wave-6 item 6) backs the Big Board's own REHEARSAL MODE
+		// disclosure, matching /admin's and /draft's existing top-level key.
+		"demo_mode": s.demoMode,
 	}
 }
 
@@ -268,10 +271,17 @@ func (s *Service) BoardRemove(r *http.Request, playerID string) error {
 	return s.store.BoardRemove(owner, playerID)
 }
 
-// BoardClear empties the viewer's board.
-func (s *Service) BoardClear(r *http.Request) error {
+// BoardClear empties the viewer's board. confirmation is wave-6 item 9's
+// server-side enforcement of the page's gated <details> disclosure:
+// wiping the whole Big Board is irreversible from this screen (every
+// ranked player must be re-added one at a time), the same irreversibility
+// class DropPlayer's playerDropConfirmation gate already covers.
+func (s *Service) BoardClear(r *http.Request, confirmation string) error {
 	owner, err := s.boardActionOwner(r)
 	if err != nil {
+		return err
+	}
+	if err := requireMutationConfirmation(boardClearConfirmation, confirmation); err != nil {
 		return err
 	}
 	return s.store.BoardClear(owner)

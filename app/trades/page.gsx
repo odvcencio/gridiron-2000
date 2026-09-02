@@ -41,6 +41,12 @@ func Page() Node {
 			</div>
 		</section>
 		<div class="notice-stack" aria-live="polite">
+			<If cond={data.demo_mode}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					trade actions are open to everyone while demo mode is on.
+				</p>
+			</If>
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
 			</If>
@@ -305,7 +311,17 @@ func TradeDeskRegion() Node {
 									<input type="hidden" name="team_id" value={data.viewer.team_id}></input>
 									<input type="hidden" name="counterparty" value={data.compose_counterparty_id}></input>
 									<input type="hidden" name="offer_id" value={offer.ID}></input>
-									<button class="board-button board-button--cut" type="submit">Decline</button>
+									<details class="action-confirmation">
+										<summary>Decline this trade</summary>
+										<p>
+											Declining closes this offer permanently. The sender can send a new offer, but this one cannot be reopened or reconsidered from this screen.
+										</p>
+										<label>
+											<input type="checkbox" name="confirmation" value="decline-trade" required="required"></input>
+											I understand this offer cannot be reopened.
+										</label>
+										<button class="board-button board-button--cut" type="submit">Confirm decline</button>
+									</details>
 								</form>
 							</If>
 						</div>

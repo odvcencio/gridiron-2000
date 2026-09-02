@@ -135,7 +135,7 @@ func TestTradeDeadlineStalePostsDoNotMutate(t *testing.T) {
 	offers := service.store.Snapshot().TradeOffers
 	cleanupID := offers[len(offers)-1].ID
 	service.cfg.Trades.Deadline = now.Format(time.RFC3339)
-	if _, err := service.DeclineTrade(request, "team-2", seed.TradeOffers[0].ID); err != nil {
+	if _, err := service.DeclineTrade(request, "team-2", seed.TradeOffers[0].ID, "decline-trade"); err != nil {
 		t.Fatalf("DeclineTrade after deadline: %v", err)
 	}
 	if got := service.store.Snapshot().TradeOffers[0].Status; got != TradeStatusDeclined {

@@ -243,6 +243,7 @@ func Page() Node {
 		data-gosx-revalidate-interval="4s"
 		data-gosx-revalidate-src="/api/league/version"
 	>
+		<If cond={data.is_commissioner}>
 		<section class="draft-masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label">
@@ -295,8 +296,10 @@ func Page() Node {
 					<span>
 						Draft
 						{data.draft.date}
-						·
-						{data.draft.time}
+						<If cond={data.draft.published}>
+							·
+							{data.draft.time}
+						</If>
 					</span>
 					<span class="mono ready-count-tag">
 						{data.ready_count}
@@ -307,6 +310,7 @@ func Page() Node {
 				</div>
 			</div>
 		</section>
+		</If>
 		<div class="notice-stack" aria-live="polite">
 			<If cond={data.has_notice}>
 				<p class="flash-message">{data.notice}</p>
@@ -604,7 +608,12 @@ func Page() Node {
 						<div class="draft-reschedule-form__copy">
 							<strong>Reschedule the meeting point</strong>
 							<p>
-								Current meeting: <b>{data.draft.time}</b> on {data.draft.long_date} ({data.draft.timezone}).
+								<If cond={data.draft.published}>
+									Current meeting: <b>{data.draft.time}</b> on {data.draft.long_date} ({data.draft.timezone}).
+								</If>
+								<If cond={data.draft.published == false}>
+									No draft meeting is published yet.
+								</If>
 								<If cond={data.draft.overridden}><span class="position-chip">COMMISSIONER OVERRIDE</span></If>
 								<If cond={data.draft.overridden == false}><span class="position-chip">LEAGUE CONFIG</span></If>
 							</p>
@@ -929,11 +938,15 @@ func Page() Node {
 									</If>
 									<a href={invite.mailto} class="board-button">Mail app</a>
 									<If cond={invite.removable}>
-										<form method="post" action={actionPath("invite-remove")} data-gosx-managed="true">
-											<input type="hidden" name="csrf_token" value={csrf.token}></input>
-											<input type="hidden" name="email" value={invite.email}></input>
-											<button class="board-button board-button--cut" type="submit">✕</button>
-										</form>
+										<details class="invite-remove-disclosure">
+											<summary class="board-button board-button--cut" aria-label={"Remove invitation for " + invite.email}>✕</summary>
+											<form method="post" action={actionPath("invite-remove")} data-gosx-managed="true">
+												<input type="hidden" name="csrf_token" value={csrf.token}></input>
+												<input type="hidden" name="email" value={invite.email}></input>
+												<p>Remove the invitation for {invite.email}? They will no longer be able to join using this invite.</p>
+												<button class="board-button board-button--cut" type="submit">Confirm remove</button>
+											</form>
+										</details>
 									</If>
 									<If cond={invite.removable == false}>
 										<small class="mono">pinned</small>
