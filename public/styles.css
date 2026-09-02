@@ -13606,10 +13606,16 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    own min-width: var(--control-h) already sets one, public/styles.css)
    — and every other .board-button in the same flex form
    (.seat-row form, SeatRow's rename/detach/autopick controls,
-   app/admin/page.gsx). flex-shrink: 0 plus a higher-specificity
-   min-width re-assert wins the cascade regardless of what was
-   compressing it. */
-.seat-row .board-button {
+   app/admin/page.gsx). The real cause (found re-measuring live, wave 7b
+   browser sweep): larch's "Mobile interaction baseline" block
+   (public/styles.css) sets min-width: 0 on .site-frame button at the
+   coarse-pointer/narrow-viewport query, and its own #main-content-id
+   specificity beats a bare two-class selector — the identical problem
+   that block's own comments already document and fix the same way for
+   .lineup-week-form button and .position-filters > .filter-button, so
+   this re-assert copies that #main-content-anchored pattern rather than
+   reaching for !important. */
+.site-frame #main-content .seat-row .board-button {
   flex-shrink: 0;
   min-width: var(--control-h);
 }
