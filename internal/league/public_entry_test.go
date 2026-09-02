@@ -55,6 +55,61 @@ func TestPublicEntryAnonymousOnlyPromisesAuthenticationAcrossModes(t *testing.T)
 	}
 }
 
+// TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat guards wave-6 item
+// 3: an anonymous viewer of a full league previously kept the open-seat
+// "SIGN IN TO ENTER." headline even beside "0 of N seats open". A full
+// league must tell the anonymous viewer seats are taken and that sign-in
+// gets them admission and the waitlist/Pick'em posture, not a franchise.
+func TestPublicEntryAnonymousLeagueFullDoesNotPromiseASeat(t *testing.T) {
+	t.Run("open seats keep the sign-in-to-enter promise", func(t *testing.T) {
+		service := newTestService(t, false)
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		view := service.PublicEntryView(request)
+		if view.LeagueFull {
+			t.Fatalf("fixture league unexpectedly full: %+v", view)
+		}
+		if view.Headline != "SIGN IN TO ENTER." {
+			t.Fatalf("open-seat anonymous headline = %q", view.Headline)
+		}
+	})
+
+	t.Run("full league tells the anonymous viewer seats are gone", func(t *testing.T) {
+		service := newTestService(t, false)
+		for _, team := range service.Teams() {
+			if _, _, err := service.store.AssignMember(team.ID+"@example.com", team.Name); err != nil {
+				t.Fatal(err)
+			}
+		}
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		view := service.PublicEntryView(request)
+		if !view.LeagueFull {
+			t.Fatalf("fixture league did not fill: %+v", view)
+		}
+		if view.State != PublicEntryAnonymous || view.SignedIn || view.Admitted || view.CanClaim {
+			t.Fatalf("full anonymous entry changed identity state: %+v", view)
+		}
+		if view.Headline == "SIGN IN TO ENTER." {
+			t.Fatalf("full league still promises a seat with the open-seat headline: %+v", view)
+		}
+		lower := strings.ToLower(view.Headline + " " + view.Detail)
+		if !strings.Contains(lower, "taken") && !strings.Contains(lower, "full") && !strings.Contains(lower, "assigned") {
+			t.Fatalf("full anonymous entry did not say seats are gone: %+v", view)
+		}
+		if strings.Contains(strings.ToLower(view.Detail), "claim") {
+			t.Fatalf("full anonymous entry still offered a seat claim: %+v", view)
+		}
+		if !strings.Contains(view.Detail, "admission") {
+			t.Fatalf("full anonymous entry omitted what sign-in gets them (admission): %+v", view)
+		}
+		if !strings.Contains(strings.ToLower(view.Detail), "pick'em") && !strings.Contains(strings.ToLower(view.Detail), "spectator") {
+			t.Fatalf("full anonymous entry omitted the waitlist/spectator posture: %+v", view)
+		}
+		if view.ActionHref != "/login" {
+			t.Fatalf("full anonymous entry action href changed = %q", view.ActionHref)
+		}
+	})
+}
+
 func TestPublicEntryAdmittedSeatlessOpenAndFull(t *testing.T) {
 	t.Run("open", func(t *testing.T) {
 		service := newTestService(t, false)

@@ -98,6 +98,33 @@ func TestRoleChecklistComposesCommissionerOverlay(t *testing.T) {
 	}
 }
 
+// TestRulesStateChecklistUsesTheCanonicalSevenTermFreshnessVocabulary
+// guards wave-6 item 8's cross-worker decision (matchups owns the
+// vocabulary): one seven-term list — LIVE, CACHED, STALE, DEGRADED,
+// OFFLINE, UNAVAILABLE, AWAITING RELEASE — everywhere, including here.
+// "provisional" is a scoring-finality term (provisional vs. final score),
+// a different axis from data-source freshness; the rules-state checklist
+// item previously listed it as if it were an eighth freshness state.
+func TestRulesStateChecklistUsesTheCanonicalSevenTermFreshnessVocabulary(t *testing.T) {
+	var detail string
+	for _, item := range baseChecklist {
+		if item.ID == "rules-state" {
+			detail = item.Detail
+		}
+	}
+	if detail == "" {
+		t.Fatal("baseChecklist has no rules-state item")
+	}
+	for _, term := range []string{"LIVE", "CACHED", "STALE", "DEGRADED", "OFFLINE", "UNAVAILABLE", "AWAITING RELEASE"} {
+		if !strings.Contains(detail, term) {
+			t.Errorf("rules-state checklist detail omitted %q: %q", term, detail)
+		}
+	}
+	if strings.Contains(strings.ToLower(detail), "provisional") {
+		t.Errorf("rules-state checklist detail still conflates provisional (a scoring-finality term) with data freshness: %q", detail)
+	}
+}
+
 func TestStateGuidanceCarriesEveryRecoveryField(t *testing.T) {
 	for _, state := range StateNames() {
 		got := Guidance("data-state-and-freshness", state)

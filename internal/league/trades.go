@@ -479,8 +479,12 @@ func (s *Service) CounterTrade(r *http.Request, requestedTeam, offerID string, g
 }
 
 // DeclineTrade applies section 6.1's decline step: open → declined. T1,
-// T9 (still open), and the receiving-manager actor check.
-func (s *Service) DeclineTrade(r *http.Request, requestedTeam, offerID string) (string, error) {
+// T9 (still open), and the receiving-manager actor check. confirmation is
+// wave-6 item 9's server-side enforcement of the page's gated <details>
+// disclosure: closing an offer this way is permanent (the sender can send
+// a new one, but this one cannot be reopened), matching tradeAccept's own
+// requireMutationConfirmation gate.
+func (s *Service) DeclineTrade(r *http.Request, requestedTeam, offerID, confirmation string) (string, error) {
 	teamID, err := s.actingTeam(r, requestedTeam) // T1
 	if err != nil {
 		return "", err
@@ -492,6 +496,9 @@ func (s *Service) DeclineTrade(r *http.Request, requestedTeam, offerID string) (
 	}
 	if offer.ToTeamID != teamID {
 		return "", fmt.Errorf("only the receiving manager can decline this offer")
+	}
+	if err := requireMutationConfirmation(tradeDeclineConfirmation, confirmation); err != nil {
+		return "", err
 	}
 	if err := s.store.DeclineTradeOffer(offerID, s.clock()); err != nil {
 		return "", err
@@ -1357,5 +1364,8 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"vote_panel_empty":          len(votePanel) == 0,
 		"history":                   history,
 		"history_empty":             len(history) == 0,
+		// demo_mode (wave-6 item 6) backs the Trade Desk's own REHEARSAL MODE
+		// disclosure, matching /admin's and /draft's existing top-level key.
+		"demo_mode": s.demoMode,
 	}
 }

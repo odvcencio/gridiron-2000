@@ -391,7 +391,12 @@ func (item attentionView) toMap() map[string]any {
 	return map[string]any{
 		"league": item.League, "peer_id": item.PeerID, "code": item.Code,
 		"severity": item.Severity, "count": item.Count, "message": item.Message,
-		"area": item.Area, "section": item.Section, "owner_url": item.OwnerURL,
+		// count_label (wave-6 item 7h) is the count-agreement phrase
+		// league.CountNoun already renders for other admin-facing prose
+		// (gap-audit item 11) — page.gsx's own "{item.count} occurrence(s)"
+		// printed the field name literally instead of pluralizing it.
+		"count_label": league.CountNoun(item.Count, "occurrence"),
+		"area":        item.Area, "section": item.Section, "owner_url": item.OwnerURL,
 		"owner_text": item.OwnerText,
 	}
 }

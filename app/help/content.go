@@ -344,7 +344,7 @@ type ChecklistItem struct {
 var baseChecklist = []ChecklistItem{
 	{ID: "league-context", Role: "admitted-member", Title: "Confirm the active league", Detail: "Read configured name, mode, normalized phase, timezone, and next material deadline.", Predicate: "all admitted members", ActionRoute: "/"},
 	{ID: "membership", Role: "admitted-member", Title: "Confirm membership and team association", Detail: "Membership may be valid while seatless; the page says what remains available.", Predicate: "all admitted members", ActionRoute: "/help/identity-admission-and-membership"},
-	{ID: "rules-state", Role: "admitted-member", Title: "Review rules and data-state vocabulary", Detail: "Learn how live, cached, stale, degraded, offline, unavailable, and provisional values are labeled.", Predicate: "all admitted members", ActionRoute: "/scoring"},
+	{ID: "rules-state", Role: "admitted-member", Title: "Review rules and data-state vocabulary", Detail: "Learn how LIVE, CACHED, STALE, DEGRADED, OFFLINE, UNAVAILABLE, and AWAITING RELEASE values are labeled.", Predicate: "all admitted members", ActionRoute: "/scoring"},
 	{ID: "task-help", Role: "admitted-member", Title: "Keep the route back to the current task", Detail: "Contextual help preserves meaningful week, filter, form, and focus context.", Predicate: "all admitted members", ActionRoute: "/help"},
 }
 var roleChecklists = map[string][]ChecklistItem{

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"html"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -34,6 +37,7 @@ import (
 	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"gridiron-2000/internal/mailer"
+	"gridiron-2000/internal/navigation"
 	"gridiron-2000/internal/notify"
 	"gridiron-2000/internal/openstats"
 	"gridiron-2000/internal/wire"
@@ -351,6 +355,177 @@ func csrfExemptClientEvents(protect func(http.Handler) http.Handler) func(http.H
 			protected.ServeHTTP(w, r)
 		})
 	}
+}
+
+// csrfFailureMessage is the truthful cause of a CSRF rejection: almost
+// always an expired or rotated session, not a hostile forgery attempt.
+// Both surfaces below (the shell error page and the managed-action JSON
+// body) show the identical sentence.
+const csrfFailureMessage = "Your session expired. Reload the page, then try again."
+
+// csrfProtectedRequestMethod mirrors session.csrfProtectedMethod (an
+// unexported predicate in m31labs.dev/gosx/session), so this wrapper only
+// pays the response-buffering cost this file's own capture below needs on
+// the exact same methods session.Manager.Protect itself inspects the CSRF
+// token for. Every other method already bypasses Protect's own check and
+// is forwarded untouched.
+func csrfProtectedRequestMethod(method string) bool {
+	switch method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	default:
+		return false
+	}
+}
+
+// csrfFailureCapture buffers exactly one wrapped handler invocation so
+// csrfFailureRenderer can tell a genuine session.Manager.Protect CSRF
+// rejection (never reaches its next handler) apart from a downstream
+// route's own, unrelated response (which must be forwarded byte-for-byte,
+// whatever its status). See csrfFailureRenderer's own doc comment for how
+// the two are told apart.
+type csrfFailureCapture struct {
+	http.ResponseWriter
+	header    http.Header
+	status    int
+	statusSet bool
+	body      bytes.Buffer
+}
+
+func (c *csrfFailureCapture) Header() http.Header {
+	if c.header == nil {
+		c.header = make(http.Header)
+	}
+	return c.header
+}
+
+func (c *csrfFailureCapture) WriteHeader(status int) {
+	if !c.statusSet {
+		c.status = status
+		c.statusSet = true
+	}
+}
+
+func (c *csrfFailureCapture) Write(b []byte) (int, error) {
+	if !c.statusSet {
+		c.WriteHeader(http.StatusOK)
+	}
+	return c.body.Write(b)
+}
+
+// flush forwards the captured response to the real ResponseWriter
+// untouched — the path csrfFailureRenderer takes for every response that
+// is not itself the CSRF rejection this file replaces.
+func (c *csrfFailureCapture) flush() {
+	dst := c.ResponseWriter.Header()
+	for key, values := range c.header {
+		dst[key] = values
+	}
+	if c.statusSet {
+		c.ResponseWriter.WriteHeader(c.status)
+	}
+	if c.body.Len() > 0 {
+		_, _ = c.ResponseWriter.Write(c.body.Bytes())
+	}
+}
+
+// csrfFailureRenderer replaces session.Manager.Protect's own CSRF
+// rejection — a plain-text (or bare {"error":"invalid csrf token"}) 403
+// with no app shell and no message the managed-action runtime's toast
+// reads (client/runtime/host/navigation.ts reads a JSON result's
+// "message" field, never "error"; without it the toast falls back to its
+// generic "Action failed.", giving the visitor no cause and no recovery
+// step) — with a truthful, actionable response on both surfaces: the app
+// shell error page for a native form submission, and a {"message": ...}
+// JSON body the managed runtime's toast can actually show for a managed
+// one.
+//
+// It tells the two 403 sources (Protect's own rejection vs. a downstream
+// route's unrelated 403) apart with a "reached" marker around next rather
+// than by sniffing the captured status alone: Protect calls next only
+// after the CSRF token matches, so a request that never reached next but
+// still carries a captured 403 is unambiguously Protect's own rejection —
+// every other outcome (next ran at all, or Protect failed some other way,
+// e.g. missing session middleware) is forwarded untouched.
+func csrfFailureRenderer(protect func(http.Handler) http.Handler, stylesheetHref string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		passthrough := protect(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !csrfProtectedRequestMethod(r.Method) {
+				passthrough.ServeHTTP(w, r)
+				return
+			}
+			reached := false
+			marker := http.HandlerFunc(func(mw http.ResponseWriter, mr *http.Request) {
+				reached = true
+				next.ServeHTTP(mw, mr)
+			})
+			capture := &csrfFailureCapture{ResponseWriter: w}
+			protect(marker).ServeHTTP(capture, r)
+			if reached || capture.status != http.StatusForbidden {
+				capture.flush()
+				return
+			}
+			writeCSRFFailurePage(w, r, stylesheetHref)
+		})
+	}
+}
+
+// wantsManagedActionJSON reports whether r is a managed-action fetch (the
+// GoSX runtime always sends Accept: application/json for these) rather
+// than a native form submission, mirroring session.requestWantsJSON so
+// both surfaces of a CSRF rejection classify a request the same way
+// session.Manager.Protect itself already did.
+func wantsManagedActionJSON(r *http.Request) bool {
+	accept := r.Header.Get("Accept")
+	contentType := r.Header.Get("Content-Type")
+	return strings.Contains(accept, "application/json") || strings.HasPrefix(contentType, "application/json")
+}
+
+// csrfFailureBackTarget names where the shell error page's recovery link
+// returns to: the same-origin page the rejected submission came from
+// (Referer), sanitized through navigation.SafeReturnPath exactly like
+// every other return-path destination in this app, or "/" when the
+// Referer is absent, cross-origin, or malformed.
+func csrfFailureBackTarget(r *http.Request) string {
+	referer := r.Header.Get("Referer")
+	if referer == "" {
+		return navigation.SafeReturnPath("")
+	}
+	parsed, err := url.Parse(referer)
+	if err != nil || parsed.Host != r.Host {
+		return navigation.SafeReturnPath("")
+	}
+	target := parsed.Path
+	if parsed.RawQuery != "" {
+		target += "?" + parsed.RawQuery
+	}
+	return navigation.SafeReturnPath(target)
+}
+
+func writeCSRFFailurePage(w http.ResponseWriter, r *http.Request, stylesheetHref string) {
+	if wantsManagedActionJSON(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":      false,
+			"message": csrfFailureMessage,
+		})
+		return
+	}
+	back := csrfFailureBackTarget(r)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">`+
+		`<meta name="viewport" content="width=device-width, initial-scale=1">`+
+		`<title>Session expired</title>`+
+		`<link rel="stylesheet" href="`+html.EscapeString(stylesheetHref)+`"></head>`+
+		`<body class="app-shell"><main class="page" id="main-content">`+
+		`<div class="error-message" role="alert"><p>`+html.EscapeString(csrfFailureMessage)+`</p></div>`+
+		`<p><a class="button button--ghost" href="`+html.EscapeString(back)+`">Reload the page</a></p>`+
+		`</main></body></html>`)
 }
 
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
@@ -696,7 +871,7 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	app.EnableGzip()
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
-	app.Use(csrfExemptClientEvents(sessions.Protect))
+	app.Use(csrfExemptClientEvents(csrfFailureRenderer(sessions.Protect, stylesheetHref)))
 	app.Use(authManager.Middleware)
 	app.SetPublicDir(filepath.Join(root, "public"))
 	// Serves the externalized navigation runtime router.SetNavigationHead

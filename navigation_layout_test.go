@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -229,7 +230,14 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	case viewer.seatsOpen && viewer.canClaimSeat:
 		*team = append(*team, "/join|04 Join a team")
 	default:
-		*team = append(*team, "/team|04 Team terminal")
+		// app/layout.gsx (hickory's file, unchanged in this range) still
+		// renders "Team status" for this seatless/ineligible branch — a
+		// prior wave-6 commit updated this expectation to "Team terminal"
+		// without a matching layout.gsx edit. Reverted to match the
+		// PrimaryNavigation component's actual current output; flagged in
+		// the wave-6 report for hickory/tamarack to reconcile if a label
+		// change was genuinely intended.
+		*team = append(*team, "/team|04 Team status")
 	}
 	*team = append(*team, "/board|05 Big Board")
 	if viewer.hasSeat || viewer.signedIn {
@@ -577,6 +585,41 @@ func TestMobileBottomBarSignedOutAbsent(t *testing.T) {
 	}
 }
 
+// TestPrimaryNavigationLinksCarryTitleTooltip covers wave-6 audit item 10:
+// body:has(.draft-shell) .site-rail:not(:hover, :focus-within) collapses
+// the rail to its 4rem icon column at rest (font-size: 0 on
+// .navigation-link, public/styles.css), leaving only each link's two-digit
+// index visible — every navigation-link now carries a title attribute
+// repeating its own visible label, so a hovering/focused pointer still
+// gets a native tooltip naming the destination the bare index number
+// alone did not.
+func TestPrimaryNavigationLinksCarryTitleTooltip(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem?week=2", navigationViewerFixture{signedIn: true, hasSeat: true, commissioner: true})
+	document := parseNavigationDocument(t, body)
+	links := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "a" && hasClass(node, "navigation-link")
+	})
+	if len(links) == 0 {
+		t.Fatal("no .navigation-link rendered")
+	}
+	for _, link := range links {
+		title := nodeAttr(link, "title")
+		if title == "" {
+			t.Errorf("navigation-link href=%q has no title attribute", nodeAttr(link, "href"))
+			continue
+		}
+		// descendantText includes the mono index span ("01 Home") and, on a
+		// hot link, its visually-hidden attention sentence too — a
+		// substring check against the full text is enough to prove the
+		// title repeats the link's own visible label rather than some
+		// unrelated string, without needing to strip the index span out.
+		text := descendantText(link)
+		if !strings.Contains(text, title) {
+			t.Errorf("navigation-link href=%q title=%q is not part of its own visible text %q", nodeAttr(link, "href"), title, text)
+		}
+	}
+}
+
 func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 	styles, err := os.ReadFile(filepath.Join("public", "styles.css"))
 	if err != nil {
@@ -590,8 +633,15 @@ func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 		`height: 100dvh`,
 		`overscroll-behavior: contain`,
 		`@media (scripting: enabled)`,
-		`html:has(script[data-gosx-navigation="true"]) .mobile-navigation-static`,
-		`html:has(script[data-gosx-navigation="true"]) .mobile-navigation-enhanced`,
+		// Wave-6 audit item 2: the switch keys on the navigation runtime's
+		// own boot attribute (html[data-gosx-navigation-state], set
+		// synchronously by client/runtime/host/navigation.ts's
+		// setNavigationState "init" call), not on the mere presence of the
+		// external <script src="/gosx-nav/..."> tag — a stale hash or a
+		// blocked script request left the tag in the HTML with no runtime
+		// behind it, permanently hiding the no-JS fallback.
+		`html[data-gosx-navigation-state] .mobile-navigation-static`,
+		`html[data-gosx-navigation-state] .mobile-navigation-enhanced`,
 		`body:has(#primary-navigation-dialog:not([hidden]))`,
 		`.mobile-navigation-dialog:not([hidden])`,
 		`:focus-visible`,
@@ -611,5 +661,16 @@ func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 		if strings.Contains(css, forbidden) {
 			t.Errorf("navigation CSS retained checkbox drawer selector %q", forbidden)
 		}
+	}
+	// Wave-6 audit item 2: no live rule may still key the enhanced/static
+	// switch on script presence — html:has(script[data-gosx-navigation=
+	// "true"]) is only a valid substring inside this file's own historical
+	// comment explaining the fix (see the "Item 2 (wave-6 audit)" comment
+	// above the @media (scripting: enabled) block), never inside a
+	// selector, so this checks for the selector form specifically: the
+	// construct followed by a space and a class selector, exactly how
+	// every live rule used it before the fix.
+	if regexp.MustCompile(`html:has\(script\[data-gosx-navigation="true"\]\)\s+\.`).MatchString(css) {
+		t.Error("navigation CSS still keys a live rule on html:has(script[data-gosx-navigation=\"true\"]) instead of the runtime's own boot attribute")
 	}
 }

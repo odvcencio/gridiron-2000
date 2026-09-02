@@ -275,7 +275,18 @@ func init() {
 			data["close_form"] = closeForm
 			reschedule := map[string]any{"meeting_at": ""}
 			if draft, ok := data["draft"].(map[string]any); ok {
-				reschedule["meeting_at"] = draft["input_value"]
+				// Wave-6 item 7(d): input_value carries the raw stored
+				// instant regardless of published status (service.go's own
+				// draftSummaryForState doc comment), including the neutral
+				// reference league's 2098-12-31 placeholder. Prefilling the
+				// datetime-local control with that placeholder read as a
+				// real, decided meeting time; only prefill once a real
+				// meeting is actually published, leaving the control empty
+				// otherwise so the commissioner picks a fresh time instead
+				// of confirming a fabricated one.
+				if published, _ := draft["published"].(bool); published {
+					reschedule["meeting_at"] = draft["input_value"]
+				}
 			}
 			if view, ok := ctx.ActionState("draft-reschedule"); ok {
 				reschedule["meeting_at"] = view.Value("meeting_at")

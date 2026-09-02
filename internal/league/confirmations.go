@@ -19,8 +19,16 @@ const (
 	playerDropConfirmation    = "drop-player"
 	playerAddDropConfirmation = "add-drop-player"
 	tradeAcceptConfirmation   = "accept-trade"
+	tradeDeclineConfirmation  = "decline-trade"
 	tradeApproveConfirmation  = "approve-trade"
 	tradeVetoConfirmation     = "veto-trade"
+	// boardClearConfirmation and lockerRemoveConfirmation match drop-player
+	// and accept-trade's own action-specific, human-readable shape: the
+	// gated <details>/required-checkbox pattern (wave-6 item 9) is only a
+	// UI affordance unless the value it submits is also enforced here, the
+	// same way tradeAcceptConfirmation already is.
+	boardClearConfirmation   = "clear-board"
+	lockerRemoveConfirmation = "remove-locker-item"
 	// ResetDraftConfirmation and ResetLeagueConfirmation are intentionally
 	// distinct, human-readable phrases. They are part of the destructive
 	// action contract: a browser cannot accidentally invoke one reset with the

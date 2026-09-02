@@ -110,7 +110,11 @@ func (s *Service) PostLockerPost(r *http.Request, parentID, body string) (Locker
 // RemoveLockerPost soft-deletes one post: its author may remove their own
 // post, and the commissioner may remove any post (GC-4). Demo mode is
 // always read-only, the same unconditional refusal PostLockerPost applies.
-func (s *Service) RemoveLockerPost(r *http.Request, id string) error {
+// confirmation is wave-6 item 9's server-side enforcement of the page's
+// gated <details> disclosure: removal is permanent from this screen, the
+// same irreversibility class DropPlayer's playerDropConfirmation gate
+// already covers.
+func (s *Service) RemoveLockerPost(r *http.Request, id, confirmation string) error {
 	if s.demoMode {
 		return fmt.Errorf("Locker Room moderation is read-only in demo mode. Sign in to remove a post.")
 	}
@@ -132,6 +136,9 @@ func (s *Service) RemoveLockerPost(r *http.Request, id string) error {
 		role = "commissioner"
 	default:
 		return fmt.Errorf("you may remove only your own posts")
+	}
+	if err := requireMutationConfirmation(lockerRemoveConfirmation, confirmation); err != nil {
+		return err
 	}
 	if err := s.store.RemoveLockerPost(id, role, s.clock()); err != nil {
 		return err

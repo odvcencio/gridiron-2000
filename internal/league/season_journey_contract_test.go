@@ -225,7 +225,7 @@ func TestSeasonJourneyAcceptance(t *testing.T) {
 	if service.store.Snapshot().Picks[1].PlayerID != "pool-014" {
 		t.Fatal("board AUTO did not persist the selected Big Board player")
 	}
-	if err := service.BoardClear(teamTwoRequest); err != nil {
+	if err := service.BoardClear(teamTwoRequest, "clear-board"); err != nil {
 		t.Fatalf("clear team-2 board before fallback AUTO: %v", err)
 	}
 	if got := service.store.Snapshot().Boards["claimant@example.com"]; len(got) != 0 {

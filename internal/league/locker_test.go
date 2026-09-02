@@ -233,14 +233,14 @@ func TestServiceRemoveLockerPostAuthorOrCommissioner(t *testing.T) {
 	})
 
 	lockerRequestFor(t, "other@example.com", func(r *http.Request) {
-		if err := service.RemoveLockerPost(r, postID); err == nil {
+		if err := service.RemoveLockerPost(r, postID, "remove-locker-item"); err == nil {
 			t.Fatal("a non-author, non-commissioner identity removed another member's post")
 		}
 	})
 
 	t.Setenv("COMMISSIONER_EMAILS", "commish@example.com")
 	lockerRequestFor(t, "commish@example.com", func(r *http.Request) {
-		if err := service.RemoveLockerPost(r, postID); err != nil {
+		if err := service.RemoveLockerPost(r, postID, "remove-locker-item"); err != nil {
 			t.Fatalf("the commissioner failed to remove another member's post: %v", err)
 		}
 	})
@@ -250,10 +250,48 @@ func TestServiceRemoveLockerPostAuthorOrCommissioner(t *testing.T) {
 	}
 }
 
+// TestServiceRemoveLockerPostRequiresExplicitConfirmation guards wave-6
+// item 9's server-side enforcement of the Locker Room's gated <details>
+// disclosure: removing a post without the exact confirmation value must
+// fail and leave the post untouched.
+func TestServiceRemoveLockerPostRequiresExplicitConfirmation(t *testing.T) {
+	service := newTestService(t, false)
+	if _, _, err := service.store.AssignMember("author2@example.com", "Author Two"); err != nil {
+		t.Fatal(err)
+	}
+
+	var postID string
+	lockerRequestFor(t, "author2@example.com", func(r *http.Request) {
+		post, err := service.PostLockerPost(r, "", "needs confirmation")
+		if err != nil {
+			t.Fatal(err)
+		}
+		postID = post.ID
+	})
+
+	lockerRequestFor(t, "author2@example.com", func(r *http.Request) {
+		if err := service.RemoveLockerPost(r, postID, ""); err == nil || err.Error() != "this action requires explicit confirmation" {
+			t.Fatalf("remove without confirmation: err = %v", err)
+		}
+	})
+	if got := service.store.Snapshot().LockerPosts[0]; got.RemovedByRole != "" {
+		t.Fatalf("unconfirmed removal mutated the post: %+v", got)
+	}
+
+	lockerRequestFor(t, "author2@example.com", func(r *http.Request) {
+		if err := service.RemoveLockerPost(r, postID, "remove-locker-item"); err != nil {
+			t.Fatalf("remove with correct confirmation: err = %v", err)
+		}
+	})
+	if got := service.store.Snapshot().LockerPosts[0]; got.RemovedByRole == "" {
+		t.Fatalf("confirmed removal did not remove the post: %+v", got)
+	}
+}
+
 func TestServiceRemoveLockerPostDemoModeIsReadOnly(t *testing.T) {
 	service := newTestService(t, true)
 	request := httptest.NewRequest(http.MethodGet, "/locker", nil)
-	if err := service.RemoveLockerPost(request, "any-id"); err == nil {
+	if err := service.RemoveLockerPost(request, "any-id", "remove-locker-item"); err == nil {
 		t.Fatal("demo mode accepted a Locker Room removal")
 	} else if !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("error = %q, want a read-only message", err.Error())

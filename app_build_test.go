@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -524,5 +525,184 @@ func TestClientEventsRouteIsExemptFromCSRF(t *testing.T) {
 	}
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("POST %s = %d, want 204 (ClientEventsHandler's success response); body=%s", server.ClientEventsRoute, recorder.Code, recorder.Body.String())
+	}
+}
+
+// TestCSRFFailureRendersShellErrorPageForHTMLRequest covers wave-6 item 5:
+// a native form submission with a missing/stale CSRF token previously hit
+// session.Manager.Protect's own bare "invalid csrf token" 403 with no app
+// shell. POST /auth/logout needs no admission or seat, so an anonymous,
+// tokenless POST reaches the CSRF check directly.
+func TestCSRFFailureRendersShellErrorPageForHTMLRequest(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("Content-Type = %q, want text/html", got)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, csrfFailureMessage) {
+		t.Fatalf("CSRF failure page omitted the truthful cause: %s", body)
+	}
+	if !strings.Contains(body, `role="alert"`) {
+		t.Fatalf("CSRF failure page has no role=\"alert\": %s", body)
+	}
+	if !strings.Contains(body, "<a ") {
+		t.Fatalf("CSRF failure page omitted a link back: %s", body)
+	}
+	if strings.Contains(body, "invalid csrf token") {
+		t.Fatalf("CSRF failure page leaked the raw library message: %s", body)
+	}
+}
+
+// TestCSRFFailureRendersJSONMessageForManagedRequest covers the other half
+// of wave-6 item 5: a managed-action fetch (Accept: application/json) must
+// get a {"message": ...} body — the field the runtime's toast actually
+// reads (client/runtime/host/navigation.ts) — not the library's own bare
+// {"error": "invalid csrf token"} shape, which the toast could not surface
+// and fell back to a generic "Action failed." for.
+func TestCSRFFailureRendersJSONMessageForManagedRequest(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+	request := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	request.Header.Set("Accept", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	var payload struct {
+		OK      bool   `json:"ok"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode CSRF JSON body: %v; body=%s", err, recorder.Body.String())
+	}
+	if payload.OK {
+		t.Fatalf("CSRF failure JSON ok = true, want false: %s", recorder.Body.String())
+	}
+	if payload.Message != csrfFailureMessage {
+		t.Fatalf("CSRF failure JSON message = %q, want %q", payload.Message, csrfFailureMessage)
+	}
+}
+
+// TestCSRFFailureRendererForwardsDownstreamResponsesUnchanged guards the
+// discriminator csrfFailureRenderer's own doc comment describes: a
+// downstream route's own, unrelated 403 (Protect's token check passed —
+// next ran) must reach the visitor untouched, never replaced by the CSRF
+// error page.
+func TestCSRFFailureRendererForwardsDownstreamResponsesUnchanged(t *testing.T) {
+	fakeProtect := func(next http.Handler) http.Handler { return next }
+	downstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Test", "downstream")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, "downstream forbidden for its own reason")
+	})
+	wrapped := csrfFailureRenderer(fakeProtect, "/styles.css")(downstream)
+	request := httptest.NewRequest(http.MethodPost, "/whatever", nil)
+	recorder := httptest.NewRecorder()
+	wrapped.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+	if recorder.Header().Get("X-Test") != "downstream" {
+		t.Fatalf("downstream header dropped: %v", recorder.Header())
+	}
+	if got := recorder.Body.String(); got != "downstream forbidden for its own reason" {
+		t.Fatalf("downstream body replaced: %q", got)
+	}
+}
+
+// TestCSRFFailureRendererReplacesProtectRejection guards the other half of
+// the same discriminator: Protect's own rejection (next never runs) is the
+// only case the shell/JSON replacement applies to.
+func TestCSRFFailureRendererReplacesProtectRejection(t *testing.T) {
+	fakeProtect := func(http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "invalid csrf token", http.StatusForbidden)
+		})
+	}
+	called := false
+	downstream := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+	wrapped := csrfFailureRenderer(fakeProtect, "/styles.css")(downstream)
+	request := httptest.NewRequest(http.MethodPost, "/whatever", nil)
+	recorder := httptest.NewRecorder()
+	wrapped.ServeHTTP(recorder, request)
+
+	if called {
+		t.Fatal("downstream handler ran despite Protect's own rejection")
+	}
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+	if strings.Contains(recorder.Body.String(), "invalid csrf token") {
+		t.Fatalf("replaced body leaked the raw library message: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), csrfFailureMessage) {
+		t.Fatalf("replaced body omitted the truthful cause: %s", recorder.Body.String())
+	}
+}
+
+// TestCSRFFailureRendererBypassesSafeMethods guards the cost boundary
+// csrfProtectedRequestMethod exists for: a GET (or any method
+// session.Manager.Protect itself never inspects a token for) must reach
+// downstream directly, with no buffering.
+func TestCSRFFailureRendererBypassesSafeMethods(t *testing.T) {
+	called := false
+	fakeProtect := func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { next.ServeHTTP(w, r) })
+	}
+	downstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	})
+	wrapped := csrfFailureRenderer(fakeProtect, "/styles.css")(downstream)
+	request := httptest.NewRequest(http.MethodGet, "/whatever", nil)
+	recorder := httptest.NewRecorder()
+	wrapped.ServeHTTP(recorder, request)
+
+	if !called {
+		t.Fatal("GET request did not reach the downstream handler")
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", recorder.Code)
+	}
+}
+
+// TestCSRFFailureBackTargetSanitizesReferer covers the shell error page's
+// recovery link: same-origin, sanitized through navigation.SafeReturnPath
+// like every other return-path destination in this app; "/" for anything
+// cross-origin, absent, or malformed.
+func TestCSRFFailureBackTargetSanitizesReferer(t *testing.T) {
+	tests := []struct {
+		name    string
+		referer string
+		host    string
+		want    string
+	}{
+		{name: "same-origin referer", referer: "http://example.com/board?tab=queue", host: "example.com", want: "/board?tab=queue"},
+		{name: "cross-origin referer rejected", referer: "http://evil.example/steal", host: "example.com", want: "/"},
+		{name: "absent referer", referer: "", host: "example.com", want: "/"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/whatever", nil)
+			request.Host = tt.host
+			if tt.referer != "" {
+				request.Header.Set("Referer", tt.referer)
+			}
+			if got := csrfFailureBackTarget(request); got != tt.want {
+				t.Fatalf("back target = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

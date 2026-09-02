@@ -4,6 +4,15 @@ package app
 // authenticated/demo navigation surface. Desktop rail, enhanced mobile
 // dialog, and static no-JavaScript mobile disclosure all invoke this exact
 // component so their groups, order, labels, and role gates cannot drift.
+//
+// Every link's title attribute (wave-6 audit item 10) repeats its own
+// visible label. body:has(.draft-shell) .site-rail:not(:hover,
+// :focus-within) (public/styles.css) collapses the rail to its 4rem icon
+// column at rest, hiding every navigation-link's text and leaving only its
+// two-digit index visible — title gives that collapsed state a native
+// hover/focus tooltip naming the destination without touching the
+// existing hover/focus expansion rule that already restores the full
+// label on approach.
 type PrimaryNavigationProps struct {
 	SignedIn      bool
 	HasSeat       bool
@@ -44,24 +53,24 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 		<nav class="primary-navigation__groups" aria-label="Primary navigation">
 			<div class="navigation-group" data-navigation-group="today">
 				<p class="navigation-group__label mono">TODAY</p>
-				<Link href="/" class="navigation-link">
+				<Link href="/" class="navigation-link" title="Home">
 					<span class="navigation-link__index mono">01</span>
 					Home
 				</Link>
 				<If cond={props.HasSeat && props.PickemHot}>
-					<Link href="/pickem" class="navigation-link navigation-link--hot">
+					<Link href="/pickem" class="navigation-link navigation-link--hot" title="Pick'em">
 						<span class="navigation-link__index mono">02</span>
 						Pick'em
 						<span class="visually-hidden">{props.PickemAttentionText}</span>
 					</Link>
 				</If>
 				<If cond={(props.HasSeat && props.PickemHot) == false}>
-					<Link href="/pickem" class="navigation-link">
+					<Link href="/pickem" class="navigation-link" title="Pick'em">
 						<span class="navigation-link__index mono">02</span>
 						Pick'em
 					</Link>
 				</If>
-				<Link href="/matchups" class="navigation-link">
+				<Link href="/matchups" class="navigation-link" title="Matchups">
 					<span class="navigation-link__index mono">03</span>
 					Matchups
 				</Link>
@@ -69,42 +78,42 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<div class="navigation-group" data-navigation-group="my-team">
 				<p class="navigation-group__label mono">MY TEAM</p>
 				<If cond={props.HasSeat}>
-					<Link href="/team" class="navigation-link">
+					<Link href="/team" class="navigation-link" title="Team terminal">
 						<span class="navigation-link__index mono">04</span>
 						Team terminal
 					</Link>
 				</If>
 				<If cond={props.HasSeat == false && props.SeatsOpen && props.CanClaimSeat}>
-					<Link href="/join" class="navigation-link navigation-link--hot">
+					<Link href="/join" class="navigation-link navigation-link--hot" title="Join a team">
 						<span class="navigation-link__index mono">04</span>
 						Join a team
 					</Link>
 				</If>
 				<If cond={props.HasSeat == false && (props.SeatsOpen == false || props.CanClaimSeat == false)}>
-					<Link href="/team" class="navigation-link">
+					<Link href="/team" class="navigation-link" title="Team terminal">
 						<span class="navigation-link__index mono">04</span>
-						Team status
+						Team terminal
 					</Link>
 				</If>
-				<Link href="/board" class="navigation-link">
+				<Link href="/board" class="navigation-link" title="Big Board">
 					<span class="navigation-link__index mono">05</span>
 					Big Board
 				</Link>
 				<If cond={props.HasSeat || props.SignedIn}>
-					<Link href="/players" class="navigation-link">
+					<Link href="/players" class="navigation-link" title="Player pool">
 						<span class="navigation-link__index mono">06</span>
 						Player pool
 					</Link>
 				</If>
 				<If cond={(props.HasSeat || props.Commissioner) && props.HasSeat && props.TradesHot}>
-					<Link href="/trades" class="navigation-link navigation-link--hot">
+					<Link href="/trades" class="navigation-link navigation-link--hot" title="Trades">
 						<span class="navigation-link__index mono">07</span>
 						Trades
 						<span class="visually-hidden">{props.TradesAttentionText}</span>
 					</Link>
 				</If>
 				<If cond={(props.HasSeat || props.Commissioner) && (props.HasSeat && props.TradesHot) == false}>
-					<Link href="/trades" class="navigation-link">
+					<Link href="/trades" class="navigation-link" title="Trades">
 						<span class="navigation-link__index mono">07</span>
 						Trades
 					</Link>
@@ -112,41 +121,41 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			</div>
 			<div class="navigation-group" data-navigation-group="game-day">
 				<p class="navigation-group__label mono">GAME DAY</p>
-				<Link href="/draft" class="navigation-link">
+				<Link href="/draft" class="navigation-link" title="Draft">
 					<span class="navigation-link__index mono">08</span>
 					Draft
 				</Link>
-				<Link href="/blitz" class="navigation-link">
+				<Link href="/blitz" class="navigation-link" title="Preseason Blitz">
 					<span class="navigation-link__index mono">09</span>
 					Preseason Blitz
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="league">
 				<p class="navigation-group__label mono">LEAGUE</p>
-				<Link href="/wire" class="navigation-link">
+				<Link href="/wire" class="navigation-link" title="Signal Wire">
 					<span class="navigation-link__index mono">10</span>
 					Signal Wire
 				</Link>
-				<Link href="/activity" class="navigation-link">
+				<Link href="/activity" class="navigation-link" title="Activity">
 					<span class="navigation-link__index mono">11</span>
 					Activity
 				</Link>
-				<Link href="/locker" class="navigation-link">
+				<Link href="/locker" class="navigation-link" title="Locker Room">
 					<span class="navigation-link__index mono">12</span>
 					Locker Room
 				</Link>
-				<Link href="/scoring" class="navigation-link">
+				<Link href="/scoring" class="navigation-link" title="Rules & scoring">
 					<span class="navigation-link__index mono">13</span>
 					Rules &amp; scoring
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="help">
 				<p class="navigation-group__label mono">HELP</p>
-				<Link href="/guide" class="navigation-link navigation-link--guide">
+				<Link href="/guide" class="navigation-link navigation-link--guide" title="Manager guide">
 					<span class="navigation-link__index mono">14</span>
 					Manager guide
 				</Link>
-				<Link href="/help" class="navigation-link navigation-link--guide">
+				<Link href="/help" class="navigation-link navigation-link--guide" title="Help center">
 					<span class="navigation-link__index mono">15</span>
 					Help center
 				</Link>
@@ -154,11 +163,11 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 			<If cond={props.Commissioner}>
 				<div class="navigation-group" data-navigation-group="commissioner">
 					<p class="navigation-group__label mono">COMMISSIONER</p>
-					<Link href="/commissioner" class="navigation-link">
+					<Link href="/commissioner" class="navigation-link" title="All leagues">
 						<span class="navigation-link__index mono">16</span>
 						All leagues
 					</Link>
-					<Link href="/admin" class="navigation-link">
+					<Link href="/admin" class="navigation-link" title="League settings">
 						<span class="navigation-link__index mono">17</span>
 						League settings
 					</Link>
@@ -171,9 +180,7 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					<span class="user-chip mono">{props.Initials}</span>
 					<span class="user-name">{props.TeamName}</span>
 				</div>
-				<Link href="/settings" class="access-link">
-					Notification settings
-				</Link>
+				<Link href="/settings" class="access-link">Notification settings</Link>
 				<form method="post" action="/auth/logout" data-gosx-managed="false">
 					<input type="hidden" name="csrf_token" value={props.CSRFToken}></input>
 					<button class="access-link" type="submit">Sign out</button>
@@ -198,16 +205,23 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 // The rail-head and mobile-navigation-enhanced attention chips (gap-audit
 // item 6, wave 4 — linden) are a distinct region from sycamore's own new
 // mobile bottom bar elsewhere in this file — see that work for the
-// four-slot bar itself. Both chips are gated the same way: has_seat (a
-// seatless visitor has no team-scoped task this list could name) and
+// four-slot bar itself. Both chips are gated three ways: has_seat (a
+// seatless visitor has no team-scoped task this list could name),
 // attention.has_items (an honest empty state renders no chip at all,
-// never "0 URGENT"). data.league.attention is internal/league/
+// never "0 URGENT"), and demo == false (wave-6 audit item 1: an
+// anonymous visitor on a DEMO_MODE deployment gets has_seat: true from
+// Viewer's own signed-out branch — internal/league/service.go — purely so
+// the rehearsal dashboard has something to show; that visitor has no real
+// Action Center to visit, so the chip must key off demo specifically, not
+// has_seat alone). data.league.attention is internal/league/
 // service.go's leagueMap() addition — see that function's own doc
 // comment for why it is league-wide, not per-viewer. Both chips link to
 // "/#home-action-center-heading" (the Action Center's existing heading
 // id, app/page.gsx) rather than a new "#action-center" id: this wave's
 // app/page.gsx scope is the playoff-card block only, so the chip targets
-// the id already in the DOM instead of adding one there.
+// the id already in the DOM instead of adding one there. That heading's
+// own scroll-margin-top (public/styles.css) is what keeps the deep link
+// from landing behind the masthead.
 func Layout() Node {
 	return <div class="app-shell">
 		<a class="skip-link" href="#main-content">Skip to league content</a>
@@ -232,7 +246,7 @@ func Layout() Node {
 							<small>{data.league.tagline}</small>
 						</span>
 					</a>
-					<If cond={data.viewer.has_seat && data.league.attention.has_items}>
+					<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 						<a
 							href="/#home-action-center-heading"
 							data-gosx-link
@@ -264,7 +278,7 @@ func Layout() Node {
 					<span class="brand-badge">{data.league.short_code}</span>
 					<strong>{data.league.name}</strong>
 				</a>
-				<If cond={data.viewer.has_seat && data.league.attention.has_items}>
+				<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 					<a
 						href="/#home-action-center-heading"
 						data-gosx-link
