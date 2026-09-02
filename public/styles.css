@@ -23,6 +23,22 @@
      a heading back into the full display scale for the one place that
      still wants it: the signed-out/demo home headline. */
   --type-page-title: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);
+  /* Masthead lead contract (2026-09-01 gap audit, item 2): every masthead
+     class shares this one pair of tokens for the space above and around
+     its eyebrow line, so the distance from a route's <main> top edge to
+     its page title top edge stops varying route to route (pre-fix: 64px
+     on /matchups up to 243px on /team, several masthead classes vertically
+     centering their content in a tall fixed box instead of leading with a
+     fixed offset). */
+  --masthead-lead: var(--space-lg);
+  --masthead-title-gap: var(--space-sm);
+  /* One eyebrow line's own rendered height (signal-label/section-index at
+     --type-xs, its default line-height) — every masthead class carries 0,
+     1, or 2 such lines above its title (2 only on /wire); this lets a
+     masthead with fewer lines reserve the same room the tallest one
+     (/wire, 2 lines) needs, so every title's own lead stays level
+     regardless of how much eyebrow copy a given route has. */
+  --masthead-eyebrow-reserve: 1.375rem;
 
   --color-canvas: #070A16;
   --color-canvas-deep: #03050B;
@@ -1047,10 +1063,46 @@ button.access-link {
   gap: var(--space-xs);
 }
 
+/* Masthead lead contract (item 2): only the eyebrow's masthead-context
+   usage gets the title-gap margin below it — the same class also renders
+   as an inline priority chip elsewhere (.home-action-center__task-top,
+   .home-action-center__commissioner), where an added margin is unwanted. */
+.hero-command__copy > .signal-label,
+.draft-masthead__copy > .signal-label,
+.page-masthead > div > .signal-label {
+  margin-bottom: var(--masthead-title-gap);
+}
+
+/* Masthead lead contract (item 2), continued: /wire's own signal-label is
+   followed by a real second eyebrow line (.page-kicker) that already
+   carries this same weight; every OTHER masthead's signal-label is its
+   only eyebrow line, one line lighter than /wire's. Reserving that
+   missing line's own height here keeps every single-eyebrow-line
+   masthead's title at the same lead as /wire's two-line one, instead of
+   one line shorter. */
+.draft-masthead__copy > .signal-label,
+.page-masthead > div > .signal-label:not(:has(+ .page-kicker)) {
+  margin-bottom: calc(var(--masthead-eyebrow-reserve) + 2 * var(--masthead-title-gap));
+}
+
 .hero-kicker,
 .page-kicker {
-  margin: var(--space-xl) 0 var(--space-sm);
+  margin: 0 0 var(--masthead-title-gap);
   color: var(--color-accent-hot);
+}
+
+/* Masthead lead contract (item 2): /wire is the only masthead with a
+   two-line eyebrow (signal-label, then this kicker paragraph) — every
+   other masthead has at most one line before its title. Pinning the
+   kicker to exactly one line keeps its own contribution to the masthead
+   lead fixed and predictable (an unconstrained line-wrap made the total
+   vary with viewport width and copy length); --masthead-eyebrow-reserve
+   below brings every single-eyebrow-line masthead's lead up to match
+   this two-line total, the tallest of the group. */
+.page-masthead > div > .signal-label + .page-kicker {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 h1,
@@ -2128,9 +2180,16 @@ button.badge-option:hover {
 .page-masthead,
 .draft-masthead {
   min-height: 27rem;
+  padding-top: var(--masthead-lead);
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(20rem, 0.48fr);
-  align-items: center;
+  /* Masthead lead contract (item 2): was align-items: center, which
+     centered the title vertically inside this 27rem box — its measured
+     distance from <main>'s top edge then depended on how much copy sat in
+     the column (a one-line kicker vs a two-line kicker vs none), not on
+     any fixed offset. Top-aligning plus the padding-top above makes that
+     distance a fixed lead instead. */
+  align-items: start;
   gap: var(--space-3xl);
 }
 
@@ -2926,10 +2985,13 @@ button.badge-option:hover {
   position: relative;
   overflow: hidden;
   min-height: 14rem;
-  padding: var(--space-2xl);
+  padding: var(--masthead-lead) var(--space-2xl) var(--space-2xl);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  /* Masthead lead contract (item 2): was align-items: center — see the
+     matching .team-hero__identity note below for why that made the title's
+     measured position depend on the monogram's height. */
+  align-items: start;
   gap: var(--space-xl);
   border: 1px solid currentColor;
   border-radius: var(--radius-lg);
@@ -2957,7 +3019,13 @@ button.badge-option:hover {
   min-width: 0;
   width: 100%;
   display: flex;
-  align-items: center;
+  /* Masthead lead contract (item 2): was align-items: center, which
+     vertically centered the name/record text column against the taller
+     team monogram beside it — the title's own y-position then depended on
+     the monogram's height, not a fixed lead. flex-start keeps the text
+     column's top edge (and the h1's own small margin-top, below) flush
+     with the monogram's top edge instead. */
+  align-items: flex-start;
   gap: var(--space-lg);
 }
 
@@ -2976,8 +3044,12 @@ button.badge-option:hover {
    at 1366px) is retired for the shared --type-page-title token so /team's
    own first product content — already the lowest-measured fold of the
    audited routes — gains back the vertical room a smaller title frees. */
+/* Masthead lead contract (item 2): .team-hero's own eyebrow
+   (.section-index, "MANAGER TERMINAL // ...") is a plain inline span with
+   no margin of its own — see the .home-action-center__header h1 rule
+   below for the same reasoning behind this margin-top formula. */
 .team-hero h1 {
-  margin: var(--space-sm) 0;
+  margin: calc(var(--masthead-eyebrow-reserve) + 2 * var(--masthead-title-gap)) 0 var(--space-sm);
   color: var(--color-text-primary);
 }
 
@@ -7594,10 +7666,14 @@ body.is-on-clock .draft-clock-panel {
 
 .home-action-center__header {
   display: flex;
-  align-items: flex-end;
+  /* Masthead lead contract (item 2): was align-items: flex-end, bottom-
+     aligning the title against the ACTION CENTER status badge beside it —
+     top-aligning plus the explicit padding-top below gives the title a
+     fixed lead instead of one that shifts with the badge's own height. */
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-xl);
-  padding: var(--space-xl);
+  padding: var(--masthead-lead) var(--space-xl) var(--space-xl);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -7608,8 +7684,14 @@ body.is-on-clock .draft-clock-panel {
 /* Item 1 (2026-09-01 gap audit): the ad-hoc clamp(2rem, 5vw, 4.5rem)
    override (68px at 1366px) is retired for the shared --type-page-title
    token; the phone-width companion override below goes with it. */
+/* Masthead lead contract (item 2): .home-action-center__header's own
+   eyebrow (.section-index, "00 // ...") is a plain inline span with no
+   margin of its own — this h1's margin-top carries both the title-gap
+   and the missing-second-line reserve (see the .signal-label rules
+   above, same reasoning: this masthead has one eyebrow line, /wire has
+   two). */
 .home-action-center__header h1 {
-  margin: var(--space-sm) 0;
+  margin: calc(var(--masthead-eyebrow-reserve) + 2 * var(--masthead-title-gap)) 0 var(--space-sm);
   text-wrap: balance;
 }
 
@@ -9347,6 +9429,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 .matchups-masthead {
+  padding-top: var(--masthead-lead);
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -9356,9 +9439,13 @@ body.is-on-clock .draft-clock-panel {
 
 /* Item 1 (2026-09-01 gap audit): this ad-hoc 30px override is retired in
    favor of the shared --type-page-title token (h1 base rule) so /matchups
-   joins the one masthead-title contract instead of running its own size. */
+   joins the one masthead-title contract instead of running its own size.
+   Masthead lead contract (item 2): /matchups' masthead carries no eyebrow
+   line at all (every other masthead has 1, /wire has 2) — this reserves
+   the same two-line room /wire's own eyebrow needs, so /matchups' title
+   keeps the same lead as the rest. */
 .matchups-masthead h1 {
-  margin: 0;
+  margin: calc(2 * (var(--masthead-eyebrow-reserve) + var(--masthead-title-gap))) 0 0;
 }
 
 .matchups-masthead__sub {
