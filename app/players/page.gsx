@@ -68,6 +68,12 @@ func Page() Node {
 			<If cond={data.has_players_error}>
 				<p class="error-message">{data.players_error}</p>
 			</If>
+			<If cond={data.viewer.demo}>
+				<p class="demo-message">
+					<strong>REHEARSAL MODE:</strong>
+					the console is open to everyone while demo mode is on.
+				</p>
+			</If>
 			<If cond={data.pool_unavailable == false && data.can_edit == false}>
 				<p class="demo-message">
 					<strong>{data.public_entry.state_label}:</strong>

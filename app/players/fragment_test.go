@@ -73,6 +73,28 @@ func TestPlayersFragmentContract(t *testing.T) {
 	}
 }
 
+// TestPlayersPageRendersRehearsalModeDisclosure is item 13's own
+// regression test (coordinator-added, 2026-09-01 post-wave audit):
+// /players had no REHEARSAL MODE disclosure for an anonymous demo
+// visitor, unlike /team, /admin, and /draft. page.gsx must gate one on
+// data.viewer.demo, matching /team's exact key and wording.
+func TestPlayersPageRendersRehearsalModeDisclosure(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageSource := string(source)
+	for _, want := range []string{
+		`<If cond={data.viewer.demo}>`,
+		`<strong>REHEARSAL MODE:</strong>`,
+		"the console is open to everyone while demo mode is on.",
+	} {
+		if !strings.Contains(pageSource, want) {
+			t.Errorf("players page missing rehearsal-mode disclosure %q", want)
+		}
+	}
+}
+
 // TestWaiverDeskExplainerMatchesBetweenServerRenderAndFragment is item
 // 10's own regression test (2026-08-31 post-wave audit): Page()'s full
 // initial render and WaiverDeskRegion's 4s-interval fragment each carry

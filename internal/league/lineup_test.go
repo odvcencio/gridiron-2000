@@ -303,6 +303,37 @@ func TestBestAutoFillCandidateFallsBackWhenOnlyByeOrInjuredExist(t *testing.T) {
 	}
 }
 
+// TestBestAutoFillCandidateIgnoresCandidateOrderAndBoardRank is item 11's
+// own regression test (2026-08-31 post-wave audit): the SET BEST LINEUP
+// copy claimed "your roster and Big Board order," but bestAutoFillCandidate
+// takes no Big Board input at all and ranks purely by projection — a
+// documented gap-audit finding. Rather than make Big Board order
+// influence weekly auto-fill/scoring selection nine days before the
+// season (a change with real blast radius: effectiveLineup/autoFillWeek
+// feed scorer.go and season.go's closeWeek, not just the /team button),
+// tamarack corrected the copy to the truth ("using your roster, highest
+// projection first," app/team/page.gsx) instead. This test pins that
+// truth: candidate order (the closest stand-in for "board position" a
+// caller could pass) never changes the outcome, only Projection and the
+// ID tie-break do — the same determinism the original claim promised,
+// achieved without ever reading state.Boards.
+func TestBestAutoFillCandidateIgnoresCandidateOrderAndBoardRank(t *testing.T) {
+	forward := []Player{
+		{ID: "p-low-rank-high-proj", Position: "RB", Projection: 20},
+		{ID: "p-high-rank-low-proj", Position: "RB", Projection: 10},
+	}
+	reversed := []Player{forward[1], forward[0]}
+
+	first, ok := bestAutoFillCandidate(forward, 1)
+	if !ok || first.ID != "p-low-rank-high-proj" {
+		t.Fatalf("forward-order best = %+v, want the higher-projection candidate regardless of position in the slice", first)
+	}
+	second, ok := bestAutoFillCandidate(reversed, 1)
+	if !ok || second.ID != first.ID {
+		t.Fatalf("reversed-order best = %+v, want the same candidate (%s) the forward order picked", second, first.ID)
+	}
+}
+
 // lineupFixtureRoster is an 11-player roster, one per gridiron-house
 // starting slot's position, with no bye/injury flags — the baseline
 // effectiveLineup fixture. Individual tests override a field where needed.
