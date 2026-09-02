@@ -7336,10 +7336,7 @@ body.is-on-clock .draft-clock-panel {
 }
 
 @media (max-width: 72rem) {
-  .hero-command {
-    gap: var(--space-xl);
-  }
-
+  /* dead: see item 9 */
   .dashboard-split,
   .matchup-layout,
   .team-layout,
@@ -7891,25 +7888,7 @@ body.is-on-clock .draft-clock-panel {
     justify-content: flex-start;
   }
 
-  .pickem-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-  }
-
-  .pickem-buttons {
-    flex: 1 1 100%;
-    justify-content: flex-start;
-  }
-
-  .pickem-market {
-    flex: 1 1 100%;
-  }
-
-  .pickem-status {
-    justify-content: flex-start;
-  }
+  /* dead: see item 9 */
 
   .scoring-row {
     display: flex;
@@ -7924,12 +7903,7 @@ body.is-on-clock .draft-clock-panel {
     justify-content: flex-end;
   }
 
-  .seat-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-  }
+  /* dead: see item 9 */
 
   .seat-identity {
     flex: 1 1 100%;
@@ -8524,9 +8498,7 @@ body.is-on-clock .draft-clock-panel {
     grid-template-columns: 1fr;
   }
 
-  .pickem-boards {
-    grid-template-columns: 1fr;
-  }
+  /* dead: see item 9 */
 }
 
 /* Registration wave: dashboard dual-status cards (app/page.gsx), the
