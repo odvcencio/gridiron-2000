@@ -24,12 +24,36 @@ func TestDraftShellStylesheetSection(t *testing.T) {
 			t.Errorf("stylesheet missing %q", want)
 		}
 	}
-	last := strings.LastIndex(css, "@media (max-width: 38rem)")
-	if !strings.Contains(css[last:], ".site-frame .draft-tabbar__tab") || !strings.Contains(css[last:], ".site-frame .draft-command__sound") {
-		t.Error("the last 38rem block lacks the draft touch-target rules")
+	// Item 1 (wave 7b mobile-foundation audit — larch): the mobile
+	// interaction baseline (public/styles.css) used to be one single
+	// "@media (max-width: 38rem)" block covering both the 44px touch-target
+	// rules AND every phone-width content-layout rule that came after them
+	// in the same file (matchups summary-first stacking, etc.) — so "the
+	// LAST literal '@media (max-width: 38rem)' in the file" and "the touch-
+	// target block" were the same block, and this test's own literal-text
+	// search found it correctly either way. Item 1 split the touch-target
+	// rules into their own "@media (pointer: coarse), (hover: none), (max-
+	// width: 38rem)" query (so a landscape phone — still a coarse pointer
+	// past 38rem — keeps its 44px floor), leaving every unrelated phone-
+	// width content rule (this repo's own, plus this wave's new .page-
+	// action-bar phone-display rule) in plain "@media (max-width: 38rem)"
+	// blocks that now legitimately follow the touch-target query in file
+	// order. The touch-target query is what this test actually needs to
+	// find; searching for its own literal string (rather than the bare
+	// "@media (max-width: 38rem)" substring, which the touch-target
+	// query's text no longer contains as an exact match) is the fix.
+	const touchFloorQuery = "@media (pointer: coarse), (hover: none), (max-width: 38rem)"
+	last := strings.LastIndex(css, touchFloorQuery)
+	if last < 0 {
+		t.Fatalf("no %q block found", touchFloorQuery)
 	}
-	if strings.Count(css[strings.Index(css, "/* Draft war room */"):], "@media (max-width: 38rem)") != 0 {
-		t.Error("the draft section must not add a 38rem block after the touch-baseline block")
+	touchBlockEnd := strings.Index(css[last:], "\n}\n")
+	if touchBlockEnd < 0 {
+		t.Fatal("could not find the end of the touch-target query block")
+	}
+	touchBlock := css[last : last+touchBlockEnd]
+	if !strings.Contains(touchBlock, ".site-frame .draft-tabbar__tab") || !strings.Contains(touchBlock, ".site-frame .draft-command__sound") {
+		t.Error("the touch-target query lacks the draft touch-target rules")
 	}
 }
 

@@ -323,7 +323,17 @@ html {
    onto body's own box for the transition's duration. */
 body {
   margin: 0;
+  /* Item 6 (wave 7b mobile-foundation audit — larch): 100vh on a phone
+     browser measures the LARGEST possible viewport (address bar
+     collapsed), not the one the page actually renders into on first
+     paint — the gap between the two used to leave a sliver of unstyled
+     canvas below the fold whenever the address bar was still expanded.
+     100dvh tracks the browser chrome's own current, dynamic state; the
+     100vh line stays first as the fallback for a browser with no dvh
+     support (a plain declaration a later one overrides, never parsed at
+     all by an engine that does not recognize dvh — no @supports needed). */
   min-height: 100vh;
+  min-height: 100dvh;
   overflow-x: hidden;
   color: var(--color-text-primary);
   background:
@@ -352,6 +362,24 @@ body::after {
   background: repeating-linear-gradient(180deg, transparent 0, transparent 3px, var(--color-scanline) 4px);
   mix-blend-mode: multiply;
   opacity: 0.24;
+}
+
+/* Item 8 (wave 7b mobile-foundation audit — larch): body::after is a
+   full-screen, fixed, mix-blend-mode: multiply layer — a compositor-level
+   blend the browser has to recompute against everything under it on
+   every scroll frame. A mouse-driven desktop repaints that at a steady
+   cadence; a touch scroll fling on a phone is exactly the gesture most
+   sensitive to a dropped frame, and this layer contributes nothing a
+   coarse-pointer viewer can point at (the CRT scanline texture reads as
+   background atmosphere, not information). Keep the desktop effect
+   untouched — this is scoped to pointer: coarse only, not hover: none or
+   a width, so a touch laptop's own trackpad-driven (fine-pointer-only)
+   scroll still keeps it; only a device whose PRIMARY pointer is a finger
+   or stylus loses the layer. */
+@media (pointer: coarse) {
+  body::after {
+    display: none;
+  }
 }
 
 button,
@@ -385,11 +413,66 @@ abbr[title] {
 
 button,
 a {
+  /* Kept transparent, not removed: item 3 (below) now supplies this
+     app's OWN press feedback on every one of these elements, so the
+     browser's default tap-highlight rectangle (a flat gray box, drawn
+     with no regard for this app's own radius/color palette) would only
+     ever double or clash with it, never add information alone. */
   -webkit-tap-highlight-color: transparent;
 }
 
 a {
   color: inherit;
+}
+
+/* Item 3 (wave 7b mobile-foundation audit — larch): a mouse pointer gets
+   :hover as its "I am over something interactive" signal; a touch
+   pointer has no hover state at all, and with the tap-highlight above
+   turned off, a tap on this app previously produced no visual response
+   whatsoever between the finger lifting and the next screen appearing —
+   nothing confirmed the tap even landed on the right element. scale(.98)
+   plus a brightness lift is a deliberately small, fast (80ms) press-down
+   cue: big enough to notice, small enough not to read as a layout jump
+   or a page transition. Scoped to pointer: coarse only (not hover: none)
+   because a mouse's own native :active state already exists and this
+   should not double it. */
+@media (pointer: coarse) {
+  a:active,
+  button:active,
+  summary:active,
+  [role="button"]:active,
+  label:active {
+    transform: scale(0.98);
+    filter: brightness(1.15);
+    transition: transform 80ms;
+  }
+
+  /* .navigation-link and .app-tabbar__tab both read as flat, low-
+     contrast text/icon rows against the rail/tab-bar background (their
+     own :hover rules already lean on a background tint rather than the
+     button system's lift-and-shadow), so the scale+brightness rule above
+     reads as too subtle a cue on them specifically — the same tint their
+     :hover rule already proves is legible gets reused here for :active. */
+  .app-tabbar__tab:active {
+    color: var(--color-text-primary);
+    background: var(--color-white-faint);
+  }
+
+  .navigation-link:active {
+    color: var(--color-text-primary);
+    background: var(--color-white-soft);
+  }
+}
+
+@media (pointer: coarse) and (prefers-reduced-motion: reduce) {
+  a:active,
+  button:active,
+  summary:active,
+  [role="button"]:active,
+  label:active {
+    transform: none;
+    transition: none;
+  }
 }
 
 /* P1-9 (UI pass 2026-08-30): an in-prose action link (a call-to-action
@@ -440,7 +523,12 @@ textarea:focus-visible {
 
 .app-shell {
   position: relative;
+  /* Item 6 (wave 7b mobile-foundation audit — larch): same 100vh -> 100dvh
+     fallback pair as body's own rule above, and for the identical reason
+     — .app-shell is body's immediate child and the one every route's
+     visible chrome (rail, tab bar, toast host) actually lays out inside. */
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .ambient-grid {
@@ -998,6 +1086,23 @@ button.access-link {
     }
   }
 
+  /* Item 5 (wave 7b mobile-foundation audit — larch): this fixed top bar
+     (.mobile-navigation-enhanced, above) sits flush against inset-block-
+     start: 0 — the exact edge an installed, standalone PWA's own OS
+     status bar/notch occupies. Browser-tab mode never reports display-
+     mode: standalone (its own chrome already reserves that space, so
+     env(safe-area-inset-top) is 0 there regardless), so this only ever
+     adds real padding once BOTH conditions the audit called out are
+     true: the app is installed AND the device has a nonzero inset to
+     reserve — see app_build.go's own second viewport meta (item 5's
+     other half), without which env() resolves to 0 even here. */
+  @media (display-mode: standalone) {
+    html[data-gosx-navigation-state] .mobile-navigation-enhanced {
+      padding-top: env(safe-area-inset-top);
+      min-height: calc(var(--mobile-bar-height) + env(safe-area-inset-top));
+    }
+  }
+
   .mobile-navigation-open,
   .mobile-navigation-close {
     min-width: 2.75rem;
@@ -1155,6 +1260,41 @@ button.access-link {
       padding-bottom: calc(var(--mobile-bar-height) + var(--space-lg));
     }
 
+    /* Item 11: PageActionBar (app/layout.gsx) promotes from its base, in-
+       flow rendering (the plain phone-width display: flex rule above,
+       public/styles.css ~line 800 — a no-JS/print context keeps it as an
+       ordinary, fully functional flex row after the footer, never fixed
+       or floating) to a fixed thumb-zone bar once an actual runtime is
+       confirmed live, the identical two-part gate .app-tabbar's own fixed
+       rule above uses and for the identical reason. inset's own bottom
+       value is .app-tabbar's own total reserved height (its fixed
+       --mobile-bar-height plus the safe-area padding-bottom that rule
+       itself carries) — .page-action-bar's bottom edge lands exactly on
+       .app-tabbar's own top edge, adjacent, never overlapping either
+       bar. z-index 49 (one below the tab bar's own 50) keeps the stacking
+       order explicit even though the two boxes do not actually overlap. */
+    html[data-gosx-navigation-state] .page-action-bar {
+      position: fixed;
+      inset: auto 0 calc(var(--mobile-bar-height) + env(safe-area-inset-bottom)) 0;
+      z-index: 49;
+      border-top: 1px solid var(--color-border);
+      background: var(--color-canvas-deep);
+    }
+
+    /* Grows .site-frame's own bottom reserve by the action bar's fixed
+       56px (3.5rem) height on top of the tab-bar reserve the rule above
+       already adds — :has(.page-action-bar):has(.app-tabbar) (two
+       pseudo-classes) outweighs the single :has(.app-tabbar) rule above
+       on specificity alone, so this always wins when both bars are
+       present, independent of source order. A page whose data never sets
+       primary_action renders no .page-action-bar element at all (see
+       that component's own doc comment), so this selector simply never
+       matches there and .site-frame keeps the tab-bar-only reserve
+       above — unchanged from before this wave. */
+    html[data-gosx-navigation-state] body:has(.app-tabbar):has(.page-action-bar):not(:has(.draft-shell)) .site-frame {
+      padding-bottom: calc(var(--mobile-bar-height) + 3.5rem + env(safe-area-inset-bottom) + var(--space-lg));
+    }
+
     /* /draft keeps its own nav.draft-tabbar and must not stack a second
        fixed bar under it. Specificity, not just source order, has to win
        here: html:has(script[...]) .app-tabbar above already carries an
@@ -1192,8 +1332,21 @@ button.access-link {
      ~4.25rem — under the fixed 3.75rem bar's own height plus a real
      buffer, so a tap still left the heading's top edge under the bar. A
      literal floor beats the fixed bar outright regardless of the
-     --space-sm clamp's current width-dependent value. */
-  #home-action-center-heading {
+     --space-sm clamp's current width-dependent value.
+     Item 7 (wave 7b mobile-foundation audit — larch): this rule and the
+     desktop base rule below (#home-action-center-heading { scroll-
+     margin-top: var(--space-sm) }) are both a single ID selector — equal
+     specificity — so whichever one is LATER in the file's raw source
+     order wins the cascade at any width where both apply, regardless of
+     which @media block either sits inside. The base rule sits later in
+     the file (it has to: .site-frame needs to exist first), so it won
+     outright on phones too, silently shrinking this 4.5rem floor back
+     down to --space-sm's ~0.75-1rem clamp — a live regression this
+     wave's own audit re-found. "html " raises this rule to two selectors
+     (1,0,1) instead of one (1,0,0), which beats the base rule on
+     specificity alone, independent of source order — the correct fix
+     per CSS's own cascade rules, not another source-order race. */
+  html #home-action-center-heading {
     scroll-margin-top: 4.5rem;
   }
 
@@ -1209,6 +1362,74 @@ button.access-link {
 .site-frame {
   width: min(var(--content-width), calc(100% - var(--space-xl)));
   margin: 0 auto;
+}
+
+/* Item 11 (wave 7b mobile-foundation audit — larch): PageActionBar
+   (app/layout.gsx) — a phone-only thumb-zone slot for a page's single
+   primary action, opt-in per route via data.primary_action (see that
+   component's own doc comment for the full contract). display: none is
+   the base/desktop state; the phone media query below (matching
+   .app-tabbar's own touch-chrome breakpoint) is the only place that
+   turns it on, and the fixed positioning that stacks it directly above
+   .app-tabbar lives beside that bar's own fixed-position rule (this
+   file's mobile-chrome @media (max-width: 56.1875rem) section, above),
+   gated the same way (an actual loaded runtime, not just scripting
+   capability — see that rule's own comment for why). This block sits
+   here, after the mobile-chrome section closes, rather than beside
+   .app-tabbar's own base rule earlier in that section: a bare @media
+   (max-width: 38rem) block placed between two @media (max-width:
+   56.1875rem) rules reads correctly to a real browser (nesting depth,
+   not file position, decides which rule encloses which) but broke this
+   repo's own enclosingMediaMaxWidth test helper (lineup_slot_reflow_
+   contract_test.go), which finds an enclosing query by naive backward
+   text search, not brace-depth parsing — keeping every @media (max-
+   width: 38rem) block on this file's own "38rem tier," never sandwiched
+   inside the 56.1875rem tier's own byte range, keeps that helper honest
+   for every other rule it already checks. */
+.page-action-bar {
+  display: none;
+}
+
+@media (max-width: 38rem) {
+  .page-action-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 3.5rem;
+    padding-inline: var(--space-md);
+  }
+
+  .page-action-bar__link {
+    display: inline-flex;
+    width: 100%;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: var(--type-sm);
+    font-weight: 700;
+    text-decoration: none;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+
+  /* tone: "primary" mirrors .button--primary's own accent fill; tone:
+     "neutral" mirrors the base .button's own faint-outline look — reusing
+     this file's existing two-tier button palette rather than inventing a
+     third, so a primary_action reads as "the same kind of button this app
+     already uses everywhere else," not a new, unfamiliar control. */
+  .page-action-bar--primary .page-action-bar__link {
+    border: 1px solid var(--color-accent);
+    color: var(--color-ink-on-accent);
+    background: var(--color-accent);
+  }
+
+  .page-action-bar--neutral .page-action-bar__link {
+    border: 1px solid var(--color-border-strong);
+    color: var(--color-text-primary);
+    background: var(--color-white-faint);
+  }
 }
 
 /* Item 1 (wave-6 audit): even on desktop, where the rail carries no fixed
@@ -6598,6 +6819,22 @@ body.is-on-clock .draft-clock-panel {
   opacity: 1;
 }
 
+/* Item 9 (wave 7b mobile-foundation audit — larch): the cyan accent wash
+   above is this file's only hover-only reveal — a real visual, not just
+   a tooltip, gated entirely behind :hover. A touch viewer (hover: none)
+   can never trigger it, so every wire event on a phone renders visually
+   flatter than the identical event on a mouse-driven desktop for no
+   reason tied to the content itself. Showing it unconditionally under
+   hover: none (rather than leaving it hover-gated) costs nothing: it is
+   decorative background tint, not information a touch viewer would
+   otherwise be missing, so there is no "reveal on tap" interaction to
+   design instead. */
+@media (hover: none) {
+  .wire-event::after {
+    opacity: 1;
+  }
+}
+
 .wire-event--touchdown {
   border-left-color: var(--color-accent);
 }
@@ -8743,10 +8980,36 @@ body.is-on-clock .draft-clock-panel {
   }
 }
 
+/* Item 4 (wave 7b mobile-foundation audit — larch): a toast anchored to
+   the TOP of a phone viewport (the block above, pre-fix) sits inside the
+   thumb's own reach only on a small phone held low; on anything larger,
+   or held one-handed near the bottom, a manager has to re-grip or use
+   their other hand to reach the dismiss control (.gosx-toast__dismiss)
+   before it auto-expires. Anchoring above the fixed .app-tabbar instead
+   — the one piece of chrome already guaranteed to sit in the thumb zone
+   on every signed-in/demo route — puts a managed action's own outcome
+   exactly where the thumb already is right after submitting it.
+   --mobile-bar-height is the tab bar's own fixed height (public/
+   styles.css' :root block); env(safe-area-inset-bottom) adds the home-
+   indicator gap the tab bar's own padding-bottom already reserves (see
+   .app-tabbar's rule) so the toast's own bottom edge lines up with the
+   tab bar's visible top edge, not its safe-area padding; +0.5rem is a
+   real gap so the two never visually touch. left:0/right:0 stretch the
+   box to the full viewport per the CSS2.1 over-constrained-box rule;
+   margin-inline: auto (both auto) is what actually centers a box whose
+   width is fixed narrower than that stretch, the standard "inset: 0;
+   width: <n>; margin-inline: auto" centering recipe — transform: none
+   cancels the desktop rule's own translateX(-50%) horizontal centering,
+   which this recipe replaces rather than stacks with (translateX would
+   otherwise shift the already-centered box another 50% of its own width
+   off-screen). Desktop (> 38rem) keeps the original top-anchored rule
+   above untouched — a mouse pointer has no "thumb zone" to keep clear of. */
 @media (max-width: 38rem) {
   .toast-stack {
-    inset-block-start: max(4.75rem, calc(env(safe-area-inset-top) + 4rem));
-    width: calc(100vw - 1rem);
+    inset: auto 0 calc(var(--mobile-bar-height) + env(safe-area-inset-bottom) + 0.5rem) 0;
+    width: min(34rem, calc(100vw - 1rem));
+    margin-inline: auto;
+    transform: none;
   }
 
   .gosx-toast__message {
@@ -9637,8 +9900,19 @@ body.is-on-clock .draft-clock-panel {
    their own touch contracts, while status/badge chips and visually hidden
    choice inputs are not controls that should be stretched by this rule.
    Keep this block last so page-specific compact desktop recipes cannot
-   shrink the hit area back below the accessibility baseline. */
-@media (max-width: 38rem) {
+   shrink the hit area back below the accessibility baseline.
+   Item 1 (wave 7b mobile-foundation audit — larch): this query used to be
+   width-only (max-width: 38rem), so a landscape phone (844x390, still a
+   coarse pointer with no hover) fell outside it and lost every 44px floor
+   below — the audit's own /help finding, 104 of 134 targets under 44px in
+   landscape. pointer: coarse and hover: none both key on the device's
+   input capability, not the CSS viewport's current width, so a touch
+   device keeps its floor at any rotation, split-screen width, or foldable
+   posture; the max-width fallback stays for a browser that supports
+   neither media feature. mobileRules (mobile_touch_contract_test.go)
+   locates this exact condition string; TestMobileTouchFloorAppliesUnder
+   CoarsePointer (touch_pointer_media_contract_test.go) pins it directly. */
+@media (pointer: coarse), (hover: none), (max-width: 38rem) {
   .site-frame a:not(p a):not(li a):not(.site-rail a):not(.site-footer a):not(.next-matchup-panel__link):not([role="status"]):not(.position-chip):not(.autopick-badge):not(.badge-rookie):not(.matchup-chip) {
     display: inline-flex;
     align-items: center;
@@ -9767,6 +10041,20 @@ body.is-on-clock .draft-clock-panel {
     max-width: 100%;
     min-height: 2.75rem;
     min-block-size: 2.75rem;
+    /* Item 2 (wave 7b mobile-foundation audit — larch): every text input,
+       select, and textarea measured 13.1-15.2px on a touch device (mono
+       body copy plus var(--type-sm)'s own clamp), and iOS Safari auto-
+       zooms the WHOLE PAGE on focus for any control rendering under 16px
+       — a manager then has to pinch back out just to keep typing. 1rem is
+       a literal 16px: no html{} rule in this file overrides the root
+       font-size (see the html{} rule near the top), so max() here is a
+       defensive floor, not dead weight — it keeps the 16px guarantee even
+       if --type-sm's own clamp() is later raised past 1rem. The tighter
+       letter-spacing offsets the larger size so the mono/condensed input
+       aesthetic reads the same as it did at the smaller, zoom-triggering
+       size. */
+    font-size: max(1rem, var(--type-sm));
+    letter-spacing: -0.01em;
   }
 
   .site-frame input[type="file"] {
@@ -9798,7 +10086,15 @@ body.is-on-clock .draft-clock-panel {
     border-color: var(--color-accent-cyan);
     background: var(--color-white-soft);
   }
-
+}
+/* ---- end Mobile interaction baseline (item 1/2, wave 7b — larch): the
+   pointer/hover-aware query above stops here. Everything below keys back
+   on viewport width alone — narrow-width CONTENT layout (stacking,
+   hiding a redundant word, summary-first grids), not touch-target sizing
+   — so it stays out of the pointer: coarse query above on purpose: a
+   wide touchscreen (a touch laptop, a docked tablet) should keep its
+   desktop content layout while still getting the 44px/16px touch floor. */
+@media (max-width: 38rem) {
   /* Task 11b: Matchups summary-first layout, phone width. The
      .matchups-page prefix on every selector here is not scoping for its
      own sake: this block's rules and the base (non-media) block appended

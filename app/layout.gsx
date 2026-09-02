@@ -213,6 +213,77 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 	</div>
 }
 
+// PageActionBarProps is the strict prop boundary PageActionBar (below)
+// reads; Layout builds it straight from data.primary_action (any page's
+// own Load()-returned data map may set that key — see PageActionBar's own
+// doc comment for the full contract Layout imposes on it).
+type PageActionBarProps struct {
+	Label string
+	Href  string
+	Kind  string
+	Form  string
+	Tone  string
+}
+
+// PageActionBar is the phone-only thumb-zone slot for a page's single most
+// important action (wave 7b mobile-foundation audit, item 11 — larch). A
+// page opts in by setting a "primary_action" key on its OWN Load()-
+// returned data map; Layout (below) only reads that key and never sets it
+// itself. /team is the first page to wire it (elm — internal/league/
+// service.go's teamPrimaryAction), gated behind data.primary_action.label:
+// a missing "primary_action" key altogether (every other page, still, as
+// of this wave), a nil value, and teamPrimaryAction's own explicit "no
+// verb yet" map{} all read back with an empty label the same way, so all
+// three collapse to the identical "no bar" outcome with no special-casing
+// required here — label doubles as the presence flag on purpose, rather
+// than a separate boolean field a producer could set inconsistently with
+// the rest of the map.
+//
+// The primary_action contract:
+//
+//	primary_action: {
+//	  label: string             // the control's own visible text — "" (or
+//	                              // the key/value absent entirely) means
+//	                              // "no primary action on this page," and
+//	                              // renders no bar at all
+//	  href:  string              // required when kind == "link"; ignored
+//	                              // otherwise
+//	  kind:  "link" | "submit"   // "link" renders <a data-gosx-link>, a
+//	                              // plain same-document navigation; "submit"
+//	                              // renders <button type="submit" form="...">
+//	  form:  string               // required when kind == "submit": the id
+//	                              // of a <form> element ELSEWHERE on the
+//	                              // page (this bar renders outside any
+//	                              // page-owned <form>, being shared chrome).
+//	                              // The HTML form="" attribute is a native,
+//	                              // browser-resolved association — it works
+//	                              // with a GoSX-managed form exactly like an
+//	                              // unmanaged one, and with no JavaScript at
+//	                              // all, since the browser (not a script)
+//	                              // wires the submit to that form by id.
+//	  tone:  "primary" | "neutral" // presentation only, no behavior change
+//	}
+//
+// Fixed, 56px tall with a 44px control inside it (the mobile touch floor —
+// see public/styles.css item 1/2), positioned directly above .app-tabbar
+// (never stacked under or over it) and env(safe-area-inset-bottom)-aware
+// through that same tab bar's own reserved height; public/styles.css's own
+// body:has(.page-action-bar) rule grows .site-frame's bottom padding by
+// this bar's own height so page content already scrolls clear of it,
+// exactly as it already does for .app-tabbar alone. Hidden entirely above
+// the phone breakpoint: a mouse/keyboard viewer already has the page's own
+// inline call to action in easy reach and needs no thumb-zone duplicate.
+func PageActionBar(props PageActionBarProps) Node {
+	return <div class={"page-action-bar page-action-bar--" + props.Tone}>
+		<If cond={props.Kind == "submit"}>
+			<button form={props.Form} type="submit" class="page-action-bar__link">{props.Label}</button>
+		</If>
+		<If cond={props.Kind != "submit"}>
+			<a href={props.Href} data-gosx-link class="page-action-bar__link">{props.Label}</a>
+		</If>
+	</div>
+}
+
 // Layout renders the persistent chrome around every route's <Slot/>.
 //
 // The rail-head and mobile-navigation-enhanced attention chips (gap-audit
@@ -478,5 +549,14 @@ func Layout() Node {
 				{data.league.matchup_footer_label}
 			</div>
 		</footer>
+		<If cond={data.primary_action.label != ""}>
+			<PageActionBar
+				Label={data.primary_action.label}
+				Href={data.primary_action.href}
+				Kind={data.primary_action.kind}
+				Form={data.primary_action.form}
+				Tone={data.primary_action.tone}
+			></PageActionBar>
+		</If>
 	</div>
 }
