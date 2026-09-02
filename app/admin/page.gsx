@@ -250,13 +250,9 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					COMMISSIONER CONSOLE
 				</span>
-				<h1>
-					RUN THE
-					<br></br>
-					LEAGUE.
-				</h1>
+				<h1>Commissioner console</h1>
 				<p>
-					Seats, invites, and reset controls. The league checks every action against the commissioner list.
+					<strong>Run the league.</strong> Seats, invites, and reset controls. The league checks every action against the commissioner list.
 				</p>
 				<If cond={data.is_default_config}>
 					<p class="demo-message">

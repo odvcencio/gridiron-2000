@@ -9,7 +9,7 @@ func Page() Node {
 		<p class="page-kicker">For developers, not managers</p>
 		<h1>
 			OPEN
-			<br></br>
+			{" "}
 			SOURCE.
 		</h1>
 		<div class="oss-invite">

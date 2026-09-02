@@ -117,6 +117,58 @@ func TestTeamLineupFragmentRejectsMutationAndSeatlessRender(t *testing.T) {
 	}
 }
 
+// TestTeamLineupFragmentURLPreservesRequestedWeekForNotice covers wave-6
+// audit item 5 (second pass): data["week"] is already clamped by the
+// service (teamWeekOptions), so a naive fragment URL keyed off it alone
+// silently drops the raw, out-of-range week a manager actually asked
+// for — and with it, the notice explaining the clamp. The fragment URL
+// must instead carry the raw requested week so a later poll re-derives
+// the same notice.
+func TestTeamLineupFragmentURLPreservesRequestedWeekForNotice(t *testing.T) {
+	data := map[string]any{"week": "1"}
+	request := httptest.NewRequest(http.MethodGet, "/team?week=99", nil)
+	if got, want := teamLineupFragmentURL(data, request), "/team/fragment?week=99"; got != want {
+		t.Errorf("teamLineupFragmentURL(week=99 request, clamped data) = %q, want %q", got, want)
+	}
+
+	// A request with no week param at all still falls back to data["week"]
+	// (an ordinary /team load, current week, no clamp, no notice to carry).
+	bare := httptest.NewRequest(http.MethodGet, "/team", nil)
+	if got, want := teamLineupFragmentURL(data, bare), "/team/fragment?week=1"; got != want {
+		t.Errorf("teamLineupFragmentURL(no week param) = %q, want %q", got, want)
+	}
+}
+
+// TestTeamLineupFragmentEndpointRendersOutOfRangeWeekNotice is item 5's
+// own fragment-endpoint test: /team/fragment?week=99 (the URL
+// teamLineupFragmentURL now produces for a /team?week=99 load) must
+// render the same out-of-range notice the initial page shows, on every
+// poll — not just the first render — since the region's own 4s
+// revalidation re-fetches this exact URL indefinitely.
+func TestTeamLineupFragmentEndpointRendersOutOfRangeWeekNotice(t *testing.T) {
+	service := league.Default()
+	handler := TeamLineupFragmentHandler(service)
+
+	initial := service.TeamData(httptest.NewRequest(http.MethodGet, "/team?week=99", nil))
+	initialNotice, _ := initial["week_notice"].(string)
+	if initialNotice == "" || !strings.Contains(initialNotice, "is not on the published schedule") {
+		t.Fatalf("initial /team?week=99 load carried no out-of-range notice: %#v", initial["week_notice"])
+	}
+	fragmentURL, _ := prepareTeamData(initial, httptest.NewRequest(http.MethodGet, "/team?week=99", nil))["lineup_fragment_url"].(string)
+	if fragmentURL != "/team/fragment?week=99" {
+		t.Fatalf("initial page's own lineup_fragment_url = %q, want /team/fragment?week=99", fragmentURL)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, fragmentURL, nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("fragment %s = %d %q", fragmentURL, response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), initialNotice) {
+		t.Errorf("fragment %s dropped the out-of-range notice %q the initial page showed: %s", fragmentURL, initialNotice, response.Body.String())
+	}
+}
+
 func TestTeamLineupFragmentConcurrentReads(t *testing.T) {
 	handler := teamLineupFragmentHandler(
 		func(*http.Request) bool { return true },

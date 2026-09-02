@@ -1185,9 +1185,16 @@ button.access-link {
      anchor jump with the exact same "lands behind the fixed bar" problem
      #main-content's own rule above already fixes — this heading sits
      further down the document than #main-content, so that rule's own
-     scroll-margin-top does not cover it. Same fix, same reasoning. */
+     scroll-margin-top does not cover it. Same fix, same reasoning.
+     Item 6 (wave 6, second audit pass — rowan): the prior calc(var(
+     --mobile-bar-height) + var(--space-sm)) expression rode --space-sm's
+     own clamp() down to as little as 0.75rem at phone widths, landing at
+     ~4.25rem — under the fixed 3.75rem bar's own height plus a real
+     buffer, so a tap still left the heading's top edge under the bar. A
+     literal floor beats the fixed bar outright regardless of the
+     --space-sm clamp's current width-dependent value. */
   #home-action-center-heading {
-    scroll-margin-top: calc(var(--mobile-bar-height) + var(--space-sm));
+    scroll-margin-top: 4.5rem;
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -1307,6 +1314,13 @@ h1 {
   margin-bottom: var(--space-lg);
   font-size: var(--type-page-title);
   line-height: 1.05;
+  /* Item 1 (wave 6, second audit pass — rowan): every masthead h1 that
+     used to force its own line break with a literal <br> (PLAY<br>THE<br>
+     ROOM., RUN THE<br>LEAGUE., ...) now renders as one plain-text phrase
+     — this lets the browser choose an even break instead of the ragged
+     one-word-per-line wrap plain auto-wrapping would otherwise give a
+     short, all-caps display heading. */
+  text-wrap: balance;
 }
 
 h1 span {
@@ -8006,9 +8020,14 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-text-muted);
 }
 
+/* Item 7 (wave 6 — rowan): a bare 1fr track's minimum width is its
+   content's min-content size, not 0 — a long unbreakable pick row pushed
+   the two-column grid to 623.7px (275.7 + 18.5 gap + 329.5) inside a
+   611px container at 900px. minmax(0, 1fr) lets each track shrink to fit
+   the container instead of forcing the whole grid past it. */
 .pickem-boards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--space-md);
 }
 
@@ -9679,12 +9698,19 @@ body.is-on-clock .draft-clock-panel {
      TestMobileContentControlsKeepTouchBaseline, so it cannot itself gain
      the specificity these five selectors would need to win the cascade
      honestly, and its own min-width: 0 is exactly what a .chip or a
-     command-bar icon button must not inherit. */
+     command-bar icon button must not inherit.
+     Item 3 (wave 6, second audit pass — rowan): /team's own SET button
+     (.lineup-slot__form button.board-button) hits the exact same generic
+     min-width: 0 — the 56.1875rem query above turns .lineup-slot__form
+     into a grid with an auto-width second track for this button, so at
+     390px it measured 39.7x44, short of the 44px floor. Same fix, added
+     to this same re-assert list rather than a new rule. */
   .site-frame .draft-tabbar__tab,
   .site-frame .chip,
   .site-frame .draft-command__sound,
   .site-frame .draft-command button,
-  .site-frame .draft-drawer .button {
+  .site-frame .draft-drawer .button,
+  .site-frame .lineup-slot__form button.board-button {
     min-width: 2.75rem !important;
     min-inline-size: 2.75rem !important;
     min-height: 2.75rem !important;
@@ -9963,17 +9989,23 @@ body.is-on-clock .draft-clock-panel {
   margin-left: auto;
 }
 
+/* Item 4 (wave 6, second audit pass — rowan): 0.6875rem (11px) sat below
+   the 13px sub-body floor every other label in the app already holds
+   (touch_and_type_floor_contract_test.go's own .starter-cell__name small
+   pin). var(--type-xs) is that same floor; the padding/letter-spacing
+   trim below keeps the pill from growing much past its old footprint. */
 .state-chip,
 .state {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 8px;
+  gap: 4px;
+  padding: 1px 6px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border-strong);
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--type-xs);
   font-weight: 600;
+  letter-spacing: 0.01em;
   white-space: nowrap;
 }
 
@@ -12412,4 +12444,32 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   .guide-next {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* wave 6 — rowan --------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention the "wave 6 — hickory" block above uses. Every selector
+   below is new; nothing above this comment is modified except where a
+   "wave 6 ... rowan" comment inline says so. */
+
+/* Item 2 (second wave-6 audit pass): #admin-force-current-pick-confirm
+   measured 75px wide at 1366 inside a 421px details.draft-destructive-
+   control for an 18-character typed confirmation ("FORCE CURRENT PICK").
+   .clock-controls form is display: inline-flex with no flex-wrap, so this
+   one form's <p> (a full sentence), <label>, <input>, and <button> were
+   forced onto a single row — the input's own .typed-confirm-input rule
+   (flex: 1 1 100%; width: 100%) only fills a row it already has to
+   itself, and here it never got one; the flex-shrink algorithm split the
+   row's width across every sibling instead. Scoping the wrap to this one
+   details element, rather than editing the shared .clock-controls form
+   rule, keeps every other short (label+input+button, no <p>) confirm
+   form in .clock-controls on its existing single-row layout. */
+.draft-destructive-control form {
+  flex-wrap: wrap;
+}
+
+.draft-destructive-control form > p,
+.draft-destructive-control form > label {
+  flex: 1 1 100%;
 }

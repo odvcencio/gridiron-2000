@@ -137,13 +137,9 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					BIG BOARD
 				</span>
-				<h1>
-					RANK IT
-					<br></br>
-					YOUR WAY.
-				</h1>
+				<h1>Big Board</h1>
 				<p>
-					Private to this team seat and shared by its primary and co-manager. The draft room and autopick use this exact order when your team is on the clock.
+					<strong>Rank it your way.</strong> Private to this team seat and shared by its primary and co-manager. The draft room and autopick use this exact order when your team is on the clock.
 				</p>
 			</div>
 			<div class="draft-clock-panel">

@@ -301,7 +301,7 @@ func Page() Node {
 					</p>
 					<h1 class="display--hero">
 						{data.league.name}
-						<br></br>
+						{" "}
 						<span>{data.public_entry.headline}</span>
 					</h1>
 					<p class="hero-deck">

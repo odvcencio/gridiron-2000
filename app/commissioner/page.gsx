@@ -23,8 +23,8 @@ func FleetReadout(props FleetReadoutProps) Node {
 		<section class="draft-masthead commissioner-hq__masthead">
 			<div class="draft-masthead__copy">
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>COMMISSIONER HQ · READ ONLY</span>
-				<h1>EVERY LEAGUE.<br></br>ONE READOUT.</h1>
-				<p>One page for every league. Each league keeps its own record.<br></br>Every action stays on its owning league.</p>
+				<h1>Commissioner HQ</h1>
+				<p><strong>Every league. One readout.</strong> One page for every league. Each league keeps its own record.<br></br>Every action stays on its owning league.</p>
 			</div>
 			<If cond={props.IsCommissioner}>
 				<div class="draft-clock-panel commissioner-hq__fleet-total" aria-label="Fleet totals">

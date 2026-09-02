@@ -125,6 +125,36 @@ func TestRulesStateChecklistUsesTheCanonicalSevenTermFreshnessVocabulary(t *test
 	}
 }
 
+// TestTopicSummariesUseTheFreshnessVocabulary extends the ban above (wave
+// 6, second audit pass — rowan, item 8) to every topic's own Summary —
+// the exact string page.gsx's .help-topic-card renders and
+// _topic_id/page.server.go reuses as the topic's meta Description.
+// "lineups-locks-matchups-and-scoring" still read "read provisional
+// versus final scoring honestly" here even after the checklist fix above,
+// so a manager who followed a search result straight to the topic card,
+// or a search engine's own result snippet, still saw the stale term.
+func TestTopicSummariesUseTheFreshnessVocabulary(t *testing.T) {
+	for _, topic := range TopicCorpus() {
+		if strings.Contains(strings.ToLower(topic.Summary), "provisional") {
+			t.Errorf("topic %q summary still uses provisional instead of the freshness vocabulary: %q", topic.ID, topic.Summary)
+		}
+	}
+	lineups := TopicCorpus()
+	found := false
+	for _, topic := range lineups {
+		if topic.ID != "lineups-locks-matchups-and-scoring" {
+			continue
+		}
+		found = true
+		if !strings.Contains(topic.Summary, "AWAITING RELEASE") {
+			t.Errorf("lineups-locks-matchups-and-scoring summary omitted AWAITING RELEASE: %q", topic.Summary)
+		}
+	}
+	if !found {
+		t.Fatal("TopicCorpus has no lineups-locks-matchups-and-scoring topic")
+	}
+}
+
 func TestStateGuidanceCarriesEveryRecoveryField(t *testing.T) {
 	for _, state := range StateNames() {
 		got := Guidance("data-state-and-freshness", state)

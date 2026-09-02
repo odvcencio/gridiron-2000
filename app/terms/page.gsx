@@ -9,7 +9,7 @@ func Page() Node {
 		<p class="page-kicker">Commissioner edition · {data.league.season} season</p>
 		<h1>
 			HOUSE
-			<br></br>
+			{" "}
 			RULES.
 		</h1>
 		<section>

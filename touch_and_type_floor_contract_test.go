@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -75,6 +76,69 @@ func TestTouchAndTypeFloors(t *testing.T) {
 	}
 	if !strings.Contains(notificationCurrent[1], "font-size: var(--type-xs);") {
 		t.Errorf(".notification-choice__current font-size = %q, want var(--type-xs)", strings.TrimSpace(notificationCurrent[1]))
+	}
+}
+
+// subBodyTypeFloor is the same 13px (0.8125rem) sub-body floor
+// TestTouchAndTypeFloors already pins for .starter-cell__name small and
+// .notification-choice__current — var(--type-xs)'s own minimum, at its
+// default (non-compact) density.
+const subBodyTypeFloor = 0.8125
+
+// literalRemOrPxFontSize returns a declaration block's own literal
+// font-size value in rem (px divided by 16), and false if the block sets
+// no bare rem/px font-size (e.g. it uses a var() token instead, which this
+// helper cannot evaluate and TestTouchAndTypeFloors above already pins
+// per-token).
+func literalRemOrPxFontSize(declarations string) (float64, bool) {
+	match := regexp.MustCompile(`font-size:\s*([0-9.]+)(rem|px)`).FindStringSubmatch(declarations)
+	if match == nil {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(match[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	if match[2] == "px" {
+		value /= 16
+	}
+	return value, true
+}
+
+// TestMatchupsStateChipMeetsSubBodyTypeFloor covers wave-6 audit item 4
+// (second pass — rowan): .state-chip/.state (the LIVE/FINAL/etc. pill
+// rendered throughout /matchups, including inside .starter-cell__state)
+// set font-size: 0.6875rem (11px), under the 13px sub-body floor every
+// other small label in the app already holds. This asserts the winning
+// rule uses the shared var(--type-xs) token — never a literal value below
+// the floor — and that no font-size anywhere in the .state/.state-chip or
+// .starter-cell__state rule family regresses below it either.
+func TestMatchupsStateChipMeetsSubBodyTypeFloor(t *testing.T) {
+	styles, err := os.ReadFile("public/styles.css")
+	if err != nil {
+		t.Fatalf("read styles.css: %v", err)
+	}
+	css := string(styles)
+
+	stateChip := regexp.MustCompile(`(?s)\n\.state-chip,\n\.state \{([^}]*)\}`).FindStringSubmatch(css)
+	if stateChip == nil {
+		t.Fatal("no .state-chip, .state rule found")
+	}
+	if !strings.Contains(stateChip[1], "font-size: var(--type-xs);") {
+		t.Errorf(".state-chip, .state font-size = %q, want var(--type-xs)", strings.TrimSpace(stateChip[1]))
+	}
+
+	for _, selector := range []*regexp.Regexp{
+		regexp.MustCompile(`(?s)\n\.state-chip,\n\.state \{([^}]*)\}`),
+		regexp.MustCompile(`(?s)\n\.starter-cell__state \{([^}]*)\}`),
+		regexp.MustCompile(`(?s)\n\.matchups-page \.starter-cell__state \{([^}]*)\}`),
+		regexp.MustCompile(`(?s)\n\.starter-cell\[data-right="true"\] \.starter-cell__state \{([^}]*)\}`),
+	} {
+		for _, match := range selector.FindAllStringSubmatch(css, -1) {
+			if size, ok := literalRemOrPxFontSize(match[1]); ok && size < subBodyTypeFloor {
+				t.Errorf("rule %q sets a literal font-size of %vrem, below the %vrem sub-body floor", strings.TrimSpace(match[1]), size, subBodyTypeFloor)
+			}
+		}
 	}
 }
 

@@ -8,13 +8,9 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					TRADE DESK
 				</span>
-				<h1>
-					MAKE YOUR
-					<br></br>
-					MOVE.
-				</h1>
+				<h1>Trades</h1>
 				<p>
-					Propose, counter, and settle trades with the rest of the league. Every executed deal posts to the transaction feed.
+					<strong>Make your move.</strong> Propose, counter, and settle trades with the rest of the league. Every executed deal posts to the transaction feed.
 				</p>
 			</div>
 			<div class="draft-clock-panel">

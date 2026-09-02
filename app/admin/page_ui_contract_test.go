@@ -111,6 +111,43 @@ func TestTypedConfirmInputsAreNotWidthCappedByContainers(t *testing.T) {
 	}
 }
 
+// TestForceCurrentPickDisclosureRowsClaimFullWidth pins wave-6 audit item
+// 2 (second pass — rowan): the wave-2 fix above (.draft-destructive-
+// control { flex: 1 1 100%; }) widened the <details> element itself, but
+// .clock-controls form is display: inline-flex with no flex-wrap, so the
+// <p>, <label>, <input>, and <button> inside it kept crowding one another
+// onto a single line — #admin-force-current-pick-confirm still measured
+// 75px wide at 1366 for an 18-character phrase. .draft-destructive-
+// control form now wraps, and its own <p>/<label> each claim a full row,
+// leaving typed-confirm-input's existing width: 100% a whole row to fill.
+func TestForceCurrentPickDisclosureRowsClaimFullWidth(t *testing.T) {
+	css, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		".draft-destructive-control form {\n  flex-wrap: wrap;\n}",
+		".draft-destructive-control form > p,\n.draft-destructive-control form > label {\n  flex: 1 1 100%;\n}",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("force-current-pick disclosure row fix missing %q", want)
+		}
+	}
+
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(source)
+	if !strings.Contains(markup, `<details class="draft-destructive-control">`) {
+		t.Fatal("admin page no longer renders the force-current-pick disclosure this fix targets")
+	}
+	if !strings.Contains(markup, `id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input"`) {
+		t.Fatal("admin page no longer renders the typed-confirm input this fix targets")
+	}
+}
+
 // TestWeekCloseForceButtonIsMutedWithinItsShareGhostStyle pins gap-audit
 // item 9's ghost-style ask: FORCE CLOSE and force-run-waivers keep the
 // shared .button--ghost class (so /draft, /help, /login, /settings, and
