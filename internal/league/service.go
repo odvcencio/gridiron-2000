@@ -3767,6 +3767,7 @@ func (s *Service) leagueMap() map[string]any {
 // runs on the hot path of every route's layout render.
 func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]any {
 	items := make([]map[string]any, 0, 4)
+	tradesCount := 0
 	for _, offer := range state.TradeOffers {
 		if offer.Status != TradeStatusAccepted {
 			continue
@@ -3777,18 +3778,53 @@ func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]a
 			"route": "/trades#trade-" + offer.ID,
 			"label": "Accepted trade between " + from + " and " + to + " is in review",
 		})
+		tradesCount++
 	}
+	pickemCount := 0
 	if open := s.openPickemGameCount(state, now); open > 0 {
 		items = append(items, map[string]any{
 			"route": "/pickem",
 			"label": CountNoun(open, "open pick'em game") + " this week",
 		})
+		pickemCount = 1
 	}
 	return map[string]any{
 		"urgent_count": len(items),
 		"items":        items,
 		"has_items":    len(items) > 0,
+		// pickem_hot/trades_hot and their *_attention_text counterparts
+		// (build item 2, rail-dot leftover) are pre-shaped scalars, not a
+		// route-prefix filter over items, because app/layout.gsx's
+		// PrimaryNavigation is a legacy (non-island) GoSX component: the
+		// Phase 4 filter()/startsWith() expression forms only lower for
+		// //gosx:island bytecode (client/vm/vm.go), never for the
+		// server-rendered legacy runtime (transpile package has no opcode
+		// handling for them at all). Deriving the per-route hot flag and
+		// its screen-reader count text here, once, keeps layout.gsx a
+		// plain boolean/string prop read — the same shape every other
+		// PrimaryNavigationProps field already uses.
+		"pickem_hot":            pickemCount > 0,
+		"pickem_attention_text": attentionDotText(pickemCount),
+		"trades_hot":            tradesCount > 0,
+		"trades_attention_text": attentionDotText(tradesCount),
 	}
+}
+
+// attentionDotText renders the visually-hidden count text a hot rail dot
+// carries ("1 item needs attention" / "2 items need attention") — subject
+// and verb agreement together, which Plural alone (a noun-only helper)
+// cannot express, so this composes both from the same count. Empty for a
+// non-positive count: the caller only reads it when the matching *_hot
+// flag is true.
+func attentionDotText(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	verb := "needs"
+	if count != 1 {
+		verb = "need"
+	}
+	return fmt.Sprintf("%d %s %s attention", count, Plural(count, "item"), verb)
 }
 
 // openPickemGameCount counts this pick'em week's games that are still open

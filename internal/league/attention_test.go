@@ -82,6 +82,59 @@ func TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames(t *testing.T) {
 			t.Errorf("open (non-accepted) trade offer leaked into attention items: %#v", item)
 		}
 	}
+
+	// pickem_hot/trades_hot and their *_attention_text counterparts (build
+	// item 2, rail-dot leftover) are pre-shaped scalars app/layout.gsx's
+	// legacy PrimaryNavigation component reads directly — no route-prefix
+	// filter in the template. Both routes are hot here (one review trade,
+	// one open pick'em game), so both texts read the singular "1 item".
+	if attention["pickem_hot"] != true {
+		t.Fatalf("pickem_hot = %v, want true", attention["pickem_hot"])
+	}
+	if attention["pickem_attention_text"] != "1 item needs attention" {
+		t.Fatalf("pickem_attention_text = %q, want %q", attention["pickem_attention_text"], "1 item needs attention")
+	}
+	if attention["trades_hot"] != true {
+		t.Fatalf("trades_hot = %v, want true", attention["trades_hot"])
+	}
+	if attention["trades_attention_text"] != "1 item needs attention" {
+		t.Fatalf("trades_attention_text = %q, want %q", attention["trades_attention_text"], "1 item needs attention")
+	}
+}
+
+// TestAttentionMapTradesHotPluralizesAcrossMultipleAcceptedOffers proves
+// trades_attention_text agrees in both noun and verb once more than one
+// team has an accepted trade awaiting review — Plural alone only handles
+// the noun, so attentionDotText must carry the verb too.
+func TestAttentionMapTradesHotPluralizesAcrossMultipleAcceptedOffers(t *testing.T) {
+	svc := newTestService(t, false)
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	teamIDs := defaultTeamIDs()
+	if len(teamIDs) < 4 {
+		t.Fatal("fixture league needs at least four teams")
+	}
+	svc.SetScheduleSource(func() []GameInfo { return nil })
+	state := PersistedState{
+		TradeOffers: []TradeOffer{
+			{ID: "trd-a", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusAccepted},
+			{ID: "trd-b", FromTeamID: teamIDs[2], ToTeamID: teamIDs[3], Status: TradeStatusAccepted},
+		},
+	}
+
+	attention := svc.attentionMap(state, now)
+	if attention["trades_hot"] != true {
+		t.Fatalf("trades_hot = %v, want true", attention["trades_hot"])
+	}
+	if want := "2 items need attention"; attention["trades_attention_text"] != want {
+		t.Fatalf("trades_attention_text = %q, want %q", attention["trades_attention_text"], want)
+	}
+	// No open pick'em games in this fixture: the pickem dot must stay off.
+	if attention["pickem_hot"] != false {
+		t.Fatalf("pickem_hot = %v, want false", attention["pickem_hot"])
+	}
+	if attention["pickem_attention_text"] != "" {
+		t.Fatalf("pickem_attention_text = %q, want empty", attention["pickem_attention_text"])
+	}
 }
 
 // TestAttentionMapEmptyWhenNoUrgentFacts is the honest-empty-state
@@ -106,6 +159,12 @@ func TestAttentionMapEmptyWhenNoUrgentFacts(t *testing.T) {
 	if attention["has_items"] != false {
 		t.Fatalf("has_items = %v, want false", attention["has_items"])
 	}
+	if attention["pickem_hot"] != false || attention["trades_hot"] != false {
+		t.Fatalf("hot flags = pickem:%v trades:%v, want both false", attention["pickem_hot"], attention["trades_hot"])
+	}
+	if attention["pickem_attention_text"] != "" || attention["trades_attention_text"] != "" {
+		t.Fatalf("attention text = pickem:%q trades:%q, want both empty", attention["pickem_attention_text"], attention["trades_attention_text"])
+	}
 }
 
 // TestLeagueMapEmbedsAttention pins leagueMap's own composition: every
@@ -121,7 +180,10 @@ func TestLeagueMapEmbedsAttention(t *testing.T) {
 	if !ok {
 		t.Fatalf("leagueMap()[attention] = %#v, want map[string]any", got["attention"])
 	}
-	for _, key := range []string{"urgent_count", "items", "has_items"} {
+	for _, key := range []string{
+		"urgent_count", "items", "has_items",
+		"pickem_hot", "pickem_attention_text", "trades_hot", "trades_attention_text",
+	} {
 		if _, ok := attention[key]; !ok {
 			t.Errorf("leagueMap()[attention] missing key %q: %#v", key, attention)
 		}

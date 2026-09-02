@@ -125,6 +125,53 @@ func tradeMutationSuccess(ctx *action.Context, message string) error {
 	return nil
 }
 
+// tradesAttentionCount reads data["league"]["attention"]["items"] — the
+// league-wide urgent facts internal/league/service.go's leagueMap/
+// attentionMap already nests into every route's data map — and counts the
+// entries whose route names /trades: an accepted trade awaiting review
+// (attentionMap's "/trades#trade-<id>" item). Kept defensive: leagueMap's
+// "attention" key is a plain map[string]any, not a typed struct, so a
+// missing or reshaped key degrades to zero instead of panicking.
+func tradesAttentionCount(data map[string]any) int {
+	leagueMap, ok := data["league"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	attention, ok := leagueMap["attention"].(map[string]any)
+	if !ok {
+		return 0
+	}
+	items, ok := attention["items"].([]map[string]any)
+	if !ok {
+		return 0
+	}
+	count := 0
+	for _, item := range items {
+		if route, ok := item["route"].(string); ok && strings.HasPrefix(route, "/trades") {
+			count++
+		}
+	}
+	return count
+}
+
+// emptyInboxMessage is the /trades empty-inbox copy (leftover build item
+// 3): when the league has an accepted trade awaiting review and this
+// viewer's own inbox has no incoming offers, name the accepted trade
+// instead of the generic "nothing waiting" line — so a manager whose own
+// inbox is empty still learns that a review-window trade sits in the
+// Pending Review section below, rather than reading a blank "all clear"
+// that quietly hides league-wide activity.
+func emptyInboxMessage(reviewCount int) string {
+	if reviewCount == 0 {
+		return "Nothing waiting on your response right now."
+	}
+	verb := "is"
+	if reviewCount != 1 {
+		verb = "are"
+	}
+	return fmt.Sprintf("No new offers — %d accepted %s %s in review below.", reviewCount, league.Plural(reviewCount, "trade"), verb)
+}
+
 func tradeSelectOptions(options []league.TradeRosterOption, raw string) []league.TradeRosterOption {
 	selected := map[string]bool{}
 	for _, id := range strings.Split(raw, ",") {
@@ -186,6 +233,7 @@ func init() {
 			data := league.Default().TradesData(request)
 			data["trades_fragment_url"] = tradeFragmentURL(request)
 			data["trades_fragment_interval"] = tradesRegionInterval
+			data["empty_inbox_message"] = emptyInboxMessage(tradesAttentionCount(data))
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {

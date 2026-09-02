@@ -218,7 +218,7 @@ func TradeDeskRegion() Node {
 				<div class="empty-tape">
 					<strong>NO INCOMING OFFERS</strong>
 					<p>
-						Nothing waiting on your response right now.
+						{data.empty_inbox_message}
 					</p>
 				</div>
 			</If>

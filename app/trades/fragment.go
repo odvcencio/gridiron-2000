@@ -26,7 +26,16 @@ type tradesFragmentRenderer func(map[string]any, *http.Request) (string, error)
 func TradeDeskFragmentHandler(service *league.Service) http.Handler {
 	return tradesFragmentHandler(
 		tradesFragmentAccess(service),
-		func(request *http.Request) map[string]any { return service.TradesDataReadOnly(request) },
+		func(request *http.Request) map[string]any {
+			data := service.TradesDataReadOnly(request)
+			// The 4-second polled region reads TradeDeskRegion — the same
+			// page.gsx component the full page render uses — so it needs
+			// the same empty_inbox_message key page.server.go's Load sets
+			// (build item 3), or a refresh would silently drop the
+			// accepted-trade-in-review nudge on the next poll.
+			data["empty_inbox_message"] = emptyInboxMessage(tradesAttentionCount(data))
+			return data
+		},
 		tradesFragmentRender,
 	)
 }
