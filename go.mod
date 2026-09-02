@@ -3,6 +3,7 @@ module gridiron-2000
 go 1.26
 
 require (
+	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
 	github.com/gorilla/websocket v1.5.3
 	golang.org/x/image v0.38.0
@@ -15,7 +16,6 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
-	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-json-experiment/json v0.0.0-20260214004413-d219187c3433 // indirect
