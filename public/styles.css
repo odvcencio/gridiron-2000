@@ -12011,6 +12011,23 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   .avail-row__actions form button {
     width: 100%;
   }
+
+  /* Wave 7 item 1: a fourth phone tab, "Draft grid" (#tab-board), joins
+     Picks/Teams — a NEW selector rather than a textual edit to the
+     existing #tab-picks/#tab-teams :has() list at its own original site
+     above, so this addition cannot collide with a concurrent edit to
+     that list elsewhere in this stylesheet (the wave 4 — linden append
+     convention this file already established). Kept inside this SAME
+     phone/tablet media block, not a second one: shell_css_test.go's own
+     TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth locates this exact
+     block by the LAST match of its own opening query text anywhere in
+     this file (deliberately not spelled out here — see item 5's own
+     comment above, earlier in this same block, for why repeating it in
+     a comment would relocate that match). A second block after this one
+     would break that test the same way spelling the text out here would. */
+  .draft-shell:has(#tab-board:checked) .draft-pane--history {
+    display: flex;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -12472,4 +12489,245 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .draft-destructive-control form > p,
 .draft-destructive-control form > label {
   flex: 1 1 100%;
+}
+
+/* wave 7 — hazel ---------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention the "wave 6 — rowan" block above uses. Every selector below
+   is new; nothing above this comment is modified except where an inline
+   "wave 7 — hazel" comment elsewhere in the file says so (the phone-tab
+   reveal rule inside /draft's own phone/tablet media block, which had to
+   stay in that exact block for shell_css_test.go's own LastIndex-driven
+   check — see its own comment there). */
+
+/* Item 1: the mobile draft grid's "Jump to my picks" affordance
+   (DraftBoard, app/draft/page.gsx) — a full-width, 44px-tall link so it
+   clears the touch baseline at any width, sitting directly above the
+   scrollable grid. Momentum scrolling (-webkit-overflow-scrolling) on
+   the grid's own scroll container is unconditional, not phone-gated: it
+   is a no-op with a mouse/trackpad and only ever helps a touch scroll,
+   at any viewport width the Board view happens to render at. */
+.board-jump {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  margin: 0 var(--space-sm) var(--space-xs);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.draft-history__view--board {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* .board-grid__team's own scroll-margin-left keeps the sticky round-label
+   column (.board-grid__round, 6rem wide per .board-grid's own
+   grid-template-columns) from covering a jumped-to column's left edge —
+   scrollIntoView (the browser's own fragment-navigation algorithm, no JS)
+   honors scroll-margin the same way it honors scroll-padding on the
+   scroll container itself. */
+.board-grid__team {
+  scroll-margin-left: 6.5rem;
+}
+
+/* Item 4: /draft/results. .results-segment reuses the shared .segment/
+   .segment__option pill pair (the same Tape/Board/Teams look /draft's
+   own DraftHistoryHead uses) with one override: a 44px (2.75rem) touch
+   target on every option, since this page is read-only and offers no
+   other action to compensate the way /draft's own command bar and pick
+   rows do. A compound selector, not an edit to the shared .segment__
+   option rule itself, so no other segment elsewhere in this file
+   changes height. */
+.results-segment .segment__option {
+  min-height: 2.75rem;
+}
+
+.results-teams {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+}
+
+.results-team-card {
+  flex: 1 1 18rem;
+  min-width: 16rem;
+  max-height: 32rem;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  scroll-margin-top: var(--space-md);
+}
+
+.results-team-card[data-mine="true"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+/* The card's own head stays visible while its picks scroll beneath it —
+   useful even at desktop width for a long (many-round) draft, not only
+   inside the phone-width snap-scroll row below. */
+.results-team-card__head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-canvas);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.results-team-card__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.results-team-card__name small {
+  color: var(--color-text-muted);
+}
+
+.results-team-card__picks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.results-team-card__picks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-top: 1px solid var(--color-border);
+  min-height: 2.75rem;
+}
+
+.results-team-card__empty {
+  padding: var(--space-sm);
+  color: var(--color-text-muted);
+}
+
+.results-pick__label {
+  flex: 0 0 auto;
+  color: var(--color-text-secondary);
+}
+
+.results-pick__player {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results-pick__value {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+}
+
+/* Jump-to-a-team dots (item 4's own "dot/segment indicator"): plain
+   in-page anchors, no JS, each targeting one card's own id — a viewer
+   who has scrolled several cards deep into the snap-scroll row (below)
+   can still reach any other team in one tap. Decorative-looking but a
+   real navigation aid, unlike a passive :target-only dot row would be. */
+.results-team-dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-sm) 0;
+}
+
+.results-team-dot {
+  width: 1.25rem;
+  height: 1.25rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+}
+
+.results-team-dot::before {
+  content: "";
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--color-border-strong);
+}
+
+.results-team-dot:focus-visible {
+  outline: 2px solid var(--color-accent-cyan);
+}
+
+.results-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-sm) 0;
+}
+
+.results-round__head {
+  margin: 0 0 var(--space-xs);
+  font-family: var(--font-mono);
+  font-size: var(--type-sm);
+  letter-spacing: 0.04em;
+}
+
+.results-round__picks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.results-round__picks li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 2.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.results-round__picks li:first-child {
+  border-top: none;
+}
+
+.results-round__picks li[data-mine="true"] {
+  background: var(--color-accent-haze);
+}
+
+.results-board-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Phone width: the by-team view becomes a horizontal, snap-scrolled row
+   of cards instead of a wrapped flex grid — the standard CSS range
+   syntax ("width <=", not "max-width:") deliberately avoids repeating
+   the literal breakpoint text shell_css_test.go's own LastIndex check
+   keys off (that test's own comment, /draft's phone-tab reveal rule
+   above, explains why spelling it out would relocate that match). */
+@media (width <= 56.1875rem) {
+  .results-teams {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .results-team-card {
+    flex: 0 0 88vw;
+    scroll-snap-align: start;
+  }
 }

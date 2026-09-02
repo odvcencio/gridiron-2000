@@ -112,6 +112,29 @@ func TestActivityLineTradeReadsFromTheActingTeamsOwnPerspective(t *testing.T) {
 	}
 }
 
+// TestActivityMapsDraftRowCarriesRoundAndPick is wave 7's item 2: a
+// draft-pick row's own "player" label gains " — R# · P#" so the
+// /activity draft line reads "drafts Ja'Marr Chase (WR) — R1 · P1", never
+// just the bare name/position an add or drop row already carries.
+func TestActivityMapsDraftRowCarriesRoundAndPick(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.SetPlayerSource(func() ([]Player, int64, string) { return testPool(5), 1, "test" })
+	base := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	state := PersistedState{
+		Picks: []DraftPick{
+			{Number: 1, Round: 1, TeamID: "team-1", PlayerID: "pool-001", MadeAt: base},
+		},
+	}
+	rows := svc.activityMaps(state, 0)
+	if len(rows) != 1 {
+		t.Fatalf("len(rows) = %d, want 1", len(rows))
+	}
+	want := "Pool Player 001 (QB) — R1 · P1"
+	if rows[0]["player"] != want {
+		t.Fatalf("draft row player = %q, want %q", rows[0]["player"], want)
+	}
+}
+
 // TestActivityMapsOrderingAndLimit checks activityMaps merges Picks and
 // Transactions newest-first and honors the row limit (the dashboard's
 // "newest five" contract, section 8.4).

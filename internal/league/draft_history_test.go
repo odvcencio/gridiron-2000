@@ -2,7 +2,10 @@ package league
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func makePicks(t *testing.T, service *Service, count int) PersistedState {
@@ -62,6 +65,143 @@ func TestDraftLedgerIsAscendingAndUntinted(t *testing.T) {
 		if pick.PlayerName == "" || pick.TeamName == "" {
 			t.Fatalf("ledger[%d] missing identity: %+v", index, pick)
 		}
+	}
+}
+
+// TestDraftedByPlayerIDKeysEveryMadePickByPlayer is wave 7's item 2: the
+// shared helper playerMap's drafted parameter and /players' owner chip
+// both read (draftedByPlayerID) must return every made pick keyed by its
+// own PlayerID, and nothing for a player no pick has touched.
+func TestDraftedByPlayerIDKeysEveryMadePickByPlayer(t *testing.T) {
+	service, _, _ := newEventTestService(t)
+	teams := len(service.Teams())
+	state := makePicks(t, service, teams+1)
+	drafted := draftedByPlayerID(state)
+	if len(drafted) != teams+1 {
+		t.Fatalf("len(drafted) = %d, want %d", len(drafted), teams+1)
+	}
+	for _, pick := range state.Picks {
+		got, ok := drafted[pick.PlayerID]
+		if !ok {
+			t.Fatalf("drafted[%s] missing", pick.PlayerID)
+		}
+		if got.Number != pick.Number || got.Round != pick.Round || got.TeamID != pick.TeamID {
+			t.Fatalf("drafted[%s] = %+v, want %+v", pick.PlayerID, got, pick)
+		}
+	}
+	if _, ok := drafted["never-picked"]; ok {
+		t.Fatal("drafted must carry no entry for a player no pick has touched")
+	}
+}
+
+// TestViewerFirstPickTeaserAnswersTheEarliestPick is wave 7's item 3: the
+// home page's post-draft card teaser ("You opened with X at 1.01") reads
+// the SEATED viewer's own earliest pick, false before they have made
+// one, and false outright for a seatless viewer.
+func TestViewerFirstPickTeaserAnswersTheEarliestPick(t *testing.T) {
+	service, _, member := newEventTestService(t)
+	request := pickRequest(t, member.Email)
+
+	if _, _, has := service.ViewerFirstPickTeaser(request); has {
+		t.Fatal("hasPick must be false before the viewer's team has made any pick")
+	}
+
+	if _, _, _, err := service.MakePick(request, member.TeamID, "pool-001"); err != nil {
+		t.Fatal(err)
+	}
+	name, label, has := service.ViewerFirstPickTeaser(request)
+	if !has {
+		t.Fatal("hasPick must be true once the viewer's team has made a pick")
+	}
+	if label != "1.01" {
+		t.Fatalf("label = %q, want %q (first pick of a snake draft)", label, "1.01")
+	}
+	pool := service.pool()
+	if want := pool.byID["pool-001"].Name; name != want {
+		t.Fatalf("playerName = %q, want %q", name, want)
+	}
+
+	// A later pick from someone else's seat never overwrites the
+	// viewer's own FIRST pick.
+	state := service.store.Snapshot()
+	otherTeam := state.DraftOrder[1]
+	if _, err := service.store.MakePick(otherTeam, "pool-002", "manager", service.clock(), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	name2, label2, has2 := service.ViewerFirstPickTeaser(request)
+	if !has2 || name2 != name || label2 != label {
+		t.Fatalf("teaser changed after another team's pick: got %q/%q/%v, want %q/%q/true", name2, label2, has2, name, label)
+	}
+
+	// A seatless (unauthenticated) request answers false, never a stale
+	// or borrowed team's pick.
+	seatless := httptest.NewRequest(http.MethodGet, "/", nil)
+	if _, _, has := service.ViewerFirstPickTeaser(seatless); has {
+		t.Fatal("hasPick must be false for a seatless viewer")
+	}
+}
+
+// TestLeagueMapCarriesDraftComplete is wave 7's item 6: leagueMap's own
+// "draft_complete" field is the one fact app/layout.gsx's PrimaryNavigation
+// needs to gate the "Draft results" nav destination — false before the
+// draft finishes, true once every pick is locked, read off the SAME
+// map every page's own data function already includes (leagueMap's own
+// doc comment).
+func TestLeagueMapCarriesDraftComplete(t *testing.T) {
+	service, _, _ := newEventTestService(t)
+	teams := len(service.Teams())
+	if got := service.leagueMap()["draft_complete"]; got != false {
+		t.Fatalf("draft_complete = %v before any pick, want false", got)
+	}
+	makePicks(t, service, teams*CurrentDraftRounds())
+	if got := service.leagueMap()["draft_complete"]; got != true {
+		t.Fatalf("draft_complete = %v after every pick, want true", got)
+	}
+}
+
+// TestDraftResultsDataCarriesHistoryAndHeaderFacts is wave 7's item 4:
+// /draft/results' own backing data — the full DraftHistoryView, the
+// viewer's own team id (only once seated), and the draft's own round/
+// team counts.
+func TestDraftResultsDataCarriesHistoryAndHeaderFacts(t *testing.T) {
+	service, _, member := newEventTestService(t)
+	teams := len(service.Teams())
+	state := makePicks(t, service, teams+1)
+	request := pickRequest(t, member.Email)
+
+	data := service.DraftResultsData(request)
+	history, ok := data["history"].(DraftHistoryView)
+	if !ok {
+		t.Fatal("data[\"history\"] is not a DraftHistoryView")
+	}
+	if len(history.Picks) != teams+1 {
+		t.Fatalf("history.Picks length = %d, want %d", len(history.Picks), teams+1)
+	}
+	if data["viewer_team_id"] != member.TeamID {
+		t.Fatalf("viewer_team_id = %v, want %s (the seated member's own team)", data["viewer_team_id"], member.TeamID)
+	}
+	if data["team_count"] != teams {
+		t.Fatalf("team_count = %v, want %d", data["team_count"], teams)
+	}
+	if data["rounds"] != CurrentDraftRounds() {
+		t.Fatalf("rounds = %v, want %d", data["rounds"], CurrentDraftRounds())
+	}
+	wantComplete := draftComplete(state)
+	if data["complete"] != wantComplete {
+		t.Fatalf("complete = %v, want %v", data["complete"], wantComplete)
+	}
+	for _, key := range []string{"long_date", "time", "timezone"} {
+		if s, ok := data[key].(string); !ok || s == "" {
+			t.Errorf("data[%q] = %v, want a non-empty string", key, data[key])
+		}
+	}
+
+	// A seatless request answers "" for viewer_team_id, never a borrowed
+	// placeholder team (ViewerFirstPickTeaser's own doc comment explains
+	// why viewerReadOnly's raw team_id is not enough on its own).
+	seatless := httptest.NewRequest(http.MethodGet, "/draft/results", nil)
+	if seatlessData := service.DraftResultsData(seatless); seatlessData["viewer_team_id"] != "" {
+		t.Fatalf("seatless viewer_team_id = %v, want \"\"", seatlessData["viewer_team_id"])
 	}
 }
 

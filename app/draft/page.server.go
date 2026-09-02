@@ -395,6 +395,9 @@ type draftBoardView struct {
 	Columns     []map[string]any
 	Rows        []draftBoardRowView
 	ColumnCount string
+	// HasMine/MineID: see page.gsx's BoardView doc comment.
+	HasMine bool
+	MineID  string
 }
 
 // draftBoardTeamView mirrors page.gsx's DraftBoardTeam.
@@ -608,7 +611,19 @@ func boardRowsProps(rows []league.BoardRow) []draftBoardRowView {
 }
 
 func boardViewProps(board league.BoardView) draftBoardView {
-	return draftBoardView{Columns: board.Columns, Rows: boardRowsProps(board.Rows), ColumnCount: strconv.Itoa(len(board.Columns))}
+	hasMine := false
+	mineID := ""
+	for _, column := range board.Columns {
+		if mine, _ := column["mine"].(bool); mine {
+			hasMine = true
+			mineID, _ = column["id"].(string)
+			break
+		}
+	}
+	return draftBoardView{
+		Columns: board.Columns, Rows: boardRowsProps(board.Rows), ColumnCount: strconv.Itoa(len(board.Columns)),
+		HasMine: hasMine, MineID: mineID,
+	}
 }
 
 func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
