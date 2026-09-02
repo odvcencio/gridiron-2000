@@ -210,6 +210,63 @@ func TestBrowserDraftPillLandscape844x390(t *testing.T) {
 	}
 }
 
+// TestBrowserDraftPillCaretMeetsTouchFloorAndOpensSheet is the decisive
+// browser check for wave-7 re-audit item 2 (yew): the pill's own ▾ toggle
+// (.draft-command__pill-caret, a <summary>) is the ONLY way to reach the
+// sheet behind it (sound, League, autopick, force-pick), but pre-fix it
+// measured 8.8px wide (44px tall) — the mobile touch-floor's own generic
+// .site-frame summary rule zeroes min-width by design, and nothing
+// re-asserted it for this one selector, so the box sized to its bare "▾"
+// glyph alone. This checks the rendered box directly (not just that a
+// click eventually works, which TestBrowserDraftPillCollapsesCommandBarAt390
+// and this test both also prove) at both the portrait and landscape phone
+// viewports the audit's own re-check ran.
+func TestBrowserDraftPillCaretMeetsTouchFloorAndOpensSheet(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	for _, viewport := range []struct {
+		name          string
+		width, height int64
+	}{
+		{"390x844", 390, 844},
+		{"844x390", 844, 390},
+	} {
+		t.Run(viewport.name, func(t *testing.T) {
+			child, league, ctx := startBrowserDraft(t)
+			viewer := league.bots[len(league.bots)-1]
+			signInAsManagerAtViewport(t, ctx, child, viewer, viewport.width, viewport.height)
+
+			caret := elementBoundingRect(t, ctx, ".draft-command__pill-caret")
+			if caret.Width < 44-touchFloorTolerance {
+				t.Errorf(".draft-command__pill-caret width = %.1fpx at %s, want >= 44px", caret.Width, viewport.name)
+			}
+			if caret.Height < 44-touchFloorTolerance {
+				t.Errorf(".draft-command__pill-caret height = %.1fpx at %s, want >= 44px", caret.Height, viewport.name)
+			}
+
+			// The visible "MENU" label (page.gsx) both widens the target
+			// and doubles as its accessible name — no separate aria-label
+			// remains on the summary.
+			var labelText string
+			if err := chromedp.Run(ctx, chromedp.Text(".draft-command__pill-caret-label", &labelText, chromedp.ByQuery)); err != nil {
+				t.Fatalf(".draft-command__pill-caret-label not found at %s: %v", viewport.name, err)
+			}
+			if strings.TrimSpace(labelText) != "MENU" {
+				t.Errorf(".draft-command__pill-caret-label text = %q at %s, want \"MENU\"", labelText, viewport.name)
+			}
+
+			if err := chromedp.Run(ctx, chromedp.Click(`.draft-command__pill-caret`, chromedp.ByQuery)); err != nil {
+				t.Fatalf("tap the pill's caret at %s: %v", viewport.name, err)
+			}
+			sheet := elementBoundingRect(t, ctx, ".draft-command__sheet")
+			if sheet.Height <= 0 {
+				t.Errorf("the pill sheet did not open (zero height) after tapping the caret at %s", viewport.name)
+			}
+		})
+	}
+}
+
 // TestBrowserDraftTabLabelsFitOneLineAt360To430 is wave 7b item 2's own
 // decisive check: with the League trigger moved into the pill sheet
 // (item 1), the bottom tab bar is back to 5 equal-width (flex: 1 1 0)

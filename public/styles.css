@@ -10008,6 +10008,24 @@ body.is-on-clock .draft-clock-panel {
     min-inline-size: 2.75rem;
   }
 
+  /* Item 2 (wave-7 re-audit — yew): same re-assert as the two rules just
+     above. The draft pill's own ▾ toggle (.draft-command__pill-caret, a
+     <summary>) is the ONLY way to reach the pill sheet (sound, League,
+     autopick, force-pick) on a phone — but the generic .site-frame
+     summary rule above zeroes its min-width by design, and its own
+     min-height alone (both rules agree on 2.75rem) is not enough: with
+     no floor on the other axis, a single-glyph summary sized to its own
+     content, measuring 8.8px wide pre-fix. #main-content's ID
+     specificity beats the generic rule's five :not() exclusions
+     regardless of source order, so this wins honestly with no
+     !important. (page.gsx also gives the toggle a visible "MENU" label
+     alongside the glyph, so the wider floor here is a true minimum, not
+     the rendered width — see .draft-command__pill-caret-label below.) */
+  .site-frame #main-content .draft-command__pill-caret {
+    min-width: 2.75rem;
+    min-inline-size: 2.75rem;
+  }
+
   /* GoSX owns pointer and keyboard reorder gestures. Keep its handle
      tappable after the mobile flex recipe changes the board row layout.
      No touch-action declaration here on purpose: prepareReorderHandle
@@ -13883,11 +13901,24 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     min-width: 0;
   }
 
-  /* Same reasoning as .draft-command__pick above: the existing strong/
-     small pair hides in favor of .draft-command__pill-status, a new
-     sibling span carrying the SAME onclock.name live-bind key (proven
-     safe to bind twice; room.managers already does, .draft-command__room
-     below). */
+  /* Same reasoning as .draft-command__pick above: the existing idx/
+     strong/small trio hides in favor of .draft-command__pill-status, a
+     new sibling span carrying the SAME onclock.name live-bind key
+     (proven safe to bind twice; room.managers already does,
+     .draft-command__room below) and already ellipsis-protected
+     (overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+     below) against any width this flex row hands it. Item 2 (wave-7
+     re-audit — yew) added .idx to this hide list: .idx itself carries no
+     such overflow protection (the shared .draft-shell .idx rule is
+     color/font only), so once the pill toggle's own fix widened its
+     sibling caret from 8.8px to a real 44px+ target, .draft-command__team
+     shrank enough that the bare "On the clock"/"You are on the clock"
+     idx text WRAPPED onto multiple lines instead of eliding, growing
+     .draft-command__pill-row well past its own 76px bound (measured
+     93.2px) — pill-status already says the identical thing ("ON CLOCK:
+     <name>"/"YOU’RE UP") on one guaranteed line, so the idx line was
+     redundant here even before this fix. */
+  .draft-command__team > .idx,
   .draft-command__team > strong,
   .draft-command__team > small {
     display: none;
@@ -13930,18 +13961,38 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   /* list-style/marker-hiding mirrors .stat-tip__summary's own established
      shape (above, this file) — a <details>/<summary> pair used as a
      trigger, not a native expand/collapse affordance the browser draws
-     its own disclosure triangle for. */
+     its own disclosure triangle for.
+     Item 2 (wave-7 re-audit — yew): this was the ONLY way to reach the
+     pill sheet (sound, League, autopick, force-pick), but the ▾ glyph
+     alone rendered 8.8px wide — the generic mobile touch-floor rule
+     (public/styles.css, "Mobile interaction baseline") zeroes min-width
+     on every .site-frame summary by design (most controls rely on their
+     own content width) and, at (0,6,1) specificity from its five :not()
+     exclusions, always beat this rule's own min-width: 2.75rem below
+     regardless of source order — only min-height (2.75rem on both rules,
+     so no conflict there) actually held. The #main-content re-assert
+     above fixes the floor honestly; padding-inline plus the new visible
+     "MENU" label (page.gsx) plus gap now give the toggle a real, legible
+     width well past that floor rather than a bare glyph on a wide-but-
+     unlabeled hit box. */
   .draft-command__pill-caret {
     display: flex;
     align-items: center;
     justify-content: center;
+    gap: 0.3rem;
     min-width: 2.75rem;
     min-height: 2.75rem;
+    padding-inline: 0.65rem;
     list-style: none;
     cursor: pointer;
     color: var(--color-text-secondary);
     font-size: var(--type-md);
     touch-action: manipulation;
+  }
+
+  .draft-command__pill-caret-label {
+    font-size: var(--type-xs);
+    letter-spacing: 0.02em;
   }
 
   .draft-command__pill-caret::-webkit-details-marker,

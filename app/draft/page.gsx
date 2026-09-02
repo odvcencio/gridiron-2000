@@ -1182,7 +1182,18 @@ type DraftHistoryHeadProps struct {
 //     controls) stays exactly as it renders today; only its VISIBILITY at
 //     phone width changes (display: none there, unchanged everywhere
 //     else), the sheet taking its place instead of hiding its content
-//     outright.
+//     outright. Item 2 (wave-7 re-audit — yew): the <summary> itself
+//     carries a visible "MENU" label beside the ▾ glyph, not the glyph
+//     alone — a bare glyph is the whole hit target's own content, so it
+//     rendered only as wide as one character (8.8px measured pre-fix)
+//     even with its own min-height already holding at 2.75rem (the
+//     generic mobile touch-floor rule for .site-frame summary zeroes
+//     min-width by design; public/styles.css re-asserts it for this one
+//     selector the same way it already does for the pool-pagination and
+//     lineup-week-form controls). The visible label also becomes the
+//     accessible name directly (no separate aria-label needed), so
+//     WCAG 2.5.3 Label in Name holds trivially — the spoken name and the
+//     printed label are the identical string.
 //   - .draft-command__pill-row: a new wrapper around .draft-command__pick,
 //     __turn, __clock, and __pill-toggle only (never __room, which stays
 //     a direct sibling in its original desktop grid slot). display:
@@ -1266,7 +1277,10 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			</If>
 		</div>
 		<details class="draft-command__pill-toggle">
-			<summary class="draft-command__pill-caret" aria-label="Show draft room controls" aria-controls="draft-command-sheet">▾</summary>
+			<summary class="draft-command__pill-caret" aria-controls="draft-command-sheet">
+				<span class="draft-command__pill-caret-label mono">MENU</span>
+				<span aria-hidden="true">▾</span>
+			</summary>
 			<div class="draft-command__sheet" id="draft-command-sheet">
 				<div class="draft-command__sheet-room mono">
 					<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready
