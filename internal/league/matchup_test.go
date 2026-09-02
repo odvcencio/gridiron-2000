@@ -37,6 +37,24 @@ func TestOpponentInWeekByeReturnsNotOK(t *testing.T) {
 	}
 }
 
+// TestOpponentInWeekNormalizesTank01Abbreviations is item 2's own
+// regression test (2026-08-31 post-wave audit): a Tank01-sourced "LAR"
+// player must resolve against an nflverse-normalized "LA" schedule entry
+// — teamHasGame/playerLockAt's own fix, applied here too — so /team,
+// /players, and /board render that player's opponent, kickoff, and
+// matchup-difficulty chip instead of a bare name with none of the three.
+func TestOpponentInWeekNormalizesTank01Abbreviations(t *testing.T) {
+	games := []GameInfo{{Week: 1, Home: "LA", Away: "SF"}} // nflverse-normalized
+	opp, home, ok := opponentInWeek(games, "LAR", 1)       // Tank01-style
+	if !ok || opp != "SF" || !home {
+		t.Fatalf("LAR week 1 = (%q, home=%v, ok=%v), want (SF, true, true)", opp, home, ok)
+	}
+	opp, home, ok = opponentInWeek(games, "lar", 1) // case-insensitive too
+	if !ok || opp != "SF" || !home {
+		t.Fatalf("lar week 1 = (%q, home=%v, ok=%v), want (SF, true, true)", opp, home, ok)
+	}
+}
+
 func TestOpponentInSlateResolvesHomeAndAway(t *testing.T) {
 	games := []BlitzGame{{Home: "LV", Away: "HOU"}}
 	opp, home, ok := opponentInSlate(games, "hou")

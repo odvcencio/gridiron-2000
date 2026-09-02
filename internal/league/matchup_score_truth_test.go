@@ -225,6 +225,30 @@ func TestTeamHasGameNormalizesTank01Abbreviations(t *testing.T) {
 	}
 }
 
+// TestStarterGameStateNormalizesTank01Abbreviations is item 2's own
+// regression test (2026-08-31 post-wave audit): a LAR player's game clock
+// (the kickoff-time/live-clock text /team, /players, and /board render
+// beside the opponent) must resolve against an nflverse-normalized "LA"
+// schedule entry, the same normalization teamHasGame already applies
+// (TestTeamHasGameNormalizesTank01Abbreviations, above) but
+// starterGameState/starterGameNotStarted did not.
+func TestStarterGameStateNormalizesTank01Abbreviations(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	location := time.UTC
+	kickoff := now.Add(2 * time.Hour)
+	player := Player{NFLTeam: "LAR"} // Tank01-style abbreviation, real pool shape
+	snapshot := matchupStatsSnapshot{
+		games: []GameInfo{{Away: "LA", Home: "SF", Week: 1, Kickoff: kickoff}}, // nflverse-normalized
+	}
+	want := strings.ToUpper(kickoff.In(location).Format("Mon 3:04 PM"))
+	if got := starterGameState(player, 1, snapshot, location); got != want {
+		t.Fatalf("starterGameState(LAR) = %q, want %q (schedule carries LA, not LAR)", got, want)
+	}
+	if !starterGameNotStarted("LAR", snapshot, now) {
+		t.Fatalf("starterGameNotStarted(LAR) = false, want true (kickoff is 2h in the future)")
+	}
+}
+
 // TestStarterGameStateRendersBYEOnlyForATrueBye covers the "no BYE chip"
 // half of residual N1 (review of eb549b6): starterGameState must not
 // render "BYE" for a starter whose ByeWeek happens to equal week when

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,72 @@ func TestPlayersFragmentContract(t *testing.T) {
 	}
 	if !strings.Contains(string(fragment), "PlayersDataReadOnly") {
 		t.Fatal("players fragment does not use the read-only service projection")
+	}
+}
+
+// TestPlayersPageRendersRehearsalModeDisclosure is item 13's own
+// regression test (coordinator-added, 2026-09-01 post-wave audit):
+// /players had no REHEARSAL MODE disclosure for an anonymous demo
+// visitor, unlike /team, /admin, and /draft. page.gsx must gate one on
+// data.viewer.demo, matching /team's exact key and wording.
+func TestPlayersPageRendersRehearsalModeDisclosure(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageSource := string(source)
+	for _, want := range []string{
+		`<If cond={data.viewer.demo}>`,
+		`<strong>REHEARSAL MODE:</strong>`,
+		"the console is open to everyone while demo mode is on.",
+	} {
+		if !strings.Contains(pageSource, want) {
+			t.Errorf("players page missing rehearsal-mode disclosure %q", want)
+		}
+	}
+}
+
+// TestWaiverDeskExplainerMatchesBetweenServerRenderAndFragment is item
+// 10's own regression test (2026-08-31 post-wave audit): Page()'s full
+// initial render and WaiverDeskRegion's 4s-interval fragment each carry
+// their own hand-duplicated copy of the "waiver-desk-explainer"
+// paragraph (page.gsx) — before this fix they read different sentences
+// ("controls which requests run first" in the fragment vs "controls
+// which of your requests runs first" in the full page), so a manager
+// watching the panel refresh saw the explanation change under them. Both
+// occurrences must be byte-for-byte identical.
+func TestWaiverDeskExplainerMatchesBetweenServerRenderAndFragment(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pattern := regexp.MustCompile(`<p class="scoring-note waiver-desk-explainer">([\s\S]*?)</p>`)
+	matches := pattern.FindAllStringSubmatch(string(source), -1)
+	if len(matches) != 2 {
+		t.Fatalf("found %d waiver-desk-explainer paragraphs, want exactly 2 (Page() and WaiverDeskRegion())", len(matches))
+	}
+	// normalize collapses whitespace runs to one space, then drops any
+	// space directly touching a tag boundary (<...> / </...>): pretty-
+	// printed markup and its minified duplicate can legitimately differ
+	// in ONLY that source-formatting whitespace (a newline before <If>
+	// versus none) without differing in rendered text, since the
+	// meaningful word-separating space already lives inside the <If> tag
+	// itself in both copies. Only a real wording difference should fail
+	// this check.
+	whitespace := regexp.MustCompile(`\s+`)
+	tagBoundary := regexp.MustCompile(`\s*(<[^>]*>)\s*`)
+	normalize := func(text string) string {
+		text = whitespace.ReplaceAllString(text, " ")
+		text = tagBoundary.ReplaceAllString(text, "$1")
+		return strings.TrimSpace(text)
+	}
+	first := normalize(matches[0][1])
+	second := normalize(matches[1][1])
+	if first != second {
+		t.Fatalf("waiver-desk-explainer text diverged between the server render and the fragment:\n  Page():           %q\n  WaiverDeskRegion: %q", first, second)
+	}
+	if !strings.Contains(first, "controls which of your requests runs first") {
+		t.Fatalf("waiver-desk-explainer = %q, want the \"of your requests\" phrasing in both", first)
 	}
 }
 

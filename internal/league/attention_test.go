@@ -1,19 +1,24 @@
 package league
 
 import (
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 )
 
-// TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames is gap-audit
-// item 6's data contract: leagueMap's "attention" key must list an accepted
-// (review-pending) trade and this week's still-open pick'em games — the
-// same underlying facts that put those two tasks on the home Action
-// Center — so the shared chrome chip and the home page never disagree.
-// An open (not yet accepted) trade offer must NOT appear: only an
-// AcceptedReview trade is a review-pending task anyone else must act on.
-func TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames(t *testing.T) {
+// TestAttentionMapDerivesFromOpenAndAcceptedTradesAndOpenPickemGames is
+// gap-audit item 6's data contract, updated by item 5(a)/(b) (2026-08-31
+// post-wave audit): leagueMap's "attention" key must list an OPEN
+// (awaiting a response) trade offer, an ACCEPTED (review-pending) trade,
+// and this week's still-open pick'em games — the same underlying facts
+// that put those tasks on the home Action Center (tradeActions/
+// pickemActions, hq.go), so the shared chrome chip and the home page
+// never silently disagree. Before item 5(b)'s fix, an open offer never
+// appeared here even though it already drove the Action Center's own
+// "Review incoming trade" task — the field report's "2 vs 3" chip/panel
+// mismatch.
+func TestAttentionMapDerivesFromOpenAndAcceptedTradesAndOpenPickemGames(t *testing.T) {
 	svc := newTestService(t, false)
 	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
 	teamIDs := defaultTeamIDs()
@@ -45,22 +50,27 @@ func TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames(t *testing.T) {
 	if attention["has_items"] != true {
 		t.Fatalf("has_items = %v, want true", attention["has_items"])
 	}
-	if len(items) != 2 {
-		t.Fatalf("items = %#v, want exactly 2 (one review trade, one open-pickem summary)", items)
+	if len(items) != 3 {
+		t.Fatalf("items = %#v, want exactly 3 (one open trade, one review trade, one open-pickem summary)", items)
 	}
 
 	fromName, toName := svc.teamByID(fromID).Name, svc.teamByID(toID).Name
-	var sawTrade, sawPickem bool
+	var sawOpenTrade, sawReviewTrade, sawPickem bool
 	for _, item := range items {
 		route, _ := item["route"].(string)
 		label, _ := item["label"].(string)
-		switch {
-		case route == "/trades#trade-trd-review":
-			sawTrade = true
+		switch route {
+		case "/trades#trade-trd-review":
+			sawReviewTrade = true
 			if !strings.Contains(label, fromName) || !strings.Contains(label, toName) {
-				t.Errorf("trade item label %q does not name both %q and %q", label, fromName, toName)
+				t.Errorf("review trade item label %q does not name both %q and %q", label, fromName, toName)
 			}
-		case route == "/pickem":
+		case "/trades#trade-trd-open":
+			sawOpenTrade = true
+			if !strings.Contains(label, fromName) || !strings.Contains(label, toName) {
+				t.Errorf("open trade item label %q does not name both %q and %q", label, fromName, toName)
+			}
+		case "/pickem":
 			sawPickem = true
 			if !strings.Contains(label, "1 open pick'em game") {
 				t.Errorf("pickem item label = %q, want a 1-open-game count", label)
@@ -69,25 +79,20 @@ func TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames(t *testing.T) {
 			t.Errorf("unexpected attention item: %#v", item)
 		}
 	}
-	if !sawTrade {
+	if !sawOpenTrade {
+		t.Error("attention items missing the open-trade-offer entry")
+	}
+	if !sawReviewTrade {
 		t.Error("attention items missing the accepted-trade-in-review entry")
 	}
 	if !sawPickem {
 		t.Error("attention items missing the open-pickem-games entry")
 	}
 
-	// An open (not yet accepted) offer must never surface as a review task.
-	for _, item := range items {
-		if route, _ := item["route"].(string); route == "/trades#trade-trd-open" {
-			t.Errorf("open (non-accepted) trade offer leaked into attention items: %#v", item)
-		}
-	}
-
 	// pickem_hot/trades_hot and their *_attention_text counterparts (build
 	// item 2, rail-dot leftover) are pre-shaped scalars app/layout.gsx's
 	// legacy PrimaryNavigation component reads directly — no route-prefix
-	// filter in the template. Both routes are hot here (one review trade,
-	// one open pick'em game), so both texts read the singular "1 item".
+	// filter in the template. Trades carries two items now (open + review).
 	if attention["pickem_hot"] != true {
 		t.Fatalf("pickem_hot = %v, want true", attention["pickem_hot"])
 	}
@@ -97,8 +102,11 @@ func TestAttentionMapDerivesFromAcceptedTradesAndOpenPickemGames(t *testing.T) {
 	if attention["trades_hot"] != true {
 		t.Fatalf("trades_hot = %v, want true", attention["trades_hot"])
 	}
-	if attention["trades_attention_text"] != "1 item needs attention" {
-		t.Fatalf("trades_attention_text = %q, want %q", attention["trades_attention_text"], "1 item needs attention")
+	if want := "2 items need attention"; attention["trades_attention_text"] != want {
+		t.Fatalf("trades_attention_text = %q, want %q", attention["trades_attention_text"], want)
+	}
+	if want := "3 items need attention in the Action Center"; attention["chip_label"] != want {
+		t.Fatalf("chip_label = %q, want %q", attention["chip_label"], want)
 	}
 }
 
@@ -165,6 +173,46 @@ func TestAttentionMapEmptyWhenNoUrgentFacts(t *testing.T) {
 	if attention["pickem_attention_text"] != "" || attention["trades_attention_text"] != "" {
 		t.Fatalf("attention text = pickem:%q trades:%q, want both empty", attention["pickem_attention_text"], attention["trades_attention_text"])
 	}
+	if attention["chip_label"] != "" {
+		t.Fatalf("chip_label = %q, want empty when there are no items", attention["chip_label"])
+	}
+}
+
+// TestAttentionChipLabelPluralizesCorrectly is item 5(c)'s own regression
+// test (2026-08-31 post-wave audit): app/layout.gsx used to build its
+// rail-head/mobile-bar chip aria-label by concatenating
+// data.league.attention.urgent_count + " items need attention in the
+// Action Center" directly — always plural, so a single item read "1 items
+// need attention...". attention.chip_label now carries the whole,
+// correctly pluralized string; hickory (app/layout.gsx) reads this key
+// instead of concatenating.
+func TestAttentionChipLabelPluralizesCorrectly(t *testing.T) {
+	svc := newTestService(t, false)
+	now := time.Date(2026, 9, 14, 12, 0, 0, 0, time.UTC)
+	teamIDs := defaultTeamIDs()
+	if len(teamIDs) < 2 {
+		t.Fatal("fixture league needs at least two teams")
+	}
+	svc.SetScheduleSource(func() []GameInfo { return nil })
+
+	// One item: singular "item"/"needs".
+	single := svc.attentionMap(PersistedState{
+		TradeOffers: []TradeOffer{{ID: "trd-a", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusAccepted}},
+	}, now)
+	if want := "1 item needs attention in the Action Center"; single["chip_label"] != want {
+		t.Fatalf("chip_label (1 item) = %q, want %q", single["chip_label"], want)
+	}
+
+	// Two items: plural "items"/"need".
+	double := svc.attentionMap(PersistedState{
+		TradeOffers: []TradeOffer{
+			{ID: "trd-a", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusAccepted},
+			{ID: "trd-b", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusOpen},
+		},
+	}, now)
+	if want := "2 items need attention in the Action Center"; double["chip_label"] != want {
+		t.Fatalf("chip_label (2 items) = %q, want %q", double["chip_label"], want)
+	}
 }
 
 // TestLeagueMapEmbedsAttention pins leagueMap's own composition: every
@@ -181,11 +229,58 @@ func TestLeagueMapEmbedsAttention(t *testing.T) {
 		t.Fatalf("leagueMap()[attention] = %#v, want map[string]any", got["attention"])
 	}
 	for _, key := range []string{
-		"urgent_count", "items", "has_items",
+		"urgent_count", "items", "has_items", "chip_label",
 		"pickem_hot", "pickem_attention_text", "trades_hot", "trades_attention_text",
 	} {
 		if _, ok := attention[key]; !ok {
 			t.Errorf("leagueMap()[attention] missing key %q: %#v", key, attention)
 		}
+	}
+}
+
+// TestLeagueMapForViewerSuppressesAttentionForAnonymousDemoViewer is item
+// 5(d)'s own regression test (2026-08-31 post-wave audit): Viewer's own
+// "has_seat": s.demoMode (service.go) lets any unauthenticated visitor to
+// a demo-mode league act as team-1 for interactive purposes, and
+// app/layout.gsx gates the attention chip on has_seat — so a pure,
+// unauthenticated demo spectator (managing nothing) used to see the chip
+// anyway, naming trades and pick'em games that belong to the real seated
+// managers. leagueMapForViewer must read attention as the honest empty
+// shape for that one case, and must NOT touch it for a real (non-demo)
+// league or for a genuinely signed-in viewer even in demo mode.
+func TestLeagueMapForViewerSuppressesAttentionForAnonymousDemoViewer(t *testing.T) {
+	teamIDs := defaultTeamIDs()
+	if len(teamIDs) < 2 {
+		t.Fatal("fixture league needs at least two teams")
+	}
+	urgentState := func(svc *Service) {
+		svc.SetScheduleSource(func() []GameInfo { return nil })
+		svc.store.state.TradeOffers = []TradeOffer{
+			{ID: "trd-demo", FromTeamID: teamIDs[0], ToTeamID: teamIDs[1], Status: TradeStatusAccepted},
+		}
+	}
+
+	demo := newTestService(t, true)
+	urgentState(demo)
+	anonymous := httptest.NewRequest("GET", "/", nil)
+	got := demo.leagueMapForViewer(anonymous)
+	attention, ok := got["attention"].(map[string]any)
+	if !ok {
+		t.Fatalf("leagueMapForViewer(anonymous demo)[attention] = %#v, want map[string]any", got["attention"])
+	}
+	if attention["has_items"] != false || attention["urgent_count"] != 0 {
+		t.Fatalf("anonymous demo attention = %+v, want the honest empty shape", attention)
+	}
+
+	real := newTestService(t, false)
+	urgentState(real)
+	realReq := httptest.NewRequest("GET", "/", nil)
+	realGot := real.leagueMapForViewer(realReq)
+	realAttention, ok := realGot["attention"].(map[string]any)
+	if !ok {
+		t.Fatalf("leagueMapForViewer(non-demo)[attention] = %#v, want map[string]any", realGot["attention"])
+	}
+	if realAttention["has_items"] != true || realAttention["urgent_count"] != 1 {
+		t.Fatalf("non-demo attention = %+v, want the real accepted-trade item (has_seat=false already hides the chip in the chrome, not here)", realAttention)
 	}
 }

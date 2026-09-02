@@ -247,8 +247,14 @@ func lastDropInstant(state PersistedState, playerID string) (at time.Time, origi
 // WAIVERS condition, applied per player (the pick'em lock rule,
 // pickem.go:240-242, extended to free agency).
 func kickoffLockedGame(games []GameInfo, nflTeam string, now time.Time) (GameInfo, bool) {
+	// Item 2 (2026-08-31 post-wave audit): normalize before comparing, the
+	// same fix as teamHasGame/playerLockAt (lineup.go) — a raw compare
+	// here let a LAR/WSH/JAC player stay ON WAIVERS-eligible past their
+	// own kickoff, because nflTeam ("LAR") never matched games'
+	// nflverse-normalized Away/Home ("LA").
+	team := normalizeNFLAbbreviation(nflTeam)
 	for _, g := range games {
-		if g.Away != nflTeam && g.Home != nflTeam {
+		if normalizeNFLAbbreviation(g.Away) != team && normalizeNFLAbbreviation(g.Home) != team {
 			continue
 		}
 		if !g.Kickoff.IsZero() && !g.Final && !now.Before(g.Kickoff) {

@@ -567,6 +567,30 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 	viewerKey, _ := s.pickemViewerKeyForState(r, state)
 	currentWeek := s.pickemWeek(allGames, now)
 	weeks := pickemWeeks(allGames)
+	// Item 12 (2026-08-31 post-wave audit): weeks is otherwise the raw NFL
+	// schedule mirror's own week list (up to 18 weeks), regardless of how
+	// many weeks THIS league's own published season schedule actually
+	// offers (state.Schedule, commonly 14 via defaultScheduleWeeks in
+	// admin.go) — the same /matchups-vs-/team gap item 6 already closed
+	// for the Team terminal (teamWeekOptions, lineup_deadline.go), applied
+	// here to /pickem's own week selector. Once this league HAS published
+	// its own season, /pickem's week list narrows to exactly those weeks,
+	// matching /matchups' own rule (MatchupsData, seasonScheduleWeeks).
+	// Before a fantasy schedule exists, pick'em still needs to work off
+	// the raw NFL mirror alone — picking game winners does not require a
+	// drawn fantasy schedule — so that case (weeks stays the NFL mirror's
+	// own list) is unchanged.
+	if state.Schedule != nil && len(state.Schedule.Weeks) > 0 {
+		if published := seasonScheduleWeeks(*state.Schedule); len(published) > 0 {
+			filtered := make([]int, 0, len(weeks))
+			for _, week := range weeks {
+				if containsInt(published, week) {
+					filtered = append(filtered, week)
+				}
+			}
+			weeks = filtered
+		}
+	}
 	hasWeeks := len(weeks) > 0
 	if hasWeeks && !containsInt(weeks, currentWeek) {
 		currentWeek = weeks[0]
@@ -731,7 +755,7 @@ func (s *Service) pickemData(r *http.Request, reconcile bool) map[string]any {
 		"leaderboard_empty":      len(seasonLeaderboard) == 0,
 		"week_leaderboard":       weekLeaderboard,
 		"week_leaderboard_empty": len(weekLeaderboard) == 0,
-		"league":                 s.leagueMap(),
+		"league":                 s.leagueMapForViewer(r),
 	}
 }
 

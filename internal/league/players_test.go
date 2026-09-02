@@ -335,6 +335,13 @@ func TestPlayersDataPostDraftAvailability(t *testing.T) {
 	if got := byID["rb-open"]["owner_abbr"]; got != svc.teamByID("team-1").Abbreviation {
 		t.Fatalf("rb-open owner_abbr = %v, want %s", got, svc.teamByID("team-1").Abbreviation)
 	}
+	// owner_name is item 9's own regression check (2026-08-31 post-wave
+	// audit): the owner chip (page.gsx's position-chip--locked span) used
+	// to carry only the bare abbreviation with no title attribute at all
+	// — a manager had no way to learn which team "W4" even was.
+	if got := byID["rb-open"]["owner_name"]; got != svc.teamByID("team-1").Name {
+		t.Fatalf("rb-open owner_name = %v, want %s", got, svc.teamByID("team-1").Name)
+	}
 	if canAdd, _ := byID["fa-open"]["can_add"].(bool); !canAdd {
 		t.Fatal("fa-open must be addable")
 	}
@@ -959,6 +966,32 @@ func TestMoveClaimUsesAuthenticatedSeatInsteadOfSubmittedTeam(t *testing.T) {
 // TestPlayersDataWaiverOrderStrip checks the WAIVER ORDER strip: every
 // team appears exactly once, and exactly one row is marked "mine" for
 // the viewing team.
+// TestPlayersDataExposesViewerDemoForTheRehearsalModeDisclosure is item
+// 13 (coordinator-added, 2026-09-01 post-wave audit): /players had no
+// REHEARSAL MODE disclosure for an anonymous demo visitor at all, unlike
+// /team, /admin, and /draft — page.gsx now renders one gated on
+// data.viewer.demo, the same key/semantic /team's own disclosure uses
+// (Viewer, service.go): true only for a genuinely anonymous visitor to a
+// demo-mode league, never merely "this league runs in demo mode" (that
+// broader signal is the separate demo_mode key /board, /locker, and
+// /trades use — see demo_disclosure_test.go).
+func TestPlayersDataExposesViewerDemoForTheRehearsalModeDisclosure(t *testing.T) {
+	demo, _ := newPlayersTestService(t)
+	anonymous, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	viewer, ok := demo.PlayersData(anonymous)["viewer"].(map[string]any)
+	if !ok || viewer["demo"] != true {
+		t.Fatalf("anonymous demo viewer = %#v, want demo=true", viewer)
+	}
+
+	real := newTestService(t, false)
+	real.SetPlayerSource(func() ([]Player, int64, string) { return playersFixturePool(), 1, "test" })
+	request, _ := http.NewRequest(http.MethodGet, "/players", nil)
+	realViewer, ok := real.PlayersData(request)["viewer"].(map[string]any)
+	if !ok || realViewer["demo"] != false {
+		t.Fatalf("non-demo league viewer = %#v, want demo=false", realViewer)
+	}
+}
+
 func TestPlayersDataWaiverOrderStrip(t *testing.T) {
 	svc, _ := newWaiversTestService(t)
 	request, _ := http.NewRequest(http.MethodGet, "/players", nil)

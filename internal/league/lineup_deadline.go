@@ -228,6 +228,60 @@ func sortedFutureLineupWeeks(games []GameInfo, current int) []int {
 	return weeks
 }
 
+// teamWeekOptions resolves /team's own week selector and out-of-range
+// notice. current stays lineupCurrentWeekAt (an NFL-kickoff-driven lock
+// week) — the Team terminal is a lineup-EDITING page, so (unlike
+// /matchups' full-season browser) it has never offered a week that has
+// already closed. What changes here is WHICH future weeks are offered:
+// the raw NFL schedule mirror (games) is intersected with this league's
+// own published season (schedule) when one exists.
+//
+// Item 6 (2026-08-31 post-wave audit): sortedFutureLineupWeeks(games,
+// current) alone draws from pickemWeeks(games) — the raw NFL regular-
+// season mirror, spanning up to 18 weeks regardless of how many weeks
+// this league's own season actually schedules matchups for (schedule,
+// commonly 14 via defaultScheduleWeeks in admin.go). /team's dropdown
+// therefore offered every NFL week from the current one through 18 on a
+// 14-week league, and a request for a week inside that NFL range but
+// past the league's own published season read no notice at all — or, for
+// a malformed/non-positive/closed request, one of normalizeLineupWeek's
+// three differently-worded notices instead of the single one /matchups'
+// own week selector uses for exactly this situation (MatchupsData,
+// service.go). Every rejection reason reads that same notice now.
+func teamWeekOptions(rawWeek string, schedule *SeasonSchedule, games []GameInfo, now time.Time) lineupWeekSelection {
+	current := lineupCurrentWeekAt(games, now)
+	offered := sortedFutureLineupWeeks(games, current)
+	if schedule != nil && len(schedule.Weeks) > 0 {
+		published := seasonScheduleWeeks(*schedule)
+		filtered := make([]int, 0, len(offered))
+		for _, week := range offered {
+			if containsInt(published, week) {
+				filtered = append(filtered, week)
+			}
+		}
+		offered = filtered
+	}
+	if len(offered) == 0 {
+		offered = []int{current}
+	}
+	selection := lineupWeekSelection{Week: current, CurrentWeek: current, Weeks: offered}
+	rawWeek = strings.TrimSpace(rawWeek)
+	if rawWeek == "" {
+		return selection
+	}
+	parsed, err := strconv.Atoi(rawWeek)
+	if err != nil {
+		selection.Notice = fmt.Sprintf("Week %q is not on the published schedule. Showing Week %d.", rawWeek, current)
+		return selection
+	}
+	if !containsInt(offered, parsed) {
+		selection.Notice = fmt.Sprintf("Week %d is not on the published schedule. Showing Week %d.", parsed, current)
+		return selection
+	}
+	selection.Week = parsed
+	return selection
+}
+
 func (s *Service) NormalizeLineupWeek(raw string) int {
 	return normalizeLineupWeek(raw, s.schedule(), s.clock()).Week
 }

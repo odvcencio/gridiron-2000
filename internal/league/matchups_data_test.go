@@ -161,6 +161,56 @@ func TestMatchupsDataFutureWeekIsScheduledAndStopsLivePolling(t *testing.T) {
 	}
 }
 
+// TestMatchupsDataSetLineupCTATargetsTheViewedWeek is item 7's own
+// regression test (2026-08-31 post-wave audit): "Set lineup for Week N"
+// (my_matchup.next_lineup_href/next_week) must target the week actually
+// on screen when its own lineup slots are still editable, not a flat
+// "current scoring week + 1" — before this fix, browsing to a future,
+// still-open week 3 while the site's own scoring-current week sat at 1
+// always read "Set lineup for Week 2," never Week 3, no matter which
+// week's box scores were on screen.
+func TestMatchupsDataSetLineupCTATargetsTheViewedWeek(t *testing.T) {
+	service, _ := matchupDataFixture(t)
+	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=3"))
+
+	if data["week"] != 3 || data["current_week"] != 1 {
+		t.Fatalf("week selection = week:%v current:%v, want week 3 viewed against current week 1", data["week"], data["current_week"])
+	}
+	my, ok := data["my_matchup"].(map[string]any)
+	if !ok || my["has_matchup"] != true {
+		t.Fatalf("my_matchup = %#v, want has_matchup=true", data["my_matchup"])
+	}
+	if my["next_week"] != 3 || my["next_lineup_href"] != "/team?week=3#lineup" || my["has_next_week"] != true {
+		t.Fatalf("CTA = next_week:%v href:%v has_next_week:%v, want the VIEWED week (3), not current+1 (2)", my["next_week"], my["next_lineup_href"], my["has_next_week"])
+	}
+}
+
+// TestMatchupsDataSetLineupCTAFallsBackToTheNextEditableWeek is item 7's
+// other half: viewing a week whose own lineup slots have already closed
+// (kicked off) must fall back to the next editable week, not offer a
+// dead link to the closed one the manager happens to be looking at.
+func TestMatchupsDataSetLineupCTAFallsBackToTheNextEditableWeek(t *testing.T) {
+	service, now := matchupDataFixture(t)
+	// Move the clock past week 1's own kickoff (now.Add(time.Hour) in the
+	// fixture) AND past pickemWeekAt's own 4-hour post-kickoff grace
+	// window, so week 1 reads as genuinely closed for lineup purposes,
+	// while week 2 (kickoff now.Add(8 days)) stays open.
+	closedNow := now.Add(6 * time.Hour)
+	service.now = func() time.Time { return closedNow }
+
+	data := service.MatchupsData(context.Background(), matchupDataRequest(t, "/matchups?week=1"))
+	if data["week"] != 1 {
+		t.Fatalf("week selection = %v, want the explicitly viewed week 1", data["week"])
+	}
+	my, ok := data["my_matchup"].(map[string]any)
+	if !ok || my["has_matchup"] != true {
+		t.Fatalf("my_matchup = %#v, want has_matchup=true", data["my_matchup"])
+	}
+	if my["next_week"] != 2 || my["next_lineup_href"] != "/team?week=2#lineup" {
+		t.Fatalf("CTA = next_week:%v href:%v, want the next editable week (2), not the closed viewed week (1)", my["next_week"], my["next_lineup_href"])
+	}
+}
+
 func TestMatchupsDataFinalWeekPreservesFinalTaxonomy(t *testing.T) {
 	service, _ := matchupDataFixture(t)
 	schedule := service.store.Snapshot().Schedule

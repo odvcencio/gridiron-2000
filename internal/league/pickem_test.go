@@ -1,7 +1,9 @@
 package league
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +109,67 @@ func TestPickemWeekSelectionUsesPublishedStartWeekAndNormalizesUnavailableQuerie
 	}
 	if got := service.PickemRedirectTarget("not-a-week"); got != "/pickem?week=3" {
 		t.Fatalf("hostile action week redirect = %q, want /pickem?week=3", got)
+	}
+}
+
+// TestPickemDataLimitsWeekSelectorToPublishedSeasonSchedule is item 12's
+// own regression test (2026-08-31 post-wave audit, coordinator-added):
+// /pickem's week selector must offer only the weeks THIS league's own
+// published season schedule carries (14, in this fixture), not every
+// week the raw NFL schedule mirror carries (18) — the same /matchups-vs-
+// /team gap item 6 already closed for the Team terminal, applied here to
+// /pickem's own week list (pickemData, pickem.go).
+func TestPickemDataLimitsWeekSelectorToPublishedSeasonSchedule(t *testing.T) {
+	service := newTestService(t, true)
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	service.now = func() time.Time { return now }
+	schedule, err := GenerateSchedule(ScheduleParams{
+		Season:    2026,
+		TeamIDs:   teamIDList(service.teams),
+		StartWeek: 1,
+		Weeks:     14,
+		Seed:      73,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetSchedule(schedule); err != nil {
+		t.Fatal(err)
+	}
+	// The raw NFL mirror spans the full 18-week regular season.
+	games := make([]GameInfo, 0, 18)
+	for week := 1; week <= 18; week++ {
+		games = append(games, GameInfo{ID: fmt.Sprintf("g-week%d", week), Week: week, Kickoff: now.Add(time.Duration(week) * 7 * 24 * time.Hour), Away: "BUF", Home: "MIA", SpreadLinePresent: true})
+	}
+	service.SetScheduleSource(func() []GameInfo { return games })
+
+	request, _ := http.NewRequest(http.MethodGet, "/pickem", nil)
+	data := service.PickemData(request)
+	weekOptions, ok := data["week_options"].([]map[string]any)
+	if !ok {
+		t.Fatalf("week_options = %#v, want []map[string]any", data["week_options"])
+	}
+	if len(weekOptions) != 14 {
+		t.Fatalf("week_options carries %d entries, want exactly 14 (the published schedule length), not 18 (the raw NFL mirror)", len(weekOptions))
+	}
+	for _, option := range weekOptions {
+		value, _ := option["value"].(string)
+		n, atoiErr := strconv.Atoi(value)
+		if atoiErr != nil || n > 14 {
+			t.Errorf("week_options carries %q, want only published weeks 1-14", value)
+		}
+	}
+
+	// Week 15 is a real NFL week (inside the 18-week mirror) but past this
+	// league's own published 14-week season: it must read a notice, not
+	// silently render as if valid.
+	request, _ = http.NewRequest(http.MethodGet, "/pickem?week=15", nil)
+	data = service.PickemData(request)
+	if data["has_week_notice"] != true {
+		t.Fatal("week=15 (inside the NFL calendar, past the published 14-week season) produced no notice")
+	}
+	if data["week"] != 1 {
+		t.Fatalf("week=15 fell back to %v, want the published season's first week (1)", data["week"])
 	}
 }
 

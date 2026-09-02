@@ -13,11 +13,17 @@ import "time"
 // authoritative kickoff has passed; there is no durable close evidence to
 // prove that the scoring week is safe to mutate.
 func playerLockedByUnfinalizedWeek(state PersistedState, games []GameInfo, nflTeam string, now time.Time) (week int, locked bool) {
+	// Item 2 (2026-08-31 post-wave audit): normalize before comparing, the
+	// same fix as teamHasGame/playerLockAt (lineup.go) — a raw compare
+	// here let a LAR/WSH/JAC starter from an unfinalized historical week
+	// stay mutable (droppable, claimable, tradeable), because nflTeam
+	// ("LAR") never matched games' nflverse-normalized Away/Home ("LA").
+	team := normalizeNFLAbbreviation(nflTeam)
 	for _, game := range games {
 		if game.Week <= 0 || game.Kickoff.IsZero() || now.Before(game.Kickoff) {
 			continue
 		}
-		if game.Away != nflTeam && game.Home != nflTeam {
+		if normalizeNFLAbbreviation(game.Away) != team && normalizeNFLAbbreviation(game.Home) != team {
 			continue
 		}
 		if !weekIsFinalInSchedule(state.Schedule, game.Week) {

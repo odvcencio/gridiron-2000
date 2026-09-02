@@ -1761,9 +1761,11 @@ func (s *Store) pruneSentLogPrefixesLocked(prefixes ...string) {
 // validateTeamName trims and enforces the shared 40-character ceiling
 // every team-name write obeys (Store.SetTeamName, the fantasy-signup
 // atomic claim in service.go's claimFantasySeat). It does not reject an
-// empty name: SetTeamName's caller may legitimately clear an override,
-// while the signup flow additionally requires a non-empty result — that
-// check lives at the signup call site, not here.
+// empty (post-trim) result itself — each caller decides what an empty
+// result means for its own flow: SetTeamName now refuses it outright
+// (errBlankTeamName, below; see ResetTeamName for the deliberate way to
+// clear an override), while the signup flow's own distinct "enter a team
+// name" message lives at that call site, not here.
 func validateTeamName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if len(name) > 40 {
@@ -1772,8 +1774,18 @@ func validateTeamName(name string) (string, error) {
 	return name, nil
 }
 
-// SetTeamName overrides a team's display name. An empty name clears the
-// override and restores the default.
+// errBlankTeamName is SetTeamName's own guard (item 4, 2026-08-31
+// post-wave audit): before this fix, a whitespace-only rename trimmed to
+// "" and SetTeamName's "empty clears the override" rule took that as an
+// implicit reset — a manager who submitted a blank (or all-space) name
+// saw a plain success notice ("West 4 is set.") with no sign their typed
+// name never took and their previous custom name was gone. A caller that
+// means to clear the override now has to say so explicitly, through
+// ResetTeamName.
+var errBlankTeamName = errors.New("Enter a team name, or use Reset to the configured name")
+
+// SetTeamName overrides a team's display name. name must not be blank
+// (post-trim); see errBlankTeamName and ResetTeamName.
 func (s *Store) SetTeamName(teamID, name string) error {
 	if !knownTeam(teamID) {
 		return fmt.Errorf("unknown team %q", teamID)
@@ -1782,22 +1794,50 @@ func (s *Store) SetTeamName(teamID, name string) error {
 	if err != nil {
 		return err
 	}
+	if name == "" {
+		return errBlankTeamName
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.writeErrorLocked(); err != nil {
 		return err
 	}
-	current, hasCurrent := s.state.TeamNames[teamID]
-	if (name == "" && !hasCurrent) || (name != "" && current == name) {
+	if current, ok := s.state.TeamNames[teamID]; ok && current == name {
 		return s.persistLocked(colTeamNames, colScalars)
 	}
 	previous := cloneState(s.state)
 	previousDirty := s.dirty
-	if name == "" {
-		delete(s.state.TeamNames, teamID)
-	} else {
-		s.state.TeamNames[teamID] = name
+	s.state.TeamNames[teamID] = name
+	s.state.SeatRevisions[teamID]++
+	if err := s.persistLocked(colTeamNames, colScalars); err != nil {
+		s.state = previous
+		s.dirty = previousDirty
+		return err
 	}
+	return nil
+}
+
+// ResetTeamName clears teamID's display-name override, restoring the
+// configured default name. This is now the only way to clear an
+// override (item 4): SetTeamName rejects a blank name outright instead
+// of treating it as an implicit reset, so a caller that means to reset —
+// an explicit "Reset to the configured name" control — calls this
+// instead of submitting an empty rename.
+func (s *Store) ResetTeamName(teamID string) error {
+	if !knownTeam(teamID) {
+		return fmt.Errorf("unknown team %q", teamID)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := s.writeErrorLocked(); err != nil {
+		return err
+	}
+	if _, hasCurrent := s.state.TeamNames[teamID]; !hasCurrent {
+		return s.persistLocked(colTeamNames, colScalars)
+	}
+	previous := cloneState(s.state)
+	previousDirty := s.dirty
+	delete(s.state.TeamNames, teamID)
 	s.state.SeatRevisions[teamID]++
 	if err := s.persistLocked(colTeamNames, colScalars); err != nil {
 		s.state = previous

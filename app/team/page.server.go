@@ -395,13 +395,33 @@ func init() {
 			// team-rename lets the seat's own manager (or the commissioner)
 			// set the team's display name from the team page — the same
 			// self-service authority model avatars and badge claims use.
-			// An empty name clears the override back to the config name.
+			// Item 4 (2026-08-31 post-wave audit): a blank/whitespace name
+			// is now rejected with a plain-language error instead of
+			// silently clearing the override (the "West 4 is set." bug) —
+			// see team-name-reset, just below, for the explicit way to
+			// restore the configured default name.
 			"team-rename": func(ctx *action.Context) error {
 				team, err := league.Default().RenameTeam(ctx.Request, ctx.FormData["team_id"], ctx.FormData["name"])
 				if err != nil {
 					return actionui.Validation(ctx, "team", "name", err)
 				}
 				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, fmt.Sprintf("Team renamed to %s.", team.Name))
+				return nil
+			},
+			// team-name-reset is item 4's explicit reset action: now that
+			// team-rename refuses a blank name outright
+			// (league.Service.ResetTeamName's own doc comment carries the
+			// full explanation), a "Reset to the configured name" control
+			// needs its own action rather than a blank submit through
+			// team-rename. page.gsx does not wire a control at this path
+			// yet; the action is exposed here so one can be added without
+			// a server-side change.
+			"team-name-reset": func(ctx *action.Context) error {
+				team, err := league.Default().ResetTeamName(ctx.Request, ctx.FormData["team_id"])
+				if err != nil {
+					return actionui.Validation(ctx, "team", "name", err)
+				}
+				actionui.RedirectBackWithNotice(ctx, teamIdentityReturnTarget, fmt.Sprintf("Team name reset to %s.", team.Name))
 				return nil
 			},
 			// lineup-set applies one roster-ops spec section 4.4

@@ -575,3 +575,21 @@ func TestHealedIRLifecycleEndToEnd(t *testing.T) {
 		t.Fatalf("status at/after the deferred clear = %+v, want FREE AGENT", status)
 	}
 }
+
+// TestNextKickoffForTeamNormalizesTank01Abbreviations is item 2's own
+// regression test (2026-08-31 post-wave audit): the same normalize-
+// before-compare fix as teamHasGame/playerLockAt (lineup.go), applied to
+// nextKickoffForTeam. Before this fix a Tank01-sourced "LAR" player's
+// healed-IR activation deadline (zoneOccupantRows' deadline_label,
+// service.go) never matched its own nflverse-normalized "LA" schedule
+// entry and rendered blank.
+func TestNextKickoffForTeamNormalizesTank01Abbreviations(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	kickoff := now.Add(3 * time.Hour)
+	games := []GameInfo{{Week: 1, Kickoff: kickoff, Away: "LA", Home: "SF"}} // nflverse-normalized
+
+	got, ok := nextKickoffForTeam(games, "LAR", now) // Tank01-style
+	if !ok || !got.Equal(kickoff) {
+		t.Fatalf("nextKickoffForTeam(LAR) = %v, ok=%v, want %v, true", got, ok, kickoff)
+	}
+}

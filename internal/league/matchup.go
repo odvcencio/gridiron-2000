@@ -112,8 +112,20 @@ func (s *Service) matchupIndexForSlate(games []BlitzGame) matchupIndex {
 // for that team/week — a bye, an unscheduled future week, or a missing
 // schedule mirror — and the caller must render no opponent at all
 // rather than guess.
+//
+// Item 2 (2026-08-31 post-wave audit): both sides go through
+// normalizeNFLAbbreviation (matchup_ledger.go), the same correction
+// teamHasGame/playerLockAt already apply, because games (nflverse-
+// normalized, "LA") and nflTeam (can be Tank01-sourced, "LAR") do not
+// always share one abbreviation for the same team. This is /team,
+// /players, and /board's opponent AND matchup-chip source (fields,
+// below, falls through to matchupChipText only when this returns
+// ok=true) — before this fix a LAR/WSH/JAC player's raw-string compare
+// never matched its own scheduled game, so their row rendered bare: no
+// "@ SF", no kickoff, no matchup-difficulty chip, even on a fully loaded
+// schedule.
 func opponentInWeek(games []GameInfo, nflTeam string, week int) (opponent string, home bool, ok bool) {
-	team := strings.ToUpper(strings.TrimSpace(nflTeam))
+	team := normalizeNFLAbbreviation(nflTeam)
 	if team == "" {
 		return "", false, false
 	}
@@ -121,11 +133,15 @@ func opponentInWeek(games []GameInfo, nflTeam string, week int) (opponent string
 		if g.Week != week {
 			continue
 		}
+		// gHome/gAway stay display-cased (uppercase, not further
+		// normalized): the returned opponent is the schedule's own
+		// abbreviation, unchanged from before this fix. Only the equality
+		// check below runs both sides through normalizeNFLAbbreviation.
 		gHome, gAway := strings.ToUpper(g.Home), strings.ToUpper(g.Away)
-		if team == gHome {
+		if normalizeNFLAbbreviation(gHome) == team {
 			return gAway, true, true
 		}
-		if team == gAway {
+		if normalizeNFLAbbreviation(gAway) == team {
 			return gHome, false, true
 		}
 	}
@@ -134,18 +150,19 @@ func opponentInWeek(games []GameInfo, nflTeam string, week int) (opponent string
 
 // opponentInSlate mirrors opponentInWeek for a Preseason Blitz slate's
 // games, which carry no Week field (one slate is one week by
-// definition, so every game in the list is already "this week").
+// definition, so every game in the list is already "this week"). Same
+// normalize-before-compare fix as opponentInWeek, above.
 func opponentInSlate(games []BlitzGame, nflTeam string) (opponent string, home bool, ok bool) {
-	team := strings.ToUpper(strings.TrimSpace(nflTeam))
+	team := normalizeNFLAbbreviation(nflTeam)
 	if team == "" {
 		return "", false, false
 	}
 	for _, g := range games {
 		gHome, gAway := strings.ToUpper(g.Home), strings.ToUpper(g.Away)
-		if team == gHome {
+		if normalizeNFLAbbreviation(gHome) == team {
 			return gAway, true, true
 		}
-		if team == gAway {
+		if normalizeNFLAbbreviation(gAway) == team {
 			return gHome, false, true
 		}
 	}

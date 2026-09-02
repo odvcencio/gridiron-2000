@@ -1729,7 +1729,7 @@ func (s *Service) SignupData(r *http.Request) map[string]any {
 		"identity_available": identityAvailable,
 		"identity_error":     identityError,
 		"public_entry":       publicEntryData(s.publicEntryViewForViewerState(r, viewer, state)),
-		"league":             s.leagueMap(),
+		"league":             s.leagueMapForViewer(r),
 		"league_mode":        s.cfg.ModeLabel,
 	}
 }
@@ -1933,7 +1933,7 @@ func (s *Service) DashboardData(ctx context.Context, r *http.Request) map[string
 		"season":              strconv.Itoa(s.cfg.Season),
 		"league_mode":         s.cfg.ModeLabel,
 		"season_start_week":   s.seasonStartWeek(),
-		"league":              s.leagueMap(),
+		"league":              s.leagueMapForViewer(r),
 		"announcements":       announcements,
 		"announcements_empty": len(announcements) == 0,
 	}
@@ -2067,7 +2067,15 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 	livePoll := isCurrentWeek && live.State != MatchupStateFinal && live.State != MatchupStatePreseason
 	matchups := s.matchupMaps(state, live.Matchups)
 	teamID, _ := viewer["team_id"].(string)
-	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, currentWeek)
+	// lockWeek is the lineup-lock authority (item 7, 2026-08-31 post-wave
+	// audit): the same lineupCurrentWeekAt concept /team's own week
+	// selector (teamWeekOptions, lineup_deadline.go) already uses to
+	// decide which weeks are still editable. featuredMatchupMap uses it,
+	// together with the VIEWED week (selectedWeek), to target its own
+	// "Set lineup for Week N" CTA at whichever week is actually
+	// editable — see that function's own doc comment.
+	lockWeek := lineupCurrentWeekAt(s.schedule(), s.clock())
+	myMatchup, otherMatchups := s.featuredMatchupViews(state, live, matchups, teamID, selectedWeek, lockWeek)
 	return map[string]any{
 		"viewer":             viewer,
 		"live":               s.liveMapForWeek(live, isCurrentWeek),
@@ -2079,7 +2087,7 @@ func (s *Service) MatchupsData(ctx context.Context, r *http.Request) map[string]
 		"other_count_label":  otherMatchupsCountLabel(len(otherMatchups)),
 		"status_line":        s.matchupStatusLine(live),
 		"leaders":            s.leaderMaps(),
-		"league":             s.leagueMap(),
+		"league":             s.leagueMapForViewer(r),
 		"week":               selectedWeek,
 		"current_week":       currentWeek,
 		"has_weeks":          hasSchedule,
@@ -2244,7 +2252,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 			"predraft_has_board":   false,
 			"predraft_board_count": 0,
 			"predraft_ready":       false,
-			"league":               s.leagueMap(),
+			"league":               s.leagueMapForViewer(r),
 			"league_mode":          s.cfg.ModeLabel,
 			"fantasy_card":         s.fantasyCardData(state, viewer),
 			"identity_available":   identityAvailable,
@@ -2310,7 +2318,14 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 	}
 
 	games := s.schedule()
-	weekSelection := normalizeLineupWeek(r.URL.Query().Get("week"), games, now)
+	// teamWeekOptions (item 6, 2026-08-31 post-wave audit) replaces a bare
+	// normalizeLineupWeek + sortedFutureLineupWeeks pair here: those two
+	// draw their offered/valid week set from games alone (the raw NFL
+	// schedule mirror, up to 18 weeks), never from this league's own
+	// published season length (state.Schedule). See teamWeekOptions' own
+	// doc comment (lineup_deadline.go) for the full "1-18 on a 14-week
+	// league" bug this closes.
+	weekSelection := teamWeekOptions(r.URL.Query().Get("week"), state.Schedule, games, now)
 	week := weekSelection.Week
 	preset := CurrentRoster()
 	// Zone occupants (RESERVE, IR) never reach the lineup engine: general
@@ -2328,7 +2343,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		}
 	}
 	weekOptions := make([]map[string]any, 0, len(weekSelection.Weeks))
-	for _, w := range sortedFutureLineupWeeks(games, weekSelection.CurrentWeek) {
+	for _, w := range weekSelection.Weeks {
 		weekOptions = append(weekOptions, map[string]any{
 			"value":    strconv.Itoa(w),
 			"label":    fmt.Sprintf("WEEK %d", w),
@@ -2393,7 +2408,7 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"scouting_empty":       len(radar) == 0,
 		"is_commissioner":      s.IsCommissioner(r),
 		"league_mode":          s.cfg.ModeLabel,
-		"league":               s.leagueMap(),
+		"league":               s.leagueMapForViewer(r),
 		"badge_tone_hex":       badgeToneHex,
 		"has_badge_claim":      hasBadgeClaim,
 		"badge_grid":           badgeGrid,
@@ -2937,7 +2952,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"clock":                s.clockView(state, now),
 		"current_pick_token":   draftCurrentPickToken(state),
 		"previous_pick_token":  draftPreviousPickToken(state),
-		"league":               s.leagueMap(),
+		"league":               s.leagueMapForViewer(r),
 		"matchup_source_label": matchupLabel,
 		"has_matchup_source":   hasMatchupLabel,
 		"picks_total":          picksTotal,
@@ -3050,7 +3065,7 @@ func formatClockInstant(t time.Time) string {
 func (s *Service) StaticPageData(r *http.Request) map[string]any {
 	return map[string]any{
 		"viewer": s.Viewer(r),
-		"league": s.leagueMap(),
+		"league": s.leagueMapForViewer(r),
 	}
 }
 
@@ -3059,7 +3074,22 @@ func (s *Service) StaticPageData(r *http.Request) map[string]any {
 // its league identity — every route's brand and announcement banner read
 // it, and a page that omits it paints an empty brand (the Signal Wire did,
 // caught by the 2026-09-01 UX audit).
+//
+// LeagueIdentity itself takes no request and so cannot apply
+// leagueMapForViewer's demo-anonymous attention override (item 5(d),
+// 2026-08-31 post-wave audit); LeagueIdentityForViewer, just below, is the
+// request-aware replacement. app/wire (tamarack) is this method's one
+// caller today and still calls this one — swapping to
+// LeagueIdentityForViewer(r) is a same-shape, additive change whenever
+// that file's owner picks it up.
 func (s *Service) LeagueIdentity() map[string]any { return s.leagueMap() }
+
+// LeagueIdentityForViewer is LeagueIdentity's per-request counterpart,
+// mirroring leagueMapForViewer exactly (see its own doc comment for the
+// demo-anonymous attention override this closes).
+func (s *Service) LeagueIdentityForViewer(r *http.Request) map[string]any {
+	return s.leagueMapForViewer(r)
+}
 
 func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 	viewer := s.Viewer(r)
@@ -3074,7 +3104,7 @@ func (s *Service) LoginData(r *http.Request, configured bool) map[string]any {
 		"demo_mode":       s.demoMode,
 		"seats":           len(s.Teams()),
 		"seat_numbers":    seatNumbers(len(s.Teams())),
-		"league":          s.leagueMap(),
+		"league":          s.leagueMapForViewer(r),
 		"draft":           s.draftSummary(s.clock()),
 		"oauth_start":     navigation.OAuthStartPath(next),
 		"return_path":     next,
@@ -3765,6 +3795,35 @@ func (s *Service) leagueMap() map[string]any {
 	}
 }
 
+// leagueMapForViewer is leagueMap's per-request wrapper (item 5(d),
+// 2026-08-31 post-wave audit): identical to leagueMap() in every field
+// except attention, which reads the honest empty shape (emptyAttentionMap)
+// for a genuinely anonymous demo visitor. leagueMap itself stays
+// request-less — its own doc comment above explains the cost of threading
+// a *http.Request through its 19 call sites for every field — but
+// attention is the one field whose correct value actually depends on who
+// is asking, so this thin wrapper carries that one exception instead.
+//
+// Viewer's own "has_seat": s.demoMode (below, Viewer) deliberately lets
+// ANY unauthenticated visitor to a demo-mode league act as team-1 for
+// interactive purposes, so a spectator can try the app without signing
+// in. But the shared chrome's attention chip is gated on has_seat too
+// (app/layout.gsx), so that same pretense made a pure spectator — who
+// manages nothing — see a "N items need attention" chip naming real
+// accepted/open trades and pick'em games that belong to the actual seated
+// managers. Every *Data(r) method that builds the "league" key calls this
+// now, not leagueMap() directly (admin.go is magnolia's file; its own
+// leagueMap() call site needs the same one-line swap — noted separately).
+func (s *Service) leagueMapForViewer(r *http.Request) map[string]any {
+	league := s.leagueMap()
+	if s.demoMode {
+		if _, signedIn := s.CurrentUser(r); !signedIn {
+			league["attention"] = emptyAttentionMap()
+		}
+	}
+	return league
+}
+
 // attentionMap is gap-audit item 6's small "urgent_count"/"items" projection
 // for the shared chrome (app/layout.gsx's rail-head and mobile-bar chip).
 // Each item names a route and a plain-language label; a trade item's route
@@ -3775,20 +3834,40 @@ func (s *Service) leagueMap() map[string]any {
 // walking every team's live lineup (that facts pass belongs in
 // ActionCenterData, which already exists for the home page itself) — this
 // runs on the hot path of every route's layout render.
+//
+// Item 5(a)/(b) (2026-08-31 post-wave audit): trades now count BOTH an
+// open offer awaiting a response and an accepted offer awaiting review —
+// previously only accepted counted, so a seated manager with a live
+// incoming offer saw the Action Center's own "Review incoming trade" task
+// (tradeActions, hq.go) but no matching chip, and the chip's own total
+// silently disagreed with the Action Center's (a field report of 2 vs 3).
+// TradeStatusOpen and TradeStatusAccepted are exactly the two statuses
+// actionCenterDataForSnapshot's own Trades-facts switch (service.go)
+// already treats as active/pending; this loop now classifies a trade
+// offer the same way, so the two surfaces cannot drift apart on WHICH
+// offers count again even though the chip stays league-wide and the
+// panel stays per-viewer (attentionMap's own longstanding, deliberate
+// design split — see the doc comment above).
 func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]any {
 	items := make([]map[string]any, 0, 4)
 	tradesCount := 0
 	for _, offer := range state.TradeOffers {
-		if offer.Status != TradeStatusAccepted {
-			continue
-		}
 		from := s.teamByID(offer.FromTeamID).Name
 		to := s.teamByID(offer.ToTeamID).Name
-		items = append(items, map[string]any{
-			"route": "/trades#trade-" + offer.ID,
-			"label": "Accepted trade between " + from + " and " + to + " is in review",
-		})
-		tradesCount++
+		switch offer.Status {
+		case TradeStatusAccepted:
+			items = append(items, map[string]any{
+				"route": "/trades#trade-" + offer.ID,
+				"label": "Accepted trade between " + from + " and " + to + " is in review",
+			})
+			tradesCount++
+		case TradeStatusOpen:
+			items = append(items, map[string]any{
+				"route": "/trades#trade-" + offer.ID,
+				"label": "Trade offer between " + from + " and " + to + " is awaiting a response",
+			})
+			tradesCount++
+		}
 	}
 	pickemCount := 0
 	if open := s.openPickemGameCount(state, now); open > 0 {
@@ -3798,10 +3877,27 @@ func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]a
 		})
 		pickemCount = 1
 	}
+	return attentionShape(items, tradesCount, pickemCount)
+}
+
+// attentionShape is attentionMap's return-shape builder, factored out so
+// emptyAttentionMap (leagueMapForViewer's demo-anonymous override, item
+// 5(d)) always produces the exact same key set attentionMap does — no
+// caller can see a map missing a key just because it took the empty path.
+func attentionShape(items []map[string]any, tradesCount, pickemCount int) map[string]any {
 	return map[string]any{
 		"urgent_count": len(items),
 		"items":        items,
 		"has_items":    len(items) > 0,
+		// chip_label (item 5(c), 2026-08-31 post-wave audit) is the rail-
+		// head/mobile-bar chip's full aria-label, rendered here so
+		// app/layout.gsx reads one already-pluralized string instead of
+		// concatenating urgent_count + " items need attention in the
+		// Action Center" itself — that concatenation always read "1 items
+		// need attention...", wrong for the single-item case. hickory
+		// (app/layout.gsx) reads attention.chip_label in place of that
+		// concatenation.
+		"chip_label": attentionChipLabel(len(items)),
 		// pickem_hot/trades_hot and their *_attention_text counterparts
 		// (build item 2, rail-dot leftover) are pre-shaped scalars, not a
 		// route-prefix filter over items, because app/layout.gsx's
@@ -3820,6 +3916,13 @@ func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]a
 	}
 }
 
+// emptyAttentionMap is the honest empty shape leagueMapForViewer installs
+// for a genuinely anonymous demo visitor (item 5(d)): the exact key set
+// attentionShape produces, every count zero.
+func emptyAttentionMap() map[string]any {
+	return attentionShape(make([]map[string]any, 0), 0, 0)
+}
+
 // attentionDotText renders the visually-hidden count text a hot rail dot
 // carries ("1 item needs attention" / "2 items need attention") — subject
 // and verb agreement together, which Plural alone (a noun-only helper)
@@ -3835,6 +3938,23 @@ func attentionDotText(count int) string {
 		verb = "need"
 	}
 	return fmt.Sprintf("%d %s %s attention", count, Plural(count, "item"), verb)
+}
+
+// attentionChipLabel renders app/layout.gsx's rail-head/mobile-bar chip
+// aria-label from one source (item 5(c), 2026-08-31 post-wave audit): see
+// attentionShape's "chip_label" doc comment above for the "1 items need
+// attention" bug this closes. Empty for a non-positive count, mirroring
+// attentionDotText's own convention — the caller only reads it when
+// has_items is true.
+func attentionChipLabel(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	verb := "needs"
+	if count != 1 {
+		verb = "need"
+	}
+	return fmt.Sprintf("%d %s %s attention in the Action Center", count, Plural(count, "item"), verb)
 }
 
 // openPickemGameCount counts this pick'em week's games that are still open
@@ -3956,8 +4076,24 @@ func (s *Service) leagueAbsoluteTimeStamp(t time.Time) string {
 // floored at "just now" for anything under a minute. Only the coarsest
 // unit that fits is shown (spec: home page's announcements section, "body
 // + relative/absolute time").
+// relativeTime renders then relative to now: "N minutes/hours/days ago"
+// (or "just now" inside the first minute) once then has already happened,
+// "in N minutes/hours/days" (mirroring commissionerV1Relative's own
+// forward-looking phrasing, commissioner_summary_v1_derive.go) when then
+// is still ahead of now.
+//
+// Item 3 (2026-08-31 post-wave audit): the past-only branch used to read
+// `d < time.Minute` for the "just now" case. now.Sub(then) is NEGATIVE
+// for a future then, and every negative number is less than one minute,
+// so a future instant always fell into "just now" too — a scheduled
+// action, a not-yet-elapsed lock, anything fed through this one shared
+// helper with then ahead of now silently claimed to have already
+// happened. d < 0 is now its own branch, checked first.
 func relativeTime(now, then time.Time) string {
 	d := now.Sub(then)
+	if d < 0 {
+		return futureRelativeUnit(-d)
+	}
 	if d < time.Minute {
 		return "just now"
 	}
@@ -3968,6 +4104,28 @@ func relativeTime(now, then time.Time) string {
 		return pluralUnit(int(d/time.Hour), "hour")
 	default:
 		return pluralUnit(int(d/(24*time.Hour)), "day")
+	}
+}
+
+// futureRelativeUnit renders relativeTime's forward-looking branch.
+// magnitude is already the positive then-minus-now gap. Same
+// minute/hour/24-hour boundaries as the past branch above, so one
+// function reads consistently in both directions; only the "N ago" vs
+// "in N" phrasing differs, matching commissionerV1Relative's own
+// "less than a minute" / "in " + value convention.
+func futureRelativeUnit(magnitude time.Duration) string {
+	switch {
+	case magnitude < time.Minute:
+		return "in less than a minute"
+	case magnitude < time.Hour:
+		n := int(magnitude / time.Minute)
+		return fmt.Sprintf("in %d %s", n, Plural(n, "minute"))
+	case magnitude < 24*time.Hour:
+		n := int(magnitude / time.Hour)
+		return fmt.Sprintf("in %d %s", n, Plural(n, "hour"))
+	default:
+		n := int(magnitude / (24 * time.Hour))
+		return fmt.Sprintf("in %d %s", n, Plural(n, "day"))
 	}
 }
 
@@ -4434,7 +4592,7 @@ func otherMatchupsCountLabel(count int) string {
 // threaded down to every starterProjections call this function and
 // featuredMatchupMap make, rather than each call taking the pool itself
 // (round-2 review of commit 133d1d7, finding 3).
-func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, currentWeek int) (map[string]any, []map[string]any) {
+func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, matchups []map[string]any, teamID string, viewedWeek, lockWeek int) (map[string]any, []map[string]any) {
 	status, hasLive := s.liveStatus()
 	pool := s.pool()
 	index, isViewer := featuredMatchupIndex(live.Matchups, teamID)
@@ -4469,7 +4627,7 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 	if index < 0 {
 		return emptyFeaturedMatchup(), other
 	}
-	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, currentWeek, status, hasLive, pool.byID), other
+	return s.featuredMatchupMap(state, live.Matchups[index], isViewer, teamID, viewedWeek, lockWeek, status, hasLive, pool.byID), other
 }
 
 // emptyFeaturedMatchup is my_matchup's shape when the week has no
@@ -4491,7 +4649,7 @@ func emptyFeaturedMatchup() map[string]any {
 // nothing distinguishes the two sides for a spectator. byID is the
 // caller's single s.pool().byID read for the whole render (see
 // featuredMatchupViews).
-func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, currentWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
+func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isViewer bool, teamID string, viewedWeek, lockWeek int, status LiveStatus, hasLive bool, byID map[string]Player) map[string]any {
 	mine, theirs := m.Home, m.Away
 	if isViewer && m.Away.ID == teamID {
 		mine, theirs = m.Away, m.Home
@@ -4512,11 +4670,27 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	if !isViewer {
 		label = "FEATURED"
 	}
-	// next_week/has_next_week clamp the footer's "set lineup" link to the
-	// schedule's own last week — currentWeek+1 alone could name a week
-	// that was never generated once the season is on its final week
+	// next_week/has_next_week target the VIEWED week (viewedWeek) when its
+	// own lineup slots are still editable — not yet kicked off, the same
+	// lockWeek authority /team's own week selector uses
+	// (lineupCurrentWeekAt, teamWeekOptions) — or lockWeek itself (the
+	// next actually-editable week) when the viewed week has already
+	// closed. Both are then clamped to the schedule's own last week — a
+	// week that was never generated once the season is on its final week
 	// (round-2 review of commit 133d1d7, finding 4).
-	nextWeek := currentWeek + 1
+	//
+	// Item 7 (2026-08-31 post-wave audit): this used to be a flat
+	// currentWeek+1 — currentWeek here was MatchupsData's own
+	// currentScheduleWeek (a SCORING-finality concept, the first
+	// not-all-final week), not lineupCurrentWeekAt's LOCK concept, and it
+	// never read viewedWeek at all. A manager browsing /matchups?week=1
+	// while the site's scoring-current week sat at 2 always saw "Set
+	// lineup for Week 2," even when Week 1's own slots were the ones
+	// still open.
+	nextWeek := viewedWeek
+	if viewedWeek < lockWeek {
+		nextWeek = lockWeek
+	}
 	hasNextWeek := state.Schedule != nil
 	if state.Schedule != nil {
 		if weeks := seasonScheduleWeeks(*state.Schedule); len(weeks) > 0 && nextWeek > weeks[len(weeks)-1] {

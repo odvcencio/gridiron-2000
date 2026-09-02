@@ -1546,3 +1546,37 @@ func TestAnnouncementListMapsUsesLeagueZone(t *testing.T) {
 		t.Fatalf("posted_ago = %v, want the relative label", got)
 	}
 }
+
+// TestRelativeTimeRendersForwardLookingLabelsForFutureInstants is item 3's
+// own regression test (2026-08-31 post-wave audit): relativeTime's
+// `d < time.Minute` "just now" branch used to catch every negative
+// duration too, so a then that has not happened yet always read "just
+// now" instead of admitting it is still ahead of now. now.Sub(then) < 0
+// must instead read "in N minutes/hours/days" (or "in less than a
+// minute"), mirroring commissionerV1Relative's own forward-looking
+// phrasing; every already-elapsed case keeps its pre-existing "ago" text
+// unchanged.
+func TestRelativeTimeRendersForwardLookingLabelsForFutureInstants(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		then time.Time
+		want string
+	}{
+		{"30s in the future", now.Add(30 * time.Second), "in less than a minute"},
+		{"1 minute in the future", now.Add(time.Minute), "in 1 minute"},
+		{"5 minutes in the future", now.Add(5 * time.Minute), "in 5 minutes"},
+		{"1 hour in the future", now.Add(time.Hour), "in 1 hour"},
+		{"3 hours in the future", now.Add(3 * time.Hour), "in 3 hours"},
+		{"1 day in the future", now.Add(24 * time.Hour), "in 1 day"},
+		{"2 days in the future", now.Add(48 * time.Hour), "in 2 days"},
+		{"30s in the past unchanged", now.Add(-30 * time.Second), "just now"},
+		{"5 minutes in the past unchanged", now.Add(-5 * time.Minute), "5 minutes ago"},
+		{"1 day in the past unchanged", now.Add(-24 * time.Hour), "1 day ago"},
+	}
+	for _, c := range cases {
+		if got := relativeTime(now, c.then); got != c.want {
+			t.Errorf("%s: relativeTime = %q, want %q", c.name, got, c.want)
+		}
+	}
+}

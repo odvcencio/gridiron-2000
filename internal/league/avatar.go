@@ -701,6 +701,33 @@ func (s *Service) ResetAvatar(r *http.Request, teamID string) error {
 	return nil
 }
 
+// ResetTeamName clears teamID's display-name override, restoring the
+// configured default name — the self-service counterpart to RenameTeam
+// (admin.go), sharing its exact authority model (canSetAvatar): the
+// seat's own manager, or the commissioner acting on any seat.
+//
+// Item 4 (2026-08-31 post-wave audit): SetTeamName (store.go) no longer
+// treats a blank submitted name as an implicit reset — see
+// errBlankTeamName's doc comment for the "West 4 is set." silent-erase
+// bug that guard closes. A caller offering an explicit "Reset to the
+// configured name" control calls this action instead of submitting an
+// empty rename. No commissioner-event audit row here, matching
+// RenameTeam's own self-service silence (only AdminRenameTeam, the
+// commissioner-console path, records one).
+func (s *Service) ResetTeamName(r *http.Request, teamID string) (Team, error) {
+	teamID = strings.TrimSpace(teamID)
+	if !knownTeam(teamID) {
+		return Team{}, fmt.Errorf("unknown team %q", teamID)
+	}
+	if !s.canSetAvatar(r, teamID) {
+		return Team{}, errors.New("only the seat's manager or the commissioner can rename this team")
+	}
+	if err := s.store.ResetTeamName(teamID); err != nil {
+		return Team{}, err
+	}
+	return s.teamView(s.store.Snapshot(), teamID), nil
+}
+
 // processAvatarImage validates raw upload bytes and normalizes them into a
 // fresh 512x512 PNG thumbnail (design decision 1). image.DecodeConfig reads
 // only the format header — never the pixel grid — so the dimension check

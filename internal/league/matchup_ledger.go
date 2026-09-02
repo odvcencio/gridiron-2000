@@ -184,6 +184,21 @@ func starterOnBye(player Player, week int, snapshot matchupStatsSnapshot) bool {
 // starter's team has no game this week, "Q3 8:12" while the poller sees
 // the game in progress, "FINAL" once final, the kickoff ("SUN 4:25 PM")
 // from the schedule before it starts, else "".
+//
+// Item 2 (2026-08-31 post-wave audit): the schedule loop below matches
+// through normalizeNFLAbbreviation — teamHasGame's own fix (this file,
+// above) and playerLockAt's (lineup.go) — because snapshot.games is
+// nflverse-normalized ("LA") while player.NFLTeam can carry a
+// Tank01-sourced abbreviation ("LAR"). Before this fix a LAR/WSH/JAC
+// starter's raw-string compare here never matched, so /team, /players,
+// and /board rendered no kickoff/game-clock text for that starter at
+// all (blank where "@ SF" or "SUN 4:25 PM" belongs) even though the
+// lock join (playerLockAt) already correctly enforced their kickoff.
+// The live.Games lookup just above deliberately stays on the RAW team
+// key: both player.NFLTeam and snapshot.live.Games are Tank01-sourced,
+// so that join was never broken and normalizing it would risk mapping
+// two distinct Tank01 keys onto one nflverse key where none collided
+// before.
 func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, location *time.Location) string {
 	if starterOnBye(player, week, snapshot) {
 		return "BYE"
@@ -201,8 +216,9 @@ func starterGameState(player Player, week int, snapshot matchupStatsSnapshot, lo
 			}
 		}
 	}
+	normalized := normalizeNFLAbbreviation(team)
 	for _, game := range snapshot.games {
-		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+		if (normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized) && !game.Kickoff.IsZero() {
 			if game.Final {
 				return "FINAL"
 			}
@@ -230,8 +246,13 @@ func starterGameNotStarted(team string, snapshot matchupStatsSnapshot, now time.
 			return !game.Final && !game.InProgress
 		}
 	}
+	// Item 2: same normalize-before-compare fix as starterGameState just
+	// above (its own doc comment carries the full explanation) — the live
+	// key lookup stays raw, only the nflverse-normalized schedule loop
+	// below is normalized.
+	normalized := normalizeNFLAbbreviation(team)
 	for _, game := range snapshot.games {
-		if (game.Away == team || game.Home == team) && !game.Kickoff.IsZero() {
+		if (normalizeNFLAbbreviation(game.Away) == normalized || normalizeNFLAbbreviation(game.Home) == normalized) && !game.Kickoff.IsZero() {
 			return !game.Final && now.Before(game.Kickoff)
 		}
 	}
