@@ -30,12 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.02-ee12ed7-wave6; built from
-          # ee12ed7 (main, 2026-09-02). Advances the logical state schema
-          # 10 -> 11 (commissioner event ledger), so the previous revision
-          # refuses this database: roll back only through the release
-          # record's pre-roll snapshot, never `rollout undo` alone.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:c0564e3a9bd74408cecff4ee1b8375f338eddfed5c064904b9933d5fb7efc656
+          # release-2026.09.02-1d2b7e4-wave7; built from
+          # 1d2b7e4 (main, 2026-09-02): draft results and the mobile pass.
+          # No schema change (logical 11 / physical 12, same as wave 6), so
+          # `rollout undo` to the wave-6 revision is a valid rollback. The
+          # wave-6 release before it advanced the schema 10 -> 11; a rollback
+          # past wave 6 still needs that release record's pre-roll snapshot.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:ec8a902b90f4f431646b3c232362a9245e3c4ee3b3bbba4e0af018ff9f068503
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
