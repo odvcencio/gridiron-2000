@@ -187,7 +187,7 @@ func TestMatchupsLiveFixtureIsSummaryFirstWithOneStatusLine(t *testing.T) {
 	for _, want := range []string{
 		`class="matchup-status-line"`, `data-gosx-live-bind="liveState"`, `data-gosx-live-bind="sourceLine"`, `data-gosx-live-bind="gamesFinal"`,
 		`class="my-matchup card"`, `data-gosx-live-bind="winProb.`, `data-gosx-live-bind="projected.`, `data-gosx-live-bind="stillToPlay.`,
-		`class="matchup-pair slot-row"`, `<details class="matchup-ledger">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
+		`class="matchup-pair slot-row"`, `<details class="matchup-ledger" role="cell">`, `data-gosx-live-bind="starterGameState.`, `class="scorebug card"`,
 		`data-gosx-live-on="scores:changed"`, "Live box scores · checked", "Q2 ", "Josh Allen", "Lamar Jackson",
 		// The masthead's plain-language state line is visible, never
 		// visually-hidden: the 2026-09-01 UX audit found the only copy of
@@ -382,7 +382,7 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 	}
 	source := string(page)
 	for _, want := range []string{
-		"<details class=\"matchup-ledger\">",
+		"<details class=\"matchup-ledger\" role=\"cell\">",
 		"data-gosx-live-bind={\"starterPoints.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterPlayerName.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterPosition.\" + props.LiveKey}",
@@ -464,6 +464,48 @@ func TestMatchupsPossessionChipRenderContract(t *testing.T) {
 		if !strings.Contains(stylesheet, want) {
 			t.Fatalf("stylesheet missing possession-chip truthful-state rule %q", want)
 		}
+	}
+}
+
+// TestMatchupStarterGridCarriesTableSemanticsWithSideQualifiedHeaders is
+// gap-audit item 7 (wave 4 — linden): the six-column starter comparison
+// was plain divs with two identical, unqualified "Starter"/"Game"/"Pts"
+// headers and no ARIA table structure at all — a screen reader heard
+// "STARTER GAME PTS PTS GAME STARTER" with no side marker on any column
+// or row. FeaturedMatchup now carries role="table"/"row"/"columnheader"/
+// "cell" with each header's accessible name qualified by team name (not
+// generic "Your"/"Opponent", which is only correct for the viewer's own
+// matchup — FeaturedMatchup also renders a non-viewer "Featured" card),
+// keeping the exact same visible "Starter"/"Game"/"Pts" text and CSS
+// classes so no layout changes.
+func TestMatchupStarterGridCarriesTableSemanticsWithSideQualifiedHeaders(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMatchupsPageFixtureProcess$")
+	cmd.Env = append(os.Environ(), "MATCHUPS_RENDER_FIXTURE=live",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		`class="matchup-pairs-table" role="table" aria-label="Starting lineup comparison: `,
+		`class="slot-row slot-row--head slot-row--head-desktop" role="row"`,
+		`class="slot-row slot-row--head slot-row--head-mobile" role="row"`,
+		`role="columnheader"`,
+		`class="matchup-pairs" role="rowgroup"`,
+		`class="matchup-pair slot-row" role="row"`,
+		`role="cell"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("matchup starter grid missing table-semantics contract %q: %s", want, body)
+		}
+	}
+	// Each side's Starter columnheader must carry an aria-label ending in
+	// " starter" (qualified by that side's own team name) rather than a
+	// bare, side-unqualified "Starter" text duplicated on both sides with
+	// no distinguishing accessible name.
+	if got := strings.Count(body, ` starter">Starter</span>`); got < 2 {
+		t.Errorf("starter grid columnheaders are not side-qualified (want 2 aria-label=\"... starter\" headers, got %d): %s", got, body)
 	}
 }
 

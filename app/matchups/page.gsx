@@ -76,9 +76,25 @@ func WeekBrowser(props WeekBrowserProps) Node {
 // not change mid-game the way its stat line does), so only the full
 // variant carries data-gosx-live-bind, keeping a live update's textContent
 // patch scoped to the span it actually targets.
+//
+// role="cell" (gap-audit item 7, wave 4 — linden) marks each of this
+// component's three direct children — .matchup-ledger, .starter-cell__state,
+// .starter-cell__pts — as one ARIA table cell apiece. That works without
+// any wrapper element because .starter-cell itself has display: contents
+// (public/styles.css), which already removes it from both the visual box
+// tree and the accessibility tree, promoting these three children to be
+// the actual grid items .slot-row lays out — the same fact the CSS
+// comment beside .starter-cell documents for layout purposes. The
+// enclosing .slot-row (FeaturedMatchup/Scorebug below) carries role="row"
+// and this cell count matches its header row's six role="columnheader"
+// cells exactly (three per side) at every breakpoint: .starter-cell__state
+// is display: none below the mobile breakpoint, and the mobile header row
+// swaps to four columns in step with it (public/styles.css), so an
+// assistive-technology user is never told about a header/cell column that
+// is not actually visible.
 func StarterCell(props StarterCellData) Node {
 	return <div class="starter-cell" data-right={props.Right}>
-		<details class="matchup-ledger">
+		<details class="matchup-ledger" role="cell">
 			<summary class="starter-cell__name">
 				<strong>
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
@@ -92,8 +108,8 @@ func StarterCell(props StarterCellData) Node {
 				<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + props.LiveKey}>{props.Detail}</small>
 			</div>
 		</details>
-		<span class={"state starter-cell__state " + props.StateClass} data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
-		<b class="pts starter-cell__pts" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</b>
+		<span class={"state starter-cell__state " + props.StateClass} role="cell" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span>
+		<b class="pts starter-cell__pts" role="cell" data-gosx-live-bind={"starterPoints." + props.LiveKey} data-gosx-live-flash-class="score-flash">{props.Points}</b>
 	</div>
 }
 
@@ -141,20 +157,22 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 				<TeamMark {...props.Theirs}></TeamMark>
 			</div>
 		</header>
-		<div class="slot-row slot-row--head slot-row--head-desktop">
-			<span class="section-index">Starter</span><span class="section-index">Game</span><span class="section-index">Pts</span><span class="section-index">Pts</span><span class="section-index">Game</span><span class="section-index right">Starter</span>
+		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Mine.Name + " versus " + props.Theirs.Name}>
+		<div class="slot-row slot-row--head slot-row--head-desktop" role="row">
+			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Starter</span>
 		</div>
-		<div class="slot-row slot-row--head slot-row--head-mobile">
-			<span class="section-index">You</span><span class="section-index">Pts</span><span class="section-index">Pts</span><span class="section-index right">Opponent</span>
+		<div class="slot-row slot-row--head slot-row--head-mobile" role="row">
+			<span class="section-index" role="columnheader" aria-label={props.Mine.Name + " starter"}>You</span><span class="section-index" role="columnheader" aria-label={props.Mine.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Theirs.Name + " points"}>Pts</span><span class="section-index right" role="columnheader" aria-label={props.Theirs.Name + " starter"}>Opponent</span>
 		</div>
-		<ul class="matchup-pairs">
+		<ul class="matchup-pairs" role="rowgroup">
 			<Each of={props.Pairs} as="pair">
-				<li class="matchup-pair slot-row">
+				<li class="matchup-pair slot-row" role="row">
 					<StarterCell {...pair.Mine}></StarterCell>
 					<StarterCell {...pair.Theirs}></StarterCell>
 				</li>
 			</Each>
 		</ul>
+		</div>
 		<footer class="my-matchup__foot">
 			<span class="mono muted">Points update as plays land · tap a starter for the box score</span>
 			<If cond={props.IsViewer && props.HasNextWeek}>
@@ -170,6 +188,19 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 // .mini team rows are copied from MiniMatchup (app/page.gsx:32-58) and
 // then diverge (a state-chip instead of a bare live-dot, a projection
 // line), so no shared component is extracted.
+//
+// The role="table" wrapper and its visually-hidden column-header row
+// (gap-audit item 7, wave 4 — linden) match FeaturedMatchup's own fix
+// below, minus the visible "Starter/Game/Pts" header text: Scorebug never
+// showed a visible header row for this six-column comparison (unlike
+// FeaturedMatchup), and this fix keeps that unchanged for sighted users
+// while still giving a screen reader the same qualified column headers.
+// Neither side here is the viewer's own team (this card is "around the
+// league"), so headers name the actual teams (Away/Home) rather than
+// "Your"/"Opponent" — matchupsPageScorebugs (page.server.go) builds
+// pair.Mine from the same "away" entry TeamMark renders first above and
+// pair.Theirs from "home", the identical left-to-right order this
+// summary already uses.
 func Scorebug(props ScorebugData) Node {
 	return <details class="scorebug card" data-live-matchup={props.ID}>
 		<summary class="scorebug__summary">
@@ -190,14 +221,19 @@ func Scorebug(props ScorebugData) Node {
 			<span class="visually-hidden" data-gosx-live-bind={"matchupStatus." + props.ID}>{props.Status}</span>
 			<span class="visually-hidden" data-gosx-live-bind={"matchupClock." + props.ID}>{props.Clock}</span>
 		</summary>
-		<ul class="matchup-pairs">
+		<div class="matchup-pairs-table" role="table" aria-label={"Starting lineup comparison: " + props.Away.Name + " versus " + props.Home.Name}>
+		<div class="slot-row slot-row--head visually-hidden" role="row">
+			<span class="section-index" role="columnheader" aria-label={props.Away.Name + " starter"}>Starter</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " game"}>Game</span><span class="section-index" role="columnheader" aria-label={props.Away.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " points"}>Pts</span><span class="section-index" role="columnheader" aria-label={props.Home.Name + " game"}>Game</span><span class="section-index right" role="columnheader" aria-label={props.Home.Name + " starter"}>Starter</span>
+		</div>
+		<ul class="matchup-pairs" role="rowgroup">
 			<Each of={props.Pairs} as="pair">
-				<li class="matchup-pair slot-row">
+				<li class="matchup-pair slot-row" role="row">
 					<StarterCell {...pair.Mine}></StarterCell>
 					<StarterCell {...pair.Theirs}></StarterCell>
 				</li>
 			</Each>
 		</ul>
+		</div>
 	</details>
 }
 
