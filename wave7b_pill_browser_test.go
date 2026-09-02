@@ -276,3 +276,192 @@ func itoaWidth(w int64) string {
 	}
 	return "unknown"
 }
+
+// TestBrowserDraftPickRowsAreCardsAt390 is wave 7b item 4's own decisive
+// browser check: at 390px, the Picks pane's rows read as cards (>= 56px
+// tall, per the item's own floor) with every tap target clearing the 44px
+// touch baseline, the viewer's own pick carrying the accent rail, and the
+// "Older rounds ↓" control itself also clearing 44px.
+func TestBrowserDraftPickRowsAreCardsAt390(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	// One pick from the viewer's own bot proves the accent-rail case;
+	// pickOnClock alone would only ever pick whichever bot the snake order
+	// currently favors, which may never be this viewer. Looping (not one
+	// conditional pickOnClock) covers every seat count: the snake order
+	// advances one team per pick, so reaching the viewer's own turn can
+	// take up to (team count - 1) picks, never just zero or one.
+	for i := 0; i < len(league.bots)+1; i++ {
+		state, err := viewer.State()
+		if err != nil {
+			t.Fatalf("read viewer state: %v", err)
+		}
+		if state.OnClockID == viewer.TeamID {
+			break
+		}
+		league.pickOnClock(t)
+	}
+	playerID, err := viewer.NextPick()
+	if err != nil {
+		t.Fatalf("pick candidate for the viewer's own team: %v", err)
+	}
+	if _, err := viewer.MakePick(playerID); err != nil {
+		t.Fatalf("viewer's own make-pick: %v", err)
+	}
+	league.pickOnClock(t)
+
+	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+	tabCtx, cancelTab := context.WithTimeout(ctx, browserFirstPaint)
+	defer cancelTab()
+	if err := chromedp.Run(tabCtx,
+		chromedp.Click(`#main-content .draft-tabbar__tab[href^="/draft?view=tape"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`.draft-pane--history .tape-row--detail`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("select the Picks tab at 390px: %v", err)
+	}
+
+	const cardScript = `(function(){
+		var rows = Array.from(document.querySelectorAll('.draft-pane--history .tape-row--detail'));
+		return rows.map(function(row){
+			var r = row.getBoundingClientRect();
+			var summary = row.querySelector('.tape-row__summary');
+			var sr = summary.getBoundingClientRect();
+			var mine = row.getAttribute('data-mine') === 'true';
+			var borderLeft = mine ? getComputedStyle(row).borderLeftWidth : '';
+			return {height: r.height, summaryHeight: sr.height, mine: mine, borderLeft: borderLeft};
+		});
+	})()`
+	var cards []map[string]any
+	if err := chromedp.Run(ctx, chromedp.Evaluate(cardScript, &cards)); err != nil {
+		t.Fatalf("read tape-row card metrics: %v", err)
+	}
+	if len(cards) == 0 {
+		t.Fatal("no .tape-row--detail cards rendered at 390px")
+	}
+	sawMineRail := false
+	for i, card := range cards {
+		height, _ := card["height"].(float64)
+		summaryHeight, _ := card["summaryHeight"].(float64)
+		mine, _ := card["mine"].(bool)
+		if height < 56 {
+			t.Errorf("card %d height = %.1fpx at 390px, want >= 56px", i, height)
+		}
+		if summaryHeight < 44 {
+			t.Errorf("card %d tap target = %.1fpx at 390px, want >= 44px", i, summaryHeight)
+		}
+		if mine {
+			sawMineRail = true
+			borderLeft, _ := card["borderLeft"].(string)
+			if borderLeft == "" || borderLeft == "0px" {
+				t.Errorf("card %d is the viewer's own pick but carries no left accent rail (border-left: %v)", i, borderLeft)
+			}
+		}
+	}
+	if !sawMineRail {
+		t.Error("no card in the tape carries data-mine=\"true\" — the viewer's own pick's accent-rail case was never exercised")
+	}
+
+	// "Older rounds ↓" only renders once a round beyond the first page
+	// exists (draftTapeRoundView, page.server.go) — with this test's own
+	// small pick count, it may not exist at all; that is a legitimate
+	// absent state, not a failure, so its own height is checked only when
+	// present.
+	var olderCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('.draft-tape-older').length`, &olderCount)); err != nil {
+		t.Fatalf("count .draft-tape-older: %v", err)
+	}
+	if olderCount > 0 {
+		older := elementBoundingRect(t, ctx, ".draft-tape-older")
+		if older.Height < 44 {
+			t.Errorf(".draft-tape-older height = %.1fpx at 390px, want >= 44px", older.Height)
+		}
+	}
+}
+
+// TestBrowserDraftQueuePaneTouchTargetsAt390 is wave 7b item 5's own
+// decisive browser check: the Big Board (queue) pane's no-JS up/down
+// reorder buttons, its Clear (remove) button, and its own sticky "NEXT
+// UP" header all behave correctly at 390px.
+func TestBrowserDraftQueuePaneTouchTargetsAt390(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	// The queue pane renders nothing to reorder (.board-peek-empty
+	// instead) until the viewer's own Big Board holds at least two
+	// players — two is what the up/down-side-by-side assertion below
+	// actually needs (a single-entry board has both buttons disabled).
+	// simQueueCandidate (sim_helpers_test.go) with a growing skip picks
+	// two DISTINCT available players — NextPick alone would return the
+	// same top-eligible candidate both times, since AddToBoard does not
+	// remove a player from the available pool.
+	state, err := viewer.State()
+	if err != nil {
+		t.Fatalf("read viewer state for board candidates: %v", err)
+	}
+	for i, skip := range []int{0, 1} {
+		playerID := simQueueCandidate(t, state, skip)
+		if err := viewer.AddToBoard(playerID); err != nil {
+			t.Fatalf("add player %d to the viewer's own board: %v", i, err)
+		}
+	}
+	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+
+	tabCtx, cancelTab := context.WithTimeout(ctx, browserFirstPaint)
+	defer cancelTab()
+	if err := chromedp.Run(tabCtx,
+		chromedp.Click(`#main-content label[for="tab-queue"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`.q-row`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("select the Big Board tab at 390px: %v", err)
+	}
+
+	header := elementBoundingRect(t, ctx, ".q-list__header")
+	if header.Height <= 0 {
+		t.Error("no .q-list__header (\"NEXT UP\") rendered in the queue pane at 390px")
+	}
+	var headerPosition string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`getComputedStyle(document.querySelector('.q-list__header')).position`, &headerPosition)); err != nil {
+		t.Fatalf("read .q-list__header position: %v", err)
+	}
+	if headerPosition != "sticky" && headerPosition != "-webkit-sticky" {
+		t.Errorf(".q-list__header position = %q at 390px, want sticky", headerPosition)
+	}
+
+	const rowScript = `(function(){
+		var row = document.querySelector('.q-row');
+		if (!row) return null;
+		var forms = Array.from(row.querySelectorAll('.q-row__actions form'));
+		var buttons = forms.map(function(f){
+			var b = f.querySelector('button');
+			var r = b.getBoundingClientRect();
+			return {width: r.width, height: r.height, top: r.top, disabled: b.disabled};
+		});
+		return buttons;
+	})()`
+	var buttons []map[string]any
+	if err := chromedp.Run(ctx, chromedp.Evaluate(rowScript, &buttons)); err != nil {
+		t.Fatalf("read the first .q-row's action buttons: %v", err)
+	}
+	if len(buttons) < 2 {
+		t.Fatalf("first .q-row has %d action button(s), want at least 2 (up/down)", len(buttons))
+	}
+	for i, b := range buttons {
+		width, _ := b["width"].(float64)
+		height, _ := b["height"].(float64)
+		if width < 44 || height < 44 {
+			t.Errorf("action button %d = %.1fx%.1fpx at 390px, want >= 44x44", i, width, height)
+		}
+	}
+	// "Side by side": the up and down buttons share one row (their own
+	// top coordinates match), not stacked into two.
+	upTop, _ := buttons[0]["top"].(float64)
+	downTop, _ := buttons[1]["top"].(float64)
+	if upTop != downTop {
+		t.Errorf("up/down buttons are not side by side at 390px: up top=%.1f down top=%.1f", upTop, downTop)
+	}
+}

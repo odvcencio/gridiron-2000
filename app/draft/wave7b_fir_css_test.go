@@ -81,3 +81,44 @@ func TestDraftCommandPillStylesheetContract(t *testing.T) {
 		t.Error("stylesheet missing a prefers-reduced-motion override for the pill's own pulse animation")
 	}
 }
+
+// TestDraftPickCardsStylesheetContract is wave 7b item 4's own CSS
+// contract test: the viewer's own picks carry a left accent rail
+// (phone width), and the newest pick's own entrance motion is
+// reduced-motion safe.
+func TestDraftPickCardsStylesheetContract(t *testing.T) {
+	raw, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, want := range []string{
+		`.tape-row[data-mine="true"] {`, "border-left: 3px solid",
+		".tape-row--clock + .tape-row--detail,", "draft-pick-card-enter",
+		"@keyframes draft-pick-card-enter {",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("stylesheet missing pick-card rule %q", want)
+		}
+	}
+}
+
+// TestDraftQueuePaneStylesheetContract is wave 7b item 5's own CSS
+// contract test: the sticky "NEXT UP" header and the queue-row action
+// buttons' own 44px reasserts against larch's mobile touch-baseline
+// reset.
+func TestDraftQueuePaneStylesheetContract(t *testing.T) {
+	raw, err := os.ReadFile("../../public/styles.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(raw)
+	for _, want := range []string{
+		".q-list__header {", "position: sticky",
+		".q-row__actions .board-button--move {", ".q-row__actions form:last-child .btn-sm {",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("stylesheet missing queue pane rule %q", want)
+		}
+	}
+}

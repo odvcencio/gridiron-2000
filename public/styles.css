@@ -13292,6 +13292,17 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   border-radius: var(--radius-pill);
 }
 
+/* Wave 7b item 6: .results-team-dot is an <a>, so larch's mobile-
+   foundation touch-baseline block (public/styles.css, "Mobile
+   interaction baseline") also resets ITS min-width to 0 at the coarse-
+   pointer/narrow-viewport query — the identical conflict wave 7b — ash's
+   own SET-button fix and item 5's own queue-reorder-button fix (both
+   above) already found and fixed the same #main-content-anchored way,
+   copied here rather than reaching for !important. */
+.site-frame #main-content .results-team-dot {
+  min-width: 2.75rem;
+}
+
 .results-team-dot::before {
   content: "";
   width: 0.5rem;
@@ -13355,11 +13366,23 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    keys off (that test's own comment, /draft's phone-tab reveal rule
    above, explains why spelling it out would relocate that match). */
 @media (width <= 56.1875rem) {
+  /* Wave 7b item 6 (2026-08-31 audit): the strip's own dot nav
+     (.results-team-dots, below) already gives a manager who has scrolled
+     several cards deep a way to jump anywhere, but nothing signaled the
+     row itself kept scrolling past the visible edge — the same "chips
+     clip at 260-375px" symptom /draft's own
+     .draft-available-head__chips mask-image fix (above) already
+     diagnosed and fixed for a different horizontally-snapping row. Right
+     edge only: a snap-scrolled row's own start is never ambiguous (it is
+     wherever the viewport itself begins), only "is there more" past the
+     visible edge needs the cue. */
   .results-teams {
     flex-wrap: nowrap;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
   }
 
   .results-team-card {
@@ -14159,3 +14182,109 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   }
 }
 
+/* Item 4: pick rows as cards, phone width. The T3/T4 polish passes and
+   the 2026-08-30 review already gave .tape-row (DraftPickDetail, page.gsx)
+   a two-line card shape matching the mockup — pick slot + team badge on
+   the left edge, player name/position/AUTO-COMM tag as the bold first
+   line, team/manager/NFL-team/time-to-pick as the muted second line, #N
+   and a chevron on the right edge, min-height: 2.75rem on the tappable
+   .tape-row__summary (TestDraftTapeRowTogglePassesTheTouchBaseline). What
+   was still missing: "vs ADP" itself (page.gsx now appends
+   props.ValueLabel to the second line whenever props.HasValue — the same
+   value the available pane's own VS ADP column already reads off the
+   identical HasValue/ValueLabel pair, R4), the viewer's own picks reading
+   only as a faint background tint (no rail), and no entrance motion for
+   the newest pick landing live. */
+@media (width <= 56.1875rem) {
+  /* .tape-row[data-mine="true"] (above, this file) already tints the
+     row's background; the accent rail is the SAME left-border language
+     .tape-row--clock already uses for "this row needs your attention"
+     (the on-clock placeholder), a slightly muted color so a viewer's own
+     PAST picks read as "mine" without competing with the brighter
+     on-clock accent for the one row that is actually live right now. */
+  .tape-row[data-mine="true"] {
+    border-left: 3px solid var(--color-accent-cyan);
+  }
+
+  /* The newest pick: whichever .tape-row--detail sits first among the
+     tape's own real rows — either right after the on-clock placeholder
+     (.tape-row--clock, present whenever the draft has not just finished),
+     or first among the tape rows outright once the draft completes and
+     the placeholder stops rendering. Both cases are covered so exactly
+     one row ever animates, never zero and never more than one. Target
+     mode replaces the whole tape-rows region on every draft:pick
+     (findings 1/2/3/6, page.server.go's own doc comment on that fragment)
+     — a brand-new DOM node each time, so this plays again on every real
+     pick, not just first paint. */
+  .draft-history__view--tape .tape-row--clock + .tape-row--detail,
+  .draft-history__view--tape .tape-round:first-of-type + .tape-row--detail:first-of-type {
+    animation: draft-pick-card-enter 0.4s var(--ease-out);
+  }
+}
+
+@keyframes draft-pick-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-history__view--tape .tape-row--clock + .tape-row--detail,
+  .draft-history__view--tape .tape-round:first-of-type + .tape-row--detail:first-of-type {
+    animation: none;
+  }
+}
+
+/* Item 5: the Big Board (queue) pane on phones.
+     - The no-JS up/down reorder buttons (.board-button--move, shared with
+       /board) carry min-height/min-width: var(--control-h) = 44px in
+       their own base rule (the button system pass, top of this file) and
+       already sit side by side inside .q-row__actions' own flex row —
+       but measured 44x25.6 live: larch's mobile-foundation touch-
+       baseline block (public/styles.css, "Mobile interaction baseline")
+       sets min-width: 0 on .site-frame button at the coarse-pointer/
+       narrow-viewport query so ordinary text buttons can stay their own
+       natural (non-square) width, and that rule's #main-content-anchored
+       specificity beats .board-button--move's plain two-class selector —
+       the identical conflict wave 7b — ash's own SET-button fix
+       (public/styles.css, "Item 7") already found and fixed the same
+       #main-content-anchored way for a different button, copied here
+       rather than reaching for !important.
+     - .q-row__actions' own Clear (remove) button used the compact
+       .btn-sm sizing (var(--control-h-compact) = 36px, 8px under the
+       floor) — every OTHER .btn-sm in the shell stays compact by design
+       (dense chrome rows), so this widens Clear specifically rather than
+       the shared .draft-shell .btn-sm rule everything else also reads
+       from.
+     - A sticky "NEXT UP" header (.q-list__header, DraftMyTeam, page.gsx)
+       orients a manager who has scrolled deep into a long ranked board
+       back to "this is my own priority order, read top to bottom" —
+       matching .tape-round's own sticky per-round header one pane over. */
+.site-frame #main-content .q-row__actions .board-button--move {
+  min-width: var(--control-h);
+}
+
+@media (width <= 56.1875rem) {
+  .q-row__actions form:last-child .btn-sm {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  .q-list__header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    letter-spacing: 0.08em;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
+  }
+}

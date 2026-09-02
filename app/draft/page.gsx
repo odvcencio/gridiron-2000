@@ -202,7 +202,10 @@ func DraftQueue(props DraftQueueProps) Node {
 							<button class="draft-button" type="submit">Draft</button>
 						</If>
 						<If cond={props.CanPick && player.CanDraft == false}>
-							<button class="draft-button" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+							<span class="control-locked">
+								<button class="draft-button" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+								<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
+							</span>
 						</If>
 						<If cond={props.CanPick == false}>
 							<button class="draft-button" type="button" disabled="disabled">Locked</button>
@@ -1747,7 +1750,10 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							<button class="btn btn-sm btn-primary" type="submit">Draft</button>
 						</If>
 						<If cond={props.Data.can_pick && player.CanDraft == false}>
-							<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+							<span class="control-locked">
+								<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+								<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
+							</span>
 						</If>
 					</form>
 				</If>
@@ -1801,6 +1807,9 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		</div>
 		<div class="draft-mine__view draft-mine__view--queue">
 			<div class="pool-list pool-list--reorder-scroll" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
+				<If cond={props.Data.queue_empty == false}>
+					<div class="q-list__header mono">NEXT UP</div>
+				</If>
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
