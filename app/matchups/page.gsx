@@ -254,16 +254,17 @@ func Scorebug(props ScorebugData) Node {
 // always opens with, so that span only renders once the live state has
 // moved off LEDGER and the two no longer say the same thing back to back
 // (item 2).
-func Page() Node {
-	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
-		<header class="matchups-masthead">
-			<div class="matchups-masthead__title">
-				<h1 class="display"><span data-gosx-live-bind="weekLabel">{data.live.week_label}</span> <span class="matchups-masthead__word">MATCHUPS</span></h1>
-				<If cond={data.live.slate_line != ""}><p class="matchups-masthead__sub mono" data-gosx-live-bind="slateLine">{data.live.slate_line}</p></If>
-				<p class="matchups-masthead__state mono"><span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span> <span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span> · <span data-gosx-live-bind="status">{data.live.status}</span></p>
-			</div>
-			<If cond={data.has_weeks}><WeekBrowser HasPrevious={data.has_previous_week} PreviousHref={data.previous_week_href} Options={data.week_options} HasNext={data.has_next_week} NextHref={data.next_week_href} IsCurrent={data.is_current_week} CurrentHref={data.current_week_href}></WeekBrowser></If>
-		</header>
+// MatchupStatusBlock is the A5/A6 status paragraph (state chip, source
+// line, ledger stamp, games-final count, freshness clause) plus the
+// week-notice line, split out of Page() (item 1, wave 7b) so it can
+// render on either side of MatchupScoreBlock: Page() puts this block
+// first on a still-scheduled week (nothing to score yet, so the status
+// context leads) and after it on game day (matchupsIsGameDay,
+// page.server.go) once there is a real score to lead with instead. Both
+// call sites read the same "data" binding this function does, so moving
+// it costs nothing beyond the two-call duplication.
+func MatchupStatusBlock() Node {
+	return <>
 		<p class="matchup-status-line" role="status" aria-live="polite">
 			<span class="state-chip" data-live-state={data.status_line.live_state}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind="liveIndicator">{data.live.live_indicator}</span><b data-gosx-live-bind="liveState">{data.status_line.live_state}</b></span>
 			<span class="mono matchup-status-line__source" data-gosx-live-bind="sourceLine">{data.status_line.source_line}</span>
@@ -274,22 +275,50 @@ func Page() Node {
 			<span class="mono muted matchup-status-line__freshness">· <span data-gosx-live-bind="liveStatus">{data.live.live_status}</span> · Checked <span data-gosx-live-bind="checkedAt">{data.status_line.checked_at}</span> · <span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span></span>
 		</p>
 		<If cond={data.has_week_notice}><p class="matchup-week-notice" role="status">{data.week_notice}</p></If>
-		<div class="matchup-layout">
-			<If cond={data.my_matchup.HasMatchup}><FeaturedMatchup {...data.my_matchup}></FeaturedMatchup></If>
-			<If cond={data.matchups_empty}><section class="my-matchup card"><div class="empty-tape"><strong>NO MATCHUPS YET</strong><p>{data.league.season_open_line}</p><a href="/draft" data-gosx-link class="button button--compact">Open the draft room →</a></div></section></If>
-			<aside class="around-league">
-				<header class="around-league__head"><span class="section-index">Around the league</span><span class="mono muted">{data.other_count_label}</span></header>
-				<div class="matchup-grid"><Each of={data.other_matchups} as="other"><Scorebug {...other}></Scorebug></Each></div>
-				<section class="score-command playoff-truth-card card" aria-labelledby="matchups-playoff-truth-heading">
-					<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // BRACKET</span><h2 id="matchups-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-					<p>{data.playoff_truth.detail}</p>
-					<If cond={data.playoff_truth.source != ""}><p class="scoring-note mono">SOURCE {data.playoff_truth.source} · {data.playoff_truth.source_state} · FINAL WEEK {data.playoff_truth.final_week}</p></If>
-					<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-					<If cond={data.playoff_truth.has_matchups}><div class="activity-feed"><Each of={data.playoff_truth.matchups} as="matchup"><div class="activity-item"><p><strong>{matchup.bracket} · ROUND {matchup.round} · WEEK {matchup.week}</strong> {matchup.home_team_name} {matchup.home_score_text} — {matchup.away_team_name} {matchup.away_score_text}</p><small>{matchup.tie_break_explanation}</small></div></Each></div></If>
-					<a href="/help/commissioner-operations" data-gosx-link class="access-link">Read postseason and recovery help →</a>
-				</section>
-				<div class="data-note"><span data-gosx-live-bind="noteTitle">{data.live.note_title}</span><p data-gosx-live-bind="noteBody">{data.live.note_body}</p></div>
-			</aside>
-		</div>
+	</>
+}
+
+// MatchupScoreBlock is the featured-card-plus-around-the-league layout —
+// the page's actual score content, split out of Page() (item 1, wave 7b)
+// for the same before/after-MatchupStatusBlock reason that function's own
+// doc comment gives.
+func MatchupScoreBlock() Node {
+	return <div class="matchup-layout">
+		<If cond={data.my_matchup.HasMatchup}><FeaturedMatchup {...data.my_matchup}></FeaturedMatchup></If>
+		<If cond={data.matchups_empty}><section class="my-matchup card"><div class="empty-tape"><strong>NO MATCHUPS YET</strong><p>{data.league.season_open_line}</p><a href="/draft" data-gosx-link class="button button--compact">Open the draft room →</a></div></section></If>
+		<aside class="around-league">
+			<header class="around-league__head"><span class="section-index">Around the league</span><span class="mono muted">{data.other_count_label}</span></header>
+			<div class="matchup-grid"><Each of={data.other_matchups} as="other"><Scorebug {...other}></Scorebug></Each></div>
+			<section class="score-command playoff-truth-card card" aria-labelledby="matchups-playoff-truth-heading">
+				<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // BRACKET</span><h2 id="matchups-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+				<p>{data.playoff_truth.detail}</p>
+				<If cond={data.playoff_truth.source != ""}><p class="scoring-note mono">SOURCE {data.playoff_truth.source} · {data.playoff_truth.source_state} · FINAL WEEK {data.playoff_truth.final_week}</p></If>
+				<If cond={data.playoff_truth.recovery != ""}><p class="demo-message"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+				<If cond={data.playoff_truth.has_matchups}><div class="activity-feed"><Each of={data.playoff_truth.matchups} as="matchup"><div class="activity-item"><p><strong>{matchup.bracket} · ROUND {matchup.round} · WEEK {matchup.week}</strong> {matchup.home_team_name} {matchup.home_score_text} — {matchup.away_team_name} {matchup.away_score_text}</p><small>{matchup.tie_break_explanation}</small></div></Each></div></If>
+				<a href="/help/commissioner-operations" data-gosx-link class="access-link">Read postseason and recovery help →</a>
+			</section>
+			<div class="data-note"><span data-gosx-live-bind="noteTitle">{data.live.note_title}</span><p data-gosx-live-bind="noteBody">{data.live.note_body}</p></div>
+		</aside>
+	</div>
+}
+
+func Page() Node {
+	return <main class="page matchups-page" id="main-content" data-live-root data-gosx-live-src="/api/live/week" data-gosx-live-interval={data.live_interval} data-gosx-live-on="scores:changed">
+		<header class="matchups-masthead">
+			<div class="matchups-masthead__title">
+				<h1 class="display"><span data-gosx-live-bind="weekLabel">{data.live.week_label}</span> <span class="matchups-masthead__word">MATCHUPS</span></h1>
+				<If cond={data.live.slate_line != ""}><p class="matchups-masthead__sub mono" data-gosx-live-bind="slateLine">{data.live.slate_line}</p></If>
+				<p class="matchups-masthead__state mono"><span data-gosx-live-bind="headlineTop">{data.live.headline_top}</span> <span data-gosx-live-bind="headlineBottom">{data.live.headline_bottom}</span> · <span data-gosx-live-bind="status">{data.live.status}</span></p>
+			</div>
+			<If cond={data.has_weeks}><WeekBrowser HasPrevious={data.has_previous_week} PreviousHref={data.previous_week_href} Options={data.week_options} HasNext={data.has_next_week} NextHref={data.next_week_href} IsCurrent={data.is_current_week} CurrentHref={data.current_week_href}></WeekBrowser></If>
+		</header>
+		<If cond={data.is_game_day}>
+			<MatchupScoreBlock></MatchupScoreBlock>
+			<MatchupStatusBlock></MatchupStatusBlock>
+		</If>
+		<If cond={data.is_game_day == false}>
+			<MatchupStatusBlock></MatchupStatusBlock>
+			<MatchupScoreBlock></MatchupScoreBlock>
+		</If>
 	</main>
 }

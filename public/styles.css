@@ -12731,3 +12731,59 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     scroll-snap-align: start;
   }
 }
+
+/* wave 7b — ash ------------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention "wave 6 — rowan" and "wave 7 — hazel" (above) already use.
+   Every selector below is new; nothing above this comment is modified
+   except where an inline "wave 7b — ash" comment elsewhere in this file
+   says so. */
+
+/* Item 1/9: .pickem-weeknav is shared by /matchups (WeekBrowser,
+   app/matchups/page.gsx) and /pickem (PickemLiveRegion's own week nav,
+   app/pickem/page.gsx) — see WeekBrowserProps' own doc comment for why
+   matchups keeps this exact class. On a phone the week strip becomes a
+   sticky, horizontally snap-scrolling row of chips directly under the
+   fixed top bar (.mobile-navigation-static, top: 0, z-index 50 — this
+   strip's own z-index sits below that so the two never fight during an
+   overscroll): the wrap layout it used at every other width buried the
+   current week several lines down a manager had to hunt for, and the
+   status-line prose that follows it in the DOM (both pages) stays in
+   normal flow beneath it, never covered. Every existing child
+   (.board-button, .lineup-week-form, the "Back to current week"
+   .access-link) already renders at the 44px floor elsewhere in this file
+   (.pickem-weeknav .board-button above; the #main-content re-assert for
+   .pickem-weeknav > a[data-gosx-link] and .lineup-week-form button); this
+   rule only changes how they lay out and scroll, not their own size — it
+   stays inside the page's own padded content column (no full-bleed
+   negative margin) so it cannot introduce horizontal document overflow. */
+@media (max-width: 56.1875rem) {
+  .pickem-weeknav {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding-block: var(--space-xs);
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .pickem-weeknav > a,
+  .pickem-weeknav > .access-link,
+  .pickem-weeknav .lineup-week-form {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* /pickem's own <select> carries no .board-button class (unlike
+     /matchups' WeekBrowser, which sets one) — floor it directly here so
+     both pages' week-select reach the same 44px chip height inside the
+     strip. */
+  .pickem-weeknav select {
+    min-height: var(--control-h);
+  }
+}
