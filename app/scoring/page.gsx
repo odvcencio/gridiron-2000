@@ -52,13 +52,9 @@ func Page() Node {
 					RULES &amp; SCORING //
 					{data.league_mode}
 				</span>
-				<h1>
-					HOW THE
-					<br></br>
-					LEAGUE RUNS.
-				</h1>
+				<h1>Rules &amp; scoring</h1>
 				<p>
-					Every rule below matches exactly how this league is set up right now — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. A new manager can read this page start to finish and play with no questions left.
+					<strong>How the league runs.</strong> Every rule below matches exactly how this league is set up right now — roster shape, scoring values, the draft, lineups, waivers, trades, and pick'em. A new manager can read this page start to finish and play with no questions left.
 				</p>
 			</div>
 			<div class="draft-clock-panel">

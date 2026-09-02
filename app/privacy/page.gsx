@@ -9,7 +9,7 @@ func Page() Node {
 		<p class="page-kicker">Last updated August 8, 2026</p>
 		<h1>
 			PRIVACY
-			<br></br>
+			{" "}
 			PLAYBOOK.
 		</h1>
 		<section>

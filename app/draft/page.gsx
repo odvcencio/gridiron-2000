@@ -391,7 +391,7 @@ func DraftRoom(props DraftRoomProps) Node {
 				<p class="page-kicker">{props.Data.draft.long_date}</p>
 				<h1>
 					BUILD
-					<br></br>
+					{" "}
 					THE FUTURE.
 				</h1>
 				<p>{props.Data.draft.format}. {props.Data.draft.status_note}</p>

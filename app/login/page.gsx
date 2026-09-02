@@ -19,7 +19,7 @@ func Page() Node {
 				<p class="page-kicker">{data.public_entry.state_label}</p>
 				<h1>
 					{data.league.name}
-					<br></br>
+					{" "}
 					<span>{data.public_entry.headline}</span>
 				</h1>
 				<p>{data.public_entry.detail}</p>

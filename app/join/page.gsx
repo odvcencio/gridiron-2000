@@ -23,7 +23,7 @@ func Page() Node {
 				<p class="hero-kicker">{data.league.hero_kicker}</p>
 				<h1>
 					CLAIM YOUR
-					<br></br>
+					{" "}
 					<span>FRANCHISE.</span>
 				</h1>
 				<If cond={data.public_entry.can_claim}>

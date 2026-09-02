@@ -189,9 +189,23 @@ func badgeGridProps(raw []map[string]any, csrfToken, teamID, redirectTo string) 
 // teamLineupFragmentURL carries only the allow-listed view selectors to the
 // read-only region endpoint. A commissioner may inspect another claimed
 // franchise; ordinary managers stay scoped to their own seat by omitting team.
-func teamLineupFragmentURL(data map[string]any) string {
+//
+// week prefers the RAW requested query value over data["week"] (already
+// clamped to a valid week by teamWeekOptions) — wave-6 audit item 5: a
+// /team?week=99 load rendered "Week 99 is not on the published schedule.
+// Showing Week 1." once, then the region's own 4s poll re-fetched
+// data["week"]'s already-clamped "1", which needs no notice, silently
+// erasing it. Re-requesting the same out-of-range week on every poll makes
+// the fragment re-derive the identical notice each time instead.
+func teamLineupFragmentURL(data map[string]any, request *http.Request) string {
 	values := url.Values{}
-	if week := strings.TrimSpace(stringField(data, "week")); week != "" {
+	week := strings.TrimSpace(stringField(data, "week"))
+	if request != nil {
+		if raw := strings.TrimSpace(request.URL.Query().Get("week")); raw != "" {
+			week = raw
+		}
+	}
+	if week != "" {
 		values.Set("week", week)
 	}
 	if boolField(data, "lineup_intervention") {
@@ -222,7 +236,7 @@ func prepareTeamData(data map[string]any, request *http.Request) map[string]any 
 		}
 	}
 	data["lineup_fragment_interval"] = teamLineupFragmentInterval
-	data["lineup_fragment_url"] = teamLineupFragmentURL(data)
+	data["lineup_fragment_url"] = teamLineupFragmentURL(data, request)
 	return data
 }
 

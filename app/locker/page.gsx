@@ -16,13 +16,9 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					LOCKER ROOM
 				</span>
-				<h1>
-					TALK TO
-					<br></br>
-					YOUR LEAGUE.
-				</h1>
+				<h1>Locker Room</h1>
 				<p>
-					Post league business, trash talk, and updates. Every admitted member can read and post here — seatless managers included.
+					<strong>Talk to your league.</strong> Post league business, trash talk, and updates. Every admitted member can read and post here — seatless managers included.
 				</p>
 			</div>
 			<div class="draft-clock-panel">

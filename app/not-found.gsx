@@ -5,7 +5,7 @@ func Page() Node {
 		<span class="error-code mono">404 // WRONG CHANNEL</span>
 		<h1>
 			NOTHING ON
-			<br></br>
+			{" "}
 			THIS FREQUENCY.
 		</h1>
 		<p>

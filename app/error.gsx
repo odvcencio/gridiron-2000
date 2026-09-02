@@ -5,7 +5,7 @@ func Page() Node {
 		<span class="error-code mono">500 // SIGNAL LOST</span>
 		<h1>
 			THE BOOTH
-			<br></br>
+			{" "}
 			WENT DARK.
 		</h1>
 		<p>

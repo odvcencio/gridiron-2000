@@ -6,8 +6,8 @@ func Page() Node {
 			<div>
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>HELP CENTER // TASK FIRST</span>
 				<p class="page-kicker">{data.runtime.league_name} · {data.runtime.mode} · {data.runtime.phase} · corpus {data.corpus_version}</p>
-				<h1>FIND<br></br>THE<br></br>NEXT MOVE.</h1>
-				<p class="guide-lede">Canonical football terms first. Every topic names the actor, prerequisite, privacy, consequence, reversibility, result, failure, recovery, runtime source, and owning action.</p>
+				<h1>Help center</h1>
+				<p class="guide-lede"><strong>Find the next move.</strong> Canonical football terms first. Every topic names the actor, prerequisite, privacy, consequence, reversibility, result, failure, recovery, runtime source, and owning action.</p>
 				<form class="help-search" method="get" action="/help">
 					<label for="help-query">Search help</label>
 					<div class="help-search__row">
