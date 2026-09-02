@@ -1,0 +1,35 @@
+package players
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestPlayersOwnerNameIsVisibleNotOnlyInATitleAttribute is larch's title
+// audit finding (wave 7b): a title="" attribute is only reachable on
+// hover, which a touch device never gives, so the manager's full name
+// used to be readable nowhere on a phone. The ROSTERED availability line
+// inside each player's expandable stat-tip panel — reachable from every
+// row that also shows the compact position-chip--locked badge — now
+// prints the full owner name inline, in both render copies (Page() and
+// PlayerPoolRegion). The compact chip badge and the dense waiver-order
+// strip stay abbreviation-only (expanding either would defeat their
+// glance-at-a-row-of-many-teams purpose), but both now also carry
+// aria-label so the name is not title-only there either.
+func TestPlayersOwnerNameIsVisibleNotOnlyInATitleAttribute(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	if got := strings.Count(source, "ROSTERED · {player.owner_name} ({player.owner_abbr})"); got != 2 {
+		t.Errorf("page.gsx has %d visible-owner-name ROSTERED lines, want 2 (Page() and PlayerPoolRegion())", got)
+	}
+	if got := strings.Count(source, `aria-label={"Rostered by " + player.owner_name}`); got != 2 {
+		t.Errorf("page.gsx has %d position-chip--locked aria-labels, want 2 (Page() and PlayerPoolRegion())", got)
+	}
+	if got := strings.Count(source, "aria-label={slot.name}"); got != 2 {
+		t.Errorf("page.gsx has %d waiver-order-strip aria-labels, want 2 (Page() and WaiverDeskRegion())", got)
+	}
+}
