@@ -37,7 +37,8 @@ func TestLedgerCSVHandlerRejectsMethodAndUnauthorized(t *testing.T) {
 // TestLedgerCSVHandlerServesCSV runs against a real league.Service in demo
 // mode (draftFragmentAccess admits any request once DemoMode() is true, so
 // this needs no signed-in session): a GET answers 200 text/csv with an
-// attachment disposition and a header row naming every ledger column.
+// attachment disposition and a header row naming every ledger column,
+// including drafted_label (wave 7 item 5).
 func TestLedgerCSVHandlerServesCSV(t *testing.T) {
 	cmd := exec.Command(os.Args[0], "-test.run=^TestLedgerCSVHandlerServesCSVFixtureProcess$")
 	cmd.Env = append(os.Environ(), "LEDGER_CSV_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=")
@@ -67,9 +68,22 @@ func TestLedgerCSVHandlerServesCSVFixtureProcess(t *testing.T) {
 		}
 	}
 	header := strings.SplitN(response.Body.String(), "\n", 2)[0]
-	for _, column := range []string{"pick", "round", "label", "team", "manager", "player", "position", "nfl_team", "made_by", "time_to_pick", "vs_adp"} {
+	for _, column := range []string{"pick", "round", "label", "drafted_label", "team", "manager", "player", "position", "nfl_team", "made_by", "time_to_pick", "vs_adp"} {
 		if !strings.Contains(header, column) {
 			t.Errorf("CSV header missing column %q: %s", column, header)
 		}
+	}
+}
+
+// TestLedgerDraftedLabelFormatsRoundAndPick is wave 7's item 5: the CSV
+// writer's own drafted_label column reads "R<round> · P<pick>", distinct
+// from the existing terser "label" column ("<round>.<slot>", pick.Label).
+// A direct unit test against the named formatting function, not a live
+// draft's own CSV output — see ledgerDraftedLabel's own doc comment.
+func TestLedgerDraftedLabelFormatsRoundAndPick(t *testing.T) {
+	got := ledgerDraftedLabel(league.TapePick{Round: 3, Number: 28, Label: "3.04"})
+	want := "R3 · P28"
+	if got != want {
+		t.Fatalf("ledgerDraftedLabel = %q, want %q", got, want)
 	}
 }

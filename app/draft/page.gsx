@@ -985,6 +985,17 @@ type BoardView struct {
 	// own style={"--board-columns:" + ...} needs this already-formatted
 	// field rather than a len(props.Columns) call inline.
 	ColumnCount string
+	// HasMine/MineID: wave 7 item 1's "jump to my picks" affordance.
+	// HasMine is true only when the viewer holds a seat (one of Columns
+	// carries "mine" == true); MineID is that column's own team id, the
+	// same value DraftBoard's own "board-team-<id>" anchor id (below)
+	// already carries on every column unconditionally. Both computed in
+	// Go (boardViewProps, page.server.go) rather than scanning
+	// props.Columns from inside the template, matching this file's own
+	// rule against relying on GSX template-side map iteration/comparison
+	// for anything that gates a whole element's presence.
+	HasMine bool
+	MineID  string
 }
 
 // TeamColumn is one team's full pick history plus its roster-needs tally.
@@ -1337,12 +1348,16 @@ type DraftMobileTabsProps struct {
 	// requested. #tab-picks' own checked expression needs this to stay
 	// mutually exclusive with #tab-players (item 4, 2026-08-30 review).
 	TapeExplicit bool
-	// PicksHref/TeamsHref (item 4/6, 2026-08-30 review): both tabs are
-	// plain data-gosx-link navigations, like Teams already was — Picks
-	// forces "?view=tape" so its own pane content is never whatever the
-	// viewer had last navigated to on desktop (Board or Teams), the bug a
-	// pure CSS-only radio toggle could show under the wrong label.
+	// PicksHref/BoardHref/TeamsHref (item 4/6, 2026-08-30 review; BoardHref
+	// added wave 7 item 1): every tab is a plain data-gosx-link navigation,
+	// like Teams already was — Picks forces "?view=tape" so its own pane
+	// content is never whatever the viewer had last navigated to on
+	// desktop (Board or Teams), the bug a pure CSS-only radio toggle could
+	// show under the wrong label. BoardHref carries data.history_board_href
+	// (fragment.go), the exact same URL the desktop segment's own "Draft
+	// grid" link already uses — one href, two navigation surfaces.
 	PicksHref string
+	BoardHref string
 	TeamsHref string
 }
 
@@ -1396,20 +1411,33 @@ type DraftMobileTabsProps struct {
 // the draft-shell's own height: 100dvh math needs that clearance back),
 // and the desktop command bar's own Rail toggle only affects the site
 // rail above the 56.25rem desktop breakpoint, leaving a phone-width
-// visitor with no way to reach the rest of the league at all. The fifth
+// visitor with no way to reach the rest of the league at all. The sixth
 // "League" tab below reopens the SAME dialog Layout()'s hamburger button
 // targets: data-gosx-disclosure-target is a plain attribute selector the
 // runtime already delegates clicks for (client/runtime/host/
 // disclosure.ts), so a second trigger for the one existing dialog needs
 // no new markup or JS.
+//
+// Wave 7 item 1: a dedicated "Draft grid" tab (#tab-board) joins Picks/
+// Teams — before this, ShowBoard folded into #tab-picks' own checked
+// expression (item 1a's board segment had no phone-width equivalent at
+// all, so reaching "/draft?view=board" left the tab bar showing "Picks"
+// selected over the grid). #tab-picks' condition drops the ShowBoard
+// disjunct it used to carry, since ShowTape/ShowBoard/ShowTeams are
+// already mutually exclusive server-side (DraftHistory renders exactly
+// one), so #tab-board's own plain `checked={props.ShowBoard}` can never
+// disagree with #tab-picks or #tab-teams — no radio group ever ends up
+// with two checked inputs sharing the same name.
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
 		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false && props.TapeExplicit == false}></input>
 		<label class="draft-tabbar__tab" for="tab-players">Pool</label>
 		<input type="radio" name="draft-tab" id="tab-queue" class="visually-hidden"></input>
 		<label class="draft-tabbar__tab" for="tab-queue">Big Board</label>
-		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && (props.ShowBoard || props.Complete || props.TapeExplicit)}></input>
-		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link aria-current={props.ShowTeams == false && (props.ShowBoard || props.Complete || props.TapeExplicit)}>Picks</a>
+		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)}></input>
+		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link aria-current={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)}>Picks</a>
+		<input type="radio" name="draft-tab" id="tab-board" class="visually-hidden" checked={props.ShowBoard}></input>
+		<a class="draft-tabbar__tab" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
 		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
 		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
 		<button type="button" class="draft-tabbar__tab" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
@@ -2055,11 +2083,26 @@ func DraftTapeRows(props DraftHistoryProps) Node {
 // to one ellipsized line, "Kern…"); a filled cell reads "1.01 · WR · CIN"
 // (label · position · NFL team, PickBoard.dc.html — the NFL team was
 // missing before this same pass).
+//
+// Wave 7 item 1 (mobile delight): every column header carries its own
+// "board-team-<id>" id unconditionally (a plain, always-unique anchor
+// target, cheaper than a conditional id="" GSX cannot express cleanly
+// inline — see BoardView.MineID's own doc comment); the "Jump to my
+// picks" link only renders while HasMine, and targets that same id on
+// the viewer's own column. A plain in-page <a href="#...">, no JS: the
+// browser's own fragment-navigation scroll already brings a target into
+// view within its nearest scrolling ancestor on both axes, and
+// .board-grid__team's own scroll-margin-left (styles.css) keeps the
+// sticky round column from covering it once it lands.
 func DraftBoard(props BoardView) Node {
-	return <div class="board-grid" style={"--board-columns:" + props.ColumnCount}>
+	return <>
+		<If cond={props.HasMine}>
+			<a class="board-jump" href={"#board-team-" + props.MineID}>↓ Jump to my picks</a>
+		</If>
+		<div class="board-grid" style={"--board-columns:" + props.ColumnCount}>
 		<div class="board-grid__corner"></div>
 		<Each of={props.Columns} as="column">
-			<div class="board-grid__team" data-mine={column.mine}>
+			<div class="board-grid__team" id={"board-team-" + column.id} data-mine={column.mine}>
 				<span class={"team-mark tone-" + column.tone}>{column.abbreviation}</span>
 				<span class="board-grid__name">{column.name}<If cond={column.mine}> · you</If></span>
 			</div>
@@ -2084,7 +2127,8 @@ func DraftBoard(props BoardView) Node {
 				</div>
 			</Each>
 		</Each>
-	</div>
+		</div>
+	</>
 }
 
 // DraftByTeamProps wraps the by-team column slice: GSX component props
@@ -2301,7 +2345,7 @@ func Page() Node {
 			</div>
 		</header>
 		</If>
-		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
+		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
 				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>

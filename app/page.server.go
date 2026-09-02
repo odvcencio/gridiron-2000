@@ -184,6 +184,18 @@ func init() {
 			if divisions, ok := data["divisions"].([]map[string]any); ok {
 				data["divisions"] = dashboardDivisions(divisions)
 			}
+			// Wave 7 item 3: the post-draft "Draft results" card's own
+			// teaser — the viewer's own opening pick, when they held a
+			// seat that made one. Always computed (cheap: one snapshot
+			// read, an early false return before the draft has any
+			// picks — ViewerFirstPickTeaser's own doc comment), never
+			// gated on data["draft"]["complete"] here, so the card's own
+			// <If cond={data.draft.complete}> in page.gsx is the ONE
+			// place that decision lives.
+			firstPickName, firstPickLabel, hasFirstPick := league.Default().ViewerFirstPickTeaser(ctx.Request)
+			data["draft_first_pick_name"] = firstPickName
+			data["draft_first_pick_label"] = firstPickLabel
+			data["draft_first_pick_has"] = hasFirstPick
 			if actionCenter, ok := data["action_center"].(map[string]any); ok {
 				card := dashboardActionCenter(actionCenter)
 				isCommissioner, _ := viewer["is_commissioner"].(bool)

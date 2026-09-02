@@ -290,6 +290,17 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	if n := strings.Count(boardBody, `data-clock="true"`); n != 1 {
 		t.Errorf("data-clock=\"true\" count = %d, want exactly 1", n)
 	}
+	// Wave 7 item 1: every column header carries its own anchor id
+	// unconditionally (one per fixture team), but this fixture's own
+	// columns carry "mine": false throughout (fullHistoryFixture, above)
+	// — a seatless/no-column-match render, so the jump link must not
+	// render at all (BoardView.HasMine false).
+	if n := strings.Count(boardBody, `id="board-team-team-`); n != teams {
+		t.Errorf("board-team anchor id count = %d, want %d (one per team column)", n, teams)
+	}
+	if strings.Contains(boardBody, `class="board-jump"`) {
+		t.Error("the jump-to-my-picks link must not render when no column is mine (BoardView.HasMine)")
+	}
 
 	// FINAL LEDGER/Export CSV render only when the draft is complete.
 	if strings.Contains(body, "Export CSV") {
@@ -315,6 +326,28 @@ func TestDraftHistoryRendersTapeBoardAndTeams(t *testing.T) {
 	}
 	if strings.Contains(body, `class="btn btn-sm btn-ghost">Detail<`) {
 		t.Error("DETAIL must no longer render as a separate full-width button (T3)")
+	}
+}
+
+// TestDraftBoardJumpLinkTargetsTheViewerOwnColumn is wave 7's item 1: a
+// viewer whose OWN column carries "mine": true gets the "Jump to my
+// picks" link, targeting that same column's own "board-team-<id>"
+// anchor — the fragment id in the href must resolve to a real element in
+// the SAME response, not just render unconditionally.
+func TestDraftBoardJumpLinkTargetsTheViewerOwnColumn(t *testing.T) {
+	fixture := draftFragmentFixture()
+	fixture["picks_empty"] = false
+	history := fullHistoryFixture(nil, 1, 1, false)
+	// fixtureTeams[2] ("Null Pointers") is the viewer's own column —
+	// index 2, "team-3" (fullHistoryFixture's own id scheme).
+	history.Board.Columns[2]["mine"] = true
+	fixture["history"] = history
+	body := renderTapeRegionView(t, fixture, "board")
+	if !strings.Contains(body, `class="board-jump" href="#board-team-team-3"`) {
+		t.Errorf("jump link must target #board-team-team-3 (the mine column): %s", body)
+	}
+	if !strings.Contains(body, `id="board-team-team-3"`) {
+		t.Error("the mine column's own header must carry the matching anchor id")
 	}
 }
 

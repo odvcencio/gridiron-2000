@@ -223,6 +223,10 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 	// injured player on IR correctly sees the spot it frees (SK spec).
 	effectiveSize := effectiveRosterSize(state, teamID)
 	atCap := effectiveSize >= rosterCap
+	// drafted (wave 7, item 2) backs the ROSTERED owner chip's own "R3 ·
+	// P28" suffix (app/players/page.gsx) — resolved once here, not per
+	// row, matching scoringValues/matchup above.
+	drafted := draftedByPlayerID(state)
 
 	rows := make([]map[string]any, 0, len(pool.players))
 	for _, player := range pool.players {
@@ -234,7 +238,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		}
 		ownerID := owner[player.ID]
 		rostered := ownerID != ""
-		row := playerMap(player, scoringValues, matchup)
+		row := playerMap(player, scoringValues, matchup, drafted)
 		row["rostered"] = rostered
 
 		status := waiverStatus{State: AvailabilityRostered}

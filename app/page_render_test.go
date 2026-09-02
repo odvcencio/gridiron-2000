@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"gridiron-2000/internal/fantasy"
 	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/auth"
@@ -638,4 +639,102 @@ func TestHomepageCommissionerSeatlessOverlayRenders(t *testing.T) {
 	if !strings.Contains(body, "/admin") {
 		t.Fatalf("seatless commissioner's home page omitted a real next job into League settings: %s", body)
 	}
+}
+
+// TestHomepagePostDraftCardShowsTheViewerOwnOpeningPick is wave 7's item
+// 3: once the draft completes, the home page carries a "Draft results"
+// card linking /draft/results, and — for a viewer whose team made a
+// pick — the teaser sentence names their own opening pick. A minimal
+// one-of-each roster override (6 starters, the smallest legal shape,
+// plus 4 bench — roster.go refuses a total roster under 10) shrinks the
+// draft to ten rounds, not a full multi-round draft, so this fixture
+// completes quickly.
+func TestHomepagePostDraftCardShowsTheViewerOwnOpeningPick(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHomepagePostDraftCardFixtureProcess$")
+	cmd.Env = append(os.Environ(), "HOME_POST_DRAFT_FIXTURE=1", "DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"), "DEMO_MODE=true", "GOOGLE_CLIENT_ID=", "APP_ENV=", "LEAGUE_FILE=")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("post-draft home fixture process: %v\n%s", err, output)
+	}
+	body := string(output)
+	for _, want := range []string{
+		`class="score-command draft-results-card"`, ">Draft results<", `href="/draft/results"`,
+		"You opened with",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("post-draft home page missing %q: %s", want, body)
+		}
+	}
+	if strings.Contains(body, "Every pick is locked. See who drafted whom") {
+		t.Error("the viewer holds a seat that made a pick; the card must show the teaser, not the seatless fallback sentence")
+	}
+}
+
+func TestHomepagePostDraftCardFixtureProcess(t *testing.T) {
+	if os.Getenv("HOME_POST_DRAFT_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	const viewerEmail = "render@example.com"
+	if _, err := service.AssignManager(viewerEmail, "Render Fixture"); err != nil {
+		t.Fatal(err)
+	}
+	// The built-in neutral league's own embedded rehearsal pool is far
+	// too small for even a shrunk 10-round draft (draftStartReadiness,
+	// admin.go); a real, "live"-labelled source sidesteps that
+	// requirement, matching shell_render_test.go's own livePool helper
+	// (app/draft) for the identical reason.
+	offline := fantasy.OfflinePool()
+	pool := make([]league.Player, 0, len(offline))
+	for _, p := range offline {
+		pool = append(pool, league.Player{ID: p.ID, Name: p.Name, Position: p.Position, NFLTeam: p.NFLTeam, ADP: p.ADP, ADPRank: p.ADPRank, ByeWeek: p.ByeWeek, Projection: p.Projection, Status: "Available"})
+	}
+	service.SetPlayerSource(func() ([]league.Player, int64, string) { return pool, 1, "live" })
+
+	// authenticatedRequest captures a request the auth middleware has
+	// already attached CurrentUser identity to — the same shape
+	// internal/league's own authenticatedJourneyRequest helper builds —
+	// so the direct Admin*/MakePick service calls below (no HTTP round
+	// trip) see a real signed-in identity.
+	authenticatedRequest := func(email string) *http.Request {
+		authn := auth.New(nil, auth.Options{Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: "Render Fixture"}, true
+		})})
+		var captured *http.Request
+		authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			captured = r
+		})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/", nil))
+		return captured
+	}
+	commissioner := authenticatedRequest(viewerEmail) // demoMode makes every signed-in viewer a commissioner (IsCommissioner)
+
+	if _, err := service.AdminSetRosterShape(commissioner, league.RosterOverride{Slots: map[string]int{"QB": 1, "RB": 1, "WR": 1, "TE": 1, "K": 1, "DST": 1}, Bench: 4}); err != nil {
+		t.Fatalf("shrink the roster shape: %v", err)
+	}
+	if _, err := service.AdminStartDraft(commissioner); err != nil {
+		t.Fatalf("start draft: %v", err)
+	}
+	limit := len(service.Teams())*league.CurrentDraftRounds() + 1
+	for n := 0; n < limit; n++ {
+		view := service.DraftDataReadOnly(httptest.NewRequest(http.MethodGet, "/", nil))
+		if complete, _ := view["draft_complete"].(bool); complete {
+			break
+		}
+		token, _ := view["current_pick_token"].(string)
+		if _, _, _, err := service.AdminForceAutopick(commissioner, "FORCE CURRENT PICK", token); err != nil {
+			t.Fatalf("force pick %d: %v", n, err)
+		}
+	}
+	view := service.DraftDataReadOnly(httptest.NewRequest(http.MethodGet, "/", nil))
+	if complete, _ := view["draft_complete"].(bool); !complete {
+		t.Fatalf("draft did not complete after %d forced picks", limit)
+	}
+	// A same-process sanity check with a clear failure message, ahead of
+	// the outer test's own string-matched assertions against the
+	// rendered HTML: the viewer's team made a pick in this one-round
+	// draft (every team does), so ViewerFirstPickTeaser must answer true.
+	if _, _, has := service.ViewerFirstPickTeaser(commissioner); !has {
+		t.Fatal("ViewerFirstPickTeaser answered false after the viewer's own team completed a one-round draft")
+	}
+	fmt.Print(renderAuthenticatedHomepage(t))
 }

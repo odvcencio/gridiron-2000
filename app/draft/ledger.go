@@ -2,6 +2,7 @@ package draft
 
 import (
 	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -35,17 +36,28 @@ func LedgerCSVHandler(service *league.Service) http.Handler {
 		w.Header().Set("Content-Disposition", `attachment; filename="draft-ledger.csv"`)
 		w.WriteHeader(http.StatusOK)
 		writer := csv.NewWriter(w)
-		_ = writer.Write([]string{"pick", "round", "label", "team", "manager", "player", "position", "nfl_team", "made_by", "time_to_pick", "vs_adp"})
+		_ = writer.Write([]string{"pick", "round", "label", "drafted_label", "team", "manager", "player", "position", "nfl_team", "made_by", "time_to_pick", "vs_adp"})
 		for _, pick := range service.DraftLedger() {
 			vsADP := ""
 			if pick.HasValue {
 				vsADP = pick.ValueLabel
 			}
 			_ = writer.Write([]string{
-				strconv.Itoa(pick.Number), strconv.Itoa(pick.Round), pick.Label, pick.TeamName, pick.Manager,
+				strconv.Itoa(pick.Number), strconv.Itoa(pick.Round), pick.Label, ledgerDraftedLabel(pick), pick.TeamName, pick.Manager,
 				pick.PlayerName, pick.Position, pick.NFLTeam, pick.MadeBy, pick.TimeToPick, vsADP,
 			})
 		}
 		writer.Flush()
 	})
+}
+
+// ledgerDraftedLabel formats one pick's round·pick as "R3 · P28" — the
+// same plain-language label /players' owner chip and /activity's draft
+// line render (service.go's playerMap/activityMaps, wave 7 item 2/5),
+// distinct from pick.Label ("3.04", the tape's own dotted round.slot
+// form the "label" column already carries). A named function rather than
+// an inline fmt.Sprintf in the writer loop so a unit test can prove the
+// format without a live draft to read a ledger row from.
+func ledgerDraftedLabel(pick league.TapePick) string {
+	return fmt.Sprintf("R%d · P%d", pick.Round, pick.Number)
 }
