@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
@@ -340,6 +341,25 @@ func TestBrowserHelpPageNeverScrollsAtPhoneWidth(t *testing.T) {
 	viewer := league.bots[len(league.bots)-1]
 	navigateSignedInTo(t, ctx, child, viewer, "/help", uiPassPhoneWidth, uiPassPhoneHeight)
 	assertDocumentNeverScrolls(t, ctx, "/help at 390px")
+}
+
+// TestBrowserTeamLineupNeverScrollsBetweenReflowAndShellBreakpoints covers
+// gap-audit item 5 (wave 3, WCAG 1.4.10 reflow): .lineup-slot's base rule
+// sets a 716-738px minimum grid; its one-column reflow query used to sit
+// at 38rem (608px) while the shell's own desktop/mobile breakpoint is
+// 56.1875rem (899px), so /team overflowed horizontally at any width in
+// between — 47px at 683px (a 1366px display's 200% browser zoom) and
+// 110px at 900px. Both probe widths sit inside that old gap.
+func TestBrowserTeamLineupNeverScrollsBetweenReflowAndShellBreakpoints(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	viewer := league.bots[len(league.bots)-1]
+	for _, width := range []int64{683, 900} {
+		navigateSignedInTo(t, ctx, child, viewer, "/team", width, uiPassPhoneHeight)
+		assertDocumentNeverScrolls(t, ctx, fmt.Sprintf("/team at %dpx", width))
+	}
 }
 
 // TestBrowserJoinFirstStepClearsStickyBar is P2-18's own probe (UI pass

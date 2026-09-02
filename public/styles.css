@@ -8852,8 +8852,15 @@ body.is-on-clock .draft-clock-panel {
    large intrinsic width. At phone widths those controls must reflow inside the
    roster panel instead of making the whole Team terminal horizontally scroll.
    The empty pre-draft preview already fits; keep the same one-column contract
-   after picks arrive. */
-@media (max-width: 38rem) {
+   after picks arrive.
+   gap-audit item 5 (wave 3): .lineup-slot's base rule sets a 716-738px
+   minimum grid (3.3rem + minmax(11rem, 1fr) + two auto columns), which
+   overflowed /team's viewport between this query's old 38rem (608px)
+   ceiling and the shell's own 56.1875rem (899px) desktop/mobile
+   breakpoint — 47px of horizontal overflow at 683px (200% zoom), 110px at
+   900px. Match the shell breakpoint so nothing between the two can
+   overflow. */
+@media (max-width: 56.1875rem) {
   .team-layout,
   .roster-panel,
   .lineup-slot-list,
