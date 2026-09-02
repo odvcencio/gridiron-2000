@@ -88,6 +88,14 @@ func init() {
 			data["density_action"] = ctx.ActionPath("density-set")
 			data["density_compact"] = density.IsCompact(ctx.Request)
 			data["density_comfortable"] = !density.IsCompact(ctx.Request)
+			// No primary_action (larch's PageActionBar contract, item 10,
+			// wave 7b): every control on this page — density, and each
+			// notification category's own On/Off pair (NotificationRow,
+			// page.gsx) — is its own small managed form that saves the
+			// instant it is tapped. There is no separate, page-wide "Save"
+			// step to bind a bar action to, and pointing the bar at any one
+			// of the many independent forms would misrepresent it as the
+			// page's single verb.
 			return data, nil
 		},
 		Metadata: func(ctx *route.RouteContext, page route.FilePage, data any) (server.Metadata, error) {

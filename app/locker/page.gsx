@@ -47,7 +47,7 @@ func Page() Node {
 				<b>Say something to the league</b>
 			</header>
 			<If cond={data.can_post}>
-				<form method="post" action={data.locker_post_action} data-gosx-managed="true">
+				<form id="locker-post-form" method="post" action={data.locker_post_action} data-gosx-managed="true">
 					<input type="hidden" name="csrf_token" value={data.csrf_token}></input>
 					<If cond={data.page > 1}><input type="hidden" name="page" value={data.page}></input></If>
 					<label>
