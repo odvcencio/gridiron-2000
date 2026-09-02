@@ -13255,3 +13255,69 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   font-size: var(--type-xs);
   text-decoration: none;
 }
+
+/* Item 7: /admin's compact section strip — a short, sticky companion to
+   the fuller .admin-task-nav task board above it (same section anchors
+   that nav's own AdminTaskLink hrefs already use), for jumping straight
+   to a section while scrolled deep into the ~19,700px console. Unlike
+   /scoring, /help, /guide's .guide-toc (a handful of full-sentence
+   links, deliberately wrapped per that rule's own audit-finding
+   comment), this strip's 13 short one/two-word chips read fine as a
+   horizontally snap-scrolled row, the same pattern /wire's own section
+   strip and /matchups'/pickem's week nav already use. */
+.admin-section-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+}
+
+@media (max-width: 56.1875rem) {
+  .admin-section-strip {
+    position: sticky;
+    top: var(--mobile-bar-height);
+    z-index: 40;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    padding: var(--space-xs) 0;
+    background: var(--color-canvas-deep);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .admin-section-strip > a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+  }
+
+  /* Every jump target this strip's own hrefs land on is one of the
+     <section id="admin-*" data-admin-section="..."> wrappers
+     (app/admin/page.gsx) — clear the sticky strip the same way the
+     other pages' anchors clear their own sticky nav. */
+  [data-admin-section] {
+    scroll-margin-top: calc(var(--mobile-bar-height) * 2);
+  }
+}
+
+/* Item 7: the eight per-seat "Set" (rename) buttons — measured at
+   39.7×44 (width short of the 44px floor even though .board-button's
+   own min-width: var(--control-h) already sets one, public/styles.css)
+   — and every other .board-button in the same flex form
+   (.seat-row form, SeatRow's rename/detach/autopick controls,
+   app/admin/page.gsx). flex-shrink: 0 plus a higher-specificity
+   min-width re-assert wins the cascade regardless of what was
+   compressing it. */
+.seat-row .board-button {
+  flex-shrink: 0;
+  min-width: var(--control-h);
+}
+
+/* Item 7: the "Also queue an email to the league" checkbox row
+   (.announcement-email-toggle, app/admin/page.gsx) is already a real
+   wrapping <label> — not a missing-label defect — but its own rule
+   (public/styles.css) set no min-height, so its clickable row measured
+   40.6px, short of the 44px floor. */
+.announcement-email-toggle {
+  min-height: var(--control-h);
+}

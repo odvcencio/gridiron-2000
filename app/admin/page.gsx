@@ -84,7 +84,7 @@ func SeatRow(props SeatRowProps) Node {
 					<input type="hidden" name="team_id" value={props.seat.id}></input>
 					<input type="hidden" name="seat_token" value={props.seat.release_token}></input>
 					<label for={"seat-release-confirm-" + props.seat.id}>Type <span class="mono">{props.seat.release_confirmation}</span> to confirm.</label>
-					<input id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input" type="text" name="confirm" autocomplete="off" placeholder={props.seat.release_confirmation} required="required"></input>
+					<input id={"seat-release-confirm-" + props.seat.id} class="typed-confirm-input" type="text" name="confirm" autocomplete="off" enterkeyhint="done" placeholder={props.seat.release_confirmation} required="required"></input>
 					<p class="scoring-note">This releases the primary manager, co-manager, pending co-invite, and ready state for this seat.</p>
 					<button class="board-button board-button--cut" type="submit">Release {props.seat.name}</button>
 				</form>
@@ -458,6 +458,23 @@ func Page() Node {
 					</div>
 				</div>
 			</nav>
+			<div class="admin-section-strip-wrap">
+			<nav class="admin-section-strip" aria-label="Jump to a console section">
+				<a href="/admin?section=draft-control#admin-draft-control" class="board-button">Draft</a>
+				<a href="/admin?section=schedule#admin-schedule" class="board-button">Schedule</a>
+				<a href="/admin?section=week-close#admin-week-close" class="board-button">Week close</a>
+				<a href="/admin?section=playoffs#admin-playoffs" class="board-button">Playoffs</a>
+				<a href="/admin?section=seats#admin-seats" class="board-button">Seats</a>
+				<a href="/admin?section=invites#admin-invites" class="board-button">Invites</a>
+				<a href="/admin?section=draft-order#admin-draft-order" class="board-button">Draft order</a>
+				<a href="/admin?section=data#admin-data" class="board-button">Data</a>
+				<a href="/admin?section=clock#admin-clock" class="board-button">Clock</a>
+				<a href="/admin?section=roster#admin-roster" class="board-button">Roster</a>
+				<a href="/admin?section=announcements#admin-announcements" class="board-button">Notes</a>
+				<a href="/admin?section=backup#admin-backup" class="board-button">Backup</a>
+				<a href="/admin?section=danger#admin-danger" class="board-button">Danger</a>
+			</nav>
+			</div>
 			<div class="admin-grid">
 				<section id="admin-draft-control" aria-labelledby="admin-draft-control-heading" tabindex="-1" data-admin-section="draft-control" class={"player-pool draft-runbook" + data.section_class_draft_control}>
 					<If cond={data.draft.complete}>
@@ -629,7 +646,7 @@ func Page() Node {
 						<form method="post" action={actionPath("draft-start")} data-gosx-managed="true" class="clock-controls">
 							<input type="hidden" name="csrf_token" value={csrf.token}></input>
 							<label class="mono" for="admin-draft-start-confirm">TYPE START //</label>
-							<input id="admin-draft-start-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="START"></input>
+							<input id="admin-draft-start-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" enterkeyhint="done" placeholder="START"></input>
 							<button class="button button--primary" type="submit">Start draft + pick clock</button>
 						</form>
 						<p class="scoring-note">This opens the room immediately and starts pick one’s timer. Scheduled time alone never starts it. Pool: {data.pool.mode}, {data.pool.players} players for {data.draft_required_players} draft slots ({data.pool.coverage} target coverage).</p>
@@ -692,7 +709,7 @@ func Page() Node {
 							<form method="post" action={actionPath("schedule-regenerate")} data-gosx-managed="true" class="clock-controls">
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<label class="mono" for="admin-schedule-regenerate-confirm">TYPE REDRAW SCHEDULE //</label>
-								<input id="admin-schedule-regenerate-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.schedule_regeneration.confirm} autocomplete="off" placeholder="REDRAW SCHEDULE"></input>
+								<input id="admin-schedule-regenerate-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.schedule_regeneration.confirm} autocomplete="off" enterkeyhint="done" placeholder="REDRAW SCHEDULE"></input>
 								<button class="button button--ghost" type="submit">Redraw schedule</button>
 							</form>
 						</If>
@@ -740,7 +757,7 @@ func Page() Node {
 								<label class="mono" for="admin-close-force-week">WEEK //</label>
 								<input id="admin-close-force-week" class="scoring-input" type="number" name="week" value={data.close_form.week} min="1" max="18" required="required"></input>
 								<label class="mono" for="admin-close-week-confirm">TYPE CLOSE WEEK {data.close_form.week} //</label>
-								<input id="admin-close-week-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.close_form.confirm} autocomplete="off" placeholder={"CLOSE WEEK " + data.close_form.week}></input>
+								<input id="admin-close-week-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.close_form.confirm} autocomplete="off" enterkeyhint="done" placeholder={"CLOSE WEEK " + data.close_form.week}></input>
 								<button class="button button--ghost" type="submit">Force close week {data.close_form.week}</button>
 							</form>
 						</If>
@@ -764,7 +781,7 @@ func Page() Node {
 						<input type="hidden" name="csrf_token" value={csrf.token}></input>
 						<input type="hidden" name="waiver_run_token" value={data.waivers.run_token}></input>
 						<label class="mono" for="admin-run-waivers-confirm">TYPE RUN WAIVERS NOW //</label>
-						<input id="admin-run-waivers-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" placeholder="RUN WAIVERS NOW"></input>
+						<input id="admin-run-waivers-confirm" class="scoring-input typed-confirm-input" name="confirm" value={data.waivers_run_confirm} autocomplete="off" enterkeyhint="done" placeholder="RUN WAIVERS NOW"></input>
 						<If cond={data.waivers.has_open_claims == true}>
 							<button class="button button--ghost" type="submit">Force run waivers now</button>
 						</If>
@@ -806,7 +823,7 @@ func Page() Node {
 							<label class="mono" for="admin-playoff-preview-id">PREVIEW ID //</label>
 							<input id="admin-playoff-preview-id" class="scoring-input" name="preview_id" value={data.playoff_truth.preview_id} required="required"></input>
 							<label class="mono" for="admin-playoff-publish-confirm">TYPE PUBLISH PLAYOFF BRACKET //</label>
-							<input id="admin-playoff-publish-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="PUBLISH PLAYOFF BRACKET" required="required"></input>
+							<input id="admin-playoff-publish-confirm" class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" enterkeyhint="done" placeholder="PUBLISH PLAYOFF BRACKET" required="required"></input>
 							<button class="button button--primary" type="submit">Publish this preview</button>
 						</form>
 					</If>
@@ -824,7 +841,7 @@ func Page() Node {
 								<label class="roster-shape-field"><span class="mono">HOME SCORE (OPTIONAL)</span><input class="scoring-input" name="home_score" inputmode="decimal"></input></label>
 								<label class="roster-shape-field"><span class="mono">AWAY SCORE (OPTIONAL)</span><input class="scoring-input" name="away_score" inputmode="decimal"></input></label>
 								<label class="roster-shape-field"><span class="mono">AUDIT REASON</span><input class="scoring-input" name="reason" required="required"></input></label>
-								<label class="roster-shape-field typed-confirm-row"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" placeholder="CORRECT PLAYOFF BRACKET" required="required"></input></label>
+								<label class="roster-shape-field typed-confirm-row"><span class="mono">TYPE CORRECT PLAYOFF BRACKET</span><input class="scoring-input typed-confirm-input" name="confirm" autocomplete="off" enterkeyhint="done" placeholder="CORRECT PLAYOFF BRACKET" required="required"></input></label>
 							</div>
 							<button class="button button--ghost" type="submit">Record confirmed correction</button>
 						</form>
@@ -910,7 +927,9 @@ func Page() Node {
 							type="email"
 							name="email"
 							placeholder="manager@example.com"
-							autocomplete="off"
+							autocomplete="email"
+							inputmode="email"
+							enterkeyhint="done"
 							required="required"
 						 />
 						<button class="button button--primary" type="submit">Invite</button>
@@ -1025,7 +1044,7 @@ func Page() Node {
 								<input type="hidden" name="csrf_token" value={csrf.token}></input>
 								<input type="hidden" name="unclaimed_seat_token" value={data.unclaimed_seat_token}></input>
 								<label for="admin-seat-trim-confirm">Type <span class="mono">{data.unclaimed_seat_confirm}</span> to confirm.</label>
-								<input id="admin-seat-trim-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value="" autocomplete="off" placeholder={data.unclaimed_seat_confirm} required="required"></input>
+								<input id="admin-seat-trim-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value="" autocomplete="off" enterkeyhint="done" placeholder={data.unclaimed_seat_confirm} required="required"></input>
 								<button class="button board-button--cut" type="submit">Drop {data.unclaimed_seat_label}</button>
 							</form>
 							<p class="demo-message">
@@ -1065,7 +1084,7 @@ func Page() Node {
 								<input type="hidden" name={data.admin_return_target_field} value={data.admin_draft_order_return_target}></input>
 								<input type="hidden" name="order_token" value={data.draft_order_token}></input>
 								<label for="draft-order-redraw-confirm">Emergency replacement draw</label>
-								<input id="draft-order-redraw-confirm" class="typed-confirm-input" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off"></input>
+								<input id="draft-order-redraw-confirm" class="typed-confirm-input" type="text" name="confirm" placeholder="type REDRAW ORDER" autocomplete="off" enterkeyhint="done"></input>
 								<button class="button" type="submit">Redraw and queue replacement</button>
 							</form>
 							<p class="scoring-note">
@@ -1252,7 +1271,7 @@ func Page() Node {
 								<input type="hidden" name="current_pick_token" value={data.current_pick_token}></input>
 								<p>This immediately consumes the on-clock seat's Big Board target, or best available if its board is empty. It advances the draft even when the clock is paused.</p>
 								<label class="mono" for="admin-force-current-pick-confirm">TYPE FORCE CURRENT PICK //</label>
-								<input id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value={data.force_current_pick_confirm} autocomplete="off" placeholder="FORCE CURRENT PICK" required="required"></input>
+								<input id="admin-force-current-pick-confirm" class="scoring-input typed-confirm-input" type="text" name="confirm" value={data.force_current_pick_confirm} autocomplete="off" enterkeyhint="done" placeholder="FORCE CURRENT PICK" required="required"></input>
 								<button class="button button--ghost" type="submit">Confirm force current pick</button>
 							</form>
 						</details>
