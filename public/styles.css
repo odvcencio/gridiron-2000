@@ -2684,9 +2684,15 @@ button.badge-option:hover {
   min-width: 0;
 }
 
+/* .login-poster h2, not h1 (item 6, wave-7 re-audit — yew): the
+   league-name heading this gradient targets moved down to h2 once
+   .login-console gained its own, new, unconditional h1
+   (.login-console__page-name, below) — app/login/page.gsx's own doc
+   comment has the full reasoning. Same element, same text, same
+   gradient treatment; only its heading level changed. */
 .page-masthead h1,
 .draft-masthead h1,
-.login-poster h1,
+.login-poster h2,
 .error-page h1 {
   background: var(--gradient-chrome);
   background-clip: text;
@@ -6557,6 +6563,21 @@ body.is-on-clock .draft-clock-panel {
   align-self: center;
   display: grid;
   gap: var(--space-md);
+}
+
+/* Item 6 (wave-7 re-audit — yew): a small, quiet page-name label, not a
+   second headline competing with the branch-specific h2 right below it
+   ("Manager check-in" signed-out, the viewer's own name signed-in) —
+   this exists to give the page an h1 in .login-console's own visually-
+   first position (app/login/page.gsx's own doc comment has the full
+   reasoning), not to restate what the h2 already says louder. */
+.login-console__page-name {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--type-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 .login-console h2 {

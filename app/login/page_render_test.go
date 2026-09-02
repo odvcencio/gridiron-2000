@@ -140,3 +140,56 @@ func TestLoginPageFallsBackFromAuthenticationReturnTargets(t *testing.T) {
 		})
 	}
 }
+
+// TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole is wave-7 re-audit
+// item 6's own decisive render test (yew): the page's own <h1> must be
+// .login-console__page-name — the small, unconditional heading at the
+// top of .login-console, the region CSS visually reorders ahead of
+// .login-poster at phone width — and .login-poster's own former h1 (the
+// league name) must now render as an h2, so the page carries exactly one
+// h1, positioned inside the region a phone visitor's first viewport
+// actually shows (the audit's own pre-fix finding: h1 at y=792, well
+// past the fold at 390px, since it used to live in .login-poster, which
+// renders visually SECOND on a phone).
+func TestLoginPageHasExactlyOneH1AtTheTopOfTheConsole(t *testing.T) {
+	body := renderLoginPage(t, "%2F")
+
+	if !strings.Contains(body, `<h1 class="login-console__page-name">Sign in</h1>`) {
+		t.Fatalf("login page missing its own small, unconditional console h1: %s", body)
+	}
+
+	h1Count := strings.Count(body, "<h1")
+	if h1Count != 1 {
+		t.Errorf("login page rendered %d <h1> element(s), want exactly 1", h1Count)
+	}
+
+	consoleAt := strings.Index(body, `<aside class="login-console">`)
+	if consoleAt < 0 {
+		t.Fatal("login page missing .login-console")
+	}
+	h1At := strings.Index(body, `<h1 class="login-console__page-name">`)
+	if h1At < consoleAt {
+		t.Fatal("the console's own h1 renders before <aside class=\"login-console\"> opens")
+	}
+	// The h1 must be the console's own FIRST content — before its own
+	// notice/branch content, and before .login-poster's own (renamed) h2
+	// anywhere later in the console's own markup.
+	consoleH2At := strings.Index(body[h1At:], "<h2>")
+	if consoleH2At < 0 {
+		t.Fatal("login page missing the branch-specific console h2 (\"Manager check-in\" or the viewer's own name)")
+	}
+
+	// .login-poster's own former h1 (the league name) must now be an h2:
+	// find .login-poster's own opening tag, then confirm an <h2> opens
+	// before the next <h1> or </div> after it (this render's own
+	// .login-poster is a <div>, matching page.gsx).
+	posterAt := strings.Index(body, `class="login-poster"`)
+	if posterAt < 0 {
+		t.Fatal("login page missing .login-poster")
+	}
+	posterH2At := strings.Index(body[posterAt:], "<h2>")
+	posterCloseAt := strings.Index(body[posterAt:], "</div>")
+	if posterH2At < 0 || (posterCloseAt >= 0 && posterH2At > posterCloseAt) {
+		t.Error("login-poster's own former h1 (the league name + headline span) is not rendering as an h2 inside .login-poster")
+	}
+}

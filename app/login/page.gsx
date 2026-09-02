@@ -8,6 +8,19 @@ package login
 // generic "Action completed." toast and no URL change (2026-09-01 UX
 // audit, entry #1). data-gosx-managed="false" opts the form out so the
 // browser follows the 303 natively.
+//
+// Item 6 (wave-7 re-audit — yew): .login-console visually reorders ahead
+// of .login-poster at phone width (order: -1, public/styles.css, gap-
+// audit item 7 — the sign-in CTA is what a manager needs first), but the
+// page's own <h1> lived inside .login-poster, so a phone visitor's first
+// viewport carried no h1 at all (the audit's own finding: y=792, well
+// past the fold at 390px). .login-console__page-name is a new, small,
+// unconditional h1 at the top of the console — visually first at every
+// width, not only phone — so the page always has an h1 in its own first
+// viewport; .login-poster's own former h1 (the league name, styled with
+// this file's gradient-text treatment) is now an h2, still visible,
+// still carrying the identical text and styling (public/styles.css'
+// .login-poster h1 selector retargeted to h2 alongside it).
 func Page() Node {
 	return <main class="page login-page" id="main-content">
 		<section class="login-stage">
@@ -17,11 +30,11 @@ func Page() Node {
 					PRIVATE LEAGUE NETWORK
 				</span>
 				<p class="page-kicker">{data.public_entry.state_label}</p>
-				<h1>
+				<h2>
 					{data.league.name}
 					{" "}
 					<span>{data.public_entry.headline}</span>
-				</h1>
+				</h2>
 				<p>{data.public_entry.detail}</p>
 				<p class="login-identity">
 					<strong>{data.league.format_blurb}</strong>
@@ -50,6 +63,7 @@ func Page() Node {
 				</div>
 			</div>
 			<aside class="login-console">
+				<h1 class="login-console__page-name">Sign in</h1>
 				<If cond={data.has_notice}>
 					<p class="flash-message" role="alert">{data.notice}</p>
 				</If>
