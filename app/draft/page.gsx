@@ -805,7 +805,7 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 			<aside class="pick-tape">
 				<If cond={props.Data.board_count > 0}>
 					<header>
-						<span class="section-index">YOUR BOARD</span>
+						<span class="section-index">YOUR BIG BOARD</span>
 						<a href="/board" data-gosx-link class="mono">EDIT →</a>
 					</header>
 					<div class="pick-list board-peek">
@@ -827,7 +827,7 @@ func DraftWorkspace(props DraftWorkspaceProps) Node {
 				</If>
 				<If cond={props.Data.board_count == 0 && props.Data.draft_complete == false}>
 					<div class="board-peek-empty">
-						<a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a>
+						<a href="/board" data-gosx-link class="mono">BUILD YOUR BIG BOARD →</a>
 					</div>
 				</If>
 				<If cond={props.Data.draft_complete}>
@@ -1405,9 +1405,9 @@ type DraftMobileTabsProps struct {
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
 		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false && props.TapeExplicit == false}></input>
-		<label class="draft-tabbar__tab" for="tab-players">Players</label>
+		<label class="draft-tabbar__tab" for="tab-players">Pool</label>
 		<input type="radio" name="draft-tab" id="tab-queue" class="visually-hidden"></input>
-		<label class="draft-tabbar__tab" for="tab-queue">Queue</label>
+		<label class="draft-tabbar__tab" for="tab-queue">Big Board</label>
 		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && (props.ShowBoard || props.Complete || props.TapeExplicit)}></input>
 		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link aria-current={props.ShowTeams == false && (props.ShowBoard || props.Complete || props.TapeExplicit)}>Picks</a>
 		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
@@ -1593,7 +1593,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 						<input type="hidden" name="pos" value={props.Data.pool_position}></input>
 						<input type="hidden" name="q" value={props.Data.pool_query}></input>
 						<input type="hidden" name="page" value={props.Data.pool_page}></input>
-						<button class="btn btn-sm" type="submit">+ Queue</button>
+						<button class="button button--ghost" type="submit">+ RANK</button>
 					</form>
 					<form method="post" action={props.MakePickAction} data-gosx-managed="true">
 						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -1652,7 +1652,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		<h2 id="draft-mine-title" class="visually-hidden">Your team</h2>
 		<div class="segment" role="radiogroup" aria-label="My team panels">
 			<input type="radio" name="draft-mine-view" id="mine-queue" class="visually-hidden" checked></input>
-			<label class="segment__option" for="mine-queue">Queue</label>
+			<label class="segment__option" for="mine-queue">Big Board</label>
 			<input type="radio" name="draft-mine-view" id="mine-roster" class="visually-hidden"></input>
 			<label class="segment__option" for="mine-roster">Roster</label>
 			<input type="radio" name="draft-mine-view" id="mine-room" class="visually-hidden"></input>
@@ -1711,7 +1711,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 				<p class="reorder-status reorder-status--error">Reorder failed. The previous order was restored.</p>
 			</div>
 			<If cond={props.Data.queue_empty}>
-				<div class="board-peek-empty"><a href="/board" data-gosx-link class="mono">BUILD YOUR BOARD →</a></div>
+				<div class="board-peek-empty"><a href="/board" data-gosx-link class="mono">BUILD YOUR BIG BOARD →</a></div>
 			</If>
 		</div>
 		<div class="draft-mine__view draft-mine__view--roster">
@@ -1853,8 +1853,8 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 		<h2 id="draft-history-title" class="visually-hidden">Pick history</h2>
 		<div class="draft-history-head__row">
 			<nav class="segment" aria-label="Pick history panels">
-				<a class="segment__option" href={props.TapeHref} data-gosx-link aria-current={props.ShowTape}>Tape</a>
-				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Board</a>
+				<a class="segment__option" href={props.TapeHref} data-gosx-link aria-current={props.ShowTape}>Picks</a>
+				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Big Board</a>
 				<a class="segment__option" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
 			</nav>
 			<a class="btn btn-sm draft-history__jump" href="#tape-latest">↓ Latest</a>

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
 	"m31labs.dev/gosx"
 	"m31labs.dev/gosx/action"
 	"m31labs.dev/gosx/auth"
@@ -194,6 +195,70 @@ func TestBoardHistBlocksIncludeScoringNote(t *testing.T) {
 		if !strings.Contains(normalized, want) {
 			t.Fatalf("page.gsx missing the Hist scoring-note caption immediately after the Hist line: %q", want)
 		}
+	}
+}
+
+// TestBoardUsesBigBoardVocabularyAndGhostRankButton is gap-audit items 3
+// and 4 (wave 4 — linden): "Big Board" is the one name for the private
+// ranked list everywhere on this page (eyebrow, panel heading), and the
+// list-append control reads RANK in the ghost button style, not a
+// roster-action ADD in .draft-button — the append never changes league
+// state (a waiver claim or a free-agent sign does), so it must not share
+// styling with the controls that do.
+func TestBoardUsesBigBoardVocabularyAndGhostRankButton(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(page)
+	for _, want := range []string{
+		"BIG BOARD",
+		"<h2>Big Board</h2>",
+		`<button class="button button--ghost" type="submit">RANK</button>`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("board page.gsx missing Big Board / RANK contract %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`<h2>Ranked queue</h2>`,
+		`<button class="draft-button" type="submit">Add</button>`,
+	} {
+		if strings.Contains(source, forbidden) {
+			t.Errorf("board page.gsx retained stale label %q", forbidden)
+		}
+	}
+}
+
+// TestBoardSeatlessHeroLeadsWithReasonAndDropsZeroCounter is gap-audit
+// item 8's board half: a seatless viewer used to see the exact same
+// "Private to this team seat ... PLAYERS ON YOUR BOARD 0" masthead a
+// seated manager sees. The seatless branch must lead with the reason
+// (public_entry.state_label as the h1) and must never render the
+// "Players on your board" zero counter.
+func TestBoardSeatlessHeroLeadsWithReasonAndDropsZeroCounter(t *testing.T) {
+	t.Setenv("DATA_FILE", filepath.Join(t.TempDir(), "league-state.json"))
+	t.Setenv("DEMO_MODE", "false")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+
+	service := league.Default()
+	const seatlessEmail = "seatless-board-render@example.com"
+	if _, err := service.EnsureMember(seatlessEmail, "Seatless Board Render"); err != nil {
+		t.Fatalf("EnsureMember: %v", err)
+	}
+
+	currentEmail := seatlessEmail
+	handler := buildBoardAuthenticatedHandler(t, &currentEmail)
+	body := renderBoardForUser(t, handler, "/", seatlessEmail)
+
+	if !strings.Contains(body, `class="no-franchise tone-lime"`) {
+		t.Fatalf("seatless board page did not render the reason-first seatless hero: %s", body)
+	}
+	if strings.Contains(body, "Players on your board") {
+		t.Fatalf("seatless board page still renders the seated 'Players on your board' counter: %s", body)
+	}
+	if strings.Contains(body, "Private to this team seat and shared by its primary and co-manager") {
+		t.Fatalf("seatless board page rendered the seated masthead copy instead of the seatless reason: %s", body)
 	}
 }
 

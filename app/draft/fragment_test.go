@@ -922,9 +922,12 @@ func TestQueueAddAndQueueRemoveCarryThePoolStateInputs(t *testing.T) {
 }
 
 // TestAvailableFragmentNeverRendersALockedChip is V3 (owner review): a row
-// shows + QUEUE always and DRAFT only when the viewer is on the clock; when
+// shows + RANK always and DRAFT only when the viewer is on the clock; when
 // the viewer cannot currently pick the DRAFT control is simply absent, not
-// a disabled "Locked" button.
+// a disabled "Locked" button. + RANK (gap-audit item 4, wave 4 — linden)
+// replaced "+ Queue": the private Big Board append never changes league
+// state, so it carries the ghost button style/RANK verb, not a roster
+// action's accent styling.
 func TestAvailableFragmentNeverRendersALockedChip(t *testing.T) {
 	fixture := draftFragmentFixture()
 	fixture["can_pick"] = false
@@ -937,8 +940,8 @@ func TestAvailableFragmentNeverRendersALockedChip(t *testing.T) {
 	if strings.Contains(strings.ToUpper(body), "LOCKED") {
 		t.Fatalf("the available fragment must never render a LOCKED chip: %s", body)
 	}
-	if !strings.Contains(body, "+ Queue") {
-		t.Fatalf("a seated viewer must still see + Queue when not on the clock: %s", body)
+	if !strings.Contains(body, "+ RANK") {
+		t.Fatalf("a seated viewer must still see + RANK when not on the clock: %s", body)
 	}
 }
 
