@@ -298,6 +298,29 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Item 4 (wave-6 audit): the page-enter entrance fade used to live on
+   .page (below), the <main> element client/runtime/host/navigation.ts's
+   replaceBody replaces wholesale on EVERY soft navigation — a real click
+   and a background revalidation swap alike. Verified against that module
+   source: navigate()'s "already current" shortcuts (the ones that would
+   have left the DOM untouched) both bail out early whenever force is
+   set, and revalidateNavigation always passes force: true — so a
+   periodic data-gosx-revalidate-src poll (setupPageRevalidation) runs the
+   exact same replaceBody teardown-and-rebuild a real navigation does, and
+   .page's fresh clone replayed the keyframe every time, mid-read, on an
+   unrelated background poll (3 replays in 50s observed on /activity).
+   replaceBody reuses THIS element, body, verbatim across every soft
+   navigation — it only rewrites its attributes and children, never the
+   node itself — so it is the one element in the tree @starting-style can
+   gate to "the true first paint of this document" and nothing after,
+   real navigation included (replaceBody gives no CSS-visible way to tell
+   the two apart, so this trade covers both: a full app-shell fade on the
+   initial cold load, no re-fade on any soft navigation from then on).
+   opacity only, deliberately no transform: translateY here — a
+   non-"none" transform on body would create a new containing block for
+   every position: fixed descendant (.site-rail, .app-tabbar, the toast
+   host, body::after's own scanline), pulling them off the viewport and
+   onto body's own box for the transition's duration. */
 body {
   margin: 0;
   min-height: 100vh;
@@ -310,6 +333,14 @@ body {
   font-family: var(--font-body);
   font-size: var(--type-base);
   line-height: 1.55;
+  opacity: 1;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+@starting-style {
+  body {
+    opacity: 0.85;
+  }
 }
 
 body::after {
@@ -706,11 +737,21 @@ button.access-link {
   background: var(--color-canvas-deep);
 }
 
+/* Item 1 (wave-6 audit): .rail-attention-chip used to sit beside
+   .site-brand on this same row (display: flex; the flex-wrap: nowrap
+   default). The chip's own "ACTION CENTER · N URGENT" text is 279px
+   static and never shrinks (white-space: nowrap below), so at every
+   width the 15.5rem (248px) rail's own content box can offer, the brand
+   was the only flexible sibling left — it collapsed toward 0 and its
+   wordmark wrapped mid-word. A column stack gives the brand its own row,
+   sized to its own content regardless of the chip; the chip gets a row of
+   its own beneath it and wraps instead of forcing either sibling to
+   shrink. */
 .rail-head {
   padding: var(--space-md);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--space-sm);
   border-bottom: 1px solid var(--color-border);
 }
@@ -920,12 +961,29 @@ button.access-link {
     overscroll-behavior: contain;
   }
 
+  /* Item 2 (wave-6 audit): every selector below used to key on
+     html:has(script[data-gosx-navigation="true"]) — the presence of the
+     external <script src="/gosx-nav/..."> TAG in the document, not
+     whether that script ever actually ran. A stale hash after a deploy or
+     a blocked /gosx-nav/* request left the tag in the HTML but the
+     runtime never executing, so this whole block still fired: it hid the
+     no-JS <details> fallback and left the enhanced bar's hamburger/dialog
+     the only way into navigation, permanently inert with no runtime
+     behind it. html[data-gosx-navigation-state] instead keys on the one
+     attribute the runtime itself sets, synchronously, the moment its
+     top-level script body actually executes (setNavigationState's "init"
+     call at the bottom of client/runtime/host/navigation.ts, applied to
+     both documentElement and body before DOMContentLoaded) — never on
+     script boot, only ever "idle" or "pending" once the runtime is
+     running, so its mere presence is the correct proof of a live runtime.
+     Every rule in this @media (scripting: enabled) block keeps that same
+     switch. */
   @media (scripting: enabled) {
-    html:has(script[data-gosx-navigation="true"]) .mobile-navigation-static {
+    html[data-gosx-navigation-state] .mobile-navigation-static {
       display: none;
     }
 
-    html:has(script[data-gosx-navigation="true"]) .mobile-navigation-enhanced {
+    html[data-gosx-navigation-state] .mobile-navigation-enhanced {
       position: fixed;
       inset: 0 0 auto 0;
       z-index: 50;
@@ -1057,15 +1115,15 @@ button.access-link {
   }
 
   @media (scripting: enabled) {
-    html:has(script[data-gosx-navigation="true"]) body:has(#primary-navigation-dialog:not([hidden])) {
+    html[data-gosx-navigation-state] body:has(#primary-navigation-dialog:not([hidden])) {
       overflow: hidden;
     }
 
-    html:has(script[data-gosx-navigation="true"]) .site-frame {
+    html[data-gosx-navigation-state] .site-frame {
       padding-top: calc(var(--mobile-bar-height) + var(--space-lg));
     }
 
-    html:has(script[data-gosx-navigation="true"]) .announcement-banner + .site-frame {
+    html[data-gosx-navigation-state] .announcement-banner + .site-frame {
       padding-top: var(--space-lg);
     }
 
@@ -1075,7 +1133,7 @@ button.access-link {
        so a no-JS or print context never fixes an unreachable control in
        place. /draft keeps its own nav.draft-tabbar (body:has(.draft-shell)
        below hides this one instead of stacking two bars). */
-    html:has(script[data-gosx-navigation="true"]) .app-tabbar {
+    html[data-gosx-navigation-state] .app-tabbar {
       display: flex;
       position: fixed;
       inset: auto 0 0 0;
@@ -1093,7 +1151,7 @@ button.access-link {
        a bar it never shows (this padding-bottom, invisibly, is exactly
        what made /draft's document scroll at phone width until this
        exclusion was added). */
-    html:has(script[data-gosx-navigation="true"]) body:has(.app-tabbar):not(:has(.draft-shell)) .site-frame {
+    html[data-gosx-navigation-state] body:has(.app-tabbar):not(:has(.draft-shell)) .site-frame {
       padding-bottom: calc(var(--mobile-bar-height) + var(--space-lg));
     }
 
@@ -1105,7 +1163,7 @@ button.access-link {
        specificity and would lose regardless of which rule comes later in
        the file — repeating the same html:has(script[...]) prefix matches
        it exactly. */
-    html:has(script[data-gosx-navigation="true"]) body:has(.draft-shell) .app-tabbar {
+    html[data-gosx-navigation-state] body:has(.draft-shell) .app-tabbar {
       display: none;
     }
   }
@@ -1122,6 +1180,16 @@ button.access-link {
     scroll-margin-top: var(--mobile-bar-height);
   }
 
+  /* Item 1 (wave-6 audit): the attention chip's deep link
+     (#home-action-center-heading, app/page.gsx) is a second in-page
+     anchor jump with the exact same "lands behind the fixed bar" problem
+     #main-content's own rule above already fixes — this heading sits
+     further down the document than #main-content, so that rule's own
+     scroll-margin-top does not cover it. Same fix, same reasoning. */
+  #home-action-center-heading {
+    scroll-margin-top: calc(var(--mobile-bar-height) + var(--space-sm));
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .mobile-navigation-dialog,
     .mobile-navigation-backdrop {
@@ -1136,16 +1204,23 @@ button.access-link {
   margin: 0 auto;
 }
 
+/* Item 1 (wave-6 audit): even on desktop, where the rail carries no fixed
+   top bar to clear, the attention chip's #home-action-center-heading
+   target (app/page.gsx) landed 16px above the viewport top on an in-page
+   anchor jump — an anchor scroll consults no ancestor padding, and this
+   heading's own line-box leaves that residual gap. --space-sm covers it
+   at every width; the mobile query above adds the fixed bar's own height
+   on top of this same base value. */
+#home-action-center-heading {
+  scroll-margin-top: var(--space-sm);
+}
+
 .page {
+  /* gap-audit item 2 (wave 3) set the original 150ms/0.85-opacity entrance
+     values here. Item 4 (wave-6 audit) moved the fade itself to body's own
+     rule above — see that rule's comment for why .page/<main> could not
+     stay the animated element. */
   padding: var(--space-2xl) 0 var(--space-3xl);
-  /* gap-audit item 2 (wave 3): 720ms (--duration-cinematic) from opacity 0
-     left content invisible on the first frame and under half opacity for
-     ~80ms against a 3-33ms TTFB. 150ms (--duration-fast) from 0.85 opacity
-     is a subtle settle, not a fade-in from black. See the
-     "prefers-reduced-motion" block below (~line 6983) for the full
-     "animation: none" override, and the P3-19 comment there for why a
-     blanket 1ms rule alone is not enough. */
-  animation: page-enter var(--duration-fast) var(--ease-out) both;
 }
 
 .mono {
@@ -1366,6 +1441,26 @@ h2 {
   box-shadow: none;
   cursor: not-allowed;
   opacity: 0.75;
+}
+
+/* Item 9 (wave-6 audit): a managed form's only visible state change during
+   its background POST was data-gosx-form-state flipping to "pending" on
+   the <form> itself (client/runtime/host/navigation.ts submitForm) — no
+   opacity, no cursor, no text change, nothing a manager could see before
+   this. The runtime sets no aria-busy anywhere in that file either (grep
+   confirmed), so a screen reader has no live announcement of the pending
+   state until the eventual toast/error lands — a GoSX runtime gap, not
+   something this stylesheet can add on its own; the visible ::after text
+   below is this wave's own answer for a sighted manager, and is content
+   (not decorative), so it stays out of aria-hidden. */
+form[data-gosx-form-state="pending"] button[type="submit"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+form[data-gosx-form-state="pending"] button[type="submit"]::after {
+  content: " · Saving…";
 }
 
 /* A disabled control and its adjacent plain-language reason (product
@@ -2613,6 +2708,15 @@ button.badge-option:hover {
 .guide-checklist span {
   color: var(--color-text-secondary);
   line-height: 1.55;
+  /* Item 5 (wave-6 audit): a grid item's automatic minimum width is its
+     own content's min-content size unless min-width overrides it — this
+     span (the second minmax(0, 1fr) column above) had no override, so its
+     {item.detail} text plus the trailing "Open help/action →" link
+     stopped the ROW from ever shrinking past that combined min-content
+     width, wider than the .guide-card-grid--two column /help gives it in
+     the 900-1100px rail band below. min-width: 0 matches every other
+     grid item in this file that already carries it for the same reason. */
+  min-width: 0;
 }
 
 .guide-callout,
@@ -6742,11 +6846,6 @@ body.is-on-clock .draft-clock-panel {
   animation: score-pulse var(--duration-cinematic) var(--ease-out);
 }
 
-@keyframes page-enter {
-  from { opacity: 0.85; transform: translateY(1rem); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
 @keyframes disc-float {
   from { transform: translateY(-0.3rem) rotate(-3deg); }
   to { transform: translateY(0.3rem) rotate(3deg); }
@@ -7012,6 +7111,87 @@ body.is-on-clock .draft-clock-panel {
     justify-content: flex-start;
   }
 
+}
+
+/* Item 8 (wave-6 audit): 200% browser zoom reports a short, wide viewport
+   (683x450 was the audit's own measurement) — max-width: 54rem above
+   never matches a viewport that wide, so a short-but-wide window got none
+   of this section's fixes. max-height triggers on the dimension that
+   actually matters here regardless of width, so a landscape phone or a
+   zoomed desktop window both get it. */
+@media (max-height: 520px) {
+  :root {
+    /* Halved, not zeroed: still a visible lead-in above every masthead
+       title, just not the ~80%-of-a-450px-screen the unmodified tokens
+       cost (13 of 15 routes, first-content bottom past y=450 on / and
+       several others). */
+    --masthead-lead: var(--space-sm);
+    --masthead-eyebrow-reserve: 0.875rem;
+    --type-page-title: clamp(1.5rem, 1.2rem + 1vw, 1.875rem);
+  }
+
+  /* .display--hero (above) opts app/page.gsx's signed-out/demo headline
+     into the full --type-display scale (52-95px) instead of the
+     --masthead-* system above — compressing --type-page-title alone
+     leaves it untouched, which is why / still failed this same 450px
+     first-content budget after the block above. */
+  .display--hero {
+    font-size: clamp(2rem, 1.5rem + 3vw, 2.75rem);
+    line-height: 0.95;
+  }
+
+  /* Same order-swap gap-audit item 7 (wave 3) already fixed at ≤54rem
+     width (above): a short-but-wide viewport (the 683x450 zoom case)
+     already matches THAT query too (683px < 864px), so the swap itself
+     was never the missing piece here — .login-console's own copy above
+     its "Continue with Google" button was (next rule). This repeats the
+     swap under max-height alone so a genuinely wide-but-short viewport
+     (width > 54rem, e.g. a landscape laptop window) gets it too. */
+  .login-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .login-console {
+    order: -1;
+  }
+
+  /* The measured gap: .login-console (now visually first) still opens
+     with a section-index, an <h2>, and this unclassed explanatory
+     paragraph before the actual CTA — three-plus lines a manager already
+     knows (the button itself is self-explanatory) that pushed "Continue
+     with Google" to y=640 at 683x450, 190px past the fold. The admission
+     policy, return-path, and not-yet-configured notices keep their own
+     classes and stay visible; this hides only the generic sign-in blurb. */
+  .login-console > p:not([class]) {
+    display: none;
+  }
+
+  /* Even with the swap and the trim above, .minimal-bar's own header
+     chrome, .page's --space-2xl-driven top padding, and .login-console's
+     own --space-2xl padding/gap and --type-2xl heading each cost real
+     height before the console's first line ever renders — none of them
+     go through the --masthead-* tokens above (this page carries no
+     .page-masthead/.hero-command), so each needs its own override here. */
+  .minimal-bar {
+    padding: var(--space-xs) 0;
+  }
+
+  .page {
+    padding-top: var(--space-sm);
+  }
+
+  .login-poster,
+  .login-console {
+    padding: var(--space-md);
+  }
+
+  .login-console {
+    gap: var(--space-xs);
+  }
+
+  .login-console h2 {
+    font-size: var(--type-lg);
+  }
 }
 
 @media (max-width: 38rem) {
@@ -7303,13 +7483,17 @@ body.is-on-clock .draft-clock-panel {
     transition-duration: 1ms;
   }
 
-  /* P3-19 (UI pass 2026-08-30): the blanket 1ms rule above still plays
-     .page's own page-enter keyframe (its fill-mode: both can hold an
+  /* P3-19 (UI pass 2026-08-30): the blanket 1ms rule above still played
+     .page's own page-enter keyframe (its fill-mode: both could hold an
      off-state, e.g. opacity/translate, for that 1ms), which is a
      perceptible flash rather than the "no motion" reduced-motion asks
-     for. animation: none removes the keyframe outright. */
-  .page {
-    animation: none;
+     for. Item 4 (wave-6 audit) moved that entrance effect from .page's
+     "animation" to body's own "transition" + @starting-style (above) —
+     the same 1ms hold-then-jump concern applies to a transition exactly
+     as it did to an animation, so transition: none here removes it
+     outright, the same way animation: none did for .page. */
+  body {
+    transition: none;
   }
 
   /* gap-audit item 6 (wave 3): .chrome-disc's own "animation: disc-float
@@ -7491,7 +7675,7 @@ body.is-on-clock .draft-clock-panel {
 
 @media (max-width: 56.1875rem) {
   @media (scripting: enabled) {
-    html:has(script[data-gosx-navigation="true"]) .announcement-banner {
+    html[data-gosx-navigation-state] .announcement-banner {
       margin-top: calc(var(--mobile-bar-height) + var(--space-lg));
     }
   }
@@ -7713,6 +7897,31 @@ body.is-on-clock .draft-clock-panel {
 .action-confirmation button {
   margin-top: var(--space-xs);
   font-size: 1rem;
+}
+
+/* Item 6 (wave-6 audit): /players' compact pool-row layout
+   (app/players/page.gsx, .board-controls) confirms an add/drop with a
+   plain <label><input type="checkbox">...</label> — no .action-
+   confirmation wrapper, so neither of that pattern's own rules above
+   ever reached it, leaving the browser default ~13x13 checkbox as the
+   only target. Same technique as .action-confirmation above: the label
+   itself becomes the primary hit area (clicking anywhere in the sentence
+   already toggles a native <label>'s control), and the checkbox itself
+   grows to a 24x24 minimum, the floor this wave's audit set. */
+.board-controls label:has(> input[type="checkbox"]) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 1.5rem;
+  padding-block: var(--space-xs);
+  cursor: pointer;
+}
+
+.board-controls input[type="checkbox"] {
+  flex: none;
+  width: 1.5rem;
+  height: 1.5rem;
+  accent-color: var(--color-accent);
 }
 
 /* ===== PICK'EM HQ: week record strip, week navigation, per-game consensus
@@ -9078,7 +9287,13 @@ body.is-on-clock .draft-clock-panel {
 .notification-choice__current {
   color: var(--color-accent);
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  /* Item 6 (wave-6 audit): 0.68rem (10.88px) sat below the 13px sub-body
+     floor. --type-xs's own clamp already reads 13-14px at default density
+     (0.8125rem-0.875rem) and 12px only under the reader's own opt-in
+     body[data-density="compact"] override above — the correct floor for
+     the default case without overriding a preference the reader chose on
+     purpose. */
+  font-size: var(--type-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   line-height: 1.1;
@@ -9612,6 +9827,21 @@ body.is-on-clock .draft-clock-panel {
     text-overflow: clip;
   }
 
+  /* Item 7 (wave-6 audit): the base .starter-cell__name small rule
+     (position · NFL team · game state, e.g. "TE · SF · THU 8:20 PM")
+     keeps its desktop nowrap+ellipsis at every width — correct on a wide
+     desktop cell, but this phone-width four-column .slot-row narrows
+     .matchup-ledger's own track well past what that single-line phrase
+     needs, clipping it past the cell. white-space: normal wraps the
+     meta line onto a second line instead, the exact same fix the
+     sibling .starter-cell__name strong rule above already uses for the
+     player name. */
+  .matchups-page .starter-cell__name small {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
   /* Status line, phone width (items 2, 4, and 7; item 4 revises the
      round-2 fidelity pass's own nowrap+ellipsis rule): the separate
      ledger-stamp sentence still never fits beside the state chip and
@@ -9709,8 +9939,12 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-accent);
 }
 
+/* Item 6 (wave-6 audit): 2.25rem (36px) undercut the base .board-button
+   rule's own var(--control-h) (44px) floor for the week <select> and its
+   prev/next <a> siblings alike (app/matchups/page.gsx WeekBrowser) — the
+   same 44px floor every other .board-button in the app already holds. */
 .pickem-weeknav .board-button {
-  min-height: 2.25rem;
+  min-height: var(--control-h);
 }
 
 .matchup-status-line {
@@ -10227,15 +10461,26 @@ body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .navigation-link__i
    The draft-shell claims height: 100dvh for itself, so that reserved
    band would push it past the bottom of the viewport by exactly its own
    height — the same overflow bug the .site-footer rule above already
-   guards against, on the opposite edge. Both the JS-enhanced fixed bar
-   and its no-JS <details> fallback are hidden. The !important beats the
-   rules being overridden on specificity, not just source order: their
-   :has() argument (script[data-gosx-navigation="true"]) is itself a
-   type-plus-attribute compound selector, which raises html:has(...)
-   above what body:has(.draft-shell) reaches on the class/type count
-   alone. */
-body:has(.draft-shell) .mobile-navigation-enhanced,
-body:has(.draft-shell) .mobile-navigation-static {
+   guards against, on the opposite edge. Only the JS-enhanced fixed bar is
+   force-hidden here. The !important beats the rule being overridden on
+   specificity, not just source order: html[data-gosx-navigation-state]
+   .mobile-navigation-enhanced above carries an attribute selector inside
+   its own compound, which raises it above what body:has(.draft-shell)
+   reaches on the class/type count alone.
+
+   Item 3 (wave-6 audit): .mobile-navigation-static used to be force-
+   hidden here too, alongside the enhanced bar — leaving a no-JS mobile
+   visitor on /draft with no reachable navigation at all (the enhanced
+   bar's hamburger has no runtime behind it without JS, and the static
+   <details> fallback was hidden unconditionally regardless). Dropping it
+   from this rule restores the normal cascade: the 56.1875rem breakpoint
+   above already shows it in-flow (sticky, not fixed, so it never needs
+   this rule's own padding-top: 0 override below) whenever
+   html[data-gosx-navigation-state] is absent, and the site-wide
+   @media (scripting: enabled) rule already hides it again the instant
+   that attribute appears — on /draft exactly like everywhere else, no
+   route-specific override needed for the no-JS case at all. */
+body:has(.draft-shell) .mobile-navigation-enhanced {
   display: none !important;
 }
 
@@ -11886,6 +12131,18 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   padding: var(--space-xs);
 }
 
+/* wave 6 — hickory --------------------------------------------------------
+   Item 1: .rail-head above is now a column stack, so the chip is free to
+   wrap onto a second line instead of staying on the .site-brand row (the
+   original overflow this fixes). white-space: normal only overrides the
+   base rule's nowrap inside the rail placement — .rail-attention-chip--
+   mobile's short "N URGENT" text still fits one line at phone width and
+   keeps its own nowrap from the base rule untouched. */
+.rail-head .rail-attention-chip {
+  max-width: 100%;
+  white-space: normal;
+}
+
 /* Item 7: FeaturedMatchup/Scorebug's role="table" wrapper
    (app/matchups/page.gsx) exists purely to give the six-column starter
    comparison an accessible name and ARIA table structure; display:
@@ -12051,5 +12308,89 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
   .team-command-strip .button {
     grid-column: auto;
+  }
+}
+
+/* wave 6 — hickory ---------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet — the same append
+   convention the "wave 4 — linden" block above uses. Every selector below
+   is new; nothing above this comment is modified except where a wave-6
+   comment inline says so (.guide-checklist span's own min-width: 0, and
+   the rail-head/rail-attention-chip/#home-action-center-heading/body
+   rules edited in place near their own related rules earlier in the
+   file). Tokens only — no new custom properties. */
+
+/* Item 5: the 56.25rem-to-68.75rem (900-1100px) rail band. .site-rail
+   appears at this file's own 56.25rem breakpoint, taking 15.5rem (248px)
+   of viewport before the narrower mobile breakpoints elsewhere in this
+   file ever get a chance to reflow these same grids — .pickem-row's
+   5-column grid, .lineup-slot's fixed-width columns, and
+   .guide-card-grid--two's own two-up checklist cards no longer fit
+   inside a rail-narrowed .site-frame in that gap, so
+   document.scrollWidth exceeds window.innerWidth (900px: +238 /pickem,
+   +125 /help, +69 /team, all measured against the shell's own frame).
+   Every declaration below reuses a collapse this file already proves
+   works at other widths — compare .pickem-row inside the 54rem query,
+   .lineup-slot inside the 56.1875rem query, and .guide-card-grid--two
+   inside the 54rem query, all above — nothing here is a new layout, only
+   the same fix reapplied across the gap those breakpoints leave open. */
+@media (min-width: 56.25rem) and (max-width: 68.75rem) {
+  .pickem-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+  }
+
+  .pickem-buttons,
+  .pickem-market {
+    flex: 1 1 100%;
+  }
+
+  .pickem-buttons,
+  .pickem-status {
+    justify-content: flex-start;
+  }
+
+  .team-layout,
+  .roster-panel,
+  .lineup-slot-list,
+  .lineup-slot,
+  .lineup-slot > *,
+  .lineup-toolbar,
+  .lineup-week-form,
+  .lineup-slot__form {
+    min-width: 0;
+  }
+
+  .lineup-slot {
+    grid-template-columns: 2.75rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .lineup-slot__chips {
+    grid-column: 2;
+  }
+
+  .lineup-slot__form {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+  }
+
+  .lineup-slot__form select,
+  .lineup-week-form select {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .guide-card-grid--three,
+  .guide-card-grid--two,
+  .guide-compare,
+  .guide-next {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
