@@ -202,7 +202,10 @@ func DraftQueue(props DraftQueueProps) Node {
 							<button class="draft-button" type="submit">Draft</button>
 						</If>
 						<If cond={props.CanPick && player.CanDraft == false}>
-							<button class="draft-button" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+							<span class="control-locked">
+								<button class="draft-button" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+								<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
+							</span>
 						</If>
 						<If cond={props.CanPick == false}>
 							<button class="draft-button" type="button" disabled="disabled">Locked</button>
@@ -1147,13 +1150,67 @@ type DraftHistoryHeadProps struct {
 // draft:pick/undo/clock/state payload carries next/after-next team names
 // or a pre-worded on-clock phrase, so both go stale until the next full
 // navigation — an accepted Task 8 scope cut (reported).
+//
+// Wave 7b item 1 (phone-width pill): the audit measured the pre-fix
+// command bar at 250px of a 390px-tall viewport (44% of the pane) and, in
+// landscape (844x390), at 260px of 390 (67%) — zero pick rows visible.
+// The fix keeps every element above completely unmodified (so
+// data-pick-clock/data-pick-label stay the single elements
+// sim_browser_test.go's browserPickClockSelector and readDraftPickLabel
+// require — a duplicate of either would break
+// TestBrowserRoomMeetsRefreshBudgetAndKeepsClockIdentity's identity check
+// and signInAsManagerAtViewport's WaitVisible at every phone-width browser
+// scenario, since a SECOND [data-pick-clock] match, even hidden, would
+// still count) and adds, never replaces:
+//   - .draft-command__pill-meta / .draft-command__pill-status: new spans
+//     duplicating pick.round/pick.number/onclock.name's own live-bind
+//     keys (proven safe to bind twice — room.managers already does, in
+//     .draft-command__room below) into one compact "R3·P34"/"YOU’RE UP"
+//     reading, phone-width only; the CSS hides the two-line originals at
+//     that width instead of restyling them, since neither wraps its
+//     "SNAKE dir" or "PICK" text in an isolable span to compact in place.
+//   - .draft-command__pill-toggle: a phone-only <details> (display: none
+//     at desktop, unconditional, matching DraftMobileTabs/DraftPickBar's
+//     own established "duplicate the mobile-only surface, hide at
+//     desktop" pattern in this same file) whose <summary> is the pill's
+//     own ▾ toggle and whose body is the CSS-fixed bottom sheet: ready
+//     state, a second sound toggle, autopick, the League-navigation
+//     trigger DraftMobileTabs used to carry, and (commissioner only) a
+//     second trigger for the SAME #draft-commissioner dialog the desktop
+//     Commissioner button already opens — no duplicate drawer markup
+//     needed. .draft-command__room (with its own live sound/commissioner
+//     controls) stays exactly as it renders today; only its VISIBILITY at
+//     phone width changes (display: none there, unchanged everywhere
+//     else), the sheet taking its place instead of hiding its content
+//     outright.
+//   - .draft-command__pill-row: a new wrapper around .draft-command__pick,
+//     __turn, __clock, and __pill-toggle only (never __room, which stays
+//     a direct sibling in its original desktop grid slot). display:
+//     contents at desktop (public/styles.css) unboxes it entirely, so the
+//     four children resume being direct .draft-command__inner grid items
+//     — pixel-identical to the pre-wrap desktop layout, auto-placed
+//     pick/turn/clock/room across the same four explicit columns, since a
+//     display: none item (the toggle, at desktop) consumes no grid cell
+//     either way. At phone width the wrapper becomes a real flex row
+//     (flex-wrap: nowrap, each child shrinking-with-ellipsis instead of
+//     wrapping onto a second line) so it can sit beside
+//     .draft-command__banner as ONE flex item of .draft-command__inner's
+//     own flex-wrap: wrap — the banner (rare: paused/rehearsal/offline-
+//     pool notices) gets its own full-width line only when actually
+//     present, without ever splitting the pill row itself across two
+//     lines the way giving .draft-command__inner's own flex-wrap: wrap to
+//     five ungrouped children did in an earlier draft of this fix
+//     (measured live: pick/turn/clock/toggle spread across 3 separate
+//     flex lines instead of shrinking to fit one).
 func DraftCommandBar(props DraftCommandBarProps) Node {
 	return <div class="draft-command__inner">
 		<p class="draft-region-stale mono" role="status">The room did not update. This is the last confirmed state. <a href="/draft">Refresh room →</a></p>
 		<p class="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{props.StatusSummary}</p>
+		<div class="draft-command__pill-row">
 		<div class="draft-command__pick">
 			<span class="idx">ROUND <span data-gosx-live-bind="pick.round">{props.Data.round}</span> · <abbr title="a draft order that reverses every round">SNAKE</abbr> <span data-gosx-live-bind="pick.direction">{props.Data.snake_direction}</span></span>
 			<span class="mono draft-command__number" data-pick-label>PICK <span data-gosx-live-bind="pick.number">{props.Data.pick_number}</span> <span class="muted">/ <span data-gosx-live-bind="pick.total">{props.Data.picks_total}</span></span></span>
+			<span class="draft-command__pill-meta mono">R<span data-gosx-live-bind="pick.round">{props.Data.round}</span>·P<span data-gosx-live-bind="pick.number">{props.Data.pick_number}</span></span>
 		</div>
 		<div class="draft-command__turn">
 			<If cond={props.Data.draft.complete == false}>
@@ -1177,6 +1234,11 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<strong class="display" data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</strong>
 					<small class="muted">Next: {props.Data.next_team.name} · then {props.Data.after_next_team.name}</small>
 				</If>
+				<span class="draft-command__pill-status mono">
+					<If cond={props.Data.draft.complete}>DRAFT COMPLETE</If>
+					<If cond={props.Data.draft.complete == false && props.Data.viewer_on_clock}>YOU’RE UP</If>
+					<If cond={props.Data.draft.complete == false && props.Data.viewer_on_clock == false}>ON CLOCK: <span data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</span></If>
+				</span>
 			</div>
 		</div>
 		<div class="draft-command__clock" data-clock-state={props.Data.clock.state} data-gosx-live-bind-attr="data-clock-state:clock.state">
@@ -1202,6 +1264,49 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					<span class="idx">of <span data-gosx-live-bind="clock.duration_label">{props.Data.clock.duration_label}</span></span>
 				</If>
 			</If>
+		</div>
+		<details class="draft-command__pill-toggle">
+			<summary class="draft-command__pill-caret" aria-label="Show draft room controls" aria-controls="draft-command-sheet">▾</summary>
+			<div class="draft-command__sheet" id="draft-command-sheet">
+				<div class="draft-command__sheet-room mono">
+					<span data-gosx-live-bind="room.here">{props.Data.here_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> here · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready
+					<If cond={props.Data.your_pick_in > 0}>
+						<span class="draft-command__yourpick" data-gosx-live-bind={props.Data.yourpick_bind_key}> · your pick in {props.Data.your_pick_in}</span>
+					</If>
+				</div>
+				<div class="draft-command__sheet-controls">
+					<If cond={props.Data.viewer.has_seat && props.Data.draft.complete == false}>
+						<form method="post" action={props.Actions.toggle_ready} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_ready}>
+								<button class="btn btn-sm" type="submit" aria-pressed="true">Undo ready check-in</button>
+							</If>
+							<If cond={props.Data.viewer_ready == false}>
+								<button class="btn btn-sm btn-primary" type="submit" aria-pressed="false">Mark me ready</button>
+							</If>
+						</form>
+						<form method="post" action={props.Actions.toggle_autopick} data-gosx-managed="true">
+							<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+							<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+							<If cond={props.Data.viewer_autopick}>
+								<input type="hidden" name="on" value="false"></input>
+								<button class="btn btn-sm" type="submit">Turn autopick off</button>
+							</If>
+							<If cond={props.Data.viewer_autopick == false}>
+								<input type="hidden" name="on" value="true"></input>
+								<button class="btn btn-sm" type="submit">Turn autopick on</button>
+							</If>
+						</form>
+					</If>
+					<button type="button" class="btn btn-sm draft-command__pill-sound" data-gosx-cue-toggle data-gosx-cue-label-on="Sound on" data-gosx-cue-label-off="Sound off" aria-pressed="true">Sound on</button>
+					<button type="button" class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
+					<If cond={props.Data.viewer.is_commissioner}>
+						<button type="button" class="btn btn-sm" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Force pick</button>
+					</If>
+				</div>
+			</div>
+		</details>
 		</div>
 		<div class="draft-command__room">
 			<span class="idx">Room</span>
@@ -1411,12 +1516,24 @@ type DraftMobileTabsProps struct {
 // the draft-shell's own height: 100dvh math needs that clearance back),
 // and the desktop command bar's own Rail toggle only affects the site
 // rail above the 56.25rem desktop breakpoint, leaving a phone-width
-// visitor with no way to reach the rest of the league at all. The sixth
-// "League" tab below reopens the SAME dialog Layout()'s hamburger button
-// targets: data-gosx-disclosure-target is a plain attribute selector the
-// runtime already delegates clicks for (client/runtime/host/
-// disclosure.ts), so a second trigger for the one existing dialog needs
-// no new markup or JS.
+// visitor with no way to reach the rest of the league at all. A sixth
+// "League" tab used to sit here for that reason, reopening the SAME
+// dialog Layout()'s hamburger button targets.
+//
+// Wave 7b item 2 (2026-08-31 audit) moved that League trigger out of this
+// bar: five real content tabs (Pool, Big Board, Picks, Draft grid, Teams)
+// at 390px already measured 72.4-84.4px each — a sixth "flex: 1 1 0" slot
+// (public/styles.css's shared .draft-tabbar__tab rule gives every tab
+// equal width regardless of its own label) narrowed every tab further for
+// a control that is not one of the room's named views at all, and "BIG
+// BOARD" was already the tightest label in the row. DraftCommandBar's own
+// new .draft-command__pill-toggle sheet (page.gsx, wave 7b item 1) now
+// carries a second data-gosx-disclosure-target="#primary-navigation-
+// dialog" trigger instead — the same dialog, reachable one tap from the
+// always-visible pill rather than a seventh-width slot in this bar, and
+// TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess
+// (mobile_nav_exit_test.go) now pins that button's new location instead
+// of this bar's old sixth slot.
 //
 // Wave 7 item 1: a dedicated "Draft grid" tab (#tab-board) joins Picks/
 // Teams — before this, ShowBoard folded into #tab-picks' own checked
@@ -1440,7 +1557,6 @@ func DraftMobileTabs(props DraftMobileTabsProps) Node {
 		<a class="draft-tabbar__tab" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
 		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
 		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
-		<button type="button" class="draft-tabbar__tab" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
 	</nav>
 }
 
@@ -1634,7 +1750,10 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							<button class="btn btn-sm btn-primary" type="submit">Draft</button>
 						</If>
 						<If cond={props.Data.can_pick && player.CanDraft == false}>
-							<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+							<span class="control-locked">
+								<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+								<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
+							</span>
 						</If>
 					</form>
 				</If>
@@ -1688,6 +1807,9 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 		</div>
 		<div class="draft-mine__view draft-mine__view--queue">
 			<div class="pool-list pool-list--reorder-scroll" data-gosx-reorder data-gosx-reorder-action="POST /draft/queue" data-gosx-csrf-token={props.CSRF}>
+				<If cond={props.Data.queue_empty == false}>
+					<div class="q-list__header mono">NEXT UP</div>
+				</If>
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>

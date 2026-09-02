@@ -10988,6 +10988,42 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   min-width: 2.75rem;
 }
 
+/* Wave 7b item 1: the phone-width floating pill's own additions
+   (DraftCommandBar, page.gsx) — the compact "R3·P34"/"YOU'RE UP" spans
+   duplicating pick.round/pick.number/onclock.name's live-bind keys, and
+   the .draft-command__pill-toggle <details> carrying the ▾ sheet (ready
+   state, sound, autopick, League navigation, force-pick) — render at
+   every width (no server-side branch on viewport) but stay display: none
+   here unconditionally: desktop never shows them, matching
+   DraftMobileTabs/.draft-tabbar and DraftPickBar/.draft-pickbar's own
+   established "off by default, phone-width media query turns it on"
+   shape elsewhere in this same file. The phone-width block that turns
+   these three back on, and hides .draft-command__room in their place,
+   lives in the wave 7b — fir block at the end of this file (CSS range
+   syntax, not the phone/tablet block's own exact query spelling —
+   shell_css_test.go's own LastIndex check locates that block by its
+   literal opening text, so a second block spelling it out would relocate
+   the match; see that test file's own comment). */
+.draft-command__pill-meta,
+.draft-command__pill-status {
+  display: none;
+}
+
+.draft-command__pill-toggle {
+  display: none;
+}
+
+/* .draft-command__pill-row wraps .draft-command__pick/__turn/__clock/
+   __pill-toggle only (page.gsx's own doc comment on DraftCommandBar has
+   the full reasoning). display: contents unconditionally here (not
+   phone-gated): it must never affect desktop, where these four resume
+   being direct .draft-command__inner grid items exactly as before the
+   wrap — .draft-command__pill-toggle's own display: none above already
+   keeps it from claiming a fifth grid cell there. */
+.draft-command__pill-row {
+  display: contents;
+}
+
 /* V2: the offline-pool notice (and the paused/rehearsal banners sharing
    this element, service.go's banner priority chain) is one compact mono
    line, muted, full width, no card — never the paragraph-sized colored
@@ -11570,8 +11606,16 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   flex-shrink: 0;
 }
 
+/* Wave 7b item 3 (type floor audit): 0.75rem (12px) was the smallest
+   rendered type in the whole draft room, one size step under the 0.8125rem
+   (13px) floor every other .draft-* rule in this file already honors
+   (var(--type-xs) clamps 0.8125rem-0.875rem at the default, comfortable
+   density). var(--type-xs), not a hardcoded 0.8125rem literal, matches
+   every other rule in this section (see the font-size grep list this
+   comment is the one exception to) and keeps this line on the same
+   responsive clamp the rest of the room already reads from. */
 .tape-round__meta {
-  font-size: 0.75rem;
+  font-size: var(--type-xs);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -13248,6 +13292,17 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   border-radius: var(--radius-pill);
 }
 
+/* Wave 7b item 6: .results-team-dot is an <a>, so larch's mobile-
+   foundation touch-baseline block (public/styles.css, "Mobile
+   interaction baseline") also resets ITS min-width to 0 at the coarse-
+   pointer/narrow-viewport query — the identical conflict wave 7b — ash's
+   own SET-button fix and item 5's own queue-reorder-button fix (both
+   above) already found and fixed the same #main-content-anchored way,
+   copied here rather than reaching for !important. */
+.site-frame #main-content .results-team-dot {
+  min-width: 2.75rem;
+}
+
 .results-team-dot::before {
   content: "";
   width: 0.5rem;
@@ -13311,11 +13366,23 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    keys off (that test's own comment, /draft's phone-tab reveal rule
    above, explains why spelling it out would relocate that match). */
 @media (width <= 56.1875rem) {
+  /* Wave 7b item 6 (2026-08-31 audit): the strip's own dot nav
+     (.results-team-dots, below) already gives a manager who has scrolled
+     several cards deep a way to jump anywhere, but nothing signaled the
+     row itself kept scrolling past the visible edge — the same "chips
+     clip at 260-375px" symptom /draft's own
+     .draft-available-head__chips mask-image fix (above) already
+     diagnosed and fixed for a different horizontally-snapping row. Right
+     edge only: a snap-scrolled row's own start is never ambiguous (it is
+     wherever the viewport itself begins), only "is there more" past the
+     visible edge needs the cue. */
   .results-teams {
     flex-wrap: nowrap;
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     -webkit-overflow-scrolling: touch;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent 100%);
   }
 
   .results-team-card {
@@ -13647,5 +13714,577 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
   .pickem-row:first-child {
     border-radius: var(--radius-md);
+  }
+}
+
+/* wave 7b — fir --------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot collide
+   with a concurrent edit elsewhere in this stylesheet (the "wave 6 —
+   rowan"/"wave 7 — hazel" append convention above). Every selector below
+   is new; the two exceptions are documented inline where they touch an
+   existing rule (.tape-round__meta's font-size, item 3; the two
+   .draft-command__pill-meta/-status/-toggle display: none base rules,
+   added beside .draft-command__sound above so item 3's own contract test
+   can find them near the other .draft-command rules it already scans). */
+
+/* Item 1: the phone-width floating "on the clock" pill. The pre-fix
+   command bar measured 250px of a 390px-tall viewport (44%) and, in
+   landscape at 844x390, 260px of 390 (67% — zero pick rows visible). This
+   block collapses it to one ~56px sticky row and moves everything else
+   (room stats, sound, autopick, ready state, League navigation,
+   force-pick) into DraftCommandBar's new .draft-command__pill-toggle
+   <details> sheet (page.gsx), reachable from the row's own ▾ toggle.
+   CSS range syntax ("width <=", not "max-width:") on purpose:
+   shell_css_test.go's own LastIndex check locates the phone/tablet
+   .draft-tabbar/.draft-command__banner block by its own opening query
+   text — a second block spelling that same text out here would relocate
+   the match (that test file's own comment explains the same constraint
+   for the wave 7 — hazel block above, and deliberately avoids spelling
+   the text out a third time for the identical reason). */
+@media (width <= 56.1875rem) {
+  /* The 4 desktop-flow children (.draft-command__pick, __turn, __clock,
+     __room) stay completely unmodified in the DOM (page.gsx) — a
+     duplicate of .draft-command__clock's own data-pick-clock strong, even
+     hidden, would give sim_browser_test.go's browserPickClockSelector two
+     matches, and chromedp's WaitVisible(browserPickClockSelector) already
+     targets ONE specific element by that selector at every phone-width
+     browser scenario (signInAsManagerAtViewport, sim_room_browser_test.go)
+     — so this block repositions the same four elements into one row
+     instead of hiding and replacing any of them, and only
+     .draft-command__room (no pinned selector anywhere in this repo reaches
+     into it) actually leaves the visible flow, in favor of the sheet
+     below carrying its own content forward.
+     .draft-command's own sticky/border-bottom/background (the draft-shell
+     block, above) stay untouched; only its height and its inner layout
+     change here. */
+  .draft-command {
+    min-height: 3.5rem;
+  }
+
+  /* The shell's own row gap (var(--space-sm), ~13-16px) multiplies by 4
+     (5 stacked tracks: notice, command, panes, pickbar, tabbar) to ~52-64px
+     of pure spacing — real height at a 390px viewport, and .draft-panes is
+     the ONLY flexible track (minmax(0, 1fr); every other track is auto),
+     so every px reclaimed from a gap is a px handed straight to the pane
+     body. A fixed 0.375rem here (not a var(--space-*) token: every t-shirt
+     size starts at --space-xs' own 0.5rem floor, already visually tight
+     enough between chrome regions that a manager scans in one glance, not
+     reads line by line) replaces it only inside the phone/tablet shell,
+     never elsewhere in the file. */
+  .draft-shell {
+    gap: 0.375rem;
+  }
+
+  /* flex-wrap: wrap here is for .draft-command__pill-row versus
+     .draft-command__banner ONLY — the banner (rare: paused/rehearsal/
+     offline-pool notices) needs its own full-width line when present, but
+     .draft-command__pill-row itself must never split across two lines
+     the way it would if this rule's wrap applied to pick/turn/clock/
+     toggle directly instead of to the one wrapper box (page.gsx's own
+     DraftCommandBar doc comment: an earlier draft of this fix measured
+     exactly that — 3 flex lines for 4 items that had room to shrink
+     comfortably onto one). */
+  .draft-command__inner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: 3.5rem;
+    padding: 0 var(--space-sm);
+    margin: var(--space-xs);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-pill);
+    background: var(--color-surface);
+  }
+
+  .draft-command__pill-row {
+    display: flex;
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: var(--space-xs);
+    min-width: 0;
+  }
+
+  /* Item 1's own accent + pulse "the viewer is on the clock" cue reuses
+     body.is-on-clock (the SAME class the existing visually-hidden
+     data-gosx-watch span, DraftCommandBar, already toggles for
+     .draft-clock-panel elsewhere in this file) rather than a second watch
+     span on the pill — one on-clock signal, two consumers, and the
+     pill's own accent state carries the identical staleness properties
+     (server-render-only in target mode) DraftCommandBar's own doc comment
+     already discloses and accepts for "You are on the clock"/"On the
+     clock" text, not a new gap this block introduces. */
+  body.is-on-clock .draft-command__inner {
+    border-color: var(--color-accent);
+    background: var(--color-accent-haze);
+    animation: draft-pill-pulse 2s ease-out infinite;
+  }
+
+  .draft-command__pick {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 0;
+  }
+
+  /* The two-line originals (ROUND N · SNAKE dir / PICK N of total) carry
+     no wrapping element around "SNAKE dir" or "PICK" alone to compact in
+     place (page.gsx's own DraftCommandBar doc comment), so they hide here
+     rather than restyle; .draft-command__pill-meta (a new sibling span,
+     same file) is the one-line "R3·P34" reading that replaces them. */
+  .draft-command__pick > .idx,
+  .draft-command__pick > .draft-command__number {
+    display: none;
+  }
+
+  .draft-command__pill-meta {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--color-text-secondary);
+    font-size: var(--type-xs);
+  }
+
+  .draft-command__turn {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: var(--space-xs);
+  }
+
+  .draft-command__mark {
+    width: 2rem;
+    flex: 0 0 auto;
+  }
+
+  /* display: block (not the base rule's display: grid) so its one visible
+     child (.draft-command__pill-status) is a normal block box that fills
+     the available width and honors overflow: hidden/text-overflow:
+     ellipsis against ITS OWN shrunk box — a grid item's own automatic
+     minimum size follows different (content-based) rules that left this
+     measuring wider than its flex parent could actually give it. */
+  .draft-command__team {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Same reasoning as .draft-command__pick above: the existing strong/
+     small pair hides in favor of .draft-command__pill-status, a new
+     sibling span carrying the SAME onclock.name live-bind key (proven
+     safe to bind twice; room.managers already does, .draft-command__room
+     below). */
+  .draft-command__team > strong,
+  .draft-command__team > small {
+    display: none;
+  }
+
+  .draft-command__pill-status {
+    display: block;
+    overflow: hidden;
+    min-width: 0;
+    color: var(--color-text-secondary);
+    font-size: var(--type-xs);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  body.is-on-clock .draft-command__pill-status {
+    color: var(--color-accent-hot);
+  }
+
+  .draft-command__clock {
+    flex: 0 0 auto;
+    padding: 0.2rem var(--space-xs);
+    animation: none;
+  }
+
+  .draft-command__clock .pick-clock {
+    font-size: var(--type-md);
+  }
+
+  .draft-command__room {
+    display: none;
+  }
+
+  .draft-command__pill-toggle {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+  }
+
+  /* list-style/marker-hiding mirrors .stat-tip__summary's own established
+     shape (above, this file) — a <details>/<summary> pair used as a
+     trigger, not a native expand/collapse affordance the browser draws
+     its own disclosure triangle for. */
+  .draft-command__pill-caret {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+    list-style: none;
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    font-size: var(--type-md);
+    touch-action: manipulation;
+  }
+
+  .draft-command__pill-caret::-webkit-details-marker,
+  .draft-command__pill-caret::marker {
+    display: none;
+    content: "";
+  }
+
+  .draft-command__pill-caret:focus-visible {
+    outline: 2px solid var(--color-accent-cyan);
+    outline-offset: 0.2rem;
+  }
+
+  .draft-command__pill-toggle[open] .draft-command__pill-caret {
+    color: var(--color-accent-cyan);
+    transform: rotate(180deg);
+  }
+
+  /* The sheet is a fixed bottom sheet, not an in-flow dropdown: an
+     in-flow reveal would push .draft-panes down by its own height on
+     open, shrinking the very pane body this whole item exists to grow
+     back. position: fixed keeps every pane's own height constant whether
+     the sheet is open or closed — only its own overlay moves. Explicit
+     display: none/[open] > .sheet { display: flex } (not relying on the
+     browser's own native <details> content-hiding alone) matches
+     .stat-tip__panel's own established pattern above: full author
+     control over an absolutely/fixed-positioned disclosure panel, the
+     native open/close toggle kept for its free keyboard and
+     no-JS-required behavior only. */
+  .draft-command__sheet {
+    display: none;
+  }
+
+  .draft-command__pill-toggle[open] > .draft-command__sheet {
+    display: flex;
+  }
+
+  .draft-command__sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    flex-direction: column;
+    gap: var(--space-sm);
+    max-height: 70vh;
+    overflow-y: auto;
+    padding: var(--space-md);
+    padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-accent);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    background: var(--color-canvas-deep);
+    box-shadow: 0 -1.25rem 3rem rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.5);
+  }
+
+  .draft-command__sheet-room {
+    color: var(--color-text-secondary);
+    font-size: var(--type-xs);
+  }
+
+  .draft-command__sheet-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-xs);
+  }
+
+  .draft-command__sheet-controls form {
+    display: inline-flex;
+  }
+}
+
+@keyframes draft-pill-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px var(--color-accent-haze);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.is-on-clock .draft-command__inner {
+    animation: none;
+  }
+}
+
+/* Item 2: with the League tab moved into the pill sheet (item 1), the
+   bottom tab bar is back to 5 real content tabs (Pool, Big Board, Picks,
+   Draft grid, Teams) — the audit's own "5 tabs x 72.4/84.4px = 374px,
+   BIG BOARD wraps to two lines" measurement. Decision: keep all 5, keep
+   every label exactly as product rules require ("Big Board"/"Draft grid"
+   are each the one true name for their own object — DraftHistoryHead's
+   own desktop segment a few screens away spells "Draft grid" out in
+   full, so a phone visitor who reaches it from either surface reads the
+   same word, never an abbreviation the tab bar alone would need
+   explaining), and fit the widest label ("Big Board") on one line by
+   trimming letter-spacing and horizontal padding — never the font-size,
+   which already sits at the 0.8125rem floor (var(--type-xs), the shared
+   .app-tabbar__tab/.draft-tabbar__tab rule, top of this file) and cannot
+   drop further. white-space: nowrap is the actual wrap guard; the
+   letter-spacing/padding trim is what keeps 5 equal (flex: 1 1 0, same
+   shared rule) tabs each wide enough for it to hold at 360px, the
+   narrowest width the war room supports. */
+@media (width <= 56.1875rem) {
+  .draft-tabbar__tab {
+    padding: 0 0.2rem;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+  }
+}
+
+/* Item 7: 844x390 landscape is the audit's own worst case — a 390px-tall
+   viewport where .draft-panes is still the shell's one flexible grid
+   track (minmax(0, 1fr); every sibling track is auto-sized to content),
+   so .draft-tabbar (a 56px min-height everywhere else — the shared
+   .app-tabbar__tab/.draft-tabbar__tab rule, top of this file) and
+   .draft-pickbar's own two-line prompt both cost real pane height here
+   that portrait can spare. A height feature alongside the existing width
+   one scopes this to short-viewport landscape specifically — a tall
+   844px-WIDE portrait-ish window (there is no such real device, but a
+   resized desktop browser could report it) keeps the roomier chrome the
+   rest of this file already gives every other phone/tablet width. 28rem
+   (448px) clears the 390px case with margin without reaching the
+   844px-tall case an unusually short desktop window could still report
+   at this width. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .draft-tabbar__tab {
+    min-height: 2.75rem;
+  }
+
+  /* The queue-#1/ready/autopick idx label (page.gsx's own DraftPickBar)
+     is the bar's SECOND line — dropping it here leaves the single most
+     load-bearing line (the player name and Draft button, or the ready/
+     autopick prompt itself) still fully readable, never blank chrome. */
+  .draft-pickbar .idx {
+    display: none;
+  }
+
+  .draft-pickbar {
+    padding: 0.375rem var(--space-sm);
+  }
+
+  /* Bug found live measuring this exact viewport: R7's padding-bottom:
+     4.5rem (72px, comment above it) reserves room for a MUCH taller
+     pickbar+tabbar combo than this query's own compacted pair (94px
+     combined, but they are separate, non-overlapping grid tracks — see
+     .draft-shell's own grid-template-rows comment, above — so the
+     reservation was never actually about avoiding overlap with a fixed-
+     position dock, only breathing room). At 390px total height,
+     .draft-available-head alone (search row + position chips) already
+     runs 108px, leaving .draft-pane__body under 30px of its own real
+     content area — border-box padding cannot shrink below its own value,
+     so the untouched 72px floor forced the whole element to 72px tall
+     regardless, pushing 43px past .draft-pane's own bottom edge into the
+     pickbar's track. A much smaller reservation removes that overflow
+     without removing the R7 gap's own intent (space so the last row is
+     not flush against the pane edge) entirely. */
+  .draft-pane__body {
+    padding-bottom: 0.5rem;
+  }
+
+  /* .draft-pane__head/.draft-history-head/.draft-available-head's shared
+     padding (var(--space-sm) var(--space-md), ~13-24px top+bottom) plus
+     the search row, position chips, and "What do RK..." legend disclosure
+     inside .draft-available-head specifically measured 108px tall here —
+     over a quarter of the whole 390px viewport before any pick ever
+     shows. The legend is optional reading (P1-7's own doc comment: "a
+     die-hard skips it every time"), so it is the one dropped, not the
+     search field or the position filters a manager actually needs to
+     reach a player during a live pick. */
+  .draft-pane__head,
+  .draft-history-head,
+  .draft-available-head {
+    padding: 0.375rem var(--space-sm);
+  }
+
+  .pool-legend {
+    display: none;
+  }
+
+  /* The Picks pane's own head (.draft-history-head) carries MORE than
+     .draft-available-head above: the position/mine filter chips
+     (.draft-history-filters, Tape view only) and the "↓ Latest" jump
+     link both cost real height a manager mid-pick, scanning the tape for
+     the newest row, does not need at this extreme aspect — the newest
+     round's own sticky .tape-round header (below) already anchors that
+     same "where am I" orientation without a second control for it. */
+  .draft-history-filters,
+  .draft-history__jump {
+    display: none;
+  }
+
+  /* The sticky per-round header above the tape rows (D4) — its own
+     padding trimmed the same way .draft-pane__head's was, so the 3
+     touch-baseline rows (44px each, TestDraftTapeRowTogglePassesThe
+     TouchBaseline's own pin) below it lose as little of a genuinely tiny
+     budget as possible to a label that repeats "ROUND 1" once, not once
+     per row. */
+  .tape-round {
+    padding: 0.25rem var(--space-sm);
+  }
+
+  /* A rare active .draft-command__banner (paused/rehearsal/pool notice)
+     otherwise claims a whole SECOND line under the pill row — real,
+     measured height (36px) this 390px-tall viewport is the one place in
+     the whole shell that cannot spare. 844px of width leaves the pill
+     row (flex: 0 1 auto here, not the portrait rule's flex: 1 1 auto —
+     letting it size to its own content instead of stretching to fill)
+     hundreds of idle px on the same line; the banner (flex: 1 1 auto)
+     fills that leftover space and keeps its own base rule's one-line
+     nowrap/ellipsis truncation instead of wrapping to a line of its own.
+     Portrait keeps the two-line shape (its own vertical budget is
+     roomier, and a narrower row leaves little width for a banner to
+     share). */
+  .draft-command__pill-row {
+    flex: 0 0 auto;
+  }
+
+  .draft-command__banner {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0;
+    /* Overrides the portrait phone/tablet block's own two-line allowance
+       (white-space: normal, max-height: 2.6em, a mask-image fade) — that
+       shape needs the vertical room this landscape query does not have.
+       Back to the desktop base rule's plain one-line nowrap/ellipsis,
+       inline beside the pill row instead of its own line below. */
+    white-space: nowrap;
+    max-height: none;
+    text-overflow: ellipsis;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  /* .draft-command__title (the page's one real, accessible <h1> — gap-
+     audit item 8's own fix, page.gsx) duplicates information the pill row
+     already shows compactly ("R{round}·P{number}", item 1) at this width;
+     visually-hidden's own established clip-rect technique (top of this
+     file) keeps it in the accessibility tree — TestDraftPageHasSingleH1
+     AndMobileNavExit only counts <h1> elements, never their visibility —
+     while reclaiming its own padding-top + line-height here, real height
+     this 390px-tall viewport cannot spare twice. */
+  .draft-command__title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
+/* Item 4: pick rows as cards, phone width. The T3/T4 polish passes and
+   the 2026-08-30 review already gave .tape-row (DraftPickDetail, page.gsx)
+   a two-line card shape matching the mockup — pick slot + team badge on
+   the left edge, player name/position/AUTO-COMM tag as the bold first
+   line, team/manager/NFL-team/time-to-pick as the muted second line, #N
+   and a chevron on the right edge, min-height: 2.75rem on the tappable
+   .tape-row__summary (TestDraftTapeRowTogglePassesTheTouchBaseline). What
+   was still missing: "vs ADP" itself (page.gsx now appends
+   props.ValueLabel to the second line whenever props.HasValue — the same
+   value the available pane's own VS ADP column already reads off the
+   identical HasValue/ValueLabel pair, R4), the viewer's own picks reading
+   only as a faint background tint (no rail), and no entrance motion for
+   the newest pick landing live. */
+@media (width <= 56.1875rem) {
+  /* .tape-row[data-mine="true"] (above, this file) already tints the
+     row's background; the accent rail is the SAME left-border language
+     .tape-row--clock already uses for "this row needs your attention"
+     (the on-clock placeholder), a slightly muted color so a viewer's own
+     PAST picks read as "mine" without competing with the brighter
+     on-clock accent for the one row that is actually live right now. */
+  .tape-row[data-mine="true"] {
+    border-left: 3px solid var(--color-accent-cyan);
+  }
+
+  /* The newest pick: whichever .tape-row--detail sits first among the
+     tape's own real rows — either right after the on-clock placeholder
+     (.tape-row--clock, present whenever the draft has not just finished),
+     or first among the tape rows outright once the draft completes and
+     the placeholder stops rendering. Both cases are covered so exactly
+     one row ever animates, never zero and never more than one. Target
+     mode replaces the whole tape-rows region on every draft:pick
+     (findings 1/2/3/6, page.server.go's own doc comment on that fragment)
+     — a brand-new DOM node each time, so this plays again on every real
+     pick, not just first paint. */
+  .draft-history__view--tape .tape-row--clock + .tape-row--detail,
+  .draft-history__view--tape .tape-round:first-of-type + .tape-row--detail:first-of-type {
+    animation: draft-pick-card-enter 0.4s var(--ease-out);
+  }
+}
+
+@keyframes draft-pick-card-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .draft-history__view--tape .tape-row--clock + .tape-row--detail,
+  .draft-history__view--tape .tape-round:first-of-type + .tape-row--detail:first-of-type {
+    animation: none;
+  }
+}
+
+/* Item 5: the Big Board (queue) pane on phones.
+     - The no-JS up/down reorder buttons (.board-button--move, shared with
+       /board) carry min-height/min-width: var(--control-h) = 44px in
+       their own base rule (the button system pass, top of this file) and
+       already sit side by side inside .q-row__actions' own flex row —
+       but measured 44x25.6 live: larch's mobile-foundation touch-
+       baseline block (public/styles.css, "Mobile interaction baseline")
+       sets min-width: 0 on .site-frame button at the coarse-pointer/
+       narrow-viewport query so ordinary text buttons can stay their own
+       natural (non-square) width, and that rule's #main-content-anchored
+       specificity beats .board-button--move's plain two-class selector —
+       the identical conflict wave 7b — ash's own SET-button fix
+       (public/styles.css, "Item 7") already found and fixed the same
+       #main-content-anchored way for a different button, copied here
+       rather than reaching for !important.
+     - .q-row__actions' own Clear (remove) button used the compact
+       .btn-sm sizing (var(--control-h-compact) = 36px, 8px under the
+       floor) — every OTHER .btn-sm in the shell stays compact by design
+       (dense chrome rows), so this widens Clear specifically rather than
+       the shared .draft-shell .btn-sm rule everything else also reads
+       from.
+     - A sticky "NEXT UP" header (.q-list__header, DraftMyTeam, page.gsx)
+       orients a manager who has scrolled deep into a long ranked board
+       back to "this is my own priority order, read top to bottom" —
+       matching .tape-round's own sticky per-round header one pane over. */
+.site-frame #main-content .q-row__actions .board-button--move {
+  min-width: var(--control-h);
+}
+
+@media (width <= 56.1875rem) {
+  .q-row__actions form:last-child .btn-sm {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+  }
+
+  .q-list__header {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: var(--space-xs) var(--space-sm);
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    letter-spacing: 0.08em;
+    background: var(--color-surface);
+    border-bottom: 1px solid var(--color-border);
   }
 }

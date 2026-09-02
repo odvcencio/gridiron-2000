@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/chromedp/chromedp"
@@ -111,4 +112,99 @@ func TestBrowserDraftResultsRendersWithoutOverflowAt390And1280(t *testing.T) {
 			t.Errorf("document.documentElement.scrollWidth (%d) > window.innerWidth (%d) at 1280px", scrollWidth, innerWidth)
 		}
 	})
+}
+
+// TestBrowserDraftResultsTeamStripHasVisibleScrollCueAt390 is wave 7b item
+// 6's own decisive check: the by-team snap strip carries BOTH of its
+// visible "there is more" cues (a right-edge fade mask and the dot-nav
+// row), every dot clears 44px, and the grid view's own sticky column/round
+// headers stay pinned as the grid scrolls under them.
+func TestBrowserDraftResultsTeamStripHasVisibleScrollCueAt390(t *testing.T) {
+	if testing.Short() {
+		t.Skip("sim scenario: skipped under -short")
+	}
+	child, league, ctx := startBrowserDraft(t)
+	completeSimDraft(t, league)
+	viewer := league.bots[len(league.bots)-1]
+	signInAsManagerAtViewport(t, ctx, child, viewer, 390, 844)
+	if err := chromedp.Run(ctx,
+		chromedp.Navigate(child.URL+"/draft/results"),
+		chromedp.WaitVisible(`.results-team-card`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate to /draft/results: %v", err)
+	}
+
+	var maskImage string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(
+		`(function(){var cs = getComputedStyle(document.querySelector('.results-teams')); return cs.webkitMaskImage || cs.maskImage;})()`, &maskImage,
+	)); err != nil {
+		t.Fatalf("read .results-teams mask-image: %v", err)
+	}
+	if maskImage == "" || maskImage == "none" {
+		t.Error(".results-teams has no visible right-edge fade cue (mask-image) at 390px")
+	}
+
+	var dotCount int
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelectorAll('.results-team-dot').length`, &dotCount)); err != nil {
+		t.Fatalf("count .results-team-dot: %v", err)
+	}
+	if dotCount == 0 {
+		t.Fatal("no .results-team-dot dot-nav rendered at 390px")
+	}
+	dots := elementBoundingRect(t, ctx, ".results-team-dot")
+	if dots.Width < 44 || dots.Height < 44 {
+		t.Errorf(".results-team-dot = %.1fx%.1fpx at 390px, want >= 44x44", dots.Width, dots.Height)
+	}
+
+	// Grid view's own sticky headers.
+	//
+	// FINDING (2026-08-31, measured live, not assumed): .board-grid__corner
+	// (position: sticky; left: 0, shared with /draft's own desktop board
+	// tab) sticks correctly for a SHORT scroll past its own resting
+	// position (holds flush against .results-board-scroll's own left edge
+	// through at least ~150px of scroll — the assertion below), then
+	// drifts with the content again on a longer scroll (measured: -76px at
+	// scrollLeft 350, not the ~8px a fully-stuck header would still read).
+	// This is CSS Grid's own documented limit, not a regression from this
+	// item's own work: a sticky grid item's stick range is bounded by its
+	// own grid area/track, not the whole scrolling container, and
+	// .board-grid__corner's own track is a fixed 6rem — a real, pre-
+	// existing limitation of the shared .board-grid CSS (desktop's own
+	// board tab shares the identical mechanics, just rarely scrolls far
+	// enough horizontally to expose it) that needs a bigger restructure
+	// (decoupling the sticky item's containing block from its own narrow
+	// track) than this item's safe scope covers. Flagged here rather than
+	// silently asserting a full-range guarantee CSS Grid does not actually
+	// keep.
+	navCtx, cancelNav := context.WithTimeout(ctx, browserFirstPaint)
+	defer cancelNav()
+	if err := chromedp.Run(navCtx,
+		chromedp.Navigate(child.URL+"/draft/results?view=board"),
+		chromedp.WaitVisible(`.board-grid`, chromedp.ByQuery),
+	); err != nil {
+		t.Fatalf("navigate to /draft/results?view=board (the grid view): %v", err)
+	}
+	var cornerPosition string
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`getComputedStyle(document.querySelector('.board-grid__corner')).position`, &cornerPosition)); err != nil {
+		t.Fatalf("read .board-grid__corner position: %v", err)
+	}
+	if cornerPosition != "sticky" && cornerPosition != "-webkit-sticky" {
+		t.Errorf(".board-grid__corner position = %q, want sticky", cornerPosition)
+	}
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.results-board-scroll').scrollLeft = 60`, nil)); err != nil {
+		t.Fatalf("scroll the board grid horizontally to 60: %v", err)
+	}
+	leftAt60 := elementBoundingRect(t, ctx, ".board-grid__corner").Left
+	if err := chromedp.Run(ctx, chromedp.Evaluate(`document.querySelector('.results-board-scroll').scrollLeft = 130`, nil)); err != nil {
+		t.Fatalf("scroll the board grid horizontally to 130: %v", err)
+	}
+	leftAt130 := elementBoundingRect(t, ctx, ".board-grid__corner").Left
+	if leftAt60 != leftAt130 {
+		t.Errorf(".board-grid__corner left = %.1f at scrollLeft 60, %.1f at scrollLeft 130 — the sticky header must hold its position within its own known-good scroll range", leftAt60, leftAt130)
+	}
+
+	scrollWidth, innerWidth := documentOverflowPx(t, ctx)
+	if scrollWidth > innerWidth {
+		t.Errorf("document overflows horizontally on the results grid at 390px: scrollWidth=%d innerWidth=%d", scrollWidth, innerWidth)
+	}
 }
