@@ -49,8 +49,18 @@ func stripCSSComments(source string) string {
 	}
 }
 
+// touchFloorQuery is the mobile interaction baseline's own @media
+// condition (public/styles.css) — item 1 (wave 7b mobile-foundation audit
+// — larch) widened it from a bare "max-width: 38rem" to also match
+// pointer: coarse and hover: none, so a landscape phone (still a coarse
+// pointer at a width over 38rem, e.g. 844x390) keeps its 44px touch floor.
+// mobileRules (below) locates this exact block by this exact string, so
+// this constant is the one place a future edit to that condition also has
+// to update.
+const touchFloorQuery = "@media (pointer: coarse), (hover: none), (max-width: 38rem)"
+
 func mobileRules(css string) ([]mobileCSSRule, error) {
-	const breakpoint = "@media (max-width: 38rem)"
+	const breakpoint = touchFloorQuery
 	start := strings.LastIndex(css, breakpoint)
 	if start < 0 {
 		return nil, os.ErrNotExist
