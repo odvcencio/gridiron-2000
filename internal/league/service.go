@@ -5489,9 +5489,28 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	// for one with no house rank (a zero-Projection player, or one
 	// CurrentRoster's demand model never reaches — see houseRanks' doc
 	// comment).
+	//
+	// DST fallback (sumac comb re-audit item 6): applyHouseRanks only
+	// ranks a positive-Projection player (houserank.go), and a real
+	// week's Tank01 feed sometimes carries no weekly DST projection at
+	// all (a data-source gap, not a roster/format one — the VORP model
+	// itself is fine), leaving HouseRank at its zero default. Before
+	// this fallback, the /team row's house-rank chip simply skipped
+	// (HasHouseRank false, app/team/page.gsx's RosterRow), so the next
+	// visible text in the row — the missing-headshot avatar's own team
+	// code (.player-avatar, DST never carries a headshot) — sat where a
+	// manager expected a rank, reading as if the chip itself had
+	// fallen back to the team code. Market ADP still orders defenses
+	// even when the weekly VORP model has nothing to say, so a DST with
+	// no house rank falls back to its ADP rank in the identical
+	// "H%03d" shape — same column width, same chip, sourced from ADP
+	// only when VORP genuinely has no signal.
 	houseRank := ""
-	if player.HouseRank > 0 {
+	switch {
+	case player.HouseRank > 0:
 		houseRank = fmt.Sprintf("H%03d", player.HouseRank)
+	case player.Position == "DST" && player.ADPRank > 0:
+		houseRank = fmt.Sprintf("H%03d", player.ADPRank)
 	}
 	// detail is the pool/board row's own ONE-LINE summary — team, bye,
 	// injury only (wave 8 hotfix, item 1: "the news snippet is enlarging
