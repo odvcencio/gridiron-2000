@@ -74,6 +74,9 @@ func BoardRow(props BoardRowProps) Node {
 				</If>
 			</div>
 		</details>
+		{/* comb — oleander, item 10: same always-rendered slot as the inline
+		    available-pool row below — see that block's own doc comment. */}
+		<span class="pool-player-cell__info">
 		<If cond={props.Player.has_news}>
 			<details class="stat-tip stat-tip--news">
 				<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Player.name}>📰</summary>
@@ -85,6 +88,7 @@ func BoardRow(props BoardRowProps) Node {
 				</div>
 			</details>
 		</If>
+		</span>
 		</span>
 		<span class="position-chip">{props.Player.position}</span>
 		<b class="mono">{props.Player.projection}</b>
@@ -414,6 +418,23 @@ func Page() Node {
 									</If>
 								</div>
 							</details>
+							{/* comb — oleander, item 10: .pool-player-cell__info is
+							    now an ALWAYS-rendered 44px slot (the news
+							    <details> conditional moves inside it), the same
+							    fixed-info-slot shape /draft's own <td
+							    class="avail-row__info"> already uses — a table
+							    cell always reserves its own column whether or
+							    not it has content, but this flex row's OWN news
+							    trigger used to be the conditional flex ITEM
+							    itself: absent, .pool-player__text (the sibling
+							    identity stat-tip, flex: 1 1 auto) simply grew to
+							    fill the whole row alone, so a row with news and
+							    a row without measured different name-column
+							    widths — the audit's own 104.7px vs 120px+ finding
+							    on /board specifically. The slot's own fixed width
+							    (styles.css) now holds regardless of has_news, so
+							    every row's name column is the same width. */}
+							<span class="pool-player-cell__info">
 							<If cond={player.has_news}>
 								<details class="stat-tip stat-tip--news">
 									<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.name}>📰</summary>
@@ -425,6 +446,7 @@ func Page() Node {
 									</div>
 								</details>
 							</If>
+							</span>
 							</span>
 							<span class="position-chip">{player.position}</span>
 							<b class="mono">{player.projection}</b>

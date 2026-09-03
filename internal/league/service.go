@@ -4753,7 +4753,16 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 		}
 		claimed, _ := item["claimed"].(bool)
 		item["ready"] = state.Ready[team.ID]
-		item["on_clock"] = team.ID == onClockID
+		// comb — oleander, item 3: onClockID (draftData, above) is set
+		// from teamOnClock(..., nextNumber) whenever the draft is not yet
+		// complete, with no check for DraftStarted — nextNumber is always
+		// pick 1's own team before the first pick, so this field marked
+		// that seat "on_clock" pre-draft. DraftSeatControl (page.gsx)
+		// reads it straight into the commissioner drawer's "ON CLOCK"
+		// badge, which then painted before the commissioner ever opened
+		// the room. Requiring DraftStarted keeps every seat's badge
+		// truthful pre-draft.
+		item["on_clock"] = state.DraftStarted && team.ID == onClockID
 		presenceLabel, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, now)
 		item["presence"] = presenceLabel
 		item["presence_label"] = strings.ToUpper(strings.ReplaceAll(presenceLabel, "_", " "))
@@ -5509,6 +5518,19 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	if player.ByeWeek > 0 {
 		detail += fmt.Sprintf(" · BYE %d", player.ByeWeek)
 	}
+	// detailTeamBye (comb — oleander, item 8): team/bye only, no injury —
+	// /players' own phone-width row (app/players/page.gsx) uses this one
+	// instead of "detail" below for its single visible meta line. A real
+	// injury designation ("Questionable - Ankle") pushed "detail" past
+	// one line on real data (the harness's own short/empty Injury
+	// strings never showed this), re-growing the row past the compact
+	// card's own height budget even after the news headline's own
+	// removal (the "wave 8 hotfix" comment below). Injury itself is not
+	// dropped — has_injury/injury (below) already exist as an
+	// independent exposure of the same value; page.gsx now also renders
+	// it inside the primary stat-tip panel (unlike "news," reachable
+	// with no headline required), not only inline in the row.
+	detailTeamBye := detail
 	if player.Injury != "" {
 		detail += " · " + player.Injury
 	}
@@ -5540,6 +5562,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		// source of truth.
 		"injury": player.Injury, "has_injury": player.Injury != "",
 		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
+		"detail_team_bye": detailTeamBye,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,

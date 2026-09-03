@@ -727,8 +727,19 @@ func DraftRoom(props DraftRoomProps) Node {
 				</header>
 				<div class="draft-seat-controls" aria-label="Commissioner seat coverage">
 					<div class="draft-seat-controls__intro">
-						<strong>Presence is observational. AUTO is authority.</strong>
-						<p>HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
+						{/* comb — oleander, item 7: plain words for what used
+						    to read "Presence is observational. AUTO is
+						    authority" — the same three facts (presence never
+						    changes the clock on its own; the normal clock
+						    holds until two minutes of silence after a
+						    restart; AUTO is the one setting that actually
+						    changes anything, and it drafts from the seat's
+						    own Big Board), said the way a manager who has
+						    never read the engine's own internal vocabulary
+						    ("observational," "authority," "boot grace")
+						    would still understand on a first read. */}
+						<strong>Seat presence is informational; autopick runs from the seat's own setting.</strong>
+						<p>Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 					</div>
 					<Each of={props.Data.seat_controls} as="seat">
 						<DraftSeatControl {...seat}></DraftSeatControl>
@@ -1145,6 +1156,15 @@ type DraftMyTeamProps struct {
 
 type DraftAvailableHeadProps struct {
 	SearchPlaceholder string
+	// Query/Position/Sort (comb — oleander, item 1): the current pool
+	// state, so the no-JS search form below can resubmit it as a real GET
+	// (value on the input, hidden fields for pos/sort) and a reload never
+	// silently drops the position filter or sort a visitor already had
+	// active — the same q/pos-preservation rule draftPositionChips and
+	// draftSortHref (page.server.go) already hold for their own hrefs.
+	Query    string
+	Position string
+	Sort     string
 	// Positions/SortOptions: D7/D9 (spruce audit). Built server-side
 	// (page.server.go's draftPositionChips/draftSortOptions) as plain
 	// label/value/href/active maps — the same []map[string]any shape
@@ -1398,16 +1418,37 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 		    rehearsal-mode copy, service.go's own banner switch) still
 		    falls back to the old one-line shape for every OTHER reason a
 		    banner shows, since those carry no label/last-success pair of
-		    their own. */}
+		    their own.
+
+		    comb — oleander, item 4: the phone-width query below used to
+		    clamp this whole block to 2.6em (34px measured live) — not
+		    enough room for the label, the full detail sentence, AND the
+		    "LAST SUCCESS ·" line after it, so a 390px visitor saw the
+		    detail sentence cut off mid-word ("...while") with no LAST
+		    SUCCESS line at all. .draft-command__banner-row keeps the
+		    ellipsized summary line and the "Details" toggle on ONE row
+		    (matching the old rule's own single-line footprint almost
+		    exactly) when closed; everything else — the same detail
+		    sentence in full, plus LAST SUCCESS — sits behind that toggle,
+		    which a manager can open with no data lost. The outer element
+		    is a <div>, not a <p>, since <details> is not phrasing content
+		    a <p> can legally contain. */}
 		<If cond={props.Data.pool_status.has_notice}>
-			<p class="demo-message draft-command__banner">
-				<strong>{props.Data.pool_status.label}:</strong>
-				{props.Data.pool_status.detail}
-				<If cond={props.Data.pool_status.has_last_success}>
-					<br></br>
-					<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
-				</If>
-			</p>
+			<div class="demo-message draft-command__banner">
+				<div class="draft-command__banner-row">
+					<p class="draft-command__banner-line">
+						<strong>{props.Data.pool_status.label}:</strong>
+						{props.Data.pool_status.detail}
+					</p>
+					<details class="draft-command__banner-details">
+						<summary>Details</summary>
+						<p>{props.Data.pool_status.detail}</p>
+						<If cond={props.Data.pool_status.has_last_success}>
+							<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
+						</If>
+					</details>
+				</div>
+			</div>
 		</If>
 		<If cond={props.Data.pool_status.has_notice == false && props.Data.banner != ""}>
 			<p class="draft-command__banner mono" title={props.Data.banner}>{props.Data.banner}</p>
@@ -1520,7 +1561,10 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				</div>
 			</If>
 			<section class="draft-seat-controls" aria-label="Commissioner seat coverage">
-				<p class="draft-drawer__help">Presence is observational. AUTO is authority. HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
+				{/* comb — oleander, item 7: same plain-language rewrite as
+				    the "By Team" panel's own copy above — see that
+				    location's doc comment for the full rationale. */}
+				<p class="draft-drawer__help">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 				<Each of={props.Data.seat_controls} as="seat"><DraftSeatControl {...seat}></DraftSeatControl></Each>
 			</section>
 		</div>
@@ -1723,15 +1767,39 @@ func DraftPickBar(props DraftAvailableProps) Node {
 	</If>
 }
 
-// DraftAvailableHead is the available pane's fixed head: the client-side
-// search filter (data-gosx-filter targets the region's own id, so the
-// input itself sits outside the swapped subtree and survives every
-// refetch), the position chips that drive the region's own refetch
+// DraftAvailableHead is the available pane's fixed head: a real GET
+// search form, the position chips that drive the region's own refetch
 // signal, and (D9) the ADP/HOUSE sort toggle.
+//
+// comb — oleander, item 1: the search input used to sit bare, with no
+// surrounding <form> and no name attribute, so it did nothing at all
+// without JavaScript, and its data-gosx-filter (the client-side "hide
+// non-matching rows" pass) had no matching CSS for .avail-row — every
+// row it marked gosx-filter-row--hidden stayed painted (the shared rule
+// only ever covered .pool-row, /players' own row class; see this comb's
+// block at the end of styles.css for the .avail-row fix). Wrapping the
+// input in method="get" action="/draft", naming it "q", and carrying
+// pos/sort forward as hidden fields makes a plain Enter/submit reach the
+// server's own already-working ?q= filter (service.go's draftData,
+// playerMatchesQuery) with no JavaScript required at all — the exact
+// no-JS GET fallback /players' own search form already uses. The input
+// keeps data-gosx-filter for the fast, no-round-trip live narrowing a
+// JavaScript session still gets while typing; Enter (or the Search
+// button) still reaches the server for a canonical, shareable, and
+// no-JS-safe result either way.
 func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	return <div class="draft-available-head">
 		<h2 id="draft-available-title" class="visually-hidden">Available players</h2>
-		<input id="draft-search" type="search" class="draft-search" placeholder={props.SearchPlaceholder} data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
+		<form method="get" action="/draft" class="draft-search-form">
+			<input id="draft-search" type="search" class="draft-search" name="q" value={props.Query} placeholder={props.SearchPlaceholder} inputmode="search" enterkeyhint="search" autocomplete="off" data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
+			<If cond={props.Position != ""}>
+				<input type="hidden" name="pos" value={props.Position}></input>
+			</If>
+			<If cond={props.Sort != "" && props.Sort != "adp"}>
+				<input type="hidden" name="sort" value={props.Sort}></input>
+			</If>
+			<button class="filter-button" type="submit">Search</button>
+		</form>
 		<div class="draft-available-head__chips" role="group" aria-label="Filter the pool by position">
 			<Each of={props.Positions} as="chip">
 				<a href={chip.href} class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value={chip.value} aria-pressed={chip.active}>{chip.label}</a>
@@ -1750,6 +1818,29 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	</div>
 }
 
+// AvailRowRankProps/AvailRowRank (comb — oleander, item 5): the RK cell's
+// own rank markup, pulled into its own component so the RK column
+// (desktop/tablet) and the phone-width name-cell chip (styles.css hides
+// one and shows the other, complementary, at the same breakpoint — never
+// both at once) render the identical two ranks from one source, not two
+// copies that could drift. A literal space between the two ranks (not
+// the original's bare concatenation) is D9's own fix carried forward:
+// H### run directly against the market rank read as one seven-digit
+// number ("H001001") with no cue two separate ranks were even present.
+type AvailRowRankProps struct {
+	Sort         string
+	HasHouseRank bool
+	HouseRank    string
+	Rank         string
+}
+
+func AvailRowRank(props AvailRowRankProps) Node {
+	return <>
+		<If cond={props.Sort == "house" && props.HasHouseRank}>{props.HouseRank} <small class="house-rank">{props.Rank}</small></If>
+		<If cond={(props.Sort == "house" && props.HasHouseRank) == false}>{props.Rank}<If cond={props.HasHouseRank}> <small class="house-rank">{props.HouseRank}</small></If></If>
+	</>
+}
+
 // DraftAvailable is the available-players pane's swapped body: the pool
 // grid pre/live, or the pre-draft checklist and the post-draft callout in
 // place of it.
@@ -1758,7 +1849,17 @@ func DraftAvailable(props DraftAvailableProps) Node {
 		<table class="avail-table">
 			<thead>
 				<tr class="avail-row avail-row--head">
-					<th scope="col" class="idx"><abbr title="rank by draft market (average draft position)">RK</abbr></th>
+					{/* comb — oleander, item 5: the header used to describe
+					    ADP unconditionally even while the SORT toggle
+					    (DraftAvailableHead) had HOUSE active and every RK
+					    cell below led with H###, not market rank — a header
+					    that named the wrong sort. Two variants, gated the
+					    same way the RK cell itself already picks which rank
+					    leads (props.Data.pool_sort). */}
+					<th scope="col" class="idx">
+						<If cond={props.Data.pool_sort == "house"}><abbr title="house rank: this league's own superflex-aware value order (your scoring and roster rules)">RK</abbr></If>
+						<If cond={props.Data.pool_sort != "house"}><abbr title="rank by draft market (average draft position)">RK</abbr></If>
+					</th>
 					<th scope="col" class="idx">PLAYER</th>
 					<th scope="col" class="idx">POS</th>
 					<th scope="col" class="idx"><abbr title="projected points per game">PROJ</abbr></th>
@@ -1779,10 +1880,18 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							    no house rank at all (HasHouseRank false — a zero-
 							    Projection player, houserank.go) always shows the
 							    market rank alone, regardless of the active sort. */}
-							<If cond={props.Data.pool_sort == "house" && player.HasHouseRank}>{player.HouseRank}<small class="house-rank">{player.Rank}</small></If>
-							<If cond={(props.Data.pool_sort == "house" && player.HasHouseRank) == false}>{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></If>
+							<AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank>
 						</td>
-						<td class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></td>
+						<td class="avail-row__player">
+							{/* comb — oleander, item 5: .avail-row > :first-child
+							    (the RK cell above) goes display: none at phone
+							    width (styles.css), so this chip is the only
+							    surviving exposure of the active rank there —
+							    same AvailRowRank component, same two ranks, just
+							    inline before the name instead of its own column. */}
+							<span class="avail-row__rank-chip mono"><AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank></span>
+							<strong>{player.Name}</strong> <small>· {player.Detail}</small>
+						</td>
 						<td class={"pos pos-" + player.Position}>{player.Position}</td>
 						<td class="num">{player.Projection}</td>
 						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue}><td class="num" title={player.ValueLabel + " vs ADP: value if drafted at the next pick, versus average draft position"}>{player.ValueLabel}</td></If>
@@ -2685,7 +2794,7 @@ func Page() Node {
 				</If>
 			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
-				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
+				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
 					<div id="draft-available-list" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>

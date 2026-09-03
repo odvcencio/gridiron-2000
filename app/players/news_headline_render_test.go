@@ -81,12 +81,37 @@ func TestPlayersPoolFragmentNewsIconOpensItsOwnPanelFixtureProcess(t *testing.T)
 		t.Fatalf("newsworthy row missing its <summary>: %s", newsRow)
 	}
 	summary := newsRow[summaryStart:summaryEnd]
-	if !strings.Contains(summary, "<small>CIN &middot; BYE 5 &middot; Questionable</small>") &&
-		!strings.Contains(summary, "<small>CIN · BYE 5 · Questionable</small>") {
+	// comb — oleander, item 8: the summary's one visible meta line is now
+	// detail_team_bye (team + bye only) — a real injury designation
+	// pushed this line past one line's height on real data, re-growing
+	// the phone card past its own budget. Injury itself is not gone; the
+	// primary stat-tip panel check below confirms it still renders, one
+	// tap away, with no headline required.
+	if !strings.Contains(summary, "<small>CIN &middot; BYE 5</small>") &&
+		!strings.Contains(summary, "<small>CIN · BYE 5</small>") {
 		t.Fatalf("summary detail line missing or changed: %s", summary)
+	}
+	if strings.Contains(summary, "Questionable") {
+		t.Fatalf("summary must not carry the injury designation inline any more: %s", summary)
 	}
 	if strings.Contains(summary, newsHeadline) || strings.Contains(summary, html.EscapeString(newsHeadline)) {
 		t.Fatalf("summary carries the 250-character news headline, must stay one line: %s", summary)
+	}
+
+	// The primary (projection) stat-tip panel — not the news icon's own
+	// panel — carries the injury note now, reachable with no news
+	// headline required (unlike the old news-icon-only exposure).
+	primaryPanelStart := strings.Index(newsRow, `class="stat-tip__panel"`)
+	if primaryPanelStart < 0 {
+		t.Fatalf("newsworthy row missing its primary stat-tip__panel: %s", newsRow)
+	}
+	primaryPanelEnd := strings.Index(newsRow[primaryPanelStart:], "</details>")
+	if primaryPanelEnd < 0 {
+		t.Fatalf("could not find the end of the primary stat-tip panel: %s", newsRow)
+	}
+	primaryPanel := newsRow[primaryPanelStart : primaryPanelStart+primaryPanelEnd]
+	if !strings.Contains(primaryPanel, "Questionable") {
+		t.Fatalf("primary stat-tip panel missing the injury note: %s", primaryPanel)
 	}
 
 	newsDetailsStart := strings.Index(newsRow, "stat-tip--news")

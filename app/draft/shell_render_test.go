@@ -136,7 +136,7 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		`data-gosx-cue-toggle`, `data-gosx-cue-label-off="Sound off"`, // live on v0.53.10
 		`class="live-dot live-dot--bound" aria-hidden="true"`,
 	}
-	forbidden := []string{"draft-masthead", "THE FUTURE", "REHEARSAL MODE:", "Presence is observational. AUTO is authority.", `class="page draft-page"`, `id="draft-commissioner"`}
+	forbidden := []string{"draft-masthead", "THE FUTURE", "REHEARSAL MODE:", "Seat presence is informational; autopick runs from the seat's own setting.", `class="page draft-page"`, `id="draft-commissioner"`}
 	check := func(state, body string) {
 		t.Helper()
 		for _, want := range common {
@@ -240,7 +240,10 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 		t.Error("Teams view must not render the tape's own filter chips (item 9)")
 	}
 	drawer := renderDraftForUser(t, handler, shellCommissioner)
-	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "NOT SEEN may receive the short safety clock only after the two-minute boot grace"} {
+	// comb — oleander, item 7: "NOT SEEN may receive the short safety
+	// clock only after the two-minute boot grace" is now plain language
+	// — see page.gsx's own doc comment at the rewritten copy.
+	for _, want := range []string{`id="draft-commissioner"`, `data-gosx-disclosure-modal`, `role="dialog"`, `aria-modal="true"`, `data-gosx-disclosure-target="#draft-commissioner"`, `data-gosx-disclosure-close="#draft-commissioner"`, `data-gosx-disclosure-initial-focus`, `value="60"`, `value="90"`, `value="120"`, `value="180"`, `value="300"`, `max="600"`, "Draft is running", "FORCE CURRENT PICK", "draft-undo", "previous_pick_token", "Seats get two minutes after a restart before they count as unseen for the short backup clock."} {
 		if !strings.Contains(drawer, want) {
 			t.Errorf("commissioner drawer missing %q", want)
 		}
