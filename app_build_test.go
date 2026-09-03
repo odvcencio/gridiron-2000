@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -704,5 +705,54 @@ func TestCSRFFailureBackTargetSanitizesReferer(t *testing.T) {
 				t.Fatalf("back target = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestFantasyPositionFloorsFlagshipShapeIncludesPunter is the
+// draft-blocking punter-pool fix's own wiring test: fed the flagship
+// league's actual shape (gridiron-house, 8 teams — internal/league's
+// rosterPresets), fantasyPositionFloors must produce a "P" floor of 12
+// (8 teams x 1 punter slot + 4 headroom), reproducing the exact number
+// that closed the 2026-09-02 draft-blocking incident.
+func TestFantasyPositionFloorsFlagshipShapeIncludesPunter(t *testing.T) {
+	flagshipSlots := map[string]int{
+		"QB": 1, "RB": 2, "WR": 2, "TE": 1, "FLEX": 1,
+		"SUPERFLEX": 1, "K": 1, "P": 1, "DST": 1,
+	}
+	const flagshipTeams = 8
+
+	floors := fantasyPositionFloors(flagshipTeams, flagshipSlots)
+
+	if floors["P"] != 12 {
+		t.Fatalf("floors[P] = %d, want 12 (8 teams x 1 slot + 4 headroom)", floors["P"])
+	}
+	want := map[string]int{
+		"QB": 12, "RB": 20, "WR": 20, "TE": 12, "K": 12, "P": 12, "DST": 12,
+	}
+	if !reflect.DeepEqual(floors, want) {
+		t.Fatalf("fantasyPositionFloors(%d, flagshipSlots) = %+v, want %+v", flagshipTeams, floors, want)
+	}
+	if _, ok := floors["FLEX"]; ok {
+		t.Fatalf("floors must never include the virtual FLEX slot: %+v", floors)
+	}
+	if _, ok := floors["SUPERFLEX"]; ok {
+		t.Fatalf("floors must never include the virtual SUPERFLEX slot: %+v", floors)
+	}
+}
+
+// TestFantasyPositionFloorsZeroTeamsOrEmptySlotsReturnsNil covers the
+// not-yet-resolved case (a Config whose roster shape has not loaded, or a
+// zero team count): fantasyPositionFloors must return nil, not an empty
+// non-nil map, matching fantasy.Service.SetPositionFloors' own "nil means
+// no floor on any position" contract.
+func TestFantasyPositionFloorsZeroTeamsOrEmptySlotsReturnsNil(t *testing.T) {
+	if got := fantasyPositionFloors(0, map[string]int{"P": 1}); got != nil {
+		t.Fatalf("zero teams: fantasyPositionFloors = %+v, want nil", got)
+	}
+	if got := fantasyPositionFloors(8, nil); got != nil {
+		t.Fatalf("nil slots: fantasyPositionFloors = %+v, want nil", got)
+	}
+	if got := fantasyPositionFloors(8, map[string]int{}); got != nil {
+		t.Fatalf("empty slots: fantasyPositionFloors = %+v, want nil", got)
 	}
 }

@@ -198,7 +198,7 @@ func TestMergePoolMatchesNewsByName(t *testing.T) {
 	base := map[string]Player{"1": {ID: "1", Name: "Keon Coleman", Position: "WR", NFLTeam: "BUF"}}
 	adp := []adpEntry{{PlayerID: "1", ADP: 30}}
 	news := map[string]string{"Keon Coleman": "Keon Coleman: limited in practice"}
-	pool := mergePool(base, adp, nil, news, nil, 10, nil)
+	pool := mergePool(base, adp, nil, news, nil, 10, nil, nil)
 	if pool[0].News != "Keon Coleman: limited in practice" {
 		t.Errorf("news by name not applied: %+v", pool[0])
 	}
@@ -487,7 +487,7 @@ func TestMergePoolOrderingAndSynthesis(t *testing.T) {
 		"1": {Points: 18, Stats: map[string]float64{"passYds": 250}},
 	}
 	byes := map[string]int{"CIN": 10}
-	pool := mergePool(base, adp, projections, map[string]string{"1": "Big news"}, byes, 10, nil)
+	pool := mergePool(base, adp, projections, map[string]string{"1": "Big news"}, byes, 10, nil, nil)
 	if len(pool) != 5 {
 		t.Fatalf("pool size = %d", len(pool))
 	}
@@ -512,7 +512,7 @@ func TestMergePoolOrderingAndSynthesis(t *testing.T) {
 	if pool[1].Name != "Synth DST" || pool[1].Position != "DST" {
 		t.Errorf("synthesized entry wrong: %+v", pool[1])
 	}
-	capped := mergePool(base, adp, projections, nil, nil, 2, nil)
+	capped := mergePool(base, adp, projections, nil, nil, 2, nil, nil)
 	if len(capped) != 2 {
 		t.Errorf("pool cap ignored: %d", len(capped))
 	}
@@ -532,7 +532,7 @@ func TestMergePoolPuntersSortToTailWithNoCrash(t *testing.T) {
 		"8": {ID: "8", Name: "Able Punter", Position: "P", NFLTeam: "DAL"},
 	}
 	adp := []adpEntry{{PlayerID: "1", ADP: 1.5}}
-	pool := mergePool(base, adp, nil, nil, nil, 10, nil)
+	pool := mergePool(base, adp, nil, nil, nil, 10, nil, nil)
 	if len(pool) != 3 {
 		t.Fatalf("pool size = %d, want 3", len(pool))
 	}
@@ -584,7 +584,7 @@ func TestMergePoolRookieDraftCapitalTiebreak(t *testing.T) {
 	projections := map[string]projEntry{
 		"vet-projected": {Points: 0.4},
 	}
-	pool := mergePool(base, adp, projections, nil, nil, 10, nil)
+	pool := mergePool(base, adp, projections, nil, nil, 10, nil, nil)
 	rank := make(map[string]int, len(pool))
 	for i, player := range pool {
 		rank[player.ID] = i
@@ -625,7 +625,7 @@ func TestMergePoolRookieDraftCapitalTiebreak(t *testing.T) {
 		t.Fatalf("marshal first: %v", err)
 	}
 	for i := 0; i < 10; i++ {
-		next := mergePool(base, adp, projections, nil, nil, 10, nil)
+		next := mergePool(base, adp, projections, nil, nil, 10, nil, nil)
 		nextJSON, err := json.Marshal(next)
 		if err != nil {
 			t.Fatalf("run %d: marshal: %v", i, err)
@@ -660,14 +660,14 @@ func TestMergePoolRestOrderIsDeterministicAcrossCalls(t *testing.T) {
 		base[id] = Player{ID: id, Name: fmt.Sprintf("Bench Player %d", i%8), Position: "WR", NFLTeam: "FA"}
 	}
 
-	first := mergePool(base, nil, nil, nil, nil, 100, nil)
+	first := mergePool(base, nil, nil, nil, nil, 100, nil, nil)
 	firstJSON, err := json.Marshal(first)
 	if err != nil {
 		t.Fatalf("marshal first: %v", err)
 	}
 
 	for i := 0; i < 25; i++ {
-		next := mergePool(base, nil, nil, nil, nil, 100, nil)
+		next := mergePool(base, nil, nil, nil, nil, 100, nil, nil)
 		nextJSON, err := json.Marshal(next)
 		if err != nil {
 			t.Fatalf("run %d: marshal: %v", i, err)

@@ -528,6 +528,40 @@ func writeCSRFFailurePage(w http.ResponseWriter, r *http.Request, stylesheetHref
 		`</main></body></html>`)
 }
 
+// fantasyFloorPositions lists the REAL, draftable positions
+// fantasyPositionFloors may floor — every slotTable key
+// (internal/league/lineup.go) except the two virtual multi-eligible slots,
+// FLEX and SUPERFLEX: neither is a fantasy.Player.Position value any pool
+// entry ever carries, so flooring either would never match a candidate and
+// would just waste a lookup on every mergePool call.
+var fantasyFloorPositions = []string{"QB", "RB", "WR", "TE", "K", "DST", "P"}
+
+// fantasyPositionFloors derives fantasy.Service.SetPositionFloors' input
+// from the active league's own roster shape (draft-blocking fix: see
+// fantasy.mergePool's "floors" doc comment for the truncation bug this
+// closes). For every real position (fantasyFloorPositions) the roster
+// actually rosters at least one of, the floor is teams x that position's
+// slot count, plus a flat 4-player headroom so the wire/waiver surface
+// still has something to search beyond exactly what starting lineups need
+// — the flagship's 8 teams x 1 punter slot + 4 = 12, matching the
+// production incident's own fix. A position the roster carries zero slots
+// of (for example P on the "standard" preset) gets no floor at all: zero
+// teams or an empty/nil slots map returns nil, so a config that has not
+// resolved a roster shape yet behaves exactly as if floors were never
+// wired.
+func fantasyPositionFloors(teams int, slots map[string]int) map[string]int {
+	if teams <= 0 || len(slots) == 0 {
+		return nil
+	}
+	floors := make(map[string]int, len(fantasyFloorPositions))
+	for _, position := range fantasyFloorPositions {
+		if count := slots[position]; count > 0 {
+			floors[position] = teams*count + 4
+		}
+	}
+	return floors
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -565,6 +599,15 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// projections at all. SetPunterProjections also re-normalizes whatever
 	// pool NewService already loaded, so a cache boot is never rankless.
 	fantasyPool.SetPunterProjections(league.PunterProjection)
+	// Also wired before fantasyPool.Start, same order as
+	// SetPunterProjections above (draft-blocking fix: a deep enough Tank01
+	// ADP list can fill the whole pool limit from the ranked head alone —
+	// see fantasy.mergePool's "floors" doc comment — cutting every
+	// zero-ADP position, punters included, before the rest tier they
+	// actually live in is ever consulted). fantasyPositionFloors derives
+	// each real position's minimum kept count from the active league's
+	// own roster shape, now that league.Default() has resolved it.
+	fantasyPool.SetPositionFloors(fantasyPositionFloors(league.Default().TeamCount(), league.Default().Config().Roster.Slots))
 	// Also wired before fantasyPool.Start (GC-1 fix 1): the current NFL
 	// week, derived from the mirrored nflverse schedule (openStats is
 	// already constructed above). SyncNow reads this on every sync, so a
@@ -1115,6 +1158,19 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// since an uploaded avatar lives in the data dir, not public/. Both still
 	// pass through the session/CSRF/auth middleware registered above (app.Use
 	// wraps every mount, not just page routes).
+	// Self-heal a legacy-mode avatar object store (2026-08-28 incident: an
+	// object written by an older release, before writeAvatarBlob's own
+	// Chmod(0o444) existed, or a restored backup whose tar extraction
+	// reset every mode at once) before either avatar route is mounted —
+	// see RepairAvatarObjectModes' own doc comment. ReadAvatarObject also
+	// self-heals lazily, one ref at a time, on its own next read; running
+	// the same repair once here means a fresh boot never serves even one
+	// avoidable 404 while waiting for a request to trigger that lazy path.
+	if repaired, err := league.Default().RepairAvatarObjectModes(); err != nil {
+		log.Printf("avatar boot repair: %v", err)
+	} else if repaired > 0 {
+		log.Printf("avatar boot repair: restored %d object(s) to read-only", repaired)
+	}
 	app.Mount("POST /avatar/upload", avatarUploadHandler(league.Default()))
 	app.Mount("GET /avatars/", avatarServeHandler(league.Default()))
 
