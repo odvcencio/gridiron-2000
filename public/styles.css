@@ -12435,6 +12435,28 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   background: var(--color-canvas);
 }
 
+/* comb — oleander, item 6: the D13 comment above describes
+   .board-grid__code/.board-grid__fullname as DIRECT children of
+   .board-grid__team's own column flex — true when this was written, but
+   the current markup (page.gsx) wraps both inside one extra
+   .board-grid__name span first. .board-grid__code/.board-grid__fullname
+   are therefore grandchildren of the flex column, never blockified by
+   it, and .board-grid__name itself carried no layout rules of its own
+   (a plain shrink-to-fit inline span) — a real league's own longer team
+   names hard-clipped mid-character with NO ellipsis on 6 of 8 columns
+   (text-overflow: ellipsis is a no-op on a true inline box; see
+   .board-grid__fullname's own display: block, below, for the other
+   half of this fix). Giving .board-grid__name its own column flex
+   (matching its parent) restores the intended two-line stack and gives
+   .board-grid__fullname a definite, full-width containing block to
+   ellipsize against. */
+.board-grid__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+
 .board-grid__code {
   font-weight: 700;
 }
@@ -12450,8 +12472,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    that a real league's genuinely long, sometimes unbroken ("DeBÍ TiRAR
    MáS…" style) team name has a fallback if a single word alone still
    cannot fit: text-overflow: ellipsis needs overflow: hidden and
-   white-space: nowrap, both already true of a single flexible line here. */
+   white-space: nowrap, both already true of a single flexible line here.
+   comb — oleander, item 6: display: block is the missing piece —
+   text-overflow has no effect at all on a true inline box (the <span>
+   default this rule never overrode), which is why 6 of 8 team names
+   still hard-clipped mid-character with no "…" despite every other
+   property here already being correct. */
 .board-grid__fullname {
+  display: block;
   overflow: hidden;
   max-width: 100%;
   color: var(--color-text-secondary);
