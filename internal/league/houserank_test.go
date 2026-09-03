@@ -782,3 +782,50 @@ func TestPlayerMapHouseRankLabel(t *testing.T) {
 		t.Errorf("has_house_rank for HouseRank=0 = %v, want false", entry["has_house_rank"])
 	}
 }
+
+// TestPlayerMapHouseRankFallsBackToADPForUnrankedDST covers the sumac
+// comb re-audit item 6: applyHouseRanks only ranks a positive-Projection
+// player, and a real week's feed sometimes carries no weekly DST
+// projection at all, leaving HouseRank at 0 — before this fallback, the
+// /team row's house-rank chip simply skipped, and the next visible text
+// in the row (the missing-headshot avatar's own team code) sat where a
+// manager expected a rank. A DST with no house rank but a real market
+// ADP falls back to that ADP rank in the identical "H%03d" shape. A
+// non-DST position with no house rank must NOT get this fallback (an
+// unranked RB's own missing house rank is a real "no VORP signal for
+// this player" fact, not a DST-only data-source gap), and a DST with
+// neither a house rank nor an ADP genuinely has no signal at all.
+func TestPlayerMapHouseRankFallsBackToADPForUnrankedDST(t *testing.T) {
+	dstWithADP := Player{ID: "d1", Name: "Vikings D/ST", Position: "DST", HouseRank: 0, ADPRank: 105}
+	entry := playerMap(dstWithADP, nil, matchupIndex{})
+	if entry["house_rank"] != "H105" {
+		t.Errorf("house_rank for unranked DST with ADPRank=105 = %v, want H105", entry["house_rank"])
+	}
+	if entry["has_house_rank"] != true {
+		t.Errorf("has_house_rank for unranked DST with ADPRank=105 = %v, want true", entry["has_house_rank"])
+	}
+
+	dstNoSignal := Player{ID: "d2", Name: "No-Signal D/ST", Position: "DST", HouseRank: 0, ADPRank: 0}
+	entry = playerMap(dstNoSignal, nil, matchupIndex{})
+	if entry["house_rank"] != "" {
+		t.Errorf("house_rank for unranked DST with no ADP = %v, want empty", entry["house_rank"])
+	}
+	if entry["has_house_rank"] != false {
+		t.Errorf("has_house_rank for unranked DST with no ADP = %v, want false", entry["has_house_rank"])
+	}
+
+	rbNoFallback := Player{ID: "p3", Name: "Unranked RB", Position: "RB", HouseRank: 0, ADPRank: 42}
+	entry = playerMap(rbNoFallback, nil, matchupIndex{})
+	if entry["house_rank"] != "" {
+		t.Errorf("house_rank for unranked non-DST with ADPRank=42 = %v, want empty (no fallback outside DST)", entry["house_rank"])
+	}
+	if entry["has_house_rank"] != false {
+		t.Errorf("has_house_rank for unranked non-DST with ADPRank=42 = %v, want false", entry["has_house_rank"])
+	}
+
+	dstRanked := Player{ID: "d3", Name: "Ranked D/ST", Position: "DST", HouseRank: 7, ADPRank: 105}
+	entry = playerMap(dstRanked, nil, matchupIndex{})
+	if entry["house_rank"] != "H007" {
+		t.Errorf("house_rank for a real-ranked DST = %v, want H007 (HouseRank wins over the ADP fallback)", entry["house_rank"])
+	}
+}

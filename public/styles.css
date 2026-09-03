@@ -16412,3 +16412,129 @@ a.skip-link {
 .pool-row > .position-chip {
   min-height: 2.25rem;
 }
+
+/* comb — sumac */
+
+/* Item 1 (P1): #board-pool's header row (.pool-labels, app/board/
+   page.gsx) kept the base .pool-labels, .pool-row grid rule above
+   (public/styles.css) — 3rem minmax(14rem, 1fr) 3.5rem 4rem 5rem, a
+   472px fixed-track minimum — even though this panel's own data rows
+   (.board-page #board-pool .pool-row, public/styles.css, min-width
+   38.0625rem) have long since narrowed to 1.75rem minmax(10.5rem,1fr)
+   2.75rem 2.25rem 3.5rem with a tighter gap, to fit the panel's own
+   458px box. The header, never updated to match, kept claiming the
+   wider template's 472px and overflowed the document (scrollWidth
+   1461 at 1440, 1379 at 1280) while its RK/PLAYER/POS/PROJ/ACTION
+   labels sat well off their own row's columns. Matching the row's
+   exact template (same breakpoint the row itself uses) fits the
+   header inside the panel and realigns every label over its column;
+   .pool-labels is display: none below 54rem (public/styles.css,
+   above) so no narrower viewport needs a matching header rule. */
+@media (min-width: 38.0625rem) {
+  .board-page #board-pool .pool-labels {
+    grid-template-columns: 1.75rem minmax(10.5rem, 1fr) 2.75rem 2.25rem 3.5rem;
+    gap: var(--space-xs);
+  }
+}
+
+/* Item 3 (P2): /pickem's "Back to current week" link used to render as
+   .pickem-weeknav's own last child. At phone width that nav becomes a
+   horizontally snap-scrolling strip (flex-wrap: nowrap, overflow-x:
+   auto, public/styles.css above) — a fifth chip after Prev/select+Go/
+   Next pushed the link past the 390px viewport (x=328, width=157,
+   right edge 485) with no visual cue a manager needed to swipe
+   sideways to find it. app/pickem/page.gsx now renders it as
+   .pickem-weeknav's own sibling instead of its child, so it always
+   falls on its own row in normal block flow and stays fully inside
+   the viewport, independent of how the week strip itself scrolls. */
+.pickem-back-to-current {
+  min-height: 2.75rem;
+  margin-top: var(--space-xs);
+}
+
+/* Item 0 re-verify follow-up: flex: 1 1 0 (above, .my-matchup__team >
+   div, .matchup-team-line__manager) grows the manager name within
+   .matchup-team-line's own row, but that row's OWN total width is
+   dictated by .my-matchup__summary's three-column grid (minmax(0,1fr)
+   auto minmax(0,1fr)) — the middle "auto" score column sizes to its
+   own content, which can leave each side barely 100px wide against a
+   real production league's real meta text ("0-0 · proj —"), squeezing
+   the manager name back to a couple of characters even with flex-
+   grow (live-measured against the flag-review league's real data:
+   "Jorge V" rendered at an 18px box against a 49px scrollWidth —
+   still clipped). .matchup-team-line__meta stays flex: 0 0 auto (its
+   own fixed-format record/projection never shrinks), so letting the
+   row wrap drops the meta to its own second line whenever the row is
+   too narrow for both; the manager name is then alone on the first
+   line and can claim the row's full width up to its own natural size
+   before ellipsis ever needs to trim it. */
+.matchup-team-line {
+  flex-wrap: wrap;
+}
+
+/* flex-basis: 0 (clover, above) is what makes flex: 1 1 0 grow-to-fill
+   in the first place, but a 0 basis also reports a 0 "hypothetical
+   size" to the flex-wrap algorithm above — the browser sees "this item
+   can shrink to nothing," so the row never measures as overflowing and
+   flex-wrap: wrap never actually triggers, no matter how long the name
+   is (live-confirmed: .matchup-team-line measured flexWrap: wrap but
+   stayed a single 21.7px-tall line, never dropping .matchup-team-line__
+   meta to a second line). Restoring a content-based basis here — grow
+   and shrink stay 1 from clover's own rule, only the basis changes —
+   gives the wrap algorithm the manager name's real natural width to
+   measure against, so a name that cannot fit beside the meta text
+   correctly forces the meta onto its own second line instead of both
+   staying jammed onto one and splitting an inadequate row three ways. */
+.matchup-team-line__manager {
+  flex-basis: auto;
+}
+
+/* Item 4 (P3): /team's own .team-command-strip (PROJECTED, STARTERS,
+   ROSTER, DIVISION, LEAGUE, plus VIEW MATCHUP — Item 7a's own
+   horizontal-scroll strip, above) is plain in-flow content, not fixed,
+   so — unlike the toast-stack fix (public/styles.css, "Item 1 (wave-7
+   audit — yew)") — .site-frame's own bottom padding-bottom reserve
+   (which correctly adds .page-action-bar's 3.5rem on top of the tab
+   bar's own height, see the "Grows .site-frame's own bottom reserve"
+   rule above) cannot move it: that reserve only stops content at the
+   true END of the document from being clipped by the fixed bars, and
+   this strip sits near the top of the page, in the normal document
+   flow, not at the document's end. .team-hero's own height varies with
+   real content (a real league's own team name/manager line runs taller
+   than a short sim fixture's — live-measured 499.9px vs 529.3px for
+   two real rosters), so the strip's landing position is not a fixed
+   number either; a first pass here used a flat translateY guess tuned
+   to one fixture and still overlapped the bar on a taller real hero
+   (measured: strip bottom 741.1 against bar top 728). This version
+   instead reclaims real, predictable layout space three ways — every
+   figure re-measured against the real flag-review league, not a sim
+   fixture: .team-hero's own bottom padding drops to 0 (reclaims
+   --space-lg); .team-command-strip's own margin-top drops to 0 and its
+   padding tightens from --space-sm to --space-xs (the ≤38rem rule
+   above already trims it to --space-sm; this trims it further only
+   once the action bar is also present); and its label/value text
+   tightens to a 1.1 line-height, shrinking the row's own content
+   height instead of relying on spacing alone. Together they clear the
+   strip of the action bar with real margin on the taller real-league
+   hero (measured live: strip bottom 723.7, bar top 728, 4.3px to
+   spare) while the shorter sim fixture keeps its own wider margin
+   (strip bottom 703.5, bar top 728, 24.5px to spare) — both real
+   layout changes, not a visual-only transform, so nothing below the
+   strip silently keeps reserving space for a taller box that no
+   longer exists. */
+@media (max-width: 899px) {
+  body:has(.page-action-bar) .team-page .team-hero {
+    padding-bottom: 0;
+  }
+
+  body:has(.page-action-bar) .team-page .team-command-strip {
+    margin-top: 0;
+    padding-top: var(--space-xs);
+    padding-bottom: var(--space-xs);
+  }
+
+  body:has(.page-action-bar) .team-page .team-command-strip span,
+  body:has(.page-action-bar) .team-page .team-command-strip strong {
+    line-height: 1.1;
+  }
+}

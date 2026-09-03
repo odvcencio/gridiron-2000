@@ -348,10 +348,10 @@ func PickemLiveRegion() Node {
 					<If cond={data.has_next_week}>
 						<a href={data.next_week_href} data-gosx-link class="board-button" rel="next">Next →</a>
 					</If>
-					<If cond={data.is_current_week == false}>
-						<a href={data.current_week_href} data-gosx-link class="access-link">Back to current week</a>
-					</If>
 				</div>
+				<If cond={data.is_current_week == false}>
+					<a href={data.current_week_href} data-gosx-link class="access-link pickem-back-to-current">Back to current week</a>
+				</If>
 			</If>
 			<If cond={data.games_empty}>
 				<If cond={data.has_weeks}>

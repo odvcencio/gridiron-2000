@@ -243,6 +243,8 @@ type FeaturedMatchupData struct {
 	StateClass       string
 	WinProb          string
 	WinProbWidth     string
+	WinProbAriaLabel string
+	WinProbAriaValue float64
 	StillToPlay      int
 	StillToPlayTotal int
 	NextLineupHref   string
@@ -273,6 +275,8 @@ func featuredMatchupData(raw map[string]any) FeaturedMatchupData {
 		StateClass:       matchupStateClass(stringField(raw, "live_state")),
 		WinProb:          stringField(raw, "win_prob"),
 		WinProbWidth:     stringField(raw, "win_prob_width"),
+		WinProbAriaLabel: league.WinProbabilityAriaLabel(stringField(raw, "win_prob")),
+		WinProbAriaValue: league.WinProbabilityAriaValue(stringField(raw, "win_prob_width")),
 		StillToPlay:      intField(raw, "still_to_play"),
 		StillToPlayTotal: intField(raw, "still_to_play_total"),
 		NextLineupHref:   stringField(raw, "next_lineup_href"),

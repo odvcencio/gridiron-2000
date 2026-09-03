@@ -100,7 +100,7 @@ func StarterCell(props StarterCellData) Node {
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
 					<span class="starter-cell__name-short">{props.PlayerNameShort}</span>
 				</strong>
-				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span> · <span class="starter-cell__state-text" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
+				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
 				<p class="matchup-ledger__hint">Configured starters only. Bench, reserve, and IR are excluded.</p>
@@ -144,7 +144,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 					<span class="muted">–</span>
 					<b class="score score--large mono" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
 				</div>
-				<div class="bar"><i style={"width: " + props.WinProbWidth}></i></div>
+				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
 				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span> of <span data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span> starters still to play</small>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
 			</div>
