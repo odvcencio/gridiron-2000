@@ -41,3 +41,83 @@ func TestVetoPolicyCardLinksWrapAsARowWithGap(t *testing.T) {
 		t.Error("trades-veto-links is missing or no longer wraps its links in a row with a gap")
 	}
 }
+
+// TestVetoPolicyCardShowsOneMergedSentence covers wave-8 audit item 7:
+// the card used to print a separate "Veto policy" label beside the bare
+// config token ("commissioner"); it now reads league.tradeVetoPolicyLabel's
+// one merged sentence ("Veto policy: commissioner review").
+func TestVetoPolicyCardShowsOneMergedSentence(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	if !strings.Contains(markup, `<strong class="mono">{data.veto_policy_label}</strong>`) {
+		t.Fatal("veto policy card is missing the merged veto_policy_label binding")
+	}
+	if strings.Contains(markup, `<span>Veto policy</span>`) {
+		t.Fatal("veto policy card still carries the separate \"Veto policy\" label beside the raw veto_mode value")
+	}
+}
+
+// TestTradeComposerOptionMeetsTouchFloor covers wave-8 audit item 9: the
+// composer's roster checkboxes measured a bare 13×13 (the unstyled
+// browser default) inside a 28px label row. Every label.trade-composer__
+// option row is now a real 44px touch target with an explicit 24px
+// checkbox — checked here in page.gsx (all four give/get rosters, the
+// initial composer and the counter-offer form both use the identical
+// label shape) and in public/styles.css (the sizing rule itself).
+func TestTradeComposerOptionMeetsTouchFloor(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	if got := strings.Count(markup, `<label class="trade-composer__option">`); got < 4 {
+		t.Fatalf("trade-composer__option labels = %d, want at least 4 (give/get, composer and counter-offer)", got)
+	}
+	css, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		".trade-composer__option {\n  min-height: 2.75rem;\n}",
+		".trade-composer__option input[type=\"checkbox\"] {\n  width: 1.5rem;\n  height: 1.5rem;",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("styles.css missing %q", want)
+		}
+	}
+}
+
+// TestTradeSectionsRenumberAroundHiddenSections covers wave-8 audit item
+// 11: COMMISSIONER REVIEW and LEAGUE VOTE bind their section-index chip
+// to a computed field (league.tradeSectionIndexLabels) instead of the
+// hardcoded "05"/"06" text, so HISTORY's own chip does the same rather
+// than staying pinned at the literal "07" it used to skip to.
+func TestTradeSectionsRenumberAroundHiddenSections(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	for _, want := range []string{
+		`<span class="section-index">{data.section_review_index + " // COMMISSIONER REVIEW"}</span>`,
+		`<span class="section-index">{data.section_vote_index + " // LEAGUE VOTE"}</span>`,
+		`<span class="section-index">{data.section_history_index + " // HISTORY"}</span>`,
+	} {
+		if !strings.Contains(markup, want) {
+			t.Errorf("trade section header missing %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		`<span class="section-index">05 // COMMISSIONER REVIEW</span>`,
+		`<span class="section-index">06 // LEAGUE VOTE</span>`,
+		`<span class="section-index">07 // HISTORY</span>`,
+	} {
+		if strings.Contains(markup, forbidden) {
+			t.Errorf("trade section header still carries the hardcoded index %q", forbidden)
+		}
+	}
+}

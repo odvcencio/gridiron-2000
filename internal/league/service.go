@@ -2507,6 +2507,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"lineup_intervention":           lineupTarget.Intervention,
 		"lineup_target_id":              lineupTarget.TeamID,
 		"team":                          teamMap,
+		// has_team_streak (wave-8 audit item 6) guards the hero record
+		// line's own "· {streak}" segment: team.Streak reads the em-dash
+		// placeholder "—" (defaultTeams', computeStreak's own "no results
+		// yet" case) before any week has closed, and printing "· —" right
+		// after the points-scored figure read as a dangling separator with
+		// nothing behind it, not the honest "no streak yet" the plain dash
+		// means everywhere else in this app. Computed here, not inside the
+		// shared teamMap (every other teamMap caller — standings, matchup
+		// cards — has no equivalent "· {streak}" segment to guard).
+		"has_team_streak": strings.TrimSpace(team.Streak) != "" && team.Streak != "—",
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !lineupTarget.Intervention && !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
@@ -2873,7 +2883,9 @@ func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo
 		row["has_kickoff_label"] = kickoffLabel != ""
 		byeLabel := ""
 		if player.ByeWeek > 0 {
-			byeLabel = fmt.Sprintf("BYE %d", player.ByeWeek)
+			// "bye wk N" (wave-8 audit item 6), matching starterRowMaps'
+			// own bye_label wording — see that function's doc comment.
+			byeLabel = fmt.Sprintf("bye wk %d", player.ByeWeek)
 		}
 		row["bye_label"] = byeLabel
 		row["has_bye_label"] = byeLabel != ""
@@ -3483,6 +3495,19 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	starterJoinState := make(map[string]string)
 	starterDetail := make(map[string]string)
 	starterSource := make(map[string]string)
+	// starterProvenanceText/starterJoinStateText/starterSourceText carry
+	// ledgerLineupText/ledgerStatsText/ledgerSourceText's humanized words
+	// (wave-8 audit item 3) for the page's own disclosure line, kept
+	// separate from starterProvenance/starterJoinState/starterSource
+	// themselves: those three stay the RAW StarterLedgerRow tokens (e.g.
+	// StatSourceLive, "live"), the join-provenance contract external
+	// callers (sim_live_test.go's replay scenarios, matching
+	// league.StatSourceLive verbatim) and any future caller need — the
+	// same separation of raw fact from rendered prose ledgerPlayerDetail's
+	// own Detail field already keeps for the tip's long-form sentence.
+	starterProvenanceText := make(map[string]string)
+	starterJoinStateText := make(map[string]string)
+	starterSourceText := make(map[string]string)
 	starterGameStateBind := make(map[string]string)
 	starterPossessionBind := make(map[string]string)
 	matchupStatus := make(map[string]string, len(live.Matchups))
@@ -3519,6 +3544,14 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		starterJoinState[row.LiveKey] = row.JoinState
 		starterDetail[row.LiveKey] = row.Detail
 		starterSource[row.LiveKey] = row.Source
+		// ledgerLineupText/ledgerStatsText/ledgerSourceText (matchup_ledger.go)
+		// turn the raw Provenance/JoinState/Source tokens into the labelled
+		// words the ledger disclosure shows, each with its own leading
+		// separator or empty string, so a live poll re-sends the exact same
+		// already-formatted text a full render would (wave-8 audit item 3).
+		starterProvenanceText[row.LiveKey] = ledgerLineupText(row.Provenance)
+		starterJoinStateText[row.LiveKey] = ledgerStatsText(row.JoinState)
+		starterSourceText[row.LiveKey] = ledgerSourceText(row.Source)
 		starterGameStateBind[row.LiveKey] = row.GameState
 		starterPossessionBind[row.LiveKey] = row.Possession
 	}
@@ -3541,10 +3574,15 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
 		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, pool.byID), liveStatusValue, hasLive)
 		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
-		projected[matchup.Away.ID] = projectedText(awayProjected, matchup.Away.ScoreKnown)
-		projected[matchup.Home.ID] = projectedText(homeProjected, matchup.Home.ScoreKnown)
-		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, matchup.Home.ScoreKnown, matchup.Away.ScoreKnown)
-		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, matchup.Away.ScoreKnown, matchup.Home.ScoreKnown)
+		// hasProjectableStarters, not ScoreKnown: a pre-kickoff lineup still
+		// has a real projection to show, even while the current score cell
+		// itself reads "—" (wave-8 audit item 2).
+		awayHasProjection := hasProjectableStarters(matchup.Away.StarterLedger)
+		homeHasProjection := hasProjectableStarters(matchup.Home.StarterLedger)
+		projected[matchup.Away.ID] = projectedText(awayProjected, awayHasProjection)
+		projected[matchup.Home.ID] = projectedText(homeProjected, homeHasProjection)
+		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
+		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, awayHasProjection, homeHasProjection)
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlay(combined, liveStatusValue))
 		stillToPlayTotalBind[matchup.ID] = strconv.Itoa(len(combined))
@@ -3557,49 +3595,52 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
 	liveStatus := s.liveStatusText(live, presentation)
 	return map[string]any{
-		"ok":                live.OK,
-		"source":            live.Source,
-		"sourceLabel":       live.SourceLabel,
-		"week":              live.Week,
-		"weekLabel":         s.presentedWeekLabel(live),
-		"state":             live.State,
-		"status":            live.Status,
-		"warning":           live.Warning,
-		"liveState":         live.LiveState,
-		"sourceLine":        live.SourceLine,
-		"slateLine":         live.SlateLine,
-		"gamesFinal":        live.GamesFinal,
-		"scores":            scores,
-		"matchupStatus":     matchupStatus,
-		"matchupClock":      matchupClock,
-		"matchupIndicator":  matchupIndicator,
-		"matchupLiveState":  matchupLiveStateBind,
-		"projected":         projected,
-		"winProb":           winProb,
-		"stillToPlay":       stillToPlayBind,
-		"stillToPlayTotal":  stillToPlayTotalBind,
-		"starterPoints":     starterPoints,
-		"starterPlayerName": starterPlayerName,
-		"starterPosition":   starterPosition,
-		"starterNFLTeam":    starterNFLTeam,
-		"starterProvenance": starterProvenance,
-		"starterJoinState":  starterJoinState,
-		"starterDetail":     starterDetail,
-		"starterSource":     starterSource,
-		"starterGameState":  starterGameStateBind,
-		"starterPossession": starterPossessionBind,
-		"liveStatus":        liveStatus,
-		"liveUpdated":       checked,
-		"lastUpdated":       statsUpdated,
-		"checkedAt":         checked,
-		"statsUpdatedAt":    statsUpdated,
-		"liveStatsUpdated":  statsUpdated,
-		"liveIndicator":     liveIndicatorToken(live.State),
-		"headlineTop":       presentation["headline_top"],
-		"headlineBottom":    presentation["headline_bottom"],
-		"refreshLabel":      presentation["refresh_label"],
-		"noteTitle":         presentation["note_title"],
-		"noteBody":          presentation["note_body"],
+		"ok":                    live.OK,
+		"source":                live.Source,
+		"sourceLabel":           live.SourceLabel,
+		"week":                  live.Week,
+		"weekLabel":             s.presentedWeekLabel(live),
+		"state":                 live.State,
+		"status":                live.Status,
+		"warning":               live.Warning,
+		"liveState":             live.LiveState,
+		"sourceLine":            live.SourceLine,
+		"slateLine":             live.SlateLine,
+		"gamesFinal":            live.GamesFinal,
+		"scores":                scores,
+		"matchupStatus":         matchupStatus,
+		"matchupClock":          matchupClock,
+		"matchupIndicator":      matchupIndicator,
+		"matchupLiveState":      matchupLiveStateBind,
+		"projected":             projected,
+		"winProb":               winProb,
+		"stillToPlay":           stillToPlayBind,
+		"stillToPlayTotal":      stillToPlayTotalBind,
+		"starterPoints":         starterPoints,
+		"starterPlayerName":     starterPlayerName,
+		"starterPosition":       starterPosition,
+		"starterNFLTeam":        starterNFLTeam,
+		"starterProvenance":     starterProvenance,
+		"starterJoinState":      starterJoinState,
+		"starterDetail":         starterDetail,
+		"starterSource":         starterSource,
+		"starterProvenanceText": starterProvenanceText,
+		"starterJoinStateText":  starterJoinStateText,
+		"starterSourceText":     starterSourceText,
+		"starterGameState":      starterGameStateBind,
+		"starterPossession":     starterPossessionBind,
+		"liveStatus":            liveStatus,
+		"liveUpdated":           checked,
+		"lastUpdated":           statsUpdated,
+		"checkedAt":             checked,
+		"statsUpdatedAt":        statsUpdated,
+		"liveStatsUpdated":      statsUpdated,
+		"liveIndicator":         liveIndicatorToken(live.State),
+		"headlineTop":           presentation["headline_top"],
+		"headlineBottom":        presentation["headline_bottom"],
+		"refreshLabel":          presentation["refresh_label"],
+		"noteTitle":             presentation["note_title"],
+		"noteBody":              presentation["note_body"],
 	}
 }
 
@@ -4887,14 +4928,25 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	}
 }
 
+// liveStatusText composes the freshness clause's bound "liveStatus"
+// sentence: the sync label plus a plain word on the weekly ledger's own
+// freshness. It deliberately does NOT name the Checked clock — the
+// freshness clause (page.gsx's matchup-status-line__freshness) already
+// carries that as its own separate "checkedAt" bind, right beside this
+// one; before wave-8 audit item 4, this function's own "· Checked ..."
+// clause repeated that same clock a second time in one rendered sentence.
 func (s *Service) liveStatusText(live LiveSnapshot, presentation map[string]string) string {
-	checkedAt := live.CheckedAt
-	if checkedAt.IsZero() {
-		checkedAt = live.LastUpdated
-	}
-	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
-	status := presentation["sync_label"] + " · Checked " + checked + " · Ledger " + statsUpdated
+	ledgerClause := "Ledger " + statsUpdated
+	if statsUpdated == "Unavailable" && (live.State == MatchupStateScheduled || live.State == MatchupStatePreseason) {
+		// Before this week's (or the season's) first kickoff, the ledger has
+		// never had anything to post — "Ledger Unavailable" read as an
+		// outage sitting right beside the status line's own "Weekly ledger
+		// (nflverse)" source clause, not as the ordinary "nothing yet"
+		// wave-8 audit item 4 means.
+		ledgerClause = "Weekly ledger opens after the first game"
+	}
+	status := presentation["sync_label"] + " · " + ledgerClause
 	if live.Warning != "" {
 		status += " · BACKUP SCORES"
 	}
@@ -5013,6 +5065,15 @@ func (s *Service) matchupMaps(state PersistedState, matchups []ScoreMatchup) []m
 	return out
 }
 
+// starterLedgerMaps' provenance/join_state/source fields stay the RAW
+// StarterLedgerRow tokens (a caller matching join provenance verbatim,
+// e.g. league.StatSourceLive, needs the exact token, not prose that is
+// free to reword); provenance_text/join_state_text/source_text carry the
+// already-labelled, plain-word ledgerLineupText/ledgerStatsText/
+// ledgerSourceText segments (wave-8 audit item 3) instead, each with its
+// own leading separator or "" — the page (StarterCell,
+// app/matchups/page.gsx) concatenates all three *_text fields with no
+// separator of its own.
 func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
@@ -5020,7 +5081,8 @@ func starterLedgerMaps(rows []StarterLedgerRow) []map[string]any {
 			"live_key": row.LiveKey, "slot": row.Slot, "player_id": row.PlayerID,
 			"player_name": row.PlayerName, "position": row.Position, "nfl_team": row.NFLTeam,
 			"points": row.PointsText, "provenance": row.Provenance, "join_state": row.JoinState,
-			"detail": row.Detail, "source": row.Source, "game_state": row.GameState,
+			"provenance_text": ledgerLineupText(row.Provenance), "join_state_text": ledgerStatsText(row.JoinState),
+			"detail": row.Detail, "source": row.Source, "source_text": ledgerSourceText(row.Source), "game_state": row.GameState,
 			"possession": row.Possession,
 		})
 	}
@@ -5079,8 +5141,10 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			m := live.Matchups[i]
 			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, pool.byID), status, hasLive)
 			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, pool.byID), status, hasLive)
-			entry["projected_away"] = projectedText(awayProjected, m.Away.ScoreKnown)
-			entry["projected_home"] = projectedText(homeProjected, m.Home.ScoreKnown)
+			// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2):
+			// see the LiveScoresView call site above.
+			entry["projected_away"] = projectedText(awayProjected, hasProjectableStarters(m.Away.StarterLedger))
+			entry["projected_home"] = projectedText(homeProjected, hasProjectableStarters(m.Home.StarterLedger))
 			combined := append(append([]StarterLedgerRow{}, m.Away.StarterLedger...), m.Home.StarterLedger...)
 			// still_to_play/still_to_play_total are the bare count and the
 			// total, both plain ints: the page composes "N of M starters
@@ -5130,7 +5194,9 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	}
 	mineProjected := projectedTotal(mine.StarterLedger, starterProjections(mine.StarterLedger, byID), status, hasLive)
 	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
-	winProbText := winProbabilityText(mineProjected, theirsProjected, mine.ScoreKnown, theirs.ScoreKnown)
+	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
+	// LiveScoresView call site above.
+	winProbText := winProbabilityText(mineProjected, theirsProjected, hasProjectableStarters(mine.StarterLedger), hasProjectableStarters(theirs.StarterLedger))
 	// win_prob_width is a literal CSS width set once at render (not
 	// live-bound, page.gsx's comment beside the bar), so it can never hold
 	// the "—" placeholder winProbText renders for an unknown side; "0%"
@@ -5198,7 +5264,9 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
 		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
-		"score": matchupScoreText(side), "projected": projectedText(projected, side.ScoreKnown),
+		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
+		// the LiveScoresView call site above.
+		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjectableStarters(side.StarterLedger)),
 		"tone": team.Tone, "abbreviation": side.Abbreviation,
 		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
 	}

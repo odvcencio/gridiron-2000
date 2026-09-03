@@ -273,6 +273,28 @@ func TestMatchupsMastheadCanShrinkBesideNavigationRail(t *testing.T) {
 	}
 }
 
+// TestFeaturedMatchupManagerNameGrowsIntoAvailableWidth covers wave-8
+// audit item 8: the featured card hard-truncated a real manager name to
+// 2-3 letters ("Os…", "Ant…" for "Oscar Villavicencio") beside genuinely
+// empty gutter space, because .matchup-team-line__manager and its own
+// parent (.my-matchup__team > div) set the shrink half of "minmax(0,1fr)"
+// (min-width: 0, overflow: hidden, text-overflow: ellipsis) but never
+// the grow half, so neither one ever claimed slack width the row's own
+// grid track (.my-matchup__summary's minmax(0,1fr) side columns) already
+// made available. flex: 1 1 0 (minmax(0,1fr)'s flex equivalent) on both
+// completes the pattern; the fixed-width record/projection meta
+// (.matchup-team-line__meta) is untouched.
+func TestFeaturedMatchupManagerNameGrowsIntoAvailableWidth(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(styles)
+	if !strings.Contains(style, ".my-matchup__team > div,\n.matchup-team-line__manager {\n  flex: 1 1 0;\n}") {
+		t.Fatal("styles.css missing the manager name's grow-to-fill rule (.my-matchup__team > div, .matchup-team-line__manager)")
+	}
+}
+
 func TestMatchupsPageFixtureProcess(t *testing.T) {
 	fixture := os.Getenv("MATCHUPS_RENDER_FIXTURE")
 	if fixture == "" {
@@ -433,12 +455,12 @@ func TestMatchupsPageLedgerDisclosureAndFreshnessLabelsAreNative(t *testing.T) {
 		"data-gosx-live-bind={\"starterPlayerName.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterPosition.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterNFLTeam.\" + props.LiveKey}",
-		"data-gosx-live-bind={\"starterProvenance.\" + props.LiveKey}",
-		"data-gosx-live-bind={\"starterJoinState.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterProvenanceText.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterJoinStateText.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterDetail.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterGameState.\" + props.LiveKey}",
 		"data-gosx-live-bind={\"starterPossession.\" + props.LiveKey}",
-		"data-gosx-live-bind={\"starterSource.\" + props.LiveKey}",
+		"data-gosx-live-bind={\"starterSourceText.\" + props.LiveKey}",
 		"data-gosx-live-bind=\"sourceLine\"",
 		"data-gosx-live-bind=\"statsUpdatedAt\"",
 		"Configured starters only. Bench, reserve, and IR are excluded.",

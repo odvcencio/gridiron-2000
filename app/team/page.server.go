@@ -59,6 +59,12 @@ type RosterCard struct {
 	DraftedLabel    string
 	HasGroupHeader  bool
 	GroupHeader     string
+	HasNews         bool
+	News            string
+	HasInjury       bool
+	Injury          string
+	HasHouseRank    bool
+	HouseRank       string
 }
 
 // BadgeCard is the typed data.badge_grid entry spread into strict
@@ -173,6 +179,17 @@ func rosterRowProps(raw []map[string]any) []RosterCard {
 			DraftedLabel:    stringField(player, "drafted_label"),
 			HasGroupHeader:  boolField(player, "has_group_header"),
 			GroupHeader:     stringField(player, "group_header"),
+			// HasNews/News/HasInjury/Injury/HasHouseRank/HouseRank (wave-8
+			// audit item 5) read playerMap's own news/injury/house_rank
+			// fields, already present on every benchRows entry
+			// (playerMapsWithScoring) but never converted through to
+			// RosterCard until now.
+			HasNews:      boolField(player, "has_news"),
+			News:         stringField(player, "news"),
+			HasInjury:    boolField(player, "has_injury"),
+			Injury:       stringField(player, "injury"),
+			HasHouseRank: boolField(player, "has_house_rank"),
+			HouseRank:    stringField(player, "house_rank"),
 		})
 	}
 	return out

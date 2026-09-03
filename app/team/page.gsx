@@ -47,6 +47,18 @@ type RosterRowProps struct {
 	// other row. See league.addBenchGroupHeaders.
 	HasGroupHeader bool
 	GroupHeader    string
+	// HasNews/News/HasInjury/Injury/HasHouseRank/HouseRank (wave-8 audit
+	// item 5) are playerMap's own news/injury/house-rank fields, already
+	// carried by benchRows (playerMapsWithScoring) but never rendered on
+	// this page before: /players and /board showed a 📰 news tip and an
+	// "H###" house rank chip for the same player /team showed neither
+	// for.
+	HasNews      bool
+	News         string
+	HasInjury    bool
+	Injury       string
+	HasHouseRank bool
+	HouseRank    string
 }
 
 // BadgeCellProps is one cell of the team-badge picker grid: a free
@@ -108,7 +120,13 @@ component RosterRow(props: RosterRowProps) {
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
 		</If>
-		<div class="position-chip">{props.Position}</div>
+		<div class="position-chip">
+			{props.Position}
+			<If cond={props.HasHouseRank}>
+				<small class="house-rank">{props.HouseRank}</small>
+			</If>
+		</div>
+		<span class="pool-player-cell">
 		<details class="player-identity stat-tip">
 			<summary class="stat-tip__summary">
 			<If cond={props.HasHeadshot}>
@@ -122,17 +140,6 @@ component RosterRow(props: RosterRowProps) {
 				<If cond={props.HasDraftedLabel}>
 					<span class="drafted-chip mono">{props.DraftedLabel}</span>
 				</If>
-				<small>
-					{props.NFLTeam}
-					<If cond={props.HasOpponent}>
-						·
-						{props.Opponent}
-						<If cond={props.HasMatchup}>
-							·
-							<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
-						</If>
-					</If>
-				</small>
 				<small class="roster-row__schedule mono">
 					{props.NFLTeam}
 					<If cond={props.HasOpponent}>
@@ -142,6 +149,10 @@ component RosterRow(props: RosterRowProps) {
 					<If cond={props.HasKickoff}>
 						·
 						{props.Kickoff}
+					</If>
+					<If cond={props.HasMatchup}>
+						·
+						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
 					</If>
 					<If cond={props.HasBye}>
 						·
@@ -183,6 +194,18 @@ component RosterRow(props: RosterRowProps) {
 				</If>
 			</div>
 		</details>
+		<If cond={props.HasNews}>
+			<details class="stat-tip stat-tip--news">
+				<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>
+				<div class="stat-tip__panel">
+					<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>
+					<If cond={props.HasInjury}>
+						<p class="stat-tip__hist-note">{props.Injury}</p>
+					</If>
+				</div>
+			</details>
+		</If>
+		</span>
 		<div class="game-state">
 			<span class="signal-mark" aria-hidden="true"></span>
 			{props.Status}
@@ -300,8 +323,11 @@ func Page() Node {
 				<strong class="mono">{data.team.record}</strong>
 				<small>
 					{data.team.points_for}
-					points scored ·
-					{data.team.streak}
+					points scored
+					<If cond={data.has_team_streak}>
+						·
+						{data.team.streak}
+					</If>
 					</small>
 				</div>
 			</section>
@@ -506,10 +532,10 @@ func TeamLineupRegion() Node {
 					<span>League</span>
 					<strong class="mono">{data.league_mode}</strong>
 				</div>
-				<If cond={data.lineup_intervention == false}>
-				<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
-				</If>
 			</div>
+			<If cond={data.lineup_intervention == false}>
+			<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>
+			</If>
 			<If cond={data.predraft_visible && data.lineup_intervention == false}>
 				<section class="predraft-progress" aria-labelledby="predraft-progress-title">
 					<header class="predraft-progress__header">
@@ -710,8 +736,14 @@ func TeamLineupRegion() Node {
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">
 								<div class="lineup-slot">
-									<div class="lineup-slot__id mono">{slot.slot_id}</div>
+									<div class="lineup-slot__id mono">
+										{slot.slot_id}
+										<If cond={slot.has_house_rank}>
+											<small class="house-rank">{slot.house_rank}</small>
+										</If>
+									</div>
 									<If cond={slot.has_player}>
+									<span class="pool-player-cell">
 										<details class="player-identity stat-tip">
 											<summary class="stat-tip__summary">
 											<If cond={slot.has_headshot}>
@@ -725,20 +757,9 @@ func TeamLineupRegion() Node {
 												<If cond={slot.is_drafted}>
 													<span class="drafted-chip mono">{slot.drafted_label}</span>
 												</If>
-												<small>
+												<small class="roster-row__schedule mono">
 													{slot.position}
 													·
-													{slot.nfl_team}
-													<If cond={slot.has_opponent}>
-														·
-														{slot.opponent}
-														<If cond={slot.has_matchup}>
-															·
-															<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
-														</If>
-													</If>
-												</small>
-												<small class="roster-row__schedule mono">
 													{slot.nfl_team}
 													<If cond={slot.has_opponent}>
 														·
@@ -747,6 +768,10 @@ func TeamLineupRegion() Node {
 													<If cond={slot.has_kickoff_label}>
 														·
 														{slot.kickoff_label}
+													</If>
+													<If cond={slot.has_matchup}>
+														·
+														<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
 													</If>
 													<If cond={slot.has_bye_label}>
 														·
@@ -784,6 +809,18 @@ func TeamLineupRegion() Node {
 												</If>
 											</div>
 										</details>
+										<If cond={slot.has_news}>
+											<details class="stat-tip stat-tip--news">
+												<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>
+												<div class="stat-tip__panel">
+													<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>
+													<If cond={slot.has_injury}>
+														<p class="stat-tip__hist-note">{slot.injury}</p>
+													</If>
+												</div>
+											</details>
+										</If>
+									</span>
 									</If>
 									<If cond={slot.has_player == false}>
 										<If cond={data.team_terminal_roster_complete}>

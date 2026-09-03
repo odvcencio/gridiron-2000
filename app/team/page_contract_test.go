@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -559,7 +560,7 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 		"position": "RB", "name": "Bench Back", "nfl_team": "SF",
 		"has_group_header": true, "group_header": "RB",
 		"has_kickoff_label": true, "kickoff_label": "SUN 4:25 PM",
-		"has_bye_label": true, "bye_label": "BYE 9",
+		"has_bye_label": true, "bye_label": "bye wk 9",
 		"is_drafted": true, "drafted_label": "R6 · P70",
 	}}
 	cards := rosterRowProps(raw)
@@ -573,11 +574,38 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 	if !card.HasKickoff || card.Kickoff != "SUN 4:25 PM" {
 		t.Errorf("card kickoff = %v/%q, want true/\"SUN 4:25 PM\"", card.HasKickoff, card.Kickoff)
 	}
-	if !card.HasBye || card.Bye != "BYE 9" {
-		t.Errorf("card bye = %v/%q, want true/\"BYE 9\"", card.HasBye, card.Bye)
+	if !card.HasBye || card.Bye != "bye wk 9" {
+		t.Errorf("card bye = %v/%q, want true/\"bye wk 9\"", card.HasBye, card.Bye)
 	}
 	if !card.HasDraftedLabel || card.DraftedLabel != "R6 · P70" {
 		t.Errorf("card drafted label = %v/%q, want true/\"R6 · P70\"", card.HasDraftedLabel, card.DraftedLabel)
+	}
+}
+
+// TestRosterRowPropsCarriesNewsAndHouseRank covers wave-8 audit item 5:
+// playerMap's news/injury/house_rank fields, already present on every
+// benchRows entry, must reach RosterCard so the strict {...player}
+// spread can actually render them.
+func TestRosterRowPropsCarriesNewsAndHouseRank(t *testing.T) {
+	raw := []map[string]any{{
+		"position": "WR", "name": "News Player", "nfl_team": "MIN",
+		"has_news": true, "news": "Ruled out for Sunday.",
+		"has_injury": true, "injury": "Ankle",
+		"has_house_rank": true, "house_rank": "H007",
+	}}
+	cards := rosterRowProps(raw)
+	if len(cards) != 1 {
+		t.Fatalf("rosterRowProps returned %d cards, want 1", len(cards))
+	}
+	card := cards[0]
+	if !card.HasNews || card.News != "Ruled out for Sunday." {
+		t.Errorf("card news = %v/%q, want true/\"Ruled out for Sunday.\"", card.HasNews, card.News)
+	}
+	if !card.HasInjury || card.Injury != "Ankle" {
+		t.Errorf("card injury = %v/%q, want true/\"Ankle\"", card.HasInjury, card.Injury)
+	}
+	if !card.HasHouseRank || card.HouseRank != "H007" {
+		t.Errorf("card house rank = %v/%q, want true/\"H007\"", card.HasHouseRank, card.HouseRank)
 	}
 }
 
@@ -620,6 +648,44 @@ func TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine(t *testing.T) {
 	}
 }
 
+// TestBenchRowRendersNewsTipAndHouseRankChip covers wave-8 audit item 5:
+// a bench row must carry the same 📰 news tip and "H###" house rank chip
+// /players and /board already show for the identical player, sourced
+// from playerMap's own has_news/news/has_house_rank/house_rank fields.
+func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	rowStart := strings.Index(page, "component RosterRow(props: RosterRowProps) {")
+	if rowStart < 0 {
+		t.Fatal("RosterRow component not found")
+	}
+	rowEnd := strings.Index(page[rowStart:], "\ncomponent ")
+	if rowEnd < 0 {
+		rowEnd = strings.Index(page[rowStart:], "\nfunc ")
+	}
+	if rowEnd < 0 {
+		t.Fatal("RosterRow component has no following declaration to bound the search")
+	}
+	block := page[rowStart : rowStart+rowEnd]
+	for _, want := range []string{
+		`<If cond={props.HasHouseRank}>`,
+		`<small class="house-rank">{props.HouseRank}</small>`,
+		`<If cond={props.HasNews}>`,
+		`<details class="stat-tip stat-tip--news">`,
+		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>`,
+		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>`,
+		`<If cond={props.HasInjury}>`,
+		`<p class="stat-tip__hist-note">{props.Injury}</p>`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("RosterRow component missing %q", want)
+		}
+	}
+}
+
 // TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine covers
 // the same three items on a starting slot (TeamLineupRegion), the
 // separate render site from RosterRow: the position chip (item 8's
@@ -653,6 +719,84 @@ func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) 
 	lockAt := strings.Index(page, `<If cond={slot.locked}>`)
 	if scheduleAt < 0 || lockAt < 0 || scheduleAt > lockAt {
 		t.Fatal("the schedule line must render before the lock-gated chip block, not nested inside it")
+	}
+}
+
+// TestStarterSlotRendersNewsTipAndHouseRankChip covers wave-8 audit item
+// 5: a starting slot must carry the same 📰 news tip and "H###" house
+// rank chip /players and /board already show for the identical player
+// (starterRowMaps merges playerMap's full output onto every starter
+// row, but page.gsx never rendered these two fields before).
+func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<If cond={slot.has_house_rank}>`,
+		`<small class="house-rank">{slot.house_rank}</small>`,
+		`<If cond={slot.has_news}>`,
+		`<details class="stat-tip stat-tip--news">`,
+		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>`,
+		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>`,
+		`<If cond={slot.has_injury}>`,
+		`<p class="stat-tip__hist-note">{slot.injury}</p>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("starter slot render missing %q", want)
+		}
+	}
+}
+
+// TestRosterRowsRenderOneMergedScheduleLine covers wave-8 audit item 6:
+// a starter and a bench row used to each print TWO overlapping meta
+// lines — an unclassed <small> repeating position/team/opponent/matchup,
+// then .roster-row__schedule repeating team/opponent/kickoff/bye — for
+// example "QB · BAL · @ IND · 18th-toughest" immediately followed by
+// "BAL · @ IND · SUN 1:00 PM · BYE 13". Both render sites now print
+// exactly one .roster-row__schedule line apiece, with no second,
+// unclassed duplicate line.
+func TestRosterRowsRenderOneMergedScheduleLine(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if got := strings.Count(page, `<small class="roster-row__schedule mono">`); got != 2 {
+		t.Fatalf("roster-row__schedule lines = %d, want exactly 2 (one starter, one bench)", got)
+	}
+	// The old duplicate line was a bare, unclassed <small> that opened
+	// with the position and team ("{slot.position} · {slot.nfl_team}" /
+	// "{props.NFLTeam}" with no schedule/kickoff/bye fields at all,
+	// immediately followed by the classed schedule line) — that
+	// second, redundant <small> must be gone from both render sites.
+	bareDuplicate := regexp.MustCompile(`<small>\s*\{(slot\.position|props\.NFLTeam)\}`)
+	if loc := bareDuplicate.FindString(page); loc != "" {
+		t.Errorf("roster row still carries the old duplicate meta line: %q", loc)
+	}
+}
+
+// TestTeamHeroRecordGuardsStreakSeparator covers wave-8 audit item 6: the
+// hero record line's "· {streak}" segment must be gated on
+// has_team_streak, not print unconditionally — team.Streak reads the
+// unresolved "—" placeholder for the entire pre-season, and an
+// unconditional separator there printed a dangling "0.0 points scored ·
+// —" with nothing meaningful after the separator.
+func TestTeamHeroRecordGuardsStreakSeparator(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<If cond={data.has_team_streak}>`) {
+		t.Fatal(`hero record line missing <If cond={data.has_team_streak}>`)
+	}
+	pointsAt := strings.Index(page, "points scored")
+	guardAt := strings.Index(page, `<If cond={data.has_team_streak}>`)
+	streakAt := strings.Index(page, "{data.team.streak}")
+	if pointsAt < 0 || guardAt < 0 || streakAt < 0 || !(pointsAt < guardAt && guardAt < streakAt) {
+		t.Fatalf("hero record line order = points:%d guard:%d streak:%d, want points scored, then the streak guard, then the streak value", pointsAt, guardAt, streakAt)
 	}
 }
 
@@ -762,6 +906,16 @@ func TestLineupSlotIdentityColumnWidenedAtDesktopWidth(t *testing.T) {
 // that calls it — see mobile_touch_contract_test.go and
 // lineup_slot_set_button_touch_target_contract_test.go, both of which
 // this would otherwise break silently.
+//
+// Wave 8: every worker now appends its own "/* comb — NAME */" block at
+// the end of this file (this file's own bottom carries clover's), which
+// would otherwise keep tripping this exact-text check every time a later
+// block needed the ordinary phone breakpoint for something unrelated.
+// The house fix (not a local exception here) is CSS media range syntax
+// — "@media (width <= 38rem)" — everywhere after this marker instead of
+// "@media (max-width: 38rem)"; every comb block, including clover's own
+// at the bottom of this file, uses the range form for exactly this
+// reason.
 func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing.T) {
 	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
@@ -838,6 +992,44 @@ func TestTeamCommandStripScrollCueAndTouchFloor(t *testing.T) {
 		if !strings.Contains(block, want) {
 			t.Errorf("899px .team-command-strip block missing %q: %s", want, block)
 		}
+	}
+}
+
+// TestTeamCommandStripActionRendersOutsideTheScrollingStrip covers the
+// "VIEW MATCHUP off-screen" fix (fern's CSS half is pinned by that
+// package's own TestTeamCommandStripActionCSSReadyForClover): the strip
+// scroll-snaps horizontally on narrow viewports (the test above), and a
+// VIEW MATCHUP link living INSIDE that scroller was one more snap tile a
+// manager had to scroll sideways to find — easy to miss entirely.
+// TeamCommandStrip's own closing </div> now closes right after the
+// League tile, and the link renders as team-command-strip__action, a
+// sibling of the strip (fern's CSS already ships a full-width block
+// rule for that class), not a descendant of it.
+func TestTeamCommandStripActionRendersOutsideTheScrollingStrip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	wantAnchor := `<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>`
+	if !strings.Contains(page, wantAnchor) {
+		t.Fatalf("VIEW MATCHUP anchor missing or missing team-command-strip__action: want %q", wantAnchor)
+	}
+	stripStart := strings.Index(page, `<div class="team-command-strip">`)
+	if stripStart < 0 {
+		t.Fatal(".team-command-strip not found")
+	}
+	stripEnd := strings.Index(page[stripStart:], "\n\t\t\t</div>\n")
+	if stripEnd < 0 {
+		t.Fatal(".team-command-strip has no closing </div> at the expected indent")
+	}
+	stripBlock := page[stripStart : stripStart+stripEnd]
+	if strings.Contains(stripBlock, "team-command-strip__action") {
+		t.Fatalf(".team-command-strip still contains the VIEW MATCHUP action as a descendant: %s", stripBlock)
+	}
+	anchorAt := strings.Index(page, wantAnchor)
+	if anchorAt < stripStart+stripEnd {
+		t.Fatal("VIEW MATCHUP anchor renders before .team-command-strip closes, want it after")
 	}
 }
 

@@ -94,8 +94,16 @@ type StarterCellData struct {
 	JoinState       string
 	Detail          string
 	Source          string
-	GameState       string
-	StateClass      string
+	// ProvenanceText/JoinStateText/SourceText (wave-8 audit item 3) are
+	// ledgerLineupText/ledgerStatsText/ledgerSourceText's already-labelled,
+	// plain-word segments (service.go's starterLedgerMaps) — what the
+	// page actually renders. Provenance/JoinState/Source above stay the
+	// raw StarterLedgerRow tokens for a caller that wants those instead.
+	ProvenanceText string
+	JoinStateText  string
+	SourceText     string
+	GameState      string
+	StateClass     string
 	// Possession is GC-2b's possession chip text ("ON OFFENSE", "DEFENSE
 	// ON FIELD", or "" — league.StarterLedgerRow.Possession's own doc
 	// comment). Rendered only when non-empty (public/styles.css's
@@ -129,6 +137,9 @@ func starterCellData(raw any, right bool) StarterCellData {
 		JoinState:       stringField(row, "join_state"),
 		Detail:          stringField(row, "detail"),
 		Source:          stringField(row, "source"),
+		ProvenanceText:  stringField(row, "provenance_text"),
+		JoinStateText:   stringField(row, "join_state_text"),
+		SourceText:      stringField(row, "source_text"),
 		GameState:       stringField(row, "game_state"),
 		StateClass:      starterStateClass(stringField(row, "game_state")),
 		Possession:      stringField(row, "possession"),

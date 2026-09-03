@@ -37,6 +37,87 @@ func TestTradeVetoThreshold(t *testing.T) {
 	}
 }
 
+// TestTradeVetoPolicyLabelCoversEveryConfigValue covers wave-8 audit item
+// 7: the composer panel used to print the bare config token itself
+// ("commissioner") beside a separate "Veto policy" label; every one of
+// validateTrades' four legal values now reads as one plain sentence.
+func TestTradeVetoPolicyLabelCoversEveryConfigValue(t *testing.T) {
+	cases := map[string]string{
+		"commissioner": "Veto policy: commissioner review",
+		"vote":         "Veto policy: league vote",
+		"both":         "Veto policy: commissioner review or league vote",
+		"none":         "Veto policy: none",
+	}
+	for veto, want := range cases {
+		if got := tradeVetoPolicyLabel(veto); got != want {
+			t.Errorf("tradeVetoPolicyLabel(%q) = %q, want %q", veto, got, want)
+		}
+	}
+}
+
+// TestTradesDataCarriesVetoPolicyLabel covers wave-8 audit item 7 at the
+// TradesData boundary: veto_policy_label reads the league's configured
+// veto mode through tradeVetoPolicyLabel.
+func TestTradesDataCarriesVetoPolicyLabel(t *testing.T) {
+	service := newTestService(t, true)
+	service.cfg.Trades.Veto = "vote"
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	if data["veto_policy_label"] != "Veto policy: league vote" {
+		t.Fatalf("veto_policy_label = %v, want %q", data["veto_policy_label"], "Veto policy: league vote")
+	}
+}
+
+// TestTradeSectionIndexLabelsSkipHiddenSections covers wave-8 audit item
+// 11: COMMISSIONER REVIEW and LEAGUE VOTE each render only for some
+// viewers (the section's own <If> guard in page.gsx), so HISTORY (and
+// LEAGUE VOTE, when COMMISSIONER REVIEW is the one hidden) must take
+// whichever number is actually next, never skip a number the way the
+// page's old hardcoded "01, 02, 03, 04, 07" did for a manager who was
+// neither a commissioner nor party to an open vote.
+func TestTradeSectionIndexLabelsSkipHiddenSections(t *testing.T) {
+	cases := []struct {
+		name                          string
+		reviewVisible, voteVisible    bool
+		wantReview, wantVote, wantHis string
+	}{
+		{"both visible", true, true, "05", "06", "07"},
+		{"only review visible", true, false, "05", "", "06"},
+		{"only vote visible", false, true, "", "05", "06"},
+		{"neither visible", false, false, "", "", "05"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			review, vote, history := tradeSectionIndexLabels(c.reviewVisible, c.voteVisible)
+			if review != c.wantReview || vote != c.wantVote || history != c.wantHis {
+				t.Fatalf("tradeSectionIndexLabels(%v, %v) = (%q, %q, %q), want (%q, %q, %q)",
+					c.reviewVisible, c.voteVisible, review, vote, history, c.wantReview, c.wantVote, c.wantHis)
+			}
+		})
+	}
+}
+
+// TestTradesDataCarriesSectionIndexes covers wave-8 audit item 11 at the
+// TradesData boundary: a non-commissioner viewer with no open vote
+// (this league's default veto mode, "commissioner") sees neither
+// COMMISSIONER REVIEW nor LEAGUE VOTE, so HISTORY reads "05".
+func TestTradesDataCarriesSectionIndexes(t *testing.T) {
+	// demoMode makes every viewer a commissioner (Service.IsCommissioner);
+	// this fixture needs a genuine non-commissioner viewer, so it uses a
+	// non-demo service (matching TestTradesDataRequiresSeatAndOnlyListsManagedPartners's
+	// own seatless/managed fixtures above).
+	service := newTestService(t, false)
+	if _, _, err := service.store.AssignMember("one@example.com", "One"); err != nil {
+		t.Fatal(err)
+	}
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	if data["section_review_index"] != "" || data["section_vote_index"] != "" || data["section_history_index"] != "05" {
+		t.Fatalf("section indexes = review:%v vote:%v history:%v, want \"\"/\"\"/\"05\"",
+			data["section_review_index"], data["section_vote_index"], data["section_history_index"])
+	}
+}
+
 func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	seatless := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)
@@ -72,6 +153,33 @@ func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	staleData := service.TradesData(staleRequest)
 	if staleData["compose_active"] != false || staleData["compose_counterparty_id"] != "" {
 		t.Fatalf("unmanaged counterparty rendered as active: id=%v active=%v", staleData["compose_counterparty_id"], staleData["compose_active"])
+	}
+}
+
+// TestTradesDataCounterpartiesUseRenamedTeam guards item 1 of the wave-8
+// audit: the counterparty chip list must show a manager's own custom team
+// name (state.TeamNames' override, the same one teamView applies), never
+// the raw config default the chip used to leak.
+func TestTradesDataCounterpartiesUseRenamedTeam(t *testing.T) {
+	service := newTestService(t, true)
+	if _, _, err := service.store.AssignMember("one@example.com", "One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("two@example.com", "Two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetTeamName("team-2", "Los Delfines del Norte"); err != nil {
+		t.Fatal(err)
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	partners, ok := data["counterparties"].([]TradeCounterparty)
+	if !ok || len(partners) != 1 {
+		t.Fatalf("counterparties = %#v, want exactly one partner", data["counterparties"])
+	}
+	if partners[0].Name != "Los Delfines del Norte" {
+		t.Fatalf("counterparty chip name = %q, want the renamed team's custom name", partners[0].Name)
 	}
 }
 
@@ -455,6 +563,24 @@ func TestValidateTradeAssetsExactMessages(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestValidateTradeAssetsUsesRenamedTeamInMessages guards item 1 of the
+// wave-8 audit: a T5/T7 validation error must interpolate a renamed team's
+// custom name, not the raw config default the fixture's other cases use.
+func TestValidateTradeAssetsUsesRenamedTeamInMessages(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	state := tradeAssetsFixtureState()
+	state.TeamNames = map[string]string{"team-1": "Los Delfines del Norte"}
+	pool := tradeAssetsFixturePool()
+	games := tradeAssetsFixtureGames(now)
+	offer := TradeOffer{FromTeamID: "team-1", ToTeamID: "team-2", Give: []string{"t2-a"}, Get: []string{"t2-b"}}
+
+	err := validateTradeAssets(state, DefaultConfig(), games, pool, now, offer, 1, 3)
+	want := "Team2 A is not on Los Delfines del Norte's roster"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
 	}
 }
 

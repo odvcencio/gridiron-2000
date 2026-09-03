@@ -98,6 +98,7 @@ func honestlyEmptyTradesFixture(items []map[string]any) map[string]any {
 		"viewer":                    map[string]any{"team_id": ""},
 		"league":                    map[string]any{"attention": map[string]any{"urgent_count": len(items), "items": items, "has_items": len(items) > 0}},
 		"veto_mode":                 "commissioner",
+		"veto_policy_label":         "Veto policy: commissioner review",
 		"can_edit":                  false,
 		"public_entry":              map[string]any{"state_label": "", "detail": "", "action_label": "", "action_href": "/join", "can_claim": false, "is_commissioner": false, "commissioner_href": "", "commissioner_label": ""},
 		"can_compose":               false,
@@ -125,6 +126,14 @@ func honestlyEmptyTradesFixture(items []map[string]any) map[string]any {
 		"vote_panel":                emptyOffers,
 		"history_empty":             true,
 		"history":                   emptyOffers,
+		// section_review_index/section_vote_index/section_history_index
+		// (wave-8 audit item 11): neither COMMISSIONER REVIEW (is_commissioner
+		// false) nor LEAGUE VOTE (vote_panel_empty true) renders for this
+		// fixture's viewer, so HISTORY takes the very next number after
+		// PENDING REVIEW's "04".
+		"section_review_index":  "",
+		"section_vote_index":    "",
+		"section_history_index": "05",
 	}
 	data["empty_inbox_message"] = emptyInboxMessage(tradesAttentionCount(data))
 	return data
