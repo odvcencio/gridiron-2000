@@ -110,6 +110,17 @@ type Service struct {
 	poolMu     sync.Mutex
 	poolSource PlayerSource
 	poolCache  playerPool
+	// poolFrozenLoggedVersion/poolFrozenLoggedSet de-duplicate the pool()
+	// freeze log line (rules-audit item 1): a started, incomplete draft
+	// can see hundreds of pool() calls before the next resync, and every
+	// one of them rejects the same pending source version, so without
+	// this pair the freeze would log once per request instead of once
+	// per rejected version. poolFrozenLoggedSet distinguishes "never
+	// logged yet" from "logged version 0", since 0 is itself a valid
+	// PlayerSource version (see buildPool's demo-mode callers). Guarded
+	// by poolMu, like poolCache.
+	poolFrozenLoggedVersion int64
+	poolFrozenLoggedSet     bool
 	// liveNameIndex is ResolveLivePlayer's normalized-name lookup, built
 	// lazily and rebuilt only when liveNameVersion no longer matches
 	// poolCache.version — see ResolveLivePlayer.
@@ -1334,6 +1345,38 @@ func (s *Service) pool() playerPool {
 		return s.poolCache
 	}
 	players, version, label := s.poolSource()
+
+	// Pool freeze (rules-audit item 1, HIGH). buildPool reruns whenever the
+	// source reports a new version/label, and FANTASY_SYNC_INTERVAL fires
+	// that resync on a plain wall-clock timer with no awareness of a live
+	// draft: a 120s-clock, 136-pick draft runs roughly 4.5 hours, so
+	// several ordinary resyncs land mid-draft. A rebuild mid-draft moves
+	// the ADP cut a stale board's undrafted rows were read against,
+	// reorders byHouse under autopick's live walk, and — the sharpest
+	// edge — can drop a player the old source carried but the new one
+	// does not, which used to orphan that player everywhere his ID was
+	// already committed (a pick, a roster slot) with no warning. So: once
+	// a draft has opened and has not yet finished, and this Service
+	// already has a real pool to serve (byID != nil and not the
+	// fail-closed unavailable state — an outage must still surface, not
+	// get masked by a frozen stale cache), pool() keeps returning that
+	// exact cache no matter what the source reports, and only looks at
+	// the source's version/label again once the draft completes. The
+	// rejected version/label are never queued; the next post-draft
+	// pool() call reads the source fresh, same as any other rebuild.
+	if s.poolCache.byID != nil && !s.poolCache.unavailable {
+		state := s.store.Snapshot()
+		if state.DraftStarted && !draftComplete(state) {
+			if s.poolCache.version != version || s.poolCache.label != label {
+				if !s.poolFrozenLoggedSet || s.poolFrozenLoggedVersion != version {
+					log.Printf("player pool: frozen during the draft: ignoring source version %d (%s); keeping cached version %d (%s) until the draft completes", version, label, s.poolCache.version, s.poolCache.label)
+					s.poolFrozenLoggedVersion = version
+					s.poolFrozenLoggedSet = true
+				}
+			}
+			return s.poolCache
+		}
+	}
 	if len(players) == 0 {
 		// DEMO_MODE is the only intentional embedded-pool path. Once a
 		// production source has been attached, an empty result is an
@@ -1467,6 +1510,20 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 	for _, player := range annotated {
 		byID[player.ID] = player
 	}
+	// Carry forward every drafted or rostered player ID the new source
+	// dropped (rules-audit item 1's second half — independent of the
+	// pool() freeze above, and not limited to a draft in progress: a
+	// live source is free to shrink or reorder its list on any resync,
+	// but an ID this league has already committed to a pick or a roster
+	// spot must stay resolvable forever). Without this, rosterForTeam's
+	// `continue` (service.go) on a missing ID silently shrinks that
+	// team's roster below its real pick count, and
+	// teamDraftedPlayers/positionScarcityBlocksCandidate undercount the
+	// same team's needs. byID only — annotated/byADP/byHouse (the board
+	// and autopick walk order) intentionally do not get these players
+	// back: a carried-forward player is already spoken for, never an
+	// "available" candidate again.
+	s.carryForwardReferencedPlayers(byID)
 	byADP := make([]Player, len(annotated))
 	copy(byADP, annotated)
 	sort.SliceStable(byADP, func(i, j int) bool {
@@ -1481,6 +1538,39 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 	})
 	byHouse := houseOrderedIndex(annotated)
 	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP, byHouse: byHouse}
+}
+
+// carryForwardReferencedPlayers fills byID with the last-known fields for
+// every draft-pick and current-roster player ID that this rebuild's own
+// source list and embedded fixtures did not already resolve. It reads
+// s.poolCache — the pool this rebuild is about to replace — as the
+// "last-known" source, which is always still the previous cache here:
+// buildPool runs from inside pool() before pool() overwrites poolCache
+// with this call's own result (see pool()), and every other buildPool
+// caller (tests aside) goes through pool() the same way. A first-ever
+// build (s.poolCache.byID nil) carries nothing forward, which is correct:
+// nothing has been drafted onto a roster before a pool has ever existed.
+func (s *Service) carryForwardReferencedPlayers(byID map[string]Player) {
+	state := s.store.Snapshot()
+	carry := func(playerID string) {
+		if playerID == "" {
+			return
+		}
+		if _, ok := byID[playerID]; ok {
+			return
+		}
+		if player, ok := s.poolCache.byID[playerID]; ok {
+			byID[playerID] = player
+		}
+	}
+	for _, pick := range state.Picks {
+		carry(pick.PlayerID)
+	}
+	for _, ids := range currentRosters(state) {
+		for _, id := range ids {
+			carry(id)
+		}
+	}
 }
 
 // withHistorical fills a player's previous-season line from the attached
