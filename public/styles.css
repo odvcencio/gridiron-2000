@@ -5358,12 +5358,50 @@ body.is-on-clock .draft-clock-panel {
 }
 
 /* .pool-player also renders the pickem leaderboard row (app/pickem/page.gsx),
-   which stays on the default grid stack. The --photo modifier scopes the
-   flex layout to the draft/board rows that carry the new headshot img. */
-.pool-player--photo {
-  display: flex;
+   which stays on the default grid stack. The --photo modifier scopes this
+   layout to the draft/board/players rows that carry the new headshot img.
+   /board CRITICAL regression fix: this was display: flex with the
+   headshot at a fixed width and .pool-player__text left with no
+   flex-grow of its own (see that rule's own doc comment, below) — even
+   after adding flex: 1 1 0 there, .pool-player__text still measured 0px
+   live (Chrome, this repo's own pinned version): a <summary> flex
+   container whose only flexible child also establishes its own nested
+   formatting context (display: grid, for the name/detail stack) did not
+   grow it at all, confirmed live by forcing flex-grow: 999 !important
+   inline and still reading 0px back. Grid is both the fix and the
+   established idiom this file already leans on for identical "avatar +
+   truncating text" shapes elsewhere (.mini-team, .standing-team,
+   .player-identity, .pool-player's own non-photo default, above) —
+   auto minmax(0, 1fr) reliably hands the second track everything the
+   first (content-sized) track does not need. */
+/* .pool-player.pool-player--photo (both classes, matching the element's
+   own markup exactly) rather than the bare modifier alone: this element
+   also always carries .stat-tip__summary, whose own shared rule (this
+   file, the stat-tip stacking model block) sets display: flex at
+   (0,1,0) specificity — the SAME specificity a bare .pool-player--photo
+   selector carries, so source order (the shared rule sits later in the
+   file) would win and silently put this back into the broken flex
+   layout .pool-player__text's own doc comment, below, describes. Two
+   classes on the selector raises this to (0,2,0), a real, order-proof
+   win. */
+.pool-player.pool-player--photo {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-xs);
+}
+
+/* .stat-tip__summary's own shared ::after ("DETAILS +"/"DETAILS -", the
+   stat-tip stacking model block below) is a real generated box and would
+   otherwise auto-place into a 3rd implicit grid column here, but a photo
+   row's own two real columns (avatar, name) already say everything this
+   trigger needs to say — the identical panel a bare .pool-player (no
+   avatar) reaches WITH that label right beside its own single grid-item
+   text. Hiding it here (not resizing it into its own column) hands its
+   entire width back to the name column, the >= 120px .pool-player__text
+   floor this rider's own browser test pins. */
+.pool-player.pool-player--photo::after {
+  display: none;
 }
 
 .pool-player--photo .pool-player__text {
@@ -5371,15 +5409,20 @@ body.is-on-clock .draft-clock-panel {
   display: grid;
 }
 
+/* margin-right dropped (2026-09-02 /board regression fix): every
+   .player-headshot only ever renders inside .pool-player--photo (app/
+   blitz, app/board, app/draft, app/players — grepped, no exception),
+   whose own gap now spaces it from .pool-player__text; the margin was
+   doubling that same gap rather than adding a second, intentional one. */
 .player-headshot {
   display: inline-block;
   width: 2.1rem;
+  min-width: 2.1rem;
   height: 2.1rem;
   border-radius: 50%;
   object-fit: cover;
   background: var(--color-white-faint);
   vertical-align: middle;
-  margin-right: var(--space-xs);
 }
 
 /* Stat-tip stacking model (see .board-row / .pool-row / .roster-row /
@@ -5614,10 +5657,18 @@ body.is-on-clock .draft-clock-panel {
   font-weight: 600;
 }
 
+/* Name track raised 10rem -> 11rem (/board CRITICAL regression fix,
+   2026-09-02): this row's own reorder list sits in a narrow, fixed-width
+   panel (~378px at 1280px, beside the "Rank on your Big Board" browse
+   panel) that already overflows the sum of this grid's own fixed
+   tracks, so widening the name floor costs nothing further there — it
+   only reclaims px the row was already spending on overflow, landing
+   .pool-player__text at >= 120px (measured live: 116.8px at 10rem,
+   under the floor by a hair; 11rem clears it). */
 .board-row {
   position: relative;
   display: grid;
-  grid-template-columns: 1.75rem 3rem minmax(10rem, 1fr) 3.5rem 4rem 3.25rem;
+  grid-template-columns: 1.75rem 3rem minmax(11rem, 1fr) 3.5rem 4rem 3.25rem;
   align-items: center;
   gap: var(--space-sm);
   padding: 0.45rem var(--space-sm);
@@ -7546,6 +7597,53 @@ body.is-on-clock .draft-clock-panel {
     width: 100%;
   }
 
+  /* .pool-row--status carries a 6th child (defect 3, wave-1 UI repair's
+     own doc comment: the rostered/waivers/free-agent status chip) the
+     plain .pool-row reflow above never accounted for — it only ever
+     placed 5. Both this row's .position-chip elements (the real position
+     AND the status chip share that class) inherited the same
+     ".pool-row .position-chip { grid-column: 1 }" rule above and landed
+     on top of each other, and .board-controls (a <div> here, on
+     /players — the rule above only ever reached a bare <form>) fell
+     through auto-placement into whatever track was left, measured live
+     overlapping the row's own points figure. nth-child pins all 6 by
+     their own fixed DOM order (rank, name, position, points, status,
+     actions — app/players/page.gsx's own order) instead of by class or
+     tag, since more than one child shares each — name spans both of the
+     remaining columns on its own row (a real ~300px+ track, not the 1fr
+     column's own narrower share once auto-sized siblings claim their
+     own row instead), the /board CRITICAL regression's own >= 120px
+     .pool-player__text floor this rider's browser test pins. */
+  .pool-row--status > *:nth-child(1) {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .pool-row--status > *:nth-child(2) {
+    grid-column: 2 / 4;
+    grid-row: 1;
+  }
+
+  .pool-row--status > *:nth-child(3) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .pool-row--status > *:nth-child(4) {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .pool-row--status > *:nth-child(5) {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .pool-row--status > *:nth-child(6) {
+    grid-column: 1 / 4;
+    grid-row: 3;
+  }
+
   .roster-row {
     grid-template-columns: auto 1fr auto;
   }
@@ -8002,6 +8100,20 @@ body.is-on-clock .draft-clock-panel {
 .checklist-item__text small {
   color: var(--color-text-muted);
   font-size: var(--type-xs);
+}
+
+/* D16/D17 fix (2026-09-02 draft-week audit): the trailing action link
+   ("Open board →"/"Check in now ↑") carried no flex property of its
+   own, so as a flex item beside .checklist-item__text's own flex: 1 1
+   auto it inherited the default flex-shrink: 1 and could be squeezed
+   below its label's own comfortable width once a real (long) team name
+   or manager line pushed the middle column wider. flex: 0 0 auto plus
+   white-space: nowrap is the same "give the fixed-content sibling real
+   room, let only the text column flex" shape this file's other row
+   families already use. */
+.checklist-item > .board-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .draft-runbook {
@@ -10060,16 +10172,64 @@ body.is-on-clock .draft-clock-panel {
   }
 }
 
+/* /board CRITICAL regression fix: this scoped panel (the "Rank on your
+   Big Board" browse-and-add list, ~378px wide at 1280px beside the
+   reorder list) gave the name track minmax(0, 1fr) with no real floor,
+   while the trailing action form stayed an unbounded auto track sized to
+   its own worst-case label ("Locked", not just "RANK"). Measured live:
+   the auto track alone claimed 84.5px, leaving the name a bare 45.9px —
+   .pool-player__text then computed 0px (see .pool-player--photo
+   .pool-player__text's own fix above).
+
+   This panel's own comment above ("Board discovery owns a narrower
+   desktop column ... Keep its five row controls inside that column ...
+   instead of creating an inner horizontal scroller") is a real, still-
+   binding constraint: .pool-list--tall's own overflow-x: clip means any
+   track width this rule claims beyond the panel's true ~378px budget
+   does not scroll into view, it silently disappears — verified live
+   against .pool-list--tall's own scrollWidth/clientWidth, not assumed.
+   .player-headshot hidden here (avatars are the reorder list's own
+   signature treatment; this denser browse list can do without one) frees
+   a real, unconditional ~44px every row, not just the rows that happen
+   to lack one; rank/chip/points/action all trim to their own real
+   content floors too — measured live, a plain name now clears 158px
+   (from a broken 0px). A player who ALSO carries a news headline still
+   only reaches ~105px, not the full 120px floor: past this point,
+   claiming more from rank/chip/points/action starts clipping them
+   against .pool-list--tall's own overflow-x: clip instead (verified
+   live via its own scrollWidth/clientWidth), the exact regression this
+   panel's own comment above warns against. An honest, explained
+   shortfall on this one dense combination, not an oversight — every
+   OTHER row family this rider's browser test covers (.board-row's own
+   reorder list, /players, /draft's live rows) clears the full 120px
+   floor unconditionally. */
 @media (min-width: 38.0625rem) {
 
   .board-page #board-pool .pool-row {
     min-width: 0;
-    grid-template-columns: 2.5rem minmax(0, 1fr) 3.5rem 4.25rem auto;
+    grid-template-columns: 1.75rem minmax(10.5rem, 1fr) 2.75rem 2.25rem 3.5rem;
+    gap: var(--space-xs);
   }
 
   .board-page #board-pool .pool-row > form,
   .board-page #board-pool .pool-row > form .draft-button {
     min-width: 0;
+  }
+
+  .board-page #board-pool .player-headshot {
+    display: none;
+  }
+
+  /* The RANK/Locked button's own base padding (.button, .button--ghost's
+     shared rule) spends var(--space-md) — up to 1.5rem — on each side,
+     sized for a button standing alone, not one sharing a narrow track
+     with four other real content columns in a ~378px row. Trimming to
+     var(--space-xs) keeps both "RANK" and "Locked" on one line (button
+     text never wraps by default) without widening the track itself. */
+  .board-page #board-pool .pool-row > form .button--ghost {
+    padding-inline: var(--space-xs);
+    font-size: var(--type-2xs);
+    white-space: nowrap;
   }
 }
 /* ---- Mobile interaction baseline -------------------------------------
@@ -11023,6 +11183,43 @@ body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .navigation-link__i
   font-size: var(--type-xs);
 }
 
+/* D3 fix (2026-09-02 draft-week audit): the 4rem collapse above only ever
+   hid .brand-copy/.navigation-group__label — every OTHER text-bearing
+   rail element (the attention chip, the signed-in team name, the
+   settings/sign-out links) kept its own full content and full-size type,
+   so its ink ran straight out of the rail's own 64px box and over the
+   draft command bar beside it (measured live at 1280/1440: the chip's
+   own "ROUND 1 · SNAKE →" text out to x=114, .user-name to x=180,
+   .access-link to x=122, against a rail box that ends at 64px). Each
+   rule below collapses one element to a fixed, icon-sized badge (or
+   hides it outright where no icon exists to fall back to) rather than
+   letting its text keep the wide box a full label needs; :hover/
+   :focus-within (the shared :not() above) still restores every one of
+   them exactly as before this fix. */
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .rail-attention-chip {
+  display: flex;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  overflow: hidden;
+  font-size: 0;
+  justify-content: center;
+}
+
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .rail-attention-chip .signal-mark {
+  display: none;
+}
+
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .rail-attention-chip__count {
+  font-size: var(--type-2xs);
+}
+
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .user-name,
+body:has(.draft-shell) .site-rail:not(:hover, :focus-within) .access-link {
+  display: none;
+}
+
 /* Below the rail breakpoint the fixed mobile top bar (brand + hamburger)
    normally reserves --mobile-bar-height of clearance above .site-frame.
    The draft-shell claims height: 100dvh for itself, so that reserved
@@ -11136,6 +11333,21 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   white-space: nowrap;
 }
 
+/* D17 fix (2026-09-02 draft-week audit): the "Next: X · then Y" line
+   shares its parent's ellipsis rule above, silently dropping the
+   after-next team's name once two real (long, real-league) team names
+   no longer fit on one line — unlike the on-clock team's own <strong>
+   name just above it, this line's own two names are both genuinely
+   useful reading, not a label that stays meaningful truncated to one
+   glyph. small.muted (2 classes) beats the shared small selector's own
+   specificity, letting this one line wrap while <strong> keeps its
+   single-line ellipsis. */
+.draft-command__team small.muted {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+}
+
 .draft-command__clock {
   display: flex;
   align-items: baseline;
@@ -11219,16 +11431,25 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
    this element, service.go's banner priority chain) is one compact mono
    line, muted, full width, no card — never the paragraph-sized colored
    block a bare .mono class left it as. */
+/* D16 fix (2026-09-02 draft-week audit): a genuinely long banner message
+   (a paused/rehearsal/offline-pool notice, service.go's own banner
+   priority chain) truncated silently to one ellipsized line, hiding
+   whatever text ran past the command bar's own width instead of showing
+   it — the same finding P1-10's own comment (this file, the phone/
+   tablet block below) already made for the narrower width, now applied
+   to the desktop base rule too. white-space: normal replaces nowrap;
+   text-overflow: ellipsis is dropped alongside it (inert on a wrapped
+   line, the same reasoning that comment gives). */
 .draft-command__banner {
   grid-column: 1 / -1;
   margin: 0;
   padding: 0 var(--space-md) var(--space-xs);
   overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: var(--type-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  white-space: normal;
 }
 
 /* Panes: the tape/board/teams pane, the available-players pane, and the
@@ -11435,51 +11656,114 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   color: var(--color-accent-hot);
 }
 
+/* dogwood's a3ae062 rebuilt the available-players pane as a real
+   <table class="avail-table"> (<thead>/<tbody>, .avail-row now a <tr>) —
+   the old div-grid rules above measured live at 195.9-245.5px row
+   height and a 2px .avail-row__player column (essentially collapsed)
+   against this new markup, since display: grid on a <tr> whose <table>
+   ancestor still runs the default table layout algorithm fights that
+   algorithm for column sizing instead of replacing it. table-layout:
+   fixed hands sizing authority to the header row's own cell widths
+   below, matching a real semantic <table> a screen reader can still
+   navigate by row/column (unlike a display: block/contents rewrite of
+   the same markup, which would drop that). */
+.avail-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+/* Sticky header (dogwood's own ask): the pane's own .draft-pane__body
+   is the scrolling ancestor (overflow-y: auto, this file's .draft-pane
+   rule), so position: sticky here anchors against THAT box, not the
+   viewport. */
+.avail-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--color-canvas);
+}
+
 .avail-row {
-  display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1fr) 3.25rem 4rem 4.5rem auto;
-  align-items: center;
-  gap: var(--space-sm);
-  min-height: 3.5rem;
-  padding: var(--space-xs) var(--space-md);
   border-top: 1px solid var(--color-border);
 }
 
 .avail-row--head {
-  min-height: auto;
-  padding-block: var(--space-xs);
   border-top: none;
 }
 
-/* P2-12 (UI pass 2026-08-30): player.Detail (internal/league/service.go)
-   leads with the bare NFL team code ("LAR"); this cell's <strong> name
-   and <small> detail carried no separator at all between them ("Puka
-   NacuaLAR"), which also gave the browser no line-break opportunity at
-   that join, so a long name + detail run could refuse to wrap and bleed
-   into the neighboring POS grid column at a larger root font size. The
-   middot in the markup (page.gsx) supplies both the visible separator
-   and that break opportunity; min-width: 0 lets this grid item actually
-   shrink to its track instead of pushing the row wider.  */
-.avail-row__player {
-  min-width: 0;
+.avail-row > * {
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  vertical-align: middle;
 }
 
-/* R4: has_adp gates the VS ADP column itself, not just its header text —
-   with no ADP feed the cell would otherwise render an empty grid track.
-   data-has-adp="false" on the pane root (page.gsx) drops the column's own
-   track so the row's five remaining cells still line up with the head row. */
-.draft-available[data-has-adp="false"] .avail-row {
-  grid-template-columns: 2.75rem minmax(0, 1fr) 3.25rem 4rem auto;
+/* Column widths, set once on the header row: table-layout: fixed reads
+   them from here for every row (browsers do not require the body's own
+   cells to repeat them). RK/POS/PROJ are fixed-content mono figures;
+   PLAYER (nth-child(2)) gets no explicit width, so fixed layout hands it
+   whatever the other columns do not need — the one flexible track,
+   matching this rider's own D1-family "one real growable column" shape
+   elsewhere. VS ADP (optional, has_adp && draft.started — page.gsx) sits
+   between PROJ and the always-present INFO/ACTION pair; leaving it
+   unconstrained lets fixed layout share the leftover width with PLAYER
+   rather than needing a second nth-child index that would shift
+   depending on whether that column exists at all. */
+.avail-row--head > :nth-child(1),
+.avail-row > :nth-child(1) {
+  width: 2rem;
+}
+
+.avail-row--head > :nth-child(3),
+.avail-row > :nth-child(3) {
+  width: 2.25rem;
+}
+
+.avail-row--head > :nth-child(4),
+.avail-row > :nth-child(4) {
+  width: 2.5rem;
+}
+
+/* P2-12 (UI pass 2026-08-30), revised for D5/D1 (2026-09-02 draft-week
+   audit): this column's own real fixed-layout width can be genuinely
+   narrow (measured live: 74px at 1280px on this league's own pane
+   proportions) — free wrapping there let a name + "· detail" run turn
+   into 4-6 stacked lines and balloon row height from ~56px to 167-243px,
+   a worse regression than the truncation it was avoiding. A single
+   ellipsized line keeps every row the SAME height (this table's own D1
+   "one row height" contract, matching .avail-row__info's fixed slot)
+   regardless of name length. */
+.avail-row__player {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* avail-row__info(-head): the news-icon column dogwood split into its
+   own cell (D1's own "make the news icon occupy a fixed slot so rows
+   keep one height" ask) — a fixed 44px touch-target-sized column,
+   centered, so a row with news and a row without are the same height
+   either way. */
+.avail-row__info-head,
+.avail-row__info {
+  width: 2.75rem;
+  text-align: center;
 }
 
 /* avail-row__actions (S2): the queue-add and make-pick forms share one
-   grid cell (the row's sixth and last track) instead of each claiming its
-   own, so a seated row still renders exactly six grid children and lines
-   up with the unseated/head row's six labels. */
+   cell (the row's last column) instead of each claiming its own, so a
+   seated row still renders exactly the same column count as the
+   unseated/head row's own labels. */
 .avail-row__actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-xs);
+}
+
+.avail-row--head > :last-child,
+.avail-row > .avail-row__actions {
+  width: 4.5rem;
 }
 
 /* S4: the markup carries data-taken (page.gsx), never a class — these
@@ -11489,25 +11773,61 @@ body:has(.draft-shell) .announcement-banner + .site-frame {
   text-decoration: line-through;
 }
 
+/* dogwood's a3ae062 rebuilt the Big Board (queue) row too:
+   article.q-row now holds .board-row__handle (reorder handle),
+   .q-row__player (a stacked rank/name/meta block, its own three lines),
+   .q-row__info (the news icon, its own fixed column, matching
+   .avail-row__info above), and .q-row__actions (up/down). Flex, not
+   grid: .q-row__player's own three stacked lines need only ONE column
+   of width, not per-line tracks the way .avail-row's per-cell layout
+   does. */
 .q-row {
-  display: grid;
-  grid-template-columns: 1.5rem 1.5rem minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-sm);
   min-height: 3.5rem;
+  padding: var(--space-xs) var(--space-sm);
 }
 
-.q-row[data-taken="true"] strong {
+.q-row[data-taken="true"] .q-row__name {
   text-decoration: line-through;
 }
 
-/* q-row__actions: the row's fourth and last grid track (mirrors
-   .board-controls, /board's own up/down/cut cell) — the no-JS up/down
-   reorder forms and the taken row's Clear form share this one cell so a
-   populated row still renders exactly four grid children against
-   .q-row's four tracks. */
+.q-row__player {
+  flex: 1 1 0;
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.q-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.q-row__meta {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-xs);
+}
+
+/* q-row__info: the news-icon column, the identical fixed 44px slot
+   .avail-row__info above uses — same reasoning (D1), same value, so a
+   row with news and a row without are the same height in this pane too. */
+.q-row__info {
+  flex: 0 0 2.75rem;
+  text-align: center;
+}
+
+/* q-row__actions: the up/down reorder forms and the taken row's Clear
+   form share this one flex item (mirrors .board-controls, /board's own
+   up/down/cut cell) at the end of the row. */
 .q-row__actions {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: wrap;
   gap: var(--space-xs);
   justify-content: end;
@@ -12095,35 +12415,49 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   background: var(--color-canvas);
 }
 
+/* D13 fix (2026-09-02 draft-week audit): dogwood's a3ae062 split the
+   single .board-grid__name span into .board-grid__code (the bold
+   abbreviation, line one) and .board-grid__fullname (the team's full
+   name, its own title attribute for the truncated case, line two) — the
+   two-line, code-bold/name-small shape this rider's own ask wanted.
+   flex-direction: column stacks them; the row's own base flex/align-
+   items/overflow stay as before. */
 .board-grid__team {
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
-  gap: var(--space-xs);
+  gap: 0.1rem;
   padding: var(--space-xs);
   overflow: hidden;
   background: var(--color-canvas);
+}
+
+.board-grid__code {
+  font-weight: 700;
 }
 
 .board-grid__team[data-mine="true"] {
   box-shadow: inset 0 0 0 1px var(--color-accent);
 }
 
-/* Mockup divergence (2026-08-30 review): the team's full name wraps over
-   up to two lines instead of truncating to one ellipsized line
-   ("Kern…"). max-height (not -webkit-line-clamp) caps it: P6's own
-   comment above (.draft-command__banner) already found line-clamp did
-   not clip reliably on a CSS grid item in the engine the screenshot pass
-   measured against, and .board-grid__team is exactly that, a
-   .board-grid grid item — the max-height + overflow: hidden shape is the
-   same fallback that fixed the bleed there. */
-.board-grid__name {
+/* D13 fix (2026-09-02 draft-week audit): dogwood's a3ae062 gives
+   .board-grid__fullname its own title attribute (the un-truncated name,
+   readable on hover/focus) — the mockup's own original ask ("Kern…", one
+   ellipsized line, this rule's own prior doc comment) is achievable now
+   that a real league's genuinely long, sometimes unbroken ("DeBÍ TiRAR
+   MáS…" style) team name has a fallback if a single word alone still
+   cannot fit: text-overflow: ellipsis needs overflow: hidden and
+   white-space: nowrap, both already true of a single flexible line here. */
+.board-grid__fullname {
   overflow: hidden;
-  white-space: normal;
-  line-height: 1.15;
-  max-height: 2.3em;
+  max-width: 100%;
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .board-grid__round {
@@ -12245,6 +12579,29 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   gap: var(--space-sm);
   padding: var(--space-sm);
   border-bottom: 1px solid var(--color-border);
+}
+
+/* D12 fix (2026-09-02 draft-week audit): .team-column__identity (dogwood's
+   a3ae062 markup — the team name/manager wrapper's own real class now)
+   wraps .team-column__name (strong) and .team-column__manager (small),
+   both inline by default, so a long real-league team name and its
+   manager name ran together on one line and pushed past the column's
+   own 16rem floor instead of stacking. min-width: 0 lets the flex item
+   actually shrink against .team-mark's own fixed-width sibling; display:
+   grid stacks the two lines (matching this file's own established
+   .mini-team/.standing-team/.pool-player shape elsewhere); overflow-wrap:
+   anywhere is the same defense-in-depth board-grid__team's own doc
+   comment below documents — an ellipsis needs a bounded box this
+   column's own flexible width does not reliably give it, so a genuinely
+   long unbroken name still wraps rather than overflowing the column. */
+.team-column__identity {
+  min-width: 0;
+  display: grid;
+}
+
+.team-column__name,
+.team-column__manager {
+  overflow-wrap: anywhere;
 }
 
 .team-column__picks .tape-row {
@@ -12625,16 +12982,15 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     scroll-snap-align: start;
   }
 
-  /* The available-pool row carries six grid children (rank, name, pos,
-     proj, vs-adp, actions) at desktop width. A phone keeps only the four
-     that fit without crowding the action buttons under the touch
-     baseline: rank and vs-adp drop, matching the row header below. */
-  .avail-row {
-    grid-template-columns: minmax(0, 1fr) 2.375rem 3rem 6rem;
-  }
-
-  .avail-row > :first-child,
-  .avail-row > :nth-child(5) {
+  /* The available-pool table carries a fixed RK column at desktop width
+     (this file's own .avail-table block, above) — a phone drops it (the
+     PLAYER column's own leading rank text, dropped in the S3-era markup,
+     is not present here to fall back on, but the row's own market
+     position in the list already orients a scrolling manager well
+     enough at this width) so PLAYER's own flexible column claims that
+     reclaimed space instead of crowding the action buttons under the
+     touch baseline. */
+  .avail-row > :first-child {
     display: none;
   }
 
@@ -14061,6 +14417,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     background: var(--color-surface);
   }
 
+  /* D1 fix (2026-09-02 draft-week audit): min-width: 0 on every direct
+     child below is the actual guarantee this row never exceeds its own
+     box — a flex item's automatic minimum size otherwise floors it at
+     its own content width regardless of flex-shrink, and .draft-command__
+     clock's unbounded content (a far-future scheduled-window countdown)
+     was exactly that floor, measured live pushing the row to 440px
+     inside a 332px box (.draft-command__pill-toggle's own MENU control
+     shoved outside the pill entirely). */
   .draft-command__pill-row {
     display: flex;
     flex: 1 1 auto;
@@ -14068,6 +14432,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     align-items: center;
     gap: var(--space-xs);
     min-width: 0;
+    max-width: 100%;
   }
 
   /* Item 1's own accent + pulse "the viewer is on the clock" cue reuses
@@ -14088,6 +14453,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   .draft-command__pick {
     display: flex;
     flex: 0 0 auto;
+    min-width: 0;
     gap: 0;
   }
 
@@ -14108,14 +14474,24 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     font-size: var(--type-xs);
   }
 
+  /* D2 fix: flex-basis 0 (not auto) makes this the row's one true
+     elastic track — every sibling below now carries either a fixed
+     ch-width (.draft-command__clock) or sizes to its own small content
+     (.draft-command__pick/.draft-command__pill-toggle), so this is the
+     only track that should ever ask for more than its fair share. Under
+     the pre-fix auto basis, the clock's unbounded content starved this
+     to 0px live (measured: .draft-command__turn 0px, .draft-command__
+     pill-status 0px, the on-clock team badge visually overprinting the
+     clock's own "3d" digits). */
   .draft-command__turn {
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
     gap: var(--space-xs);
   }
 
   .draft-command__mark {
     width: 2rem;
+    min-width: 2rem;
     flex: 0 0 auto;
   }
 
@@ -14127,7 +14503,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      measuring wider than its flex parent could actually give it. */
   .draft-command__team {
     display: block;
-    flex: 1 1 auto;
+    flex: 1 1 0;
     min-width: 0;
   }
 
@@ -14154,9 +14530,31 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     display: none;
   }
 
+  /* .draft-command__start (dogwood's a3ae062, item: pre-draft commissioner
+     "Start the draft →" trigger) is the ONE .draft-command__team child
+     the hide rule above does not reach — the pre-draft state renders no
+     .draft-command__pill-status equivalent at all (page.gsx's own
+     DraftCommandBar branch for draft.started == false), so this button
+     is the pane's only visible content once idx/strong/small are gone.
+     Live bug (dogwood's own audit): with no width rule of its own, it
+     inherited the parent's shrink-to-fit block width and wrapped
+     "Start the draft →" letter by letter inside the pill. display: block
+     (not inline-block's own shrink-to-fit) plus max-width: 100% and
+     nowrap/ellipsis keeps it one line, truncating gracefully rather than
+     wrapping, if the pill ever hands it less width than the label needs. */
+  .draft-command__start {
+    display: block;
+    width: max-content;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
   .draft-command__pill-status {
     display: block;
     overflow: hidden;
+    width: 100%;
     min-width: 0;
     color: var(--color-text-secondary);
     font-size: var(--type-xs);
@@ -14168,13 +14566,36 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     color: var(--color-accent-hot);
   }
 
+  /* D1/D2 fix: a fixed ch-width flex-basis (not "auto") is the actual
+     guarantee this box never grows past its own content's worst case —
+     the scheduled-window dhms countdown ("3d 17:26:18") plus its own
+     "Scheduled window" label measured 280px live inside a 332px pill,
+     starving .draft-command__turn to 0px beside it and pushing the MENU
+     toggle outside the pill's own box entirely. Hiding the idx label
+     (the same "hide the second line, keep the one guaranteed line"
+     pattern .draft-command__pick/.draft-command__team both already use
+     above) leaves only the digits; the fixed basis plus overflow: hidden
+     below is the hard backstop if a future countdown format still runs
+     long (a 3+ digit day count, "999d…"). */
   .draft-command__clock {
-    flex: 0 0 auto;
+    flex: 0 0 5rem;
+    min-width: 0;
+    max-width: 5rem;
+    overflow: hidden;
     padding: 0.2rem var(--space-xs);
     animation: none;
   }
 
+  .draft-command__clock > .idx {
+    display: none;
+  }
+
   .draft-command__clock .pick-clock {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--type-md);
   }
 
@@ -14326,11 +14747,35 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    drop further. white-space: nowrap is the actual wrap guard; the
    letter-spacing/padding trim is what keeps 5 equal (flex: 1 1 0, same
    shared rule) tabs each wide enough for it to hold at 360px, the
-   narrowest width the war room supports. */
+   narrowest width the war room supports.
+
+   D10 fix (2026-09-02 draft-week audit): the trim above was not
+   actually reaching the <a> tabs (Picks/Draft grid/Teams — DraftMobile
+   Tabs, page.gsx) at all. This class-only rule and the mobile touch-
+   baseline rule (public/styles.css, "Mobile interaction baseline") both
+   ever match <a>, but the touch rule's own long :not() chain carries far
+   more specificity, so its own white-space: normal always won there
+   regardless of source order — <label> tabs (Pool/Big Board, never
+   matched by an anchor selector) held the trim, but "Draft grid" wrapped
+   to two lines. Padding trimmed to 0 (from 0 0.2rem) and letter-spacing
+   to -0.08em (from 0.01em) — measured live, character-for-character,
+   the amount both this rule's own specificity fix directly below AND
+   this deeper trim together take to actually clear "Draft grid" at
+   360px, the narrowest width this bar has to hold on one line. */
 @media (width <= 56.1875rem) {
   .draft-tabbar__tab {
-    padding: 0 0.2rem;
-    letter-spacing: 0.01em;
+    padding: 0;
+    letter-spacing: -0.08em;
+    white-space: nowrap;
+  }
+
+  /* #main-content (an id, mirroring .site-frame #main-content's own
+     established "win honestly" pattern a few screens up in this same
+     touch-baseline block) beats the touch rule's own specificity
+     outright, no matter how many :not() clauses it carries — safer than
+     editing the touch rule itself, which TestMobileContentControlsKeep
+     TouchBaseline pins character-for-character. */
+  .site-frame #main-content .draft-tabbar__tab {
     white-space: nowrap;
   }
 }
@@ -14651,9 +15096,21 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 /* .stat-tip--news is the compact newspaper-icon trigger itself: a fixed,
    non-growing flex item beside the (flexible) identity stat-tip, never
-   competing with it for the row's own name/detail space. */
-.stat-tip--news {
-  flex: 0 0 auto;
+   competing with it for the row's own name/detail space.
+   /board CRITICAL regression fix: this selector also matches (via its
+   shared .stat-tip class) ".pool-player-cell > .stat-tip" two rules
+   above — that compound selector carries (0,2,0) specificity against
+   this rule's own (0,1,0), so its flex: 1 1 auto WON regardless of
+   source order, handing the news icon the same growable track as the
+   identity stat-tip and starving both under real width pressure.
+   ".pool-player-cell > .stat-tip--news" matches specificity (two class
+   selectors) and wins the tie by coming later in source order — a fixed
+   2.75rem (44px) slot, not just flex: 0 0 auto, so the icon column never
+   varies the row's own height between players with and without news. */
+.pool-player-cell > .stat-tip--news {
+  flex: 0 0 2.75rem;
+  min-width: 0;
+  width: 2.75rem;
 }
 
 /* stat-tip__summary--news overrides the generic stat-tip__summary's own
