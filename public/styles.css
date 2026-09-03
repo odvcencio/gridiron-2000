@@ -16014,3 +16014,26 @@ a.skip-link {
 .avail-row > :last-child {
   width: 7rem;
 }
+
+/* hotfix — draft-preflight, round 4 (geometry check at 9d7331e): with the
+   first grid row sized max-content, an OPEN strip claimed its full 45vh cap
+   and left the pool pane 0px of body on desktop. On desktop the open strip
+   now floats over the panes as an overlay (out of flow), so the panes keep
+   their full height and the checklist closes with a tap on its summary.
+   Phones keep the in-flow, stacked behaviour, which measured correct in
+   both states. */
+.draft-panes {
+  position: relative;
+}
+@media (width > 56.1875rem) {
+  .draft-panes > .draft-preflight[open] {
+    position: absolute;
+    top: 0;
+    left: var(--space-md);
+    right: var(--space-md);
+    z-index: 30;
+    max-height: 60vh;
+    box-shadow: 0 1rem 2rem rgba(0, 0, 0, 0.45);
+    background: var(--color-canvas-deep);
+  }
+}
