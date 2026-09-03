@@ -226,6 +226,111 @@ func TestSyncNowRequestsCurrentWeekProjections(t *testing.T) {
 	}
 }
 
+// TestSyncNowSendsLeagueScoringValues is rules-audit item 4: SyncNow used
+// to send only week, archiveSeason, and pointsPerReception to
+// getNFLProjections, so every other scoring category rode whatever
+// generic default Tank01 applies internally — no two-point-conversion
+// coverage, no kicking coverage, nothing this league's own commissioner
+// might have overridden. This pins the request shape once SetScoringValues
+// is wired: every tank01ProjectionScoringParams key carries the supplied
+// value, and targets/xpMissed (no matching league rule) carry an explicit
+// "0" rather than being omitted.
+func TestSyncNowSendsLeagueScoringValues(t *testing.T) {
+	root := t.TempDir()
+	gotParams := url.Values{}
+	payloads := map[string]string{
+		"/getNFLPlayerList":  `{"statusCode":200,"body":[{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN"}]}`,
+		"/getNFLADP":         `{"statusCode":200,"body":{"adpList":[]}}`,
+		"/getNFLProjections": `{"statusCode":200,"body":{"playerProjections":{}}}`,
+		"/getNFLNews":        `{"statusCode":200,"body":[]}`,
+		"/getNFLTeams":       `{"statusCode":200,"body":[]}`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/getNFLProjections" {
+			gotParams = r.URL.Query()
+		}
+		payload, ok := payloads[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	service := newTestService(t, root, server, "test-key")
+	service.SetScoringValues(func() map[string]float64 {
+		return map[string]float64{
+			"passYards": 0.04, "passTD": 4, "passInt": -2,
+			"rushYards": 0.1, "rushTD": 6, "fumbleLost": -2,
+			"recYards": 0.1, "recTD": 6, "reception": 1.0, // reception (PPR) is out of scope: pointsPerReception owns it
+			"twoPt": 2, "fgMade": 3, "fgMissed": -1, "xpMade": 1,
+		}
+	})
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	want := map[string]string{
+		"passYards": "0.04", "passTD": "4", "passInterceptions": "-2",
+		"rushYards": "0.1", "rushTD": "6", "fumbles": "-2",
+		"receivingYards": "0.1", "receivingTD": "6",
+		"twoPointConversions": "2", "fgMade": "3", "fgMissed": "-1", "xpMade": "1",
+		"targets": "0", "xpMissed": "0",
+	}
+	for param, value := range want {
+		if got := gotParams.Get(param); got != value {
+			t.Errorf("getNFLProjections %s = %q, want %q", param, got, value)
+		}
+	}
+	// reception (PPR) must still resolve through the pre-existing
+	// pointsPerReception knob, not tank01ScoringParams — this league's
+	// half_ppr format, not the stub's reception:1.0 value.
+	if got := gotParams.Get("pointsPerReception"); got != "0.5" {
+		t.Errorf("pointsPerReception = %q, want 0.5 (half_ppr, unaffected by scoringValues)", got)
+	}
+}
+
+// TestSyncNowScoringValuesDefaultToZeroWithoutWiring checks the
+// pre-fix-compatible default: a service that never calls SetScoringValues
+// still sends every tank01ProjectionScoringParams key, all "0" — an
+// honest "not configured" rather than a guess, and never a missing
+// parameter Tank01 could apply its own default to instead.
+func TestSyncNowScoringValuesDefaultToZeroWithoutWiring(t *testing.T) {
+	root := t.TempDir()
+	gotParams := url.Values{}
+	payloads := map[string]string{
+		"/getNFLPlayerList":  `{"statusCode":200,"body":[{"playerID":"1","longName":"Alpha Receiver","pos":"WR","team":"CIN"}]}`,
+		"/getNFLADP":         `{"statusCode":200,"body":{"adpList":[]}}`,
+		"/getNFLProjections": `{"statusCode":200,"body":{"playerProjections":{}}}`,
+		"/getNFLNews":        `{"statusCode":200,"body":[]}`,
+		"/getNFLTeams":       `{"statusCode":200,"body":[]}`,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/getNFLProjections" {
+			gotParams = r.URL.Query()
+		}
+		payload, ok := payloads[r.URL.Path]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(payload))
+	}))
+	defer server.Close()
+
+	service := newTestService(t, root, server, "test-key")
+	if err := service.SyncNow(context.Background()); err != nil {
+		t.Fatalf("SyncNow: %v", err)
+	}
+	for _, param := range tank01ProjectionScoringParams {
+		if got := gotParams.Get(param); got != "0" {
+			t.Errorf("getNFLProjections %s = %q, want 0 (no SetScoringValues wiring)", param, got)
+		}
+	}
+}
+
 // TestSyncNowDefaultsToWeekOneWithoutWiring checks the pre-fix-compatible
 // default: a service that never calls SetCurrentWeek still requests week
 // 1, exactly as SyncNow always did before GC-1 fix 1.

@@ -248,6 +248,64 @@ func pointsPerReception(scoring string) string {
 	}
 }
 
+// tank01ProjectionScoringParams maps a defaultScoringRules key
+// (internal/league/scoring.go) to the getNFLProjections query parameter
+// Tank01 accepts for it. Verified live against statrelay's
+// getNFLProjections?week=1&archiveSeason=2026 on 2026-09-02 (rules-audit
+// item 4): sending a player's exact-weight copy of these params through
+// this table reproduced Tank01's own custom-weighted "fantasyPoints"
+// total for a real player to the cent (see TestTank01ScoringParams and
+// TestSyncNowSendsLeagueScoringValues). Team-defense scoring weights
+// (dstSack, dstInt, dstFumbleRec, dstTD, dstSafety) are deliberately
+// absent: the same live check, run against a battery of plausible
+// parameter-name candidates for the DST side, changed nothing in the
+// response — Tank01's team-defense projection appears fixed by this
+// endpoint, so this table does not claim to control it rather than ship
+// an unverified guess.
+var tank01ProjectionScoringParams = map[string]string{
+	"passYards":  "passYards",
+	"passTD":     "passTD",
+	"passInt":    "passInterceptions",
+	"rushYards":  "rushYards",
+	"rushTD":     "rushTD",
+	"fumbleLost": "fumbles",
+	"recYards":   "receivingYards",
+	"recTD":      "receivingTD",
+	"twoPt":      "twoPointConversions",
+	"fgMade":     "fgMade",
+	"fgMissed":   "fgMissed",
+	"xpMade":     "xpMade",
+}
+
+// tank01ScoringParams renders the league's live scoring values (values,
+// from league.CurrentScoringValues via SetScoringValues) into the
+// explicit getNFLProjections query parameters SyncNow sends alongside
+// pointsPerReception (rules-audit item 4). Every key
+// tank01ProjectionScoringParams lists gets a value: the league's own rule
+// point value when values carries one, or an explicit "0" when it does
+// not — targets and xpMissed carry no defaultScoringRules entry at all
+// (this league does not score either event), and sending an explicit "0"
+// for them, rather than omitting the parameter, stops Tank01 from
+// applying its own unrelated nonzero default weight for a category this
+// league's rules never asked it to score. values may be nil (no
+// SetScoringValues wiring, or a test that never called it): every
+// parameter still renders, all "0", which changes nothing on the wire
+// relative to today's behavior for a caller that never wires scoring
+// values at all — the empty params reflect an honest "not configured,"
+// not a guess.
+func tank01ScoringParams(values map[string]float64) map[string]string {
+	params := make(map[string]string, len(tank01ProjectionScoringParams)+2)
+	for ruleKey, paramName := range tank01ProjectionScoringParams {
+		params[paramName] = strconv.FormatFloat(values[ruleKey], 'f', -1, 64)
+	}
+	// targets and xpMissed: no matching defaultScoringRules key exists to
+	// look up, so the explicit "0" is written directly rather than
+	// through the ruleKey table above.
+	params["targets"] = "0"
+	params["xpMissed"] = "0"
+	return params
+}
+
 func envString(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {
 		return value

@@ -614,6 +614,16 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// week-N sync requests week-N Tank01 projections instead of the old
 	// hard-coded week 1.
 	fantasyPool.SetCurrentWeek(currentNFLWeekFunc(openStats))
+	// Also wired before fantasyPool.Start (rules-audit item 4): the
+	// league's own live scoring point values, so SyncNow's
+	// getNFLProjections call sends the league's actual passYards/passTD/
+	// twoPt/fgMade/... weights explicitly rather than riding Tank01's own
+	// generic per-format defaults, which cover neither two-point
+	// conversions nor kicking at all. league.Default().CurrentScoringValues
+	// already resolves the commissioner's live overrides on top of
+	// defaultScoringRules (breakdown.go) — the identical values every
+	// other scored surface in this league reads.
+	fantasyPool.SetScoringValues(league.Default().CurrentScoringValues)
 	rt.starters = append(rt.starters, signalFeed.Start, openStats.Start, fantasyPool.Start)
 	// The harness may ask for the offline pool relabelled "live" so a
 	// simulated draft can start without a live upstream; every other run
