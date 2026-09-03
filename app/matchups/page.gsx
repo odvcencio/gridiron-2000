@@ -144,7 +144,7 @@ func FeaturedMatchup(props FeaturedMatchupData) Node {
 					<span class="muted">–</span>
 					<b class="score score--large mono" data-score-team={props.Theirs.ID} data-gosx-live-bind={"scores." + props.Theirs.ID} data-gosx-live-flash-class="score-flash">{props.Theirs.Score}</b>
 				</div>
-				<div class="bar"><i style={"width: " + props.WinProbWidth}></i></div>
+				<div class="bar"><i style={"width: " + props.WinProbWidth} role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow={props.WinProbAriaValue} aria-label={props.WinProbAriaLabel}></i></div>
 				<small class="mono muted"><span data-gosx-live-bind={"winProb." + props.Mine.ID}>{props.WinProb}</span> to win · <span data-gosx-live-bind={"stillToPlay." + props.ID}>{props.StillToPlay}</span> of <span data-gosx-live-bind={"stillToPlayTotal." + props.ID}>{props.StillToPlayTotal}</span> starters still to play</small>
 				<span class={"state-chip " + props.StateClass}><span class="live-dot live-dot--bound" aria-hidden="true" data-gosx-live-bind={"matchupIndicator." + props.ID}>{props.LiveIndicator}</span><span data-gosx-live-bind={"matchupLiveState." + props.ID}>{props.LiveState}</span></span>
 			</div>

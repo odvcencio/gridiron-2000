@@ -3,6 +3,8 @@ package league
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 )
 
 // remainingFractionByPeriod holds the fixed remaining-time-of-game
@@ -98,6 +100,39 @@ func hasProjectableStarters(rows []StarterLedgerRow) bool {
 // probability bar has real numbers to compare well before either side's
 // actual score is known (wave-8 audit item 2; previously tied to
 // ScoreKnown, per the review of ae1a525, item 1, which this supersedes).
+// WinProbabilityAriaLabel adapts winProbabilityText's own already-rendered
+// text ("59%", or the honest "—" placeholder, winProbabilityDashText)
+// into the win-probability meter's own aria-label (sumac comb re-audit
+// item 5): the same plain-language sentence a sighted manager already
+// reads beside the bar (app/matchups/page.gsx's own small.mono line —
+// "59% to win"), restated for a screen reader on the meter itself, since
+// the bar (<i style="width:...">) carries no text content of its own.
+// Exported for app/matchups/page.server.go, which only ever holds the
+// already-rendered text (the JSON "win_prob" field), never the raw
+// floats and projection flags winProbabilityText computed it from.
+func WinProbabilityAriaLabel(winProbText string) string {
+	if winProbText == "" || winProbText == winProbabilityDashText {
+		return "Win probability not yet known"
+	}
+	return winProbText + " to win"
+}
+
+// WinProbabilityAriaValue adapts win_prob_width's own literal CSS width
+// (service.go's featuredMatchupMap — "59%", or the "0%" fallback for
+// winProbabilityDashText) into the win-probability meter's own
+// aria-valuenow (sumac comb re-audit item 5): an ARIA meter's valuenow
+// must be a bare number, never a percent sign. An unparseable or
+// missing width honestly reports 0, matching win_prob_width's own "0%"
+// fallback for the identical not-yet-known case.
+func WinProbabilityAriaValue(winProbWidth string) float64 {
+	trimmed := strings.TrimSuffix(strings.TrimSpace(winProbWidth), "%")
+	value, err := strconv.ParseFloat(trimmed, 64)
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
 func winProbabilityText(mine, theirs float64, mineHasProjection, theirsHasProjection bool) string {
 	if !mineHasProjection || !theirsHasProjection {
 		return winProbabilityDashText

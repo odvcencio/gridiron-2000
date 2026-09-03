@@ -116,3 +116,54 @@ func TestHasProjectableStarters(t *testing.T) {
 		t.Fatal("one filled slot = not projectable, want true")
 	}
 }
+
+// TestWinProbabilityAriaLabel covers the sumac comb re-audit item 5: the
+// win-probability meter's own aria-label restates the same "N% to win"
+// sentence a sighted manager already reads beside the bar, or an honest
+// "not yet known" sentence for the dash case — never a bare percent
+// sign a screen reader would have no context for.
+func TestWinProbabilityAriaLabel(t *testing.T) {
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"computed percentage", "59%", "59% to win"},
+		{"dash placeholder", "—", "Win probability not yet known"},
+		{"empty string", "", "Win probability not yet known"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := WinProbabilityAriaLabel(c.text); got != c.want {
+				t.Errorf("WinProbabilityAriaLabel(%q) = %q, want %q", c.text, got, c.want)
+			}
+		})
+	}
+}
+
+// TestWinProbabilityAriaValue covers the sumac comb re-audit item 5: the
+// win-probability meter's own aria-valuenow must be a bare number (ARIA
+// forbids a percent sign there), parsed from win_prob_width's own
+// literal CSS width string — and an unparseable or missing width
+// honestly reports 0, matching win_prob_width's own "0%" fallback for
+// the identical not-yet-known case, rather than erroring or omitting
+// the attribute.
+func TestWinProbabilityAriaValue(t *testing.T) {
+	cases := []struct {
+		name  string
+		width string
+		want  float64
+	}{
+		{"computed percentage", "59%", 59},
+		{"zero fallback", "0%", 0},
+		{"garbage input", "not-a-number", 0},
+		{"empty string", "", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := WinProbabilityAriaValue(c.width); got != c.want {
+				t.Errorf("WinProbabilityAriaValue(%q) = %v, want %v", c.width, got, c.want)
+			}
+		})
+	}
+}
