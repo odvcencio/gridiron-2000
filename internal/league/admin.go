@@ -101,6 +101,32 @@ func pendingInviteCount(state PersistedState) int {
 	return pending
 }
 
+// draftNightRunbookStepStates is item 7's own sequencing (2026-09-02
+// audit): a step's own precondition holding already makes it "done";
+// the first step whose precondition does NOT hold is "next" — the one
+// action the console should actually name; every step after that is
+// "later," since a step cannot become the next action before an
+// earlier one is settled. Given four preconditions [true, true, false,
+// false], the result is ["done", "done", "next", "later"], matching
+// what a league that has already trimmed seats and drawn/published the
+// order must show: no stale claim that either is still to do.
+func draftNightRunbookStepStates(preconditions ...bool) []string {
+	states := make([]string, len(preconditions))
+	sawNext := false
+	for index, met := range preconditions {
+		switch {
+		case met:
+			states[index] = "done"
+		case !sawNext:
+			states[index] = "next"
+			sawNext = true
+		default:
+			states[index] = "later"
+		}
+	}
+	return states
+}
+
 // presenceReadableLabel maps s.teamPresence's own state word into plain
 // words for a sighted reader (item 5, 2026-09-02 audit): the seat
 // ledger used to print the bare snake_case enum itself ("not_seen")
@@ -322,6 +348,21 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	// own "Who may claim a seat" banner made exactly that false claim for
 	// a domain-gated league (SK launch-prep dry run finding) until this.
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
+	scheduleMap := s.adminScheduleMap(state, now)
+	// runbookStepStates (item 7, 2026-09-02 audit): the draft-night
+	// runbook's own first four steps used to be static copy with no
+	// relationship to league state at all — "About an hour early, drop
+	// the seats nobody claimed" and "Draw the final order and publish
+	// the schedule" kept telling the flagship league to do work it had
+	// already done (every seat claimed, order drawn, schedule
+	// published), while the real next action (confirm every seat ready)
+	// went unnamed. Each step now carries its own done/next/later state.
+	runbookStepStates := draftNightRunbookStepStates(
+		len(unclaimedSeatIDs) == 0,
+		len(state.DraftOrder) > 0 && scheduleMap["has_schedule"] == true,
+		readyCount(state.Ready) == len(s.Teams()) && len(s.Teams()) > 0,
+		state.DraftStarted,
+	)
 	return map[string]any{
 		"viewer":                 s.Viewer(r),
 		"playoff_truth":          s.playoffTruthMap(state, now, true),
@@ -356,7 +397,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// readiness at a glance without scrolling to 01 // SEATS.
 		"ready_count":      readyCount(state.Ready),
 		"draft":            s.draftSummary(now),
-		"schedule":         s.adminScheduleMap(state, now),
+		"schedule":         scheduleMap,
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
@@ -389,6 +430,10 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// but a live draft is the worst moment to offer a commissioner a
 		// button whose only outcome is an error.
 		"draft_started":          state.DraftStarted,
+		"runbook_step_1_state":   runbookStepStates[0],
+		"runbook_step_2_state":   runbookStepStates[1],
+		"runbook_step_3_state":   runbookStepStates[2],
+		"runbook_step_4_state":   runbookStepStates[3],
 		"draft_required_players": len(s.Teams()) * CurrentDraftRounds(),
 		"current_pick_token":     draftCurrentPickToken(state),
 		"previous_pick_token":    draftPreviousPickToken(state),

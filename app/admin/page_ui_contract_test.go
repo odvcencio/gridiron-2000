@@ -534,6 +534,96 @@ func TestSeasonOperationsRunbookReplacesPreDraftChecklistOnceComplete(t *testing
 	}
 }
 
+// checklistItemState finds marker (a runbook step's own unique title
+// text) and returns the data-runbook-state value of its enclosing
+// .checklist-item, searching backward from the marker for the nearest
+// data-runbook-state attribute.
+func checklistItemState(t *testing.T, body, marker string) string {
+	t.Helper()
+	markerIndex := strings.Index(body, marker)
+	if markerIndex < 0 {
+		t.Fatalf("marker %q not found in rendered page", marker)
+	}
+	attr := `data-runbook-state="`
+	attrIndex := strings.LastIndex(body[:markerIndex], attr)
+	if attrIndex < 0 {
+		t.Fatalf("no data-runbook-state attribute precedes marker %q", marker)
+	}
+	rest := body[attrIndex+len(attr):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		t.Fatalf("unterminated data-runbook-state attribute near marker %q", marker)
+	}
+	return rest[:end]
+}
+
+// TestDraftNightRunbookStepsCarryCompletionState is item 7's decisive
+// proof (2026-09-02 audit): the flagship-shaped league (every seat
+// claimed, order drawn, schedule published, not every seat ready yet,
+// draft not started) used to show "About an hour early, drop the seats
+// nobody claimed" and "Draw the final order and publish the schedule"
+// as if neither had happened. Both are now marked done, and the real
+// next action (confirm every seat ready) is marked next.
+func TestDraftNightRunbookStepsCarryCompletionState(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestDraftNightRunbookFlagshipFixtureProcess$")
+	cmd.Env = append(os.Environ(),
+		"ADMIN_RUNBOOK_FIXTURE=1",
+		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
+		"DEMO_MODE=true",
+		"GOOGLE_CLIENT_ID=",
+		"APP_ENV=",
+		"LEAGUE_FILE=",
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("flagship-shaped runbook fixture: %v\n%s", err, output)
+	}
+	body := string(output)
+	if got := checklistItemState(t, body, "About an hour early, drop the seats nobody claimed"); got != "done" {
+		t.Errorf("step 01 (seats trimmed) state = %q, want done", got)
+	}
+	if got := checklistItemState(t, body, "Draw the final order and publish the schedule"); got != "done" {
+		t.Errorf("step 02 (order + schedule) state = %q, want done", got)
+	}
+	if got := checklistItemState(t, body, "Confirm every seat is ready"); got != "next" {
+		t.Errorf("step 03 (every seat ready) state = %q, want next", got)
+	}
+	if !strings.Contains(body, "DONE ✓") || !strings.Contains(body, "NEXT →") {
+		t.Error("runbook must render its DONE/NEXT badges, not just the data attribute")
+	}
+}
+
+func TestDraftNightRunbookFlagshipFixtureProcess(t *testing.T) {
+	if os.Getenv("ADMIN_RUNBOOK_FIXTURE") == "" {
+		t.Skip("fixture helper")
+	}
+	service := league.Default()
+	request := httptest.NewRequest(http.MethodPost, "/admin", nil)
+	seatCount := len(service.Teams())
+	for index := 0; index < seatCount; index++ {
+		email := fmt.Sprintf("runbook-manager-%d@example.com", index)
+		if _, err := service.AssignManager(email, fmt.Sprintf("Runbook Manager %d", index)); err != nil {
+			t.Fatalf("claim seat %d: %v", index, err)
+		}
+	}
+	// AdminRandomizeDraftOrder publishes the regular-season schedule as
+	// part of the same draw (its own doc comment) — matching the
+	// runbook's own step 02 copy, "Draw the final order and publish the
+	// schedule," which names one action, not two.
+	if _, _, err := service.AdminRandomizeDraftOrder(request, ""); err != nil {
+		t.Fatalf("randomize draft order: %v", err)
+	}
+	// Every seat but one is ready: step 03's own precondition ("every
+	// seat is ready") stays unmet, so it is the one true next action.
+	teams := service.Teams()
+	for index := 0; index < len(teams)-1; index++ {
+		if _, _, err := service.ToggleReady(request, teams[index].ID); err != nil {
+			t.Fatalf("ready seat %s: %v", teams[index].ID, err)
+		}
+	}
+	fmt.Print(renderAdminPage(t))
+}
+
 func TestAdminTaskBoardDraftPhaseFixtureProcess(t *testing.T) {
 	phase := os.Getenv("ADMIN_TASK_DRAFT_PHASE")
 	if phase == "" {
