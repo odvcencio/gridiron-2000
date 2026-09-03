@@ -143,6 +143,7 @@ func (s *Service) BoardData(r *http.Request) map[string]any {
 		"available_count":      availableCount,
 		"available_total":      availableCount,
 		"matching_count":       pagination.Total,
+		"matching_count_noun":  Plural(pagination.Total, "player"),
 		"matching_empty":       pagination.Total == 0,
 		"available_empty":      availableCount == 0,
 		"has_filters":          position != "" || rawQuery != "",

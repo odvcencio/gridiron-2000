@@ -249,11 +249,6 @@ func PlayerPoolRegion() Node {
 			</div>
 		</div>
 		<div class="pool-filter-rail" id="pool-search">
-		<div class="position-filters" aria-label="Filter the player pool by position">
-			<Each of={data.positions} as="tab">
-				<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>
-			</Each>
-		</div>
 		<form method="get" action="/players" class="pool-search-bar">
 			<label class="mono" for="players-search">SEARCH //</label>
 			<input id="players-search" type="search" name="q" value={data.query} placeholder="Search player or team" inputmode="search" enterkeyhint="search" autocomplete="off"></input>
@@ -265,10 +260,25 @@ func PlayerPoolRegion() Node {
 			</If>
 			<button class="filter-button" type="submit">Search</button>
 		</form>
+		<details class="pool-filter-disclosure">
+			<summary>
+				<span>Filters</span>
+				<span class="pool-filter-disclosure__active mono">
+					<Each of={data.positions} as="tab">
+						<If cond={tab.active}>{tab.label}</If>
+					</Each>
+				</span>
+			</summary>
+			<div class="position-filters" aria-label="Filter the player pool by position">
+				<Each of={data.positions} as="tab">
+					<a href={tab.href} data-gosx-link class="filter-button" aria-current={tab.active}>{tab.label}</a>
+				</Each>
+			</div>
+		</details>
 		</div>
 		<p class="scoring-note" aria-live="polite">
 			<If cond={data.pool_total > 0}>
-				Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} players · page {data.pool_page} of {data.pool_pages}
+				Showing {data.pool_page_start}–{data.pool_page_end} of {data.pool_total} {data.pool_total_noun} · page {data.pool_page} of {data.pool_pages}
 			</If>
 			<If cond={data.pool_total == 0 && data.pool_unavailable == false}>No players match this search.</If>
 		</p>
@@ -287,6 +297,20 @@ func PlayerPoolRegion() Node {
 					The authoritative player list is temporarily unavailable. Browsing and roster/waiver actions resume after the source recovers.
 				</p>
 			</div>
+		</If>
+		<If cond={data.pool_total > 0}>
+			<div class="pool-labels pool-labels--status mono" aria-hidden="true">
+				<span>RK</span>
+				<span>PLAYER</span>
+				<span>POS</span>
+				<span>PROJ</span>
+				<span>STATUS</span>
+				<span>ACTION</span>
+			</div>
+			<details class="pool-legend">
+				<summary>What do RK, PROJ, and H### mean?</summary>
+				<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>), a 1-QB market that undervalues quarterbacks for this league's superflex roster. PROJ — projected points per game. H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), shown beside a player's market rank whenever the two differ. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+			</details>
 		</If>
 		<div class="pool-list pool-list--tall">
 			<Each of={data.players} as="player">
