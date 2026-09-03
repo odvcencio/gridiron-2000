@@ -893,24 +893,14 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 // superflex roster preset and ADP otherwise — this league's own
 // CurrentRoster().Slots["SUPERFLEX"] > 0, the same superflex signal
 // houserank.go's applyHouseRanks reads to decide whether a QB can fill a
-// SUPERFLEX slot at all. request is nil-safe: a fixture test that builds
-// viewData without a live *http.Request still gets the roster-only
-// default rather than a panic.
+// SUPERFLEX slot at all. It delegates to league.ResolveDraftPoolSort — the
+// SAME resolution service.go's draftData reads to pick pool.byADP vs
+// pool.byHouse for the available pane's actual row order — so this page's
+// rendered order and its own RK-cell/sort-chip display can never disagree.
+// request is nil-safe: a fixture test that builds viewData without a live
+// *http.Request still gets the roster-only default rather than a panic.
 func resolveDraftPoolSort(request *http.Request) string {
-	active := "adp"
-	if league.CurrentRoster().Slots["SUPERFLEX"] > 0 {
-		active = "house"
-	}
-	if request == nil {
-		return active
-	}
-	switch strings.ToLower(strings.TrimSpace(request.URL.Query().Get("sort"))) {
-	case "house":
-		active = "house"
-	case "adp":
-		active = "adp"
-	}
-	return active
+	return league.ResolveDraftPoolSort(request)
 }
 
 // draftPositionChips renders D7's chip row from the pool's own eight

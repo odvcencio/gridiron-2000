@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"gridiron-2000/internal/league"
+
 	"m31labs.dev/gosx/action"
 )
 
@@ -56,6 +58,47 @@ func TestParseSeatAutopickIsLiteral(t *testing.T) {
 		if _, err := parseSeatAutopick(raw); err != nil {
 			t.Errorf("parseSeatAutopick(%q) = %v", raw, err)
 		}
+	}
+}
+
+// TestResolveDraftPoolSortDelegatesToLeagueResolver is the D9 follow-up's
+// own single-source-of-truth check: resolveDraftPoolSort must delegate to
+// league.ResolveDraftPoolSort verbatim — the SAME resolution service.go's
+// draftData reads to choose pool.byADP vs pool.byHouse for the available
+// pane's actual row order — never a locally reimplemented copy that could
+// drift from it.
+func TestResolveDraftPoolSortDelegatesToLeagueResolver(t *testing.T) {
+	if got, want := resolveDraftPoolSort(nil), league.ResolveDraftPoolSort(nil); got != want {
+		t.Fatalf("resolveDraftPoolSort(nil) = %q, want %q", got, want)
+	}
+	houseRequest := httptest.NewRequest(http.MethodGet, "/draft?sort=house", nil)
+	if got, want := resolveDraftPoolSort(houseRequest), "house"; got != want {
+		t.Fatalf("resolveDraftPoolSort(?sort=house) = %q, want %q", got, want)
+	}
+	adpRequest := httptest.NewRequest(http.MethodGet, "/draft?sort=adp", nil)
+	if got, want := resolveDraftPoolSort(adpRequest), "adp"; got != want {
+		t.Fatalf("resolveDraftPoolSort(?sort=adp) = %q, want %q", got, want)
+	}
+	invalidRequest := httptest.NewRequest(http.MethodGet, "/draft?sort=bogus", nil)
+	if got, want := resolveDraftPoolSort(invalidRequest), league.ResolveDraftPoolSort(nil); got != want {
+		t.Fatalf("resolveDraftPoolSort with an invalid sort = %q, want the roster-only default %q", got, want)
+	}
+}
+
+// TestDraftAvailableFragmentURLCarriesActiveSort pins the available pane's
+// live-swapped region URL (page.gsx): the position-chip repoll must carry
+// the page's own resolved sort (data.pool_sort), or a chip click while
+// HOUSE is active would silently refetch under ResolveDraftPoolSort's
+// roster-only default instead.
+func TestDraftAvailableFragmentURLCarriesActiveSort(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	want := `data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort}`
+	if count := strings.Count(source, want); count != 2 {
+		t.Fatalf("draft-available-list region URL sort-carrying literal found %d times, want 2 (target and fallback live_mode): %q", count, want)
 	}
 }
 

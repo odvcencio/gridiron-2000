@@ -2689,13 +2689,13 @@ func Page() Node {
 				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
-					<div id="draft-available-list" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
+					<div id="draft-available-list" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
 						<DraftAvailable {...data.available}></DraftAvailable>
 					</div>
 				</div>
 				</If>
 				<If cond={data.live_mode != "target"}>
-				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
+				<div id="draft-available-list" class="draft-pane__body" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty data-gosx-region-on="draft:pick draft:undo draft:state">
 					<DraftAvailable {...data.available}></DraftAvailable>
 				</div>
 				</If>
