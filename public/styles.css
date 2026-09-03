@@ -15990,3 +15990,36 @@ a.skip-link {
 .draft-history-head .segment__option {
   white-space: nowrap;
 }
+
+/* comb — oleander */
+
+/* Item 1 (2026-09-02 audit): the available pane's client-side search
+   (data-gosx-filter, DraftAvailableHead) already toggled
+   gosx-filter-row--hidden on every non-matching row and announced a
+   true "N of M shown" count through the shared live region — but the
+   shared hidden-row rule above only ever covered .pool-row (/players'
+   own row class), so every .avail-row it marked hidden stayed painted:
+   the announcement said "0 of 50 shown" while all 50 rows kept
+   rendering. This is the missing half of that same rule for the draft
+   room's own row class; the no-JS GET fallback (DraftAvailableHead's
+   own <form>, page.gsx) narrows the actual <tr> set server-side and
+   needs no CSS at all. */
+.avail-row.gosx-filter-row--hidden {
+  display: none;
+}
+
+/* The no-JS search form sits inline with the position chips and sort
+   toggle in .draft-available-head's own flex row; it must not force a
+   line of its own or push the Search button somewhere a phone visitor
+   cannot reach with one thumb. */
+.draft-search-form {
+  display: flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.draft-search-form .draft-search {
+  flex: 1 1 auto;
+  min-width: 8rem;
+}

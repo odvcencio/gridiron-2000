@@ -1145,6 +1145,15 @@ type DraftMyTeamProps struct {
 
 type DraftAvailableHeadProps struct {
 	SearchPlaceholder string
+	// Query/Position/Sort (comb — oleander, item 1): the current pool
+	// state, so the no-JS search form below can resubmit it as a real GET
+	// (value on the input, hidden fields for pos/sort) and a reload never
+	// silently drops the position filter or sort a visitor already had
+	// active — the same q/pos-preservation rule draftPositionChips and
+	// draftSortHref (page.server.go) already hold for their own hrefs.
+	Query    string
+	Position string
+	Sort     string
 	// Positions/SortOptions: D7/D9 (spruce audit). Built server-side
 	// (page.server.go's draftPositionChips/draftSortOptions) as plain
 	// label/value/href/active maps — the same []map[string]any shape
@@ -1723,15 +1732,39 @@ func DraftPickBar(props DraftAvailableProps) Node {
 	</If>
 }
 
-// DraftAvailableHead is the available pane's fixed head: the client-side
-// search filter (data-gosx-filter targets the region's own id, so the
-// input itself sits outside the swapped subtree and survives every
-// refetch), the position chips that drive the region's own refetch
+// DraftAvailableHead is the available pane's fixed head: a real GET
+// search form, the position chips that drive the region's own refetch
 // signal, and (D9) the ADP/HOUSE sort toggle.
+//
+// comb — oleander, item 1: the search input used to sit bare, with no
+// surrounding <form> and no name attribute, so it did nothing at all
+// without JavaScript, and its data-gosx-filter (the client-side "hide
+// non-matching rows" pass) had no matching CSS for .avail-row — every
+// row it marked gosx-filter-row--hidden stayed painted (the shared rule
+// only ever covered .pool-row, /players' own row class; see this comb's
+// block at the end of styles.css for the .avail-row fix). Wrapping the
+// input in method="get" action="/draft", naming it "q", and carrying
+// pos/sort forward as hidden fields makes a plain Enter/submit reach the
+// server's own already-working ?q= filter (service.go's draftData,
+// playerMatchesQuery) with no JavaScript required at all — the exact
+// no-JS GET fallback /players' own search form already uses. The input
+// keeps data-gosx-filter for the fast, no-round-trip live narrowing a
+// JavaScript session still gets while typing; Enter (or the Search
+// button) still reaches the server for a canonical, shareable, and
+// no-JS-safe result either way.
 func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	return <div class="draft-available-head">
 		<h2 id="draft-available-title" class="visually-hidden">Available players</h2>
-		<input id="draft-search" type="search" class="draft-search" placeholder={props.SearchPlaceholder} data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
+		<form method="get" action="/draft" class="draft-search-form">
+			<input id="draft-search" type="search" class="draft-search" name="q" value={props.Query} placeholder={props.SearchPlaceholder} inputmode="search" enterkeyhint="search" autocomplete="off" data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
+			<If cond={props.Position != ""}>
+				<input type="hidden" name="pos" value={props.Position}></input>
+			</If>
+			<If cond={props.Sort != "" && props.Sort != "adp"}>
+				<input type="hidden" name="sort" value={props.Sort}></input>
+			</If>
+			<button class="filter-button" type="submit">Search</button>
+		</form>
 		<div class="draft-available-head__chips" role="group" aria-label="Filter the pool by position">
 			<Each of={props.Positions} as="chip">
 				<a href={chip.href} class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value={chip.value} aria-pressed={chip.active}>{chip.label}</a>
@@ -2685,7 +2718,7 @@ func Page() Node {
 				</If>
 			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
-				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
+				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Query={data.pool_query} Position={data.pool_position} Sort={data.pool_sort} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
 					<div id="draft-available-list" data-gosx-region data-gosx-region-url={"/draft/fragment/available?pos={value}&sort=" + data.pool_sort} data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>
