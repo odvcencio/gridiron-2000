@@ -7,6 +7,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-577fd49-sweep4] — 2026-09-03
+
+Scope: the fourth sweep release — the manager loop surfaces from the comb
+audits, plus the draft room's pre-draft checklist as a disclosure that
+never collapses the pane grid. Rolled as revision 100; no schema change.
+
+### Fixed
+- /trades partner chips and headings use the league's real team names.
+- /matchups shows each side's projection and win probability before kickoff instead of dashes; the ledger reads in plain words with one freshness clause.
+- /team rows carry the news tip and house rank like the other pool surfaces, one schedule line per row, and the VIEW MATCHUP button sits under the stat strip instead of inside its scroller.
+- Action Center chips read "On track" / "Needs you"; the trade veto policy is a sentence; trade composer options meet the 44 px floor; trade sections number sequentially.
+- The draft room's pre-draft checklist is a closed-by-default disclosure whose open state overlays the panes; the pane grid keeps one geometry in both states at every width.
+- Personal names removed from two source comments (privacy contract).
+
+
 ## [release-2026.09.03-4cf0542-sweep3] — 2026-09-03
 
 Scope: the third sweep release — the commissioner and results surfaces from

@@ -30,12 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-e9df36b-sweep3b; built from
-          # e9df36b (main, 2026-09-03): the opened pre-draft checklist
-          # overlays the draft room's panes instead of starving them; the pane
-          # grid keeps one geometry in both states (verified 1440/1280/390).
-          # No schema change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:918160fda746f3829e0ea7eefc8e316393907a327e41e85060edfd79a9a87d97
+          # release-2026.09.03-577fd49-sweep4; built from
+          # 577fd49 (main, 2026-09-03): sweep release 4 — trade
+          # partner chips use real team names, /matchups projects before
+          # kickoff, ledger prose, /team rows carry news and house rank,
+          # VIEW MATCHUP out of the scroller, plain-language chips. No
+          # schema change: `rollout undo` to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fd15c59e8c1afbcccc3fa11edbe86ebd870f2158fefdb1c8c1146310097d2cea
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
