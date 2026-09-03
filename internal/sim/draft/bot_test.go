@@ -127,6 +127,41 @@ func TestNextPickErrorsWhenNotOnTheClock(t *testing.T) {
 	}
 }
 
+// TestNextPickFallsBackToPunterPage guards the gridiron-house late-round
+// case a bare K/DST fallback missed: a team whose only open starter slot
+// is P sees no draft_eligible row on the default page (punters rank far
+// below the page-1 cutoff) and none on pos=K or pos=DST either, so
+// NextPick must also try pos=P before giving up — otherwise a rehearsal
+// stalls at the exact pick a real gridiron-house league would make too.
+func TestNextPickFallsBackToPunterPage(t *testing.T) {
+	var sawPunterPage bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Query().Get("pos") {
+		case "P":
+			sawPunterPage = true
+			_, _ = w.Write([]byte(`{"started":true,"on_clock_id":"team-6","available":[{"id":"p-punter","draft_eligible":true}]}`))
+		case "K":
+			_, _ = w.Write([]byte(`{"started":true,"on_clock_id":"team-6","available":[{"id":"p-kicker","draft_eligible":false}]}`))
+		case "DST":
+			_, _ = w.Write([]byte(`{"started":true,"on_clock_id":"team-6","available":[{"id":"p-dst","draft_eligible":false}]}`))
+		default:
+			_, _ = w.Write([]byte(`{"started":true,"on_clock_id":"team-6","available":[{"id":"p-other","draft_eligible":false}]}`))
+		}
+	}))
+	defer srv.Close()
+	bot := New(srv.URL, "east5@sim.test", "East Five")
+	got, err := bot.NextPick()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sawPunterPage {
+		t.Fatal("NextPick never requested pos=P")
+	}
+	if got != "p-punter" {
+		t.Fatalf("NextPick = %q, want p-punter", got)
+	}
+}
+
 // TestPostActionDecodeErrorIncludesBody guards the same truncated-body
 // diagnostic get already carries: a non-JSON action response (an HTML
 // error page, for instance) must not collapse into a bare decode error.

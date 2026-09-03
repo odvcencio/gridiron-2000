@@ -4506,6 +4506,27 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 	return out
 }
 
+// TeamMemberEmailsForTest maps each seat's team ID to its primary member's
+// email (memberForTeam's Role == "" pick), or "" for a seat with no bound
+// member. It exists only for the harness's GET /test/draft route
+// (test_routes.go), which stamps the result onto each team row as
+// member_email: a rehearsal that seats already-real members needs to know
+// which email holds which seat, and no production render may ever expose
+// another manager's address, so this stays a distinct call site rather
+// than a field draftTeamMaps adds to every render.
+func (s *Service) TeamMemberEmailsForTest() map[string]string {
+	state := s.store.Snapshot()
+	order := state.DraftOrder
+	if len(order) == 0 {
+		order = defaultTeamIDs()
+	}
+	out := make(map[string]string, len(order))
+	for _, teamID := range order {
+		out[teamID] = memberForTeam(state.Members, teamID).Email
+	}
+	return out
+}
+
 // pickMaps renders the pick tape, one entry per recorded pick. Each entry
 // carries provenance: made_by ("manager", "auto", or "commissioner") plus
 // the is_auto/is_commissioner bools GSX conditions need (they cannot switch

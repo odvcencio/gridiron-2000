@@ -158,6 +158,22 @@ func mountTestRoutes(app *server.App, service *league.Service, authManager *auth
 		draft, _ := data["draft"].(map[string]any)
 		viewer, _ := data["viewer"].(map[string]any)
 		viewerTeamID, _ := viewer["team_id"].(string)
+		// member_email lets a rehearsal against a league whose seats are
+		// already real members (cmd/gridiron-sim --seats existing) learn
+		// which email holds which seat, so it can sign in as the CURRENT
+		// holder instead of claiming a seat with a generated identity.
+		// Safe only here: this route is loopback-only
+		// (testRoutesLoopbackOnly) and harness-only (mountTestRoutes is
+		// wired only when GRIDIRON_TEST_AUTH is set, refused outside a
+		// local environment by AppConfig.validate) — no production render
+		// stamps another manager's address onto a team row.
+		if teams, ok := data["teams"].([]map[string]any); ok && len(teams) > 0 {
+			emails := service.TeamMemberEmailsForTest()
+			for _, team := range teams {
+				id, _ := team["id"].(string)
+				team["member_email"] = emails[id]
+			}
+		}
 		writeJSON(w, map[string]any{
 			"started":     draft["started"],
 			"complete":    draft["complete"],
