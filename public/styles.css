@@ -16117,3 +16117,18 @@ a.skip-link {
     gap: var(--space-xs);
   }
 }
+
+/* Item 3 (P2): /pickem's "Back to current week" link used to render as
+   .pickem-weeknav's own last child. At phone width that nav becomes a
+   horizontally snap-scrolling strip (flex-wrap: nowrap, overflow-x:
+   auto, public/styles.css above) — a fifth chip after Prev/select+Go/
+   Next pushed the link past the 390px viewport (x=328, width=157,
+   right edge 485) with no visual cue a manager needed to swipe
+   sideways to find it. app/pickem/page.gsx now renders it as
+   .pickem-weeknav's own sibling instead of its child, so it always
+   falls on its own row in normal block flow and stays fully inside
+   the viewport, independent of how the week strip itself scrolls. */
+.pickem-back-to-current {
+  min-height: 2.75rem;
+  margin-top: var(--space-xs);
+}
