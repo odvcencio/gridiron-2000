@@ -275,7 +275,7 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 		DraftStartedAt: displayTime(location, summary.Draft.StartedAt), DraftStartedAtISO: isoTime(summary.Draft.StartedAt),
 		DraftAt: draftAt, DraftAtISO: draftAtISO, DraftAtRelative: draftAtRelative,
 		DraftRounds: summary.Draft.Rounds, DraftPicks: summary.Draft.Picks,
-		DraftSlots: summary.Pool.RosterCapacity, DraftOrder: orderText(summary.Draft.Order),
+		DraftSlots: summary.Pool.RosterCapacity, DraftOrder: orderText(summary.Draft.Order, summary.Membership.SeatLedger),
 		DraftOrderSet: summary.Draft.OrderSet, ClockArmed: summary.Draft.ClockArmed,
 		ClockPaused: summary.Draft.ClockPaused, ClockText: clockText(summary.Draft),
 		DraftStartCopy: "The commissioner starts drafts intentionally; the scheduled time is only the meeting point.",
@@ -305,6 +305,14 @@ func cardView(entry commissionerhq.FleetEntry, now time.Time, location *time.Loc
 	for _, seat := range summary.Membership.SeatLedger {
 		card.SeatLedger = append(card.SeatLedger, map[string]any{
 			"seat": seat.Seat, "claimed": seat.Claimed, "ready": seat.Ready,
+			// abbreviation/name (item 10, 2026-09-02 audit): a bare
+			// "SEAT 1" ledger row named nothing about the actual team.
+			// A peer summary from before this field existed leaves both
+			// "" — has_team_name gates the label so that older peer's
+			// row still reads as a plain "SEAT N", never "SEAT N ·  · ".
+			"abbreviation":  seat.Abbreviation,
+			"name":          seat.Name,
+			"has_team_name": strings.TrimSpace(seat.Name) != "",
 		})
 	}
 	card.OpenData = openDataRows(summary.OpenData, now, location)
@@ -798,12 +806,29 @@ func ratio(value float64) string {
 	return fmt.Sprintf("%.1f×", value)
 }
 
-func orderText(order []int) string {
+// orderText renders the draft order as team codes, not bare seat
+// ordinals (item 10, 2026-09-02 audit): "6 · 3 · 4 · 7 · 5 · 8 · 1 · 2"
+// named no team at all, on a page whose own seat ledger sits right next
+// to it. seatAbbreviation looks up each ordinal's own team code from the
+// SAME seat ledger the ledger table renders; an ordinal with no match
+// (an older peer summary with no abbreviation field, or a malformed
+// value) falls back to the bare number rather than an empty gap.
+func orderText(order []int, seatLedger []commissionerhq.SeatLedgerEntry) string {
 	if len(order) == 0 {
 		return "Default configured order"
 	}
+	seatAbbreviation := make(map[int]string, len(seatLedger))
+	for _, seat := range seatLedger {
+		if code := strings.TrimSpace(seat.Abbreviation); code != "" {
+			seatAbbreviation[seat.Seat] = code
+		}
+	}
 	parts := make([]string, 0, len(order))
 	for _, ordinal := range order {
+		if code, ok := seatAbbreviation[ordinal]; ok {
+			parts = append(parts, strconv.Itoa(ordinal)+" "+code)
+			continue
+		}
 		parts = append(parts, strconv.Itoa(ordinal))
 	}
 	return strings.Join(parts, " · ")

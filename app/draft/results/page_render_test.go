@@ -115,6 +115,7 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 			t.Errorf("pre-draft results page missing %q: %s", want, body)
 		}
 	}
+	assertSignedInShellAndLeagueIdentity(t, body)
 	for _, notWant := range []string{`class="segment results-segment"`, `class="results-team-card"`} {
 		if strings.Contains(body, notWant) {
 			t.Errorf("pre-draft results page must not render the views segment or any team card (%q present)", notWant)
@@ -164,6 +165,7 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 	if strings.Contains(body, "DRAFT NOT COMPLETE") {
 		t.Error("post-draft results page must not still show the not-complete message")
 	}
+	assertSignedInShellAndLeagueIdentity(t, body)
 	// The viewer's own team leads the by-team card order.
 	firstCard := strings.Index(body, `class="results-team-card"`)
 	viewerCard := strings.Index(body, `id="team-`+member.TeamID+`"`)
@@ -208,5 +210,55 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 	firstCardBody := taggedBody[taggedFirst : taggedFirst+cardEnd]
 	if !strings.Contains(firstCardBody, `id="team-`+otherID+`"`) {
 		t.Errorf("?team=%s must lead the by-team view with that team's own card (id=%s): %s", otherAbbr, otherID, firstCardBody)
+	}
+
+	// Item 8 (2026-09-02 audit): an unknown "?team=" code must say so,
+	// visibly, rather than silently leading with the viewer's own team.
+	// ZZ matches no fixture team's own id or abbreviation (East 1-4 and
+	// West 1-4, per defaultTeamIDs).
+	_, unknownBody := renderResultsForUserPath(t, handler, viewerEmail, "/draft/results?team=ZZ")
+	if !strings.Contains(unknownBody, "No team is coded ZZ") {
+		t.Errorf("?team=ZZ (an unknown code) must show a visible not-found notice: %s", unknownBody)
+	}
+	unknownFirst := strings.Index(unknownBody, `class="results-team-card"`)
+	if unknownFirst < 0 {
+		t.Fatal("?team=ZZ results page rendered no team cards")
+	}
+	unknownCardEnd := strings.Index(unknownBody[unknownFirst:], "</article>")
+	unknownFirstCardBody := unknownBody[unknownFirst : unknownFirst+unknownCardEnd]
+	if !strings.Contains(unknownFirstCardBody, `id="team-`+member.TeamID+`"`) {
+		t.Errorf("?team=ZZ must still fall back visibly to the viewer's own team (id=%s): %s", member.TeamID, unknownFirstCardBody)
+	}
+	// A KNOWN code must not trip the not-found notice.
+	if strings.Contains(taggedBody, "No team is coded") {
+		t.Errorf("?team=%s (a known code) must not render the not-found notice: %s", otherAbbr, taggedBody)
+	}
+}
+
+// assertSignedInShellAndLeagueIdentity is the item 1/2 decisive proof
+// (2026-09-02 audit): a signed-in member must get the SAME app shell
+// every other page renders — the desktop rail's navigation groups, the
+// phone tab bar, and the real league identity in the masthead — never
+// the anonymous minimal-bar with its bare "League access" sign-in link.
+// DraftResultsData used to omit "viewer"/"league" from this page's own
+// Load() data, so app/layout.gsx's data.viewer.signed_in check always
+// read false here, regardless of the actual session.
+func assertSignedInShellAndLeagueIdentity(t *testing.T, body string) {
+	t.Helper()
+	for _, want := range []string{
+		`class="primary-navigation__groups"`,
+		`class="app-tabbar"`,
+		`class="user-badge"`,
+		`class="site-brand"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("signed-in results page must render the full app shell (missing %q): %s", want, body)
+		}
+	}
+	if strings.Contains(body, "minimal-bar") {
+		t.Error("signed-in results page must not fall back to the anonymous minimal-bar shell")
+	}
+	if !strings.Contains(body, "THE LEAGUE") || !strings.Contains(body, ">TL<") {
+		t.Errorf("results masthead must carry the real league identity (name/badge), not an empty brand: %s", body)
 	}
 }

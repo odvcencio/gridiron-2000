@@ -64,12 +64,36 @@ func TestAdminAttentionReadAtRendersValidDateTimeWithRelativeText(t *testing.T) 
 
 func sampleAdminAttention() adminAttentionReadoutProps {
 	return adminAttentionReadoutProps{
-		Phase: "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftAt: "2026-08-29T17:00:00Z",
+		Phase: "preseason", DraftStatus: "AWAITING COMMISSIONER", DraftDate: "SAT · AUG 29", DraftTime: "1:00 PM EDT", DraftPublished: true,
 		ScheduleStatus: "GENERATED", ScheduleWeek: 1, ScheduleReady: false, ScheduleReason: "waiting for final games",
 		SeatCount: 8, ClaimedCount: 7, ReadyCount: 6, InviteCount: 2, BoardGapCount: 1,
 		PresenceHere: 2, PresenceIdle: 1, PresenceAway: 2, PresenceNotSeen: 2, PresenceUnclaimed: 1,
 		GeneratedAt: "2026-08-25T15:00:00Z",
-		Seats:       []adminAttentionSeatView{{Name: "Alpha", Abbreviation: "ALP", Claimed: true, Ready: false, Presence: "here", PresenceDetail: "At the room now.", BoardCount: 0, BoardGap: true}},
+		Seats:       []adminAttentionSeatView{{Name: "Alpha", Abbreviation: "ALP", Claimed: true, Ready: false, Presence: "here", PresenceLabel: "In the room", PresenceDetail: "At the room now.", BoardCount: 0, BoardGap: true}},
+	}
+}
+
+// TestAdminAttentionReadoutRendersFriendlyDraftDateAndPresenceWords is the
+// item 5 decisive proof (2026-09-02 audit): the live readout used to
+// print a raw RFC3339 draft instant ("2026-09-06T16:05:00-04:00") where
+// every other draft-date fact on the page already reads through the
+// league-local formatter, and each seat's own presence enum
+// ("not_seen") straight into the page as if it were prose, rather than
+// plain words.
+func TestAdminAttentionReadoutRendersFriendlyDraftDateAndPresenceWords(t *testing.T) {
+	rendered, err := adminAttentionFragmentRender(sampleAdminAttention())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"SAT · AUG 29", "1:00 PM EDT", "In the room"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("attention readout missing %q: %s", want, rendered)
+		}
+	}
+	for _, notWant := range []string{"T17:00:00Z", "T16:05:00", "-04:00", ">here<", ">not_seen<"} {
+		if strings.Contains(rendered, notWant) {
+			t.Errorf("attention readout must not print the raw %q: %s", notWant, rendered)
+		}
 	}
 }
 

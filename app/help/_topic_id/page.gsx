@@ -5,7 +5,7 @@ func Page() Node {
 		<header class="page-masthead guide-masthead help-masthead">
 			<div>
 				<span class="signal-label"><span class="signal-mark" aria-hidden="true"></span>HELP TOPIC // {data.topic.category}</span>
-				<p class="page-kicker">/{data.topic.id} · corpus {data.corpus_version} · verified {data.source_sha}</p>
+				<p class="page-kicker">/{data.topic.id} · corpus {data.corpus_version} · verified <span title={data.source_sha}>{data.source_sha_short}</span></p>
 				<h1>{data.topic.title}</h1>
 				<p class="guide-lede">{data.topic.summary}</p>
 				<nav class="guide-actions" aria-label="Topic actions">
@@ -17,7 +17,7 @@ func Page() Node {
 				<div><span>Actor</span><strong>{data.topic.actor}</strong></div>
 				<div><span>Supported</span><strong>{data.topic.supported}</strong></div>
 				<div><span>Runtime source</span><strong>{data.topic.runtime_source}</strong></div>
-				<div><span>Verified source</span><strong>{data.source_sha}</strong></div>
+				<div><span>Verified source</span><strong title={data.source_sha}>{data.source_sha_short}</strong></div>
 			</aside>
 		</header>
 

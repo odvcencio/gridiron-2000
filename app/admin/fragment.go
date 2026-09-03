@@ -13,7 +13,9 @@ import (
 type adminAttentionReadoutProps struct {
 	Phase               string
 	DraftStatus         string
-	DraftAt             string
+	DraftDate           string
+	DraftTime           string
+	DraftPublished      bool
 	ScheduleStatus      string
 	ScheduleWeek        int
 	ScheduleReady       bool
@@ -40,6 +42,7 @@ type adminAttentionSeatView struct {
 	Claimed        bool
 	Ready          bool
 	Presence       string
+	PresenceLabel  string
 	PresenceDetail string
 	BoardCount     int
 	BoardGap       bool
@@ -67,7 +70,13 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 	view.GeneratedAtRelative = stringValue(data, "generated_at_relative", "")
 	if draft, ok := data["draft"].(map[string]any); ok {
 		view.DraftStatus = stringValue(draft, "status", "UNKNOWN")
-		view.DraftAt = stringValue(draft, "at", "UNKNOWN")
+		// date/time (item 5, 2026-09-02 audit): the readout used to print
+		// "at"'s own raw RFC3339 instant. date/time are the same
+		// league-local formatted facts data.draft.date/data.draft.time
+		// already show elsewhere on this page (draftSummaryForState).
+		view.DraftDate = stringValue(draft, "date", "TBD")
+		view.DraftTime = stringValue(draft, "time", "")
+		view.DraftPublished = boolValue(draft, "published")
 	}
 	if schedule, ok := data["schedule"].(map[string]any); ok {
 		view.ScheduleStatus = stringValue(schedule, "status", "UNKNOWN")
@@ -86,6 +95,7 @@ func adminAttentionReadoutFromData(data map[string]any) adminAttentionReadoutPro
 				Claimed:        boolValue(seat, "claimed"),
 				Ready:          boolValue(seat, "ready"),
 				Presence:       stringValue(seat, "presence", "not_seen"),
+				PresenceLabel:  stringValue(seat, "presence_label", "Not seen yet"),
 				PresenceDetail: stringValue(seat, "presence_detail", "No presence report."),
 				BoardCount:     intValue(seat, "board_count"),
 				BoardGap:       boolValue(seat, "board_gap"),
