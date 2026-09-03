@@ -14576,11 +14576,22 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      pattern .draft-command__pick/.draft-command__team both already use
      above) leaves only the digits; the fixed basis plus overflow: hidden
      below is the hard backstop if a future countdown format still runs
-     long (a 3+ digit day count, "999d…"). */
+     long (a 3+ digit day count, "999d…").
+     comb — oleander, item 2: the fixed 5rem (80px) cap this fix picked
+     was still too narrow for the digits ALONE — "3d 13:26:42" needs
+     ~111px live at this font-size/padding, so a 61.9px content box (80px
+     minus the horizontal padding) ellipsized to "3d 13…", the one thing
+     a manager opens this clock to actually read. min-width: max-content
+     keeps the D1/D2 fix's real goal (idx hidden, .draft-command__turn is
+     still the row's one shrinkable track and absorbs the difference —
+     its own children are already ellipsis-protected for exactly this)
+     while letting the box grow to whatever the digits alone need; max-
+     width is a generous, not tight, backstop for a "999d…" edge case
+     that should never make the row wrap or push the MENU toggle off. */
   .draft-command__clock {
-    flex: 0 0 5rem;
-    min-width: 0;
-    max-width: 5rem;
+    flex: 0 0 auto;
+    min-width: max-content;
+    max-width: 9rem;
     overflow: hidden;
     padding: 0.2rem var(--space-xs);
     animation: none;
