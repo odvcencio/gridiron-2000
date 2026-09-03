@@ -145,8 +145,8 @@ func TestPlayersPageSeatlessHidesRowActionsButKeepsBrowsing(t *testing.T) {
 	if strings.Contains(seated, `role="tooltip"`) || strings.Contains(seated, `stat-tip" tabindex="0"`) {
 		t.Errorf("players page rendered a legacy tooltip trigger: %s", seated)
 	}
-	if !strings.Contains(seated, "<h1>PLAYER POOL.</h1>") {
-		t.Errorf("seated players page missing the PLAYER POOL. page-name h1: %s", seated)
+	if !strings.Contains(seated, "<h1>PLAYER POOL</h1>") {
+		t.Errorf("seated players page missing the PLAYER POOL page-name h1: %s", seated)
 	}
 }
 
@@ -161,8 +161,8 @@ func TestPlayersHeadlineNamesThePageNotTheWire(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := string(page)
-	if !strings.Contains(source, "<h1>PLAYER POOL.</h1>") {
-		t.Errorf("players page.gsx h1 is not the plain page name %q", "PLAYER POOL.")
+	if !strings.Contains(source, "<h1>PLAYER POOL</h1>") {
+		t.Errorf("players page.gsx h1 is not the plain page name %q", "PLAYER POOL")
 	}
 	if strings.Contains(source, "THE WIRE") {
 		t.Errorf("players page.gsx still claims the WIRE name /wire owns")

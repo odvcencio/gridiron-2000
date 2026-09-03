@@ -150,6 +150,15 @@ func TestBoardRowOmitsNewsIconWhenPlayerHasNoNews(t *testing.T) {
 	if strings.Contains(body, "stat-tip--news") || strings.Contains(body, "📰") {
 		t.Fatalf("quiet player still rendered a news icon: %s", body)
 	}
+	// comb — oleander, item 10: .pool-player-cell__info (the fixed-width
+	// news slot) must still render even with no news — a MISSING flex
+	// item (not merely an empty one) let the sibling identity stat-tip
+	// grow to fill the whole cell, so a quiet row and a newsworthy row
+	// measured different name-column widths (104.7px on some real rows
+	// at 1280px, short of the 120px floor every other row held).
+	if !strings.Contains(body, `class="pool-player-cell__info"`) {
+		t.Fatalf("quiet player row must still carry the always-present info slot: %s", body)
+	}
 	if got := strings.Count(body, `<details class="stat-tip">`) + strings.Count(body, `<details class="stat-tip stat-tip--news">`); got != 1 {
 		t.Fatalf("quiet player row must carry exactly 1 stat-tip trigger, got %d: %s", got, body)
 	}
@@ -175,6 +184,12 @@ func TestBoardPageGSXNewsIconCoversBothPoolRowTemplates(t *testing.T) {
 	}
 	if got := strings.Count(body, `class="pool-player-cell"`); got != 2 {
 		t.Fatalf(`pool-player-cell wrapper count = %d, want 2`, got)
+	}
+	// comb — oleander, item 10: pool-player-cell__info is the always-
+	// rendered fixed-width news slot (the has_news conditional moves
+	// inside it) — once per template, same as pool-player-cell itself.
+	if got := strings.Count(body, `class="pool-player-cell__info"`); got != 2 {
+		t.Fatalf(`pool-player-cell__info slot count = %d, want 2`, got)
 	}
 	if got := strings.Count(body, "📰"); got != 2 {
 		t.Fatalf("newspaper glyph count = %d, want 2", got)

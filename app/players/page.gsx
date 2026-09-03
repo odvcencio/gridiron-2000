@@ -37,7 +37,7 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					PLAYER POOL
 				</span>
-				<h1>PLAYER POOL.</h1>
+				<h1>PLAYER POOL</h1>
 				<p>
 					Every pool player, rostered or free. Sign a free agent, claim a waiver, or drop one of your own — the transaction feed records every move.
 				</p>

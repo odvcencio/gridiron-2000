@@ -16383,3 +16383,32 @@ a.skip-link {
   min-width: var(--control-h);
   min-height: var(--control-h);
 }
+
+/* Item 10 (2026-09-02 audit, LOW): /board's own news-icon trigger used
+   to be a conditional flex ITEM of .pool-player-cell (the identity
+   stat-tip's own flex: 1 1 auto sibling) — present only when
+   player.has_news, so a row without news had no sibling at all and its
+   identity stat-tip grew to fill the whole cell alone, while a row WITH
+   news gave up 44px to the icon. Name-column width (.pool-player__text)
+   differed row to row purely because of has_news, measuring 104.7px on
+   some real rows at 1280px, short of the 120px floor every other row
+   held. .pool-player-cell__info (page.gsx) is now an ALWAYS-rendered
+   slot — the same fixed-info-column shape /draft's own
+   <td class="avail-row__info"> already holds regardless of content —
+   so every row's name column is the identical width whether or not
+   that row has news. */
+.pool-player-cell__info {
+  flex: 0 0 2.75rem;
+  min-width: 0;
+  width: 2.75rem;
+}
+
+/* POS chip vs PROJ header alignment (item 10, LOW): the position chip's
+   own fixed grid/inline-grid size (.position-chip, above) is 40px tall
+   in a 36px-tall header row, overhanging the header by 4px at the
+   PROJ column boundary — align the chip to the same 36px the row's
+   other single-line cells already use rather than its own larger
+   default. */
+.pool-row > .position-chip {
+  min-height: 2.25rem;
+}
