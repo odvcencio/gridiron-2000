@@ -203,10 +203,10 @@ func TestDraftPoolHeaderExplainsRKPROJVSADP(t *testing.T) {
 	if !strings.Contains(source, `<abbr title="projected points per game">PROJ</abbr>`) {
 		t.Error("PROJ header carries no <abbr title>")
 	}
-	if !strings.Contains(source, `<abbr title="value if drafted right now`) {
+	if !strings.Contains(source, `<abbr title="value if drafted at the next pick`) {
 		t.Error("VS ADP header carries no <abbr title>")
 	}
-	if !strings.Contains(source, `H### — this league's own rank, from your scoring and roster rules.`) {
+	if !strings.Contains(source, `H### — house rank: this league's own superflex-aware value order`) {
 		t.Error("pool legend omitted the H### house-rank explanation")
 	}
 }

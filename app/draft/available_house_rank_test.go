@@ -51,7 +51,7 @@ func TestAvailableFragmentRowsShowHouseRankLabelFixtureProcess(t *testing.T) {
 	}
 	body := response.Body.String()
 
-	rows := strings.Split(body, `<article class="avail-row"`)
+	rows := strings.Split(body, `<tr class="avail-row"`)
 	rowFor := func(t *testing.T, name string) string {
 		t.Helper()
 		for _, row := range rows {

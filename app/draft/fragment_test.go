@@ -291,7 +291,7 @@ func TestDraftFragmentFixtureIsFreshForEachRender(t *testing.T) {
 	// its raw input stays a plain fixture, so the test must read the
 	// prepared view off prepareDraftData's return value, not the map it
 	// was handed.
-	prepared := prepareDraftData(draftFragmentFixture())
+	prepared := prepareDraftData(draftFragmentFixture(), httptest.NewRequest(http.MethodGet, "/draft", nil))
 
 	fresh := draftFragmentFixture()
 	available, ok := fresh["available"].([]map[string]any)
@@ -542,7 +542,8 @@ func TestDraftHistoryLinksPreserveThePoolState(t *testing.T) {
 	fixture["history"] = tapeHistoryFixture([]league.TapePick{tapePickFixture(1, "manager")})
 	fixture["picks_empty"] = false
 
-	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft/fragment/tape", nil))
+	tapeRequest := httptest.NewRequest(http.MethodGet, "/draft/fragment/tape", nil)
+	prepared := attachDraftFragmentView(prepareDraftData(fixture, tapeRequest), tapeRequest)
 	for key, want := range map[string]string{
 		"history_tape_href":  "/draft?page=3&pos=RB&q=mahomes&view=tape",
 		"history_board_href": "/draft?page=3&pos=RB&q=mahomes&view=board",
@@ -582,7 +583,8 @@ func TestTapeFragmentRoundsAllURLPersistsAcrossRegionRefresh(t *testing.T) {
 	fixture["picks_empty"] = false
 	fixture["history"] = fullHistoryFixture(picks, 5, made+1, false)
 
-	prepared := attachDraftFragmentView(prepareDraftData(fixture), httptest.NewRequest(http.MethodGet, "/draft?view=tape&rounds=all", nil))
+	roundsRequest := httptest.NewRequest(http.MethodGet, "/draft?view=tape&rounds=all", nil)
+	prepared := attachDraftFragmentView(prepareDraftData(fixture, roundsRequest), roundsRequest)
 	tapeURL, _ := prepared["history_tape_url"].(string)
 	if !strings.Contains(tapeURL, "rounds=all") {
 		t.Errorf("history_tape_url = %q, must carry rounds=all when the request did", tapeURL)

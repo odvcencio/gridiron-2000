@@ -427,6 +427,11 @@ type draftTeamColumnView struct {
 	Team  draftBoardTeamView
 	Picks []draftTapePickView
 	Needs []map[string]any
+	// PicksEmpty (D12, spruce audit) is len(Picks) == 0, computed here
+	// rather than compared in the template: this file's own established
+	// rule (BoardView.ColumnCount's doc comment, page.gsx) against calling
+	// len() or comparing a slice inside a .gsx expression.
+	PicksEmpty bool
 }
 
 func boardTeamProps(team map[string]any) draftBoardTeamView {
@@ -640,7 +645,10 @@ func boardViewProps(board league.BoardView) draftBoardView {
 func teamColumnsProps(teams []league.TeamColumn) []draftTeamColumnView {
 	out := make([]draftTeamColumnView, 0, len(teams))
 	for _, team := range teams {
-		out = append(out, draftTeamColumnView{Team: boardTeamProps(team.Team), Picks: tapePicksProps(team.Picks), Needs: team.Needs})
+		out = append(out, draftTeamColumnView{
+			Team: boardTeamProps(team.Team), Picks: tapePicksProps(team.Picks), Needs: team.Needs,
+			PicksEmpty: len(team.Picks) == 0,
+		})
 	}
 	return out
 }
@@ -669,8 +677,15 @@ func draftLiveMode() string {
 func buildDraftHistoryView(data map[string]any, liveMode string) draftHistoryView {
 	history, _ := data["history"].(league.DraftHistoryView)
 	complete := boolField(mapField(data, "draft"), "complete")
+	started := boolField(mapField(data, "draft"), "started")
 	onClock := mapField(data, "on_clock")
-	hasOnClock := !complete
+	// hasOnClock also requires started (D15, spruce audit): the tape's
+	// synthetic "on the clock" row (DraftTapeRows) used to render a fake
+	// "1.01 · On the clock" line ABOVE "NO PICKS YET" before the room
+	// ever opened — the pool's own next-pick number (1) is real, but
+	// nobody is actually on any clock until the commissioner starts the
+	// room.
+	hasOnClock := started && !complete
 	nextLabel := ""
 	if hasOnClock {
 		if teams := len(history.Board.Columns); teams > 0 {
@@ -833,6 +848,19 @@ func draftTeamProps(raw []map[string]any) []DraftTeamCard {
 	return out
 }
 
+// friendlyPresenceDetail (D15, spruce audit) softens service.go's own raw
+// presence_detail copy for the commissioner drawer's seat grid: "No room
+// heartbeat since this server started." is an implementation fact (a
+// server-uptime clock, not a room fact), and "NOT SEEN" plus that
+// sentence read as an error rather than the plain truth — nobody from
+// that franchise has opened the draft room yet.
+func friendlyPresenceDetail(detail string) string {
+	if detail == "No room heartbeat since this server started." {
+		return "No manager has opened the room yet."
+	}
+	return detail
+}
+
 func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 	out := make([]DraftSeatControlCard, 0, len(raw))
 	for _, team := range raw {
@@ -847,7 +875,7 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 			Name:           stringField(team, "name"),
 			Manager:        stringField(team, "manager"),
 			PresenceLabel:  stringField(team, "presence_label"),
-			PresenceDetail: stringField(team, "presence_detail"),
+			PresenceDetail: friendlyPresenceDetail(stringField(team, "presence_detail")),
 			OnClock:        boolField(team, "on_clock"),
 			Ready:          boolField(team, "ready"),
 			Autopick:       boolField(team, "autopick"),
@@ -860,6 +888,92 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 	return out
 }
 
+// resolveDraftPoolSort picks the pool's active sort (D9, spruce audit):
+// the request's own "?sort=house|adp" when present, else HOUSE for a
+// superflex roster preset and ADP otherwise — this league's own
+// CurrentRoster().Slots["SUPERFLEX"] > 0, the same superflex signal
+// houserank.go's applyHouseRanks reads to decide whether a QB can fill a
+// SUPERFLEX slot at all. request is nil-safe: a fixture test that builds
+// viewData without a live *http.Request still gets the roster-only
+// default rather than a panic.
+func resolveDraftPoolSort(request *http.Request) string {
+	active := "adp"
+	if league.CurrentRoster().Slots["SUPERFLEX"] > 0 {
+		active = "house"
+	}
+	if request == nil {
+		return active
+	}
+	switch strings.ToLower(strings.TrimSpace(request.URL.Query().Get("sort"))) {
+	case "house":
+		active = "house"
+	case "adp":
+		active = "adp"
+	}
+	return active
+}
+
+// draftPositionChips renders D7's chip row from the pool's own eight
+// filter hrefs (service.go's poolPageHref, already carrying the
+// viewer's current q/page): ALL plus every position this league's
+// roster actually starts (QB RB WR TE K P DST), Active matching
+// data's own "pool_position" — the same field the pool itself was
+// filtered by — so a chip can never claim "pressed" for a position the
+// rendered rows do not match.
+func draftPositionChips(data map[string]any) []map[string]any {
+	active := stringField(data, "pool_position")
+	entries := []struct{ label, value, hrefKey string }{
+		{"ALL", "", "pool_all_href"},
+		{"QB", "QB", "pool_qb_href"},
+		{"RB", "RB", "pool_rb_href"},
+		{"WR", "WR", "pool_wr_href"},
+		{"TE", "TE", "pool_te_href"},
+		{"K", "K", "pool_k_href"},
+		{"P", "P", "pool_p_href"},
+		{"DST", "DST", "pool_dst_href"},
+	}
+	chips := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		chips = append(chips, map[string]any{
+			"label": entry.label, "value": entry.value,
+			"href":   stringField(data, entry.hrefKey),
+			"active": entry.value == active,
+		})
+	}
+	return chips
+}
+
+// draftSortHref builds one sort toggle's own href (D9): "/draft" plus
+// the viewer's current pos/q/page (mirroring draftWorkspaceFragmentURL's
+// own url.Values pattern) and "sort=house|adp" — so switching the sort
+// never drops a position filter or search already in effect, and vice
+// versa (draftPositionChips' own hrefs come from service.go's
+// poolPageHref, which does not yet carry "sort" — a follow-up for
+// whichever side wires the pool's actual re-pagination by house rank).
+func draftSortHref(data map[string]any, sort string) string {
+	values := url.Values{}
+	if pos := stringField(data, "pool_position"); pos != "" {
+		values.Set("pos", pos)
+	}
+	if query := stringField(data, "pool_query"); query != "" {
+		values.Set("q", query)
+	}
+	if page := intField(data, "pool_page"); page > 1 {
+		values.Set("page", strconv.Itoa(page))
+	}
+	values.Set("sort", sort)
+	return "/draft?" + values.Encode()
+}
+
+// draftSortOptions is the ADP/HOUSE toggle (D9): two entries, Active
+// matching the already-resolved sort (resolveDraftPoolSort).
+func draftSortOptions(data map[string]any, active string) []map[string]any {
+	return []map[string]any{
+		{"label": "ADP", "value": "adp", "href": draftSortHref(data, "adp"), "active": active == "adp"},
+		{"label": "HOUSE", "value": "house", "href": draftSortHref(data, "house"), "active": active == "house"},
+	}
+}
+
 // prepareDraftData never writes back into its data parameter: every
 // derived field lands on viewData or output, two maps built fresh on each
 // call. A caller that hands the same map to two requests in a row (the
@@ -867,7 +981,16 @@ func draftSeatControlProps(raw []map[string]any) []DraftSeatControlCard {
 // test — TestCommandFragmentETagIgnoresTicksButChangesWithTheDeadline —
 // deliberately does not) must keep reading the same raw teams/available/
 // queue lists on the second call, not the first call's typed leftovers.
-func prepareDraftData(data map[string]any) map[string]any {
+//
+// request (D9, spruce audit) resolves the pool's active sort before
+// viewData is built, so draft.gsx's own props.Data.pool_sort (the
+// available pane's RK-column display order) and the head's SortOptions
+// chips (Page()'s own data.pool_sort_options, copied up from this same
+// viewData) always agree — both read off the ONE map this function
+// builds, never two independently-resolved copies. nil is safe (every
+// existing fixture-only test that never cared about D9 keeps its prior
+// roster-only-default behavior).
+func prepareDraftData(data map[string]any, request *http.Request) map[string]any {
 	teams, _ := data["teams"].([]map[string]any)
 	players, _ := data["available"].([]map[string]any)
 	queueRaw, _ := data["queue"].([]map[string]any)
@@ -895,6 +1018,16 @@ func prepareDraftData(data map[string]any) map[string]any {
 	// .draft-available[data-has-adp="false"] .avail-row rule) so the
 	// column's grid track drops with it, never an empty cell.
 	viewData["has_adp"] = boolField(data, "has_adp")
+	// pool_sort/pool_position_chips/pool_sort_options (D7/D9, spruce
+	// audit): built here, off this ONE viewData map, so the available
+	// pane's RK-column ordering and the head's chip/sort rows (both read
+	// viewData, directly or via Page()'s own top-level "data" copy) can
+	// never disagree with each other or with what the pool was actually
+	// filtered/ordered by.
+	activeSort := resolveDraftPoolSort(request)
+	viewData["pool_sort"] = activeSort
+	viewData["pool_position_chips"] = draftPositionChips(viewData)
+	viewData["pool_sort_options"] = draftSortOptions(viewData, activeSort)
 	viewData["available_search_placeholder"] = fmt.Sprintf("Search %d available", intField(data, "available_count"))
 	viewData["workspace_fragment_url"] = draftWorkspaceFragmentURL(data)
 	// yourpick_bind_key (Task 8, target mode): the command bar's "your pick
@@ -1031,7 +1164,7 @@ func init() {
 			// The initial page view is an attendance claim. The body heartbeat
 			// keeps presence current while hub events own draft-state convergence.
 			league.Default().RecordPresence(ctx.Request, time.Now())
-			data := attachDraftRequestState(attachDraftFragmentPick(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request)), ctx.Request), ctx.Request), ctx.Request)
+			data := attachDraftRequestState(attachDraftFragmentPick(attachDraftFragmentView(prepareDraftData(league.Default().DraftData(ctx.Request), ctx.Request), ctx.Request), ctx.Request), ctx.Request)
 			data["has_notice"] = false
 			data["notice"] = ""
 			if store := session.Current(ctx.Request); store != nil {
