@@ -30,13 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-19e370f-sweep1; built from
-          # 19e370f (main, 2026-09-03): whole-repo sweep — draft room
-          # rebuild, pool frozen during the draft, DST projections, HOUSE
-          # order for superflex, fragment parity, comb fixes. No schema
-          # change (logical 11 / physical 12): `rollout undo` to the
+          # release-2026.09.03-e1baaa1-sweep2; built from
+          # e1baaa1 (main, 2026-09-03): sweep release 2 — activity
+          # filter names, viewer-aware attention chip, scoring/pickem phone
+          # strips, /players and /board headers and compact phone rail,
+          # desktop rail fit. No schema change: `rollout undo` to the
           # previous revision is a valid rollback.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:96750c3b78ad91207d98b9924aa5d524ca00b5b219ff2d590b0a580442045fd1
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:f474c7fd18cdcb03bdb97cf20b0147ee914591beea78bd11c9ecf5ef1ada9efb
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
