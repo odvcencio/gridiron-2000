@@ -729,6 +729,18 @@ func TestNativeDocumentShellPreservesLanguageHeartbeatAndCSPNonce(t *testing.T) 
 	if !strings.Contains(body, `<html `) || !strings.Contains(body, `lang="en"`) {
 		t.Fatalf("native shell omitted explicit language: %s", body)
 	}
+	// One viewport tag, not two: this test's own router.SetLayout above
+	// (a purpose-built minimal shell, testing only language/heartbeat/CSP
+	// nonce plumbing) never calls ctx.AddHead the way BuildApp's real
+	// layout (app_build.go) does — the app's own second
+	// <meta name="viewport" content="...viewport-fit=cover">, which
+	// TestViewportFitCoverIsTheLastViewportMeta
+	// (wave7b_mobile_foundation_contract_test.go) pins through the real
+	// app, is not present here at all. Both counts are correct for what
+	// each test actually renders; if a future GoSX release lets an app
+	// set viewport-fit on the framework's own single tag instead of
+	// layering a second one on top, BuildApp's own AddHead call goes
+	// away and this native-shell count stays exactly what it is today.
 	if got := strings.Count(body, `<meta name="viewport"`); got != 1 {
 		t.Fatalf("native shell emitted %d viewport tags, want exactly one", got)
 	}

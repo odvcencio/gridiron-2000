@@ -342,7 +342,7 @@ func Layout() Node {
 							aria-label={data.league.attention.chip_label}
 						>
 							<span class="signal-mark" aria-hidden="true"></span>
-							ACTION CENTER · {data.league.attention.urgent_count} URGENT
+							ACTION CENTER · <span class="rail-attention-chip__count">{data.league.attention.urgent_count}</span> URGENT
 						</a>
 					</If>
 				</div>
