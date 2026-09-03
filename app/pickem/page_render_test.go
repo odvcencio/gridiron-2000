@@ -62,7 +62,23 @@ func TestPickemPageRendersGameRowsWithRealSchedule(t *testing.T) {
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("GOOGLE_CLIENT_ID", "")
 
-	now := time.Now()
+	// The week's market lock is the first Thursday-kickoff game in Eastern
+	// time (internal/league/pickem_market.go, pickemWeekMarketLock); absent
+	// one, it falls back to the Thursday before the week's earliest game.
+	// A real time.Now() made this fixture flaky: every game below is built
+	// from relative hour offsets, so whenever the wall clock's Eastern-time
+	// hour landed late enough in the evening, a same-day offset (e.g. "now
+	// + 3h") could itself cross into Thursday and get mistaken for the
+	// week's Thursday-night game, moving the lock into the future and
+	// leaving g-void looking like an ordinary, still-pickable "waiting for
+	// line" game instead of the void row this test checks for. Pinning the
+	// service clock to a fixed Monday keeps every offset below on the same
+	// Eastern weekday, so the fallback Thursday (the previous Thursday) is
+	// always already in the past, deterministically, at any wall-clock time
+	// the suite happens to run.
+	now := time.Date(2026, time.June, 8, 15, 0, 0, 0, time.UTC)
+	league.Default().SetClockForTest(func() time.Time { return now })
+	t.Cleanup(func() { league.Default().SetClockForTest(nil) })
 	// g-final starts as not-yet-kicked-off so PickemSet (below) accepts a
 	// pick on it — PickemSet's only gate is "has this game's kickoff
 	// passed" — then flips to a genuinely past, graded final: exactly how

@@ -30,13 +30,15 @@ var homeTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 // assertNoStrayCommentLines fails the test when the rendered page's text,
 // with every tag replaced by a newline, carries a line that starts with
-// "//". A GoSX markup block never strips a Go-style "//" comment the way
-// plain Go source does, so a developer comment left inside a return
-// <...> block renders as visible text instead of staying source-only
-// (wave-7 re-audit, item 5 — the app/team/page.gsx defect this guards
-// against here on the home page instead). See
-// TestNoCommentLinesInsideGSXMarkup (root package,
-// gsx_markup_comment_contract_test.go) for the matching source-level
+// "//". Before GoSX v0.53.11, a markup block never stripped a Go-style
+// "//" comment the way plain Go source does, so a developer comment left
+// inside a return <...> block rendered as visible text instead of staying
+// source-only (wave-7 re-audit, item 5 — the app/team/page.gsx defect
+// this guards against here on the home page instead). GoSX v0.53.11 now
+// strips that comment at compile time; this render-level check remains as
+// the backstop for any stray "//" line the compiler does not own. See
+// TestGSXMarkupCommentsCompileAway (root package,
+// gsx_markup_comment_contract_test.go) for the matching compile-time
 // guard.
 //
 // A bare "//" with nothing else on the line is allowed: page.gsx's own

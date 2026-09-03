@@ -22,12 +22,13 @@ var teamTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 // assertNoStrayCommentLines fails the test when the rendered page's text,
 // with every tag replaced by a newline, carries a line that starts with
-// "//". A GoSX markup block never strips a Go-style "//" comment the way
-// plain Go source does, so a developer comment left inside a return
-// <...> block renders as visible text (wave-7 re-audit, item 5 — see
-// TeamLineupRegion's own doc comment). This is the render-level backstop
-// for TestNoCommentLinesInsideGSXMarkup (root package), which catches the
-// same class of defect at the source level.
+// "//". Before GoSX v0.53.11, a markup block never stripped a Go-style
+// "//" comment the way plain Go source does, so a developer comment left
+// inside a return <...> block rendered as visible text (wave-7 re-audit,
+// item 5 — see TeamLineupRegion's own doc comment). GoSX v0.53.11 now
+// strips that comment at compile time; this is the render-level backstop
+// for TestGSXMarkupCommentsCompileAway (root package), which proves the
+// same class of defect stays fixed at compile time.
 //
 // A bare "//" with nothing else on the line is allowed: it is the site's
 // own "LABEL // detail" divider glyph (every section-index span in

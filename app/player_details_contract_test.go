@@ -3,24 +3,51 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
 
+// statTipSummaryTag matches one <summary class="…stat-tip__summary…"> open
+// tag. It must match the whole tag, not the bare "stat-tip__summary"
+// substring: the news trigger's class is "stat-tip__summary
+// stat-tip__summary--news", which contains that substring twice and would
+// double-count if counted with strings.Count.
+var statTipSummaryTag = regexp.MustCompile(`<summary class="[^"]*stat-tip__summary[^"]*"`)
+
+// TestPlayerDetailsUseNativeDisclosureAcrossSurfaces protects one invariant:
+// every player detail popover — the projection/availability "identity" tip
+// and the newspaper-icon "news" tip added beside it — opens through a native
+// <details class="stat-tip…"><summary class="…stat-tip__summary…"> pair, not
+// a JS-driven tooltip. It does not pin an incidental total summary count;
+// instead it counts identity tips and news tips separately (each surface
+// wires the news tip into a different pool-row component, so the two counts
+// move independently) and checks the structural rule that every stat-tip
+// details block owns exactly one stat-tip__summary and one stat-tip__panel,
+// and that no legacy hover/focus-within/role=tooltip affordance remains.
 func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 	tests := []struct {
-		name       string
-		path       string
-		detailTags int
+		name string
+		path string
+		// identityTips counts <details class="stat-tip"> and the team page's
+		// <details class="player-identity stat-tip">: the projection/
+		// availability popover on the player's name.
+		identityTips int
+		// newsTips counts <details class="stat-tip stat-tip--news">: the
+		// commissioner's newspaper-icon headline popover, wired in beside the
+		// identity tip in each pool-row template (board, draft, players).
+		// Blitz and team do not carry a news tip yet.
+		newsTips int
 	}{
-		{name: "team", path: filepath.Join("team", "page.gsx"), detailTags: 2},
-		{name: "draft", path: filepath.Join("draft", "page.gsx"), detailTags: 1},
-		{name: "big board", path: filepath.Join("board", "page.gsx"), detailTags: 2},
-		{name: "blitz", path: filepath.Join("blitz", "page.gsx"), detailTags: 3},
+		{name: "team", path: filepath.Join("team", "page.gsx"), identityTips: 2, newsTips: 0},
+		{name: "draft", path: filepath.Join("draft", "page.gsx"), identityTips: 1, newsTips: 3},
+		{name: "big board", path: filepath.Join("board", "page.gsx"), identityTips: 2, newsTips: 2},
+		{name: "blitz", path: filepath.Join("blitz", "page.gsx"), identityTips: 3, newsTips: 0},
 		// The player pool keeps one native disclosure in the initial page and
 		// one in the authoritative fragment component; both remain keyboard- and
-		// touch-operable after a live region swap.
-		{name: "player pool", path: filepath.Join("players", "page.gsx"), detailTags: 2},
+		// touch-operable after a live region swap. Each of those two rows also
+		// carries its own news tip.
+		{name: "player pool", path: filepath.Join("players", "page.gsx"), identityTips: 2, newsTips: 2},
 	}
 
 	for _, tt := range tests {
@@ -30,16 +57,21 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 				t.Fatal(err)
 			}
 			source := string(sourceBytes)
-			gotDetails := strings.Count(source, `<details class="stat-tip">`) +
+			gotIdentity := strings.Count(source, `<details class="stat-tip">`) +
 				strings.Count(source, `<details class="player-identity stat-tip">`)
-			if gotDetails != tt.detailTags {
-				t.Fatalf("stat-tip details = %d, want %d", gotDetails, tt.detailTags)
+			if gotIdentity != tt.identityTips {
+				t.Fatalf("identity stat-tip details = %d, want %d", gotIdentity, tt.identityTips)
 			}
-			if got := strings.Count(source, `stat-tip__summary`); got != tt.detailTags {
-				t.Fatalf("stat-tip summaries = %d, want %d", got, tt.detailTags)
+			gotNews := strings.Count(source, `<details class="stat-tip stat-tip--news">`)
+			if gotNews != tt.newsTips {
+				t.Fatalf("news stat-tip details = %d, want %d", gotNews, tt.newsTips)
 			}
-			if got := strings.Count(source, `stat-tip__panel`); got != tt.detailTags {
-				t.Fatalf("stat-tip panels = %d, want %d", got, tt.detailTags)
+			wantSummaries := tt.identityTips + tt.newsTips
+			if got := len(statTipSummaryTag.FindAllString(source, -1)); got != wantSummaries {
+				t.Fatalf("stat-tip summaries = %d, want %d (identity + news tips)", got, wantSummaries)
+			}
+			if got := strings.Count(source, `stat-tip__panel`); got != wantSummaries {
+				t.Fatalf("stat-tip panels = %d, want %d (identity + news tips)", got, wantSummaries)
 			}
 			for _, forbidden := range []string{
 				`role="tooltip"`,
@@ -54,6 +86,9 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 			}
 			if !strings.Contains(source, `<summary class="`) {
 				t.Error("player detail trigger must be a native summary")
+			}
+			if tt.newsTips > 0 && !strings.Contains(source, `aria-label={"News for " + `) {
+				t.Error("news stat-tip trigger must carry an accessible name")
 			}
 		})
 	}
