@@ -182,7 +182,7 @@ func draftFragmentHandler(
 			return
 		}
 
-		prepared := prepareDraftData(load(request))
+		prepared := prepareDraftData(load(request), request)
 		prepared = attachDraftFragmentSince(prepared, request)
 		prepared = attachDraftFragmentView(prepared, request)
 		prepared = attachDraftFragmentPick(prepared, request)

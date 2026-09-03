@@ -60,8 +60,16 @@ func TestDraftPageHasSingleH1AndMobileNavExitFixtureProcess(t *testing.T) {
 	if got := strings.Count(html, "<h1"); got != 1 {
 		t.Fatalf("GET /draft has %d <h1> elements, want exactly 1: %s", got, html)
 	}
-	if !strings.Contains(html, "Draft room") || !strings.Contains(html, "Round") || !strings.Contains(html, "Pick") {
-		t.Fatalf("draft h1 omitted the round/pick summary: %s", html)
+	// D15 (spruce audit): pre-draft, the h1 reads "Draft room · opens
+	// <date> · <time>" (never a fake "Round 1 · Pick 1" the room has not
+	// reached yet) — DraftCommandBar's OWN "PICK 1 / 136" chip still
+	// carries the round/pick figures for a started room, so this check
+	// accepts either shape rather than assuming the draft has started.
+	if !strings.Contains(html, "Draft room") {
+		t.Fatalf("draft h1 lost its own title: %s", html)
+	}
+	if !strings.Contains(html, "opens") && (!strings.Contains(html, "Round") || !strings.Contains(html, "Pick")) {
+		t.Fatalf("draft h1 has neither the pre-draft \"opens\" copy nor the round/pick summary: %s", html)
 	}
 
 	// DraftCommandBar's pill sheet (wave 7b item 1) opens the standard site

@@ -139,37 +139,37 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 					</Link>
 				</If>
 				<Link href="/blitz" class="navigation-link" title="Preseason Blitz">
-					<span class="navigation-link__index mono">10</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>10</If><If cond={props.DraftComplete == false}>09</If></span>
 					Preseason Blitz
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="league">
 				<p class="navigation-group__label mono">LEAGUE</p>
 				<Link href="/wire" class="navigation-link" title="Signal Wire">
-					<span class="navigation-link__index mono">11</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>11</If><If cond={props.DraftComplete == false}>10</If></span>
 					Signal Wire
 				</Link>
 				<Link href="/activity" class="navigation-link" title="Activity">
-					<span class="navigation-link__index mono">12</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>12</If><If cond={props.DraftComplete == false}>11</If></span>
 					Activity
 				</Link>
 				<Link href="/locker" class="navigation-link" title="Locker Room">
-					<span class="navigation-link__index mono">13</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>13</If><If cond={props.DraftComplete == false}>12</If></span>
 					Locker Room
 				</Link>
 				<Link href="/scoring" class="navigation-link" title="Rules & scoring">
-					<span class="navigation-link__index mono">14</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>14</If><If cond={props.DraftComplete == false}>13</If></span>
 					Rules &amp; scoring
 				</Link>
 			</div>
 			<div class="navigation-group" data-navigation-group="help">
 				<p class="navigation-group__label mono">HELP</p>
 				<Link href="/guide" class="navigation-link navigation-link--guide" title="Manager guide">
-					<span class="navigation-link__index mono">15</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>15</If><If cond={props.DraftComplete == false}>14</If></span>
 					Manager guide
 				</Link>
 				<Link href="/help" class="navigation-link navigation-link--guide" title="Help center">
-					<span class="navigation-link__index mono">16</span>
+					<span class="navigation-link__index mono"><If cond={props.DraftComplete}>16</If><If cond={props.DraftComplete == false}>15</If></span>
 					Help center
 				</Link>
 			</div>
@@ -177,11 +177,11 @@ func PrimaryNavigation(props PrimaryNavigationProps) Node {
 				<div class="navigation-group" data-navigation-group="commissioner">
 					<p class="navigation-group__label mono">COMMISSIONER</p>
 					<Link href="/commissioner" class="navigation-link" title="All leagues">
-						<span class="navigation-link__index mono">17</span>
+						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>17</If><If cond={props.DraftComplete == false}>16</If></span>
 						All leagues
 					</Link>
 					<Link href="/admin" class="navigation-link" title="League settings">
-						<span class="navigation-link__index mono">18</span>
+						<span class="navigation-link__index mono"><If cond={props.DraftComplete}>18</If><If cond={props.DraftComplete == false}>17</If></span>
 						League settings
 					</Link>
 				</div>

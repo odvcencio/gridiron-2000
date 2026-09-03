@@ -1050,6 +1050,10 @@ type TeamColumn struct {
 	Team  DraftBoardTeam
 	Picks []TapePick
 	Needs []map[string]any
+	// PicksEmpty (D12, spruce audit): len(Picks) == 0, computed in Go
+	// (page.server.go's teamColumnsProps) — never len()/nil-compared here,
+	// matching this file's own rule (BoardView.ColumnCount's doc comment).
+	PicksEmpty bool
 }
 
 // DraftHistoryProps backs the pick-tape pane's Tape/Board/Teams tabs:
@@ -1141,6 +1145,16 @@ type DraftMyTeamProps struct {
 
 type DraftAvailableHeadProps struct {
 	SearchPlaceholder string
+	// Positions/SortOptions: D7/D9 (spruce audit). Built server-side
+	// (page.server.go's draftPositionChips/draftSortOptions) as plain
+	// label/value/href/active maps — the same []map[string]any shape
+	// BoardView.Columns already uses (page.gsx) for a simple list of
+	// key/value entries with no nested struct of their own — from the
+	// SAME pool_position/pool_sort the pane's own rows were paged and
+	// ordered by, so the chip row and the sort toggle can never disagree
+	// with what actually rendered below them.
+	Positions   []map[string]any
+	SortOptions []map[string]any
 }
 
 type DraftHistoryHeadProps struct {
@@ -1251,7 +1265,7 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			<span class="draft-command__pill-meta mono">R<span data-gosx-live-bind="pick.round">{props.Data.round}</span>·P<span data-gosx-live-bind="pick.number">{props.Data.pick_number}</span></span>
 		</div>
 		<div class="draft-command__turn">
-			<If cond={props.Data.draft.complete == false}>
+			<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 				<span class={"team-mark draft-command__mark tone-" + props.Data.on_clock.tone} data-tone={props.Data.on_clock.tone} data-gosx-live-bind-attr="data-tone:onclock.tone">
 					<If cond={props.Data.on_clock.has_avatar_image}>
 						<img class="avatar-mark__photo" src={props.Data.on_clock.avatar_image_url} alt={props.Data.on_clock.name} loading="lazy" />
@@ -1262,20 +1276,29 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 				</span>
 			</If>
 			<div class="draft-command__team">
-				<If cond={props.Data.draft.complete}>
+				<If cond={props.Data.draft.started == false}>
+					<span class="idx">Before the room opens</span>
+					<strong class="display">Draft not started</strong>
+					<small class="muted"><span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span> of <span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> ready</small>
+					<If cond={props.Data.viewer.is_commissioner}>
+						<button type="button" class="btn btn-sm btn-primary draft-command__start" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Start the draft →</button>
+					</If>
+				</If>
+				<If cond={props.Data.draft.started && props.Data.draft.complete}>
 					<span class="idx">Draft complete</span>
 					<strong class="display">Every pick is locked</strong>
 				</If>
-				<If cond={props.Data.draft.complete == false}>
+				<If cond={props.Data.draft.started && props.Data.draft.complete == false}>
 					<If cond={props.Data.viewer_on_clock}><span class="idx idx--hot">You are on the clock</span></If>
 					<If cond={props.Data.viewer_on_clock == false}><span class="idx">On the clock</span></If>
 					<strong class="display" data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</strong>
 					<small class="muted">Next: {props.Data.next_team.name} · then {props.Data.after_next_team.name}</small>
 				</If>
 				<span class="draft-command__pill-status mono">
-					<If cond={props.Data.draft.complete}>DRAFT COMPLETE</If>
-					<If cond={props.Data.draft.complete == false && props.Data.viewer_on_clock}>YOU’RE UP</If>
-					<If cond={props.Data.draft.complete == false && props.Data.viewer_on_clock == false}>ON CLOCK: <span data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</span></If>
+					<If cond={props.Data.draft.started == false}>DRAFT NOT STARTED · <span data-gosx-live-bind="room.ready">{props.Data.ready_count}</span>/<span data-gosx-live-bind="room.managers">{props.Data.manager_count}</span> READY</If>
+					<If cond={props.Data.draft.started && props.Data.draft.complete}>DRAFT COMPLETE</If>
+					<If cond={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer_on_clock}>YOU’RE UP</If>
+					<If cond={props.Data.draft.started && props.Data.draft.complete == false && props.Data.viewer_on_clock == false}>ON CLOCK: <span data-gosx-live-bind="onclock.name">{props.Data.on_clock.name}</span></If>
 				</span>
 			</div>
 		</div>
@@ -1342,8 +1365,11 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 					</If>
 					<button type="button" class="btn btn-sm draft-command__pill-sound" data-gosx-cue-toggle data-gosx-cue-label-on="Sound on" data-gosx-cue-label-off="Sound off" aria-pressed="true">Sound on</button>
 					<button type="button" class="btn btn-sm" aria-label="Open league navigation" aria-controls="primary-navigation-dialog" aria-expanded="false" data-gosx-disclosure-target="#primary-navigation-dialog">League</button>
+					<If cond={props.Data.viewer.is_commissioner && props.Data.draft.started == false}>
+						<button type="button" class="btn btn-sm btn-primary" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Start the draft →</button>
+					</If>
 					<If cond={props.Data.viewer.is_commissioner}>
-						<button type="button" class="btn btn-sm" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Force pick</button>
+						<button type="button" class="btn btn-sm" data-gosx-disclosure-target="#draft-commissioner" aria-controls="draft-commissioner" aria-expanded="false">Commissioner</button>
 					</If>
 				</div>
 			</div>
@@ -1361,7 +1387,29 @@ func DraftCommandBar(props DraftCommandBarProps) Node {
 			</If>
 			<button type="button" class="btn btn-sm btn-ghost draft-command__rail" data-gosx-toggle-target="#main-content" data-gosx-toggle-attribute="data-rail-open" aria-expanded="false">Rail</button>
 		</div>
-		<If cond={props.Data.banner != ""}>
+		{/* D16 (spruce audit): a stale/cached pool snapshot gets the SAME
+		    labelled .demo-message shape /board's own pool-status banner
+		    uses (app/board/page.gsx) — a "CACHED SNAPSHOT:" label plus
+		    the detail sentence, and (when known) a "LAST SUCCESS ·
+		    <time>" line — instead of the old unlabelled, truncation-
+		    prone single mono line. props.Data.pool_status is the exact
+		    same map service.go's poolFreshnessMap already builds for
+		    /board; nothing new to wire. The plain banner (clock-paused/
+		    rehearsal-mode copy, service.go's own banner switch) still
+		    falls back to the old one-line shape for every OTHER reason a
+		    banner shows, since those carry no label/last-success pair of
+		    their own. */}
+		<If cond={props.Data.pool_status.has_notice}>
+			<p class="demo-message draft-command__banner">
+				<strong>{props.Data.pool_status.label}:</strong>
+				{props.Data.pool_status.detail}
+				<If cond={props.Data.pool_status.has_last_success}>
+					<br></br>
+					<span class="mono">LAST SUCCESS · {props.Data.pool_status.last_success} · {props.Data.pool_status.last_success_relative}</span>
+				</If>
+			</p>
+		</If>
+		<If cond={props.Data.pool_status.has_notice == false && props.Data.banner != ""}>
 			<p class="draft-command__banner mono" title={props.Data.banner}>{props.Data.banner}</p>
 		</If>
 		<span
@@ -1586,18 +1634,36 @@ type DraftMobileTabsProps struct {
 // one), so #tab-board's own plain `checked={props.ShowBoard}` can never
 // disagree with #tab-picks or #tab-teams — no radio group ever ends up
 // with two checked inputs sharing the same name.
+// D14 (spruce audit): the three link tabs (Picks/Draft grid/Teams) used
+// to carry BOTH a server-computed aria-current AND a sibling radio's
+// checked state, updated by two independent paths — a real "?view="
+// navigation refreshes both together (server-consistent), but a bare
+// click on the Pool or Big Board LABEL unchecks whichever of tab-picks/
+// tab-board/tab-teams the server had checked (native same-name radio-
+// group behavior, no JS needed) while that anchor's own static
+// aria-current="true" attribute never changes — a screen reader kept
+// announcing "Picks, current page" after a sighted user's tap already
+// moved the highlighted tab to Pool. The fix drops aria-current from
+// these three anchors entirely and lets EVERY tab (all five) rely on
+// the ONE signal that is always correct with zero script: a native
+// <input type="radio">'s own implicit aria-checked, which the browser
+// derives straight from its checked DOM property and can never go
+// stale. tab-picks/tab-board/tab-teams pair with a plain <a>, not a
+// <label for="...">, so they carry their own aria-label matching the
+// visible tab text (tab-players/tab-queue already get their accessible
+// name from label/for, same as before).
 func DraftMobileTabs(props DraftMobileTabsProps) Node {
 	return <nav class="draft-tabbar" aria-label="Draft room panels">
 		<input type="radio" name="draft-tab" id="tab-players" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && props.Complete == false && props.TapeExplicit == false}></input>
 		<label class="draft-tabbar__tab" for="tab-players">Pool</label>
 		<input type="radio" name="draft-tab" id="tab-queue" class="visually-hidden"></input>
 		<label class="draft-tabbar__tab" for="tab-queue">Big Board</label>
-		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)}></input>
-		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link aria-current={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)}>Picks</a>
-		<input type="radio" name="draft-tab" id="tab-board" class="visually-hidden" checked={props.ShowBoard}></input>
-		<a class="draft-tabbar__tab" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
-		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams}></input>
-		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link aria-current={props.ShowTeams}>Teams</a>
+		<input type="radio" name="draft-tab" id="tab-picks" class="visually-hidden" checked={props.ShowTeams == false && props.ShowBoard == false && (props.Complete || props.TapeExplicit)} aria-label="Picks"></input>
+		<a class="draft-tabbar__tab" href={props.PicksHref} data-gosx-link>Picks</a>
+		<input type="radio" name="draft-tab" id="tab-board" class="visually-hidden" checked={props.ShowBoard} aria-label="Draft grid"></input>
+		<a class="draft-tabbar__tab" href={props.BoardHref} data-gosx-link>Draft grid</a>
+		<input type="radio" name="draft-tab" id="tab-teams" class="visually-hidden" checked={props.ShowTeams} aria-label="Teams"></input>
+		<a class="draft-tabbar__tab" href={props.TeamsHref} data-gosx-link>Teams</a>
 	</nav>
 }
 
@@ -1660,24 +1726,26 @@ func DraftPickBar(props DraftAvailableProps) Node {
 // DraftAvailableHead is the available pane's fixed head: the client-side
 // search filter (data-gosx-filter targets the region's own id, so the
 // input itself sits outside the swapped subtree and survives every
-// refetch) and the position chips that drive the region's own refetch
-// signal.
+// refetch), the position chips that drive the region's own refetch
+// signal, and (D9) the ADP/HOUSE sort toggle.
 func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	return <div class="draft-available-head">
 		<h2 id="draft-available-title" class="visually-hidden">Available players</h2>
 		<input id="draft-search" type="search" class="draft-search" placeholder={props.SearchPlaceholder} data-gosx-filter="draft-available-list" data-gosx-filter-announce="true" />
-		<div class="draft-available-head__chips">
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="" aria-pressed="true">ALL</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="QB">QB</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="RB">RB</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="WR">WR</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="TE">TE</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="K">K</button>
-			<button type="button" class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value="DST">DST</button>
+		<div class="draft-available-head__chips" role="group" aria-label="Filter the pool by position">
+			<Each of={props.Positions} as="chip">
+				<a href={chip.href} class="chip" data-gosx-set="$draft.available.pos" data-gosx-set-value={chip.value} aria-pressed={chip.active}>{chip.label}</a>
+			</Each>
+		</div>
+		<div class="draft-available-head__sort" role="group" aria-label="Sort the pool">
+			<span class="idx">SORT</span>
+			<Each of={props.SortOptions} as="option">
+				<a href={option.href} class="chip chip--sort" aria-pressed={option.active}>{option.label}</a>
+			</Each>
 		</div>
 		<details class="pool-legend">
-			<summary>What do RK, PROJ, and VS ADP mean?</summary>
-			<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>). PROJ — projected points per game. VS ADP — value if drafted right now, versus <abbr title="average draft position">ADP</abbr>. H### — this league's own rank, from your scoring and roster rules. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+			<summary>What do RK, PROJ, VS ADP, and H### mean?</summary>
+			<p>RK — rank by draft market (<abbr title="average draft position">ADP</abbr>), a 1-QB market that undervalues quarterbacks for this league's superflex roster. PROJ — projected points per game. VS ADP — value if drafted at the next pick, versus <abbr title="average draft position">ADP</abbr> (only once the draft is under way). H### — house rank: this league's own superflex-aware value order (your scoring and roster rules), the SORT toggle's "HOUSE" option. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
 		</details>
 	</div>
 }
@@ -1687,120 +1755,74 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 // place of it.
 func DraftAvailable(props DraftAvailableProps) Node {
 	return <div class="draft-available" data-has-adp={props.Data.has_adp}>
-		<If cond={props.Data.draft.started == false}>
-			<section class="player-pool draft-checklist">
-				<div class="pool-toolbar">
-					<div>
-						<span class="section-index">BEFORE THE ROOM OPENS</span>
-						<h2>Get your seat ready</h2>
-					</div>
-				</div>
-				<div class="checklist">
-					<div class="checklist-item">
-						<span class="checklist-mark mono">01</span>
-						<div class="checklist-item__text">
-							<strong>Build your big board</strong>
-							<small>Rank your targets now. Autopick and the pool both read your board first.</small>
-						</div>
-						<a href="/board" data-gosx-link class="board-button">Open board →</a>
-					</div>
-					<If cond={props.Data.viewer.has_seat}>
-						<div class="checklist-item">
-							<span class="checklist-mark mono">02</span>
-							<div class="checklist-item__text">
-								<strong>Check in as ready</strong>
-								<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
-							</div>
-							<a href="#ready-toggle" class="board-button">Check in now ↑</a>
-						</div>
-					</If>
-					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
-						<div class="checklist-item">
-							<span class="checklist-mark mono">02</span>
-							<div class="checklist-item__text">
-								<strong>Claim a franchise</strong>
-								<small>{props.Data.public_entry.detail}</small>
-							</div>
-							<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
-						</div>
-					</If>
-					<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
-						<div class="checklist-item">
-							<span class="checklist-mark mono">02</span>
-							<div class="checklist-item__text">
-								<strong>{props.Data.public_entry.state_label}</strong>
-								<small>{props.Data.public_entry.detail}</small>
-							</div>
-							<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
-							<If cond={props.Data.public_entry.admitted == false}>
-								<a href="/pickem" data-gosx-link class="board-button">Open Pick'em HQ →</a>
-							</If>
-							<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
-								<a href="/players" data-gosx-link class="board-button">Browse player pool →</a>
-							</If>
-						</div>
-					</If>
-					<div class="checklist-item">
-						<span class="checklist-mark mono">03</span>
-						<div class="checklist-item__text">
-							<strong>Keep this tab open with sound on</strong>
-							<small>One click anywhere on the page arms the on-clock chime for your turn.</small>
-						</div>
-					</div>
-					<If cond={props.Data.viewer.has_seat}>
-						<div class="checklist-item">
-							<span class="checklist-mark mono">04</span>
-							<div class="checklist-item__text">
-								<strong>Autopick covers you if you disappear</strong>
-								<small>Turn it on before the draft if you might miss your pick.</small>
-							</div>
-							<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
-						</div>
-					</If>
-				</div>
-			</section>
-		</If>
-		<div class="avail-row avail-row--head">
-			<span class="idx"><abbr title="rank by draft market (average draft position)">RK</abbr></span><span class="idx">PLAYER</span><span class="idx">POS</span><span class="idx"><abbr title="projected points per game">PROJ</abbr></span><If cond={props.Data.has_adp}><span class="idx"><abbr title="value if drafted right now, versus average draft position">VS ADP</abbr></span></If><span class="idx">ACTION</span>
-		</div>
-		<Each of={props.Players} as="player">
-			<article class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:player." + player.ID + ".taken"}>
-				<span class="num">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
-				<div class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small><If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If></div>
-				<span class={"pos pos-" + player.Position}>{player.Position}</span>
-				<span class="num">{player.Projection}</span>
-				<If cond={props.Data.has_adp}><span class="num">{player.ValueLabel}</span></If>
-				<div class="avail-row__actions">
-				<If cond={props.Data.viewer.has_seat}>
-					<form method="post" action={props.QueueAddAction} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<input type="hidden" name="player_id" value={player.ID}></input>
-						<input type="hidden" name="pos" value={props.Data.pool_position}></input>
-						<input type="hidden" name="q" value={props.Data.pool_query}></input>
-						<input type="hidden" name="page" value={props.Data.pool_page}></input>
-						<button class="button button--ghost" type="submit">+ RANK</button>
-					</form>
-					<form method="post" action={props.MakePickAction} data-gosx-managed="true">
-						<input type="hidden" name="csrf_token" value={props.CSRF}></input>
-						<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
-						<input type="hidden" name="player_id" value={player.ID}></input>
-						<input type="hidden" name="pos" value={props.Data.pool_position}></input>
-						<input type="hidden" name="q" value={props.Data.pool_query}></input>
-						<input type="hidden" name="page" value={props.Data.pool_page}></input>
-						<If cond={props.Data.can_pick && player.CanDraft}>
-							<button class="btn btn-sm btn-primary" type="submit">Draft</button>
+		<table class="avail-table">
+			<thead>
+				<tr class="avail-row avail-row--head">
+					<th scope="col" class="idx"><abbr title="rank by draft market (average draft position)">RK</abbr></th>
+					<th scope="col" class="idx">PLAYER</th>
+					<th scope="col" class="idx">POS</th>
+					<th scope="col" class="idx"><abbr title="projected points per game">PROJ</abbr></th>
+					<If cond={props.Data.has_adp && props.Data.draft.started}><th scope="col" class="idx"><abbr title="value if drafted at the next pick, versus average draft position">VS ADP</abbr></th></If>
+					<th scope="col" class="idx avail-row__info-head"><span class="visually-hidden">Player info</span></th>
+					<th scope="col" class="idx">ACTION</th>
+				</tr>
+			</thead>
+			<tbody id="draft-available-rows">
+				<Each of={props.Players} as="player">
+					<tr class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:player." + player.ID + ".taken"}>
+						<td class="num">
+							{/* D9 (spruce audit): the RK cell leads with whichever
+							    rank the active sort actually used — HOUSE's own
+							    H### first (market rank demoted to the small
+							    secondary label) when props.Data.pool_sort is
+							    "house", market rank first otherwise. A player with
+							    no house rank at all (HasHouseRank false — a zero-
+							    Projection player, houserank.go) always shows the
+							    market rank alone, regardless of the active sort. */}
+							<If cond={props.Data.pool_sort == "house" && player.HasHouseRank}>{player.HouseRank}<small class="house-rank">{player.Rank}</small></If>
+							<If cond={(props.Data.pool_sort == "house" && player.HasHouseRank) == false}>{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></If>
+						</td>
+						<td class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></td>
+						<td class={"pos pos-" + player.Position}>{player.Position}</td>
+						<td class="num">{player.Projection}</td>
+						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue}><td class="num" title={player.ValueLabel + " vs ADP: value if drafted at the next pick, versus average draft position"}>{player.ValueLabel}</td></If>
+						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue == false}><td class="num" title="no market ADP for punters">—</td></If>
+						<td class="avail-row__info">
+							<If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If>
+						</td>
+						<td class="avail-row__actions">
+						<If cond={props.Data.viewer.has_seat}>
+							<form method="post" action={props.QueueAddAction} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="player_id" value={player.ID}></input>
+								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+								<input type="hidden" name="q" value={props.Data.pool_query}></input>
+								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<button class="button button--ghost" type="submit">+ RANK</button>
+							</form>
+							<form method="post" action={props.MakePickAction} data-gosx-managed="true">
+								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
+								<input type="hidden" name="team_id" value={props.Data.viewer.team_id}></input>
+								<input type="hidden" name="player_id" value={player.ID}></input>
+								<input type="hidden" name="pos" value={props.Data.pool_position}></input>
+								<input type="hidden" name="q" value={props.Data.pool_query}></input>
+								<input type="hidden" name="page" value={props.Data.pool_page}></input>
+								<If cond={props.Data.can_pick && player.CanDraft}>
+									<button class="btn btn-sm btn-primary" type="submit">Draft</button>
+								</If>
+								<If cond={props.Data.can_pick && player.CanDraft == false}>
+									<span class="control-locked">
+										<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
+										<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
+									</span>
+								</If>
+							</form>
 						</If>
-						<If cond={props.Data.can_pick && player.CanDraft == false}>
-							<span class="control-locked">
-								<button class="btn btn-sm" type="button" disabled="disabled" title="Choose a player who keeps every required starter slot fillable">Roster need</button>
-								<small class="control-locked__reason">Choose a player who keeps every required starter slot fillable</small>
-							</span>
-						</If>
-					</form>
-				</If>
-				</div>
-			</article>
-		</Each>
+						</td>
+					</tr>
+				</Each>
+			</tbody>
+		</table>
 		<If cond={props.Data.available_count == 0}>
 			<div class="empty-tape">
 				<strong>NO PLAYERS MATCH</strong>
@@ -1854,8 +1876,14 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 				<Each of={props.Queue} as="player">
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
-						<span class="mono">{player.Rank}</span>
-						<div class="q-row__player"><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small><If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If></div>
+						<div class="q-row__player">
+							<span class="q-row__rank mono">{player.Rank}</span>
+							<strong class="q-row__name">{player.Name}</strong>
+							<small class="q-row__meta">{player.Position} · {player.NFLTeam} · proj {player.Projection}</small>
+						</div>
+						<div class="q-row__info">
+							<If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If>
+						</div>
 						<div class="q-row__actions">
 							<form method="post" action={props.QueueMoveAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
@@ -2043,6 +2071,7 @@ func DraftHistoryHead(props DraftHistoryHeadProps) Node {
 	return <div class="draft-history-head">
 		<h2 id="draft-history-title" class="visually-hidden">Pick history</h2>
 		<div class="draft-history-head__row">
+			<span class="draft-history-head__label mono">PICK HISTORY</span>
 			<nav class="segment" aria-label="Pick history panels">
 				<a class="segment__option" href={props.TapeHref} data-gosx-link aria-current={props.ShowTape}>Picks</a>
 				<a class="segment__option" href={props.BoardHref} data-gosx-link aria-current={props.ShowBoard}>Draft grid</a>
@@ -2278,7 +2307,10 @@ func DraftBoard(props BoardView) Node {
 		<Each of={props.Columns} as="column">
 			<div class="board-grid__team" id={"board-team-" + column.id} data-mine={column.mine}>
 				<span class={"team-mark tone-" + column.tone}>{column.abbreviation}</span>
-				<span class="board-grid__name">{column.name}<If cond={column.mine}> · you</If></span>
+				<span class="board-grid__name">
+					<span class="board-grid__code mono">{column.abbreviation}</span>
+					<span class="board-grid__fullname" title={column.name}>{column.name}<If cond={column.mine}> · you</If></span>
+				</span>
 			</div>
 		</Each>
 		<Each of={props.Rows} as="row">
@@ -2320,9 +2352,15 @@ func DraftByTeam(props DraftByTeamProps) Node {
 			<section class="team-column" data-mine={column.Team.Mine}>
 				<header class="team-column__head">
 					<span class={"team-mark tone-" + column.Team.Tone}>{column.Team.Abbreviation}</span>
-					<div><strong>{column.Team.Name}</strong><small>{column.Team.Manager}</small></div>
+					<div class="team-column__identity">
+						<strong class="team-column__name">{column.Team.Name}</strong>
+						<small class="team-column__manager">{column.Team.Manager}</small>
+					</div>
 				</header>
 				<div class="team-column__picks">
+					<If cond={column.PicksEmpty}>
+						<p class="team-column__picks-empty muted">Picks appear here as they are made.</p>
+					</If>
 					<Each of={column.Picks} as="pick">
 						<article class="tape-row" data-tape-key={"team-pick-" + pick.Number} data-pick-number={pick.Number}>
 							<span class="mono tape-row__slot">{pick.Label}</span>
@@ -2504,6 +2542,109 @@ func DraftHistory(props DraftHistoryProps) Node {
 // vanish on the header's first region-swap. Sentence case, matching
 // every other heading on this page (h2 "Available now", "Pick history",
 // etc.).
+
+// DraftPreflight is the pre-draft "get your seat ready" checklist (D4,
+// spruce audit): it used to open DraftAvailable's own swapped body,
+// pushing the pool pane's head row and every .avail-row 500+ px below
+// the pane's own top edge — the pool showed ZERO players on first paint
+// even though every row was already in the response. It now sits ABOVE
+// .draft-panes, a compact strip of its own (a new "draft-preflight"
+// class — redwood's own CSS names the exact layout; the inner
+// .checklist/.checklist-item classes are unchanged, so their existing
+// rules keep applying), so the available pane always starts with its
+// head row on every viewport, pre-draft included. It renders only while
+// data.draft.started is false (Page() gates the call) and reads the
+// exact same data.viewer/data.public_entry fields DraftAvailable's own
+// checklist used to read off props.Data — Page()'s "data" carries every
+// key prepareDraftData copies into viewData, so nothing new needed
+// wiring from page.server.go.
+//
+// Item 3's copy (D15) no longer claims a first click "arms" the chime:
+// the command bar's Sound button already renders aria-pressed="true" by
+// default (DraftCommandBar, below), so a checklist claiming sound starts
+// OFF disagreed with the control that says it is already ON. The one
+// click is real (browser autoplay policy gates audio until a page
+// gesture), but that is a browser permission, not a feature toggle this
+// page controls — the copy now describes it that way instead of
+// contradicting the button.
+type DraftPreflightProps struct {
+	Data map[string]any
+}
+
+func DraftPreflight(props DraftPreflightProps) Node {
+	return <section class="draft-preflight" aria-labelledby="draft-preflight-title">
+		<div class="pool-toolbar">
+			<div>
+				<span class="section-index">BEFORE THE ROOM OPENS</span>
+				<h2 id="draft-preflight-title">Get your seat ready</h2>
+			</div>
+		</div>
+		<div class="checklist">
+			<div class="checklist-item">
+				<span class="checklist-mark mono">01</span>
+				<div class="checklist-item__text">
+					<strong>Build your big board</strong>
+					<small>Rank your targets now. Autopick and the pool both read your board first.</small>
+				</div>
+				<a href="/board" data-gosx-link class="board-button">Open board →</a>
+			</div>
+			<If cond={props.Data.viewer.has_seat}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">02</span>
+					<div class="checklist-item__text">
+						<strong>Check in as ready</strong>
+						<small>Mark yourself ready after your Big Board is set. Then keep this tab open so the commissioner can also see that you are HERE.</small>
+					</div>
+					<a href="#ready-toggle" class="board-button">Check in now ↑</a>
+				</div>
+			</If>
+			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">02</span>
+					<div class="checklist-item__text">
+						<strong>Claim a franchise</strong>
+						<small>{props.Data.public_entry.detail}</small>
+					</div>
+					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
+				</div>
+			</If>
+			<If cond={props.Data.viewer.has_seat == false && props.Data.public_entry.can_claim == false}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">02</span>
+					<div class="checklist-item__text">
+						<strong>{props.Data.public_entry.state_label}</strong>
+						<small>{props.Data.public_entry.detail}</small>
+					</div>
+					<a href={props.Data.public_entry.action_href} data-gosx-link class="board-button">{props.Data.public_entry.action_label}</a>
+					<If cond={props.Data.public_entry.admitted == false}>
+						<a href="/pickem" data-gosx-link class="board-button">Open Pick'em HQ →</a>
+					</If>
+					<If cond={props.Data.public_entry.admitted && props.Data.public_entry.league_full}>
+						<a href="/players" data-gosx-link class="board-button">Browse player pool →</a>
+					</If>
+				</div>
+			</If>
+			<div class="checklist-item">
+				<span class="checklist-mark mono">03</span>
+				<div class="checklist-item__text">
+					<strong>Keep this tab open with sound on</strong>
+					<small>Sound is already on. Click anywhere on the page once so your browser allows the on-clock chime to play.</small>
+				</div>
+			</div>
+			<If cond={props.Data.viewer.has_seat}>
+				<div class="checklist-item">
+					<span class="checklist-mark mono">04</span>
+					<div class="checklist-item__text">
+						<strong>Autopick covers you if you disappear</strong>
+						<small>Turn it on before the draft if you might miss your pick.</small>
+					</div>
+					<a href="#autopick-toggle" class="board-button">Autopick toggle ↑</a>
+				</div>
+			</If>
+		</div>
+	</section>
+}
+
 func Page() Node {
 	return <main class={"draft-shell" + data.shell_modifier} id="main-content" data-draft-live-mode={data.live_mode}>
 		<div class="draft-notice" aria-live="polite">
@@ -2512,13 +2653,15 @@ func Page() Node {
 		</div>
 		<If cond={data.live_mode == "target"}>
 		<header class="draft-command" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:clock draft:seat draft:state">
-			<h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
+			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · opens {data.draft.date} · {data.draft.time}</h1></If>
 			<DraftCommandBar {...data.command}></DraftCommandBar>
 		</header>
 		</If>
 		<If cond={data.live_mode != "target"}>
 		<header class="draft-command">
-			<h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1>
+			<If cond={data.draft.started}><h1 class="draft-command__title">Draft room · Round {data.round} · Pick {data.pick_number} of {data.picks_total}</h1></If>
+			<If cond={data.draft.started == false}><h1 class="draft-command__title">Draft room · opens {data.draft.date} · {data.draft.time}</h1></If>
 			<div data-gosx-region data-gosx-region-url="/draft/fragment/command" data-gosx-region-signal="$draft.state.refresh" data-gosx-region-on="draft:pick draft:undo draft:clock draft:state">
 				<DraftCommandBar {...data.command}></DraftCommandBar>
 			</div>
@@ -2526,6 +2669,9 @@ func Page() Node {
 		</If>
 		<DraftMobileTabs Complete={data.draft.complete} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeExplicit={data.history_tape_explicit} PicksHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftMobileTabs>
 		<div class="draft-panes" data-history-board={data.history_view_board}>
+			<If cond={data.draft.started == false}>
+				<DraftPreflight Data={data}></DraftPreflight>
+			</If>
 			<section class="draft-pane draft-pane--history" aria-labelledby="draft-history-title">
 				<DraftHistoryHead Started={data.draft.started} Complete={data.draft.complete} ShowTape={data.history_view_tape} ShowBoard={data.history_view_board} ShowTeams={data.history_view_teams} TapeHref={data.history_tape_href} BoardHref={data.history_board_href} TeamsHref={data.history_teams_href}></DraftHistoryHead>
 				<If cond={data.live_mode == "target"}>
@@ -2540,7 +2686,7 @@ func Page() Node {
 				</If>
 			</section>
 			<section class="draft-pane draft-pane--available" aria-labelledby="draft-available-title">
-				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder}></DraftAvailableHead>
+				<DraftAvailableHead SearchPlaceholder={data.available_search_placeholder} Positions={data.pool_position_chips} SortOptions={data.pool_sort_options}></DraftAvailableHead>
 				<If cond={data.live_mode == "target"}>
 				<div class="draft-pane__body" data-gosx-live-mode="event" data-gosx-live-src="/draft/live.json" data-gosx-live-hub="draft-live" data-gosx-live-on="draft:pick draft:undo draft:state">
 					<div id="draft-available-list" data-gosx-region data-gosx-region-url="/draft/fragment/available?pos={value}" data-gosx-region-signal="$draft.available.pos" data-gosx-region-allow-empty>

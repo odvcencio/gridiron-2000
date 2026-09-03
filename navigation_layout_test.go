@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -304,18 +305,39 @@ func surfaceGroups(surface *html.Node) []renderedNavigationGroup {
 	return out
 }
 
+// railIndex (D15, spruce audit) mirrors layout.gsx's own DraftComplete-
+// gated index spans: "09 Draft results" is the only OPTIONAL rail slot
+// (present only once the draft is complete), so every following link's
+// two-digit index shifts down by one while it is absent — the rail must
+// never skip a number (08 Draft, then 10 Preseason Blitz) just because
+// one destination in the middle is hidden.
+func railIndex(complete bool, n int) string {
+	if !complete {
+		n--
+	}
+	return fmt.Sprintf("%02d", n)
+}
+
 func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigationGroup {
 	gameDay := []string{"/draft|08 Draft"}
 	if viewer.draftComplete {
 		gameDay = append(gameDay, "/draft/results|09 Draft results")
 	}
-	gameDay = append(gameDay, "/blitz|10 Preseason Blitz")
+	gameDay = append(gameDay, "/blitz|"+railIndex(viewer.draftComplete, 10)+" Preseason Blitz")
 	groups := []renderedNavigationGroup{
 		{Name: "today", Links: []string{"/|01 Home", "/pickem|02 Pick'em", "/matchups|03 Matchups"}},
 		{Name: "my-team"},
 		{Name: "game-day", Links: gameDay},
-		{Name: "league", Links: []string{"/wire|11 Signal Wire", "/activity|12 Activity", "/locker|13 Locker Room", "/scoring|14 Rules & scoring"}},
-		{Name: "help", Links: []string{"/guide|15 Manager guide", "/help|16 Help center"}},
+		{Name: "league", Links: []string{
+			"/wire|" + railIndex(viewer.draftComplete, 11) + " Signal Wire",
+			"/activity|" + railIndex(viewer.draftComplete, 12) + " Activity",
+			"/locker|" + railIndex(viewer.draftComplete, 13) + " Locker Room",
+			"/scoring|" + railIndex(viewer.draftComplete, 14) + " Rules & scoring",
+		}},
+		{Name: "help", Links: []string{
+			"/guide|" + railIndex(viewer.draftComplete, 15) + " Manager guide",
+			"/help|" + railIndex(viewer.draftComplete, 16) + " Help center",
+		}},
 	}
 	team := &groups[1].Links
 	switch {
@@ -338,8 +360,8 @@ func expectedNavigationGroups(viewer navigationViewerFixture) []renderedNavigati
 	}
 	if viewer.commissioner {
 		groups = append(groups, renderedNavigationGroup{Name: "commissioner", Links: []string{
-			"/commissioner|17 All leagues",
-			"/admin|18 League settings",
+			"/commissioner|" + railIndex(viewer.draftComplete, 17) + " All leagues",
+			"/admin|" + railIndex(viewer.draftComplete, 18) + " League settings",
 		}})
 	}
 	return groups
