@@ -380,12 +380,14 @@ func (b *Bot) State() (DraftState, error) {
 }
 
 // NextPick finds an eligible player for whichever team the server currently
-// has on the clock, scanning the first page, then K, then DST (the late
-// rounds require a kicker or defense to keep the roster viable). Every
-// row's draft_eligible reflects the ON-CLOCK team's roster fit, not the
-// caller's: a scenario must confirm it is actually b.TeamID's turn (compare
-// against State's OnClockID) before treating the returned player as its
-// own legal pick.
+// has on the clock, scanning the first page, then K, then P, then DST (the
+// late rounds require a kicker, a punter, or a defense to keep the roster
+// viable — the gridiron-house preset starts all three, so a fallback that
+// skipped any one of them could strand a team with no eligible pick even
+// though the pool still holds one). Every row's draft_eligible reflects
+// the ON-CLOCK team's roster fit, not the caller's: a scenario must
+// confirm it is actually b.TeamID's turn (compare against State's
+// OnClockID) before treating the returned player as its own legal pick.
 func (b *Bot) NextPick() (string, error) {
 	state, err := b.State()
 	if err != nil {
@@ -397,7 +399,7 @@ func (b *Bot) NextPick() (string, error) {
 	if id := state.EligiblePick(); id != "" {
 		return id, nil
 	}
-	for _, path := range []string{"/test/draft?pos=K", "/test/draft?pos=DST"} {
+	for _, path := range []string{"/test/draft?pos=K", "/test/draft?pos=P", "/test/draft?pos=DST"} {
 		next, err := b.stateFrom(path)
 		if err != nil {
 			return "", err

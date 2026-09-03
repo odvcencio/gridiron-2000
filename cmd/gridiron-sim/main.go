@@ -12,6 +12,16 @@
 // exit, so pointing this command at a real league stops it instead of
 // seating bots in it.
 //
+// The default seat source, --seats claim, seats generated @sim.test
+// identities into whatever seats are still open — the shape a brand-new
+// league needs. A league whose seats are already held by real members (a
+// faithful copy of a live league, for example) has none open, so
+// --seats existing signs in as each seat's CURRENT holder instead,
+// reading the seat -> email map the harness's /test/draft teams rows
+// carry. --members restricts that to a named subset of those emails,
+// letting a rehearsal drive some seats while leaving the rest for a human
+// or the server's own autopick.
+//
 // The command seats managers and marks them ready. It never starts the
 // draft: a commissioner does that from the console, or with a POST to
 // /draft/__actions/draft-start. Once the draft is live, each bot picks
@@ -60,6 +70,12 @@ const (
 	defaultURL = "http://127.0.0.1:8099"
 	// defaultManagers seats a standard eight-team league.
 	defaultManagers = 8
+	// seatSourceClaim is the default --seats value: claim whatever seats
+	// are still open with generated @sim.test identities.
+	seatSourceClaim = "claim"
+	// seatSourceExisting is the --seats value that signs in as each
+	// seat's CURRENT holder instead of claiming a seat.
+	seatSourceExisting = "existing"
 	// defaultDelay is one bot's think time before it submits a pick.
 	defaultDelay = 3 * time.Second
 	// commissionerEmail names the identity this command primes to read the
@@ -98,6 +114,14 @@ func usage() {
 
 usage:
   gridiron-sim draft [--url URL] [--managers N] [--delay D]
+  gridiron-sim draft [--url URL] [--seats existing] [--delay D]
+  gridiron-sim draft [--url URL] [--members a@x,b@y] [--delay D]
+
+--seats claim (the default) seats generated @sim.test identities into
+whatever seats are open. --seats existing signs in as each seat's
+CURRENT holder instead, for a league whose seats are already real
+members. --members restricts --seats existing to a comma-separated list
+of those members' emails, driving only that subset.
 
 Start the target with GRIDIRON_TEST_AUTH=1 first. Never point this
 command at production.
@@ -125,7 +149,9 @@ func runDraft(args []string) error {
 	flags := flag.NewFlagSet("draft", flag.ContinueOnError)
 	flags.Usage = usage
 	base := flags.String("url", defaultURL, "base URL of the running harness instance")
-	managerCount := flags.Int("managers", defaultManagers, "how many seats to claim (1 to 14)")
+	managerCount := flags.Int("managers", defaultManagers, "how many seats to claim (1 to 14); --seats claim only")
+	seats := flags.String("seats", seatSourceClaim, `seat source: "claim" seats new @sim.test identities, "existing" signs in as each seat's current holder`)
+	members := flags.String("members", "", "comma-separated emails to drive (each must already hold a seat); implies --seats existing")
 	delay := flags.Duration("delay", defaultDelay, "think time before each bot submits its pick")
 	if err := flags.Parse(args); err != nil {
 		// flag.ContinueOnError already printed the usage for -h; asking for
@@ -135,7 +161,24 @@ func runDraft(args []string) error {
 		}
 		return err
 	}
-	if *managerCount < 1 || *managerCount > len(simTeamNames) {
+	seatSource := strings.ToLower(strings.TrimSpace(*seats))
+	if seatSource == "" {
+		seatSource = seatSourceClaim
+	}
+	memberList := splitMembers(*members)
+	if len(memberList) > 0 {
+		// --members names specific seat holders; that only makes sense
+		// against the existing seats a real league already has, so it
+		// selects that seat source on its own rather than requiring both
+		// flags spelled out together.
+		seatSource = seatSourceExisting
+	}
+	switch seatSource {
+	case seatSourceClaim, seatSourceExisting:
+	default:
+		return fmt.Errorf("--seats is %q; it must be %q or %q", *seats, seatSourceClaim, seatSourceExisting)
+	}
+	if seatSource == seatSourceClaim && (*managerCount < 1 || *managerCount > len(simTeamNames)) {
 		return fmt.Errorf("--managers is %d; it must be between 1 and %d", *managerCount, len(simTeamNames))
 	}
 	if *delay < 0 {
@@ -155,11 +198,22 @@ func runDraft(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	commish, managers, err := seat(target, *managerCount)
+	var commish *draft.Bot
+	var managers []*manager
+	var err error
+	switch seatSource {
+	case seatSourceExisting:
+		commish, managers, err = seatExisting(target, memberList)
+	default:
+		commish, managers, err = seat(target, *managerCount)
+	}
 	if err != nil {
 		return err
 	}
 	if len(managers) == 0 {
+		if seatSource == seatSourceExisting {
+			return errors.New("no seat holder was signed in; check --members, or that /test/draft reports member_email for the league's seats")
+		}
 		return errors.New("no seat was claimed; the league may already be full of other managers")
 	}
 	ready, err := prepareSeats(commish, managers)
@@ -253,6 +307,95 @@ func seat(target string, count int) (*draft.Bot, []*manager, error) {
 			continue
 		}
 		managers = append(managers, &manager{bot: bot, team: team})
+	}
+	return commish, managers, nil
+}
+
+// splitMembers parses --members's comma-separated email list, trimming
+// whitespace and dropping empty entries so "a@x, ,b@y," reads as two
+// emails, not three.
+func splitMembers(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if email := strings.TrimSpace(part); email != "" {
+			out = append(out, email)
+		}
+	}
+	return out
+}
+
+// stringField reads a string value out of a /test/draft team row (or any
+// other JSON-decoded map), returning "" for a missing or non-string key.
+func stringField(row map[string]any, key string) string {
+	value, _ := row[key].(string)
+	return value
+}
+
+// seatExisting signs in as seats' CURRENT holders instead of claiming a
+// seat: the mode a league whose seats are already real members needs,
+// where every seat is already taken and "claim" would find nothing open.
+// It reads the seat -> email map the harness's /test/draft teams rows
+// carry (member_email, added for exactly this) and, for each seat that
+// has a member and (when members is non-empty) is in that allow-list,
+// signs in as that email — the same bot.Prime that an already-seated
+// viewer redirects to /team for its CSRF token, per Prime's doc comment.
+//
+// A seat with no member (member_email == "") is skipped: there is no one
+// to sign in as, and this mode never claims a seat itself. When members
+// names an email this run never signs in — a typo, or a seat that traded
+// or is a co-manager-only address — that email is logged so the gap is
+// visible instead of silently driving fewer seats than asked for.
+func seatExisting(target string, members []string) (*draft.Bot, []*manager, error) {
+	commish := draft.New(target, commissionerEmail, "Commissioner")
+	if err := commish.Prime(); err != nil {
+		return nil, nil, fmt.Errorf("prime the commissioner (%s): %w", commissionerEmail, err)
+	}
+	state, err := commish.State()
+	if err != nil {
+		return nil, nil, fmt.Errorf("read the seat grid: %w", err)
+	}
+	want := make(map[string]bool, len(members))
+	for _, email := range members {
+		want[strings.ToLower(email)] = true
+	}
+	seen := make(map[string]bool, len(members))
+	managers := make([]*manager, 0, len(state.Teams))
+	for _, row := range state.Teams {
+		id := stringField(row, "id")
+		email := strings.TrimSpace(stringField(row, "member_email"))
+		if email == "" {
+			continue
+		}
+		if len(want) > 0 {
+			if !want[strings.ToLower(email)] {
+				continue
+			}
+			seen[strings.ToLower(email)] = true
+		}
+		name := stringField(row, "manager")
+		bot := draft.New(target, email, name)
+		if err := bot.Prime(); err != nil {
+			log.Printf("skip %s: prime failed: %v", email, err)
+			continue
+		}
+		if _, err := bot.State(); err != nil {
+			log.Printf("skip %s: read own seat: %v", email, err)
+			continue
+		}
+		if bot.TeamID == "" {
+			log.Printf("skip %s: signed in but the server reports no seat", email)
+			continue
+		}
+		if id != "" && bot.TeamID != id {
+			log.Printf("skip %s: signed in but holds seat %q, not the %q /test/draft named", email, bot.TeamID, id)
+			continue
+		}
+		managers = append(managers, &manager{bot: bot, team: stringField(row, "name")})
+	}
+	for _, email := range members {
+		if !seen[strings.ToLower(email)] {
+			log.Printf("--members named %s but no claimed seat's member_email matched it", email)
+		}
 	}
 	return commish, managers, nil
 }
@@ -432,10 +575,10 @@ func seatHolder(managers []*manager, id string) *manager {
 }
 
 // playerLabel names a player from the pool page the caller already read.
-// It falls back to the raw id for a late-round kicker or defense: NextPick
-// reaches those through its own pos=K and pos=DST pages, which this page
-// does not carry. The id still identifies the pick, and the room's own
-// pick tape carries the name.
+// It falls back to the raw id for a late-round kicker, punter, or defense:
+// NextPick reaches those through its own pos=K, pos=P, and pos=DST pages,
+// which this page does not carry. The id still identifies the pick, and
+// the room's own pick tape carries the name.
 func playerLabel(state draft.DraftState, playerID string) string {
 	for _, row := range state.Available {
 		if id, _ := row["id"].(string); id != playerID {
