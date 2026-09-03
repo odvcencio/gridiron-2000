@@ -3,7 +3,9 @@ package league
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"strings"
 	"time"
 )
 
@@ -558,11 +560,24 @@ func undraftedPositionSupply(players []Player, picked map[string]bool, position 
 // at all (FLEX/SUPERFLEX absorption included) is vacuously covered for
 // every seat, so the guard never fires for it.
 func positionScarcityBlocksCandidate(state PersistedState, pool playerPool, picked map[string]bool, preset RosterPreset, teamID, position string, otherTeamIDs []string) bool {
+	blocked, _, _ := positionScarcityDetail(state, pool, picked, preset, teamID, position, otherTeamIDs)
+	return blocked
+}
+
+// positionScarcityDetail is positionScarcityBlocksCandidate's own
+// computation, exposed with the raw supply/stillMissing counts (rules-
+// audit item 3) so a caller that must explain WHY a pick is blocked —
+// MakePick's validation message, see positionScarcityMessage — reads the
+// exact numbers the guard itself decided on, rather than recomputing them
+// separately and risking the two drifting apart. supply and stillMissing
+// are both 0 when blocked is false and the guard never reached the supply
+// count (an uncovered-requirement short-circuit, matching
+// positionScarcityBlocksCandidate's own early returns).
+func positionScarcityDetail(state PersistedState, pool playerPool, picked map[string]bool, preset RosterPreset, teamID, position string, otherTeamIDs []string) (blocked bool, supply, stillMissing int) {
 	ownPlayers, _ := teamDraftedPlayers(state, pool.byID, teamID)
 	if !teamCoversPositionRequirement(ownPlayers, preset, position) {
-		return false
+		return false, 0, 0
 	}
-	stillMissing := 0
 	for _, other := range otherTeamIDs {
 		otherPlayers, _ := teamDraftedPlayers(state, pool.byID, other)
 		if !teamCoversPositionRequirement(otherPlayers, preset, position) {
@@ -570,9 +585,44 @@ func positionScarcityBlocksCandidate(state PersistedState, pool playerPool, pick
 		}
 	}
 	if stillMissing == 0 {
-		return false
+		return false, 0, 0
 	}
-	return undraftedPositionSupply(pool.players, picked, position) <= stillMissing
+	supply = undraftedPositionSupply(pool.players, picked, position)
+	return supply <= stillMissing, supply, stillMissing
+}
+
+// positionScarcityMessage renders positionScarcityDetail's counts as the
+// plain-language validation text a manual pick sees when MakePick refuses
+// a scarcity-blocked candidate (rules-audit item 3: before this, only
+// autopick ever consulted the guard, so a manager could freely hoard a
+// scarce position — 12 punters drafted onto 8 seats while a peer still
+// needed a first one — with no in-app refusal at all). It reuses
+// lineupPositionPlainName (lineup.go) for the same spelled-out noun the
+// lineup pages already name a position by, so a manager who has never
+// seen the roster abbreviation table still understands the refusal.
+func positionScarcityMessage(position string, supply, stillMissing int) string {
+	noun := strings.ToLower(position)
+	if plain, ok := lineupPositionPlainName[position]; ok {
+		noun = plain
+	}
+	verb := "is"
+	if supply != 1 {
+		noun = pluralizePositionNoun(noun)
+		verb = "are"
+	}
+	return fmt.Sprintf("Only %d %s %s left for %d teams that still need one; pick another position first.", supply, noun, verb, stillMissing)
+}
+
+// pluralizePositionNoun pluralizes a lineupPositionPlainName noun for
+// positionScarcityMessage. A noun that already ends in "s" — today only
+// "defense/special teams" — is left unchanged rather than getting a
+// second "s", since it already reads as plural in context ("Only 2
+// defense/special teams are left...").
+func pluralizePositionNoun(noun string) string {
+	if strings.HasSuffix(noun, "s") {
+		return noun
+	}
+	return noun + "s"
 }
 
 // draftCandidateKeepsRosterViable is the hard legality boundary shared by

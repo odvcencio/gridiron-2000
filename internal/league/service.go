@@ -110,6 +110,17 @@ type Service struct {
 	poolMu     sync.Mutex
 	poolSource PlayerSource
 	poolCache  playerPool
+	// poolFrozenLoggedVersion/poolFrozenLoggedSet de-duplicate the pool()
+	// freeze log line (rules-audit item 1): a started, incomplete draft
+	// can see hundreds of pool() calls before the next resync, and every
+	// one of them rejects the same pending source version, so without
+	// this pair the freeze would log once per request instead of once
+	// per rejected version. poolFrozenLoggedSet distinguishes "never
+	// logged yet" from "logged version 0", since 0 is itself a valid
+	// PlayerSource version (see buildPool's demo-mode callers). Guarded
+	// by poolMu, like poolCache.
+	poolFrozenLoggedVersion int64
+	poolFrozenLoggedSet     bool
 	// liveNameIndex is ResolveLivePlayer's normalized-name lookup, built
 	// lazily and rebuilt only when liveNameVersion no longer matches
 	// poolCache.version — see ResolveLivePlayer.
@@ -898,17 +909,6 @@ func (s *Service) presenceKeysForTeam(state PersistedState, teamID string) []str
 	return keys
 }
 
-// presenceFloor returns key's last-seen instant, floored at process start for
-// legacy notification epoch/idempotency callers. New room presence uses
-// presenceStateSince so NOT SEEN remains distinct from observed AWAY.
-func (s *Service) presenceFloor(key string) time.Time {
-	seenAt, ok := s.presence.seen(key)
-	if !ok || seenAt.Before(s.presence.startedAt) {
-		return s.presence.startedAt
-	}
-	return seenAt
-}
-
 // teamPresence aggregates the operators assigned to one seat. The strongest
 // current state wins in the order HERE > IDLE > AWAY > NOT SEEN. The returned
 // copy is intentionally explicit about freshness; presence is observational
@@ -1334,6 +1334,38 @@ func (s *Service) pool() playerPool {
 		return s.poolCache
 	}
 	players, version, label := s.poolSource()
+
+	// Pool freeze (rules-audit item 1, HIGH). buildPool reruns whenever the
+	// source reports a new version/label, and FANTASY_SYNC_INTERVAL fires
+	// that resync on a plain wall-clock timer with no awareness of a live
+	// draft: a 120s-clock, 136-pick draft runs roughly 4.5 hours, so
+	// several ordinary resyncs land mid-draft. A rebuild mid-draft moves
+	// the ADP cut a stale board's undrafted rows were read against,
+	// reorders byHouse under autopick's live walk, and — the sharpest
+	// edge — can drop a player the old source carried but the new one
+	// does not, which used to orphan that player everywhere his ID was
+	// already committed (a pick, a roster slot) with no warning. So: once
+	// a draft has opened and has not yet finished, and this Service
+	// already has a real pool to serve (byID != nil and not the
+	// fail-closed unavailable state — an outage must still surface, not
+	// get masked by a frozen stale cache), pool() keeps returning that
+	// exact cache no matter what the source reports, and only looks at
+	// the source's version/label again once the draft completes. The
+	// rejected version/label are never queued; the next post-draft
+	// pool() call reads the source fresh, same as any other rebuild.
+	if s.poolCache.byID != nil && !s.poolCache.unavailable {
+		state := s.store.Snapshot()
+		if state.DraftStarted && !draftComplete(state) {
+			if s.poolCache.version != version || s.poolCache.label != label {
+				if !s.poolFrozenLoggedSet || s.poolFrozenLoggedVersion != version {
+					log.Printf("player pool: frozen during the draft: ignoring source version %d (%s); keeping cached version %d (%s) until the draft completes", version, label, s.poolCache.version, s.poolCache.label)
+					s.poolFrozenLoggedVersion = version
+					s.poolFrozenLoggedSet = true
+				}
+			}
+			return s.poolCache
+		}
+	}
 	if len(players) == 0 {
 		// DEMO_MODE is the only intentional embedded-pool path. Once a
 		// production source has been attached, an empty result is an
@@ -1467,6 +1499,20 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 	for _, player := range annotated {
 		byID[player.ID] = player
 	}
+	// Carry forward every drafted or rostered player ID the new source
+	// dropped (rules-audit item 1's second half — independent of the
+	// pool() freeze above, and not limited to a draft in progress: a
+	// live source is free to shrink or reorder its list on any resync,
+	// but an ID this league has already committed to a pick or a roster
+	// spot must stay resolvable forever). Without this, rosterForTeam's
+	// `continue` (service.go) on a missing ID silently shrinks that
+	// team's roster below its real pick count, and
+	// teamDraftedPlayers/positionScarcityBlocksCandidate undercount the
+	// same team's needs. byID only — annotated/byADP/byHouse (the board
+	// and autopick walk order) intentionally do not get these players
+	// back: a carried-forward player is already spoken for, never an
+	// "available" candidate again.
+	s.carryForwardReferencedPlayers(byID)
 	byADP := make([]Player, len(annotated))
 	copy(byADP, annotated)
 	sort.SliceStable(byADP, func(i, j int) bool {
@@ -1481,6 +1527,39 @@ func (s *Service) buildPool(players []Player, version int64, label string) playe
 	})
 	byHouse := houseOrderedIndex(annotated)
 	return playerPool{version: version, label: label, players: annotated, byID: byID, byADP: byADP, byHouse: byHouse}
+}
+
+// carryForwardReferencedPlayers fills byID with the last-known fields for
+// every draft-pick and current-roster player ID that this rebuild's own
+// source list and embedded fixtures did not already resolve. It reads
+// s.poolCache — the pool this rebuild is about to replace — as the
+// "last-known" source, which is always still the previous cache here:
+// buildPool runs from inside pool() before pool() overwrites poolCache
+// with this call's own result (see pool()), and every other buildPool
+// caller (tests aside) goes through pool() the same way. A first-ever
+// build (s.poolCache.byID nil) carries nothing forward, which is correct:
+// nothing has been drafted onto a roster before a pool has ever existed.
+func (s *Service) carryForwardReferencedPlayers(byID map[string]Player) {
+	state := s.store.Snapshot()
+	carry := func(playerID string) {
+		if playerID == "" {
+			return
+		}
+		if _, ok := byID[playerID]; ok {
+			return
+		}
+		if player, ok := s.poolCache.byID[playerID]; ok {
+			byID[playerID] = player
+		}
+	}
+	for _, pick := range state.Picks {
+		carry(pick.PlayerID)
+	}
+	for _, ids := range currentRosters(state) {
+		for _, id := range ids {
+			carry(id)
+		}
+	}
 }
 
 // withHistorical fills a player's previous-season line from the attached
@@ -2854,36 +2933,6 @@ func teamPrimaryAction(rosterComplete bool) map[string]any {
 	}
 }
 
-// topAvailable lists the best unpicked pool players for the waiver radar.
-func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any {
-	pool := s.pool()
-	picked := make(map[string]bool, len(state.Picks))
-	for _, pick := range state.Picks {
-		picked[pick.PlayerID] = true
-	}
-	out := make([]map[string]any, 0, limit)
-	for _, player := range pool.players {
-		if picked[player.ID] {
-			continue
-		}
-		signal := "Projection " + fmt.Sprintf("%.1f", player.Projection)
-		if player.ADPRank > 0 {
-			signal = fmt.Sprintf("ADP #%d", player.ADPRank)
-		}
-		out = append(out, map[string]any{
-			"position": player.Position,
-			"name":     player.Name,
-			"team":     player.NFLTeam,
-			"signal":   signal,
-			"status":   "OPEN",
-		})
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
-}
-
 func (s *Service) DraftData(r *http.Request) map[string]any {
 	return s.draftData(r, false, true)
 }
@@ -3531,6 +3580,31 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	}
 	if !draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("choose a player who keeps every required starter slot fillable")
+	}
+	// Scarcity guard (rules-audit item 3): autopickChoice already refuses
+	// a scarcity-blocked candidate (draftclock.go's positionScarcityBlocksCandidate),
+	// but MakePick — the manual-pick path — never consulted it, so a
+	// manager who covered their own requirement for a scarce position
+	// (say, punter) could freely keep drafting more of them while a peer
+	// seat had not yet drafted even one, with no guard and no warning.
+	// Applying the identical guard here, with the identical picked/preset/
+	// otherTeamIDs construction autopickChoice uses, closes that gap for
+	// every manual pick the same way autopick was already protected.
+	{
+		picked := make(map[string]bool, len(state.Picks))
+		for _, existing := range state.Picks {
+			picked[existing.PlayerID] = true
+		}
+		preset := CurrentRoster()
+		otherTeamIDs := make([]string, 0, len(s.Teams()))
+		for _, team := range s.Teams() {
+			if team.ID != teamID {
+				otherTeamIDs = append(otherTeamIDs, team.ID)
+			}
+		}
+		if blocked, supply, stillMissing := positionScarcityDetail(state, pool, picked, preset, teamID, player.Position, otherTeamIDs); blocked {
+			return DraftPick{}, Player{}, Team{}, fmt.Errorf("%s", positionScarcityMessage(player.Position, supply, stillMissing))
+		}
 	}
 	// The pick and its clock reset land in one store transaction (section
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
@@ -5292,14 +5366,6 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		out[k] = v
 	}
 	return out
-}
-
-// playerMaps renders many players against the stock default scoring rules
-// and no matchup context. Pool-rendering callers should call
-// playerMapsWithScoring instead, passing a scoringValues map and a
-// matchupIndex resolved once per render; see currentScoringValues.
-func playerMaps(players []Player) []map[string]any {
-	return playerMapsWithScoring(players, nil, matchupIndex{})
 }
 
 // playerMapsWithScoring renders many players' view models against one

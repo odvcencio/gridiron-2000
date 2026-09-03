@@ -2,6 +2,51 @@ package fantasy
 
 import "testing"
 
+// TestTank01ScoringParams is rules-audit item 4's mapping-table test: every
+// tank01ProjectionScoringParams entry must carry values' matching rule
+// value, formatted with strconv.FormatFloat's shortest form (no forced
+// trailing zeros, matching Tank01's own numeric-string style observed
+// live), and targets/xpMissed — no matching defaultScoringRules key exists
+// — must carry an explicit "0" rather than being left out of the map.
+func TestTank01ScoringParams(t *testing.T) {
+	values := map[string]float64{
+		"passYards": 0.04, "passTD": 4, "passInt": -2,
+		"rushYards": 0.1, "rushTD": 6, "fumbleLost": -2,
+		"recYards": 0.1, "recTD": 6,
+		"twoPt": 2, "fgMade": 3, "fgMissed": -1, "xpMade": 1,
+		"reception": 0.5, // reception has no tank01ProjectionScoringParams entry (pointsPerReception owns it)
+	}
+	got := tank01ScoringParams(values)
+	want := map[string]string{
+		"passYards": "0.04", "passTD": "4", "passInterceptions": "-2",
+		"rushYards": "0.1", "rushTD": "6", "fumbles": "-2",
+		"receivingYards": "0.1", "receivingTD": "6",
+		"twoPointConversions": "2", "fgMade": "3", "fgMissed": "-1", "xpMade": "1",
+		"targets": "0", "xpMissed": "0",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("tank01ScoringParams = %+v, want %+v", got, want)
+	}
+	for param, value := range want {
+		if got[param] != value {
+			t.Errorf("tank01ScoringParams[%q] = %q, want %q", param, got[param], value)
+		}
+	}
+	if _, ok := got["pointsPerReception"]; ok {
+		t.Error(`tank01ScoringParams must not emit "pointsPerReception": that knob is owned by pointsPerReception(scoringFormat), not the scoring-values table`)
+	}
+
+	// A nil values map (no SetScoringValues wiring) must still emit every
+	// key, all "0" — an honest "not configured," never an omitted
+	// parameter Tank01 could apply its own default weight to instead.
+	unwired := tank01ScoringParams(nil)
+	for param := range want {
+		if unwired[param] != "0" {
+			t.Errorf("tank01ScoringParams(nil)[%q] = %q, want 0", param, unwired[param])
+		}
+	}
+}
+
 // TestScaledPoolLimit pins the productization wave's pool-limit scaling
 // rule (owner decision): teams × roster spots × 2.5 headroom, clamped to
 // [200, 800], instead of a flat 400.

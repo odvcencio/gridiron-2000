@@ -295,6 +295,87 @@ func TestParseProjectionsDefenseHasNoStatGroups(t *testing.T) {
 	}
 }
 
+// TestParseProjectionsIncludesTeamDefenseProjections is rules-audit item 2:
+// getNFLProjections' real response carries a separate teamDefenseProjections
+// block (32 entries, keyed by an opaque Tank01 teamID, not playerID — never
+// under playerProjections the way TestParseProjectionsDefenseHasNoStatGroups
+// above assumed). This fixture mirrors the actual shape captured live from
+// statrelay's getNFLProjections?week=1&archiveSeason=2026 on 2026-09-02: a
+// flat (non-scoring-format-nested) fantasyPointsDefault, and DST-group stat
+// fields with different raw names than the offense groups use.
+func TestParseProjectionsIncludesTeamDefenseProjections(t *testing.T) {
+	raw := json.RawMessage(`{
+		"playerProjections": {"1": {"fantasyPoints": "18.4"}},
+		"teamDefenseProjections": {
+			"22": {
+				"returnTD": "0.0", "defTD": "0.1", "safeties": "0.0",
+				"teamID": "22", "fumbleRecoveries": "0.5", "ptsAgainst": "22.7",
+				"teamAbv": "NE", "interceptions": "0.7", "sacks": "2.0",
+				"blockKick": "0.1", "fantasyPointsDefault": "7.1"
+			},
+			"25": {
+				"returnTD": "0.2", "defTD": "0.3", "safeties": "0.1",
+				"teamID": "25", "fumbleRecoveries": "0.6", "ptsAgainst": "19.4",
+				"teamAbv": "NYJ", "interceptions": "1.1", "sacks": "2.8",
+				"blockKick": "0.0", "fantasyPointsDefault": "9.2"
+			},
+			"skipped-zero": {
+				"teamAbv": "ZZZ", "fantasyPointsDefault": "0.0"
+			}
+		}
+	}`)
+	entries := parseProjections(raw, "half_ppr")
+
+	if entries["1"].Points != 18.4 {
+		t.Fatalf("offense player projection = %v, want 18.4 (unaffected by the DST merge)", entries["1"].Points)
+	}
+
+	ne, ok := entries["DST-NE"]
+	if !ok {
+		t.Fatalf("DST-NE missing from projections: %+v", entries)
+	}
+	if ne.Points != 7.1 {
+		t.Errorf("DST-NE points = %v, want 7.1", ne.Points)
+	}
+	wantNE := map[string]float64{
+		"defensiveInterceptions": 0.7, "fumblesRecovered": 0.5,
+		"defTD": 0.1, "sacks": 2.0,
+	}
+	if len(ne.Stats) != len(wantNE) {
+		t.Fatalf("DST-NE stats = %+v, want %+v", ne.Stats, wantNE)
+	}
+	for key, value := range wantNE {
+		if ne.Stats[key] != value {
+			t.Errorf("DST-NE stats[%q] = %v, want %v", key, ne.Stats[key], value)
+		}
+	}
+	// returnTD and safeties are both 0.0 in this fixture and must be
+	// dropped, matching projectionStats' zero-value idiom above.
+	for _, zeroKey := range []string{"returnTD", "safeties"} {
+		if _, present := ne.Stats[zeroKey]; present {
+			t.Errorf("zero-valued DST stat %q should be dropped: %+v", zeroKey, ne.Stats)
+		}
+	}
+
+	nyj, ok := entries["DST-NYJ"]
+	if !ok {
+		t.Fatalf("DST-NYJ missing from projections: %+v", entries)
+	}
+	if nyj.Points != 9.2 {
+		t.Errorf("DST-NYJ points = %v, want 9.2", nyj.Points)
+	}
+	if nyj.Stats["returnTD"] != 0.2 {
+		t.Errorf("DST-NYJ returnTD = %v, want 0.2", nyj.Stats["returnTD"])
+	}
+
+	if _, ok := entries["DST-ZZZ"]; ok {
+		t.Error("a team defense projecting 0 points must not enter the pool, matching every offense projectionPoints caller")
+	}
+	if _, ok := entries["skipped-zero"]; ok {
+		t.Error("a team-defense entry must be keyed DST-<TEAM>, never its opaque Tank01 teamID map key")
+	}
+}
+
 // recordingTransport is a plain http.RoundTripper that captures the last
 // request's original scheme/host/path and headers before rewriting the
 // destination to point at an httptest server (whose URL is always
