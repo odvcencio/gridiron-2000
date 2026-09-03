@@ -38,8 +38,13 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		if isReady {
 			readySeats++
 		}
+		// teamView (not the bare "team" loop variable) resolves the
+		// manager's own custom team name override (state.TeamNames) —
+		// item 10's fix must name the team a manager actually sees
+		// everywhere else, not the configured default it started as.
+		named := s.teamView(state, team.ID)
 		ledger = append(ledger, commissionerhq.SeatLedgerEntry{
-			Seat: ordinal + 1, Abbreviation: team.Abbreviation, Name: team.Name,
+			Seat: ordinal + 1, Abbreviation: named.Abbreviation, Name: named.Name,
 			Claimed: isClaimed, Ready: isReady,
 		})
 	}

@@ -51,6 +51,26 @@ func TestCommissionerSummaryIsPIIFreeAndExplainsPoolCoverage(t *testing.T) {
 	}
 }
 
+// TestCommissionerSummarySeatLedgerUsesCustomTeamName is item 10's
+// team-naming follow-up (2026-09-02 audit): a manager's own custom
+// rename (state.TeamNames), not the default configured team name, is
+// what every OTHER page already shows for that seat — /commissioner's
+// seat ledger and draft order must name the SAME team a manager sees
+// everywhere else.
+func TestCommissionerSummarySeatLedgerUsesCustomTeamName(t *testing.T) {
+	service := newTestService(t, false)
+	teamID := service.Teams()[0].ID
+	if err := service.store.SetTeamName(teamID, "In Shedeur Time"); err != nil {
+		t.Fatal(err)
+	}
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{
+		Mode: "live", Actual: 300, Target: 300,
+	})
+	if len(summary.Membership.SeatLedger) == 0 || summary.Membership.SeatLedger[0].Name != "In Shedeur Time" {
+		t.Fatalf("seat 1 name = %q, want the custom rename \"In Shedeur Time\": %+v", summary.Membership.SeatLedger[0].Name, summary.Membership.SeatLedger[0])
+	}
+}
+
 func TestCommissionerSummaryCarriesStateSchemaReleaseEvidence(t *testing.T) {
 	service := newTestService(t, false)
 	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{
