@@ -909,17 +909,6 @@ func (s *Service) presenceKeysForTeam(state PersistedState, teamID string) []str
 	return keys
 }
 
-// presenceFloor returns key's last-seen instant, floored at process start for
-// legacy notification epoch/idempotency callers. New room presence uses
-// presenceStateSince so NOT SEEN remains distinct from observed AWAY.
-func (s *Service) presenceFloor(key string) time.Time {
-	seenAt, ok := s.presence.seen(key)
-	if !ok || seenAt.Before(s.presence.startedAt) {
-		return s.presence.startedAt
-	}
-	return seenAt
-}
-
 // teamPresence aggregates the operators assigned to one seat. The strongest
 // current state wins in the order HERE > IDLE > AWAY > NOT SEEN. The returned
 // copy is intentionally explicit about freshness; presence is observational
@@ -2942,36 +2931,6 @@ func teamPrimaryAction(rosterComplete bool) map[string]any {
 		"form":  "lineup-auto-form",
 		"tone":  "primary",
 	}
-}
-
-// topAvailable lists the best unpicked pool players for the waiver radar.
-func (s *Service) topAvailable(state PersistedState, limit int) []map[string]any {
-	pool := s.pool()
-	picked := make(map[string]bool, len(state.Picks))
-	for _, pick := range state.Picks {
-		picked[pick.PlayerID] = true
-	}
-	out := make([]map[string]any, 0, limit)
-	for _, player := range pool.players {
-		if picked[player.ID] {
-			continue
-		}
-		signal := "Projection " + fmt.Sprintf("%.1f", player.Projection)
-		if player.ADPRank > 0 {
-			signal = fmt.Sprintf("ADP #%d", player.ADPRank)
-		}
-		out = append(out, map[string]any{
-			"position": player.Position,
-			"name":     player.Name,
-			"team":     player.NFLTeam,
-			"signal":   signal,
-			"status":   "OPEN",
-		})
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
 }
 
 func (s *Service) DraftData(r *http.Request) map[string]any {
@@ -5386,14 +5345,6 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		out[k] = v
 	}
 	return out
-}
-
-// playerMaps renders many players against the stock default scoring rules
-// and no matchup context. Pool-rendering callers should call
-// playerMapsWithScoring instead, passing a scoringValues map and a
-// matchupIndex resolved once per render; see currentScoringValues.
-func playerMaps(players []Player) []map[string]any {
-	return playerMapsWithScoring(players, nil, matchupIndex{})
 }
 
 // playerMapsWithScoring renders many players' view models against one
