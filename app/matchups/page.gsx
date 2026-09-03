@@ -100,7 +100,7 @@ func StarterCell(props StarterCellData) Node {
 					<span class="starter-cell__name-full" data-gosx-live-bind={"starterPlayerName." + props.LiveKey}>{props.PlayerName}</span>
 					<span class="starter-cell__name-short">{props.PlayerNameShort}</span>
 				</strong>
-				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span> · <span class="starter-cell__state-text" data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
+				<small><span data-gosx-live-bind={"starterPosition." + props.LiveKey}>{props.Position}</span> · <span data-gosx-live-bind={"starterNFLTeam." + props.LiveKey}>{props.NFLTeam}</span><span class="starter-cell__state-text"> · <span data-gosx-live-bind={"starterGameState." + props.LiveKey}>{props.GameState}</span></span><span class="possession-chip" data-gosx-live-bind={"starterPossession." + props.LiveKey}>{props.Possession}</span></small>
 			</summary>
 			<div class="matchup-ledger__body">
 				<p class="matchup-ledger__hint">Configured starters only. Bench, reserve, and IR are excluded.</p>
