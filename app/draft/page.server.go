@@ -158,15 +158,26 @@ type draftBreakdownRowView struct {
 }
 
 type draftPlayerCardView struct {
-	ID              string
-	Name            string
-	Position        string
-	NFLTeam         string
-	Projection      string
-	Rank            string
-	HasHouseRank    bool
-	HouseRank       string
-	Detail          string
+	ID           string
+	Name         string
+	Position     string
+	NFLTeam      string
+	Projection   string
+	Rank         string
+	HasHouseRank bool
+	HouseRank    string
+	Detail       string
+	// News/HasNews/Injury/HasInjury back the newspaper-icon stat-tip
+	// beside the identity one (wave 8 hotfix, item 1, commissioner design
+	// revision — "news should be a lil newspaper icon that opens as a
+	// tooltip detail"), sourced from playerMap's own "news"/"has_news"/
+	// "injury"/"has_injury" keys (internal/league/service.go) by
+	// draftPlayerProps below. Detail itself never carries the headline —
+	// see playerMap's own doc comment.
+	News            string
+	HasNews         bool
+	Injury          string
+	HasInjury       bool
 	Headshot        string
 	HasHeadshot     bool
 	Jersey          string
@@ -758,6 +769,10 @@ func draftPlayerProps(raw []map[string]any) []draftPlayerCardView {
 			HasHouseRank:    boolField(player, "has_house_rank"),
 			HouseRank:       stringField(player, "house_rank"),
 			Detail:          stringField(player, "detail"),
+			News:            stringField(player, "news"),
+			HasNews:         boolField(player, "has_news"),
+			Injury:          stringField(player, "injury"),
+			HasInjury:       boolField(player, "has_injury"),
 			Headshot:        stringField(player, "headshot"),
 			HasHeadshot:     boolField(player, "has_headshot"),
 			Jersey:          stringField(player, "jersey"),

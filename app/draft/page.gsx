@@ -1766,7 +1766,7 @@ func DraftAvailable(props DraftAvailableProps) Node {
 		<Each of={props.Players} as="player">
 			<article class="avail-row" data-player-id={player.ID} data-gosx-filter-text={player.Search} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:player." + player.ID + ".taken"}>
 				<span class="num">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
-				<div class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></div>
+				<div class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small><If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If></div>
 				<span class={"pos pos-" + player.Position}>{player.Position}</span>
 				<span class="num">{player.Projection}</span>
 				<If cond={props.Data.has_adp}><span class="num">{player.ValueLabel}</span></If>
@@ -1855,7 +1855,7 @@ func DraftMyTeam(props DraftMyTeamProps) Node {
 					<article class="q-row" data-gosx-reorder-item={player.ID} data-taken={player.Taken} data-gosx-live-bind-attr={"data-taken:queue." + player.ID + ".taken"}>
 						<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + player.Name}>⠿</span>
 						<span class="mono">{player.Rank}</span>
-						<div><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small></div>
+						<div class="q-row__player"><strong>{player.Name}</strong><small>{player.Position} · {player.NFLTeam} · proj {player.Projection}</small><If cond={player.HasNews}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p><If cond={player.HasInjury}><p class="stat-tip__hist-note">{player.Injury}</p></If></div></details></If></div>
 						<div class="q-row__actions">
 							<form method="post" action={props.QueueMoveAction} data-gosx-managed="true">
 								<input type="hidden" name="csrf_token" value={props.CSRF}></input>
