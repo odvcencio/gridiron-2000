@@ -167,7 +167,7 @@ func buildSeasonHouseHistIndex(stats *openstats.Service, values map[string]float
 	if fn := seasonHistBuildCalls.Load(); fn != nil {
 		(*fn)()
 	}
-	rows := fetchSeasonPlayerStats(stats.PlayerStatsPrevSeason)
+	rows := fetchSeasonPlayerStats(stats.Games, stats.PlayerStatsPrevSeason)
 	accumulators := make(map[string]*seasonHouseAccumulator, len(rows))
 	order := make([]string, 0, len(rows))
 	for _, row := range rows {
