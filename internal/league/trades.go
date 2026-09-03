@@ -94,8 +94,15 @@ func tradeVetoThreshold(seatCount int) int {
 
 // teamNameByID resolves a team ID to its display name for an exact-message
 // interpolation (T5, T7); an unknown ID returns itself rather than panic,
-// so a malformed offer still renders a message instead of crashing.
-func teamNameByID(id string) string {
+// so a malformed offer still renders a message instead of crashing. state's
+// TeamNames override wins over the configured default, the same rule
+// teamView applies, so a manager who renamed their team sees that name in
+// their own validation errors (wave-8 audit item 1) instead of the raw
+// config default.
+func teamNameByID(state PersistedState, id string) string {
+	if override := strings.TrimSpace(state.TeamNames[id]); override != "" {
+		return override
+	}
 	for _, team := range defaultTeams() {
 		if team.ID == id {
 			return team.Name
@@ -262,8 +269,8 @@ func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []G
 	rosters := currentRosters(state)
 	owner := rosterOwner(rosters)
 	week := lineupCurrentWeekAt(games, now)
-	fromName := teamNameByID(offer.FromTeamID)
-	toName := teamNameByID(offer.ToTeamID)
+	fromName := teamNameByID(state, offer.FromTeamID)
+	toName := teamNameByID(state, offer.ToTeamID)
 	for _, id := range offer.Give {
 		if err := validateTradeAsset(state, games, poolByID, week, now, owner, id, offer.FromTeamID, fromName); err != nil {
 			return err
@@ -1267,7 +1274,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		if team.ID == teamID || !teamHasManager(state, team.ID) {
 			continue
 		}
-		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: team.Name})
+		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: s.teamView(state, team.ID).Name})
 	}
 
 	// The composer is a two-step managed form (roster-ops spec section

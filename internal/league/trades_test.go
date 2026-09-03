@@ -75,6 +75,33 @@ func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	}
 }
 
+// TestTradesDataCounterpartiesUseRenamedTeam guards item 1 of the wave-8
+// audit: the counterparty chip list must show a manager's own custom team
+// name (state.TeamNames' override, the same one teamView applies), never
+// the raw config default the chip used to leak.
+func TestTradesDataCounterpartiesUseRenamedTeam(t *testing.T) {
+	service := newTestService(t, true)
+	if _, _, err := service.store.AssignMember("one@example.com", "One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("two@example.com", "Two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.store.SetTeamName("team-2", "Los Delfines del Norte"); err != nil {
+		t.Fatal(err)
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	partners, ok := data["counterparties"].([]TradeCounterparty)
+	if !ok || len(partners) != 1 {
+		t.Fatalf("counterparties = %#v, want exactly one partner", data["counterparties"])
+	}
+	if partners[0].Name != "Los Delfines del Norte" {
+		t.Fatalf("counterparty chip name = %q, want the renamed team's custom name", partners[0].Name)
+	}
+}
+
 func TestTradesDataPublicEntryMatrixAndPrivacy(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -455,6 +482,24 @@ func TestValidateTradeAssetsExactMessages(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestValidateTradeAssetsUsesRenamedTeamInMessages guards item 1 of the
+// wave-8 audit: a T5/T7 validation error must interpolate a renamed team's
+// custom name, not the raw config default the fixture's other cases use.
+func TestValidateTradeAssetsUsesRenamedTeamInMessages(t *testing.T) {
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	state := tradeAssetsFixtureState()
+	state.TeamNames = map[string]string{"team-1": "Los Delfines del Norte"}
+	pool := tradeAssetsFixturePool()
+	games := tradeAssetsFixtureGames(now)
+	offer := TradeOffer{FromTeamID: "team-1", ToTeamID: "team-2", Give: []string{"t2-a"}, Get: []string{"t2-b"}}
+
+	err := validateTradeAssets(state, DefaultConfig(), games, pool, now, offer, 1, 3)
+	want := "Team2 A is not on Los Delfines del Norte's roster"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
 	}
 }
 
