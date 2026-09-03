@@ -26,9 +26,14 @@ func TestAutopickTimingCopyMatchesPersistedClockSemantics(t *testing.T) {
 		"if grace has elapsed, the next clock tick may pick",
 		"Manual control keeps the full pick clock",
 		"If it expires, auto-select uses your Big Board first",
-		"Presence is observational. AUTO is authority.",
-		"HERE, IDLE, and AWAY retain the normal pick clock",
-		"NOT SEEN may receive the short safety clock only after the two-minute boot grace",
+		// comb — oleander, item 7: plain-language rewrite of the same
+		// three facts the old "Presence is observational. AUTO is
+		// authority.", "HERE, IDLE, and AWAY retain the normal pick
+		// clock", and "NOT SEEN may receive the short safety clock only
+		// after the two-minute boot grace" sentences asserted — see
+		// page.gsx's own doc comment at the rewritten copy.
+		"Seat presence is informational; autopick runs from the seat's own setting.",
+		"Seats get two minutes after a restart before they count as unseen for the short backup clock.",
 	} {
 		if !strings.Contains(source, truth) {
 			t.Errorf("draft autopick copy omits truthful engine behavior %q", truth)

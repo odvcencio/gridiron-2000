@@ -727,8 +727,19 @@ func DraftRoom(props DraftRoomProps) Node {
 				</header>
 				<div class="draft-seat-controls" aria-label="Commissioner seat coverage">
 					<div class="draft-seat-controls__intro">
-						<strong>Presence is observational. AUTO is authority.</strong>
-						<p>HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
+						{/* comb — oleander, item 7: plain words for what used
+						    to read "Presence is observational. AUTO is
+						    authority" — the same three facts (presence never
+						    changes the clock on its own; the normal clock
+						    holds until two minutes of silence after a
+						    restart; AUTO is the one setting that actually
+						    changes anything, and it drafts from the seat's
+						    own Big Board), said the way a manager who has
+						    never read the engine's own internal vocabulary
+						    ("observational," "authority," "boot grace")
+						    would still understand on a first read. */}
+						<strong>Seat presence is informational; autopick runs from the seat's own setting.</strong>
+						<p>Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 					</div>
 					<Each of={props.Data.seat_controls} as="seat">
 						<DraftSeatControl {...seat}></DraftSeatControl>
@@ -1550,7 +1561,10 @@ func DraftCommissionerDrawer(props DraftCommandBarProps) Node {
 				</div>
 			</If>
 			<section class="draft-seat-controls" aria-label="Commissioner seat coverage">
-				<p class="draft-drawer__help">Presence is observational. AUTO is authority. HERE, IDLE, and AWAY retain the normal pick clock. NOT SEEN may receive the short safety clock only after the two-minute boot grace. Set AUTO for a known absence; its explicit grace then follows the seat's Big Board.</p>
+				{/* comb — oleander, item 7: same plain-language rewrite as
+				    the "By Team" panel's own copy above — see that
+				    location's doc comment for the full rationale. */}
+				<p class="draft-drawer__help">Seat presence is informational; autopick runs from the seat's own setting. Seats get two minutes after a restart before they count as unseen for the short backup clock. Turn on AUTO for a seat you know will be away; it then drafts from that seat's own Big Board.</p>
 				<Each of={props.Data.seat_controls} as="seat"><DraftSeatControl {...seat}></DraftSeatControl></Each>
 			</section>
 		</div>
