@@ -15,42 +15,13 @@ import (
 	"gridiron-2000/internal/league"
 )
 
-// fixtureTeams matches pickFixture's eight-team draft order.
+// fixtureTeams matches tapePickFixture's eight-team draft order.
 var fixtureTeams = []string{"Kernel Panic", "Segfault City", "Null Pointers", "Garbage Collectors", "Race Condition", "Big Endians", "Stack Overflow", "Hot Path"}
 
-// pickFixture renders picks[i] the way pickMaps does (service.go): the
-// team and player nested maps carry the same keys teamMap/playerMap build,
-// so a template reading pick.team.abbreviation or pick.player.name sees a
-// realistic row. madeBy is "manager", "auto", or "commissioner".
-func pickFixture(number int, madeBy string) map[string]any {
-	teams := len(fixtureTeams)
-	round := (number-1)/teams + 1
-	column := (number - 1) % teams
-	if round%2 == 0 {
-		column = teams - 1 - column
-	}
-	positions := []string{"WR", "RB", "QB", "TE"}
-	name := fixtureTeams[column]
-	return map[string]any{
-		"number": number, "round": round,
-		"team": map[string]any{
-			"id": fmt.Sprintf("team-%d", column+1), "name": name, "abbreviation": strings.ToUpper(name[:2]), "division": "EAST",
-			"manager": "Manager " + name, "claimed": true, "tone": "cyan", "has_avatar": false, "has_avatar_image": false, "avatar_image_url": "",
-		},
-		"player": map[string]any{
-			"id": fmt.Sprintf("player-%03d", number), "name": fmt.Sprintf("Fixture Player %03d", number), "position": positions[number%len(positions)], "nfl_team": "CIN",
-			"projection": "12.0", "points": "0.0", "status": "Drafted", "news": "", "rank": fmt.Sprintf("%03d", number), "detail": "CIN · BYE 10",
-			"headshot": "", "has_headshot": false, "jersey": "", "has_breakdown": false, "breakdown": []map[string]any{}, "breakdown_total": "",
-			"has_hist": false, "hist": "", "search": "fixture", "is_rookie": false, "draft_capital": "", "has_draft_capital": false,
-		},
-		"made_by": madeBy, "is_auto": madeBy == "auto", "is_commissioner": madeBy == "commissioner",
-	}
-}
-
-// tapePickFixture builds one league.TapePick by hand, mirroring pickFixture's
-// eight-team draft order and snake math (internal/league's own pickColumn/
-// pickSlot/pickLabel are unexported, so this test package cannot call
-// them directly).
+// tapePickFixture builds one league.TapePick by hand, computing the same
+// eight-team draft order and snake math (internal/league's own
+// pickColumn/pickSlot/pickLabel are unexported, so this test package
+// cannot call them directly).
 func tapePickFixture(number int, madeBy string) league.TapePick {
 	teams := len(fixtureTeams)
 	round := (number-1)/teams + 1

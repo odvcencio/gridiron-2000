@@ -16,7 +16,6 @@ import (
 // at most one declared poll interval, while GoSX's interval guard protects a
 // focused control and an in-progress search/filter submission.
 const playersRegionInterval = "4s"
-const playersStateSignal = "$players.state.refresh"
 
 type playersFragmentLoader func(*http.Request) map[string]any
 type playersFragmentRenderer func(map[string]any, *http.Request) (string, error)

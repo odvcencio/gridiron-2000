@@ -245,7 +245,3 @@ func countFinalBlitzGames(games []BlitzGame) int {
 	}
 	return count
 }
-
-func allBlitzGamesFinal(games []BlitzGame) bool {
-	return len(games) > 0 && countFinalBlitzGames(games) == len(games)
-}

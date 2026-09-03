@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"regexp"
 	"testing"
 )
@@ -20,11 +19,8 @@ var chromeDiscReducedMotionPattern = regexp.MustCompile(`(?s)@media \(prefers-re
 // .chrome-disc the same "animation: none" override .page already has in
 // that block.
 func TestChromeDiscHonorsReducedMotion(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	if !chromeDiscReducedMotionPattern.MatchString(string(styles)) {
+	styles := readStylesheet(t)
+	if !chromeDiscReducedMotionPattern.MatchString(styles) {
 		t.Error("no \"@media (prefers-reduced-motion: reduce)\" block sets \".chrome-disc { animation: none; }\"")
 	}
 }

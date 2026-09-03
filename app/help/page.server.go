@@ -1,7 +1,6 @@
 package help
 
 import (
-	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -128,12 +127,5 @@ func init() {
 		},
 	}); err != nil {
 		log.Fatal(err)
-	}
-}
-
-func helpMetadataTitle(topic Topic) server.Metadata {
-	return server.Metadata{
-		Title:       server.Title{Default: fmt.Sprintf("%s · Help", topic.Title)},
-		Description: topic.Summary,
 	}
 }

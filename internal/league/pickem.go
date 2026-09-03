@@ -292,17 +292,15 @@ func pickemStreak(games []GameInfo, markets map[string]PickemMarket, picks map[s
 		return entries[i].kickoff.After(entries[j].kickoff)
 	})
 	streak := 0
+streakEntries:
 	for _, entry := range entries {
 		switch entry.outcome {
 		case pickemPush, pickemVoid:
 			continue
 		case pickemLoss, pickemMissedLoss:
-			break
+			break streakEntries
 		case pickemWin:
 			streak++
-		}
-		if entry.outcome == pickemLoss || entry.outcome == pickemMissedLoss {
-			break
 		}
 	}
 	return streak
@@ -902,11 +900,17 @@ func (s *Service) PickemSet(r *http.Request, gameID, team string) (GameInfo, err
 // panel: this week's outstanding pick count and the viewer's season record
 // and streak, so signing in without a team seat lands on a complete,
 // honest home screen instead of an empty fantasy dashboard (build item 3).
-func (s *Service) pickemHomeSummary(r *http.Request, state PersistedState, now time.Time) map[string]any {
+//
+// It takes no PersistedState parameter: ReconcilePickemMarkets and
+// BackfillPickemEnteredAt below mutate the store, so any snapshot a
+// caller could supply would already be stale by the time this function
+// reads it. The fresh Snapshot() must come after reconciliation, not
+// before, so this function always takes its own.
+func (s *Service) pickemHomeSummary(r *http.Request, now time.Time) map[string]any {
 	allGames := s.schedule()
 	_ = s.store.ReconcilePickemMarkets(now, allGames, nil)
 	_ = s.store.BackfillPickemEnteredAt(allGames)
-	state = s.store.Snapshot()
+	state := s.store.Snapshot()
 	return s.pickemHomeSummaryFromSnapshot(r, state, now)
 }
 

@@ -608,24 +608,6 @@ func validateAndNormalizePersistedState(state *PersistedState) error {
 	return nil
 }
 
-// readStateFromFile decodes a legacy JSON state file. It backs the import
-// path's verification and the tests that assert what an imported file
-// held.
-func readStateFromFile(path string) (PersistedState, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return PersistedState{}, err
-	}
-	var state PersistedState
-	if err := json.Unmarshal(raw, &state); err != nil {
-		return PersistedState{}, err
-	}
-	if err := validateAndNormalizePersistedState(&state); err != nil {
-		return PersistedState{}, err
-	}
-	return state, nil
-}
-
 // dbUserVersion reports a database file's PRAGMA user_version. It backs
 // the old-binary-safety test, which bumps the version to prove an older
 // binary refuses a newer schema.

@@ -980,7 +980,7 @@ func TestPickemHomeSummaryComputation(t *testing.T) {
 	// g-locked and g-open are both week 1 and still unpicked; g-locked has
 	// already kicked off so it does not count toward "unpicked this week".
 	request, _ := http.NewRequest(http.MethodGet, "/", nil)
-	summary := service.pickemHomeSummary(request, service.store.Snapshot(), now)
+	summary := service.pickemHomeSummary(request, now)
 
 	if summary["week"] != 1 {
 		t.Fatalf("week = %v, want 1", summary["week"])

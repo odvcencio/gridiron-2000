@@ -25,8 +25,8 @@ func TestValidatePlayoffConfig(t *testing.T) {
 		t.Fatalf("expected valid config to pass: %v", err)
 	}
 	cases := []struct {
-		name string
-		cfg  PlayoffConfig
+		name                                        string
+		cfg                                         PlayoffConfig
 		league, divisions, seasonStart, seasonFinal int
 	}{
 		{"teamCount too low", PlayoffConfig{TeamCount: 1, StartWeek: 15, RoundLengthWeeks: 1}, 8, 0, 1, 17},

@@ -39,7 +39,7 @@ func TestBlitzGamesWithKickoffDropsUnscheduledGames(t *testing.T) {
 	}
 }
 
-// TestBlitzGamesWithKickoffKeepsFullySchedecduledSlate is the negative
+// TestBlitzGamesWithKickoffKeepsFullyScheduledSlate is the negative
 // case: an ordinary slate loses nothing and reports no drops, so the
 // filter never becomes a silent tax on the healthy path.
 func TestBlitzGamesWithKickoffKeepsFullyScheduledSlate(t *testing.T) {

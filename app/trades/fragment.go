@@ -15,7 +15,6 @@ import (
 // heartbeat. Action responses publish the same signal for an immediate
 // refresh; the interval remains the recovery path when a client misses it.
 const tradesRegionInterval = "4s"
-const tradesStateSignal = "$trades.state.refresh"
 
 type tradesFragmentRenderer func(map[string]any, *http.Request) (string, error)
 

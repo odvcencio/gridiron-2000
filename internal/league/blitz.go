@@ -112,13 +112,6 @@ func (s *Service) SetBlitzPre1SnapshotSource(source BlitzPre1SnapshotSource) {
 	s.poolMu.Unlock()
 }
 
-// blitzPre1Stats returns the current pre1 stat map, or nil when no source
-// is attached.
-func (s *Service) blitzPre1Stats() map[string]map[string]float64 {
-	snapshot := s.blitzPre1Snapshot()
-	return snapshot.Stats
-}
-
 func (s *Service) blitzPre1Snapshot() BlitzPre1Snapshot {
 	s.poolMu.Lock()
 	snapshotSource := s.blitzPre1SnapshotFn

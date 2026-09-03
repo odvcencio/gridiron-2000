@@ -11,7 +11,6 @@ import (
 )
 
 const activityRegionInterval = "4s"
-const activityStateSignal = "$players.state.refresh"
 
 // ActivityFragmentHandler serves the authoritative transaction feed as a
 // private, no-store HTML region. It is deliberately read-only; the same

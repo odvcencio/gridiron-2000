@@ -61,9 +61,9 @@ func TestApplyStepInvalidSaveOnThisStepReturnsErrorAndKeepsPriorDraft(t *testing
 	}
 }
 
-// TestApplyStepDefersLaterStepErrors proves design section 4.2's rule: "an
-// error for a later step's field is deferred, not shown early." Saving
-// step "roster" with a shape whose total no longer matches draft.rounds
+// TestApplyStepRosterOwnsDraftRoundsMismatch proves design section 4.2's
+// rule: "an error for a later step's field is deferred, not shown early."
+// Saving step "roster" with a shape whose total no longer matches draft.rounds
 // (still holding its neutral placeholder) must not block the roster step
 // — draft.rounds belongs to "roster" itself per this package's field-owner
 // table, so this also exercises the same-step (not "later") branch

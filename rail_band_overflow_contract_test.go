@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -14,11 +13,7 @@ import (
 // CAN seed), so this test instead pins the exact declarations the rail
 // band (56.25rem-68.75rem) media query must carry for the other two.
 func TestRailBandReflowCSSContract(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	start := strings.Index(css, "@media (min-width: 56.25rem) and (max-width: 68.75rem)")
 	if start < 0 {

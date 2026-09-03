@@ -86,35 +86,6 @@ func (p *Publisher) validateRootComponents(root string) error {
 	return errors.New("fleetconfig: output directory is invalid")
 }
 
-func (p *Publisher) snapshot(root string) (rootSnapshot, error) {
-	parentPath := filepath.Dir(root)
-	name := filepath.Base(root)
-	parentInfo, err := p.fs.Lstat(parentPath)
-	if err != nil {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: inspect output parent %q: %w", parentPath, err)
-	}
-	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: output parent %q is not a directory", parentPath)
-	}
-	parent, err := p.fs.OpenDir(parentPath)
-	if err != nil {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: open output parent %q: %w", parentPath, err)
-	}
-	if err := verifyOpenedDirectory(parentPath, parentInfo, parent); err != nil {
-		_ = parent.Close()
-		return rootSnapshot{}, err
-	}
-	snapshot, snapshotErr := p.snapshotAt(parent, name, root)
-	closeErr := parent.Close()
-	if snapshotErr != nil {
-		return rootSnapshot{}, snapshotErr
-	}
-	if closeErr != nil {
-		return rootSnapshot{}, fmt.Errorf("fleetconfig: close output parent %q: %w", parentPath, closeErr)
-	}
-	return snapshot, nil
-}
-
 // snapshotAt inspects a root relative to an already-open parent directory.
 // Holding the parent handle prevents a concurrent replacement of the parent
 // path from redirecting the walk through a different tree.

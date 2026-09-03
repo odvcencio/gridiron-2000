@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -94,6 +96,69 @@ func TestFrameworkReleasePinsStayExact(t *testing.T) {
 		if strings.Contains(goMod+goSum+dockerfile+readDocumentationFile(t, "README.md"), obsolete) {
 			t.Errorf("release pins retained obsolete contract %q", obsolete)
 		}
+	}
+}
+
+// gosxVersionCitationPattern extracts a "gosx@<version>" token from a
+// comment line. It accepts dots and dashes so it also captures full
+// pseudo-versions such as v0.53.11-0.20260903011141-48af3189fe1f, not
+// only semantic-version tags.
+var gosxVersionCitationPattern = regexp.MustCompile(`gosx@(v[\w.\-]+)`)
+
+// TestGoSXInstallCitationsInTestFilesMatchGoModPin is the drift gate for
+// *_test.go comments that tell a developer what to install, or assert
+// which GoSX CLI build is currently pinned: sim_browser_test.go and
+// sim_room_browser_test.go both still named v0.53.10 after go.mod moved
+// to currentGoSXVersion, and nothing caught it. A comment line that names
+// a past milestone only (for example "Task 8 (target mode,
+// gosx@v0.53.10)") records history and is exempt; only a line that also
+// says "go install" or "is pinned" describes the CURRENT required build,
+// so only those lines must match currentGoSXVersion.
+func TestGoSXInstallCitationsInTestFilesMatchGoModPin(t *testing.T) {
+	root, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	walkErr := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			switch entry.Name() {
+			case ".git", "dist", "vendor", "node_modules", ".gosx", ".canopy", ".analyses", ".claude":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(entry.Name(), "_test.go") {
+			return nil
+		}
+		body, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return readErr
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			rel = path
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			lower := strings.ToLower(line)
+			citesCurrentBuild := strings.Contains(lower, "go install") || strings.Contains(lower, "is pinned")
+			if !citesCurrentBuild {
+				continue
+			}
+			match := gosxVersionCitationPattern.FindStringSubmatch(line)
+			if match == nil {
+				continue
+			}
+			if match[1] != currentGoSXVersion {
+				t.Errorf("%s:%d cites gosx@%s, go.mod pins %s", rel, i+1, match[1], currentGoSXVersion)
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		t.Fatalf("walk repository for *_test.go files: %v", walkErr)
 	}
 }
 
