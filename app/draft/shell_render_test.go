@@ -179,7 +179,13 @@ func TestDraftShellRendersEveryDraftStateFixtureProcess(t *testing.T) {
 	}
 	// Available and My team panes exist before and during the draft only; the
 	// post-draft surface collapses them into the roster and a free-agent link.
-	panes := []string{`draft-pane--available`, `draft-pane--mine`, `data-gosx-region-url="/draft/fragment/available?pos={value}"`, `data-gosx-region-url="/draft/fragment/queue"`, `data-gosx-set="$draft.available.pos"`}
+	// The available region's own URL carries "&sort=adp" (D9 follow-up):
+	// this fixture's league runs the shipped neutral default preset
+	// (standard, no SUPERFLEX slot), so ResolveDraftPoolSort's own
+	// no-"?sort="-given default is ADP; "&" renders HTML-escaped ("&amp;")
+	// the same way every other query-carrying href in this pane already
+	// does (history_render_test.go's own "?pick=17&amp;view=tape" href).
+	panes := []string{`draft-pane--available`, `draft-pane--mine`, `data-gosx-region-url="/draft/fragment/available?pos={value}&amp;sort=adp"`, `data-gosx-region-url="/draft/fragment/queue"`, `data-gosx-set="$draft.available.pos"`}
 	pre := renderDraftForUser(t, handler, seated)
 	check("pre", pre)
 	for _, want := range append([]string{"Build your big board", "Check in now ↑", `id="ready-toggle"`, `id="autopick-toggle"`}, panes...) {

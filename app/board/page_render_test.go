@@ -272,7 +272,7 @@ func TestBoardStylesKeepDesktopRowsAndPagerControlsInBounds(t *testing.T) {
 		".board-page #board-pool .pool-list--tall",
 		"overflow-x: clip;",
 		".board-page #board-pool .pool-row",
-		"grid-template-columns: 2.5rem minmax(0, 1fr) 3.5rem 4.25rem auto;",
+		"grid-template-columns: 1.75rem minmax(10.5rem, 1fr) 2.75rem 2.25rem 3.5rem;", // redwood (comb): the name track grew so /board names never collapse to "B.."
 		".board-page #board-pool .position-filters > .filter-button",
 		".board-page #board-pool .pool-pagination > .filter-button",
 		"min-width: 2.75rem;",

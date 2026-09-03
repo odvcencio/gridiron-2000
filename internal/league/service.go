@@ -2933,6 +2933,61 @@ func teamPrimaryAction(rosterComplete bool) map[string]any {
 	}
 }
 
+// DraftPoolSortADP and DraftPoolSortHouse name the draft room's two
+// supported pool sorts (D9, spruce audit): market ADP order (pool.byADP)
+// and house-rank order (pool.byHouse). ResolveDraftPoolSort never returns
+// any other string.
+const (
+	DraftPoolSortADP   = "adp"
+	DraftPoolSortHouse = "house"
+)
+
+// ResolveDraftPoolSort is the ONE place the draft room's active pool sort
+// gets resolved: a request's own "?sort=house|adp" when present and valid,
+// otherwise HOUSE for a superflex roster preset
+// (CurrentRoster().Slots["SUPERFLEX"] > 0, the same superflex signal
+// houserank.go's applyHouseRanks reads to decide whether a QB can fill a
+// SUPERFLEX slot at all) and ADP otherwise. draftData (below) reads this to
+// choose which of pool.byADP/pool.byHouse backs the available pane's row
+// order; app/draft/page.server.go's own resolveDraftPoolSort delegates
+// here too, so a page's rendered order and its displayed RK/sort-chip
+// state can never disagree. r is nil-safe: a fixture test that resolves a
+// sort without a live *http.Request still gets the roster-only default
+// rather than a panic.
+func ResolveDraftPoolSort(r *http.Request) string {
+	active := DraftPoolSortADP
+	if CurrentRoster().Slots["SUPERFLEX"] > 0 {
+		active = DraftPoolSortHouse
+	}
+	if r == nil {
+		return active
+	}
+	switch strings.ToLower(strings.TrimSpace(r.URL.Query().Get("sort"))) {
+	case DraftPoolSortHouse:
+		active = DraftPoolSortHouse
+	case DraftPoolSortADP:
+		active = DraftPoolSortADP
+	}
+	return active
+}
+
+// draftPoolPageHref extends poolPageHref (pagination.go) with the pool's
+// active sort (D9 follow-up): sort must survive every pagination and
+// position-chip link the draft room's own pool_*_href fields (below) hand
+// out, or clicking one silently drops back to ResolveDraftPoolSort's own
+// roster-only default on the next request. poolPageHref's other two
+// callers, /players and /board, carry no sort concept at all, so this
+// stays local to the draft room rather than growing poolPageHref's own
+// shared signature.
+func draftPoolPageHref(pos, query, activeSort string, page int) string {
+	href := poolPageHref("/draft", pos, query, page)
+	separator := "?"
+	if strings.Contains(href, "?") {
+		separator = "&"
+	}
+	return href + separator + "sort=" + url.QueryEscape(activeSort)
+}
+
 func (s *Service) DraftData(r *http.Request) map[string]any {
 	return s.draftData(r, false, true)
 }
@@ -2987,8 +3042,20 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 	}
 	rawQuery := strings.TrimSpace(r.URL.Query().Get("q"))
 	query := strings.ToLower(rawQuery)
-	available := make([]Player, 0, len(pool.players))
-	for _, player := range pool.players {
+	// activeSort/poolOrder (D9 follow-up): the available pane's row order
+	// itself, not just its RK-cell display, now honors the ADP|HOUSE
+	// toggle — pool.byADP (market order) or pool.byHouse (this league's
+	// own superflex-aware VORP order, houserank.go) backs every filter,
+	// search, and page consistently, and every fragment poll below
+	// (DraftDataReadOnly/DraftDataReadOnlyOptions share this one method)
+	// resolves the SAME request's own "?sort=" the same way.
+	activeSort := ResolveDraftPoolSort(r)
+	poolOrder := pool.byADP
+	if activeSort == DraftPoolSortHouse {
+		poolOrder = pool.byHouse
+	}
+	available := make([]Player, 0, len(poolOrder))
+	for _, player := range poolOrder {
 		if !picked[player.ID] {
 			if pos != "" && player.Position != pos {
 				continue
@@ -3189,6 +3256,7 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"available_count":      len(available),
 		"pool_query":           rawQuery,
 		"pool_position":        pos,
+		"pool_sort":            activeSort,
 		"pool_total":           pagination.Total,
 		"pool_page":            pagination.Page,
 		"pool_pages":           pagination.Pages,
@@ -3197,16 +3265,16 @@ func (s *Service) draftData(r *http.Request, readOnly bool, includeHistory bool)
 		"pool_page_end":        pagination.End,
 		"pool_has_previous":    pagination.HasPrevious,
 		"pool_has_next":        pagination.HasNext,
-		"pool_previous_href":   poolPageHref("/draft", pos, rawQuery, pagination.Page-1),
-		"pool_next_href":       poolPageHref("/draft", pos, rawQuery, pagination.Page+1),
-		"pool_all_href":        poolPageHref("/draft", "", rawQuery, 1),
-		"pool_rb_href":         poolPageHref("/draft", "RB", rawQuery, 1),
-		"pool_wr_href":         poolPageHref("/draft", "WR", rawQuery, 1),
-		"pool_qb_href":         poolPageHref("/draft", "QB", rawQuery, 1),
-		"pool_te_href":         poolPageHref("/draft", "TE", rawQuery, 1),
-		"pool_k_href":          poolPageHref("/draft", "K", rawQuery, 1),
-		"pool_dst_href":        poolPageHref("/draft", "DST", rawQuery, 1),
-		"pool_p_href":          poolPageHref("/draft", "P", rawQuery, 1),
+		"pool_previous_href":   draftPoolPageHref(pos, rawQuery, activeSort, pagination.Page-1),
+		"pool_next_href":       draftPoolPageHref(pos, rawQuery, activeSort, pagination.Page+1),
+		"pool_all_href":        draftPoolPageHref("", rawQuery, activeSort, 1),
+		"pool_rb_href":         draftPoolPageHref("RB", rawQuery, activeSort, 1),
+		"pool_wr_href":         draftPoolPageHref("WR", rawQuery, activeSort, 1),
+		"pool_qb_href":         draftPoolPageHref("QB", rawQuery, activeSort, 1),
+		"pool_te_href":         draftPoolPageHref("TE", rawQuery, activeSort, 1),
+		"pool_k_href":          draftPoolPageHref("K", rawQuery, activeSort, 1),
+		"pool_dst_href":        draftPoolPageHref("DST", rawQuery, activeSort, 1),
+		"pool_p_href":          draftPoolPageHref("P", rawQuery, activeSort, 1),
 		"on_clock":             onClockMap,
 		"on_clock_id":          onClockID,
 		"pick_number":          displayPickNumber,

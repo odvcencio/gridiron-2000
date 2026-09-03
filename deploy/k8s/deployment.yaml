@@ -30,14 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-eaa98d1-draftweek; built from
-          # eaa98d1 (main, 2026-09-03): punter pool floors, avatar self-heal,
-          # news tips, scroll-preserving saves, and GoSX v0.53.11 (markup
-          # comments compile away). No schema change (logical 11 / physical
-          # 12), so `rollout undo` to the wave-7 revision is a valid
-          # rollback. A rollback past wave 6 still needs that release
-          # record's pre-roll snapshot (schema 10 -> 11).
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:04bcdfa960ba19bf1bf8f6ec86f7344180fa0823fc535582f615f8ac51a6050a
+          # release-2026.09.03-19e370f-sweep1; built from
+          # 19e370f (main, 2026-09-03): whole-repo sweep — draft room
+          # rebuild, pool frozen during the draft, DST projections, HOUSE
+          # order for superflex, fragment parity, comb fixes. No schema
+          # change (logical 11 / physical 12): `rollout undo` to the
+          # previous revision is a valid rollback.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:96750c3b78ad91207d98b9924aa5d524ca00b5b219ff2d590b0a580442045fd1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

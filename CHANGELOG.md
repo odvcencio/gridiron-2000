@@ -7,6 +7,22 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-19e370f-sweep1] — 2026-09-03
+
+Scope: the first release of the whole-repo sweep before the Sunday draft,
+verified on faithful copies of the live league. Rolled as revision 95; no
+schema change.
+
+### Fixed
+- Draft room: the pool is a real table with aligned headers and a fixed info column; the pre-draft checklist no longer hides the pool; position chips include punters and reflect the active filter; VS ADP is hidden before pick 1; the pool orders by house rank (superflex value) by default with an ADP toggle; the phone pill no longer overflows or shrinks the page; the collapsed rail no longer overprints the command bar; pre-draft copy says the draft has not started and shows the start control on phones.
+- The player pool is frozen while a draft is in progress, and a resync can never drop a rostered player.
+- Team defenses have projections and house ranks; manual picks apply the same scarcity guard as autopick; the projection request sends the league's scoring values.
+- /players and /activity render one region for the page and the 4-second refresh, so the drop confirmation survives; the matchup stat query pages past the 1,000-row cap.
+- Big Board rows no longer collapse player names beside the news icon.
+- Simulator: an existing-seats rehearsal mode and a punter fallback in the bot.
+- Code health: dead symbols removed, comment drift fixed, `.claude/` ignored, `/favicon.ico` served, /admin and the session-expired page have headings.
+
+
 ## [release-2026.09.03-eaa98d1-draftweek] — 2026-09-03
 
 Scope: draft-week fixes from the commissioner's own use of the live site.
