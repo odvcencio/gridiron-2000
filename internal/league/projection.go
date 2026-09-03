@@ -65,31 +65,56 @@ func winProbability(mine, theirs float64) float64 {
 }
 
 // winProbabilityDashText is the honest not-yet-known render for a win
-// probability the current score cannot back up (winProbabilityText, and
-// the "win_prob" JSON/bind field below).
+// probability or projected total no starter data can back up
+// (winProbabilityText, projectedText, and the "win_prob"/"projected"
+// JSON/bind fields below).
 const winProbabilityDashText = "—"
 
+// hasProjectableStarters reports whether rows carries at least one filled
+// starting slot — the minimum projectedTotal needs to mean anything.
+// Before kickoff every filled slot still contributes its full weekly
+// projection (remainingFraction's known=false case), so this is the right
+// gate for "does a projection exist", independent of whether the CURRENT
+// score is known yet (TeamWeekLedger.Known/ScoreKnown, which stays false
+// for the entire pre-kickoff window and used to also blank the projection
+// with it — wave-8 audit item 2). A side with every slot empty (no draft
+// yet, or a lineup nobody has ever set) has nothing to project.
+func hasProjectableStarters(rows []StarterLedgerRow) bool {
+	for _, row := range rows {
+		if row.PlayerID != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // winProbabilityText renders A6's win-probability percentage, but only
-// once both sides' current team total is Known: an unknown side (the
-// poller degraded, or a starter's game state genuinely unreadable, per
-// TeamWeekLedger.Known) must never silently publish a percentage the
-// visible score itself still reads as "—" (rider on the review of
-// ae1a525, item 1 — the score cell and the win-probability cell must
-// never disagree about whether the total is known yet).
-func winProbabilityText(mine, theirs float64, mineKnown, theirsKnown bool) string {
-	if !mineKnown || !theirsKnown {
+// once both sides have at least one projectable starter (mineHasProjection,
+// theirsHasProjection — see hasProjectableStarters): a side with no
+// lineup at all has nothing to compare, so it renders the honest "—"
+// instead of a false 50/50. This gate is deliberately independent of the
+// CURRENT score's known-ness (TeamWeekLedger.Known) — pre-kickoff, every
+// filled slot still carries its full weekly projection, so the win-
+// probability bar has real numbers to compare well before either side's
+// actual score is known (wave-8 audit item 2; previously tied to
+// ScoreKnown, per the review of ae1a525, item 1, which this supersedes).
+func winProbabilityText(mine, theirs float64, mineHasProjection, theirsHasProjection bool) string {
+	if !mineHasProjection || !theirsHasProjection {
 		return winProbabilityDashText
 	}
 	return fmt.Sprintf("%.0f%%", winProbability(mine, theirs)*100)
 }
 
-// projectedText renders one side's projected total, but only once that
-// side's own current team total is Known — the same gate winProbabilityText
-// applies, and for the same reason (rider on the review of ff2a9b3, item
-// 5): a "proj N" figure beside a score cell that itself reads the honest
-// "—" would silently claim more certainty than the visible score does.
-func projectedText(projected float64, known bool) string {
-	if !known {
+// projectedText renders one side's projected total, gated on hasProjection
+// (see hasProjectableStarters) rather than the current score's known-ness:
+// a "proj N" figure is honest as soon as the side has a lineup to project
+// from, even before kickoff when the score cell itself still reads "—"
+// (wave-8 audit item 2; previously tied to ScoreKnown, per the review of
+// ff2a9b3, item 5, which this supersedes — that rule made every
+// pre-kickoff projection blank along with the score, contradicting /team's
+// own PROJECTED figure for the same lineup).
+func projectedText(projected float64, hasProjection bool) string {
+	if !hasProjection {
 		return winProbabilityDashText
 	}
 	return fmt.Sprintf("%.1f", projected)

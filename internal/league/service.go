@@ -3468,10 +3468,15 @@ func (s *Service) LiveScoresView(ctx context.Context) map[string]any {
 		matchupLiveStateBind[matchup.ID] = matchup.LiveState
 		awayProjected := projectedTotal(matchup.Away.StarterLedger, starterProjections(matchup.Away.StarterLedger, pool.byID), liveStatusValue, hasLive)
 		homeProjected := projectedTotal(matchup.Home.StarterLedger, starterProjections(matchup.Home.StarterLedger, pool.byID), liveStatusValue, hasLive)
-		projected[matchup.Away.ID] = projectedText(awayProjected, matchup.Away.ScoreKnown)
-		projected[matchup.Home.ID] = projectedText(homeProjected, matchup.Home.ScoreKnown)
-		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, matchup.Home.ScoreKnown, matchup.Away.ScoreKnown)
-		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, matchup.Away.ScoreKnown, matchup.Home.ScoreKnown)
+		// hasProjectableStarters, not ScoreKnown: a pre-kickoff lineup still
+		// has a real projection to show, even while the current score cell
+		// itself reads "—" (wave-8 audit item 2).
+		awayHasProjection := hasProjectableStarters(matchup.Away.StarterLedger)
+		homeHasProjection := hasProjectableStarters(matchup.Home.StarterLedger)
+		projected[matchup.Away.ID] = projectedText(awayProjected, awayHasProjection)
+		projected[matchup.Home.ID] = projectedText(homeProjected, homeHasProjection)
+		winProb[matchup.Home.ID] = winProbabilityText(homeProjected, awayProjected, homeHasProjection, awayHasProjection)
+		winProb[matchup.Away.ID] = winProbabilityText(awayProjected, homeProjected, awayHasProjection, homeHasProjection)
 		combined := append(append([]StarterLedgerRow{}, matchup.Away.StarterLedger...), matchup.Home.StarterLedger...)
 		stillToPlayBind[matchup.ID] = strconv.Itoa(stillToPlay(combined, liveStatusValue))
 		stillToPlayTotalBind[matchup.ID] = strconv.Itoa(len(combined))
@@ -4931,8 +4936,10 @@ func (s *Service) featuredMatchupViews(state PersistedState, live LiveSnapshot, 
 			m := live.Matchups[i]
 			awayProjected := projectedTotal(m.Away.StarterLedger, starterProjections(m.Away.StarterLedger, pool.byID), status, hasLive)
 			homeProjected := projectedTotal(m.Home.StarterLedger, starterProjections(m.Home.StarterLedger, pool.byID), status, hasLive)
-			entry["projected_away"] = projectedText(awayProjected, m.Away.ScoreKnown)
-			entry["projected_home"] = projectedText(homeProjected, m.Home.ScoreKnown)
+			// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2):
+			// see the LiveScoresView call site above.
+			entry["projected_away"] = projectedText(awayProjected, hasProjectableStarters(m.Away.StarterLedger))
+			entry["projected_home"] = projectedText(homeProjected, hasProjectableStarters(m.Home.StarterLedger))
 			combined := append(append([]StarterLedgerRow{}, m.Away.StarterLedger...), m.Home.StarterLedger...)
 			// still_to_play/still_to_play_total are the bare count and the
 			// total, both plain ints: the page composes "N of M starters
@@ -4982,7 +4989,9 @@ func (s *Service) featuredMatchupMap(state PersistedState, m ScoreMatchup, isVie
 	}
 	mineProjected := projectedTotal(mine.StarterLedger, starterProjections(mine.StarterLedger, byID), status, hasLive)
 	theirsProjected := projectedTotal(theirs.StarterLedger, starterProjections(theirs.StarterLedger, byID), status, hasLive)
-	winProbText := winProbabilityText(mineProjected, theirsProjected, mine.ScoreKnown, theirs.ScoreKnown)
+	// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see the
+	// LiveScoresView call site above.
+	winProbText := winProbabilityText(mineProjected, theirsProjected, hasProjectableStarters(mine.StarterLedger), hasProjectableStarters(theirs.StarterLedger))
 	// win_prob_width is a literal CSS width set once at render (not
 	// live-bound, page.gsx's comment beside the bar), so it can never hold
 	// the "—" placeholder winProbText renders for an unknown side; "0%"
@@ -5050,7 +5059,9 @@ func (s *Service) featuredTeamMap(state PersistedState, side ScoreTeam, projecte
 	_, hasImage, avatarURL := s.avatarView(team.ID, team.Tone)
 	return map[string]any{
 		"id": side.ID, "name": side.Name, "manager": team.Manager, "record": team.Record,
-		"score": matchupScoreText(side), "projected": projectedText(projected, side.ScoreKnown),
+		// hasProjectableStarters, not ScoreKnown (wave-8 audit item 2): see
+		// the LiveScoresView call site above.
+		"score": matchupScoreText(side), "projected": projectedText(projected, hasProjectableStarters(side.StarterLedger)),
 		"tone": team.Tone, "abbreviation": side.Abbreviation,
 		"has_avatar_image": hasImage, "avatar_image_url": avatarURL,
 	}
