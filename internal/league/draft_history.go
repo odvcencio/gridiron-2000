@@ -280,13 +280,21 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 	}
 
 	// Teams: draft order, each with its own picks ascending and needs tally.
+	// slotNames (D12, spruce audit) walks slotTable's own fixed lineup
+	// order (QB, RB, WR, TE, FLEX, SUPERFLEX, DST, K, P — lineup.go, the
+	// same order the roster page and auto-fill already use), filtered to
+	// the keys this preset actually carries — never sort.Strings, which
+	// scattered the chips alphabetically (DST, FLEX, K, P, QB, RB,
+	// SUPERFLEX, TE, WR) with no relation to how a manager reads a
+	// lineup.
 	teamColumns := make([]TeamColumn, 0, teamCount)
 	preset := CurrentRoster()
 	slotNames := make([]string, 0, len(preset.Slots))
-	for name := range preset.Slots {
-		slotNames = append(slotNames, name)
+	for _, slot := range slotTable {
+		if _, ok := preset.Slots[slot.Key]; ok {
+			slotNames = append(slotNames, slot.Key)
+		}
 	}
-	sort.Strings(slotNames)
 	for _, teamID := range order {
 		teamMapView := s.teamMap(s.teamView(state, teamID))
 		teamMapView["mine"] = viewer != "" && teamID == viewer
