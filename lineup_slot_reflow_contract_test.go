@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
@@ -50,11 +49,7 @@ func enclosingMediaMaxWidth(t *testing.T, css, marker string) (value string, ok 
 // overflowed horizontally between those two widths (47px at 683px/200%
 // zoom, 110px at 900px). The reflow query must match the shell breakpoint.
 func TestLineupSlotReflowMatchesShellBreakpoint(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	got, ok := enclosingMediaMaxWidth(t, css, lineupSlotReflowMarker)
 	if !ok {

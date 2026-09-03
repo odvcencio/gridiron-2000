@@ -35,11 +35,7 @@ import (
 // /settings .notification-choice__current: this wave's own fix, 0.68rem
 // (10.88px) to var(--type-xs) (13-14px at default density).
 func TestTouchAndTypeFloors(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	// The LATER (winning, by source order at equal specificity) top-level
 	// .board-button rule — see "One button system (item 3)" above it.
@@ -114,11 +110,7 @@ func literalRemOrPxFontSize(declarations string) (float64, bool) {
 // the floor — and that no font-size anywhere in the .state/.state-chip or
 // .starter-cell__state rule family regresses below it either.
 func TestMatchupsStateChipMeetsSubBodyTypeFloor(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	stateChip := regexp.MustCompile(`(?s)\n\.state-chip,\n\.state \{([^}]*)\}`).FindStringSubmatch(css)
 	if stateChip == nil {
@@ -151,11 +143,7 @@ func TestMatchupsStateChipMeetsSubBodyTypeFloor(t *testing.T) {
 // this repo's app/board/page.gsx carries no checkbox for) without
 // touching /trades or /admin's own checkbox+label pairs.
 func TestPlayersDropCheckboxHitArea(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	checkboxRule := regexp.MustCompile(`(?s)\n\.board-controls input\[type="checkbox"\] \{([^}]*)\}`).FindStringSubmatch(css)
 	if checkboxRule == nil {

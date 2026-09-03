@@ -27,3 +27,6 @@ deploy/local/
 # buckley project artifacts — plans are never committed
 .buckley/
 docs/plans/
+
+# agent worktrees / session state
+.claude/

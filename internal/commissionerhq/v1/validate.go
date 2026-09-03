@@ -727,13 +727,6 @@ func allInts(values ...*int) bool {
 	return true
 }
 
-func optionalParsedUTC(value *string) (time.Time, bool) {
-	if value == nil {
-		return time.Time{}, false
-	}
-	return parseUTC(*value)
-}
-
 func lessDeadline(a, b Deadline) bool { return lessNullableTime(a.At, b.At, a.Code, b.Code, false) }
 
 func lessAttention(a, b AttentionItem) bool {

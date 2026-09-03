@@ -19,11 +19,7 @@ import (
 // same ≤56.1875rem (899px) band the shell's own mobile/desktop breakpoint
 // uses, so a future edit cannot silently reintroduce the same shortfall.
 func TestActionCenterChipAnchorClearsMobileBar(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	rules := regexp.MustCompile(`(?s)#home-action-center-heading \{([^}]*)\}`).FindAllStringSubmatch(css, -1)
 	if len(rules) < 2 {

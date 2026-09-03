@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"regexp"
 	"testing"
 )
@@ -27,11 +26,7 @@ var pageRuleAnimationPattern = regexp.MustCompile(`(?s)\n\.page \{[^}]*animation
 // not a full fade from black. Wave-6 audit item 4 moved the mechanism (see
 // TestPageEnterEntranceLivesOnBodyNotPage) but not these values.
 func TestPageEnterAnimationIsShortAndSubtle(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	match := bodyEntranceTransitionPattern.FindStringSubmatch(css)
 	if match == nil {
@@ -63,11 +58,7 @@ func TestPageEnterAnimationIsShortAndSubtle(t *testing.T) {
 // every soft navigation, so it is the only element in the tree that can
 // carry a once-only entrance effect.
 func TestPageEnterEntranceLivesOnBodyNotPage(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	if pageRuleAnimationPattern.MatchString(css) {
 		t.Error(".page still declares an animation — client/runtime/host/navigation.ts's replaceBody replaces <main class=\"page\"> on every soft navigation AND every background revalidation poll alike, so any entrance effect on .page itself replays on both; it must live on body instead (the one element replaceBody reuses verbatim)")

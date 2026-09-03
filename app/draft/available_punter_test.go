@@ -12,7 +12,7 @@ import (
 	"gridiron-2000/internal/league"
 )
 
-// TestAvailableFragmentPosPOrdersByPunterRun runs the real
+// TestAvailableFragmentPosPOrdersByPunterRank runs the real
 // AvailableFragmentHandler (the Draft Room's "?pos=P" filter chip target)
 // against a real league.Service in demo mode: the rendered fragment lists
 // punters in projection order with their "P##" rank labels, and a punter

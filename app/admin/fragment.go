@@ -10,8 +10,6 @@ import (
 	"m31labs.dev/gosx/route"
 )
 
-const adminAttentionFragmentInterval = "4s"
-
 type adminAttentionReadoutProps struct {
 	Phase               string
 	DraftStatus         string

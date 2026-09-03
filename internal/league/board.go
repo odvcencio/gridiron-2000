@@ -181,14 +181,6 @@ func pageRangeStart(pagination poolPagination) int {
 	return pagination.Start + 1
 }
 
-func (s *Service) boardOwner(r *http.Request) (string, error) {
-	key := boardKeyForViewer(s.store.Snapshot(), s.viewerKey(r))
-	if key == "" {
-		return "", fmt.Errorf("sign in to build a draft board")
-	}
-	return key, nil
-}
-
 func (s *Service) boardActionOwner(r *http.Request) (string, error) {
 	authority, err := s.requestSeatAuthority(r, "")
 	switch {

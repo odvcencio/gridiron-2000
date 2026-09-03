@@ -1926,26 +1926,6 @@ func (s *Store) DrawDraftOrder(order []string, expectedToken string, schedule *S
 	return created, nil
 }
 
-// validateDraftOrder rejects anything that is not an exact permutation of
-// the eight default team IDs.
-func validateDraftOrder(order []string) error {
-	defaults := defaultTeamIDs()
-	if len(order) != len(defaults) {
-		return fmt.Errorf("the draft order must name all %d teams exactly once", len(defaults))
-	}
-	seen := make(map[string]bool, len(order))
-	for _, teamID := range order {
-		if !knownTeam(teamID) {
-			return fmt.Errorf("unknown team %q", teamID)
-		}
-		if seen[teamID] {
-			return fmt.Errorf("team %q appears more than once in the order", teamID)
-		}
-		seen[teamID] = true
-	}
-	return nil
-}
-
 // validateDraftOrderForState rechecks the generated order against the durable
 // trim while the Store lock is held. Runtime team publication can lag a trim's
 // SQLite commit for a few instructions; the persisted topology wins.

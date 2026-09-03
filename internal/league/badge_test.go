@@ -276,7 +276,7 @@ func TestBadgeImageUnknownTeamAndNoClaimReportNotOK(t *testing.T) {
 // TestTintMotifPreservesAlphaAndAppliesToneColor checks tintMotif directly
 // (the per-pixel tint step, never resized — see its own doc comment):
 // alpha is copied unchanged and RGB is scaled by source luminance. This
-// is the exact-pixel-value contract TestBadgeImageRendersTintedPNGAtBadgeOutputSize
+// is the exact-pixel-value contract TestBadgeImageRendersAtBadgeOutputSize
 // cannot check once its own output has gone through a resize.
 func TestTintMotifPreservesAlphaAndAppliesToneColor(t *testing.T) {
 	fixtureDir := t.TempDir()

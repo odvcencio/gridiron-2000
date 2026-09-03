@@ -15,11 +15,7 @@ import (
 // collapses it to one column. minmax(0, 1fr) lets each track shrink to
 // fit the container instead of forcing the whole grid past it.
 func TestPickemBoardsGridNeverBlowsOutItsContainer(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(styles)
+	css := readStylesheet(t)
 
 	base := regexp.MustCompile(`(?s)\n\.pickem-boards \{([^}]*)\}`).FindStringSubmatch(css)
 	if base == nil {

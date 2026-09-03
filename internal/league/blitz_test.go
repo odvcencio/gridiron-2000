@@ -818,9 +818,10 @@ func TestBlitzEligiblePlayersRowEvidence(t *testing.T) {
 
 // TestBlitzEligiblePlayersNilPre1FallsBackHonestly is the "Tank01
 // unavailable" degrade path (owner directive, 2026-08-16): a nil pre1Stats
-// map — exactly what blitzPre1Stats() returns when SetBlitzPre1Source was
-// never called — must not crash, and every player falls into the
-// zero-pre1 group, still correctly tiered by the rookie/ADP rules.
+// map — exactly what blitzPre1Snapshot().Stats returns when
+// SetBlitzPre1Source was never called — must not crash, and every player
+// falls into the zero-pre1 group, still correctly tiered by the
+// rookie/ADP rules.
 func TestBlitzEligiblePlayersNilPre1FallsBackHonestly(t *testing.T) {
 	now := time.Now()
 	service := newTestService(t, true)
