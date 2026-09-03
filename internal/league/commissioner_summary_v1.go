@@ -205,7 +205,13 @@ func projectCommissionerSummaryV1(t commissionerSummaryV1Tuple) (hqv1.Summary, e
 		Draft: draft, Readiness: readiness,
 		Membership: hqv1.Membership{
 			ClaimedTeams: v1Int(occupied), OpenTeams: v1Int(vacant),
-			PendingInvites:  v1Int(len(t.state.Invites) + len(t.state.CoInvites)),
+			// pendingInviteCount (admin.go, item 4/2026-09-02 audit) is the
+			// one true "pending" definition: an issued invite counts only
+			// until its own email claims a seat. This used to sum every
+			// issued address with no seated check at all, so a league
+			// where every seat was claimed still reported one pending
+			// invite per address ever sent.
+			PendingInvites:  v1Int(pendingInviteCount(t.state)),
 			PrimaryManagers: v1Int(primaryManagers), CoManagers: v1Int(coManagers),
 		},
 		Lineup: lineup, Waivers: waivers, Trades: trades, Pickem: pickem,

@@ -199,10 +199,12 @@ func init() {
 			query := ctx.Request.URL.Query()
 			leadTeam := strings.ToUpper(strings.TrimSpace(query.Get(resultsTeamQueryKey)))
 			leadID := ""
+			teamCodeMatched := leadTeam == ""
 			if leadTeam != "" {
 				for _, column := range history.Teams {
 					if strings.EqualFold(stringField(column.Team, "abbreviation"), leadTeam) || strings.EqualFold(stringField(column.Team, "id"), leadTeam) {
 						leadID = stringField(column.Team, "id")
+						teamCodeMatched = true
 						break
 					}
 				}
@@ -213,6 +215,17 @@ func init() {
 
 			view := resultsNormalizeView(query.Get(resultsViewQueryKey))
 			data := map[string]any{
+				// viewer/league (item 1/2, 2026-09-02 audit): the shared
+				// app/layout.gsx picks the full signed-in shell (rail,
+				// tab bar, sign-out) versus the anonymous minimal-bar, and
+				// the masthead's own league identity, entirely off THIS
+				// page's own data.viewer/data.league — every sibling
+				// Data function in internal/league already carries both
+				// (see service.go's leagueMapForViewer/Viewer callers);
+				// DraftResultsData alone omitted them, so a signed-in
+				// manager saw the anonymous shell here and nowhere else.
+				"viewer":      league.Default().Viewer(ctx.Request),
+				"league":      league.Default().LeagueIdentityForViewer(ctx.Request),
 				"complete":    boolField(raw, "complete"),
 				"long_date":   stringField(raw, "long_date"),
 				"time":        stringField(raw, "time"),
@@ -231,6 +244,12 @@ func init() {
 				"team_rounds": resultsRoundsView(history.Picks),
 				"board":       resultsBoardView(history.Board),
 				"ledger_href": "/draft/ledger.csv",
+				// team_not_found (item 8, 2026-09-02 audit): an unknown
+				// "?team=" code used to silently lead with the viewer's
+				// own team instead. Now the page says so, and still
+				// falls back visibly rather than rendering nothing.
+				"team_not_found":      leadTeam != "" && !teamCodeMatched,
+				"team_not_found_code": leadTeam,
 			}
 			return data, nil
 		},

@@ -190,7 +190,7 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 		</div>
 		<div class="admin-task-nav__readout" aria-live="polite">
 			<strong class="mono">{props.Phase} · {props.DraftStatus}</strong>
-			<span>Draft deadline <span class="mono">{props.DraftAt}</span> · schedule {props.ScheduleStatus}</span>
+			<span>Draft deadline <span class="mono">{props.DraftDate}<If cond={props.DraftPublished}> · {props.DraftTime}</If></span> · schedule {props.ScheduleStatus}</span>
 			<If cond={props.ScheduleReady}><span>Week {props.ScheduleWeek} is ready to close.</span></If>
 			<If cond={props.ScheduleReady == false}><span>{props.ScheduleReason}</span></If>
 		</div>
@@ -216,7 +216,7 @@ func AdminAttentionReadout(props adminAttentionReadoutProps) Node {
 					<div class="commissioner-hq__attention-copy">
 						<span class="section-index">{seat.Abbreviation} · {seat.Name}</span>
 						<strong><If cond={seat.Claimed}>CLAIMED</If><If cond={seat.Claimed == false}>OPEN</If> · <If cond={seat.Ready}>READY</If><If cond={seat.Ready == false}>NOT READY</If></strong>
-						<span>{seat.Presence} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
+						<span class="seat-presence">{seat.PresenceLabel} · {seat.PresenceDetail} · board {seat.BoardCount}</span>
 					</div>
 					<If cond={seat.BoardGap}><span class="position-chip">BOARD GAP</span></If>
 				</div>
@@ -544,7 +544,7 @@ func Page() Node {
 						</div>
 					</div>
 					<div class="checklist">
-						<div class="checklist-item">
+						<div class="checklist-item" data-runbook-state={data.runbook_step_1_state}>
 							<span class="checklist-mark mono">01</span>
 							<div class="checklist-item__text">
 								<strong>About an hour early, drop the seats nobody claimed</strong>
@@ -553,8 +553,11 @@ func Page() Node {
 									order still lists the seats you are about to remove.
 								</small>
 							</div>
+							<If cond={data.runbook_step_1_state == "done"}><span class="position-chip">DONE ✓</span></If>
+							<If cond={data.runbook_step_1_state == "next"}><span class="position-chip">NEXT →</span></If>
+							<If cond={data.runbook_step_1_state == "later"}><span class="position-chip">LATER</span></If>
 						</div>
-						<div class="checklist-item">
+						<div class="checklist-item" data-runbook-state={data.runbook_step_2_state}>
 							<span class="checklist-mark mono">02</span>
 							<div class="checklist-item__text">
 								<strong>Draw the final order and publish the schedule</strong>
@@ -562,15 +565,21 @@ func Page() Node {
 									Use Draw order + schedule in 03 // DRAFT ORDER. It runs six shuffle passes, saves only the final result, publishes the schedule, then reports the reminder queue outcome. Draft order locks when the commissioner starts the draft.
 								</small>
 							</div>
+							<If cond={data.runbook_step_2_state == "done"}><span class="position-chip">DONE ✓</span></If>
+							<If cond={data.runbook_step_2_state == "next"}><span class="position-chip">NEXT →</span></If>
+							<If cond={data.runbook_step_2_state == "later"}><span class="position-chip">LATER</span></If>
 						</div>
-						<div class="checklist-item">
+						<div class="checklist-item" data-runbook-state={data.runbook_step_3_state}>
 							<span class="checklist-mark mono">03</span>
 							<div class="checklist-item__text">
 								<strong>Confirm every seat is ready</strong>
 								<small>Check the ready count above and the Ready badges in 01 // SEATS.</small>
 							</div>
+							<If cond={data.runbook_step_3_state == "done"}><span class="position-chip">DONE ✓</span></If>
+							<If cond={data.runbook_step_3_state == "next"}><span class="position-chip">NEXT →</span></If>
+							<If cond={data.runbook_step_3_state == "later"}><span class="position-chip">LATER</span></If>
 						</div>
-						<div class="checklist-item">
+						<div class="checklist-item" data-runbook-state={data.runbook_step_4_state}>
 							<span class="checklist-mark mono">04</span>
 							<div class="checklist-item__text">
 								<If cond={data.draft.time != ""}>
@@ -585,6 +594,9 @@ func Page() Node {
 								</If>
 								<small>The scheduled time never opens the room. Type START below when you intentionally begin pick one.</small>
 							</div>
+							<If cond={data.runbook_step_4_state == "done"}><span class="position-chip">DONE ✓</span></If>
+							<If cond={data.runbook_step_4_state == "next"}><span class="position-chip">NEXT →</span></If>
+							<If cond={data.runbook_step_4_state == "later"}><span class="position-chip">LATER</span></If>
 						</div>
 						<div class="checklist-item">
 							<span class="checklist-mark mono">05</span>

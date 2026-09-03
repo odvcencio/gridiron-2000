@@ -55,9 +55,18 @@ type Runtime struct {
 }
 
 type SeatLedgerEntry struct {
-	Seat    int  `json:"seat"`
-	Claimed bool `json:"claimed"`
-	Ready   bool `json:"ready"`
+	Seat int `json:"seat"`
+	// Abbreviation/Name (item 10, 2026-09-02 audit) are the TEAM's own
+	// public identity — never a manager's, which stays out of this
+	// PII-free federation summary entirely (CommissionerSummary's own
+	// doc comment). /commissioner used to print a bare "SEAT 1 …
+	// SEAT 8" ledger and a bare-ordinal draft order with no team name
+	// anywhere, on a summary two config lines away from the same team
+	// roster that already names every seat.
+	Abbreviation string `json:"abbreviation,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Claimed      bool   `json:"claimed"`
+	Ready        bool   `json:"ready"`
 }
 
 type Membership struct {

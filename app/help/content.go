@@ -15,6 +15,20 @@ const CorpusVersion = "0.1"
 // VerifiedSourceSHA is the source tree against which this corpus was reviewed.
 const VerifiedSourceSHA = "6561962a80b40874ea78dca950f8d41b03be7540"
 
+// ShortSHA returns git's own common 7-character abbreviated form. /help and
+// /help/<topic> used to print VerifiedSourceSHA's full 40 characters
+// straight into an anonymous visitor's masthead and corpus-receipt prose
+// (item 11, 2026-09-02 audit) — far more than anyone reads at a glance, and
+// wide enough to overflow the masthead's own narrow console card. The full
+// value stays reachable through the caller's own title attribute.
+func ShortSHA(sha string) string {
+	sha = strings.TrimSpace(sha)
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 type Category struct {
 	ID    string
 	Title string

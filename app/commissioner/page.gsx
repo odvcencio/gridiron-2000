@@ -130,7 +130,7 @@ func FleetReadout(props FleetReadoutProps) Node {
 									<p><strong>{card.claimed_seats} / {card.seats}</strong> claimed · {card.ready_seats} ready</p>
 									<ol class="commissioner-hq__ledger">
 										<Each of={card.seat_ledger} as="seat">
-											<li>SEAT {seat.seat} · <If cond={seat.claimed}>CLAIMED</If><If cond={seat.claimed == false}>OPEN</If> · <If cond={seat.ready}>READY</If><If cond={seat.ready == false}>NOT READY</If></li>
+											<li>SEAT {seat.seat}<If cond={seat.has_team_name}> · {seat.abbreviation} · {seat.name}</If> · <If cond={seat.claimed}>CLAIMED</If><If cond={seat.claimed == false}>OPEN</If> · <If cond={seat.ready}>READY</If><If cond={seat.ready == false}>NOT READY</If></li>
 										</Each>
 									</ol>
 								</section>

@@ -38,8 +38,14 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 		if isReady {
 			readySeats++
 		}
+		// teamView (not the bare "team" loop variable) resolves the
+		// manager's own custom team name override (state.TeamNames) —
+		// item 10's fix must name the team a manager actually sees
+		// everywhere else, not the configured default it started as.
+		named := s.teamView(state, team.ID)
 		ledger = append(ledger, commissionerhq.SeatLedgerEntry{
-			Seat: ordinal + 1, Claimed: isClaimed, Ready: isReady,
+			Seat: ordinal + 1, Abbreviation: named.Abbreviation, Name: named.Name,
+			Claimed: isClaimed, Ready: isReady,
 		})
 	}
 
@@ -56,13 +62,22 @@ func (s *Service) CommissionerSummary(instanceID string, runtime commissionerhq.
 	pool.ActualCoverage = 0
 	pool.TargetCoverage = 0
 	pool.RosterCoverage = 0
-	// ActualCoverage is the synchronized share of the planning target.
-	// TargetCoverage is the planning target relative to operational roster
-	// capacity. RosterCoverage is the synchronized share of that capacity.
-	if pool.Target > 0 {
-		pool.ActualCoverage = float64(actual) / float64(pool.Target)
-	}
+	// One shared coverage formula (item 3, 2026-09-02 audit): coverage is
+	// always synchronized players over ROSTER CAPACITY, the same divisor
+	// service.go's own /admin coverage stat already uses (PlayerPoolData,
+	// "coverage"/"actual_coverage") — never the planning target. Dividing
+	// ActualCoverage by pool.Target instead of rosterCapacity used to make
+	// /commissioner print "ACTUAL 1.0×" for the same league /admin showed
+	// as "ACTUAL 2.6×", even though the doc comment above this block
+	// claimed the two already matched. ActualCoverage and RosterCoverage
+	// are now the identical ratio on purpose — RosterCoverage is kept as
+	// the explicit, self-describing name; ActualCoverage stays for wire
+	// compatibility (commissionerhq.Pool's json:"actualCoverage").
+	// TargetCoverage remains the planning target relative to that same
+	// roster capacity — already the definition /admin's own "TARGET"
+	// stat used, so it does not change here.
 	if rosterCapacity > 0 {
+		pool.ActualCoverage = float64(actual) / float64(rosterCapacity)
 		pool.TargetCoverage = float64(pool.Target) / float64(rosterCapacity)
 		pool.RosterCoverage = float64(actual) / float64(rosterCapacity)
 	}

@@ -61,6 +61,94 @@ func (s *Service) unclaimedSeatIDs(state PersistedState) []string {
 	return ids
 }
 
+// pendingInviteCount is the one true definition of "pending" (item 4,
+// 2026-09-02 audit): an issued invite (LEAGUE_ALLOWED_EMAILS, an
+// explicit state.Invites address, or a pending co-manager in
+// state.CoInvites) stays pending only until its own email claims a
+// seat. CommissionerAttentionDataReadOnly's own "invite_count" and
+// commissioner_summary_v1.go's Membership.PendingInvites both used to
+// sum every issued address with no seated-member check at all, so a
+// league where every seat was already claimed still reported as many
+// "PENDING" invites as it had ever sent (8, on the flagship, where the
+// truth was 1).
+func pendingInviteCount(state PersistedState) int {
+	candidates := make(map[string]struct{})
+	for _, email := range splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS")) {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	for _, email := range state.Invites {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	for email := range state.CoInvites {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	pending := 0
+	for email := range candidates {
+		if member, ok := memberByEmail(state.Members, email); ok && strings.TrimSpace(member.TeamID) != "" {
+			continue
+		}
+		pending++
+	}
+	return pending
+}
+
+// draftNightRunbookStepStates is item 7's own sequencing (2026-09-02
+// audit): a step's own precondition holding already makes it "done";
+// the first step whose precondition does NOT hold is "next" — the one
+// action the console should actually name; every step after that is
+// "later," since a step cannot become the next action before an
+// earlier one is settled. Given four preconditions [true, true, false,
+// false], the result is ["done", "done", "next", "later"], matching
+// what a league that has already trimmed seats and drawn/published the
+// order must show: no stale claim that either is still to do.
+func draftNightRunbookStepStates(preconditions ...bool) []string {
+	states := make([]string, len(preconditions))
+	sawNext := false
+	for index, met := range preconditions {
+		switch {
+		case met:
+			states[index] = "done"
+		case !sawNext:
+			states[index] = "next"
+			sawNext = true
+		default:
+			states[index] = "later"
+		}
+	}
+	return states
+}
+
+// presenceReadableLabel maps s.teamPresence's own state word into plain
+// words for a sighted reader (item 5, 2026-09-02 audit): the seat
+// ledger used to print the bare snake_case enum itself ("not_seen")
+// straight into the page as if it were prose. The machine-readable enum
+// stays available separately (each seat's own "presence" key, and the
+// commissioner-hq__attention element's data-presence attribute) for any
+// CSS/JS hook that still wants it.
+func presenceReadableLabel(state string) string {
+	switch state {
+	case "here":
+		return "In the room"
+	case "idle":
+		return "Seen, idle"
+	case "away":
+		return "Seen, stepped away"
+	case "unclaimed":
+		return "Seat open"
+	default:
+		return "Not seen yet"
+	}
+}
+
 // CommissionerAttentionDataReadOnly is the small commissioner-operations
 // projection used by the live admin region. It reads one persisted snapshot,
 // includes presence/readiness/board-gap facts, and deliberately omits the
@@ -101,6 +189,7 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		seats = append(seats, map[string]any{
 			"id": configured.ID, "name": team.Name, "abbreviation": team.Abbreviation,
 			"claimed": isClaimed, "ready": isReady, "presence": presence,
+			"presence_label":  presenceReadableLabel(presence),
 			"presence_detail": detail, "presence_seen_at": formatClockInstant(seenAt),
 			"board_count": boardCount, "board_gap": boardGap,
 		})
@@ -113,7 +202,6 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 			close[key] = value[key]
 		}
 	}
-	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	phase := state.Phase
 	if phase == "" {
 		if state.Schedule == nil || now.Before(seasonStartAt()) {
@@ -126,12 +214,21 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 		"phase": phase, "draft": map[string]any{
 			"status": draft["status_label"], "at": draft["at"], "started": draft["started"],
 			"complete": draft["complete"], "window_reached": draft["window_reached"],
+			// date/time/published (item 5, 2026-09-02 audit): the live
+			// readout used to print "at"'s own raw RFC3339 instant
+			// ("2026-09-06T16:05:00-04:00") where every other draft-date
+			// fact on this same page already reads through
+			// draftSummaryForState's own league-local formatter
+			// (data.draft.date/time, this page's own masthead and runbook
+			// both use it). date/time carry that identical formatting,
+			// including its TBD/started-with-no-recorded-time fallbacks.
+			"date": draft["date"], "time": draft["time"], "published": draft["published"],
 		}, "schedule": map[string]any{
 			"status": schedule["status"], "has_schedule": schedule["has_schedule"],
 			"week": schedule["start_week"], "close": close,
 		}, "seats": seats,
 		"seat_count": len(s.Teams()), "claimed_count": claimed, "ready_count": ready,
-		"board_gap_count": boardGaps, "invite_count": len(envEmails) + len(state.Invites) + len(state.CoInvites),
+		"board_gap_count": boardGaps, "invite_count": pendingInviteCount(state),
 		"presence_here": presenceCounts["here"], "presence_idle": presenceCounts["idle"],
 		"presence_away": presenceCounts["away"], "presence_not_seen": presenceCounts["not_seen"],
 		"presence_unclaimed": presenceCounts["unclaimed"],
@@ -251,6 +348,21 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 	// own "Who may claim a seat" banner made exactly that false claim for
 	// a domain-gated league (SK launch-prep dry run finding) until this.
 	domainGate := strings.TrimSpace(s.cfg.Membership.AllowedDomain)
+	scheduleMap := s.adminScheduleMap(state, now)
+	// runbookStepStates (item 7, 2026-09-02 audit): the draft-night
+	// runbook's own first four steps used to be static copy with no
+	// relationship to league state at all — "About an hour early, drop
+	// the seats nobody claimed" and "Draw the final order and publish
+	// the schedule" kept telling the flagship league to do work it had
+	// already done (every seat claimed, order drawn, schedule
+	// published), while the real next action (confirm every seat ready)
+	// went unnamed. Each step now carries its own done/next/later state.
+	runbookStepStates := draftNightRunbookStepStates(
+		len(unclaimedSeatIDs) == 0,
+		len(state.DraftOrder) > 0 && scheduleMap["has_schedule"] == true,
+		readyCount(state.Ready) == len(s.Teams()) && len(s.Teams()) > 0,
+		state.DraftStarted,
+	)
 	return map[string]any{
 		"viewer":                 s.Viewer(r),
 		"playoff_truth":          s.playoffTruthMap(state, now, true),
@@ -285,7 +397,7 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// readiness at a glance without scrolling to 01 // SEATS.
 		"ready_count":      readyCount(state.Ready),
 		"draft":            s.draftSummary(now),
-		"schedule":         s.adminScheduleMap(state, now),
+		"schedule":         scheduleMap,
 		"demo_mode":        s.demoMode,
 		"draft_order":      draftOrder,
 		"order_randomized": len(state.DraftOrder) > 0,
@@ -318,6 +430,10 @@ func (s *Service) AdminData(r *http.Request) map[string]any {
 		// but a live draft is the worst moment to offer a commissioner a
 		// button whose only outcome is an error.
 		"draft_started":          state.DraftStarted,
+		"runbook_step_1_state":   runbookStepStates[0],
+		"runbook_step_2_state":   runbookStepStates[1],
+		"runbook_step_3_state":   runbookStepStates[2],
+		"runbook_step_4_state":   runbookStepStates[3],
 		"draft_required_players": len(s.Teams()) * CurrentDraftRounds(),
 		"current_pick_token":     draftCurrentPickToken(state),
 		"previous_pick_token":    draftPreviousPickToken(state),

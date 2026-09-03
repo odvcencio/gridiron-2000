@@ -22,6 +22,7 @@ func init() {
 			data["topic"] = helpcontent.TopicView(topic)
 			data["corpus_version"] = helpcontent.CorpusVersion
 			data["source_sha"] = helpcontent.VerifiedSourceSHA
+			data["source_sha_short"] = helpcontent.ShortSHA(helpcontent.VerifiedSourceSHA)
 			state := strings.TrimSpace(ctx.Query("state"))
 			field := strings.TrimSpace(ctx.Query("field"))
 			data["has_state"] = state != ""

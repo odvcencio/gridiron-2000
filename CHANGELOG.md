@@ -7,6 +7,34 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-4cf0542-sweep3] — 2026-09-03
+
+Scope: the third sweep release — the commissioner and results surfaces from
+the comb audits. Rolled as revision 97; no schema change.
+
+### Fixed
+- /draft/results renders the full app shell and the league's identity for signed-in members instead of the anonymous bar with a blank masthead; an unknown `?team=` code says so.
+- /admin: pending invites exclude people who already hold a seat; the draft date and seat presence read as words, not raw values; the invite preview wraps instead of widening the page; the draft-night runbook marks each step done, next, or later from the league's real state.
+- /admin and /commissioner report one pool-coverage figure; the commissioner page names each seat's team.
+- /help: the mapping table keeps its headers on phones, the source hash is short, and topic mastheads wrap.
+- Anonymous header links meet the 44 px floor; a failed avatar image no longer paints its alt text over its neighbours.
+
+
+## [release-2026.09.03-e1baaa1-sweep2] — 2026-09-03
+
+Scope: the second sweep release, from the fine-toothed-comb audits run on
+faithful copies of the live league. Rolled as revision 96; no schema change.
+
+### Fixed
+- /activity's team filter lists the league's real team names, and an unknown team code says so instead of filtering silently.
+- The attention chip counts only the pick'em games the viewer has not called, so it no longer shows "1 URGENT" to a manager who has picked every game.
+- /scoring's jump strip is a single opaque row on phones and at most two rows on desktop; /pickem's Prev and Next stay pinned at the strip's edges.
+- /blitz no longer prints empty champion labels; /settings says when email delivery is not configured; /wire says "player stat ledger" and its status dot renders.
+- /players collapses its filter rail to one row on phones (seven rows visible instead of two) and, with /board, gains column headers and a legend for RK and H.
+- The desktop rail fits every link at 1440×900 and 1280×800; the home status line and the rail footer wrap instead of clipping.
+- Player and pool counts pluralize correctly.
+
+
 ## [release-2026.09.03-19e370f-sweep1] — 2026-09-03
 
 Scope: the first release of the whole-repo sweep before the Sunday draft,

@@ -106,6 +106,7 @@ func helpIndexData(ctx *route.RouteContext) map[string]any {
 	data["runtime"] = runtimeProjection()
 	data["corpus_version"] = CorpusVersion
 	data["source_sha"] = VerifiedSourceSHA
+	data["source_sha_short"] = ShortSHA(VerifiedSourceSHA)
 	data["checklist"] = checklistView(ChecklistFor("primary", mode, phase, false))
 	data["commissioner_checklist"] = checklistView(ChecklistFor("seatless", mode, phase, true))
 	data["migration"] = MigrationMappings()

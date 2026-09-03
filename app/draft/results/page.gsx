@@ -35,6 +35,9 @@ func Page() Node {
 			</div>
 		</If>
 		<If cond={data.complete}>
+			<If cond={data.team_not_found}>
+				<p class="error-message" role="status">No team is coded {data.team_not_found_code}. Showing your own team instead.</p>
+			</If>
 			<nav class="segment results-segment" aria-label="Draft results views">
 				<a class="segment__option" href={data.teams_href} data-gosx-link aria-current={data.show_teams}>By team</a>
 				<a class="segment__option" href={data.rounds_href} data-gosx-link aria-current={data.show_rounds}>By round</a>
