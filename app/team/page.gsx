@@ -532,10 +532,10 @@ func TeamLineupRegion() Node {
 					<span>League</span>
 					<strong class="mono">{data.league_mode}</strong>
 				</div>
-				<If cond={data.lineup_intervention == false}>
-				<a href="/matchups" data-gosx-link class="button button--primary button--compact">View matchup</a>
-				</If>
 			</div>
+			<If cond={data.lineup_intervention == false}>
+			<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>
+			</If>
 			<If cond={data.predraft_visible && data.lineup_intervention == false}>
 				<section class="predraft-progress" aria-labelledby="predraft-progress-title">
 					<header class="predraft-progress__header">

@@ -899,13 +899,25 @@ func TestLineupSlotIdentityColumnWidenedAtDesktopWidth(t *testing.T) {
 // TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText
 // covers item 8's phone-width layout plus the load-bearing constraint
 // that made it possible: mobile_touch_contract_test.go's mobileRules()
-// takes strings.LastIndex of the shell's own exact phone-width media
-// query text (both a real rule and a stray comment quoting it count) to
-// find "the" mobile rules block; a wave-7 rule (or comment) repeating
-// that exact text after the real block would silently steal every test
-// that calls it — see mobile_touch_contract_test.go and
+// takes strings.LastIndex of the shell's own exact touch-floor media
+// query text (touchFloorQuery, both a real rule and a stray comment
+// quoting it count) to find "the" mobile rules block; a wave-7 rule (or
+// comment) repeating that exact text after the real block would
+// silently steal every test that calls it — see
+// mobile_touch_contract_test.go and
 // lineup_slot_set_button_touch_target_contract_test.go, both of which
 // this would otherwise break silently.
+//
+// This checks touchFloorQuery's own full compound text, not the bare
+// "@media (max-width: 38rem)" substring: every wave-8 worker now
+// appends its own "/* comb — NAME */" block at the end of this file
+// (this file's own bottom carries clover's), and that bare 38rem
+// breakpoint is this codebase's ordinary phone breakpoint — used in
+// dozens of unrelated rules throughout the file, including in those
+// append blocks. Only the LONGER, compound touchFloorQuery string is
+// what mobileRules() actually searches for; the bare substring check
+// this test used before wave 8 false-failed the moment any later block
+// (anyone's) used the ordinary breakpoint for anything else.
 func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing.T) {
 	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
@@ -916,7 +928,10 @@ func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing
 	if waveAt < 0 {
 		t.Fatal("wave 7 — elm append block not found")
 	}
-	const sharedBreakpoint = "@media (max-width: 38rem)"
+	// Mirrors mobile_touch_contract_test.go's own touchFloorQuery const
+	// exactly (an unexported const in a different package, so it cannot
+	// be imported here).
+	const sharedBreakpoint = "@media (pointer: coarse), (hover: none), (max-width: 38rem)"
 	if strings.Contains(styles[waveAt:], sharedBreakpoint) {
 		t.Fatal("the wave-7 append block repeats the shell's exact phone-width media-query text, live or in a comment — this steals mobileRules()'s strings.LastIndex lookup from the real block")
 	}
@@ -982,6 +997,44 @@ func TestTeamCommandStripScrollCueAndTouchFloor(t *testing.T) {
 		if !strings.Contains(block, want) {
 			t.Errorf("899px .team-command-strip block missing %q: %s", want, block)
 		}
+	}
+}
+
+// TestTeamCommandStripActionRendersOutsideTheScrollingStrip covers the
+// "VIEW MATCHUP off-screen" fix (fern's CSS half is pinned by that
+// package's own TestTeamCommandStripActionCSSReadyForClover): the strip
+// scroll-snaps horizontally on narrow viewports (the test above), and a
+// VIEW MATCHUP link living INSIDE that scroller was one more snap tile a
+// manager had to scroll sideways to find — easy to miss entirely.
+// TeamCommandStrip's own closing </div> now closes right after the
+// League tile, and the link renders as team-command-strip__action, a
+// sibling of the strip (fern's CSS already ships a full-width block
+// rule for that class), not a descendant of it.
+func TestTeamCommandStripActionRendersOutsideTheScrollingStrip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	wantAnchor := `<a href="/matchups" data-gosx-link class="team-command-strip__action button button--primary button--compact">View matchup</a>`
+	if !strings.Contains(page, wantAnchor) {
+		t.Fatalf("VIEW MATCHUP anchor missing or missing team-command-strip__action: want %q", wantAnchor)
+	}
+	stripStart := strings.Index(page, `<div class="team-command-strip">`)
+	if stripStart < 0 {
+		t.Fatal(".team-command-strip not found")
+	}
+	stripEnd := strings.Index(page[stripStart:], "\n\t\t\t</div>\n")
+	if stripEnd < 0 {
+		t.Fatal(".team-command-strip has no closing </div> at the expected indent")
+	}
+	stripBlock := page[stripStart : stripStart+stripEnd]
+	if strings.Contains(stripBlock, "team-command-strip__action") {
+		t.Fatalf(".team-command-strip still contains the VIEW MATCHUP action as a descendant: %s", stripBlock)
+	}
+	anchorAt := strings.Index(page, wantAnchor)
+	if anchorAt < stripStart+stripEnd {
+		t.Fatal("VIEW MATCHUP anchor renders before .team-command-strip closes, want it after")
 	}
 }
 
