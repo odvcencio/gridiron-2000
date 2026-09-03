@@ -528,6 +528,172 @@ func TestReadAvatarObjectRejectsFinalLeafSymlink(t *testing.T) {
 	}
 }
 
+// TestReadAvatarObjectRepairsWritableModeOnHashMatch is the 2026-08-28
+// incident's own regression test: an object an older release (or a
+// restored backup's tar extraction) left writable (0664) must still be
+// served — its bytes still content-address to ref — and must come out of
+// that read self-healed to 0o444, matching writeAvatarBlob's own
+// immutability contract, so no operator ever needs to chmod it by hand
+// again.
+func TestReadAvatarObjectRepairsWritableModeOnHashMatch(t *testing.T) {
+	service := newTestService(t, true)
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.UploadAvatar(request, "team-1", solidPNG(t, 96, 96, color.RGBA{R: 10, G: 20, B: 30, A: 255}))
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	path, ok := service.AvatarObjectPath("team-1", result.Ref)
+	if !ok {
+		t.Fatal("uploaded object has no authoritative path")
+	}
+	if err := os.Chmod(path, 0o664); err != nil {
+		t.Fatalf("simulate a legacy-mode object: %v", err)
+	}
+
+	data, _, ok := service.ReadAvatarObject("team-1", result.Ref)
+	if !ok {
+		t.Fatal("ReadAvatarObject refused a writable-but-hash-verified object")
+	}
+	if len(data) == 0 {
+		t.Fatal("ReadAvatarObject returned no bytes")
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o444 {
+		t.Fatalf("object mode after a served read = %o, want the self-healed 0444", got)
+	}
+}
+
+// TestReadAvatarObjectRefusesMismatchingHashAndLeavesModeAlone covers the
+// self-heal's fail-closed half: a writable object whose bytes have been
+// tampered with (or simply corrupted) so they no longer hash to ref must
+// still be refused, exactly like the pre-fix behavior, and — unlike the
+// matching-hash case above — its mode must be left completely alone: only
+// a verified match is ever chmod'ed.
+func TestReadAvatarObjectRefusesMismatchingHashAndLeavesModeAlone(t *testing.T) {
+	service := newTestService(t, true)
+	request, err := http.NewRequest(http.MethodPost, "/avatar/upload", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := service.UploadAvatar(request, "team-1", solidPNG(t, 96, 96, color.RGBA{R: 40, G: 50, B: 60, A: 255}))
+	if err != nil {
+		t.Fatalf("upload: %v", err)
+	}
+	path, ok := service.AvatarObjectPath("team-1", result.Ref)
+	if !ok {
+		t.Fatal("uploaded object has no authoritative path")
+	}
+	if err := os.Chmod(path, 0o664); err != nil {
+		t.Fatalf("simulate a legacy-mode object: %v", err)
+	}
+	// Corrupt the bytes in place — the file still passes as writable and
+	// still exists at ref's name, but its content no longer hashes to it.
+	if err := os.WriteFile(path, []byte("corrupted, no longer matches ref"), 0o664); err != nil {
+		t.Fatalf("corrupt object bytes: %v", err)
+	}
+
+	if data, _, ok := service.ReadAvatarObject("team-1", result.Ref); ok || data != nil {
+		t.Fatalf("ReadAvatarObject served a hash-mismatched object: ok=%v data=%q", ok, data)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o664 {
+		t.Fatalf("object mode after a refused read = %o, want the untouched 0664", got)
+	}
+}
+
+// TestRepairAvatarObjectModesFixesWritableObjectsAndSkipsNonMatchingNames
+// is RepairAvatarObjectModes' own boot-repair test (2026-08-28 incident):
+// every writable, hash-matching object in the store must come back 0444,
+// while a non-ref-shaped filename (a stray temp/foreign file) and a
+// ref-shaped filename whose content does not hash to itself are both left
+// completely untouched — the same fail-closed rule ReadAvatarObject
+// itself follows.
+func TestRepairAvatarObjectModesFixesWritableObjectsAndSkipsNonMatchingNames(t *testing.T) {
+	service := newTestService(t, true)
+	anchor := service.avatarDurableDir()
+	root := service.avatarDir()
+
+	refA, err := writeAvatarBlob(anchor, root, []byte("first legacy-mode object"))
+	if err != nil {
+		t.Fatalf("seed object A: %v", err)
+	}
+	refB, err := writeAvatarBlob(anchor, root, []byte("second legacy-mode object"))
+	if err != nil {
+		t.Fatalf("seed object B: %v", err)
+	}
+	objectDir := filepath.Join(root, "objects")
+	pathA := filepath.Join(objectDir, refA+".png")
+	pathB := filepath.Join(objectDir, refB+".png")
+	if err := os.Chmod(pathA, 0o664); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(pathB, 0o664); err != nil {
+		t.Fatal(err)
+	}
+
+	// A stray non-ref-shaped file: writable, present in the same
+	// directory, but must never be touched by name alone. os.WriteFile's
+	// perm argument is subject to the process umask, so an explicit
+	// os.Chmod follows it to pin the exact mode this test asserts on.
+	strayPath := filepath.Join(objectDir, "readme.txt")
+	if err := os.WriteFile(strayPath, []byte("not an avatar object"), 0o664); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(strayPath, 0o664); err != nil {
+		t.Fatal(err)
+	}
+
+	// A ref-shaped filename whose content has drifted from what its own
+	// name promises — must be left alone, exactly like ReadAvatarObject's
+	// own mismatch case.
+	mismatchedRef := strings.Repeat("a", sha256.Size*2)
+	mismatchedPath := filepath.Join(objectDir, mismatchedRef+".png")
+	if err := os.WriteFile(mismatchedPath, []byte("does not hash to mismatchedRef"), 0o664); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(mismatchedPath, 0o664); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := service.RepairAvatarObjectModes()
+	if err != nil {
+		t.Fatalf("RepairAvatarObjectModes: %v", err)
+	}
+	if repaired != 2 {
+		t.Fatalf("repaired = %d, want 2 (only the two valid, writable, hash-matching objects)", repaired)
+	}
+
+	for _, path := range []string{pathA, pathB} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o444 {
+			t.Errorf("object %s mode = %o, want the repaired 0444", path, got)
+		}
+	}
+	for _, path := range []string{strayPath, mismatchedPath} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o664 {
+			t.Errorf("untouched file %s mode = %o, want the original 0664", path, got)
+		}
+	}
+}
+
 func TestWriteAvatarBlobConcurrentSameDigestLeavesOneDurableObject(t *testing.T) {
 	anchor := t.TempDir()
 	root := filepath.Join(anchor, "avatars")

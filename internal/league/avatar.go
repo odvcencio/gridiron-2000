@@ -70,6 +70,17 @@ func (gate avatarDecodeGate) acquire() func() {
 
 var avatarDecodeSlots = newAvatarDecodeGate(avatarDecodeConcurrency)
 
+// avatarRepairLoggedRefs deduplicates the self-heal info log
+// (repairAvatarObjectMode's "repaired to read-only" line, 2026-08-28
+// incident) across every concurrent caller for the same ref: two readers
+// racing ReadAvatarObject for the same still-writable object, or a boot
+// repair pass racing a request-time repair, must together log that ref
+// exactly once, not once per caller. Keyed process-wide by ref (a
+// content-addressed SHA-256 hex string, never reused for different
+// bytes), so a process restart naturally clears it — there is nothing
+// here that needs to persist across restarts.
+var avatarRepairLoggedRefs sync.Map
+
 // AvatarUploadResult describes the durable identity transition completed by
 // UploadAvatar. Ref is the immutable content address used by the serving
 // route; BadgeReleased tells the UI whether the previous badge reservation
@@ -308,6 +319,16 @@ func readAvatarObjectBytes(file *os.File, limit int64) ([]byte, error) {
 // currently referenced immutable object. The handler uses this instead of
 // reopening AvatarObjectPath, so a final-leaf replacement cannot redirect a
 // request to an outside file after the identity lookup.
+//
+// A writable-mode object (0664, not the write path's own 0o444 — see
+// writeAvatarBlob's Chmod) is self-healed here rather than refused
+// outright (2026-08-28 incident: an older release's object, or a restored
+// backup whose tar extraction reset every mode at once, 404'd until an
+// operator ran a manual chmod). The content hash is verified FIRST,
+// against ref, exactly as it always was for a read-only object — only a
+// verified match is ever chmod'ed back to 0o444; a hash mismatch or a
+// failed chmod still fails closed, identically to the pre-fix behavior,
+// and never touches the file's mode. See repairAvatarObjectMode.
 func (s *Service) ReadAvatarObject(teamID, ref string) ([]byte, time.Time, bool) {
 	teamID = strings.TrimSpace(teamID)
 	ref = strings.TrimSpace(ref)
@@ -327,9 +348,6 @@ func (s *Service) ReadAvatarObject(teamID, ref string) ([]byte, time.Time, bool)
 		return nil, time.Time{}, false
 	}
 	defer handle.Close()
-	if handle.info.Mode().Perm()&0o222 != 0 {
-		return nil, time.Time{}, false
-	}
 	data, err := readAvatarObjectBytes(handle.file, AvatarMaxBytes)
 	if err != nil || len(data) > AvatarMaxBytes {
 		return nil, time.Time{}, false
@@ -338,7 +356,106 @@ func (s *Service) ReadAvatarObject(teamID, ref string) ([]byte, time.Time, bool)
 	if hex.EncodeToString(digest[:]) != ref {
 		return nil, time.Time{}, false
 	}
+	if handle.info.Mode().Perm()&0o222 != 0 {
+		if err := repairAvatarObjectMode(handle, ref); err != nil {
+			return nil, time.Time{}, false
+		}
+	}
 	return data, handle.info.ModTime(), true
+}
+
+// repairAvatarObjectMode chmods a content-hash-verified avatar object back
+// to 0o444 in place, and logs the repair exactly once per ref
+// (avatarRepairLoggedRefs — see its own doc comment for the concurrency
+// reason). Callers must have already verified handle's bytes hash to ref
+// before calling this: it performs no hash check of its own, and only
+// ever changes a file's mode, never its content.
+func repairAvatarObjectMode(handle *avatarObjectHandle, ref string) error {
+	if err := handle.file.Chmod(0o444); err != nil {
+		return err
+	}
+	if _, alreadyLogged := avatarRepairLoggedRefs.LoadOrStore(ref, struct{}{}); !alreadyLogged {
+		log.Printf("avatar object %s repaired to read-only", ref)
+	}
+	return nil
+}
+
+// RepairAvatarObjectModes scans the avatar object store once and repairs
+// every writable-mode object whose on-disk bytes still content-address to
+// its own filename — the same self-heal ReadAvatarObject performs lazily
+// on a single ref (see its doc comment), run eagerly over the whole
+// store. Call once at boot, before any request can reach
+// ReadAvatarObject: a restored backup's tar extraction resets every
+// object's mode at once, not just the one a visitor happens to request
+// next, so waiting for read-time self-heal alone would still 404 every
+// avatar an operator has not personally chmod'ed yet (2026-08-28
+// incident).
+//
+// A directory entry whose name is not a valid lower-case SHA-256 ref plus
+// ".png" is left completely untouched — it is either a legitimate
+// transient temp file (writeAvatarBlob's ".avatar-object-*.tmp" staging
+// name, normally already cleaned up, but a crash could leave one behind)
+// or a foreign file with no business being chmod'ed by this pass. A
+// valid-looking name whose content no longer hashes to itself is also
+// left untouched: the exact fail-closed rule ReadAvatarObject itself
+// follows, never silently overwritten here.
+//
+// Returns the count of objects it actually repaired, for the boot log
+// line. A missing object directory (a fresh install with no avatar ever
+// uploaded) is not an error.
+func (s *Service) RepairAvatarObjectModes() (int, error) {
+	paths, err := canonicalAvatarStoragePaths(s.avatarDurableDir(), s.avatarDir())
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(paths.objectDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	repaired := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		ref, isPNG := strings.CutSuffix(name, ".png")
+		if !isPNG || !validAvatarRef(ref) {
+			continue
+		}
+		if repairOneAvatarObjectMode(paths.anchor, paths.objectDir, name, ref) {
+			repaired++
+		}
+	}
+	return repaired, nil
+}
+
+// repairOneAvatarObjectMode opens exactly one already-name-validated
+// object through the same traversal-safe path openVerifiedAvatarObject
+// gives every other reader, and repairs it if (and only if) it is
+// writable and its content still hashes to ref. Any failure along the
+// way — an open error, an oversized read, a hash mismatch, a failed
+// chmod — is treated as "leave this one alone, move on to the next
+// directory entry," matching RepairAvatarObjectModes' own doc comment: a
+// boot-time sweep must never abort the whole pass, or fail closed on a
+// single anomalous file, when every other stored object is fine.
+func repairOneAvatarObjectMode(anchor, objectDir, name, ref string) (repaired bool) {
+	handle, err := openVerifiedAvatarObject(anchor, objectDir, name)
+	if err != nil {
+		return false
+	}
+	defer handle.Close()
+	if handle.info.Mode().Perm()&0o222 == 0 {
+		return false
+	}
+	data, err := readAvatarObjectBytes(handle.file, AvatarMaxBytes)
+	if err != nil || len(data) > AvatarMaxBytes {
+		return false
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != ref {
+		return false
+	}
+	return repairAvatarObjectMode(handle, ref) == nil
 }
 
 // IdentityHealthy reports whether an uncertain identity commit has been
