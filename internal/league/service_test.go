@@ -146,6 +146,196 @@ func TestDraftDataAvailablePosPFiltersAndOrdersByPunterRank(t *testing.T) {
 	}
 }
 
+// synthOrderedRBPool returns size same-position (RB) players whose ADP and
+// Projection run in exactly opposite directions across the pool: rb-001
+// carries the smallest ADP AND the smallest Projection, rb-NNN (the last
+// one) carries the largest of both. Every row shares one position, so
+// HouseRank's per-position replacement level (houserank.go) is the same
+// constant for the whole pool — HouseRank's VORP order therefore reduces to
+// plain descending-Projection order, giving a HOUSE order that is the ADP
+// order's exact reverse, with no accidental overlap between the two orders
+// to reason about (D9 follow-up: house order vs ADP order).
+func synthOrderedRBPool(size int) []Player {
+	players := make([]Player, 0, size)
+	for i := 0; i < size; i++ {
+		players = append(players, Player{
+			ID:         fmt.Sprintf("rb-%03d", i+1),
+			Name:       fmt.Sprintf("Runner %03d", i+1),
+			Position:   "RB",
+			NFLTeam:    "CIN",
+			ADP:        float64(i + 1),
+			Projection: float64(i + 1),
+		})
+	}
+	return players
+}
+
+// TestDraftDataSortSelectsHouseOrADPOrder is the D9 follow-up's own
+// regression: the ADP|HOUSE toggle used to change only the RK cell's
+// display (dogwood's own D9 change), never draftData's actual row order —
+// every row still walked pool.players (market order) regardless of
+// "?sort=". This pins draftData choosing pool.byADP under "?sort=adp" and
+// pool.byHouse under "?sort=house", and pins that page 2 continues the
+// SAME order rather than re-sorting per page.
+func TestDraftDataSortSelectsHouseOrADPOrder(t *testing.T) {
+	service := newTestService(t, true)
+	pool := synthOrderedRBPool(60)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	adpRequest, _ := http.NewRequest(http.MethodGet, "/draft?sort=adp", nil)
+	adp := service.DraftData(adpRequest)
+	adpRows, ok := adp["available"].([]map[string]any)
+	if !ok || len(adpRows) != poolPageSize {
+		t.Fatalf("adp page 1 = %d rows, want %d", len(adpRows), poolPageSize)
+	}
+	for i, row := range adpRows {
+		if want := fmt.Sprintf("rb-%03d", i+1); row["id"] != want {
+			t.Fatalf("adp row %d id = %v, want %s", i, row["id"], want)
+		}
+	}
+	if adp["pool_sort"] != DraftPoolSortADP {
+		t.Errorf("pool_sort = %v, want %s", adp["pool_sort"], DraftPoolSortADP)
+	}
+
+	houseRequest, _ := http.NewRequest(http.MethodGet, "/draft?sort=house", nil)
+	house := service.DraftData(houseRequest)
+	houseRows, ok := house["available"].([]map[string]any)
+	if !ok || len(houseRows) != poolPageSize {
+		t.Fatalf("house page 1 = %d rows, want %d", len(houseRows), poolPageSize)
+	}
+	for i, row := range houseRows {
+		if want := fmt.Sprintf("rb-%03d", 60-i); row["id"] != want {
+			t.Fatalf("house row %d id = %v, want %s", i, row["id"], want)
+		}
+	}
+	if house["pool_sort"] != DraftPoolSortHouse {
+		t.Errorf("pool_sort = %v, want %s", house["pool_sort"], DraftPoolSortHouse)
+	}
+
+	// Page 2 continues the SAME house order, not a re-sort per page.
+	houseSecondRequest, _ := http.NewRequest(http.MethodGet, "/draft?sort=house&page=2", nil)
+	houseSecond := service.DraftData(houseSecondRequest)
+	houseSecondRows, ok := houseSecond["available"].([]map[string]any)
+	if !ok || len(houseSecondRows) != 10 {
+		t.Fatalf("house page 2 = %d rows, want 10", len(houseSecondRows))
+	}
+	for i, row := range houseSecondRows {
+		if want := fmt.Sprintf("rb-%03d", 10-i); row["id"] != want {
+			t.Fatalf("house page 2 row %d id = %v, want %s", i, row["id"], want)
+		}
+	}
+}
+
+// TestDraftDataSortDefaultsByRosterPreset pins ResolveDraftPoolSort's own
+// no-"?sort="-given default: ADP for a preset with no SUPERFLEX slot
+// (standard, DefaultConfig's own preset), HOUSE for one that carries a
+// SUPERFLEX slot (gridiron-house). Each preset gets its own fresh Service
+// so the roster-shape swap always lands on a first, un-cached buildPool
+// (pool() freezes byHouse's own build to the version/label it first saw).
+func TestDraftDataSortDefaultsByRosterPreset(t *testing.T) {
+	pool := synthOrderedRBPool(4)
+	request, _ := http.NewRequest(http.MethodGet, "/draft", nil)
+
+	standardService := newTestService(t, true)
+	standardService.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	standardData := standardService.DraftData(request)
+	standardRows, _ := standardData["available"].([]map[string]any)
+	if len(standardRows) == 0 || standardRows[0]["id"] != "rb-001" {
+		t.Fatalf("standard preset default sort head = %+v, want rb-001 (ADP order)", standardRows)
+	}
+	if standardData["pool_sort"] != DraftPoolSortADP {
+		t.Errorf("standard preset default pool_sort = %v, want %s", standardData["pool_sort"], DraftPoolSortADP)
+	}
+
+	setRosterShape(rosterPresets["gridiron-house"])
+	t.Cleanup(clearRosterShape)
+	superflexService := newTestService(t, true)
+	superflexService.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+	superflexData := superflexService.DraftData(request)
+	superflexRows, _ := superflexData["available"].([]map[string]any)
+	if len(superflexRows) == 0 || superflexRows[0]["id"] != "rb-004" {
+		t.Fatalf("superflex preset default sort head = %+v, want rb-004 (HOUSE order)", superflexRows)
+	}
+	if superflexData["pool_sort"] != DraftPoolSortHouse {
+		t.Errorf("superflex preset default pool_sort = %v, want %s", superflexData["pool_sort"], DraftPoolSortHouse)
+	}
+}
+
+// TestDraftDataSortHousePositionFilterOrdersPuntersByHouseRank is
+// TestDraftDataAvailablePosPFiltersAndOrdersByPunterRank's own HOUSE-sort
+// twin: under "?sort=house&pos=P" the filtered punter rows must come back
+// in HOUSE order (descending VORP, which — same position, same replacement
+// level for all three — reduces to descending Projection), proving the
+// position filter runs against pool.byHouse, not pool.players/pool.byADP,
+// once HOUSE is the active sort.
+func TestDraftDataSortHousePositionFilterOrdersPuntersByHouseRank(t *testing.T) {
+	service := newTestService(t, true)
+	pool := []Player{
+		{ID: "rb-filler", Name: "Filler Runner", Position: "RB", NFLTeam: "CIN", ADP: 1, Projection: 20},
+		{ID: "p-high", Name: "High Punter", Position: "P", NFLTeam: "HOU", Projection: 9.0, PunterRank: 1},
+		{ID: "p-mid", Name: "Mid Punter", Position: "P", NFLTeam: "DAL", Projection: 7.0, PunterRank: 2},
+		{ID: "p-low", Name: "Low Punter", Position: "P", NFLTeam: "NYJ", Projection: 5.0, PunterRank: 3},
+	}
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft?sort=house&pos=P", nil)
+	data := service.DraftData(request)
+	rows, ok := data["available"].([]map[string]any)
+	if !ok || len(rows) != 3 {
+		t.Fatalf("available = %+v, want 3 punter rows", data["available"])
+	}
+	for i, want := range []string{"p-high", "p-mid", "p-low"} {
+		if rows[i]["id"] != want {
+			t.Fatalf("row %d id = %v, want %s (rows: %+v)", i, rows[i]["id"], want, rows)
+		}
+	}
+	if data["pool_position"] != "P" {
+		t.Errorf("pool_position = %v, want P", data["pool_position"])
+	}
+}
+
+// TestDraftDataReadOnlyOptionsHonoursSort proves the draft room's fragment
+// polls (DraftDataReadOnly/DraftDataReadOnlyOptions, the loader every
+// app/draft fragment endpoint uses) run through the exact same sort
+// resolution DraftData does — they share draftData (service.go) — so a
+// position-chip or pagination repoll never silently reverts to the
+// roster's own default sort.
+func TestDraftDataReadOnlyOptionsHonoursSort(t *testing.T) {
+	service := newTestService(t, true)
+	pool := synthOrderedRBPool(10)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft/fragment/available?pos=RB&sort=house", nil)
+	data := service.DraftDataReadOnlyOptions(request, false)
+	rows, ok := data["available"].([]map[string]any)
+	if !ok || len(rows) == 0 || rows[0]["id"] != "rb-010" {
+		t.Fatalf("fragment poll under sort=house head = %+v, want rb-010 first", data["available"])
+	}
+}
+
+// TestDraftDataPoolHrefsCarryActiveSort is D9's own href follow-up: every
+// pagination and position-chip href draftData hands out must carry the
+// active sort, or clicking one silently drops back to
+// ResolveDraftPoolSort's own roster-only default on the next request.
+func TestDraftDataPoolHrefsCarryActiveSort(t *testing.T) {
+	service := newTestService(t, true)
+	pool := synthOrderedRBPool(60)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return pool, 1, "live" })
+
+	request, _ := http.NewRequest(http.MethodGet, "/draft?sort=house&page=2", nil)
+	data := service.DraftData(request)
+	for _, key := range []string{
+		"pool_previous_href", "pool_next_href", "pool_all_href",
+		"pool_rb_href", "pool_wr_href", "pool_qb_href", "pool_te_href",
+		"pool_k_href", "pool_dst_href", "pool_p_href",
+	} {
+		href, _ := data[key].(string)
+		if !strings.Contains(href, "sort=house") {
+			t.Errorf("%s = %q, want it to carry sort=house", key, href)
+		}
+	}
+}
+
 // TestCachedPoolIsReportedAsUsableSnapshot proves the production regression:
 // a healthy on-disk snapshot is not live, but it is also not offline. Every
 // manager pool surface gets the same cached state, useful-content promise,
