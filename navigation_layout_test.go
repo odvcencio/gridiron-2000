@@ -178,13 +178,14 @@ var navigationTagPattern = regexp.MustCompile(`<[^>]*>`)
 
 // assertNoStrayCommentLines fails the test when the rendered page's text,
 // with every tag replaced by a newline, carries a line that starts with
-// "//". A GoSX markup block never strips a Go-style "//" comment the way
-// plain Go source does, so a developer comment left inside a return
-// <...> block (or, here, the shared layout chrome every route renders)
-// renders as visible text instead of staying source-only (wave-7
-// re-audit, item 5). Every call to renderNavigationLayout carries this
-// guard automatically, so it backs every page's chrome, not only the
-// fixture routes this file exercises directly.
+// "//". Before GoSX v0.53.11, a markup block never stripped a Go-style
+// "//" comment the way plain Go source does, so a developer comment left
+// inside a return <...> block (or, here, the shared layout chrome every
+// route renders) rendered as visible text instead of staying source-only
+// (wave-7 re-audit, item 5). GoSX v0.53.11 now strips that comment at
+// compile time; every call to renderNavigationLayout still carries this
+// render-level guard automatically, so it backs every page's chrome, not
+// only the fixture routes this file exercises directly.
 //
 // Two lines are allowed to start with "//" without being a leftover
 // comment:
@@ -205,8 +206,8 @@ var navigationTagPattern = regexp.MustCompile(`<[^>]*>`)
 //     same way, and only a caller that deliberately set it — proving the
 //     content is expected, not coincidental — is exempted.
 //
-// See TestNoCommentLinesInsideGSXMarkup (root package,
-// gsx_markup_comment_contract_test.go) for the matching source-level
+// See TestGSXMarkupCommentsCompileAway (root package,
+// gsx_markup_comment_contract_test.go) for the matching compile-time
 // guard, and its own doc comment for the identical reasoning applied to
 // the .gsx source instead of rendered HTML.
 func assertNoStrayCommentLines(t *testing.T, label, html, allowedFooterLine string) {
@@ -802,9 +803,9 @@ func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 // every section-index span in app/*.gsx uses) as intentional, rendered
 // content — not a leftover Go comment. Before wave-7's re-audit, the "//"
 // sat alone on its own source line, which is exactly the shape
-// TestNoCommentLinesInsideGSXMarkup (root package) flags as a possible
+// TestGSXMarkupCommentsCompileAway (root package) flags as a possible
 // stray comment; app/layout.gsx now keeps the divider on the same line as
-// its neighboring content so the source-level guard does not have to
+// its neighboring content so the compile-time guard does not have to
 // special-case genuine "//"-styled UI copy.
 func TestFooterLineRendersAsDividerTextNotACommentLine(t *testing.T) {
 	body := renderNavigationLayout(t, "/pickem", navigationViewerFixture{
