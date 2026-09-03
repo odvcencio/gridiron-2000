@@ -183,10 +183,6 @@ func validAvatarRef(ref string) bool {
 	return err == nil
 }
 
-func (s *Service) avatarObjectDir() string {
-	return filepath.Join(s.avatarDir(), "objects")
-}
-
 // AvatarObjectPath resolves only the exact currently referenced object for a
 // known team. A stale, guessed, or unreferenced hash never reaches disk.
 func (s *Service) AvatarObjectPath(teamID, ref string) (path string, ok bool) {

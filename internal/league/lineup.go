@@ -248,8 +248,8 @@ func rosterOverridePreset(o RosterOverride) RosterPreset {
 // reserve) 10-25. Reserve/IR/Limits extend this same source (SK spec) via
 // validateZonesAndLimits (zones.go) — one validation source, extended
 // rather than duplicated. Store.SetRosterOverride is the only caller
-// today, keeping validation in one place the way validateDraftOrder backs
-// SetDraftOrder.
+// today, keeping validation in one place the way validateDraftOrderForState
+// backs SetDraftOrder.
 func validateRosterOverride(o RosterOverride) error {
 	for key, count := range o.Slots {
 		if !validSlotKey(key) {
