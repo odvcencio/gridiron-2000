@@ -7,6 +7,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-e1baaa1-sweep2] — 2026-09-03
+
+Scope: the second sweep release, from the fine-toothed-comb audits run on
+faithful copies of the live league. Rolled as revision 96; no schema change.
+
+### Fixed
+- /activity's team filter lists the league's real team names, and an unknown team code says so instead of filtering silently.
+- The attention chip counts only the pick'em games the viewer has not called, so it no longer shows "1 URGENT" to a manager who has picked every game.
+- /scoring's jump strip is a single opaque row on phones and at most two rows on desktop; /pickem's Prev and Next stay pinned at the strip's edges.
+- /blitz no longer prints empty champion labels; /settings says when email delivery is not configured; /wire says "player stat ledger" and its status dot renders.
+- /players collapses its filter rail to one row on phones (seven rows visible instead of two) and, with /board, gains column headers and a legend for RK and H.
+- The desktop rail fits every link at 1440×900 and 1280×800; the home status line and the rail footer wrap instead of clipping.
+- Player and pool counts pluralize correctly.
+
+
 ## [release-2026.09.03-19e370f-sweep1] — 2026-09-03
 
 Scope: the first release of the whole-repo sweep before the Sunday draft,
