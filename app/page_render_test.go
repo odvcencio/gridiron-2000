@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +19,49 @@ import (
 	"m31labs.dev/gosx/route"
 	"m31labs.dev/gosx/server"
 )
+
+// homeTagPattern replaces every tag with a newline, the same way this
+// codebase's own manual verification command does (curl ... | sed
+// 's/<[^>]*>/\n/g' | grep -c '^\s*//'): GoSX does not collapse a text
+// node's own whitespace the way JSX does, so a tag boundary is where a
+// rendered line actually breaks, not just where an original .gsx source
+// line happened to break.
+var homeTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// assertNoStrayCommentLines fails the test when the rendered page's text,
+// with every tag replaced by a newline, carries a line that starts with
+// "//". A GoSX markup block never strips a Go-style "//" comment the way
+// plain Go source does, so a developer comment left inside a return
+// <...> block renders as visible text instead of staying source-only
+// (wave-7 re-audit, item 5 — the app/team/page.gsx defect this guards
+// against here on the home page instead). See
+// TestNoCommentLinesInsideGSXMarkup (root package,
+// gsx_markup_comment_contract_test.go) for the matching source-level
+// guard.
+//
+// A bare "//" with nothing else on the line is allowed: page.gsx's own
+// live-bound score-ticker (data.live.week_label // data.live.status //
+// data.live.refresh_label) separates each independently live-bound
+// <span> with the site's "LABEL // detail" divider glyph (every
+// section-index span in app/*.gsx uses the same convention, traced back
+// to the original "GRIDIRON 2000 // Eight seats. One trophy." tagline).
+// Sitting between two independently tagged, independently live-bound
+// elements, it renders on its own isolated line under this exact
+// tag-to-newline check, with no way to merge it into a neighboring
+// live-bound span's own text without risking a live-patch overwriting
+// it. A genuine leftover developer comment is never contentless, so a
+// bare "//" line is never itself a defect.
+func assertNoStrayCommentLines(t *testing.T, label, html string) {
+	t.Helper()
+	text := homeTagPattern.ReplaceAllString(html, "\n")
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "//" || !strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		t.Errorf("%s rendered a stray comment line: %q", label, trimmed)
+	}
+}
 
 func renderLandingPage(t *testing.T) string {
 	t.Helper()
@@ -402,6 +446,7 @@ func TestHomepageBootstrapAndHubGateOnSignedInAndSeated(t *testing.T) {
 			t.Fatalf("a signed-out landing visitor must load no bootstrap runtime or hub (%q present): %s", marker, signedOut)
 		}
 	}
+	assertNoStrayCommentLines(t, "/ (signed out)", signedOut)
 
 	seated := runHomeBootstrapFixture(t, "seated")
 	for _, marker := range []string{`id="gosx-manifest"`, `data-gosx-script="bootstrap"`, "scores-live"} {
@@ -409,6 +454,10 @@ func TestHomepageBootstrapAndHubGateOnSignedInAndSeated(t *testing.T) {
 			t.Fatalf("a signed-in, seated viewer must load the bootstrap runtime and the scores-live hub (missing %q): %s", marker, seated)
 		}
 	}
+	// The seated render is the one that unlocks page.gsx's score-ticker
+	// (data.viewer.signed_in && data.has_seat), so it is also the render
+	// that exercises the ticker's own "// " divider glyphs.
+	assertNoStrayCommentLines(t, "/ (seated)", seated)
 }
 
 func runHomeBootstrapFixture(t *testing.T, scenario string) string {

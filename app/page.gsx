@@ -440,10 +440,8 @@ func Page() Node {
 			<div class="score-ticker" aria-label="Matchup preview status">
 				<span>PREVIEW</span>
 				<p>
-					<span data-gosx-live-bind="weekLabel">{data.live.week_label}</span>
-					//
-					<span data-gosx-live-bind="status">{data.live.status}</span>
-					//
+					<span data-gosx-live-bind="weekLabel">{data.live.week_label}</span> //
+					<span data-gosx-live-bind="status">{data.live.status}</span> //
 					<span data-gosx-live-bind="refreshLabel">{data.live.refresh_label}</span>
 				</p>
 				<a href="/matchups" data-gosx-link>All matchups →</a>

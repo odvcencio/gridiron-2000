@@ -470,6 +470,15 @@ func Page() Node {
 // lineup mutations. It intentionally uses the page bindings (data, csrf,
 // actionPath) so the initial page and /team/fragment share the exact same
 // server-rendered controls and native-form fallback.
+//
+// Roster-shape slot title (wave-7 re-audit, item 5): the title attribute
+// only renders when slot.eligible is non-empty. An unconditional
+// title={slot.eligible} printed a bare title="" on every slot with no
+// eligible positions of its own (8 per roster, per the audit finding).
+// The fix needs two branches, not one attribute expression: GSX has no
+// ternary or "omit when falsy" attribute syntax, so an empty title has
+// to come from never rendering the attribute at all, not from rendering
+// it with an empty value.
 func TeamLineupRegion() Node {
 	return <div class="team-lineup-region">
 				<div class="team-command-strip">
@@ -606,15 +615,6 @@ func TeamLineupRegion() Node {
 					<div class="roster-shape" aria-label="League roster shape">
 						<Each of={data.roster_shape} as="slot">
 							<span class="roster-shape__slot-wrap">
-								// Item 5 (wave-7 re-audit — yew): title only renders when
-								// slot.eligible is non-empty — an unconditional
-								// title={slot.eligible} printed a bare title="" on every
-								// slot with no eligible positions of its own (the audit's
-								// own finding, 8 per roster). Two branches, not one
-								// attribute expression: GSX has no ternary/"omit when
-								// falsy" attribute syntax, so an empty title has to come
-								// from never rendering the attribute at all, not from
-								// rendering it with an empty value.
 								<If cond={slot.has_eligible}>
 									<span class="roster-shape__slot mono" title={slot.eligible}>{slot.label}</span>
 									<small class="roster-shape__eligible mono">ELIGIBLE: {slot.eligible}</small>

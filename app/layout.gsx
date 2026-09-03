@@ -532,8 +532,7 @@ func Layout() Node {
 				<p>
 					<strong>{data.league.name}</strong>
 					<If cond={data.league.has_footer_line}>
-						//
-						{data.league.footer_line}
+						{"// " + data.league.footer_line}
 					</If>
 				</p>
 				<nav aria-label="Footer">
