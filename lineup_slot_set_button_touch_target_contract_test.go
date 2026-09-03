@@ -17,11 +17,8 @@ import (
 // button/.draft-drawer .button, which the same generic rule's own
 // min-width: 0 already needed beating for the same reason.
 func TestLineupSlotSetButtonMeetsMobileTouchFloor(t *testing.T) {
-	styles, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	rules, err := mobileRules(string(styles))
+	styles := readStylesheet(t)
+	rules, err := mobileRules(styles)
 	if err != nil {
 		t.Fatalf("parse 38rem mobile rules: %v", err)
 	}

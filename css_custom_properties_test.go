@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -16,11 +15,7 @@ import (
 // marker (identical to non-urgent) went unnoticed. This regex-scans
 // public/styles.css for both cases and fails on either.
 func TestStylesheetCustomPropertiesResolve(t *testing.T) {
-	raw, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(raw)
+	css := readStylesheet(t)
 
 	// Every "--name:" declaration, anywhere (:root, a selector, or inside
 	// a media query) counts: a property only needs one definition
@@ -60,11 +55,7 @@ func TestStylesheetCustomPropertiesResolve(t *testing.T) {
 // phone-width companion for the / override and a stray phone-width base h1
 // override) are gone.
 func TestPageTitleTokenContract(t *testing.T) {
-	raw, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := string(raw)
+	css := readStylesheet(t)
 
 	for _, want := range []string{
 		`--type-page-title: clamp(1.75rem, 1.2rem + 1.6vw, 2.5rem);`,
@@ -125,15 +116,11 @@ func TestPageTitleTokenContract(t *testing.T) {
 // those names — declaration AND every var() reference — is gone; the
 // canonical token each pointed at carries the load instead.
 func TestTokenLeaksRemoved(t *testing.T) {
-	raw, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
 	// stripCSSComments (mobile_touch_contract_test.go) so this scan checks
 	// live declarations and var() references only — this file's own doc
 	// comment above the :root block names every retired token in prose,
 	// which would otherwise false-positive against these same substrings.
-	css := stripCSSComments(string(raw))
+	css := stripCSSComments(readStylesheet(t))
 
 	for _, forbidden := range []string{
 		"--color-accent-magenta",
@@ -169,11 +156,7 @@ func TestTokenLeaksRemoved(t *testing.T) {
 // .button--secondary — already referenced by app/join/page.gsx with no
 // matching rule — gets a real style.
 func TestButtonSystemContract(t *testing.T) {
-	raw, err := os.ReadFile("public/styles.css")
-	if err != nil {
-		t.Fatalf("read styles.css: %v", err)
-	}
-	css := stripCSSComments(string(raw))
+	css := stripCSSComments(readStylesheet(t))
 
 	for _, want := range []string{
 		// The two control-height tokens.
