@@ -523,6 +523,7 @@ func writeCSRFFailurePage(w http.ResponseWriter, r *http.Request, stylesheetHref
 		`<title>Session expired</title>`+
 		`<link rel="stylesheet" href="`+html.EscapeString(stylesheetHref)+`"></head>`+
 		`<body class="app-shell"><main class="page" id="main-content">`+
+		`<h1>Session expired</h1>`+
 		`<div class="error-message" role="alert"><p>`+html.EscapeString(csrfFailureMessage)+`</p></div>`+
 		`<p><a class="button button--ghost" href="`+html.EscapeString(back)+`">Reload the page</a></p>`+
 		`</main></body></html>`)

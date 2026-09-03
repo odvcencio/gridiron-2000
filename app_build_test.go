@@ -559,6 +559,15 @@ func TestCSRFFailureRendersShellErrorPageForHTMLRequest(t *testing.T) {
 	if strings.Contains(body, "invalid csrf token") {
 		t.Fatalf("CSRF failure page leaked the raw library message: %s", body)
 	}
+	// Item 5 (2026-09-02 route-crawl finding — rowan): the page's <title>
+	// read "Session expired" with no <h1> anywhere in the body — every
+	// page in this app must carry exactly one, matching the title.
+	if got := strings.Count(body, "<h1>"); got != 1 {
+		t.Fatalf("CSRF failure page has %d <h1> elements, want exactly 1: %s", got, body)
+	}
+	if !strings.Contains(body, "<h1>Session expired</h1>") {
+		t.Fatalf("CSRF failure page missing <h1>Session expired</h1> matching its <title>: %s", body)
+	}
 }
 
 // TestCSRFFailureRendersJSONMessageForManagedRequest covers the other half
