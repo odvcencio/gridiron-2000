@@ -581,6 +581,33 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 	}
 }
 
+// TestRosterRowPropsCarriesNewsAndHouseRank covers wave-8 audit item 5:
+// playerMap's news/injury/house_rank fields, already present on every
+// benchRows entry, must reach RosterCard so the strict {...player}
+// spread can actually render them.
+func TestRosterRowPropsCarriesNewsAndHouseRank(t *testing.T) {
+	raw := []map[string]any{{
+		"position": "WR", "name": "News Player", "nfl_team": "MIN",
+		"has_news": true, "news": "Ruled out for Sunday.",
+		"has_injury": true, "injury": "Ankle",
+		"has_house_rank": true, "house_rank": "H007",
+	}}
+	cards := rosterRowProps(raw)
+	if len(cards) != 1 {
+		t.Fatalf("rosterRowProps returned %d cards, want 1", len(cards))
+	}
+	card := cards[0]
+	if !card.HasNews || card.News != "Ruled out for Sunday." {
+		t.Errorf("card news = %v/%q, want true/\"Ruled out for Sunday.\"", card.HasNews, card.News)
+	}
+	if !card.HasInjury || card.Injury != "Ankle" {
+		t.Errorf("card injury = %v/%q, want true/\"Ankle\"", card.HasInjury, card.Injury)
+	}
+	if !card.HasHouseRank || card.HouseRank != "H007" {
+		t.Errorf("card house rank = %v/%q, want true/\"H007\"", card.HasHouseRank, card.HouseRank)
+	}
+}
+
 // TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine covers item
 // 1 (bench position-group header), item 4 (the unconditional schedule
 // second line), and item 5 (the drafted-round chip) on RosterRow, the
@@ -613,6 +640,44 @@ func TestBenchRowRendersGroupHeaderDraftedChipAndScheduleLine(t *testing.T) {
 		`{props.Kickoff}`,
 		`<If cond={props.HasBye}>`,
 		`{props.Bye}`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("RosterRow component missing %q", want)
+		}
+	}
+}
+
+// TestBenchRowRendersNewsTipAndHouseRankChip covers wave-8 audit item 5:
+// a bench row must carry the same 📰 news tip and "H###" house rank chip
+// /players and /board already show for the identical player, sourced
+// from playerMap's own has_news/news/has_house_rank/house_rank fields.
+func TestBenchRowRendersNewsTipAndHouseRankChip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	rowStart := strings.Index(page, "component RosterRow(props: RosterRowProps) {")
+	if rowStart < 0 {
+		t.Fatal("RosterRow component not found")
+	}
+	rowEnd := strings.Index(page[rowStart:], "\ncomponent ")
+	if rowEnd < 0 {
+		rowEnd = strings.Index(page[rowStart:], "\nfunc ")
+	}
+	if rowEnd < 0 {
+		t.Fatal("RosterRow component has no following declaration to bound the search")
+	}
+	block := page[rowStart : rowStart+rowEnd]
+	for _, want := range []string{
+		`<If cond={props.HasHouseRank}>`,
+		`<small class="house-rank">{props.HouseRank}</small>`,
+		`<If cond={props.HasNews}>`,
+		`<details class="stat-tip stat-tip--news">`,
+		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>`,
+		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>`,
+		`<If cond={props.HasInjury}>`,
+		`<p class="stat-tip__hist-note">{props.Injury}</p>`,
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("RosterRow component missing %q", want)
@@ -653,6 +718,33 @@ func TestStarterSlotRendersPositionChipDraftedChipAndScheduleLine(t *testing.T) 
 	lockAt := strings.Index(page, `<If cond={slot.locked}>`)
 	if scheduleAt < 0 || lockAt < 0 || scheduleAt > lockAt {
 		t.Fatal("the schedule line must render before the lock-gated chip block, not nested inside it")
+	}
+}
+
+// TestStarterSlotRendersNewsTipAndHouseRankChip covers wave-8 audit item
+// 5: a starting slot must carry the same 📰 news tip and "H###" house
+// rank chip /players and /board already show for the identical player
+// (starterRowMaps merges playerMap's full output onto every starter
+// row, but page.gsx never rendered these two fields before).
+func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	for _, want := range []string{
+		`<If cond={slot.has_house_rank}>`,
+		`<small class="house-rank">{slot.house_rank}</small>`,
+		`<If cond={slot.has_news}>`,
+		`<details class="stat-tip stat-tip--news">`,
+		`<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>`,
+		`<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>`,
+		`<If cond={slot.has_injury}>`,
+		`<p class="stat-tip__hist-note">{slot.injury}</p>`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("starter slot render missing %q", want)
+		}
 	}
 }
 

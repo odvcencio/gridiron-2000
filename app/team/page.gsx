@@ -47,6 +47,18 @@ type RosterRowProps struct {
 	// other row. See league.addBenchGroupHeaders.
 	HasGroupHeader bool
 	GroupHeader    string
+	// HasNews/News/HasInjury/Injury/HasHouseRank/HouseRank (wave-8 audit
+	// item 5) are playerMap's own news/injury/house-rank fields, already
+	// carried by benchRows (playerMapsWithScoring) but never rendered on
+	// this page before: /players and /board showed a 📰 news tip and an
+	// "H###" house rank chip for the same player /team showed neither
+	// for.
+	HasNews      bool
+	News         string
+	HasInjury    bool
+	Injury       string
+	HasHouseRank bool
+	HouseRank    string
 }
 
 // BadgeCellProps is one cell of the team-badge picker grid: a free
@@ -108,7 +120,13 @@ component RosterRow(props: RosterRowProps) {
 		<If cond={props.HasGroupHeader}>
 			<h4 class="roster-group-header mono">{props.GroupHeader}</h4>
 		</If>
-		<div class="position-chip">{props.Position}</div>
+		<div class="position-chip">
+			{props.Position}
+			<If cond={props.HasHouseRank}>
+				<small class="house-rank">{props.HouseRank}</small>
+			</If>
+		</div>
+		<span class="pool-player-cell">
 		<details class="player-identity stat-tip">
 			<summary class="stat-tip__summary">
 			<If cond={props.HasHeadshot}>
@@ -183,6 +201,18 @@ component RosterRow(props: RosterRowProps) {
 				</If>
 			</div>
 		</details>
+		<If cond={props.HasNews}>
+			<details class="stat-tip stat-tip--news">
+				<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Name}>📰</summary>
+				<div class="stat-tip__panel">
+					<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.News}</p>
+					<If cond={props.HasInjury}>
+						<p class="stat-tip__hist-note">{props.Injury}</p>
+					</If>
+				</div>
+			</details>
+		</If>
+		</span>
 		<div class="game-state">
 			<span class="signal-mark" aria-hidden="true"></span>
 			{props.Status}
@@ -710,8 +740,14 @@ func TeamLineupRegion() Node {
 					<div class="lineup-slot-list">
 							<Each of={data.starters} as="slot">
 								<div class="lineup-slot">
-									<div class="lineup-slot__id mono">{slot.slot_id}</div>
+									<div class="lineup-slot__id mono">
+										{slot.slot_id}
+										<If cond={slot.has_house_rank}>
+											<small class="house-rank">{slot.house_rank}</small>
+										</If>
+									</div>
 									<If cond={slot.has_player}>
+									<span class="pool-player-cell">
 										<details class="player-identity stat-tip">
 											<summary class="stat-tip__summary">
 											<If cond={slot.has_headshot}>
@@ -784,6 +820,18 @@ func TeamLineupRegion() Node {
 												</If>
 											</div>
 										</details>
+										<If cond={slot.has_news}>
+											<details class="stat-tip stat-tip--news">
+												<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + slot.name}>📰</summary>
+												<div class="stat-tip__panel">
+													<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {slot.news}</p>
+													<If cond={slot.has_injury}>
+														<p class="stat-tip__hist-note">{slot.injury}</p>
+													</If>
+												</div>
+											</details>
+										</If>
+									</span>
 									</If>
 									<If cond={slot.has_player == false}>
 										<If cond={data.team_terminal_roster_complete}>

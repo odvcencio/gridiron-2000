@@ -36,10 +36,13 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 		// newsTips counts <details class="stat-tip stat-tip--news">: the
 		// commissioner's newspaper-icon headline popover, wired in beside the
 		// identity tip in each pool-row template (board, draft, players).
-		// Blitz and team do not carry a news tip yet.
+		// Blitz does not carry a news tip yet. Team carries two (wave-8
+		// audit item 5): one for a starting slot, one for a bench row —
+		// the same fields (playerMap's news/house_rank) /players and
+		// /board already rendered, which /team's rows omitted before.
 		newsTips int
 	}{
-		{name: "team", path: filepath.Join("team", "page.gsx"), identityTips: 2, newsTips: 0},
+		{name: "team", path: filepath.Join("team", "page.gsx"), identityTips: 2, newsTips: 2},
 		{name: "draft", path: filepath.Join("draft", "page.gsx"), identityTips: 1, newsTips: 3},
 		{name: "big board", path: filepath.Join("board", "page.gsx"), identityTips: 2, newsTips: 2},
 		{name: "blitz", path: filepath.Join("blitz", "page.gsx"), identityTips: 3, newsTips: 0},
