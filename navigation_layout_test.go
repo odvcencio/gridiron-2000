@@ -46,6 +46,14 @@ type navigationViewerFixture struct {
 	// PrimaryNavigation's "Draft results" link renders only when this is
 	// true, matching the real leagueMap-driven contract.
 	draftComplete bool
+	// hasFooterLine/footerLine mirror leagueMap's own "has_footer_line"/
+	// "footer_line" fields: the footer's "// {footer_line}" divider text
+	// (matching the site-wide "LABEL // detail" convention — see
+	// section-index spans throughout app/*.gsx) only renders while
+	// hasFooterLine is true. Both default false/"" so every existing
+	// fixture literal in this file keeps rendering no footer line.
+	hasFooterLine bool
+	footerLine    string
 }
 
 type renderedNavigationGroup struct {
@@ -111,8 +119,8 @@ func Page() Node {
 				"tagline":              "Truth over folklore",
 				"fantasy_seats_open":   viewer.seatsOpen,
 				"latest_announcement":  map[string]any{"has": false, "body": "", "posted_at": ""},
-				"has_footer_line":      false,
-				"footer_line":          "",
+				"has_footer_line":      viewer.hasFooterLine,
+				"footer_line":          viewer.footerLine,
 				"matchup_footer_live":  false,
 				"matchup_footer_label": "MATCHUPS SCHEDULED",
 				"attention": map[string]any{
@@ -155,7 +163,69 @@ func Page() Node {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d, want 200; body: %s", target, recorder.Code, recorder.Body.String())
 	}
-	return recorder.Body.String()
+	body := recorder.Body.String()
+	assertNoStrayCommentLines(t, target, body, viewer.footerLine)
+	return body
+}
+
+// navigationTagPattern replaces every tag with a newline, the same way
+// this codebase's own manual verification command does (curl ... | sed
+// 's/<[^>]*>/\n/g' | grep -c '^\s*//'): GoSX does not collapse a text
+// node's own whitespace the way JSX does, so a tag boundary is where a
+// rendered line actually breaks, not just where an original .gsx source
+// line happened to break.
+var navigationTagPattern = regexp.MustCompile(`<[^>]*>`)
+
+// assertNoStrayCommentLines fails the test when the rendered page's text,
+// with every tag replaced by a newline, carries a line that starts with
+// "//". A GoSX markup block never strips a Go-style "//" comment the way
+// plain Go source does, so a developer comment left inside a return
+// <...> block (or, here, the shared layout chrome every route renders)
+// renders as visible text instead of staying source-only (wave-7
+// re-audit, item 5). Every call to renderNavigationLayout carries this
+// guard automatically, so it backs every page's chrome, not only the
+// fixture routes this file exercises directly.
+//
+// Two lines are allowed to start with "//" without being a leftover
+// comment:
+//
+//  1. A bare "//" with nothing else on the line. This is the site's own
+//     "LABEL // detail" divider glyph (every section-index span in
+//     app/*.gsx uses it, e.g. "01 // MATCHUP PREVIEW", traced back to
+//     the original "GRIDIRON 2000 // Eight seats. One trophy." tagline).
+//     Between two independently tagged elements — app/page.gsx's
+//     live-bound score-ticker spans — it renders as its own isolated
+//     line under this exact tag-to-newline check, with no way to merge
+//     it into a neighboring live-bound span's own text without risking a
+//     live-patch overwriting it. A genuine leftover developer comment is
+//     never contentless, so a bare "//" line is never itself a defect.
+//  2. "// " followed by allowedFooterLine, when the caller explicitly
+//     configured that footer line (navigationViewerFixture.footerLine):
+//     app/layout.gsx's own footer divider renders "// {footer_line}" the
+//     same way, and only a caller that deliberately set it — proving the
+//     content is expected, not coincidental — is exempted.
+//
+// See TestNoCommentLinesInsideGSXMarkup (root package,
+// gsx_markup_comment_contract_test.go) for the matching source-level
+// guard, and its own doc comment for the identical reasoning applied to
+// the .gsx source instead of rendered HTML.
+func assertNoStrayCommentLines(t *testing.T, label, html, allowedFooterLine string) {
+	t.Helper()
+	allowedFooterDivider := ""
+	if allowedFooterLine != "" {
+		allowedFooterDivider = "// " + allowedFooterLine
+	}
+	text := navigationTagPattern.ReplaceAllString(html, "\n")
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if trimmed == "//" || (allowedFooterDivider != "" && trimmed == allowedFooterDivider) {
+			continue
+		}
+		t.Errorf("%s rendered a stray comment line: %q", label, trimmed)
+	}
 }
 
 func parseNavigationDocument(t *testing.T, body string) *html.Node {
@@ -724,5 +794,39 @@ func TestPrimaryNavigationCSSProgressiveEnhancementContract(t *testing.T) {
 	// every live rule used it before the fix.
 	if regexp.MustCompile(`html:has\(script\[data-gosx-navigation="true"\]\)\s+\.`).MatchString(css) {
 		t.Error("navigation CSS still keys a live rule on html:has(script[data-gosx-navigation=\"true\"]) instead of the runtime's own boot attribute")
+	}
+}
+
+// TestFooterLineRendersAsDividerTextNotACommentLine pins the footer's
+// "// {footer_line}" divider text (the same "LABEL // detail" convention
+// every section-index span in app/*.gsx uses) as intentional, rendered
+// content — not a leftover Go comment. Before wave-7's re-audit, the "//"
+// sat alone on its own source line, which is exactly the shape
+// TestNoCommentLinesInsideGSXMarkup (root package) flags as a possible
+// stray comment; app/layout.gsx now keeps the divider on the same line as
+// its neighboring content so the source-level guard does not have to
+// special-case genuine "//"-styled UI copy.
+func TestFooterLineRendersAsDividerTextNotACommentLine(t *testing.T) {
+	body := renderNavigationLayout(t, "/pickem", navigationViewerFixture{
+		signedIn:      true,
+		hasSeat:       true,
+		hasFooterLine: true,
+		footerLine:    "Eight seats. One trophy.",
+	})
+	document := parseNavigationDocument(t, body)
+	footers := findNodes(document, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && hasClass(node, "site-footer")
+	})
+	if len(footers) != 1 {
+		t.Fatalf("rendered %d .site-footer elements, want 1", len(footers))
+	}
+	paragraphs := findNodes(footers[0], func(node *html.Node) bool {
+		return node.Type == html.ElementNode && node.Data == "p"
+	})
+	if len(paragraphs) == 0 {
+		t.Fatal(".site-footer has no <p> element")
+	}
+	if got, want := descendantText(paragraphs[0]), "Test League // Eight seats. One trophy."; got != want {
+		t.Errorf("footer line text = %q, want %q", got, want)
 	}
 }
