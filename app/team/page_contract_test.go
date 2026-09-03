@@ -899,25 +899,23 @@ func TestLineupSlotIdentityColumnWidenedAtDesktopWidth(t *testing.T) {
 // TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText
 // covers item 8's phone-width layout plus the load-bearing constraint
 // that made it possible: mobile_touch_contract_test.go's mobileRules()
-// takes strings.LastIndex of the shell's own exact touch-floor media
-// query text (touchFloorQuery, both a real rule and a stray comment
-// quoting it count) to find "the" mobile rules block; a wave-7 rule (or
-// comment) repeating that exact text after the real block would
-// silently steal every test that calls it — see
-// mobile_touch_contract_test.go and
+// takes strings.LastIndex of the shell's own exact phone-width media
+// query text (both a real rule and a stray comment quoting it count) to
+// find "the" mobile rules block; a wave-7 rule (or comment) repeating
+// that exact text after the real block would silently steal every test
+// that calls it — see mobile_touch_contract_test.go and
 // lineup_slot_set_button_touch_target_contract_test.go, both of which
 // this would otherwise break silently.
 //
-// This checks touchFloorQuery's own full compound text, not the bare
-// "@media (max-width: 38rem)" substring: every wave-8 worker now
-// appends its own "/* comb — NAME */" block at the end of this file
-// (this file's own bottom carries clover's), and that bare 38rem
-// breakpoint is this codebase's ordinary phone breakpoint — used in
-// dozens of unrelated rules throughout the file, including in those
-// append blocks. Only the LONGER, compound touchFloorQuery string is
-// what mobileRules() actually searches for; the bare substring check
-// this test used before wave 8 false-failed the moment any later block
-// (anyone's) used the ordinary breakpoint for anything else.
+// Wave 8: every worker now appends its own "/* comb — NAME */" block at
+// the end of this file (this file's own bottom carries clover's), which
+// would otherwise keep tripping this exact-text check every time a later
+// block needed the ordinary phone breakpoint for something unrelated.
+// The house fix (not a local exception here) is CSS media range syntax
+// — "@media (width <= 38rem)" — everywhere after this marker instead of
+// "@media (max-width: 38rem)"; every comb block, including clover's own
+// at the bottom of this file, uses the range form for exactly this
+// reason.
 func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing.T) {
 	stylesBytes, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
 	if err != nil {
@@ -928,10 +926,7 @@ func TestWave7MobileBlockAppendedWithoutRepeatingSharedBreakpointText(t *testing
 	if waveAt < 0 {
 		t.Fatal("wave 7 — elm append block not found")
 	}
-	// Mirrors mobile_touch_contract_test.go's own touchFloorQuery const
-	// exactly (an unexported const in a different package, so it cannot
-	// be imported here).
-	const sharedBreakpoint = "@media (pointer: coarse), (hover: none), (max-width: 38rem)"
+	const sharedBreakpoint = "@media (max-width: 38rem)"
 	if strings.Contains(styles[waveAt:], sharedBreakpoint) {
 		t.Fatal("the wave-7 append block repeats the shell's exact phone-width media-query text, live or in a comment — this steals mobileRules()'s strings.LastIndex lookup from the real block")
 	}
