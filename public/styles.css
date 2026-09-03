@@ -15933,3 +15933,24 @@ a.skip-link {
   overflow-wrap: anywhere;
   min-width: 0;
 }
+
+/* comb — clover */
+
+/* wave-8 audit item 9: .trade-composer__option's checkbox measured a
+   bare 13×13 (the unstyled browser default) inside a 28px-tall label
+   row — well under the 44px touch-target floor every other control on
+   this app already meets, and too small to see or hit reliably on a
+   touch device. min-height raises the whole label (the entire row is
+   already the native click/tap target — <label> wraps both the input
+   and its text) to a real 44px row; the checkbox itself gets an
+   explicit 24px box, large enough to read as a checkbox and hit
+   accurately without crowding the roster name beside it. */
+.trade-composer__option {
+  min-height: 2.75rem;
+}
+
+.trade-composer__option input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+}

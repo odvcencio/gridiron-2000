@@ -59,3 +59,34 @@ func TestVetoPolicyCardShowsOneMergedSentence(t *testing.T) {
 		t.Fatal("veto policy card still carries the separate \"Veto policy\" label beside the raw veto_mode value")
 	}
 }
+
+// TestTradeComposerOptionMeetsTouchFloor covers wave-8 audit item 9: the
+// composer's roster checkboxes measured a bare 13×13 (the unstyled
+// browser default) inside a 28px label row. Every label.trade-composer__
+// option row is now a real 44px touch target with an explicit 24px
+// checkbox — checked here in page.gsx (all four give/get rosters, the
+// initial composer and the counter-offer form both use the identical
+// label shape) and in public/styles.css (the sizing rule itself).
+func TestTradeComposerOptionMeetsTouchFloor(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	if got := strings.Count(markup, `<label class="trade-composer__option">`); got < 4 {
+		t.Fatalf("trade-composer__option labels = %d, want at least 4 (give/get, composer and counter-offer)", got)
+	}
+	css, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	style := string(css)
+	for _, want := range []string{
+		".trade-composer__option {\n  min-height: 2.75rem;\n}",
+		".trade-composer__option input[type=\"checkbox\"] {\n  width: 1.5rem;\n  height: 1.5rem;",
+	} {
+		if !strings.Contains(style, want) {
+			t.Errorf("styles.css missing %q", want)
+		}
+	}
+}
