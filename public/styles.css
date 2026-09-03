@@ -16133,6 +16133,43 @@ a.skip-link {
   margin-top: var(--space-xs);
 }
 
+/* Item 0 re-verify follow-up: flex: 1 1 0 (above, .my-matchup__team >
+   div, .matchup-team-line__manager) grows the manager name within
+   .matchup-team-line's own row, but that row's OWN total width is
+   dictated by .my-matchup__summary's three-column grid (minmax(0,1fr)
+   auto minmax(0,1fr)) — the middle "auto" score column sizes to its
+   own content, which can leave each side barely 100px wide against a
+   real production league's real meta text ("0-0 · proj —"), squeezing
+   the manager name back to a couple of characters even with flex-
+   grow (live-measured against the flag-review league's real data:
+   "Jorge V" rendered at an 18px box against a 49px scrollWidth —
+   still clipped). .matchup-team-line__meta stays flex: 0 0 auto (its
+   own fixed-format record/projection never shrinks), so letting the
+   row wrap drops the meta to its own second line whenever the row is
+   too narrow for both; the manager name is then alone on the first
+   line and can claim the row's full width up to its own natural size
+   before ellipsis ever needs to trim it. */
+.matchup-team-line {
+  flex-wrap: wrap;
+}
+
+/* flex-basis: 0 (clover, above) is what makes flex: 1 1 0 grow-to-fill
+   in the first place, but a 0 basis also reports a 0 "hypothetical
+   size" to the flex-wrap algorithm above — the browser sees "this item
+   can shrink to nothing," so the row never measures as overflowing and
+   flex-wrap: wrap never actually triggers, no matter how long the name
+   is (live-confirmed: .matchup-team-line measured flexWrap: wrap but
+   stayed a single 21.7px-tall line, never dropping .matchup-team-line__
+   meta to a second line). Restoring a content-based basis here — grow
+   and shrink stay 1 from clover's own rule, only the basis changes —
+   gives the wrap algorithm the manager name's real natural width to
+   measure against, so a name that cannot fit beside the meta text
+   correctly forces the meta onto its own second line instead of both
+   staying jammed onto one and splitting an inadequate row three ways. */
+.matchup-team-line__manager {
+  flex-basis: auto;
+}
+
 /* Item 4 (P3): /team's own .team-command-strip (PROJECTED, STARTERS,
    ROSTER, DIVISION, LEAGUE, plus VIEW MATCHUP — Item 7a's own
    horizontal-scroll strip, above) is plain in-flow content, not fixed,
