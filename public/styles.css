@@ -14814,19 +14814,39 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   max-width: 60%;
 }
 
-/* Item 12 (2026-09-02 audit): a broken team avatar <img> (the source
-   copies used for this audit have no avatars directory; production has
-   the object, but a future storage outage would hit the same failure
-   mode) fell back to its own alt text, which painted across the seat
-   row in four wrapped lines and overprinted the adjacent presence copy
-   — see internal/league/avatar.go and the team-mark markup this class
-   wraps (results-team-card__head, board-grid__team, the draft room's
-   own team columns) for the shared avatar-mark pattern this seat
-   ledger's own presence row sits beside. .seat-presence itself carries
-   no avatar image; this rule keeps its own text from ever overflowing
-   its row the same defensive way, so a long presence detail sentence
-   (a live relative-time stamp) cannot repeat the overprint failure on
-   its own line instead. */
+/* Item 12 (2026-09-02 audit): a broken team avatar <img> (/admin's own
+   "01 // SEATS" grid, app/admin/page.gsx's SeatRow — the source copies
+   used for this audit have no avatars directory, so a team with a real
+   custom-avatar database reference still 404s; production has the
+   object today, but a storage outage would hit the same failure mode)
+   fell back to its own alt text, painting across the seat row in four
+   wrapped lines and overprinting the adjacent name/manager copy. Every
+   .team-mark instance shares this fix (results-team-card__head,
+   board-grid__team, the draft room's own team columns, and this seat
+   grid) since every one of them wraps the same avatar-mark__photo
+   fallback chain. overflow: hidden contains any broken-image glyph or
+   alt text to the mark's own fixed 2.6rem square, never past it.
+   .avatar-mark__photo's own font-size: 0 / color: transparent hides the
+   alt text visually — a sighted viewer sees the mark's own background
+   (the team's tone-haze color, already set by .team-mark/.tone-*)
+   instead of four lines of overprinted prose — while the alt attribute
+   itself is untouched, so assistive tech still reads the team name a
+   broken image would otherwise announce as nothing at all. */
+.team-mark,
+.player-avatar,
+.team-monogram {
+  overflow: hidden;
+}
+
+.avatar-mark__photo {
+  font-size: 0;
+  color: transparent;
+}
+
+/* .seat-presence itself carries no avatar image; this rule keeps its
+   own text from ever overflowing its row the same defensive way, so a
+   long presence detail sentence (a live relative-time stamp) cannot
+   overflow past the seat row either. */
 .seat-presence {
   overflow-wrap: anywhere;
   min-width: 0;

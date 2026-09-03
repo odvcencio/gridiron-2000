@@ -812,3 +812,35 @@ func TestMinimalActionsLinksMeetTouchBaselineAtPhoneWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestBrokenAvatarImageStaysContainedInTheTeamMark is item 12's
+// decisive stylesheet proof (2026-09-02 audit): a broken team avatar
+// <img> (SeatRow, page.gsx) fell back to its own alt text, which
+// painted across the seat row in four wrapped lines and overprinted
+// the adjacent name/manager copy, rather than staying inside the
+// mark's own fixed 2.6rem square.
+func TestBrokenAvatarImageStaysContainedInTheTeamMark(t *testing.T) {
+	styles, err := os.ReadFile(filepath.Join("..", "..", "public", "styles.css"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(styles)
+	ruleStart := strings.Index(css, ".team-mark,\n.player-avatar,\n.team-monogram {\n  overflow: hidden;\n}")
+	if ruleStart < 0 {
+		t.Fatal("stylesheet missing the .team-mark/.player-avatar/.team-monogram overflow: hidden rule")
+	}
+	// LastIndex: .avatar-mark__photo already has an earlier, unrelated
+	// sizing rule (width/height/object-fit); this test's own rule is the
+	// later, item-12 addition.
+	photoRuleStart := strings.LastIndex(css, ".avatar-mark__photo {")
+	if photoRuleStart < 0 {
+		t.Fatal("stylesheet missing an .avatar-mark__photo rule")
+	}
+	photoRuleEnd := strings.Index(css[photoRuleStart:], "}")
+	photoRule := css[photoRuleStart : photoRuleStart+photoRuleEnd]
+	for _, want := range []string{"font-size: 0", "color: transparent"} {
+		if !strings.Contains(photoRule, want) {
+			t.Errorf(".avatar-mark__photo must set %q (hide broken-image alt text visually, keep it for assistive tech): %s", want, photoRule)
+		}
+	}
+}
