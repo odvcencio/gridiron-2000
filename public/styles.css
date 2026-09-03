@@ -16093,3 +16093,27 @@ a.skip-link {
 .matchup-team-line__manager {
   flex: 1 1 0;
 }
+
+/* comb — sumac */
+
+/* Item 1 (P1): #board-pool's header row (.pool-labels, app/board/
+   page.gsx) kept the base .pool-labels, .pool-row grid rule above
+   (public/styles.css) — 3rem minmax(14rem, 1fr) 3.5rem 4rem 5rem, a
+   472px fixed-track minimum — even though this panel's own data rows
+   (.board-page #board-pool .pool-row, public/styles.css, min-width
+   38.0625rem) have long since narrowed to 1.75rem minmax(10.5rem,1fr)
+   2.75rem 2.25rem 3.5rem with a tighter gap, to fit the panel's own
+   458px box. The header, never updated to match, kept claiming the
+   wider template's 472px and overflowed the document (scrollWidth
+   1461 at 1440, 1379 at 1280) while its RK/PLAYER/POS/PROJ/ACTION
+   labels sat well off their own row's columns. Matching the row's
+   exact template (same breakpoint the row itself uses) fits the
+   header inside the panel and realigns every label over its column;
+   .pool-labels is display: none below 54rem (public/styles.css,
+   above) so no narrower viewport needs a matching header rule. */
+@media (min-width: 38.0625rem) {
+  .board-page #board-pool .pool-labels {
+    grid-template-columns: 1.75rem minmax(10.5rem, 1fr) 2.75rem 2.25rem 3.5rem;
+    gap: var(--space-xs);
+  }
+}
