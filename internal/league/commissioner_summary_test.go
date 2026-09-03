@@ -30,9 +30,13 @@ func TestCommissionerSummaryIsPIIFreeAndExplainsPoolCoverage(t *testing.T) {
 		!summary.Membership.SeatLedger[0].Claimed || !summary.Membership.SeatLedger[0].Ready {
 		t.Fatalf("seat ledger = %+v", summary.Membership.SeatLedger)
 	}
+	// Item 3 (2026-09-02 audit): ActualCoverage, like RosterCoverage, is
+	// now always synchronized players over roster capacity — not the
+	// planning target — so with Actual == Target == 2.5x capacity here,
+	// all three fixture-facing ratios read the same 2.5.
 	if summary.Pool.RosterCapacity != capacity || summary.Pool.Cushion != target-capacity ||
 		summary.Pool.Shortfall != 0 ||
-		summary.Pool.ActualCoverage != 1 || summary.Pool.TargetCoverage != 2.5 ||
+		summary.Pool.ActualCoverage != 2.5 || summary.Pool.TargetCoverage != 2.5 ||
 		summary.Pool.RosterCoverage != 2.5 {
 		t.Fatalf("pool = %+v", summary.Pool)
 	}
@@ -278,7 +282,10 @@ func TestCommissionerSummaryPoolCapacityBoundaries(t *testing.T) {
 				t.Fatalf("pool capacity metrics = %+v, want capacity=%d cushion=%d shortfall=%d",
 					summary.Pool, capacity, test.wantCushion, test.wantShortfall)
 			}
-			if summary.Pool.ActualCoverage != float64(actual)/float64(target) ||
+			// Item 3 (2026-09-02 audit): ActualCoverage divides by roster
+			// capacity now, the same divisor RosterCoverage always used —
+			// never the planning target.
+			if summary.Pool.ActualCoverage != float64(actual)/float64(capacity) ||
 				summary.Pool.TargetCoverage != float64(target)/float64(capacity) ||
 				summary.Pool.RosterCoverage != float64(actual)/float64(capacity) {
 				t.Fatalf("pool coverage ratios = %+v", summary.Pool)
@@ -391,5 +398,49 @@ func TestCommissionerSummaryPreservesKickoffTimingReason(t *testing.T) {
 	close := summary.Season.WeekClose
 	if close.Ready || close.StatsFresh || close.Reason != weekCloseKickoffUnavailableReason {
 		t.Fatalf("commissioner summary fabricated week-close readiness: %+v", close)
+	}
+}
+
+// TestCommissionerSummaryAndAdminPoolCoverageAgree is the item 3 decisive
+// proof (2026-09-02 audit): /commissioner and /admin used to print two
+// different "ACTUAL" ratios for the same league (1.0x vs 2.6x) because
+// commissioner_summary.go divided ActualCoverage by the planning target
+// while service.go's own poolStatusMap divided by roster capacity. Both
+// now share one formula (players / roster capacity), fed the exact same
+// pool numbers a real request would carry (poolStatusMap's own "players"
+// and "target").
+func TestCommissionerSummaryAndAdminPoolCoverageAgree(t *testing.T) {
+	service := newTestService(t, true)
+	service.SetPlayerSource(func() ([]Player, int64, string) { return testPool(353), 1, "live" })
+
+	adminPool := service.poolStatusMap()
+	players, ok := adminPool["players"].(int)
+	if !ok {
+		t.Fatalf("poolStatusMap players = %#v, want int", adminPool["players"])
+	}
+	target, ok := adminPool["target"].(int)
+	if !ok {
+		t.Fatalf("poolStatusMap target = %#v, want int", adminPool["target"])
+	}
+	capacity, ok := adminPool["roster_capacity"].(int)
+	if !ok {
+		t.Fatalf("poolStatusMap roster_capacity = %#v, want int", adminPool["roster_capacity"])
+	}
+	adminActual, _ := adminPool["actual_coverage"].(string)
+	adminTarget, _ := adminPool["coverage"].(string)
+
+	summary := service.CommissionerSummary("g2k", commissionerhq.Runtime{Ready: true}, commissionerhq.Pool{
+		Mode: "live", Actual: players, Target: target,
+	})
+
+	wantActual := fmt.Sprintf("%.1f×", float64(players)/float64(capacity))
+	wantTarget := fmt.Sprintf("%.1f×", float64(target)/float64(capacity))
+	if adminActual != wantActual || adminTarget != wantTarget {
+		t.Fatalf("/admin coverage = ACTUAL %q TARGET %q, want ACTUAL %q TARGET %q", adminActual, adminTarget, wantActual, wantTarget)
+	}
+	hqActual := fmt.Sprintf("%.1f×", summary.Pool.ActualCoverage)
+	hqTarget := fmt.Sprintf("%.1f×", summary.Pool.TargetCoverage)
+	if hqActual != adminActual || hqTarget != adminTarget {
+		t.Fatalf("/commissioner coverage = ACTUAL %q TARGET %q, want the same as /admin's ACTUAL %q TARGET %q", hqActual, hqTarget, adminActual, adminTarget)
 	}
 }

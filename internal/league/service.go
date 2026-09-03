@@ -1308,6 +1308,11 @@ func (s *Service) poolStatusMap() map[string]any {
 		// the pool's real current player count, matching Commissioner HQ's
 		// own "ACTUAL {x} · TARGET {y}" presentation (app/commissioner/
 		// view.go's ratio helper, card.PoolActualCoverage/PoolTargetCoverage).
+		// Item 3 (2026-09-02 audit) made this a fact rather than an
+		// aspiration: commissioner_summary.go's own ActualCoverage used to
+		// divide by the planning target instead of rosterCapacity, so
+		// /commissioner and /admin showed two different "ACTUAL" numbers
+		// for the same league. Both now divide by rosterCapacity here.
 		"coverage":        fmt.Sprintf("%.1f×", coverage),
 		"actual_coverage": fmt.Sprintf("%.1f×", actualCoverage),
 		"with_adp":        status.WithADP,
