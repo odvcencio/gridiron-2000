@@ -16049,6 +16049,8 @@ a.skip-link {
 }
 .draft-panes:has(> .draft-preflight) > .draft-pane {
   grid-row: 2;
+}
+
 /* comb — clover */
 
 /* wave-8 audit item 9: .trade-composer__option's checkbox measured a
