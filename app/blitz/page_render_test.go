@@ -67,3 +67,36 @@ func TestBlitzRoleStateRenderUsesCanonicalPublicEntry(t *testing.T) {
 		t.Fatal("Blitz role-state render must not offer a hard-coded /join action")
 	}
 }
+
+// TestBlitzArchiveChampionCopyGuardsEmptyChampions is item 5's own
+// regression test (2026-09-02 audit): blitzArchiveMap (internal/league/
+// blitz.go) can leave overall_champion/pre2_champion/pre3_champion empty
+// — no entries were scored for a slate, or no row ranked "01" — and the
+// archive copy used to interpolate those blindly, printing "OVERALL
+// CHAMPION:" with nothing after the colon and "Preseason Week 2
+// champion: . Preseason Week 3 champion: .". Each of the three now
+// renders an honest "no champion" fallback instead of a dangling label.
+func TestBlitzArchiveChampionCopyGuardsEmptyChampions(t *testing.T) {
+	sourceBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := string(sourceBytes)
+	for _, want := range []string{
+		`<If cond={data.archive.overall_champion != ""}>`,
+		`<strong>OVERALL CHAMPION: {data.archive.overall_champion}</strong>`,
+		`<If cond={data.archive.overall_champion == ""}>`,
+		`<strong>OVERALL CHAMPION: no entries were scored</strong>`,
+		`<If cond={data.archive.pre2_champion != ""}>Preseason Week 2 champion: {data.archive.pre2_champion}. </If>`,
+		`<If cond={data.archive.pre2_champion == ""}>Preseason Week 2 — no champion recorded. </If>`,
+		`<If cond={data.archive.pre3_champion != ""}>Preseason Week 3 champion: {data.archive.pre3_champion}.</If>`,
+		`<If cond={data.archive.pre3_champion == ""}>Preseason Week 3 — no champion recorded.</If>`,
+	} {
+		if !strings.Contains(source, want) {
+			t.Errorf("Blitz archive champion guard missing %q", want)
+		}
+	}
+	if strings.Contains(source, "champion: {data.archive.pre2_champion}. Preseason Week 3 champion: {data.archive.pre3_champion}.") {
+		t.Error("Blitz archive copy must not interpolate an unguarded pre2/pre3 champion on one shared line")
+	}
+}

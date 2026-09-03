@@ -4197,7 +4197,31 @@ func (s *Service) leagueMapForViewer(r *http.Request) map[string]any {
 	if s.demoMode {
 		if _, signedIn := s.CurrentUser(r); !signedIn {
 			league["attention"] = emptyAttentionMap()
+			return league
 		}
+	}
+	// Item 2 (2026-09-02 audit): attentionMap's pick'em item is league-wide
+	// by design (see its own doc comment below) — every game still open
+	// this week, not this viewer's own unpicked ones. That blind spot let
+	// a manager who had already called all 16 week-1 games keep seeing "1
+	// URGENT" for the eleven days those games stayed open for OTHER
+	// managers to pick, even though the home Action Center (which already
+	// reads the viewer's own picked_count) correctly showed STABLE. This
+	// is the one *http.Request-aware seam leagueMap's 19 call sites
+	// deliberately avoid (TestLeagueMapEmbedsAttention's own doc comment);
+	// leagueMapForViewer already carries r and already overrides
+	// league["attention"] once above for the anonymous-demo case, so the
+	// same seam re-scopes the pick'em item to the admitted viewer's own
+	// unpicked count via attentionMap's optional viewerOpenPickem
+	// argument, leaving the trades items (already correctly league-wide
+	// by design) untouched. Not admitted (no team, no membership, not the
+	// demo guest) leaves league["attention"] exactly as s.leagueMap()
+	// produced it — the chrome's own has_seat gate already hides the chip
+	// from that visitor regardless (TestLeagueMapForViewerSuppressesAttentionForAnonymousDemoViewer).
+	state := s.store.Snapshot()
+	if _, admitted := s.pickemViewerKeyForState(r, state); admitted {
+		now := s.clock()
+		league["attention"] = s.attentionMap(state, now, s.openPickemGameCountForViewer(r, state, now))
 	}
 	return league
 }
@@ -4226,7 +4250,17 @@ func (s *Service) leagueMapForViewer(r *http.Request) map[string]any {
 // offers count again even though the chip stays league-wide and the
 // panel stays per-viewer (attentionMap's own longstanding, deliberate
 // design split — see the doc comment above).
-func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]any {
+//
+// viewerOpenPickem (item 2, 2026-09-02 audit) is optional and deliberately
+// variadic, not a required parameter: leagueMap's own call below (no
+// viewer in scope) keeps the original league-wide "any game still open
+// this week" count, exactly as before — TestAttentionMapDerivesFrom-
+// OpenAndAcceptedTradesAndOpenPickemGames and TestLeagueMapEmbedsAttention
+// both pin that 2-argument call unchanged. leagueMapForViewer (the one
+// caller with a *http.Request) passes the admitted viewer's own unpicked
+// count instead, so the chip never disagrees with a viewer who has
+// already called every open game.
+func (s *Service) attentionMap(state PersistedState, now time.Time, viewerOpenPickem ...int) map[string]any {
 	items := make([]map[string]any, 0, 4)
 	tradesCount := 0
 	for _, offer := range state.TradeOffers {
@@ -4248,7 +4282,15 @@ func (s *Service) attentionMap(state PersistedState, now time.Time) map[string]a
 		}
 	}
 	pickemCount := 0
-	if open := s.openPickemGameCount(state, now); open > 0 {
+	if len(viewerOpenPickem) > 0 {
+		if open := viewerOpenPickem[0]; open > 0 {
+			items = append(items, map[string]any{
+				"route": "/pickem",
+				"label": CountNoun(open, "pick'em game") + " to call",
+			})
+			pickemCount = 1
+		}
+	} else if open := s.openPickemGameCount(state, now); open > 0 {
 		items = append(items, map[string]any{
 			"route": "/pickem",
 			"label": CountNoun(open, "open pick'em game") + " this week",
@@ -4345,6 +4387,39 @@ func (s *Service) openPickemGameCount(state PersistedState, now time.Time) int {
 	open := 0
 	for _, game := range gamesInWeek(games, week) {
 		if market, ok := state.PickemMarkets[game.ID]; ok && pickemMarketUnavailable(market) {
+			continue
+		}
+		if !game.Kickoff.IsZero() && now.Before(game.Kickoff) {
+			open++
+		}
+	}
+	return open
+}
+
+// openPickemGameCountForViewer is openPickemGameCount's per-viewer
+// counterpart (item 2, 2026-09-02 audit): the same still-open-this-week
+// scan, but skipping any game the admitted viewer has already picked, so
+// leagueMapForViewer's attention chip agrees with what that one manager
+// actually still has to do. Mirrors pickemHomeSummaryFromSnapshot's own
+// open_unpicked_count loop (pickem.go) without that function's heavier
+// season record/streak tallying — leagueMapForViewer runs on every
+// route's layout render, so this stays a single cheap pass. Not admitted
+// (pickemViewerKeyForState's own false) reads as zero: an unadmitted
+// visitor has no Pick'em picks of their own to call.
+func (s *Service) openPickemGameCountForViewer(r *http.Request, state PersistedState, now time.Time) int {
+	viewerKey, admitted := s.pickemViewerKeyForState(r, state)
+	if !admitted {
+		return 0
+	}
+	games := s.schedule()
+	week := s.pickemWeek(games, now)
+	picks := state.Pickems[viewerKey]
+	open := 0
+	for _, game := range gamesInWeek(games, week) {
+		if market, ok := state.PickemMarkets[game.ID]; ok && pickemMarketUnavailable(market) {
+			continue
+		}
+		if picks[game.ID] != "" {
 			continue
 		}
 		if !game.Kickoff.IsZero() && now.Before(game.Kickoff) {

@@ -485,3 +485,70 @@ func TestWirePageDataCarriesLeagueIdentityForTheShell(t *testing.T) {
 		t.Fatalf("league identity name=%q short_code=%q, want both non-empty", name, shortCode)
 	}
 }
+
+// TestWirePageDataPlayerStatLedgerReadsZeroRowsBeforeReleaseDay is item 7's
+// own data-level regression test (2026-09-02 audit): before week 1's
+// player stat file is out, PlayerStats.Rows is genuinely 0 — the same
+// "NOT OUT YET" state a live, populated 352-player DRAFT pool sits right
+// next to on the page, so the raw "0 players" reading beside "NOT OUT
+// YET" looked like a contradiction rather than the honest pre-release
+// state of a DIFFERENT dataset (weekly stats, not the draft pool).
+func TestWirePageDataPlayerStatLedgerReadsZeroRowsBeforeReleaseDay(t *testing.T) {
+	unreleased := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer unreleased.Close()
+	stats, err := openstats.NewService(openstats.Config{
+		Root: t.TempDir(), Season: 2026, Enabled: true,
+		PlayerStatsURL: unreleased.URL + "/stats.csv",
+		PlayerInterval: time.Hour,
+		HTTPClient:     unreleased.Client(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SyncNow joins one error per dataset; every dataset besides
+	// PlayerStats has no configured URL in this fixture (irrelevant to
+	// this test) and reports its own "source URL is empty" error, so the
+	// joined return is expected to be non-nil — only PlayerStats' own
+	// resulting state/row count matters here.
+	_ = stats.SyncNow(t.Context())
+	signals, err := signalwire.NewService(signalwire.Config{Root: t.TempDir(), Enabled: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := wirePageData(httptest.NewRequest(http.MethodGet, "/wire", nil), signals, stats)
+	if got := data["player_state"]; got != "NOT OUT YET" {
+		t.Fatalf(`data["player_state"] = %#v, want "NOT OUT YET"`, got)
+	}
+	if got := data["player_rows"]; got != 0 {
+		t.Fatalf(`data["player_rows"] = %#v, want 0`, got)
+	}
+}
+
+// TestWirePageCopyGuardsAndActiveFilterMarker is item 7's static
+// regression guard: page.gsx must label the panel a "player stat ledger"
+// (not the bare "player ledger" that read as a contradiction beside the
+// draft pool's own player count), must skip the bare "0 players" segment
+// before any row exists, and must mark the active wire filter chip with
+// aria-current for assistive tech.
+func TestWirePageCopyGuardsAndActiveFilterMarker(t *testing.T) {
+	source, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(source)
+	for _, want := range []string{
+		"{data.season} player stat ledger",
+		`<If cond={data.player_rows > 0}>`,
+		`<If cond={data.player_rows == 0}>`,
+		`<a class="wire-filter is-active" href={filter.href} aria-current="true">{filter.label}</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page.gsx missing %q", want)
+		}
+	}
+	if strings.Contains(body, "{data.season} player ledger</strong>") {
+		t.Error("page.gsx still carries the bare \"player ledger\" label that reads as a contradiction beside the draft pool")
+	}
+}

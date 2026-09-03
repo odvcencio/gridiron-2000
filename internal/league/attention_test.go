@@ -1,11 +1,32 @@
 package league
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"m31labs.dev/gosx/auth"
 )
+
+// signedInPickemRequest returns a *http.Request already carrying an
+// authenticated auth.User for email, the same recipe trades_test.go's
+// tradeActionAs uses — auth.Current's context key is unexported, so a
+// request must pass through a real auth.Manager's Middleware to carry one.
+func signedInPickemRequest(email string) *http.Request {
+	authn := auth.New(nil, auth.Options{
+		Provider: auth.ProviderFunc(func(*http.Request) (auth.User, bool) {
+			return auth.User{ID: email, Email: email, Name: email}, true
+		}),
+	})
+	var captured *http.Request
+	handler := authn.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = r
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	return captured
+}
 
 // TestAttentionMapDerivesFromOpenAndAcceptedTradesAndOpenPickemGames is
 // gap-audit item 6's data contract, updated by item 5(a)/(b) (2026-08-31
@@ -282,5 +303,74 @@ func TestLeagueMapForViewerSuppressesAttentionForAnonymousDemoViewer(t *testing.
 	}
 	if realAttention["has_items"] != true || realAttention["urgent_count"] != 1 {
 		t.Fatalf("non-demo attention = %+v, want the real accepted-trade item (has_seat=false already hides the chip in the chrome, not here)", realAttention)
+	}
+}
+
+// TestLeagueMapForViewerPickemItemTracksTheAdmittedViewersOwnUnpickedGames
+// is item 2's own regression test (2026-09-02 audit): attentionMap's
+// pick'em item used to count every game still open this week league-wide,
+// so a manager who had already called all of them still saw "1 URGENT"
+// for the eleven days those games stayed open — the chip and the home
+// Action Center (already correctly viewer-scoped) silently disagreed.
+// leagueMapForViewer now re-scopes the item to the admitted viewer's own
+// unpicked count.
+func TestLeagueMapForViewerPickemItemTracksTheAdmittedViewersOwnUnpickedGames(t *testing.T) {
+	svc := newTestService(t, false)
+	now := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	svc.SetClockForTest(func() time.Time { return now })
+	const email = "viewer@example.com"
+	if _, _, err := svc.store.AssignMember(email, "Viewer"); err != nil {
+		t.Fatalf("AssignMember(%s): %v", email, err)
+	}
+	games := []GameInfo{
+		{ID: "g1", Week: 1, Kickoff: now.Add(2 * time.Hour), Away: "MIA", Home: "BUF", SpreadLinePresent: true},
+		{ID: "g2", Week: 1, Kickoff: now.Add(3 * time.Hour), Away: "NYJ", Home: "NE", SpreadLinePresent: true},
+		{ID: "g3", Week: 1, Kickoff: now.Add(4 * time.Hour), Away: "KC", Home: "DEN", SpreadLinePresent: true},
+	}
+	svc.SetScheduleSource(func() []GameInfo { return games })
+	req := signedInPickemRequest(email)
+
+	// Three open games, none picked yet: the chip must name the viewer's
+	// own count in the "N pick'em games to call" phrasing item 2 specifies.
+	before := svc.leagueMapForViewer(req)
+	beforeAttention, ok := before["attention"].(map[string]any)
+	if !ok {
+		t.Fatalf("leagueMapForViewer(3 unpicked)[attention] = %#v, want map[string]any", before["attention"])
+	}
+	beforeItems, _ := beforeAttention["items"].([]map[string]any)
+	var sawPickem bool
+	for _, item := range beforeItems {
+		if item["route"] != "/pickem" {
+			continue
+		}
+		sawPickem = true
+		if want := "3 pick'em games to call"; item["label"] != want {
+			t.Errorf("pickem item label = %q, want %q", item["label"], want)
+		}
+	}
+	if !sawPickem {
+		t.Fatalf("attention items = %#v, want a pick'em item for a viewer with 3 unpicked open games", beforeItems)
+	}
+
+	// The same viewer calls every open game: the item must disappear, not
+	// linger at a stale league-wide "still open" count.
+	for _, game := range games {
+		if err := svc.store.SetPickem(email, game.ID, "BUF", now.Add(-time.Hour)); err != nil {
+			t.Fatalf("SetPickem(%s): %v", game.ID, err)
+		}
+	}
+	after := svc.leagueMapForViewer(req)
+	afterAttention, ok := after["attention"].(map[string]any)
+	if !ok {
+		t.Fatalf("leagueMapForViewer(all picked)[attention] = %#v, want map[string]any", after["attention"])
+	}
+	afterItems, _ := afterAttention["items"].([]map[string]any)
+	for _, item := range afterItems {
+		if item["route"] == "/pickem" {
+			t.Fatalf("attention items = %#v, want no pick'em item once every open game is picked", afterItems)
+		}
+	}
+	if afterAttention["pickem_hot"] != false {
+		t.Fatalf("pickem_hot = %v, want false once every open game is picked", afterAttention["pickem_hot"])
 	}
 }

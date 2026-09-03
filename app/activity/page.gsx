@@ -6,6 +6,15 @@ package activity
 // — the audit's own /activity masthead measured 516px, this panel's own
 // full-height base rule (padding: var(--space-xl), a stacked grid) most
 // of it, for a panel that never needed more than one or two lines.
+//
+// Item 8 (2026-09-02 audit): the masthead's own second paragraph (a
+// decorative restatement of what a transaction feed is) and the playoff-
+// context card together pushed the feed's first row below the fold at
+// 390px with zero rows visible above it even on a 137-move league. The
+// masthead now stops at the one-line subhead, and the playoff-context
+// card moved below the feed — a manager opens /activity to see moves,
+// not a postseason status card; /matchups already carries that context
+// as its own primary subject.
 func Page() Node {
 	return <main class="page board-page" id="main-content" data-gosx-revalidate-interval="4s" data-gosx-revalidate-src="/api/league/version">
 		<section class="draft-masthead">
@@ -16,9 +25,6 @@ func Page() Node {
 				</span>
 				<h1>Activity</h1>
 				<p class="page-subhead">Every move on the record.</p>
-				<p>
-					Draft picks, waiver and free-agent moves, and trades — one permanent league record, newest first.
-				</p>
 			</div>
 			<div class="draft-clock-panel draft-clock-panel--compact">
 				<span>Recorded moves · <strong class="mono">{data.transactions_count}</strong></span>
@@ -28,12 +34,6 @@ func Page() Node {
 					<a href="/team" data-gosx-link>Team terminal →</a>
 				</div>
 			</div>
-		</section>
-		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
-			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
-			<p>{data.playoff_truth.detail}</p>
-			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
-			<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
 		</section>
 		<div
 			id="activity-feed-region"
@@ -50,6 +50,12 @@ func Page() Node {
 			If a refresh fails, use
 			<button type="button" class="board-button" data-gosx-set="$players.state.refresh" data-gosx-set-value="manual">Refresh Activity now</button>.
 		</p>
+		<section class="score-command playoff-truth-card" aria-labelledby="activity-playoff-truth-heading">
+			<header class="section-heading section-heading--split"><div><span class="section-index">POSTSEASON // ACTIVITY CONTEXT</span><h2 id="activity-playoff-truth-heading">{data.playoff_truth.headline}</h2></div><span class="position-chip">{data.playoff_truth.status_label}</span></header>
+			<p>{data.playoff_truth.detail}</p>
+			<If cond={data.playoff_truth.recovery != ""}><p class="scoring-note"><strong>RECOVERY:</strong> {data.playoff_truth.recovery}</p></If>
+			<a href="/matchups" data-gosx-link class="access-link">Open persisted bracket truth →</a>
+		</section>
 	</main>
 }
 
@@ -90,6 +96,9 @@ func ActivityRegion() Node {
 			</If>
 		</form>
 		</div>
+		<If cond={data.team_unknown}>
+			<p class="error-message" role="alert">{data.team_unknown_notice}</p>
+		</If>
 		<If cond={data.filtered_count > 0}>
 			<p class="scoring-note" aria-live="polite">
 				Showing {data.page_start}–{data.page_end} of {data.filtered_count} matching moves · {data.transactions_count} recorded overall
@@ -112,15 +121,17 @@ func ActivityRegion() Node {
 				<a class="filter-button" href="/activity" data-gosx-link>Clear filters</a>
 			</div>
 		</If>
-		<nav class="pool-pagination pool-pagination--top" aria-label="Transaction feed pages (top)">
-			<If cond={data.has_previous}>
-				<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
-			</If>
-			<span class="mono">Page {data.page} / {data.pages}</span>
-			<If cond={data.has_next}>
-				<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
-			</If>
-		</nav>
+		<If cond={data.pages > 1}>
+			<nav class="pool-pagination pool-pagination--top" aria-label="Transaction feed pages (top)">
+				<If cond={data.has_previous}>
+					<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
+				</If>
+				<span class="mono">Page {data.page} / {data.pages}</span>
+				<If cond={data.has_next}>
+					<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
+				</If>
+			</nav>
+		</If>
 		<div class="activity-feed">
 			<Each of={data.transactions} as="move">
 				<div class="activity-item" data-actor-class={move.ActorClass}>
@@ -151,14 +162,16 @@ func ActivityRegion() Node {
 			</Each>
 		</div>
 		<a class="access-link activity-back-to-top" href="#activity-filters">↑ Back to filters</a>
-		<nav class="pool-pagination" aria-label="Transaction feed pages">
-			<If cond={data.has_previous}>
-				<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
-			</If>
-			<span class="mono">Page {data.page} / {data.pages}</span>
-			<If cond={data.has_next}>
-				<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
-			</If>
-		</nav>
+		<If cond={data.pages > 1}>
+			<nav class="pool-pagination" aria-label="Transaction feed pages">
+				<If cond={data.has_previous}>
+					<a class="filter-button" href={data.previous_href} data-gosx-link rel="prev">← Previous</a>
+				</If>
+				<span class="mono">Page {data.page} / {data.pages}</span>
+				<If cond={data.has_next}>
+					<a class="filter-button" href={data.next_href} data-gosx-link rel="next">Next →</a>
+				</If>
+			</nav>
+		</If>
 	</section>
 }
