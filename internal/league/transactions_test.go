@@ -271,6 +271,71 @@ func TestActivityDataTeamOptionsCarryTheTeamNameWithTheCodeSecondary(t *testing.
 	}
 }
 
+// TestActivityDataTeamOptionsReflectALiveRename is item 1's own regression
+// test (2026-09-02 audit): team_options used to read straight off
+// s.Teams() (the config seed), so a renamed team's filter option kept
+// printing the SEED name ("Aqua 1 (AQ1)") even though every feed row and
+// the sidebar already read the live, renamed name via teamView/
+// activityTeamDisplay — the same live-name lookup this function now uses.
+func TestActivityDataTeamOptionsReflectALiveRename(t *testing.T) {
+	svc := newTestService(t, true)
+	svc.teams = []Team{
+		{ID: "team-1", Name: "Aqua 1", Abbreviation: "AQ1"},
+		{ID: "team-2", Name: "Aqua 2", Abbreviation: "AQ2"},
+	}
+	if err := svc.store.SetTeamName("team-1", "In Shedeur Time"); err != nil {
+		t.Fatalf("SetTeamName: %v", err)
+	}
+	if err := svc.store.SetTeamName("team-2", "Los Delfines del Norte"); err != nil {
+		t.Fatalf("SetTeamName: %v", err)
+	}
+
+	request, _ := http.NewRequest(http.MethodGet, "/activity", nil)
+	data := svc.ActivityData(request)
+	options, ok := data["team_options"].([]map[string]any)
+	if !ok || len(options) != 2 {
+		t.Fatalf("team_options = %#v, want 2 entries", data["team_options"])
+	}
+	if options[0]["label"] != "In Shedeur Time (AQ1)" {
+		t.Errorf("team_options[0] label = %v, want the live renamed team name, not the config seed", options[0]["label"])
+	}
+	if options[1]["label"] != "Los Delfines del Norte (AQ2)" {
+		t.Errorf("team_options[1] label = %v, want the live renamed team name, not the config seed", options[1]["label"])
+	}
+}
+
+// TestActivityDataUnknownTeamCodeSurfacesANotice is item 1's second
+// regression test: a "team" query value coded to no real team used to
+// filter to zero rows while the <select> silently rendered as if "All
+// teams" were chosen — no visible sign the code itself was the problem.
+func TestActivityDataUnknownTeamCodeSurfacesANotice(t *testing.T) {
+	svc := activityParityService(t)
+
+	request, _ := http.NewRequest(http.MethodGet, "/activity?team=E1", nil)
+	data := svc.ActivityData(request)
+	if data["team_unknown"] != true {
+		t.Fatalf("team_unknown = %v, want true for a code no team carries", data["team_unknown"])
+	}
+	if want := "No team is coded E1."; data["team_unknown_notice"] != want {
+		t.Fatalf("team_unknown_notice = %q, want %q", data["team_unknown_notice"], want)
+	}
+	options, ok := data["team_options"].([]map[string]any)
+	if !ok {
+		t.Fatalf("team_options = %#v, want []map[string]any", data["team_options"])
+	}
+	for _, option := range options {
+		if option["selected"] == true {
+			t.Errorf("team_options = %+v, want no option selected for an unknown code", options)
+		}
+	}
+
+	knownRequest, _ := http.NewRequest(http.MethodGet, "/activity?team=ALP", nil)
+	knownData := svc.ActivityData(knownRequest)
+	if knownData["team_unknown"] != false || knownData["team_unknown_notice"] != "" {
+		t.Fatalf("team_unknown state for a real code = unknown:%v notice:%q, want false/empty", knownData["team_unknown"], knownData["team_unknown_notice"])
+	}
+}
+
 func activityParityService(t *testing.T) *Service {
 	t.Helper()
 	svc := newTestService(t, true)

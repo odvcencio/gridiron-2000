@@ -49,52 +49,75 @@ func (s *Service) ActivityData(r *http.Request) map[string]any {
 	filtered = filtered[pagination.Start:pagination.End]
 
 	teams := make([]string, 0, len(s.Teams()))
-	// teamOptions (item 9, 2026-08-31 post-wave audit) carries the team
-	// NAME with its code as a secondary label ("Eastside Elite (E1)"),
-	// value still the bare abbreviation the "team" query param and
-	// activityTeamMatches already key on — teams (above) stays abbreviation
-	// -only for backward compatibility with existing callers/fixtures; the
-	// /activity team filter <select> (app/activity/page.gsx) should read
-	// this instead of building "{team}" option text from the bare code
-	// alone, the same code-with-no-name gap the /players owner chip and
-	// waiver-order strip had (players.go, page.gsx).
+	// teamOptions (item 9, 2026-08-31 post-wave audit; item 1, 2026-09-02
+	// audit) carries the team's LIVE name — s.teamView(state, id), the
+	// same lookup activityTeamDisplay (service.go) already uses for every
+	// feed row and the sidebar — with its code as a secondary label
+	// ("In Shedeur Time (AQ1)"), value still the bare abbreviation the
+	// "team" query param and activityTeamMatches already key on. Reading
+	// straight off s.Teams() here (the config seed, pre-rename) used to
+	// print the seed name ("Aqua 1") beside every renamed team's real,
+	// live name on the feed rows and rail below it. teams (above) stays
+	// abbreviation-only for backward compatibility with existing
+	// callers/fixtures.
 	teamOptions := make([]map[string]any, 0, len(s.Teams()))
+	teamKnown := team == ""
 	for _, candidate := range s.Teams() {
 		teams = append(teams, candidate.Abbreviation)
-		label := candidate.Abbreviation
-		if candidate.Name != "" {
-			label = fmt.Sprintf("%s (%s)", candidate.Name, candidate.Abbreviation)
+		view := s.teamView(state, candidate.ID)
+		label := view.Abbreviation
+		if view.Name != "" {
+			label = fmt.Sprintf("%s (%s)", view.Name, view.Abbreviation)
+		}
+		selected := team != "" && view.Abbreviation == team
+		if selected {
+			teamKnown = true
 		}
 		teamOptions = append(teamOptions, map[string]any{
-			"value":    candidate.Abbreviation,
+			"value":    view.Abbreviation,
 			"label":    label,
-			"selected": candidate.Abbreviation == team,
+			"selected": selected,
 		})
+	}
+	// team_unknown_notice (item 1, 2026-09-02 audit): a "team" query value
+	// coded to no real team (a stale link, a typo, a since-trimmed
+	// abbreviation) used to fall through to a filter that silently
+	// matched nothing while the <select> rendered as if "All teams" were
+	// still chosen — no option carries the unknown code, so a manager
+	// could not tell an empty result apart from a bad link. The feed
+	// still filters honestly (activityTeamMatches finds no match either
+	// way, the same "NO MOVES MATCH" empty state a real code with no
+	// activity yet would show); this notice is what tells the two apart.
+	teamUnknownNotice := ""
+	if team != "" && !teamKnown {
+		teamUnknownNotice = fmt.Sprintf("No team is coded %s.", team)
 	}
 	timezone := FriendlyTimezoneLabel(s.matchupLocation().String())
 	return map[string]any{
-		"timezone":           timezone,
-		"viewer":             s.Viewer(r),
-		"league":             s.leagueMapForViewer(r),
-		"playoff_truth":      s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
-		"transactions":       filtered,
-		"transactions_empty": pagination.Total == 0,
-		"has_transactions":   len(entries) > 0,
-		"transactions_count": len(entries),
-		"filtered_count":     pagination.Total,
-		"team":               team,
-		"teams":              teams,
-		"team_options":       teamOptions,
-		"query":              rawQuery,
-		"has_filters":        team != "" || rawQuery != "",
-		"page":               pagination.Page,
-		"pages":              pagination.Pages,
-		"page_start":         pageStart,
-		"page_end":           pagination.End,
-		"has_previous":       pagination.HasPrevious,
-		"has_next":           pagination.HasNext,
-		"previous_href":      activityPageHref(team, rawQuery, pagination.Page-1),
-		"next_href":          activityPageHref(team, rawQuery, pagination.Page+1),
+		"timezone":            timezone,
+		"viewer":              s.Viewer(r),
+		"league":              s.leagueMapForViewer(r),
+		"playoff_truth":       s.playoffTruthMap(state, s.clock(), s.IsCommissioner(r)),
+		"transactions":        filtered,
+		"transactions_empty":  pagination.Total == 0,
+		"has_transactions":    len(entries) > 0,
+		"transactions_count":  len(entries),
+		"filtered_count":      pagination.Total,
+		"team":                team,
+		"teams":               teams,
+		"team_options":        teamOptions,
+		"team_unknown":        teamUnknownNotice != "",
+		"team_unknown_notice": teamUnknownNotice,
+		"query":               rawQuery,
+		"has_filters":         team != "" || rawQuery != "",
+		"page":                pagination.Page,
+		"pages":               pagination.Pages,
+		"page_start":          pageStart,
+		"page_end":            pagination.End,
+		"has_previous":        pagination.HasPrevious,
+		"has_next":            pagination.HasNext,
+		"previous_href":       activityPageHref(team, rawQuery, pagination.Page-1),
+		"next_href":           activityPageHref(team, rawQuery, pagination.Page+1),
 	}
 }
 
