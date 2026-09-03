@@ -15990,3 +15990,27 @@ a.skip-link {
 .draft-history-head .segment__option {
   white-space: nowrap;
 }
+
+/* hotfix — draft-preflight, round 3 (geometry check at a5dc345): an OPEN
+   preflight let the pane grid split 50/50 (rows 281px/281px) because the
+   first row is auto-sized by the details content and the details itself
+   never clips. Pin the rows so the strip only ever takes its own capped
+   height and the panes keep the rest; the checklist scrolls inside the
+   details, not over the panes. And the ACTION column: "+ RANK" on one
+   line is ~98px, wider than the leftover fixed-layout share, so it ran
+   39px past the pane's clipped edge — give the column a real width. */
+.draft-panes:has(> .draft-preflight) {
+  grid-template-rows: max-content minmax(0, 1fr);
+}
+.draft-panes > .draft-preflight[open] {
+  max-height: 45vh;
+  overflow: auto;
+}
+.draft-panes > .draft-preflight > .checklist {
+  max-height: none;
+  overflow: visible;
+}
+.avail-row--head > :last-child,
+.avail-row > :last-child {
+  width: 7rem;
+}
