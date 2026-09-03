@@ -475,9 +475,17 @@ func Page() Node {
 					</div>
 				</div>
 				<div class="empty-tape">
-					<strong>OVERALL CHAMPION: {data.archive.overall_champion}</strong>
+					<If cond={data.archive.overall_champion != ""}>
+						<strong>OVERALL CHAMPION: {data.archive.overall_champion}</strong>
+					</If>
+					<If cond={data.archive.overall_champion == ""}>
+						<strong>OVERALL CHAMPION: no entries were scored</strong>
+					</If>
 					<p>
-						Preseason Week 2 champion: {data.archive.pre2_champion}. Preseason Week 3 champion: {data.archive.pre3_champion}.
+						<If cond={data.archive.pre2_champion != ""}>Preseason Week 2 champion: {data.archive.pre2_champion}. </If>
+						<If cond={data.archive.pre2_champion == ""}>Preseason Week 2 — no champion recorded. </If>
+						<If cond={data.archive.pre3_champion != ""}>Preseason Week 3 champion: {data.archive.pre3_champion}.</If>
+						<If cond={data.archive.pre3_champion == ""}>Preseason Week 3 — no champion recorded.</If>
 					</p>
 				</div>
 				<h3>Preseason Week 2 — final</h3>
