@@ -7,6 +7,19 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-1828a8e-sweep6] — 2026-09-03
+
+Scope: the sixth sweep release — the re-audit residue on the manager loop and
+the console. Rolled as revision 103; no schema change.
+
+### Fixed
+- /board's header row shares the row tracks and no longer widens the page on desktop.
+- /matchups starter meta lines end cleanly on desktop; the win-probability bar is an accessible meter; the featured card's manager names wrap instead of clipping at 1440.
+- /pickem's "Back to current week" sits on its own row within the phone viewport.
+- /team's phone action bar no longer covers the stat strip on first paint; a DST row shows its house rank.
+- /draft/results names the league in its masthead; /settings says "On · sends once email is configured".
+
+
 ## [release-2026.09.03-38f998b-sweep5] — 2026-09-03
 
 Scope: the fifth sweep release — the draft room's residue from the re-audit.

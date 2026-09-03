@@ -30,14 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-38f998b-sweep5; built from
-          # 38f998b (main, 2026-09-03): sweep release 5 — draft room
-          # residue: a real pool search, readable phone countdown, honest
-          # pre-draft status everywhere, banner details, rank chip on
-          # phones, grid header ellipsis, plain drawer copy, 5 pool rows
-          # per phone screen, 44 px news targets, one-height board rows.
-          # No schema change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:0e713b570f1d48e6aa298e040a0d971b586941dadd66678f8450b058cb72d5b3
+          # release-2026.09.03-1828a8e-sweep6; built from
+          # 1828a8e (main, 2026-09-03): sweep release 6 — board header
+          # tracks, matchup meta separators, pick'em back link, /team action
+          # bar clearance, win-probability meter ARIA, DST house rank, results
+          # masthead name, settings wording, featured-card names. No schema
+          # change: `rollout undo` to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:a41e305e664a6b61ec9041a000af4ebe718d64577c2cbee389333506f2606b79
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
