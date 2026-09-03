@@ -16068,18 +16068,35 @@ a.skip-link {
   display: none;
 }
 
-/* The no-JS search form sits inline with the position chips and sort
-   toggle in .draft-available-head's own flex row; it must not force a
-   line of its own or push the Search button somewhere a phone visitor
-   cannot reach with one thumb. */
+/* The no-JS search form (page.gsx's DraftAvailableHead) wraps the
+   existing #draft-search input for one reason only — a real <form> to
+   submit — and must not become a second flex layer inside
+   .draft-available-head's own flex row: a nested display: flex box here
+   measured its own automatic minimum width differently than the bare
+   input it replaced, grabbing the free space three siblings (search,
+   chips, sort) used to share and pushing the sort toggle onto a second
+   line — at the narrow-height landscape query below this added 57px to
+   the pane head and took it straight out of the pool pane's own body
+   (TestBrowserDraftPillLandscape844x390: .draft-pane__body fell from
+   113.4px to 56.4px). display: contents removes the form's own box
+   entirely; its children (#draft-search, already flex: 1 1 12rem via
+   the .draft-search rule above, and the Search button) become direct
+   flex items of .draft-available-head again, exactly like the bare
+   input before this item, while the element still submits as a form. */
 .draft-search-form {
-  display: flex;
-  flex: 1 1 12rem;
-  align-items: center;
-  gap: var(--space-xs);
+  display: contents;
 }
 
-.draft-search-form .draft-search {
-  flex: 1 1 auto;
-  min-width: 8rem;
+/* The extreme-aspect landscape query (width <= 56.1875rem, height <=
+   28rem — 844x390 measured) tuned .draft-available-head to fit search +
+   chips + sort on one 44px row with the bare input; the Search button
+   (now a direct flex sibling of that same row via display: contents
+   above) is the one piece safe to drop at this exact breakpoint only —
+   Enter already submits the form (a type="submit" control still
+   triggers a form's implicit submission while display: none), so the
+   no-JS path stays intact and only the extra visible width goes away. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .draft-search-form button {
+    display: none;
+  }
 }
