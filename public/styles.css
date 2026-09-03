@@ -15349,3 +15349,467 @@ a.skip-link {
 #main-content .scoring-row__form .board-button {
   min-width: 2.75rem;
 }
+/* comb — fern --------------------------------------------------------------
+   File-scoped block, appended after every other rule (including the
+   comb — sage block directly above, also new on 2026-09-02) so it cannot
+   collide with a concurrent edit elsewhere in this stylesheet — the same
+   append convention every earlier "wave N — codename" block in this file
+   already uses. Every selector below is new, or a deliberate later-
+   cascade override of an earlier rule's own property (called out
+   inline); nothing above this comment is edited in place. Covers:
+   /players and /board's mobile filter rail and pool-row height, the
+   desktop /team command strip, the desktop nav rail's 900px band,
+   .score-ticker wrap, and the rail account block's team-name wrap.
+   .rail-attention-chip--mobile's own 44px floor is NOT repeated here —
+   sage's own block (directly above) already carries it via
+   a.rail-attention-chip--mobile.
+   2026-09-02 mobile-parity audit (elder), items 1, 2, 3, 6, 7. */
+
+/* Item 1: .pool-filter-disclosure (app/players/page.gsx PlayerPoolRegion,
+   app/board/page.gsx's own "available players" filter rail) wraps the
+   position-filter chips in a native <details> so a phone can collapse
+   them behind one "Filters" toggle instead of the 255px-tall wrapped
+   chip grid the audit measured (.pool-filter-rail at 60+255+57 = 372px
+   of an 844px viewport, clipping every row beneath it to under two full
+   rows). Above the phone/tablet line the toggle is hidden and the chips
+   render exactly as before — .position-filters' own base rule already
+   supplies the wrap/gap layout, this only defeats the <details> UA
+   stylesheet's own "hide non-summary children unless [open]" rule so the
+   panel stays visible without the manager ever needing to tap anything.
+   order: -1 keeps the chips row visually ABOVE the search form at every
+   width even though the search form now comes first in source order (a
+   phone's own single row below needs the search field first, still the
+   most-used control — see the phone rule's own doc comment).
+   Selector note: #pool-search/#board-search-rail (the two pages' own ids
+   on this element), not the bare .pool-filter-rail class — /activity's
+   own filter rail (#activity-filters) reuses that same class for a
+   plain, chip-free search bar (app/activity/page.gsx, sage's own file)
+   with no .pool-filter-disclosure child at all; a class-wide rule here
+   would still reflow /activity's row at phone width and strip its own
+   label/border chrome for no reason, since none of it applies to a rail
+   that never has chips to collapse. */
+#pool-search,
+#board-search-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.pool-filter-disclosure {
+  order: -1;
+}
+
+.pool-filter-disclosure > summary {
+  display: none;
+}
+
+.pool-filter-disclosure > .position-filters {
+  display: flex;
+}
+
+.pool-filter-disclosure > summary::-webkit-details-marker,
+.pool-filter-disclosure > summary::marker {
+  display: none;
+  content: "";
+}
+
+/* Phone/tablet: the rail collapses to one ~56px row — the search field
+   (its own visible label clipped offscreen, same visually-hidden recipe
+   as the .visually-hidden utility class above, so its accessible name
+   survives even though the row has no vertical room left for the label
+   text) plus the Filters toggle, sized to the 44px control floor. The
+   toggle's own summary shows the CURRENTLY active filter as a chip
+   (Each/If over the same data.positions/data.position_filters list the
+   chips themselves render from — page.gsx, both pages — so this needs no
+   new data field), so a manager can see what is filtered without opening
+   the panel at all. The panel itself becomes a real dropdown (position:
+   absolute, anchored to the toggle, not the whole rail) once opened,
+   rather than pushing the row's own height — this is the one place the
+   desktop "always visible" rule above is deliberately cancelled back to
+   the native open/closed behavior. */
+@media (max-width: 56.1875rem) {
+  #pool-search,
+  #board-search-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-xs);
+    padding: 0.4rem var(--space-sm);
+  }
+
+  #pool-search .pool-search-bar,
+  #board-search-rail .pool-search-bar {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+    margin-bottom: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  /* Cancels the plain .pool-search-bar's own phone-width "stack the
+     input full-width, wrap the Search button below" rule (public/
+     styles.css, above) — right for a search bar standing alone in its
+     own block, wrong once it shares one 56px row with the Filters
+     toggle beside it (this rule's own selector, above). flex-basis:
+     auto plus min-width: 0 lets the input shrink to whatever room the
+     toggle leaves rather than claiming a guaranteed 100% and forcing
+     the button onto its own second line. */
+  #pool-search .pool-search-bar input,
+  #board-search-rail .pool-search-bar input {
+    flex-basis: auto;
+  }
+
+  /* .filter-button (the "Search" submit) is also a plain flex item here
+     with no floor of its own — flex-shrink's default 1 let it compress
+     below "Search"'s own single-line width, wrapping the word inside the
+     button and doubling the whole row's height (measured live: 74px,
+     not the 44px control floor) instead of just letting the INPUT give
+     up the room. flex-shrink: 0 keeps the button at its natural,
+     one-line width; the input (flex-basis: auto above, min-width: 0 on
+     its own base rule) is the one flexible track in this row. */
+  #pool-search .pool-search-bar button,
+  #board-search-rail .pool-search-bar button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* Higher specificity than sage's own bare .pool-search-bar label rule
+     (comb — sage, above, a 44px-tall full-width row for a label sharing
+     the wrapped stack that plain rule leaves this one in) — right for
+     /activity's own unscoped rail, wrong once this label shares one
+     56px row with the Filters toggle beside it, where there is no
+     spare row for it to claim. clip: rect(0, 0, 0, 0) still fully hides
+     its paint regardless of which of the two rules' box-sizing
+     properties (sage's min-height/flex vs this rule's width/height)
+     the cascade actually resolves for the element's own box. */
+  #pool-search .pool-search-bar label,
+  #board-search-rail .pool-search-bar label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .pool-filter-disclosure {
+    position: relative;
+    flex: 0 0 auto;
+    order: 0;
+  }
+
+  .pool-filter-disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    min-height: var(--control-h);
+    padding: 0 var(--space-sm);
+    border: 1px solid var(--color-border);
+    list-style: none;
+    color: var(--color-text-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--type-xs);
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .pool-filter-disclosure > summary:focus-visible {
+    outline: 2px solid var(--color-accent-cyan);
+    outline-offset: 2px;
+  }
+
+  .pool-filter-disclosure[open] > summary {
+    border-color: var(--color-accent-cyan);
+    color: var(--color-accent-cyan);
+  }
+
+  .pool-filter-disclosure__active {
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+  }
+
+  .pool-filter-disclosure > .position-filters {
+    display: none;
+  }
+
+  .pool-filter-disclosure[open] > .position-filters {
+    position: absolute;
+    top: calc(100% + var(--space-xs));
+    right: 0;
+    z-index: 45;
+    display: flex;
+    width: max-content;
+    max-width: calc(100vw - 2 * var(--space-sm));
+    padding: var(--space-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-canvas-deep);
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Item 1 (row height): /players' .pool-row--status measured 177-205px
+   tall at 390px — with the rail above collapsed to one row, the audit's
+   "5 rows fully visible" target still needs real height trimmed off
+   each row itself, not just the rail. Scoped to padding/gap/one text
+   line's visibility only — the column tracks and each cell's own grid-
+   column/grid-row placement stay exactly as the mobile reflow rule
+   above (this file) already sets them; nothing here touches which
+   column or row a cell lands in, only how much space the row spends
+   getting there. The opponent/matchup <small class="mono"> line (the
+   SECOND of .pool-player__text's two <small> children — the first,
+   plain .detail line, stays) is the one dropped: real, useful
+   information, but the least load-bearing of the two once the row is
+   already showing name, position, projection, and status at a glance —
+   dropping it is what turns a 3-text-line identity cell into 2 without
+   truncating either remaining line.
+   Selector note: .board-page .pool-row/etc, not the bare classes — /draft
+   (app/draft/page.gsx) also renders a .pool-row-shaped pre-live/queue
+   list, inside <main class="draft-shell...">, not "board-page"; scoping
+   through the shared page wrapper /players, /board, and /activity all
+   three carry (only the first two ever render .pool-row--status/
+   .board-row at all) keeps this height trim off a row family redwood
+   owns the cell rules for on /draft. */
+@media (max-width: 38rem) {
+  .board-page .pool-row,
+  .board-page .pool-row--status,
+  .board-page .board-row {
+    padding: 0.4rem var(--space-sm);
+    row-gap: 0.4rem;
+  }
+
+  .board-page .pool-row .pool-player__text > small.mono,
+  .board-page .pool-row--status .pool-player__text > small.mono,
+  .board-page .board-row .pool-player__text > small.mono {
+    display: none;
+  }
+
+  .board-page .pool-row .player-headshot,
+  .board-page .pool-row--status .player-headshot,
+  .board-page .board-row .player-headshot {
+    width: 1.9rem;
+    min-width: 1.9rem;
+  }
+}
+
+/* Item 4: .pool-labels--status (app/players/page.gsx's own 6-track
+   .pool-row--status) and .board-labels (app/board/page.gsx's own
+   6-track .board-row) are new header-row variants of the shared
+   .pool-labels rule above (public/styles.css) — that shared rule's own
+   grid-template-columns matches the plain 5-track .pool-row only, the
+   wrong shape for either of these two rows. Column widths are copied
+   from .pool-row--status/.board-row's own current values (public/
+   styles.css) rather than shared through one selector, since neither
+   row rule is this block's own to edit in place — if either changes its
+   own track widths later, this pair needs a matching update. */
+.pool-labels--status {
+  grid-template-columns: 3rem minmax(12rem, 1fr) 3.5rem 4rem 8rem 5rem;
+}
+
+.board-labels {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.75rem 3rem minmax(11rem, 1fr) 3.5rem 4rem 3.25rem;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 0 var(--space-sm) var(--space-xs);
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+}
+
+@media (max-width: 38rem) {
+  .board-labels {
+    display: none;
+  }
+}
+
+/* Item 2: .team-command-strip carries five stat tiles plus, until clover
+   moves it out of this markup, the primary "View matchup" action —
+   inside the phone-width horizontal scroller (public/styles.css, the
+   899px band above) that action sat 3 tiles deep, entirely off the
+   372px content column (scrollWidth 681px). A scrolling strip is the
+   right shape for STATS (a manager expects to swipe a stat row), never
+   for the page's single most important action — moved to
+   .team-command-strip__action, a real sibling of the strip rather than
+   its 6th grid cell, so it always renders as a full-width block
+   directly beneath the strip, in normal document flow, never inside
+   the scroller regardless of viewport width.
+   Coordinate-needed: app/team/page.gsx (clover's markup) still renders
+   the <a> as the LAST child of .team-command-strip; this file's own
+   fix cannot take effect until that <a> moves outside the strip <div>
+   and picks up the .team-command-strip__action class alongside its
+   existing button/button--primary/button--compact ones. Exact diff:
+     - move the closing </div> for .team-command-strip up, immediately
+       after the League <div> (before the <If cond={data.lineup_
+       intervention == false}> that wraps the <a>)
+     - add class="team-command-strip__action button button--primary
+       button--compact" to that <a>
+   Until that markup lands, .team-command-strip__action matches nothing
+   and grid-template-columns: repeat(5, 1fr) below is a harmless no-op
+   against the CURRENT 6-child markup — five equal tracks under six
+   children still lays out without visibly breaking (the 6th child
+   simply falls into an implicit auto row/column), it just is not the
+   intended fix until the child count itself drops to five. */
+.team-command-strip {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.team-command-strip__action {
+  display: block;
+  width: 100%;
+  margin: var(--space-sm) 0 var(--space-xl);
+  text-align: center;
+}
+
+/* Labels inside the scrolling strip must never clip mid-word (the audit's
+   own "DIVISION AQUA" → "DIVIS" finding) — min-width: max-content keeps
+   each tile's own content from being squeezed narrower than its own
+   longest word even while grid-auto-columns sizes the column itself;
+   overflow-wrap: normal overrides anywhere-break behavior an ancestor
+   rule might otherwise apply. */
+@media (max-width: 899px) {
+  .team-command-strip > div {
+    min-width: max-content;
+    overflow-wrap: normal;
+  }
+
+  .team-command-strip > div span,
+  .team-command-strip > div strong {
+    overflow-wrap: normal;
+    white-space: nowrap;
+  }
+}
+
+/* Item 3: the desktop nav rail (.site-rail, app/layout.gsx) held all 18
+   destinations plus 6 group labels and the account block, but only
+   fully fit them at heights well above the audit's own 900px (1440x900)
+   and 800px (1280x800) checks — clientHeight 582 vs scrollHeight 1188 at
+   900px, with items 14-18 (Rules & scoring through League settings)
+   landing under the account block with no cue they were reachable at
+   all. The earlier `@media (pointer: fine)` version of this same
+   tightening (public/styles.css, above) keys off a media FEATURE that a
+   real trackpad-and-touchscreen laptop, or a headless browser under
+   test, does not reliably report as "fine" — a real viewport HEIGHT
+   query is deterministic where that one is not, so this block re-keys
+   the same intent (and goes further) off max-height instead, layered on
+   top of (not replacing) the pointer:fine rule, which still helps at
+   heights above this band's own 900px ceiling. */
+@media (min-width: 56.25rem) and (max-height: 56.25rem) {
+  .site-rail .rail-head {
+    padding: var(--space-sm) var(--space-md);
+    gap: var(--space-xs);
+  }
+
+  .site-rail .primary-navigation__groups {
+    gap: 0.3rem;
+    padding-block: var(--space-xs);
+  }
+
+  .site-rail .navigation-link {
+    min-height: 1.6rem;
+    padding-block: 0.05rem;
+  }
+
+  .site-rail .navigation-group + .navigation-group {
+    padding-top: 0.2rem;
+  }
+
+  .site-rail .navigation-group__label {
+    margin: 0;
+    padding-bottom: 1px;
+    font-size: var(--type-2xs);
+  }
+
+  .site-rail .navigation-account {
+    padding: var(--space-xs) var(--space-md);
+    min-height: 3.25rem;
+  }
+
+  /* Scroll cue: a bottom fade signals more content past the visible
+     edge, and scroll-padding-block keeps a keyboard-focused link (the
+     last one especially) landing clear of that fade rather than half
+     hidden beneath it — the same mask-image idiom this file already
+     uses for the horizontally-scrolling .team-command-strip and
+     .draft-available-head__chips (both above). Scoped to this
+     height-constrained band only: a taller desktop viewport already
+     fits every destination with no scrolling at all, so it gets no
+     fade to avoid implying a scroll that is not actually there. */
+  .site-rail .primary-navigation__groups {
+    scroll-padding-block: 2rem;
+    -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+    mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent 100%);
+  }
+}
+
+/* A shorter 800px band (1280x800, the audit's second checked size) needs
+   a further notch below the 900px band above — both apply together at
+   this height, this one layered on top. */
+@media (min-width: 56.25rem) and (max-height: 50rem) {
+  .site-rail .navigation-link {
+    min-height: 1.3rem;
+    padding-block: 0;
+  }
+
+  .site-rail .primary-navigation__groups {
+    gap: 0.1rem;
+    padding-block: 0.3rem;
+  }
+
+  .site-rail .navigation-group + .navigation-group {
+    padding-top: 0.1rem;
+  }
+
+  .site-rail .navigation-account {
+    min-height: 2.6rem;
+    padding-block: 0.3rem;
+  }
+
+  .site-rail .rail-head {
+    padding: 0.4rem var(--space-md);
+  }
+}
+
+/* Item 5's own .rail-attention-chip--mobile 44px floor (measured
+   107.8x38.4, short on its shorter axis) and the .stat-tip__summary--
+   news 44x44 floor both now ship elsewhere — the first from sage's own
+   a.rail-attention-chip--mobile rule directly above, the second from
+   redwood's own .pool-player-cell > .stat-tip--news rule (public/
+   styles.css, well above both comb blocks) — so item 5 needs no rule of
+   its own in this block. */
+
+/* Item 6: .score-ticker p (public/styles.css, above) truncates the
+   kickoff date/time behind text-overflow: ellipsis/white-space: nowrap
+   at every width — the audit measured 67% of that line lost at 390px,
+   where the ticker's own 2-column phone reflow (this file, the 38rem
+   band above) leaves the <p> too narrow for its own three space-
+   separated segments (week label // status // refresh label) to fit on
+   one line. Letting it wrap is a full content fix; nothing here shrinks
+   or drops any of the three segments. */
+@media (max-width: 38rem) {
+  .score-ticker p {
+    overflow: visible;
+    white-space: normal;
+    text-overflow: clip;
+  }
+}
+
+/* Item 7: .navigation-account .user-name (app/layout.gsx's own
+   PrimaryNavigation, shared by the desktop rail and the mobile nav
+   dialog) truncates a long team name behind text-overflow: ellipsis/
+   white-space: nowrap (public/styles.css, .user-name's own base rule,
+   above) — the audit's own "LOS DELFINES DEL N…" finding. Scoped to the
+   rail/account block's own instance rather than the bare .user-name
+   class, which this file also uses in narrower contexts (the
+   user-badge chip alone) where a single truncated line is still the
+   right call. */
+.navigation-account .user-name {
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
