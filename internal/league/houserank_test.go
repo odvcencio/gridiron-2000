@@ -239,6 +239,141 @@ func TestApplyHouseRanksVORPTieRuleIsDeterministic(t *testing.T) {
 	}
 }
 
+// TestApplyHouseRanksClampsExtremeADPDivergence is rules-audit item 5's
+// synthetic-pool test: a thin-evidence player whose VORP natural position
+// beats its own market ADP rank by more than houseRankSanityClampMargin
+// (60) places must be pulled back to rank exactly adpRank-60, not left at
+// its raw VORP position. 10 QBs, demand 1 (a single QB slot, single
+// team), so replacement level is the 2nd-best Projection (qb2's own
+// 95) — every other QB's natural VORP order exactly matches this list's
+// Projection-descending order, so natural rank i is trivially "i", the
+// list position.
+//
+// qb2 is the riser: Projection 95 (2nd overall, natural rank 2) but
+// ADPRank 70 — a 68-place divergence, well past the 60-place margin —
+// so its floor is 70-60=10. qb10 sits exactly on that floor naturally
+// (ADPRank 10, no divergence, natural/sortKey both 10): the tiebreak
+// must let qb10 keep rank 9 and push qb2 to rank 10, never the reverse
+// (TestApplyHouseRanksClampTiebreakDoesNotBeatItsFloor below covers the
+// tiebreak itself in isolation; this test just confirms the end-to-end
+// result lands exactly on the floor, not one place better).
+func TestApplyHouseRanksClampsExtremeADPDivergence(t *testing.T) {
+	preset := RosterPreset{Slots: map[string]int{"QB": 1}, Bench: 0}
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", Projection: 100, ADP: 1, ADPRank: 1},
+		{ID: "qb2", Name: "QB Riser", Position: "QB", Projection: 95, ADP: 70, ADPRank: 70},
+		{ID: "qb3", Name: "QB Three", Position: "QB", Projection: 90, ADP: 3, ADPRank: 3},
+		{ID: "qb4", Name: "QB Four", Position: "QB", Projection: 85, ADP: 4, ADPRank: 4},
+		{ID: "qb5", Name: "QB Five", Position: "QB", Projection: 80, ADP: 5, ADPRank: 5},
+		{ID: "qb6", Name: "QB Six", Position: "QB", Projection: 75, ADP: 6, ADPRank: 6},
+		{ID: "qb7", Name: "QB Seven", Position: "QB", Projection: 70, ADP: 7, ADPRank: 7},
+		{ID: "qb8", Name: "QB Eight", Position: "QB", Projection: 65, ADP: 8, ADPRank: 8},
+		{ID: "qb9", Name: "QB Nine", Position: "QB", Projection: 60, ADP: 9, ADPRank: 9},
+		{ID: "qb10", Name: "QB Ten", Position: "QB", Projection: 55, ADP: 10, ADPRank: 10},
+	}
+	ranked := applyHouseRanks(players, preset, 1)
+	ranks := map[string]int{}
+	for _, player := range ranked {
+		ranks[player.ID] = player.HouseRank
+	}
+	want := map[string]int{
+		"qb1": 1, "qb3": 2, "qb4": 3, "qb5": 4, "qb6": 5,
+		"qb7": 6, "qb8": 7, "qb9": 8, "qb10": 9, "qb2": 10,
+	}
+	if !reflect.DeepEqual(ranks, want) {
+		t.Fatalf("HouseRank assignment = %+v, want %+v (qb2 clamped to its floor, adpRank 70 - 60 = 10)", ranks, want)
+	}
+}
+
+// TestApplyHouseRanksClampRespectsSixtyPlaceBoundary proves the clamp is
+// conservative at exactly the stated margin: a 60-place divergence must
+// NOT clamp ("beat ... by more than 60 places"), only a 61-place
+// divergence must. Same single-QB-demand setup as the test above, with
+// only the divergent QB's ADPRank varying between the two subtests.
+func TestApplyHouseRanksClampRespectsSixtyPlaceBoundary(t *testing.T) {
+	preset := RosterPreset{Slots: map[string]int{"QB": 1}, Bench: 0}
+	build := func(riserADPRank int) []Player {
+		return []Player{
+			{ID: "qb1", Name: "QB One", Position: "QB", Projection: 100, ADP: 1, ADPRank: 1},
+			{ID: "riser", Name: "QB Riser", Position: "QB", Projection: 95, ADP: float64(riserADPRank), ADPRank: riserADPRank},
+			{ID: "qb3", Name: "QB Three", Position: "QB", Projection: 90, ADP: 3, ADPRank: 3},
+		}
+	}
+
+	t.Run("exactly 60 places: no clamp", func(t *testing.T) {
+		// riser's natural rank is 2; ADPRank 62 diverges by exactly 60
+		// places (62-2=60), which is not "more than" 60, so the clamp
+		// (floor 62-60=2) never exceeds the natural rank and never fires.
+		ranked := applyHouseRanks(build(62), preset, 1)
+		for _, player := range ranked {
+			if player.ID == "riser" && player.HouseRank != 2 {
+				t.Fatalf("a 60-place divergence must not clamp: riser HouseRank = %d, want 2 (natural)", player.HouseRank)
+			}
+		}
+	})
+
+	t.Run("61 places: clamps", func(t *testing.T) {
+		// natural rank 2, ADPRank 63 diverges by 61 places (>60): floor =
+		// 63-60=3, which exceeds natural(2), so the clamp fires.
+		ranked := applyHouseRanks(build(63), preset, 1)
+		for _, player := range ranked {
+			if player.ID == "riser" && player.HouseRank != 3 {
+				t.Fatalf("a 61-place divergence must clamp: riser HouseRank = %d, want 3 (its floor)", player.HouseRank)
+			}
+		}
+	})
+}
+
+// TestApplyHouseRanksClampSkipsPlayersWithNoADP proves the documented
+// exception: a player with no market ADP (ADPRank <= 0) is never
+// clamped, however extreme its VORP divergence looks, because there is
+// no market signal to clamp against.
+func TestApplyHouseRanksClampSkipsPlayersWithNoADP(t *testing.T) {
+	preset := RosterPreset{Slots: map[string]int{"QB": 1}, Bench: 0}
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", Projection: 100, ADP: 1, ADPRank: 1},
+		{ID: "unranked", Name: "QB Unranked", Position: "QB", Projection: 95, ADP: 0, ADPRank: 0},
+		{ID: "qb3", Name: "QB Three", Position: "QB", Projection: 90, ADP: 3, ADPRank: 3},
+	}
+	ranked := applyHouseRanks(players, preset, 1)
+	for _, player := range ranked {
+		if player.ID == "unranked" && player.HouseRank != 2 {
+			t.Fatalf("a no-ADP player must never be clamped: HouseRank = %d, want 2 (its natural VORP rank)", player.HouseRank)
+		}
+	}
+}
+
+// TestApplyHouseRanksClampTiebreakDoesNotBeatItsFloor isolates the
+// tiebreak fix directly: two candidates sharing the same sortKey (one
+// clamped to a floor, one unclamped and naturally AT that exact
+// position) must never let the clamped candidate win the tie — that
+// would place it one rank BETTER than its own floor, breaking the "no
+// higher than" promise. Four QBs, demand 1 (single QB slot/team):
+// "riser" naturally ranks 2 (Projection 95, 2nd best) but ADPRank 65
+// clamps its floor to 5; "natural5" naturally ranks 5 and is unclamped
+// (sortKey 5, same as riser's floor) — a direct tie. natural5 must keep
+// rank 4 (behind qb3/qb4, ahead of riser); riser must land at rank 5,
+// exactly its floor, never rank 4.
+func TestApplyHouseRanksClampTiebreakDoesNotBeatItsFloor(t *testing.T) {
+	preset := RosterPreset{Slots: map[string]int{"QB": 1}, Bench: 0}
+	players := []Player{
+		{ID: "qb1", Name: "QB One", Position: "QB", Projection: 100, ADP: 1, ADPRank: 1},
+		{ID: "riser", Name: "QB Riser", Position: "QB", Projection: 95, ADP: 65, ADPRank: 65},
+		{ID: "qb3", Name: "QB Three", Position: "QB", Projection: 90, ADP: 3, ADPRank: 3},
+		{ID: "qb4", Name: "QB Four", Position: "QB", Projection: 85, ADP: 4, ADPRank: 4},
+		{ID: "natural5", Name: "QB Natural Five", Position: "QB", Projection: 80, ADP: 5, ADPRank: 5},
+	}
+	ranked := applyHouseRanks(players, preset, 1)
+	ranks := map[string]int{}
+	for _, player := range ranked {
+		ranks[player.ID] = player.HouseRank
+	}
+	want := map[string]int{"qb1": 1, "qb3": 2, "qb4": 3, "natural5": 4, "riser": 5}
+	if !reflect.DeepEqual(ranks, want) {
+		t.Fatalf("HouseRank assignment = %+v, want %+v (riser must land AT its floor of 5, never ahead of natural5)", ranks, want)
+	}
+}
+
 // houseRankRealisticPool builds the sanity-anchor fixture: per-game
 // Projections in the ranges the design's sanity anchors specify (QB
 // 19-24 at the replacement boundary, elite RB/WR 13-16, TE 9-13 at the

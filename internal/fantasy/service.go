@@ -62,6 +62,18 @@ type Service struct {
 	// re-normalize the pool already installed by NewService's loadCache:
 	// see SetPositionFloors' own doc comment for why.
 	positionFloors map[string]int
+	// scoringValues resolves the league's live scoring point values, keyed
+	// by internal/league/scoring.go's defaultScoringRules keys (passYards,
+	// passTD, twoPt, fgMade, ...) — league.Service.CurrentScoringValues,
+	// wired once by app_build.go the same way SetPunterProjections wires
+	// PunterProjection. SyncNow consults it to send getNFLProjections the
+	// league's actual point values explicitly (rules-audit item 4) instead
+	// of riding Tank01's own generic defaults, which cover neither
+	// two-point conversions nor kicking at all. Nil until wired (a test
+	// that never calls SetScoringValues, or a build with no league
+	// wiring) sends no scoring params beyond the pre-existing
+	// pointsPerReception — byte-identical to the pre-fix request.
+	scoringValues func() map[string]float64
 }
 
 var (
@@ -193,6 +205,17 @@ func (s *Service) SetCurrentWeek(fn func() int) {
 	s.mu.Unlock()
 }
 
+// SetScoringValues installs the callback SyncNow consults for the
+// league's live scoring point values (rules-audit item 4; see the
+// scoringValues field's doc comment). Call once, before Start(ctx) — the
+// same wiring order SetPunterProjections and SetCurrentWeek already
+// follow (app_build.go).
+func (s *Service) SetScoringValues(fn func() map[string]float64) {
+	s.mu.Lock()
+	s.scoringValues = fn
+	s.mu.Unlock()
+}
+
 // projectionWeek resolves the week SyncNow requests Tank01 projections
 // for: currentWeek() when wired and it reports a real (>= 1) week, or
 // week 1 otherwise — the pre-fix default, and also the spec's own rule
@@ -314,12 +337,29 @@ func (s *Service) SyncNow(ctx context.Context) error {
 	// projections. Week 1 stays the request before the season's first
 	// week is published (projectionWeek's own fallback rule).
 	week := s.projectionWeek()
-	projections := map[string]projEntry{}
-	if raw, err := s.client.get(ctx, "getNFLProjections", map[string]string{
+	// scoringParams (rules-audit item 4) sends the league's own scoring
+	// values for every rule Tank01's getNFLProjections accepts explicitly
+	// instead of riding Tank01's own generic per-format defaults, which
+	// happen to match this league's offense rules only by coincidence and
+	// cover two-point conversions, kicking, and defense not at all. See
+	// scoringValues' and tank01ScoringParams' own doc comments.
+	s.mu.RLock()
+	scoringValuesFn := s.scoringValues
+	s.mu.RUnlock()
+	var scoringValues map[string]float64
+	if scoringValuesFn != nil {
+		scoringValues = scoringValuesFn()
+	}
+	projectionParams := map[string]string{
 		"week":               strconv.Itoa(week),
 		"archiveSeason":      strconv.Itoa(s.config.Season),
 		"pointsPerReception": pointsPerReception(s.config.ScoringFormat),
-	}); err != nil {
+	}
+	for key, value := range tank01ScoringParams(scoringValues) {
+		projectionParams[key] = value
+	}
+	projections := map[string]projEntry{}
+	if raw, err := s.client.get(ctx, "getNFLProjections", projectionParams); err != nil {
 		problems = append(problems, fmt.Errorf("projections: %w", err))
 	} else {
 		projections = parseProjections(raw, s.config.ScoringFormat)

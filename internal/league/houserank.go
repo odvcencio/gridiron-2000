@@ -107,10 +107,86 @@ func applyHouseRanks(players []Player, preset RosterPreset, teamCount int) []Pla
 		}
 		return left.ID < right.ID
 	})
-	for rank, index := range ranked {
-		out[index].HouseRank = rank + 1
-	}
+	assignHouseRanksWithSanityClamp(out, ranked)
 	return out
+}
+
+// houseRankSanityClampMargin (rules-audit item 5, data-quality/optional):
+// under superflex demand, QB demand is high enough (every seat's own QB
+// slot plus most SUPERFLEX slots) that the QB replacement level sits high
+// too, compressing QB VORP — a real, intended format effect, not a bug.
+// But that compression can let a thin-evidence player (a rookie with a
+// handful of starts behind the projection, not a full season) VORP-
+// outrank far more proven names by a wide margin: Jaxson Dart, ADP rank
+// 96, reached HouseRank 15 under gridiron-house/8 superflex before this
+// clamp (see TestApplyHouseRanksClampsExtremeADPDivergence). 60 places is
+// wide on purpose — ordinary format-driven VORP compression routinely
+// moves a player 10-30 places from ADP and must never be touched; only an
+// extreme divergence between the model and the market gets pulled back
+// toward the market, and only far enough to stop being extreme, not all
+// the way to ADP itself.
+const houseRankSanityClampMargin = 60
+
+// assignHouseRanksWithSanityClamp assigns each ranked player (VORP order,
+// index into out) a final 1..N HouseRank, honoring houseRankSanityClampMargin:
+// a player's natural VORP position (1-based index into ranked) is
+// promoted no more than houseRankSanityClampMargin places ahead of its
+// own ADPRank. A player with no ADP (ADPRank <= 0) is never clamped —
+// there is no market signal to clamp against, matching applyHouseRanks'
+// own "skip players with no ADP" rule for this fix.
+//
+// Implementation: each player's sortKey is the larger of its natural
+// VORP position and its clamp floor (ADPRank - houseRankSanityClampMargin,
+// when that exceeds the natural position); a stable sort by sortKey turns
+// those floors into a single valid permutation. When no player's floor
+// ever exceeds its natural position — the overwhelmingly common case —
+// every sortKey equals its natural position and this reproduces the
+// pre-clamp order exactly, so the clamp changes nothing until it is
+// actually needed.
+//
+// The tiebreak when two candidates share a sortKey matters more than it
+// looks: a clamped candidate's sortKey is its FLOOR, a promise of "no
+// better than this," not its true position, so on a tie it must sort
+// AFTER the unclamped candidate whose natural position genuinely earned
+// that slot — sorting by natural position alone would let the clamped
+// candidate win the tie (its natural is always smaller, that is what
+// clamping means) and land one place BETTER than its own floor,
+// silently breaking the promise by exactly one rank. Ordering
+// (clamped after unclamped, then natural ascending within either group)
+// closes that gap; TestApplyHouseRanksClampTiebreakDoesNotBeatItsFloor
+// pins it.
+func assignHouseRanksWithSanityClamp(out []Player, ranked []int) {
+	type clampCandidate struct {
+		playerIndex int
+		natural     int
+		sortKey     int
+		clamped     bool
+	}
+	candidates := make([]clampCandidate, len(ranked))
+	for i, playerIndex := range ranked {
+		natural := i + 1
+		sortKey := natural
+		clamped := false
+		if adpRank := out[playerIndex].ADPRank; adpRank > 0 {
+			if floor := adpRank - houseRankSanityClampMargin; floor > sortKey {
+				sortKey = floor
+				clamped = true
+			}
+		}
+		candidates[i] = clampCandidate{playerIndex: playerIndex, natural: natural, sortKey: sortKey, clamped: clamped}
+	}
+	sort.SliceStable(candidates, func(a, b int) bool {
+		if candidates[a].sortKey != candidates[b].sortKey {
+			return candidates[a].sortKey < candidates[b].sortKey
+		}
+		if candidates[a].clamped != candidates[b].clamped {
+			return !candidates[a].clamped // unclamped wins the tie; see doc comment above
+		}
+		return candidates[a].natural < candidates[b].natural
+	})
+	for rank, candidate := range candidates {
+		out[candidate.playerIndex].HouseRank = rank + 1
+	}
 }
 
 // housePositionDemand computes the active preset's starter demand per real

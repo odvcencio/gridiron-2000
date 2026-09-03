@@ -264,13 +264,40 @@ var receivingStatKeys = map[string]string{
 	"recTD":      "recTD",
 }
 
+// teamDefenseStatKeys maps a teamDefenseProjections raw field to the same
+// normalized DST stat key breakdown.go's tank01DSTRows and the live
+// box-score parser (preseason.go's dstStatKeys) already use, so a DST's
+// projected stat line is shaped identically to its live one — one key
+// space, whichever source populated it. blockKick, ptsAgainst, teamID, and
+// teamAbv carry no defaultScoringRules entry today and are left out,
+// matching projectionStats' own idiom (below) of never emitting a stat no
+// rule can consume.
+var teamDefenseStatKeys = map[string]string{
+	"sacks":            "sacks",
+	"interceptions":    "defensiveInterceptions",
+	"fumbleRecoveries": "fumblesRecovered",
+	"defTD":            "defTD",
+	"safeties":         "safeties",
+	"returnTD":         "returnTD",
+}
+
 // parseProjections maps playerID to a projEntry for the scoring format. The
 // live feed nests per-play-type stats under "Rushing", "Passing", and
 // "Receiving" groups with string-encoded numbers; defense and kicker entries
 // carry no groups at all.
+//
+// getNFLProjections' response also carries a sibling teamDefenseProjections
+// block — 32 team-defense entries with no playerID at all — which this
+// function used to leave untouched entirely (rules-audit item 2): every DST
+// projected 0, so applyHouseRanks (which only ranks Projection > 0) never
+// gave a DST a HouseRank and autopick fell back to raw ID order for every
+// DST tie all season. addTeamDefenseProjections below merges that block in,
+// keyed the same synthetic "DST-<TEAM>" ID parseADP already derives for a
+// team defense (Tank01 assigns a D/ST no individual playerID).
 func parseProjections(raw json.RawMessage, scoring string) map[string]projEntry {
 	var wrapper struct {
-		PlayerProjections json.RawMessage `json:"playerProjections"`
+		PlayerProjections      json.RawMessage `json:"playerProjections"`
+		TeamDefenseProjections json.RawMessage `json:"teamDefenseProjections"`
 	}
 	payload := raw
 	if err := json.Unmarshal(raw, &wrapper); err == nil && len(wrapper.PlayerProjections) > 0 {
@@ -284,21 +311,67 @@ func parseProjections(raw json.RawMessage, scoring string) map[string]projEntry 
 				out[id] = projEntry{Points: points, Stats: projectionStats(entry)}
 			}
 		}
-		return out
-	}
-	var list []map[string]any
-	if err := json.Unmarshal(payload, &list); err == nil {
-		for _, entry := range list {
-			id := flexString(entry["playerID"])
-			if id == "" {
-				continue
-			}
-			if points := projectionPoints(entry, scoring); points > 0 {
-				out[id] = projEntry{Points: points, Stats: projectionStats(entry)}
+	} else {
+		var list []map[string]any
+		if err := json.Unmarshal(payload, &list); err == nil {
+			for _, entry := range list {
+				id := flexString(entry["playerID"])
+				if id == "" {
+					continue
+				}
+				if points := projectionPoints(entry, scoring); points > 0 {
+					out[id] = projEntry{Points: points, Stats: projectionStats(entry)}
+				}
 			}
 		}
 	}
+	addTeamDefenseProjections(wrapper.TeamDefenseProjections, scoring, out)
 	return out
+}
+
+// addTeamDefenseProjections merges getNFLProjections' teamDefenseProjections
+// block into out. The live payload keys the block by an opaque Tank01
+// teamID ("22", "23", ...), not by team abbreviation, so this reads
+// teamAbv from each entry to derive the same "DST-<TEAM>" ID scheme
+// parseADP uses; it tolerates a map-of-entries or a bare list container,
+// matching every other parser in this file. A team missing teamAbv, or
+// scoring at 0 or below, is skipped — a 0 here always means "not
+// projected," the same rule projectionPoints' callers already apply to
+// offense entries.
+func addTeamDefenseProjections(raw json.RawMessage, scoring string, out map[string]projEntry) {
+	if len(raw) == 0 {
+		return
+	}
+	apply := func(entry map[string]any) {
+		team := strings.ToUpper(strings.TrimSpace(flexString(entry["teamAbv"])))
+		if team == "" {
+			return
+		}
+		points := projectionPoints(entry, scoring)
+		if points <= 0 {
+			return
+		}
+		stats := make(map[string]float64, len(teamDefenseStatKeys))
+		for rawKey, normKey := range teamDefenseStatKeys {
+			if value := flexFloat(entry[rawKey]); value != 0 {
+				stats[normKey] = value
+			}
+		}
+		out["DST-"+team] = projEntry{Points: points, Stats: stats}
+	}
+	var byTeamID map[string]map[string]any
+	if err := json.Unmarshal(raw, &byTeamID); err == nil {
+		for _, entry := range byTeamID {
+			apply(entry)
+		}
+		return
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		for _, entry := range list {
+			apply(entry)
+		}
+	}
 }
 
 func projectionPoints(entry map[string]any, scoring string) float64 {
@@ -307,6 +380,12 @@ func projectionPoints(entry map[string]any, scoring string) float64 {
 		if points := flexFloat(defaults[key]); points > 0 {
 			return points
 		}
+	} else if points := flexFloat(entry["fantasyPointsDefault"]); points > 0 {
+		// A team-defense entry (teamDefenseProjections) carries one flat
+		// fantasyPointsDefault number, not a per-scoring-format map: PPR
+		// does not change how a defense itself scores. See
+		// addTeamDefenseProjections, this function's other caller.
+		return points
 	}
 	return flexFloat(entry["fantasyPoints"])
 }
