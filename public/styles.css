@@ -15934,32 +15934,59 @@ a.skip-link {
   min-width: 0;
 }
 
-/* hotfix — draft-preflight (yarrow re-audit, findings 1-3)
-   DraftPreflight (app/draft/page.gsx) renders as the FIRST grid child of
-   .draft-panes before the draft starts. Without a rule it took the 360px
-   history track and shifted every pane one column right: the pool became
-   the 300px column, the manager's own pane wrapped to a 2px second row,
-   and the ?view=board segment rendered one letter per line. The strip
-   must span the whole row and never take a pane track. */
+/* hotfix — draft-preflight (yarrow re-audit, findings 1-3; geometry
+   check round 2). DraftPreflight (app/draft/page.gsx) renders as the
+   FIRST grid child of .draft-panes before the draft starts. Without a
+   rule it took the 360px history track and shifted every pane one column
+   right. Spanning the row was not enough: .draft-shell is a fixed
+   100dvh grid, so a 300px-tall strip left the pool pane 13-105px of
+   body. The strip is therefore a closed-by-default <details>: one 44px
+   summary row spans the grid; the checklist opens INSIDE a bounded,
+   scrolling box so the panes always keep their height. */
 .draft-panes > .draft-preflight {
   grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(12rem, 20rem) minmax(0, 1fr);
-  gap: var(--space-md);
-  align-items: start;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md, 0.5rem);
-  background: var(--color-white-faint);
   min-height: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-white-faint);
+  padding: 0 var(--space-md);
 }
-.draft-panes > .draft-preflight .checklist {
+.draft-panes > .draft-preflight > .draft-preflight__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  min-height: 2.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.draft-panes > .draft-preflight > .draft-preflight__summary::-webkit-details-marker {
+  display: none;
+}
+.draft-panes > .draft-preflight > .draft-preflight__summary h2 {
+  margin: 0;
+  font-size: var(--type-sm);
+}
+.draft-panes > .draft-preflight > .draft-preflight__summary .draft-preflight__hint {
+  margin-inline-start: auto;
+  font-size: var(--type-xs);
+}
+.draft-panes > .draft-preflight[open] > .draft-preflight__summary .draft-preflight__hint::after {
+  content: " ▴";
+}
+.draft-panes > .draft-preflight:not([open]) > .draft-preflight__summary .draft-preflight__hint::after {
+  content: " ▾";
+}
+.draft-panes > .draft-preflight > .checklist {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
   gap: var(--space-sm) var(--space-md);
+  max-height: 40vh;
+  overflow: auto;
+  padding-bottom: var(--space-sm);
 }
-@media (width <= 56.1875rem) {
-  .draft-panes > .draft-preflight {
-    grid-template-columns: minmax(0, 1fr);
-  }
+/* The ACTION cell held "+ RANK" on two lines at 1440 and the label ran
+   past the pane; and "Draft grid" wrapped in the history pane's segment. */
+.avail-row__actions form button,
+.draft-history-head .segment__option {
+  white-space: nowrap;
 }

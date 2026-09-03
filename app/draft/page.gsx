@@ -2572,13 +2572,12 @@ type DraftPreflightProps struct {
 }
 
 func DraftPreflight(props DraftPreflightProps) Node {
-	return <section class="draft-preflight" aria-labelledby="draft-preflight-title">
-		<div class="pool-toolbar">
-			<div>
-				<span class="section-index">BEFORE THE ROOM OPENS</span>
-				<h2 id="draft-preflight-title">Get your seat ready</h2>
-			</div>
-		</div>
+	return <details class="draft-preflight" aria-labelledby="draft-preflight-title">
+		<summary class="draft-preflight__summary">
+			<span class="section-index">BEFORE THE ROOM OPENS</span>
+			<h2 id="draft-preflight-title">Get your seat ready</h2>
+			<small class="draft-preflight__hint mono">Open the checklist</small>
+		</summary>
 		<div class="checklist">
 			<div class="checklist-item">
 				<span class="checklist-mark mono">01</span>
@@ -2642,7 +2641,7 @@ func DraftPreflight(props DraftPreflightProps) Node {
 				</div>
 			</If>
 		</div>
-	</section>
+	</details>
 }
 
 func Page() Node {
