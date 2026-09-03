@@ -254,6 +254,20 @@ func Page() Node {
 						</div>
 					</If>
 				</If>
+				<If cond={data.board_count > 0}>
+					<div class="board-labels mono" aria-hidden="true">
+						<span class="visually-hidden">Reorder</span>
+						<span>RK</span>
+						<span>PLAYER</span>
+						<span>POS</span>
+						<span>PROJ</span>
+						<span>ACTION</span>
+					</div>
+					<details class="pool-legend">
+						<summary>What do RK and PROJ mean?</summary>
+						<p>RK — your own rank on this Big Board (drag ⠿ or use the move controls to reorder). PROJ — projected points per game. <a href="/help#glossary" data-gosx-link>More terms in the glossary →</a></p>
+					</details>
+				</If>
 				<div
 					class="pool-list pool-list--reorder-scroll"
 					data-gosx-reorder
@@ -292,11 +306,6 @@ func Page() Node {
 					</div>
 				</div>
 				<div class="pool-filter-rail" id="board-search-rail">
-				<div class="position-filters" aria-label="Filter available players by position">
-					<Each of={data.position_filters} as="filter">
-						<a href={filter.href} data-gosx-link class="filter-button" aria-current={filter.active}>{filter.label}</a>
-					</Each>
-				</div>
 				<form method="get" action="/board#board-pool" class="pool-search-bar">
 					<label class="mono" for="board-search">SEARCH //</label>
 					<input
@@ -317,11 +326,33 @@ func Page() Node {
 						<a class="filter-button" href={data.clear_filters_href} data-gosx-link>Clear</a>
 					</If>
 				</form>
+				<details class="pool-filter-disclosure">
+					<summary>
+						<span>Filters</span>
+						<span class="pool-filter-disclosure__active mono">
+							<Each of={data.position_filters} as="filter">
+								<If cond={filter.active}>{filter.label}</If>
+							</Each>
+						</span>
+					</summary>
+					<div class="position-filters" aria-label="Filter available players by position">
+						<Each of={data.position_filters} as="filter">
+							<a href={filter.href} data-gosx-link class="filter-button" aria-current={filter.active}>{filter.label}</a>
+						</Each>
+					</div>
+				</details>
 				</div>
 				<If cond={data.matching_count > 0}>
 					<p class="scoring-note" aria-live="polite">
-						Showing {data.pool_page_start}–{data.pool_page_end} of {data.matching_count} matching players · {data.available_count} available overall · page {data.pool_page} of {data.pool_pages}
+						Showing {data.pool_page_start}–{data.pool_page_end} of {data.matching_count} {data.matching_count_noun} matching · {data.available_count} available overall · page {data.pool_page} of {data.pool_pages}
 					</p>
+					<div class="pool-labels mono" aria-hidden="true">
+						<span>RK</span>
+						<span>PLAYER</span>
+						<span>POS</span>
+						<span>PROJ</span>
+						<span>ACTION</span>
+					</div>
 				</If>
 				<div class="pool-list pool-list--tall">
 					<Each of={data.available} as="player">

@@ -479,6 +479,7 @@ func (s *Service) PlayersData(r *http.Request) map[string]any {
 		"players":            rows,
 		"players_empty":      pagination.Total == 0,
 		"pool_total":         pagination.Total,
+		"pool_total_noun":    Plural(pagination.Total, "player"),
 		"pool_page":          pagination.Page,
 		"pool_pages":         pagination.Pages,
 		"pool_page_size":     pagination.PageSize,
