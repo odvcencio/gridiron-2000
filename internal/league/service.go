@@ -5182,15 +5182,24 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 	if player.HouseRank > 0 {
 		houseRank = fmt.Sprintf("H%03d", player.HouseRank)
 	}
+	// detail is the pool/board row's own ONE-LINE summary — team, bye,
+	// injury only (wave 8 hotfix, item 1: "the news snippet is enlarging
+	// the cell and making it crazy"). player.News used to fold in here
+	// too; a real Tank01 headline runs 150-300 characters (the harness's
+	// offline pool's News strings are short, so this never showed up
+	// there), several lines longer than the row was ever laid out for.
+	// The headline is still carried below under "news"/"has_news" — every
+	// caller renders it inside its own stat-tip panel instead (a tap
+	// away), never back into this line. See public/styles.css's
+	// ".pool-player__text small" clamp for the belt-and-braces guard: no
+	// future caller stuffing a long string into an already-short "detail"
+	// can balloon a row again either.
 	detail := player.NFLTeam
 	if player.ByeWeek > 0 {
 		detail += fmt.Sprintf(" · BYE %d", player.ByeWeek)
 	}
 	if player.Injury != "" {
 		detail += " · " + player.Injury
-	}
-	if player.News != "" {
-		detail += " · " + player.News
 	}
 	jersey := ""
 	if player.Jersey != "" {
@@ -5210,7 +5219,8 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"id": player.ID, "name": player.Name, "position": player.Position, "nfl_team": player.NFLTeam,
 		"projection": fmt.Sprintf("%.1f", player.Projection),
 		"points":     fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
-		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
+		"has_news": player.News != "",
+		"rank":     rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,

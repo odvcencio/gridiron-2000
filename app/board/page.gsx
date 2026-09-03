@@ -46,6 +46,9 @@ func BoardRow(props BoardRowProps) Node {
 					<span class="mono">{props.Player.jersey}</span>
 					<span class="mono stat-tip__team">{props.Player.nfl_team}</span>
 				</div>
+				<If cond={props.Player.has_news}>
+					<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.Player.news}</p>
+				</If>
 				<If cond={props.Player.has_breakdown}>
 					<div class="stat-tip__rows">
 						<Each of={props.Player.breakdown} as="row">
@@ -342,6 +345,9 @@ func Page() Node {
 										<span class="mono">{player.jersey}</span>
 										<span class="mono stat-tip__team">{player.nfl_team}</span>
 									</div>
+									<If cond={player.has_news}>
+										<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p>
+									</If>
 									<If cond={player.has_breakdown}>
 										<div class="stat-tip__rows">
 											<Each of={player.breakdown} as="row">

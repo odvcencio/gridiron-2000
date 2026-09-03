@@ -14585,3 +14585,45 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
     border-bottom: 1px solid var(--color-border);
   }
 }
+
+/* hotfix — quince (wave 8, item 1): "the news snippet is enlarging the
+   cell and making it crazy". internal/league's playerMap already keeps
+   "detail" to team/bye/injury only and carries the news headline
+   separately (see its own doc comment); every .pool-player__text small
+   is a belt-and-braces guard on top of that, not the primary fix — a
+   caller that regresses to folding a long string back into an
+   already-short "detail" (or straight into the opponent/matchup line
+   right below it, same selector) still cannot balloon a row past one
+   line. text-overflow (not -webkit-line-clamp) is deliberate: a single
+   clamped line needs no -webkit-box display change, so the injury/bye
+   text this line already carries never reflows or clips mid-word before
+   the ellipsis lands — it just truncates at the row's own width, exactly
+   like every other single-line mono/pool cell in this file. */
+.pool-player__text small {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* stat-tip__news/stat-tip__label (wave 8, item 1): the labelled headline
+   line inside .stat-tip__panel that now carries what "detail" used to —
+   styled like the panel's own stat-tip__hist/stat-tip__hist-note pair
+   just above it in this file (border-top rule, muted secondary text),
+   with stat-tip__label as a small caps-mono tag ahead of the headline
+   text, matching stat-tip__team's own mono treatment in stat-tip__head. */
+.stat-tip__news {
+  margin: var(--space-xs) 0 0;
+  padding-top: var(--space-xs);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: var(--type-xs);
+  overflow-wrap: anywhere;
+}
+
+.stat-tip__label {
+  margin-right: var(--space-xs);
+  color: var(--color-text-muted);
+  font: 700 var(--type-2xs)/1 var(--font-mono);
+  letter-spacing: 0.06em;
+}
