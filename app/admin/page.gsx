@@ -331,6 +331,7 @@ func Page() Node {
 		</If>
 		<If cond={data.is_commissioner == false}>
 			<section class="player-pool">
+				<h1>Commissioner console</h1>
 				<div class="empty-tape">
 					<strong>RESTRICTED</strong>
 					<p>

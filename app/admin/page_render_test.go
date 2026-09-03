@@ -1561,6 +1561,17 @@ func TestAdminMastheadIsCommissionerOnlyFixtureProcess(t *testing.T) {
 			t.Errorf("non-commissioner admin render leaked masthead status %q: %s", leaked, body)
 		}
 	}
+	// Item 4 (2026-09-02 route-crawl finding — rowan): the commissioner-
+	// only masthead carries the page's only <h1>, gated behind
+	// data.is_commissioner — a non-commissioner viewer used to get the
+	// RESTRICTED panel with no <h1> anywhere on the page. The RESTRICTED
+	// branch now carries its own, so every viewer sees exactly one.
+	if got := strings.Count(body, "<h1>"); got != 1 {
+		t.Fatalf("non-commissioner admin render has %d <h1> elements, want exactly 1: %s", got, body)
+	}
+	if !strings.Contains(body, "<h1>Commissioner console</h1>") {
+		t.Fatalf("non-commissioner admin render missing the RESTRICTED branch's own <h1>Commissioner console</h1>: %s", body)
+	}
 }
 
 // renderAdminPageNonDemo mirrors renderAdminPage, but leaves DEMO_MODE at
