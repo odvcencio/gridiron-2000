@@ -5582,7 +5582,7 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"injury": player.Injury, "has_injury": player.Injury != "",
 		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
 		"detail_team_bye": detailTeamBye,
-		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
+		"headshot":        player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,
 		"breakdown":       breakdownRows,
