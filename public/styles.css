@@ -15235,7 +15235,7 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 
 @media (min-width: 56.25rem) {
   .guide-toc.scoring-jump-list {
-    max-height: 7rem;
+    max-height: 7.5rem;
     overflow: hidden;
     background: var(--color-canvas-deep);
   }
