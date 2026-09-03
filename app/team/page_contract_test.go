@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -559,7 +560,7 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 		"position": "RB", "name": "Bench Back", "nfl_team": "SF",
 		"has_group_header": true, "group_header": "RB",
 		"has_kickoff_label": true, "kickoff_label": "SUN 4:25 PM",
-		"has_bye_label": true, "bye_label": "BYE 9",
+		"has_bye_label": true, "bye_label": "bye wk 9",
 		"is_drafted": true, "drafted_label": "R6 · P70",
 	}}
 	cards := rosterRowProps(raw)
@@ -573,8 +574,8 @@ func TestRosterRowPropsCarriesWave7Fields(t *testing.T) {
 	if !card.HasKickoff || card.Kickoff != "SUN 4:25 PM" {
 		t.Errorf("card kickoff = %v/%q, want true/\"SUN 4:25 PM\"", card.HasKickoff, card.Kickoff)
 	}
-	if !card.HasBye || card.Bye != "BYE 9" {
-		t.Errorf("card bye = %v/%q, want true/\"BYE 9\"", card.HasBye, card.Bye)
+	if !card.HasBye || card.Bye != "bye wk 9" {
+		t.Errorf("card bye = %v/%q, want true/\"bye wk 9\"", card.HasBye, card.Bye)
 	}
 	if !card.HasDraftedLabel || card.DraftedLabel != "R6 · P70" {
 		t.Errorf("card drafted label = %v/%q, want true/\"R6 · P70\"", card.HasDraftedLabel, card.DraftedLabel)
@@ -745,6 +746,57 @@ func TestStarterSlotRendersNewsTipAndHouseRankChip(t *testing.T) {
 		if !strings.Contains(page, want) {
 			t.Errorf("starter slot render missing %q", want)
 		}
+	}
+}
+
+// TestRosterRowsRenderOneMergedScheduleLine covers wave-8 audit item 6:
+// a starter and a bench row used to each print TWO overlapping meta
+// lines — an unclassed <small> repeating position/team/opponent/matchup,
+// then .roster-row__schedule repeating team/opponent/kickoff/bye — for
+// example "QB · BAL · @ IND · 18th-toughest" immediately followed by
+// "BAL · @ IND · SUN 1:00 PM · BYE 13". Both render sites now print
+// exactly one .roster-row__schedule line apiece, with no second,
+// unclassed duplicate line.
+func TestRosterRowsRenderOneMergedScheduleLine(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if got := strings.Count(page, `<small class="roster-row__schedule mono">`); got != 2 {
+		t.Fatalf("roster-row__schedule lines = %d, want exactly 2 (one starter, one bench)", got)
+	}
+	// The old duplicate line was a bare, unclassed <small> that opened
+	// with the position and team ("{slot.position} · {slot.nfl_team}" /
+	// "{props.NFLTeam}" with no schedule/kickoff/bye fields at all,
+	// immediately followed by the classed schedule line) — that
+	// second, redundant <small> must be gone from both render sites.
+	bareDuplicate := regexp.MustCompile(`<small>\s*\{(slot\.position|props\.NFLTeam)\}`)
+	if loc := bareDuplicate.FindString(page); loc != "" {
+		t.Errorf("roster row still carries the old duplicate meta line: %q", loc)
+	}
+}
+
+// TestTeamHeroRecordGuardsStreakSeparator covers wave-8 audit item 6: the
+// hero record line's "· {streak}" segment must be gated on
+// has_team_streak, not print unconditionally — team.Streak reads the
+// unresolved "—" placeholder for the entire pre-season, and an
+// unconditional separator there printed a dangling "0.0 points scored ·
+// —" with nothing meaningful after the separator.
+func TestTeamHeroRecordGuardsStreakSeparator(t *testing.T) {
+	pageBytes, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(pageBytes)
+	if !strings.Contains(page, `<If cond={data.has_team_streak}>`) {
+		t.Fatal(`hero record line missing <If cond={data.has_team_streak}>`)
+	}
+	pointsAt := strings.Index(page, "points scored")
+	guardAt := strings.Index(page, `<If cond={data.has_team_streak}>`)
+	streakAt := strings.Index(page, "{data.team.streak}")
+	if pointsAt < 0 || guardAt < 0 || streakAt < 0 || !(pointsAt < guardAt && guardAt < streakAt) {
+		t.Fatalf("hero record line order = points:%d guard:%d streak:%d, want points scored, then the streak guard, then the streak value", pointsAt, guardAt, streakAt)
 	}
 }
 

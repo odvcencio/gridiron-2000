@@ -140,17 +140,6 @@ component RosterRow(props: RosterRowProps) {
 				<If cond={props.HasDraftedLabel}>
 					<span class="drafted-chip mono">{props.DraftedLabel}</span>
 				</If>
-				<small>
-					{props.NFLTeam}
-					<If cond={props.HasOpponent}>
-						·
-						{props.Opponent}
-						<If cond={props.HasMatchup}>
-							·
-							<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
-						</If>
-					</If>
-				</small>
 				<small class="roster-row__schedule mono">
 					{props.NFLTeam}
 					<If cond={props.HasOpponent}>
@@ -160,6 +149,10 @@ component RosterRow(props: RosterRowProps) {
 					<If cond={props.HasKickoff}>
 						·
 						{props.Kickoff}
+					</If>
+					<If cond={props.HasMatchup}>
+						·
+						<span class="matchup-chip" data-matchup-tier={props.MatchupTier}>{props.MatchupChip}</span>
 					</If>
 					<If cond={props.HasBye}>
 						·
@@ -330,8 +323,11 @@ func Page() Node {
 				<strong class="mono">{data.team.record}</strong>
 				<small>
 					{data.team.points_for}
-					points scored ·
-					{data.team.streak}
+					points scored
+					<If cond={data.has_team_streak}>
+						·
+						{data.team.streak}
+					</If>
 					</small>
 				</div>
 			</section>
@@ -761,20 +757,9 @@ func TeamLineupRegion() Node {
 												<If cond={slot.is_drafted}>
 													<span class="drafted-chip mono">{slot.drafted_label}</span>
 												</If>
-												<small>
+												<small class="roster-row__schedule mono">
 													{slot.position}
 													·
-													{slot.nfl_team}
-													<If cond={slot.has_opponent}>
-														·
-														{slot.opponent}
-														<If cond={slot.has_matchup}>
-															·
-															<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
-														</If>
-													</If>
-												</small>
-												<small class="roster-row__schedule mono">
 													{slot.nfl_team}
 													<If cond={slot.has_opponent}>
 														·
@@ -783,6 +768,10 @@ func TeamLineupRegion() Node {
 													<If cond={slot.has_kickoff_label}>
 														·
 														{slot.kickoff_label}
+													</If>
+													<If cond={slot.has_matchup}>
+														·
+														<span class="matchup-chip" data-matchup-tier={slot.matchup_tier}>{slot.matchup_chip}</span>
 													</If>
 													<If cond={slot.has_bye_label}>
 														·

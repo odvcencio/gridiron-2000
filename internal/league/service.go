@@ -2502,6 +2502,16 @@ func (s *Service) teamData(r *http.Request, readOnly bool) map[string]any {
 		"lineup_intervention":           lineupTarget.Intervention,
 		"lineup_target_id":              lineupTarget.TeamID,
 		"team":                          teamMap,
+		// has_team_streak (wave-8 audit item 6) guards the hero record
+		// line's own "· {streak}" segment: team.Streak reads the em-dash
+		// placeholder "—" (defaultTeams', computeStreak's own "no results
+		// yet" case) before any week has closed, and printing "· —" right
+		// after the points-scored figure read as a dangling separator with
+		// nothing behind it, not the honest "no streak yet" the plain dash
+		// means everywhere else in this app. Computed here, not inside the
+		// shared teamMap (every other teamMap caller — standings, matchup
+		// cards — has no equivalent "· {streak}" segment to guard).
+		"has_team_streak": strings.TrimSpace(team.Streak) != "" && team.Streak != "—",
 		// drafted is retained as a compatibility alias for the old template contract; lifecycle truth lives in team_terminal_phase and its explicit booleans below.
 		"drafted":              lifecycle.DraftComplete,
 		"predraft_visible":     !lineupTarget.Intervention && !state.DraftStarted && (strings.TrimSpace(team.Manager) != "" || s.demoMode),
@@ -2868,7 +2878,9 @@ func addScheduleLabels(rows []map[string]any, players []Player, games []GameInfo
 		row["has_kickoff_label"] = kickoffLabel != ""
 		byeLabel := ""
 		if player.ByeWeek > 0 {
-			byeLabel = fmt.Sprintf("BYE %d", player.ByeWeek)
+			// "bye wk N" (wave-8 audit item 6), matching starterRowMaps'
+			// own bye_label wording — see that function's doc comment.
+			byeLabel = fmt.Sprintf("bye wk %d", player.ByeWeek)
 		}
 		row["bye_label"] = byeLabel
 		row["has_bye_label"] = byeLabel != ""

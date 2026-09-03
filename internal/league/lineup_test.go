@@ -1179,8 +1179,8 @@ func TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels(t *testing.T) {
 	if rows[1]["has_kickoff_label"] != false {
 		t.Fatalf("bye QB2 row has_kickoff_label = %v, want false (TB has no week-1 game)", rows[1]["has_kickoff_label"])
 	}
-	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "BYE 1" {
-		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"BYE 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
+	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "bye wk 1" {
+		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"bye wk 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
 	}
 }
 
