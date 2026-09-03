@@ -7,6 +7,21 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 No changes yet.
 
+## [release-2026.09.03-38f998b-sweep5] — 2026-09-03
+
+Scope: the fifth sweep release — the draft room's residue from the re-audit.
+Rolled as revision 102; no schema change.
+
+### Fixed
+- The draft room's pool search hides non-matching rows and reports the true count, and works as a plain form without JavaScript.
+- The phone countdown shows the full time to the draft; the notice banner keeps one line with a Details disclosure.
+- Before the draft starts, the live region, the grid's next-pick cell, and the commissioner drawer all say the draft has not started.
+- The rank shows on phones as a chip before the name; the two ranks are separated; the RK header describes the active sort.
+- Draft grid team headers ellipsize; the commissioner drawer reads in plain words.
+- /players shows five rows per phone screen with the injury note in the stat tip; news icons are 44 px targets on every surface; /board rows share one height.
+- A stylesheet merge that dropped a closing brace is guarded by a brace-balance test.
+
+
 ## [release-2026.09.03-577fd49-sweep4] — 2026-09-03
 
 Scope: the fourth sweep release — the manager loop surfaces from the comb

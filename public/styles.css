@@ -12435,6 +12435,28 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   background: var(--color-canvas);
 }
 
+/* comb — oleander, item 6: the D13 comment above describes
+   .board-grid__code/.board-grid__fullname as DIRECT children of
+   .board-grid__team's own column flex — true when this was written, but
+   the current markup (page.gsx) wraps both inside one extra
+   .board-grid__name span first. .board-grid__code/.board-grid__fullname
+   are therefore grandchildren of the flex column, never blockified by
+   it, and .board-grid__name itself carried no layout rules of its own
+   (a plain shrink-to-fit inline span) — a real league's own longer team
+   names hard-clipped mid-character with NO ellipsis on 6 of 8 columns
+   (text-overflow: ellipsis is a no-op on a true inline box; see
+   .board-grid__fullname's own display: block, below, for the other
+   half of this fix). Giving .board-grid__name its own column flex
+   (matching its parent) restores the intended two-line stack and gives
+   .board-grid__fullname a definite, full-width containing block to
+   ellipsize against. */
+.board-grid__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+}
+
 .board-grid__code {
   font-weight: 700;
 }
@@ -12450,8 +12472,14 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
    that a real league's genuinely long, sometimes unbroken ("DeBÍ TiRAR
    MáS…" style) team name has a fallback if a single word alone still
    cannot fit: text-overflow: ellipsis needs overflow: hidden and
-   white-space: nowrap, both already true of a single flexible line here. */
+   white-space: nowrap, both already true of a single flexible line here.
+   comb — oleander, item 6: display: block is the missing piece —
+   text-overflow has no effect at all on a true inline box (the <span>
+   default this rule never overrode), which is why 6 of 8 team names
+   still hard-clipped mid-character with no "…" despite every other
+   property here already being correct. */
 .board-grid__fullname {
+  display: block;
   overflow: hidden;
   max-width: 100%;
   color: var(--color-text-secondary);
@@ -14576,11 +14604,22 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
      pattern .draft-command__pick/.draft-command__team both already use
      above) leaves only the digits; the fixed basis plus overflow: hidden
      below is the hard backstop if a future countdown format still runs
-     long (a 3+ digit day count, "999d…"). */
+     long (a 3+ digit day count, "999d…").
+     comb — oleander, item 2: the fixed 5rem (80px) cap this fix picked
+     was still too narrow for the digits ALONE — "3d 13:26:42" needs
+     ~111px live at this font-size/padding, so a 61.9px content box (80px
+     minus the horizontal padding) ellipsized to "3d 13…", the one thing
+     a manager opens this clock to actually read. min-width: max-content
+     keeps the D1/D2 fix's real goal (idx hidden, .draft-command__turn is
+     still the row's one shrinkable track and absorbs the difference —
+     its own children are already ellipsis-protected for exactly this)
+     while letting the box grow to whatever the digits alone need; max-
+     width is a generous, not tight, backstop for a "999d…" edge case
+     that should never make the row wrap or push the MENU toggle off. */
   .draft-command__clock {
-    flex: 0 0 5rem;
-    min-width: 0;
-    max-width: 5rem;
+    flex: 0 0 auto;
+    min-width: max-content;
+    max-width: 9rem;
     overflow: hidden;
     padding: 0.2rem var(--space-xs);
     animation: none;
@@ -16092,6 +16131,286 @@ a.skip-link {
 .my-matchup__team > div,
 .matchup-team-line__manager {
   flex: 1 1 0;
+}
+
+/* comb — oleander */
+
+/* Item 1 (2026-09-02 audit): the available pane's client-side search
+   (data-gosx-filter, DraftAvailableHead) already toggled
+   gosx-filter-row--hidden on every non-matching row and announced a
+   true "N of M shown" count through the shared live region — but the
+   shared hidden-row rule above only ever covered .pool-row (/players'
+   own row class), so every .avail-row it marked hidden stayed painted:
+   the announcement said "0 of 50 shown" while all 50 rows kept
+   rendering. This is the missing half of that same rule for the draft
+   room's own row class; the no-JS GET fallback (DraftAvailableHead's
+   own <form>, page.gsx) narrows the actual <tr> set server-side and
+   needs no CSS at all. */
+.avail-row.gosx-filter-row--hidden {
+  display: none;
+}
+
+/* The no-JS search form (page.gsx's DraftAvailableHead) wraps the
+   existing #draft-search input for one reason only — a real <form> to
+   submit — and must not become a second flex layer inside
+   .draft-available-head's own flex row: a nested display: flex box here
+   measured its own automatic minimum width differently than the bare
+   input it replaced, grabbing the free space three siblings (search,
+   chips, sort) used to share and pushing the sort toggle onto a second
+   line — at the narrow-height landscape query below this added 57px to
+   the pane head and took it straight out of the pool pane's own body
+   (TestBrowserDraftPillLandscape844x390: .draft-pane__body fell from
+   113.4px to 56.4px). display: contents removes the form's own box
+   entirely; its children (#draft-search, already flex: 1 1 12rem via
+   the .draft-search rule above, and the Search button) become direct
+   flex items of .draft-available-head again, exactly like the bare
+   input before this item, while the element still submits as a form. */
+.draft-search-form {
+  display: contents;
+}
+
+/* The extreme-aspect landscape query (width <= 56.1875rem, height <=
+   28rem — 844x390 measured) tuned .draft-available-head to fit search +
+   chips + sort on one 44px row with the bare input; the Search button
+   (now a direct flex sibling of that same row via display: contents
+   above) is the one piece safe to drop at this exact breakpoint only —
+   Enter already submits the form (a type="submit" control still
+   triggers a form's implicit submission while display: none), so the
+   no-JS path stays intact and only the extra visible width goes away. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .draft-search-form button {
+    display: none;
+  }
+}
+
+/* Item 4 (2026-09-02 audit): the pool-status notice banner
+   (.demo-message.draft-command__banner, page.gsx — "CACHED SNAPSHOT:",
+   "OFFLINE PLAYER LIST:", etc.) is label + a full detail sentence +
+   (when known) a second "LAST SUCCESS · <time>" line — real content, not
+   filler. The phone-width 2-line mask clamp above (12766) was tuned for
+   the OTHER banner variant (a single short sentence with a title=
+   tooltip as its only phone fallback); against THIS variant's longer
+   text it cut the detail sentence off mid-word ("...while") before
+   reaching LAST SUCCESS at all, with no way to read the rest on a
+   device with no hover. .draft-command__banner-line is now the one
+   guaranteed visible line (ellipsized, not faded, so a truncated line
+   reads as truncated); .draft-command__banner-details holds the same
+   detail sentence in full plus LAST SUCCESS, closed by default behind
+   an explicit tap-to-open "Details" — real disclosure, not a hover a
+   phone cannot reach. Two classes beats the shared rule's one on
+   specificity, so this wins without touching that rule's own, still-
+   correct behavior for the plain single-sentence banner. */
+.demo-message.draft-command__banner {
+  /* width: 100% (not the base rule's implicit shrink-to-fit) is load-
+     bearing, not cosmetic: .draft-command__inner is a wrapping flex row,
+     and the base .draft-command__banner rule never needed an explicit
+     width of its own because its ONLY content used white-space: normal
+     — wrapping content's own shrink-to-fit calculation already resolves
+     to the available row width whenever its unwrapped preferred width
+     exceeds it. .draft-command__banner-line's white-space: nowrap
+     (below) breaks that: a nowrap child's min-content and max-content
+     are equal (the full unwrapped line), so the flex item's own shrink-
+     to-fit size follows that child to the SAME width, undoing the
+     child's own overflow: hidden/text-overflow: ellipsis entirely (the
+     line never gets its own clipping width to obey) and pushing the
+     whole page 1344px wide at 390px. An explicit 100% here gives every
+     descendant a real, definite containing block to clip against. */
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* .draft-command__banner-row keeps the summary line and the "Details"
+   toggle on one row while closed (flex-wrap: wrap plus the [open] rule
+   below is what lets Details claim its own full-width row once opened,
+   instead of squeezing its paragraph content into a narrow column
+   beside the summary line). */
+.draft-command__banner-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-xs);
+  width: 100%;
+}
+
+.draft-command__banner-line {
+  /* flex-basis 0, not auto (the same "one true elastic track" pattern
+     .draft-command__turn uses, above): auto would use the nowrap text's
+     own full UNWRAPPED width as its hypothetical size for the wrapping
+     row's own line-fitting pass, which already exceeds the whole row on
+     its own — the row then gave this item the entire first line by
+     itself (shrunk to fit) and pushed .draft-command__banner-details to
+     a second line with nothing left to share. Basis 0 starts this item
+     at zero and lets flex-grow claim only the space .draft-command__
+     banner-details (flex: 0 0 auto) does not need, keeping both on one
+     line while closed. */
+  flex: 1 1 0;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.draft-command__banner-details {
+  flex: 0 0 auto;
+}
+
+/* Open: the summary alone no longer describes the box's content, so it
+   drops to its own full-width row (flex-basis: 100% inside the wrapping
+   row above) and its paragraph/LAST SUCCESS content lays out at the
+   banner's own full width instead of a narrow column next to the line. */
+.draft-command__banner-details[open] {
+  flex: 1 1 100%;
+}
+
+.draft-command__banner-details summary {
+  cursor: pointer;
+  color: var(--color-text-muted);
+  font-size: var(--type-xs);
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+}
+
+.draft-command__banner-details summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 0.25rem;
+}
+
+.draft-command__banner-details p {
+  margin: var(--space-xs) 0;
+}
+
+/* The extreme-aspect landscape query (width <= 56.1875rem, height <=
+   28rem — 844x390 measured, the same breakpoint item 1's Search button
+   fix above already trims) squeezes the banner into the SAME 44px row
+   as the pill (.draft-command__banner's own flex: 1 1 auto, above), no
+   room of its own at all. The Details toggle's touch-target floor
+   (.site-frame summary, 44px) does not fit that budget twice over; the
+   one summary line stays (still real information, still readable), and
+   Details — real, but genuinely optional at this extreme aspect — is
+   the one piece dropped, the same trade-off item 1's Search button and
+   the base preflight/legend rules already made at this exact query. */
+@media (width <= 56.1875rem) and (height <= 28rem) {
+  .draft-command__banner-details {
+    display: none;
+  }
+}
+
+/* Item 5 (2026-09-02 audit): .avail-row > :first-child (above, 12993)
+   drops the whole RK column at phone width — the row's own market
+   position in the list still orients a scrolling manager, but the
+   ACTIVE rank (H### under HOUSE sort, market rank under ADP) is real,
+   useful information a manager reading a compact row still wants, not
+   merely decorative. .avail-row__rank-chip (AvailRowRank, page.gsx) is
+   the same rank, rendered a second time inline before the name — hidden
+   everywhere the RK column is visible (no double reporting), shown only
+   where the RK column just went away. */
+.avail-row__rank-chip {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .avail-row__rank-chip {
+    display: inline-block;
+    margin-right: var(--space-xs);
+    padding: 0 0.3em;
+    border-radius: var(--radius-sm);
+    background: var(--color-white-faint);
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    line-height: 1.4;
+    vertical-align: baseline;
+  }
+
+  /* .house-rank's own base rule (5352) stacks the secondary rank on its
+     own block line — correct for the RK column's two-line cell, wrong
+     for this one-line chip, where both ranks (and the space item 5 also
+     added between them, AvailRowRank) read left to right instead. */
+  .avail-row__rank-chip .house-rank {
+    display: inline;
+    margin-top: 0;
+    opacity: 1;
+  }
+}
+
+/* Item 8 (2026-09-02 audit): fern's own item-1 fix (above, "Item 1 (row
+   height)") trimmed .pool-row/.pool-row--status to two real text lines
+   at phone width and measured a compact card against the harness's own
+   fixture data — but that fixture's own short/empty Injury strings and
+   always-open signing window never exercised .control-locked__reason
+   (app/players/page.gsx), the disabled SIGN button's own explanatory
+   line ("Roster moves open after the draft."), which paints a real
+   third text row on EVERY player before the draft opens (or during any
+   other locked window) on a real league. The identical text is still
+   reachable — the disabled button's own title attribute already carries
+   it — so this is safe to drop rather than merely truncate; the
+   disabled visual state itself already tells a manager the control is
+   unavailable. Tightening this row's own padding/row-gap on top (0.3rem,
+   not 0.4rem) recovers the last few pixels fern's own trim left on the
+   table once the reason line's own row no longer needs the room. */
+@media (width <= 38rem) {
+  .board-page .control-locked__reason {
+    display: none;
+  }
+
+  .board-page .pool-row,
+  .board-page .pool-row--status {
+    padding: 0.3rem var(--space-sm);
+    row-gap: 0.3rem;
+  }
+}
+
+/* Item 9 (2026-09-02 audit): .stat-tip__summary--news's own min-width:
+   var(--control-h) (44px, above) lost to the shared touch-target-floor
+   sweep's own ".site-frame summary:not(...)" rule (public/styles.css,
+   the "(pointer: coarse), (hover: none), (max-width: 38rem)" query) —
+   six :not() classes plus an element gives that rule (0,6,1)
+   specificity, well past this one's plain (0,1,0), so its own
+   min-width: 0 reset won even though it comes first in source order.
+   The query's OWN condition is not phone-width-only — "(hover: none)"
+   alone is true on any touch-primary device regardless of window width
+   (a tablet or touch laptop at a "desktop" viewport), which is exactly
+   how the audit measured this short on BOTH /players (21.8x44) and
+   /draft (19.9x44) rather than only at narrow widths. #main-content's
+   ID gives this re-assert enough specificity to win honestly, the same
+   technique the sweep's own .lineup-week-form/.draft-command__pill-
+   caret/.position-filters re-asserts already use elsewhere in this
+   file, with no !important needed. */
+#main-content .stat-tip__summary--news {
+  min-width: var(--control-h);
+  min-height: var(--control-h);
+}
+
+/* Item 10 (2026-09-02 audit, LOW): /board's own news-icon trigger used
+   to be a conditional flex ITEM of .pool-player-cell (the identity
+   stat-tip's own flex: 1 1 auto sibling) — present only when
+   player.has_news, so a row without news had no sibling at all and its
+   identity stat-tip grew to fill the whole cell alone, while a row WITH
+   news gave up 44px to the icon. Name-column width (.pool-player__text)
+   differed row to row purely because of has_news, measuring 104.7px on
+   some real rows at 1280px, short of the 120px floor every other row
+   held. .pool-player-cell__info (page.gsx) is now an ALWAYS-rendered
+   slot — the same fixed-info-column shape /draft's own
+   <td class="avail-row__info"> already holds regardless of content —
+   so every row's name column is the identical width whether or not
+   that row has news. */
+.pool-player-cell__info {
+  flex: 0 0 2.75rem;
+  min-width: 0;
+  width: 2.75rem;
+}
+
+/* POS chip vs PROJ header alignment (item 10, LOW): the position chip's
+   own fixed grid/inline-grid size (.position-chip, above) is 40px tall
+   in a 36px-tall header row, overhanging the header by 4px at the
+   PROJ column boundary — align the chip to the same 36px the row's
+   other single-line cells already use rather than its own larger
+   default. */
+.pool-row > .position-chip {
+  min-height: 2.25rem;
 }
 
 /* comb — sumac */

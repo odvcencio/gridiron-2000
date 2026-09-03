@@ -264,7 +264,16 @@ func (s *Service) DraftHistory(state PersistedState, viewer string) DraftHistory
 			number := boardCellNumber(round, column, teamCount)
 			cell := BoardCell{
 				Round: round, Column: column, Number: number, Label: pickLabel(number, teamCount),
-				Mine: viewer != "" && column == viewerColumn, OnClock: !complete && number == next,
+				// comb — oleander, item 3: OnClock used to read !complete &&
+				// number == next with no check for state.DraftStarted, so
+				// cell 1.01 painted "on the clock" before the commissioner
+				// ever opened the room — next is always pick 1 pre-draft
+				// (len(state.Picks)+1 with zero picks made), the same
+				// number this cell would legitimately hold once the draft
+				// is actually running. Requiring DraftStarted keeps every
+				// pre-draft cell reading its plain pick label ("1.01")
+				// instead of a false "on the clock."
+				Mine: viewer != "" && column == viewerColumn, OnClock: state.DraftStarted && !complete && number == next,
 			}
 			if number <= len(state.Picks) {
 				pick := state.Picks[number-1]

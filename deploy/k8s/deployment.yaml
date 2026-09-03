@@ -30,13 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-577fd49-sweep4; built from
-          # 577fd49 (main, 2026-09-03): sweep release 4 — trade
-          # partner chips use real team names, /matchups projects before
-          # kickoff, ledger prose, /team rows carry news and house rank,
-          # VIEW MATCHUP out of the scroller, plain-language chips. No
-          # schema change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fd15c59e8c1afbcccc3fa11edbe86ebd870f2158fefdb1c8c1146310097d2cea
+          # release-2026.09.03-38f998b-sweep5; built from
+          # 38f998b (main, 2026-09-03): sweep release 5 — draft room
+          # residue: a real pool search, readable phone countdown, honest
+          # pre-draft status everywhere, banner details, rank chip on
+          # phones, grid header ellipsis, plain drawer copy, 5 pool rows
+          # per phone screen, 44 px news targets, one-height board rows.
+          # No schema change: `rollout undo` to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:0e713b570f1d48e6aa298e040a0d971b586941dadd66678f8450b058cb72d5b3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

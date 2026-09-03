@@ -37,7 +37,7 @@ func Page() Node {
 					<span class="signal-mark" aria-hidden="true"></span>
 					PLAYER POOL
 				</span>
-				<h1>PLAYER POOL.</h1>
+				<h1>PLAYER POOL</h1>
 				<p>
 					Every pool player, rostered or free. Sign a free agent, claim a waiver, or drop one of your own — the transaction feed records every move.
 				</p>
@@ -332,7 +332,16 @@ func PlayerPoolRegion() Node {
 							<If cond={player.has_draft_capital}>
 								<span class="badge-rookie">{player.draft_capital}</span>
 							</If>
-							<small>{player.detail}</small>
+							{/* comb — oleander, item 8: detail_team_bye (team +
+							    bye, no injury), not the old "detail" — a real
+							    injury designation ("Questionable - Ankle")
+							    pushed this line past one line's height on
+							    real data, re-growing the phone card past its
+							    own budget. The injury itself is not gone; it
+							    now renders inside the primary tip panel
+							    below (has_injury), reachable with one tap
+							    instead of always inline. */}
+							<small>{player.detail_team_bye}</small>
 							<If cond={player.has_opponent}>
 								<small class="mono">
 									{player.opponent}
@@ -350,6 +359,9 @@ func PlayerPoolRegion() Node {
 								<span class="mono">{player.position}</span>
 								<span class="mono stat-tip__team">{player.nfl_team}</span>
 							</div>
+							<If cond={player.has_injury}>
+								<p class="stat-tip__hist-note">{player.injury}</p>
+							</If>
 							<div class="stat-tip__rows">
 								<div class="stat-tip__row">
 									<span>Projection</span>
