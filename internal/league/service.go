@@ -3622,6 +3622,31 @@ func (s *Service) MakePick(r *http.Request, requestedTeam, playerID string) (Dra
 	if !draftCandidateKeepsRosterViable(state, pool.byID, teamID, playerID) {
 		return DraftPick{}, Player{}, Team{}, fmt.Errorf("choose a player who keeps every required starter slot fillable")
 	}
+	// Scarcity guard (rules-audit item 3): autopickChoice already refuses
+	// a scarcity-blocked candidate (draftclock.go's positionScarcityBlocksCandidate),
+	// but MakePick — the manual-pick path — never consulted it, so a
+	// manager who covered their own requirement for a scarce position
+	// (say, punter) could freely keep drafting more of them while a peer
+	// seat had not yet drafted even one, with no guard and no warning.
+	// Applying the identical guard here, with the identical picked/preset/
+	// otherTeamIDs construction autopickChoice uses, closes that gap for
+	// every manual pick the same way autopick was already protected.
+	{
+		picked := make(map[string]bool, len(state.Picks))
+		for _, existing := range state.Picks {
+			picked[existing.PlayerID] = true
+		}
+		preset := CurrentRoster()
+		otherTeamIDs := make([]string, 0, len(s.Teams()))
+		for _, team := range s.Teams() {
+			if team.ID != teamID {
+				otherTeamIDs = append(otherTeamIDs, team.ID)
+			}
+		}
+		if blocked, supply, stillMissing := positionScarcityDetail(state, pool, picked, preset, teamID, player.Position, otherTeamIDs); blocked {
+			return DraftPick{}, Player{}, Team{}, fmt.Errorf("%s", positionScarcityMessage(player.Position, supply, stillMissing))
+		}
+	}
 	// The pick and its clock reset land in one store transaction (section
 	// 4.6 of the pick-clock spec). A paused clock stays unarmed after the
 	// pick — pause freezes the timer, not the draft — and the final pick
