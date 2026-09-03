@@ -18,6 +18,7 @@ func BoardRow(props BoardRowProps) Node {
 	return <article class="board-row" data-picked={props.Player.picked} data-gosx-reorder-item={props.Player.id}>
 		<span class="board-row__handle" data-gosx-reorder-handle aria-label={"Reorder " + props.Player.name}>⠿</span>
 		<span class="pool-rank mono">{props.Player.board_rank}</span>
+		<span class="pool-player-cell">
 		<details class="stat-tip">
 			<summary class="pool-player pool-player--photo stat-tip__summary">
 			<If cond={props.Player.has_headshot}>
@@ -73,6 +74,18 @@ func BoardRow(props BoardRowProps) Node {
 				</If>
 			</div>
 		</details>
+		<If cond={props.Player.has_news}>
+			<details class="stat-tip stat-tip--news">
+				<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + props.Player.name}>📰</summary>
+				<div class="stat-tip__panel">
+					<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {props.Player.news}</p>
+					<If cond={props.Player.has_injury}>
+						<p class="stat-tip__hist-note">{props.Player.injury}</p>
+					</If>
+				</div>
+			</details>
+		</If>
+		</span>
 		<span class="position-chip">{props.Player.position}</span>
 		<b class="mono">{props.Player.projection}</b>
 		<div class="board-controls">
@@ -314,6 +327,7 @@ func Page() Node {
 					<Each of={data.available} as="player">
 						<article class="pool-row" data-player-position={player.position}>
 							<span class="pool-rank mono">{player.rank}</span>
+							<span class="pool-player-cell">
 							<details class="stat-tip">
 								<summary class="pool-player pool-player--photo stat-tip__summary">
 								<If cond={player.has_headshot}>
@@ -369,6 +383,18 @@ func Page() Node {
 									</If>
 								</div>
 							</details>
+							<If cond={player.has_news}>
+								<details class="stat-tip stat-tip--news">
+									<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.name}>📰</summary>
+									<div class="stat-tip__panel">
+										<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p>
+										<If cond={player.has_injury}>
+											<p class="stat-tip__hist-note">{player.injury}</p>
+										</If>
+									</div>
+								</details>
+							</If>
+							</span>
 							<span class="position-chip">{player.position}</span>
 							<b class="mono">{player.projection}</b>
 							<form method="post" action={actionPath("board-add")} data-gosx-managed="true">

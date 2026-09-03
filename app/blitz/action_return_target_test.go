@@ -27,6 +27,10 @@ func TestBlitzRedirectTargetKeepsSlateAndEntryBuilder(t *testing.T) {
 	}
 }
 
+// TestBlitzManagedSuccessHostileReturnTargetFallsBackAndOmitsReservedValue
+// also pins actionui's wave 8 hotfix (item 2): the fallback a managed
+// request lands on now drops its own "#blitz-entry" anchor too — see
+// internal/actionui/feedback.go's doc comment.
 func TestBlitzManagedSuccessHostileReturnTargetFallsBackAndOmitsReservedValue(t *testing.T) {
 	values := url.Values{
 		action.ReturnTargetField: {"https://evil.example/steal"},
@@ -52,9 +56,9 @@ func TestBlitzManagedSuccessHostileReturnTargetFallsBackAndOmitsReservedValue(t 
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	want := "/blitz?slate=pre2#blitz-entry"
+	want := "/blitz?slate=pre2"
 	if !result.OK || result.Redirect != want || result.Message != "Entry saved." {
-		t.Fatalf("managed result = %+v, want bounded slate target %q", result, want)
+		t.Fatalf("managed result = %+v, want fragment-free bounded slate target %q", result, want)
 	}
 	if _, ok := result.Values[action.ReturnTargetField]; ok {
 		t.Fatalf("reserved return target leaked into managed values: %#v", result.Values)

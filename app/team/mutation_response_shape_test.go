@@ -17,13 +17,21 @@ import (
 // ctx.Success, so the slot kept showing the old starter until a manual
 // reload. lineupMutationSuccess must now redirect for both native and
 // managed callers, matching the working team-rename/notification-set shape.
+//
+// The managed case's own target now drops "#lineup" (wave 8 hotfix, item
+// 2, commissioner: "moving players on my big board doesn't feel
+// interactive, it resets the scroll" — actionui.RedirectWithNotice always
+// answers a managed request with a fragment-free target; a plain native
+// request still lands on the anchor, matching a full page navigation's
+// own existing, wanted behavior).
 func TestLineupMutationSuccessAlwaysRedirects(t *testing.T) {
 	for _, tt := range []struct {
-		name   string
-		accept string
+		name       string
+		accept     string
+		wantTarget string
 	}{
-		{name: "native", accept: ""},
-		{name: "managed", accept: "application/json"},
+		{name: "native", accept: "", wantTarget: "/team?week=2#lineup"},
+		{name: "managed", accept: "application/json", wantTarget: "/team?week=2"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/team/__actions/lineup-set", nil)
@@ -41,7 +49,7 @@ func TestLineupMutationSuccessAlwaysRedirects(t *testing.T) {
 			if response.Code != http.StatusSeeOther {
 				t.Fatalf("status = %d, want 303", response.Code)
 			}
-			wantTarget := "/team?week=2#lineup"
+			wantTarget := tt.wantTarget
 			if tt.accept == "" {
 				// Native GoSX writes an http.Redirect Location header without a
 				// session store attached (shouldFlashRedirect requires one), so

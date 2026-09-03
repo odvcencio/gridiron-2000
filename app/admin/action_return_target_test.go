@@ -174,7 +174,14 @@ func TestAdminSectionTargetsCarrySectionQueryAndAnchor(t *testing.T) {
 	}
 }
 
-func TestAdminDraftOrderRedirectBackUsesSubmittedAnchorManaged(t *testing.T) {
+// TestAdminDraftOrderRedirectBackStripsTheAnchorManaged pins actionui's
+// own wave 8 hotfix (item 2, commissioner: "moving players on my big
+// board doesn't feel interactive, it resets the scroll"): a managed
+// request's RedirectBackWithNotice always answers with the fragment-free
+// fallback — adminSectionTarget's own "#admin-draft-order" — never the
+// submitted return_to's own anchor. See internal/actionui/feedback.go's
+// doc comment for the full mechanism.
+func TestAdminDraftOrderRedirectBackStripsTheAnchorManaged(t *testing.T) {
 	returnTarget := adminSectionTarget("draft-order")
 	values := url.Values{
 		action.ReturnTargetField: {returnTarget},
@@ -201,8 +208,9 @@ func TestAdminDraftOrderRedirectBackUsesSubmittedAnchorManaged(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || result.Message != "Order drawn." || result.Redirect != returnTarget {
-		t.Fatalf("result = %+v, want managed draft-order target %q", result, returnTarget)
+	const wantRedirect = "/admin?section=draft-order"
+	if !result.OK || result.Message != "Order drawn." || result.Redirect != wantRedirect {
+		t.Fatalf("result = %+v, want fragment-free managed draft-order target %q", result, wantRedirect)
 	}
 	if _, ok := result.Values[action.ReturnTargetField]; ok {
 		t.Fatalf("reserved return target leaked into managed values: %#v", result.Values)

@@ -21,6 +21,24 @@ type DraftPlayerCard struct {
 	HasHouseRank bool
 	HouseRank    string
 	Detail       string
+	// News/HasNews back the legacy DraftQueue pool row's stat-tip panel
+	// headline (wave 8 hotfix, item 1 — mirrors board.BoardRowProps'
+	// player.news/has_news, sourced from the same playerMap "news"/
+	// "has_news" keys, service.go). Detail itself never carries the
+	// headline (playerMap's own doc comment on "detail"): a caller that
+	// wires draftPlayerCardView (page.server.go, not a page.gsx concern)
+	// must populate these two from the identical map keys for the panel
+	// line below to render live data; both stay their zero value (empty/
+	// false, no panel line) until that population lands.
+	News    string
+	HasNews bool
+	// Injury/HasInjury back the news stat-tip's own secondary line (wave
+	// 8 hotfix, item 1 design revision — "the injury note if any"
+	// alongside the headline), sourced from playerMap's own "injury"/
+	// "has_injury" keys (service.go, the same follow-up wiring gap News/
+	// HasNews's own doc comment above describes).
+	Injury          string
+	HasInjury       bool
 	Headshot        string
 	HasHeadshot     bool
 	Jersey          string
@@ -133,6 +151,7 @@ func DraftQueue(props DraftQueueProps) Node {
 			<Each of={props.Players} as="player">
 				<article class="pool-row" data-player-position={player.Position} data-search={player.Search}>
 					<span class="pool-rank mono">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
+					<span class="pool-player-cell">
 					<details class="stat-tip">
 						<summary class="pool-player pool-player--photo stat-tip__summary">
 						<If cond={player.HasHeadshot}>
@@ -188,6 +207,18 @@ func DraftQueue(props DraftQueueProps) Node {
 							</If>
 						</div>
 					</details>
+					<If cond={player.HasNews}>
+						<details class="stat-tip stat-tip--news">
+							<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary>
+							<div class="stat-tip__panel">
+								<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p>
+								<If cond={player.HasInjury}>
+									<p class="stat-tip__hist-note">{player.Injury}</p>
+								</If>
+							</div>
+						</details>
+					</If>
+					</span>
 					<span class="position-chip">{player.Position}</span>
 					<b class="mono">{player.Projection}</b>
 					<If cond={props.HasSeat}>
@@ -661,11 +692,7 @@ func DraftRoom(props DraftRoomProps) Node {
 		<section class="draft-order-strip">
 			<header>
 				<If cond={props.Data.draft.complete == false}>
-				<span class="section-index">
-					ROUND
-					{props.Data.round}
-					// SNAKE ORDER
-				</span>
+				<span class="section-index">ROUND {props.Data.round} // SNAKE ORDER</span>
 				<span class="mono">
 					ON CLOCK:
 					{props.Data.on_clock.abbreviation}
@@ -2340,13 +2367,13 @@ type DraftHistoryBoardTeamsLedgerProps struct {
 	Teams     []TeamColumn
 }
 
+// Item 3 (wave-7 re-audit — yew): results-board-scroll (shared with
+// /draft/results, same class, public/styles.css) makes this the grid's
+// own bounded, both-axes scroll container — see DraftBoard's own doc
+// comment below for why a single-axis-only, unbounded wrapper broke both
+// of the grid's sticky headers.
 func DraftHistoryBoardTeamsLedger(props DraftHistoryBoardTeamsLedgerProps) Node {
 	return <>
-		// Item 3 (wave-7 re-audit — yew): results-board-scroll (shared
-		// with /draft/results, same class, public/styles.css) makes this
-		// the grid's own bounded, both-axes scroll container — see
-		// DraftBoard's own doc comment below for why a single-axis-only,
-		// unbounded wrapper broke both of the grid's sticky headers.
 		<If cond={props.ShowBoard}>
 			<div class="draft-history__view draft-history__view--board results-board-scroll"><DraftBoard {...props.Board}></DraftBoard></div>
 		</If>

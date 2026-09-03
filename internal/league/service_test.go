@@ -1060,6 +1060,55 @@ func TestPlayerMapEmitsBreakdownJerseyAndHistKeys(t *testing.T) {
 	}
 }
 
+// TestPlayerMapDetailExcludesNewsHeadlineButHasNewsExposesIt is the wave 8
+// hotfix's item 1 regression test ("the news snippet is enlarging the cell
+// and making it crazy"). A real Tank01 headline runs 150-300 characters;
+// this fixture uses a 250-character one so a caller that regresses back to
+// folding News into detail fails loudly, not just on a short fixture like
+// the harness offline pool's own News strings (too short to reproduce the
+// symptom).
+func TestPlayerMapDetailExcludesNewsHeadlineButHasNewsExposesIt(t *testing.T) {
+	longNews := strings.Repeat("Reports indicate a change in practice status ahead of Sunday's game. ", 4)
+	longNews = longNews[:250]
+	if len(longNews) != 250 {
+		t.Fatalf("fixture setup: longNews len = %d, want 250", len(longNews))
+	}
+	newsy := Player{
+		ID: "p-news", Name: "Newsworthy Guy", Position: "WR", NFLTeam: "CIN",
+		ByeWeek: 5, Injury: "Questionable", News: longNews,
+	}
+	entry := playerMap(newsy, nil, matchupIndex{})
+	wantDetail := "CIN · BYE 5 · Questionable"
+	if entry["detail"] != wantDetail {
+		t.Fatalf("detail = %q, want %q (must never carry the news headline)", entry["detail"], wantDetail)
+	}
+	if strings.Contains(fmt.Sprint(entry["detail"]), longNews) {
+		t.Fatal("detail contains the 250-character news headline")
+	}
+	if entry["news"] != longNews {
+		t.Fatalf("news = %q, want the full headline preserved for the stat-tip panel", entry["news"])
+	}
+	if entry["has_news"] != true {
+		t.Errorf("has_news = %v, want true", entry["has_news"])
+	}
+	// injury/has_injury (design revision, commissioner: "the injury note
+	// if any" alongside the headline) expose the identical Injury value
+	// detail already folds in, a second time, for the news stat-tip's own
+	// panel to render beside the headline.
+	if entry["injury"] != "Questionable" || entry["has_injury"] != true {
+		t.Errorf("injury fields = injury:%v has_injury:%v, want Questionable/true", entry["injury"], entry["has_injury"])
+	}
+
+	quiet := Player{ID: "p-quiet", Name: "Quiet Guy", Position: "RB", NFLTeam: "SEA"}
+	quietEntry := playerMap(quiet, nil, matchupIndex{})
+	if quietEntry["news"] != "" || quietEntry["has_news"] != false {
+		t.Errorf("quiet player news fields = news:%v has_news:%v, want empty/false", quietEntry["news"], quietEntry["has_news"])
+	}
+	if quietEntry["injury"] != "" || quietEntry["has_injury"] != false {
+		t.Errorf("quiet player injury fields = injury:%v has_injury:%v, want empty/false", quietEntry["injury"], quietEntry["has_injury"])
+	}
+}
+
 // TestPlayerMapHistLabelQualifierFollowsHasHist checks the "scored under
 // this league's own rules" qualifier (generalized-punter-pattern work):
 // it appears alongside a rendered Hist line — whether the line came from
