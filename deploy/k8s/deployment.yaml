@@ -30,13 +30,12 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-4cf0542-sweep3; built from
-          # 4cf0542 (main, 2026-09-03): sweep release 3 — draft
-          # results page carries the full app shell and league identity,
-          # commissioner console readouts and runbook state, one coverage
-          # formula, help fixes. No schema change: `rollout undo` to the
-          # previous revision is a valid rollback.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:81f4bc0df94afcc149b0555d108fe5703477c6387cb77f4c29889eb4ffa9de3a
+          # release-2026.09.03-9d7331e-sweep3a; built from
+          # 9d7331e (main, 2026-09-03): hotfix — the pre-draft
+          # checklist strip no longer collapses the draft room's pane grid on
+          # desktop (closed-by-default disclosure, pinned rows, action column).
+          # No schema change: `rollout undo` to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:ce540050b3b1d7ad2eb8eea5f4d6b6f0cb04ed81cf01db44bdc0dad5626cb87d
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
