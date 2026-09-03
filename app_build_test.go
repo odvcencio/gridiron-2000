@@ -765,3 +765,29 @@ func TestFantasyPositionFloorsZeroTeamsOrEmptySlotsReturnsNil(t *testing.T) {
 		t.Fatalf("empty slots: fantasyPositionFloors = %+v, want nil", got)
 	}
 }
+
+// TestFaviconRouteServesTheICOFileLongCached is item 7 (2026-09-02
+// route-crawl finding — rowan): a browser's automatic "/favicon.ico"
+// request 404ed on every cold load, since the page only ever declared
+// "/favicon.svg" via <link rel="icon">, which a browser's own automatic
+// request never reads. GET /favicon.ico must now answer 200 with an
+// image content type and a long, immutable Cache-Control, the same
+// treatment every other static icon in this app gets.
+func TestFaviconRouteServesTheICOFileLongCached(t *testing.T) {
+	handler := buildHarnessApp(t, false)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/favicon.ico", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("GET /favicon.ico = %d, want 200; body: %s", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Type"); !strings.HasPrefix(got, "image/") {
+		t.Fatalf("Content-Type = %q, want an image/* type", got)
+	}
+	if got := recorder.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Fatalf("Cache-Control = %q, want a long, immutable cache", got)
+	}
+	if recorder.Body.Len() == 0 {
+		t.Fatal("GET /favicon.ico returned an empty body")
+	}
+}

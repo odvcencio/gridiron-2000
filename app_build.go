@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -315,6 +316,38 @@ func hashedPublicAssetHref(root, name string) string {
 	// 8 hex bytes (32 bits) is ample collision resistance for a single
 	// deploy's worth of asset versions and keeps the query string short.
 	return href + "?v=" + hex.EncodeToString(sum[:8])
+}
+
+// faviconICO is the site favicon a browser's automatic "/favicon.ico"
+// request expects (32/48/16 px, generated from public/favicon.svg via
+// ImageMagick's convert). It is embedded from the repo root, NOT
+// public/favicon.ico: App.buildDispatcher (m31labs.dev/gosx/server)
+// checks servePublic before it ever checks an app.Mount route, so a real
+// public/favicon.ico file would always win that race and serve under
+// servePublic's own unversioned "Cache-Control: public, max-age=0,
+// must-revalidate" default — a browser's automatic request is never
+// versioned with the "?v=" query hashedPublicAssetHref's own long-cache
+// branch depends on, and the runtime image's Dockerfile COPYs only
+// /app/public, /app/app, /app/config, /app/dist, and /app/data, so a
+// plain os.ReadFile against a repo-root path would 404 in production
+// even though it works from a repo checkout — go:embed bakes the bytes
+// into the binary at build time instead, the same reason
+// runtimehost.NavigationRuntime (used just below) is embedded rather
+// than read from disk.
+//
+//go:embed favicon.ico
+var faviconICO []byte
+
+// faviconHandler answers GET /favicon.ico directly (see faviconICO's own
+// doc comment for why this bypasses servePublic entirely) with a long,
+// immutable Cache-Control — the same treatment every other static icon
+// in this app gets via its own hashed href.
+func faviconHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/x-icon")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		http.ServeContent(w, r, "favicon.ico", time.Time{}, bytes.NewReader(faviconICO))
+	})
 }
 
 // navigationScriptNonceAttr renders nonce as a ` nonce="..."` attribute
@@ -979,6 +1012,13 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		io.WriteString(w, runtimehost.NavigationRuntime)
 	}))
+	// A browser's automatic "/favicon.ico" request 404ed on every cold
+	// load before this route existed — the page's own <link rel="icon"
+	// href="/favicon.svg"> (above) never answers that request, since
+	// browsers issue it regardless of what the page declares. See
+	// faviconICO's own doc comment for why this is embedded rather than a
+	// public/favicon.ico file.
+	app.Mount("GET /favicon.ico", faviconHandler())
 
 	// Liveness is deliberately independent of league persistence and optional
 	// upstream feeds. A process that is still serving requests must not be
