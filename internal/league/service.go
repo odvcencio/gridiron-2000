@@ -4817,14 +4817,25 @@ func (s *Service) liveMap(live LiveSnapshot) map[string]any {
 	}
 }
 
+// liveStatusText composes the freshness clause's bound "liveStatus"
+// sentence: the sync label plus a plain word on the weekly ledger's own
+// freshness. It deliberately does NOT name the Checked clock — the
+// freshness clause (page.gsx's matchup-status-line__freshness) already
+// carries that as its own separate "checkedAt" bind, right beside this
+// one; before wave-8 audit item 4, this function's own "· Checked ..."
+// clause repeated that same clock a second time in one rendered sentence.
 func (s *Service) liveStatusText(live LiveSnapshot, presentation map[string]string) string {
-	checkedAt := live.CheckedAt
-	if checkedAt.IsZero() {
-		checkedAt = live.LastUpdated
-	}
-	checked := s.formatMatchupUpdateOrUnavailable(checkedAt)
 	statsUpdated := s.formatMatchupUpdateOrUnavailable(live.StatsUpdatedAt)
-	status := presentation["sync_label"] + " · Checked " + checked + " · Ledger " + statsUpdated
+	ledgerClause := "Ledger " + statsUpdated
+	if statsUpdated == "Unavailable" && (live.State == MatchupStateScheduled || live.State == MatchupStatePreseason) {
+		// Before this week's (or the season's) first kickoff, the ledger has
+		// never had anything to post — "Ledger Unavailable" read as an
+		// outage sitting right beside the status line's own "Weekly ledger
+		// (nflverse)" source clause, not as the ordinary "nothing yet"
+		// wave-8 audit item 4 means.
+		ledgerClause = "Weekly ledger opens after the first game"
+	}
+	status := presentation["sync_label"] + " · " + ledgerClause
 	if live.Warning != "" {
 		status += " · BACKUP SCORES"
 	}

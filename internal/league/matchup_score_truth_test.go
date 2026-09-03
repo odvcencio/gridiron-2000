@@ -820,8 +820,60 @@ func TestScheduleProviderSeparatesStatsFreshnessFromCheckedTime(t *testing.T) {
 	if view["checkedAt"] != svc.formatMatchupUpdate(now) || view["statsUpdatedAt"] != svc.formatMatchupUpdate(statsAt) {
 		t.Fatalf("live view freshness = checked:%v stats:%v", view["checkedAt"], view["statsUpdatedAt"])
 	}
-	if !strings.Contains(view["liveStatus"].(string), "Checked") || !strings.Contains(view["liveStatus"].(string), "Ledger") {
-		t.Fatalf("live status does not name both freshness clocks: %q", view["liveStatus"])
+	// liveStatus itself names the Ledger clock; the Checked clock is the
+	// freshness clause's own separate "checkedAt" bind (page.gsx), named
+	// only once in the rendered sentence — wave-8 audit item 4 retired
+	// liveStatus's own "Checked" clause, which used to duplicate it.
+	if strings.Contains(view["liveStatus"].(string), "Checked") {
+		t.Fatalf("live status still names Checked itself, want that left to the freshness clause's own checkedAt bind: %q", view["liveStatus"])
+	}
+	if !strings.Contains(view["liveStatus"].(string), "Ledger") {
+		t.Fatalf("live status does not name the ledger clock: %q", view["liveStatus"])
+	}
+}
+
+// TestLiveStatusTextOpensAfterFirstGameBeforeKickoff covers wave-8 audit
+// item 4: before this week's (or the season's) first kickoff, with no
+// stats ever posted, liveStatusText must say the ledger simply has not
+// opened yet ("Weekly ledger opens after the first game") rather than
+// "Ledger Unavailable" — a phrase that read as an outage sitting right
+// beside the status line's own "Weekly ledger (nflverse)" source clause.
+func TestLiveStatusTextOpensAfterFirstGameBeforeKickoff(t *testing.T) {
+	svc := newTestService(t, true)
+	presentation := matchupPresentation(MatchupStateScheduled)
+	cases := []struct {
+		name  string
+		state string
+	}{
+		{"scheduled (mid-season, before this week's kickoff)", MatchupStateScheduled},
+		{"preseason (before the season's first kickoff)", MatchupStatePreseason},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			live := LiveSnapshot{State: c.state}
+			got := svc.liveStatusText(live, presentation)
+			if strings.Contains(got, "Unavailable") {
+				t.Fatalf("liveStatusText(%s) = %q, want no \"Unavailable\" before kickoff", c.name, got)
+			}
+			if !strings.Contains(got, "Weekly ledger opens after the first game") {
+				t.Fatalf("liveStatusText(%s) = %q, want the friendly pre-kickoff ledger phrase", c.name, got)
+			}
+		})
+	}
+}
+
+// TestLiveStatusTextKeepsUnavailableOutsideThePreKickoffWindow covers the
+// same wave-8 audit item 4 fix's other edge: once the week is actually
+// underway (or degraded) and stats still never posted, that IS a genuine
+// "cannot read this" state, so the honest "Ledger Unavailable" wording
+// stays — only the pre-kickoff window gets the friendlier phrase.
+func TestLiveStatusTextKeepsUnavailableOutsideThePreKickoffWindow(t *testing.T) {
+	svc := newTestService(t, true)
+	presentation := matchupPresentation(MatchupStateDegraded)
+	live := LiveSnapshot{State: MatchupStateDegraded}
+	got := svc.liveStatusText(live, presentation)
+	if !strings.Contains(got, "Ledger Unavailable") {
+		t.Fatalf("liveStatusText(degraded) = %q, want the honest Ledger Unavailable wording outside the pre-kickoff window", got)
 	}
 }
 
