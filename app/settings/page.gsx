@@ -1,18 +1,29 @@
 package settings
 
+// OnAndReady/OnAndNoTransport/OffAndReady/OffAndNoTransport (item 6,
+// 2026-09-02 audit) are pre-combined so NotificationRow's strict cond
+// exprs stay bare bool-field reads: this component's own strict-render
+// rules reject a compound expression like "props.Enabled &&
+// props.DeliveryReady" (gosx's lower pass rejects anything but a bare
+// bool field, or that field compared with "== false"), so page.server.go
+// computes the four exclusive state combinations once, server-side.
 type NotificationRowProps struct {
-	Category    string
-	Label       string
-	Description string
-	Delivery    string
-	State       string
-	Enabled     bool
-	CurrentOn   bool
-	CurrentOff  bool
-	CanEdit     bool
-	Planned     bool
-	Action      string
-	CSRF        string
+	Category           string
+	Label              string
+	Description        string
+	Delivery           string
+	State              string
+	Enabled            bool
+	CurrentOn          bool
+	CurrentOff         bool
+	CanEdit            bool
+	Planned            bool
+	OnAndReady         bool
+	OnAndNoTransport   bool
+	OffAndReady        bool
+	OffAndNoTransport  bool
+	Action             string
+	CSRF               string
 }
 
 component NotificationRow(props: NotificationRowProps) {
@@ -49,11 +60,17 @@ component NotificationRow(props: NotificationRowProps) {
 				<span class="notification-preference__readonly">{props.State} · READ ONLY</span>
 			</If>
 		</div>
-		<If cond={props.Enabled}>
+		<If cond={props.OnAndReady}>
 			<span class="notification-preference__state">Current state: ON</span>
 		</If>
-		<If cond={props.Enabled == false}>
+		<If cond={props.OnAndNoTransport}>
+			<span class="notification-preference__state">Current state: ON (no transport)</span>
+		</If>
+		<If cond={props.OffAndReady}>
 			<span class="notification-preference__state">Current state: OFF</span>
+		</If>
+		<If cond={props.OffAndNoTransport}>
+			<span class="notification-preference__state">Current state: OFF (no transport)</span>
 		</If>
 	</fieldset>
 }
@@ -165,6 +182,11 @@ func Page() Node {
 			<p class="notification-settings-note">
 				Turn a category on or off with a native form. The server checks your signed-in identity and accepts only the categories listed here.
 			</p>
+			<If cond={data.delivery_ready == false}>
+				<p class="notification-settings-note">
+					Email delivery is not configured on this league; these preferences apply once it is.
+				</p>
+			</If>
 			<div class="notification-preference-groups">
 				<section class="notification-preference-group" aria-labelledby="draft-notifications">
 					<div class="notification-preference-group__heading">

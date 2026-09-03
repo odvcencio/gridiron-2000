@@ -16,22 +16,38 @@ import (
 // NotificationPreference is the render-time shape consumed by page.gsx's
 // strict NotificationRow component. The service owns the durable view;
 // this route adds only request-scoped action and CSRF fields.
+//
+// OnAndReady/OnAndNoTransport/OffAndReady/OffAndNoTransport (item 6,
+// 2026-09-02 audit) fold Enabled together with the same league-wide
+// data["delivery_ready"] the masthead's own "EMAIL READY"/"EMAIL NOT
+// CONFIGURED" strap already reads, into the one exclusive state each row
+// actually renders — NotificationRow's strict cond exprs accept only a
+// bare bool props field, not a compound "Enabled && DeliveryReady"
+// expression, so the four combinations are computed once here instead.
+// Without this, every row's "Current state: ON" read as a live delivery
+// promise even on a league with no mail transport configured at all,
+// sitting right beside "N LIVE CATEGORIES" as if all ten were actually
+// going out.
 type NotificationPreference struct {
-	Category    string
-	Label       string
-	Description string
-	Delivery    string
-	State       string
-	Enabled     bool
-	CurrentOn   bool
-	CurrentOff  bool
-	CanEdit     bool
-	Planned     bool
-	Action      string
-	CSRF        string
+	Category          string
+	Label             string
+	Description       string
+	Delivery          string
+	State             string
+	Enabled           bool
+	CurrentOn         bool
+	CurrentOff        bool
+	CanEdit           bool
+	Planned           bool
+	OnAndReady        bool
+	OnAndNoTransport  bool
+	OffAndReady       bool
+	OffAndNoTransport bool
+	Action            string
+	CSRF              string
 }
 
-func notificationPreferenceViews(raw []league.NotificationPreference, actionPath, csrf string) []NotificationPreference {
+func notificationPreferenceViews(raw []league.NotificationPreference, actionPath, csrf string, deliveryReady bool) []NotificationPreference {
 	views := make([]NotificationPreference, 0, len(raw))
 	for _, preference := range raw {
 		views = append(views, NotificationPreference{
@@ -40,7 +56,11 @@ func notificationPreferenceViews(raw []league.NotificationPreference, actionPath
 			State: preference.State, Enabled: preference.Enabled,
 			CurrentOn: preference.Enabled, CurrentOff: !preference.Enabled,
 			CanEdit: preference.CanEdit, Planned: preference.Planned,
-			Action: actionPath, CSRF: csrf,
+			OnAndReady:        preference.Enabled && deliveryReady,
+			OnAndNoTransport:  preference.Enabled && !deliveryReady,
+			OffAndReady:       !preference.Enabled && deliveryReady,
+			OffAndNoTransport: !preference.Enabled && !deliveryReady,
+			Action:            actionPath, CSRF: csrf,
 		})
 	}
 	return views
@@ -64,9 +84,10 @@ func init() {
 			data := league.Default().NotificationSettingsData(ctx.Request)
 			actionPath := ctx.ActionPath("notification-set")
 			csrf := session.Token(ctx.Request)
+			deliveryReady, _ := data["delivery_ready"].(bool)
 			for _, key := range []string{"preferences", "draft_preferences", "weekly_preferences", "league_preferences", "planned_preferences"} {
 				if preferences, ok := data[key].([]league.NotificationPreference); ok {
-					data[key] = notificationPreferenceViews(preferences, actionPath, csrf)
+					data[key] = notificationPreferenceViews(preferences, actionPath, csrf, deliveryReady)
 				}
 			}
 			data["has_notice"] = false
