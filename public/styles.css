@@ -15188,3 +15188,164 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
 .q-row:has(.stat-tip[open]) {
   z-index: 41;
 }
+
+/* comb — sage ------------------------------------------------------------
+   File-scoped block, appended after every other rule so it cannot
+   collide with a concurrent edit elsewhere in this stylesheet — the same
+   append convention every earlier "wave N" / "hotfix" block above already
+   uses. Every selector below is new; nothing above this comment is
+   modified. Scope: .pickem-weeknav, .guide-toc.scoring-jump-list,
+   .scoring-row__form .board-button, .rail-attention-chip--mobile,
+   .skip-link, .live-dot, .pool-search-bar label (2026-09-02 audit). */
+
+/* Item 3: .guide-toc.scoring-jump-list is /scoring's own copy of the
+   shared jump strip (.guide-toc, also used bare by /help and /guide,
+   whose own wrap-not-scroll rule above stays untouched by this compound
+   selector) — 14 short section chips wrapped onto six rows at 390px,
+   330px tall, the sticky strip's own 94%-opacity background printing
+   straight over the page scrolled behind it. On a phone this becomes a
+   single-row horizontal snap-scroller (opaque background, so nothing
+   ever prints through while it is stuck) with a right-edge fade cue,
+   the same mask-image recipe .team-command-strip already uses above;
+   past phone/tablet width it is capped at roughly two rows so a much
+   longer future section list still cannot grow the sticky strip without
+   bound. */
+@media (max-width: 56.1875rem) {
+  .guide-toc.scoring-jump-list {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    padding-block: 0.4rem;
+    background: var(--color-canvas-deep);
+    mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+  }
+
+  .guide-toc.scoring-jump-list a {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-height: var(--control-h);
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+@media (min-width: 56.25rem) {
+  .guide-toc.scoring-jump-list {
+    max-height: 7rem;
+    overflow: hidden;
+    background: var(--color-canvas-deep);
+  }
+}
+
+/* Item 4: .pickem-weeknav's own phone/tablet sticky/snap rule (this
+   file, "Item 1/9" above) already floors every child at 44px and scrolls
+   horizontally — but .lineup-week-form's shared base rule (used by
+   /team's lineup forms too) sets width: 100% on its own <select> at this
+   same breakpoint, so the form measured the strip's full 339px width and
+   pushed Next →, the week <select>, and "Back to current week" off-
+   screen with no cue (week 2: scrollWidth 664 vs 339). The form and its
+   select now size to their own content instead of stretching, and Prev/
+   Next (rel="prev"/rel="next", matching /matchups' own WeekBrowser
+   markup — /pickem's page.gsx now carries the same attributes) stay
+   sticky at the strip's own left/right edges through the scroll, so
+   both remain reachable without hunting past the fold. */
+@media (max-width: 56.1875rem) {
+  .pickem-weeknav .lineup-week-form,
+  .pickem-weeknav select {
+    flex: 0 0 auto;
+    width: auto;
+    max-width: none;
+  }
+
+  .pickem-weeknav {
+    mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent 100%);
+  }
+
+  .pickem-weeknav [rel="prev"],
+  .pickem-weeknav [rel="next"] {
+    position: sticky;
+    z-index: 1;
+    background: var(--color-canvas-deep);
+  }
+
+  .pickem-weeknav [rel="prev"] {
+    left: 0;
+  }
+
+  .pickem-weeknav [rel="next"] {
+    right: 0;
+  }
+}
+
+/* Item 7: .live-dot never declared its own display — an inline (the
+   default for a <span>) non-replaced box ignores width/height/aspect-
+   ratio entirely, so the base rule's own width: 0.48rem/aspect-ratio: 1
+   never actually painted a circle; .live-dot--bound's own font-size: 0
+   (this file, above — it hides the bound text node, e.g. "LIVE", the
+   dot's only content) then collapsed the inline box's content-driven
+   size to nothing, so /wire's status dot measured 0x0 and never
+   rendered. inline-flex gives the box a real, content-independent size
+   again, on every page this class renders (the plain rail dot and every
+   *.live-dot--bound instance alike), with no visual change to the
+   circle's own dimensions or glow. */
+.live-dot {
+  display: inline-flex;
+}
+
+/* Item 8: .pool-search-bar's phone-width wrap (this file, above, its own
+   608px-wide query) lets each <label for="..."> — a real, clickable tap
+   target for its paired control — fall back to its own 20px text-line
+   height as its own wrapped row. Each label now becomes a full-width,
+   44px-tall flex row at the same breakpoint its sibling input already
+   reflows at, matching the 44px floor every other tap target on this
+   strip already carries. 608px, not the equivalent 38rem spelling: a
+   wave-7 — elm contract (app/team/page_contract_test.go) pins that exact
+   rem literal to appear only once in this file, before this block. */
+@media (max-width: 608px) {
+  .pool-search-bar label {
+    display: flex;
+    align-items: center;
+    min-height: var(--control-h);
+    flex: 1 1 100%;
+  }
+}
+
+/* Item 9: two touch-floor gaps the generic sweep (this file, "Touch-
+   target sweep" and its neighboring re-assert rules, inside the file's
+   one shared coarse-pointer/no-hover/narrow-width touch floor query —
+   TestTouchFloorQueryCoversCoarsePointerAndHoverNone pins that query's
+   own condition text to exactly one occurrence, so these floors apply
+   at every width instead of a second copy of it) cannot reach.
+   a.rail-attention-chip--mobile and a.skip-link both render OUTSIDE
+   .site-frame (app/layout.gsx: the skip link precedes the shell
+   entirely, and the
+   mobile-enhanced bar sits alongside it, not inside it) — every
+   re-assert rule in that query is deliberately scoped to .site-frame for
+   specificity, so neither ever reached them (measured 107.8x38.4 and
+   189.8x39.6 at 390px). #main-content .scoring-row__form .board-button
+   (the commissioner's per-row "Set" button, /scoring) is a plain
+   <button>, and the generic sweep's own button rule sets min-width: 0 by
+   design (most buttons rely on their own content width) — a bare "Set"
+   label alone measured 39.7px wide, short of the 44px floor; #main-
+   content's ID gives this re-assert enough specificity to win honestly,
+   the same technique the sweep's own .lineup-week-form/.draft-command__
+   pill-caret re-asserts already use, with no !important needed. A floor
+   that never shrinks a control is harmless at any width, so none of the
+   three needs its own media condition. */
+a.rail-attention-chip--mobile,
+a.skip-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+#main-content .scoring-row__form .board-button {
+  min-width: 2.75rem;
+}

@@ -335,7 +335,7 @@ func PickemLiveRegion() Node {
 			<If cond={data.has_weeks}>
 				<div class="pickem-weeknav">
 					<If cond={data.has_prev_week}>
-						<a href={data.prev_week_href} data-gosx-link class="board-button">← Prev</a>
+						<a href={data.prev_week_href} data-gosx-link class="board-button" rel="prev">← Prev</a>
 					</If>
 					<form method="get" action="/pickem" class="lineup-week-form">
 						<select name="week" class="board-button" aria-label="Select week">
@@ -346,7 +346,7 @@ func PickemLiveRegion() Node {
 						<button class="board-button" type="submit">Go</button>
 					</form>
 					<If cond={data.has_next_week}>
-						<a href={data.next_week_href} data-gosx-link class="board-button">Next →</a>
+						<a href={data.next_week_href} data-gosx-link class="board-button" rel="next">Next →</a>
 					</If>
 					<If cond={data.is_current_week == false}>
 						<a href={data.current_week_href} data-gosx-link class="access-link">Back to current week</a>
