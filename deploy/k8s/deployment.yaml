@@ -30,13 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-577fd49-sweep4; built from
-          # 577fd49 (main, 2026-09-03): sweep release 4 — trade
-          # partner chips use real team names, /matchups projects before
-          # kickoff, ledger prose, /team rows carry news and house rank,
-          # VIEW MATCHUP out of the scroller, plain-language chips. No
-          # schema change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fd15c59e8c1afbcccc3fa11edbe86ebd870f2158fefdb1c8c1146310097d2cea
+          # release-2026.09.03-748e773-sweep4a; built from
+          # 748e773 (main, 2026-09-03): a dropped closing brace in
+          # styles.css had nested every later rule under .draft-pane and
+          # silently disabled three shipped fixes; restored, with a
+          # brace-balance contract test. No schema change: `rollout undo`
+          # to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fa781d686db24707f1c3c6828e1b8e1f3415a14fb5a88465c868ed7296a3688f
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
