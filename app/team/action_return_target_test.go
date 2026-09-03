@@ -18,7 +18,17 @@ func TestTeamIdentityReturnTargetKeepsEditorOpen(t *testing.T) {
 	}
 }
 
-func TestTeamIdentityManagedSuccessUsesSubmittedTargetAndOmitsReservedValue(t *testing.T) {
+// TestTeamIdentityManagedSuccessStripsTheEditorAnchorAndOmitsReservedValue
+// pins actionui's own wave 8 hotfix (item 2, commissioner: "moving
+// players on my big board doesn't feel interactive, it resets the
+// scroll"): a managed request's RedirectBackWithNotice always answers
+// with the fragment-free fallback, never the section anchor
+// teamIdentityReturnTarget itself carries — GoSX's runtime only
+// preserves scroll when the JSON redirect has no "#...". See
+// internal/actionui/feedback.go's own doc comment for the full
+// mechanism; this pins the observable effect on this page's own
+// return-target constant.
+func TestTeamIdentityManagedSuccessStripsTheEditorAnchorAndOmitsReservedValue(t *testing.T) {
 	values := url.Values{
 		action.ReturnTargetField: {teamIdentityReturnTarget},
 		"name":                   {"New Name"},
@@ -42,14 +52,19 @@ func TestTeamIdentityManagedSuccessUsesSubmittedTargetAndOmitsReservedValue(t *t
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || result.Redirect != teamIdentityReturnTarget || result.Message != "Team renamed." {
-		t.Fatalf("managed result = %+v, want editor target and message", result)
+	const wantRedirect = "/team?identity=edit"
+	if !result.OK || result.Redirect != wantRedirect || result.Message != "Team renamed." {
+		t.Fatalf("managed result = %+v, want fragment-free editor target %q and message", result, wantRedirect)
 	}
 	if _, ok := result.Values[action.ReturnTargetField]; ok {
 		t.Fatalf("reserved return target leaked into managed values: %#v", result.Values)
 	}
 }
 
+// TestTeamIdentityHostileReturnTargetFallsBackToEditor also covers a
+// managed request throughout (Accept: application/json): the fallback's
+// own anchor is stripped the same way regardless of what the (here,
+// rejected) submitted return_to carried.
 func TestTeamIdentityHostileReturnTargetFallsBackToEditor(t *testing.T) {
 	values := url.Values{
 		action.ReturnTargetField: {"//evil.example/steal"},
@@ -71,7 +86,8 @@ func TestTeamIdentityHostileReturnTargetFallsBackToEditor(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Redirect != teamIdentityReturnTarget {
-		t.Fatalf("hostile managed redirect = %q, want %q", result.Redirect, teamIdentityReturnTarget)
+	const wantRedirect = "/team?identity=edit"
+	if result.Redirect != wantRedirect {
+		t.Fatalf("hostile managed redirect = %q, want %q", result.Redirect, wantRedirect)
 	}
 }

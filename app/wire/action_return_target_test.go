@@ -60,6 +60,10 @@ func TestWireActionCategoryRestoresOnlyAllowlistedQuery(t *testing.T) {
 	}
 }
 
+// TestWireManagedSuccessUsesBoundedReturnTargetAndOmitsReservedValue also
+// pins actionui's wave 8 hotfix (item 2): a managed request's fallback
+// target drops its own "#community-input" anchor too — see
+// internal/actionui/feedback.go's doc comment.
 func TestWireManagedSuccessUsesBoundedReturnTargetAndOmitsReservedValue(t *testing.T) {
 	fallback := wireRedirectTarget(" market ")
 	values := url.Values{
@@ -85,8 +89,9 @@ func TestWireManagedSuccessUsesBoundedReturnTargetAndOmitsReservedValue(t *testi
 	if err := json.NewDecoder(response.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.OK || result.Redirect != fallback || result.Message != "Sighting added." {
-		t.Fatalf("managed result = %+v, want bounded target %q", result, fallback)
+	wantRedirect, _, _ := strings.Cut(fallback, "#")
+	if !result.OK || result.Redirect != wantRedirect || result.Message != "Sighting added." {
+		t.Fatalf("managed result = %+v, want fragment-free bounded target %q", result, wantRedirect)
 	}
 	if _, ok := result.Values[action.ReturnTargetField]; ok {
 		t.Fatalf("reserved return target leaked into managed values: %#v", result.Values)
