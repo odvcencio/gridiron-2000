@@ -330,6 +330,10 @@ func Layout() Node {
 							<small>{data.league.tagline}</small>
 						</span>
 					</a>
+					{/* This chip is the desktop rail's own copy. The mobile-enhanced
+					    bar below renders an identical chip from the same
+					    attention fields, so the two never double up on one
+					    viewport. */}
 					<If cond={data.viewer.has_seat && data.league.attention.has_items && data.viewer.demo == false}>
 						<a
 							href="/#home-action-center-heading"
@@ -458,6 +462,10 @@ func Layout() Node {
 				></PrimaryNavigation>
 			</details>
 			<nav class="app-tabbar" aria-label="Quick navigation" data-navigation-surface="mobile-tabbar">
+				// Tab order mirrors the desktop rail's own top groups (Home,
+				// Team, Matchups) so a manager's thumb never has to relearn
+				// the app; More opens the same navigation dialog the rail's
+				// own overflow uses.
 				<Link href="/" class="app-tabbar__tab">
 					<span class="app-tabbar__icon" aria-hidden="true">&#8962;</span>
 					Home
