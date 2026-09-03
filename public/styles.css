@@ -16072,8 +16072,7 @@ a.skip-link {
 
 /* wave-8 audit item 8: the featured matchup card's own manager line
    (.matchup-team-line__manager, /matchups) hard-truncated a real name to
-   2-3 letters ("Os…", "Ant…" for "Oscar Villavicencio"/"Antonio
-   Villavicencio") beside genuinely empty gutter space in the row. The
+   2-3 letters ("Os…", "Ant…" for two long manager names) beside genuinely empty gutter space in the row. The
    base .matchup-team-line__manager rule (public/styles.css, above)
    already sets min-width: 0/overflow: hidden/text-overflow: ellipsis —
    the shrink half of "minmax(0,1fr)" — but never flex-grow, so neither

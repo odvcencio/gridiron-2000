@@ -275,7 +275,7 @@ func TestMatchupsMastheadCanShrinkBesideNavigationRail(t *testing.T) {
 
 // TestFeaturedMatchupManagerNameGrowsIntoAvailableWidth covers wave-8
 // audit item 8: the featured card hard-truncated a real manager name to
-// 2-3 letters ("Os…", "Ant…" for "Oscar Villavicencio") beside genuinely
+// 2-3 letters ("Os…", "Ant…" for two long manager names) beside genuinely
 // empty gutter space, because .matchup-team-line__manager and its own
 // parent (.my-matchup__team > div) set the shrink half of "minmax(0,1fr)"
 // (min-width: 0, overflow: hidden, text-overflow: ellipsis) but never
