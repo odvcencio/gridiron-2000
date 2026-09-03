@@ -16132,3 +16132,37 @@ a.skip-link {
   min-height: 2.75rem;
   margin-top: var(--space-xs);
 }
+
+/* Item 4 (P3): /team's own .team-command-strip (PROJECTED, STARTERS,
+   ROSTER, DIVISION, LEAGUE, plus VIEW MATCHUP — Item 7a's own
+   horizontal-scroll strip, above) is plain in-flow content, not fixed,
+   so — unlike the toast-stack fix (public/styles.css, "Item 1 (wave-7
+   audit — yew)") — .site-frame's own bottom padding-bottom reserve
+   (which correctly adds .page-action-bar's 3.5rem on top of the tab
+   bar's own height, see the "Grows .site-frame's own bottom reserve"
+   rule above) cannot move it: that reserve only stops content at the
+   true END of the document from being clipped by the fixed bars, and
+   this strip sits near the top of the page, in the normal document
+   flow, not at the document's end. On a phone-height viewport (measured
+   live: .team-hero at 524px tall, unusually deep for 390-844) the strip
+   still lands at the bottom of the FIRST viewport (top 672.6, bottom
+   751.9 at 390x844) — squarely inside the fixed .page-action-bar's own
+   footprint (top 728, bottom 784) at scrollY 0, hiding 169.1/11/11/17/
+   17/AQUA until a manager scrolls past it. Dropping .team-hero's own
+   bottom padding when a route-level .page-action-bar is present
+   (mirroring the shell's own :has(.page-action-bar) gate) reclaims the
+   hero's own padding-lg; translateY on the strip closes the small
+   remaining gap without disturbing any sibling's layout position (a
+   transform never affects box flow, so nothing below the strip
+   reflows) — together they clear the strip of the action bar with a
+   real margin (measured live: strip bottom 711.7, bar top 728, 16.3px
+   to spare) with no visible seam against the hero card above it. */
+@media (max-width: 899px) {
+  body:has(.page-action-bar) .team-page .team-hero {
+    padding-bottom: 0;
+  }
+
+  body:has(.page-action-bar) .team-page .team-command-strip {
+    transform: translateY(-1rem);
+  }
+}
