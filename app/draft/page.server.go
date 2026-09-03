@@ -1104,9 +1104,23 @@ func draftWorkspaceFragmentURL(data map[string]any) string {
 	return "/draft/fragment/workspace"
 }
 
+// draftRoomStatus builds the sole text of the draft shell's own visually-
+// hidden aria-live region (page.gsx, both DraftRoom and DraftCommandBar
+// share this one string). comb — oleander, item 3: this used to read
+// "Pick %d; %s on the clock; ...; %s." unconditionally, even before the
+// draft started — nextNumber/onClockID (service.go's draftData) are
+// always pick 1's own team pre-draft, so a manager's screen reader
+// announced "Pick 1; <team> on the clock; ...; the clock is not
+// running" while the command pill, in the SAME render, correctly said
+// "DRAFT NOT STARTED." A pre-draft visitor now hears the truth instead:
+// how many seats are ready, and when the room actually opens.
 func draftRoomStatus(data map[string]any) string {
-	if boolField(mapField(data, "draft"), "complete") {
+	draftView := mapField(data, "draft")
+	if boolField(draftView, "complete") {
 		return fmt.Sprintf("Draft complete; %d picks locked; the clock is stopped.", intField(data, "pick_number"))
+	}
+	if !boolField(draftView, "started") {
+		return fmt.Sprintf("Draft not started; %d of %d ready; opens %s at %s.", intField(data, "ready_count"), intField(data, "manager_count"), stringField(draftView, "date"), stringField(draftView, "time"))
 	}
 	onClock := stringField(mapField(data, "on_clock"), "abbreviation")
 	clockView := mapField(data, "clock")

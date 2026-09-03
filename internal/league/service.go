@@ -4753,7 +4753,16 @@ func (s *Service) draftTeamMaps(state PersistedState, onClockID string) []map[st
 		}
 		claimed, _ := item["claimed"].(bool)
 		item["ready"] = state.Ready[team.ID]
-		item["on_clock"] = team.ID == onClockID
+		// comb — oleander, item 3: onClockID (draftData, above) is set
+		// from teamOnClock(..., nextNumber) whenever the draft is not yet
+		// complete, with no check for DraftStarted — nextNumber is always
+		// pick 1's own team before the first pick, so this field marked
+		// that seat "on_clock" pre-draft. DraftSeatControl (page.gsx)
+		// reads it straight into the commissioner drawer's "ON CLOCK"
+		// badge, which then painted before the commissioner ever opened
+		// the room. Requiring DraftStarted keeps every seat's badge
+		// truthful pre-draft.
+		item["on_clock"] = state.DraftStarted && team.ID == onClockID
 		presenceLabel, presenceDetail, presenceSeenAt := s.teamPresence(state, team.ID, now)
 		item["presence"] = presenceLabel
 		item["presence_label"] = strings.ToUpper(strings.ReplaceAll(presenceLabel, "_", " "))
