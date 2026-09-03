@@ -79,6 +79,27 @@ func randomTradeOfferID() (string, error) {
 	return "trd-" + hex.EncodeToString(buf[:]), nil
 }
 
+// tradeVetoPolicyLabel turns the raw Trades.Veto config token
+// (validateTrades' four values: commissioner, vote, both, none) into one
+// plain sentence for the composer panel (wave-8 audit item 7): the panel
+// used to print the bare config token itself ("commissioner") beside a
+// separate "Veto policy" label, two pieces a manager had to read
+// together as one fact. "commissioner review"/"league vote" match
+// notifyTradeVetoed's own mechanism phrasing exactly, so this league's
+// veto process is named the same way everywhere it appears.
+func tradeVetoPolicyLabel(veto string) string {
+	switch veto {
+	case "commissioner":
+		return "Veto policy: commissioner review"
+	case "vote":
+		return "Veto policy: league vote"
+	case "both":
+		return "Veto policy: commissioner review or league vote"
+	default:
+		return "Veto policy: none"
+	}
+}
+
 // tradeVetoThreshold resolves ceil((seats - 2) / 2) — section 6.1's veto
 // threshold: one veto per non-party seat, "3 of 6" (6 non-party seats)
 // under the reference 8-team league. Integer ceil((n-2)/2) == (n-1)/2 for
@@ -1341,6 +1362,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"can_compose":               canCompose,
 		"is_commissioner":           isCommissioner,
 		"veto_mode":                 s.cfg.Trades.Veto,
+		"veto_policy_label":         tradeVetoPolicyLabel(s.cfg.Trades.Veto),
 		"trade_deadline_configured": deadlineConfigured,
 		"trade_deadline_passed":     deadlinePassed,
 		"trade_deadline":            deadlineLabel,

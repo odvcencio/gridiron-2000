@@ -14,8 +14,7 @@ func Page() Node {
 				</p>
 			</div>
 			<div class="draft-clock-panel">
-				<span>Veto policy</span>
-				<strong class="mono">{data.veto_mode}</strong>
+				<strong class="mono">{data.veto_policy_label}</strong>
 				<div class="draft-clock-meta">
 					<div class="trades-veto-links">
 						<a href="/activity" data-gosx-link>Transaction feed →</a>

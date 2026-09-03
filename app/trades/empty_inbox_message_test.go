@@ -98,6 +98,7 @@ func honestlyEmptyTradesFixture(items []map[string]any) map[string]any {
 		"viewer":                    map[string]any{"team_id": ""},
 		"league":                    map[string]any{"attention": map[string]any{"urgent_count": len(items), "items": items, "has_items": len(items) > 0}},
 		"veto_mode":                 "commissioner",
+		"veto_policy_label":         "Veto policy: commissioner review",
 		"can_edit":                  false,
 		"public_entry":              map[string]any{"state_label": "", "detail": "", "action_label": "", "action_href": "/join", "can_claim": false, "is_commissioner": false, "commissioner_href": "", "commissioner_label": ""},
 		"can_compose":               false,

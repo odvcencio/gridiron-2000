@@ -41,3 +41,21 @@ func TestVetoPolicyCardLinksWrapAsARowWithGap(t *testing.T) {
 		t.Error("trades-veto-links is missing or no longer wraps its links in a row with a gap")
 	}
 }
+
+// TestVetoPolicyCardShowsOneMergedSentence covers wave-8 audit item 7:
+// the card used to print a separate "Veto policy" label beside the bare
+// config token ("commissioner"); it now reads league.tradeVetoPolicyLabel's
+// one merged sentence ("Veto policy: commissioner review").
+func TestVetoPolicyCardShowsOneMergedSentence(t *testing.T) {
+	page, err := os.ReadFile("page.gsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	markup := string(page)
+	if !strings.Contains(markup, `<strong class="mono">{data.veto_policy_label}</strong>`) {
+		t.Fatal("veto policy card is missing the merged veto_policy_label binding")
+	}
+	if strings.Contains(markup, `<span>Veto policy</span>`) {
+		t.Fatal("veto policy card still carries the separate \"Veto policy\" label beside the raw veto_mode value")
+	}
+}

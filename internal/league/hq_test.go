@@ -154,6 +154,52 @@ func TestBuildActionCenterTradeDeadlinesRemainDistinct(t *testing.T) {
 		t.Fatalf("predraft trade deadline leaked: %+v", predraft.Actions)
 	}
 }
+
+// TestBuildActionCenterStableTasksUsePlainOnTrackOrNeedsYouLabels covers
+// wave-8 audit item 7: the four ActionCenterPriorityStable actions used
+// to all share the shouted "STABLE TASK" PriorityLabel; each now reads a
+// plain word instead — "On track" for a task the viewer has nothing
+// pending to act on (a clean lineup, a Pick'em week with nothing open or
+// missed, a waiver claim already filed and only waiting on the league's
+// own schedule) and "Needs you" for one that is actually waiting on the
+// viewer's own decision (a trade offer sitting in their inbox).
+func TestBuildActionCenterStableTasksUsePlainOnTrackOrNeedsYouLabels(t *testing.T) {
+	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+	got := BuildActionCenter(ActionCenterFacts{
+		Now: now, Location: time.UTC, Admitted: true, HasSeat: true,
+		DraftComplete: true, SeasonPhase: PhaseRegularSeason,
+		Lineup:  ActionCenterLineupFacts{Week: 3, Problems: 0},
+		Pickem:  ActionCenterPickemFacts{Week: 3, GameCount: 4, OpenUnpicked: 0, LockedUnpicked: 0},
+		Trades:  ActionCenterTradeFacts{IncomingOpen: 1},
+		Waivers: ActionCenterWaiverFacts{OpenClaims: 1, HasNextRun: false},
+	})
+	onTrack := []string{"lineup-review", "pickem-review", "waiver-claims"}
+	for _, id := range onTrack {
+		action, ok := findAction(got.Actions, id)
+		if !ok {
+			t.Fatalf("%s missing from %+v", id, got.Actions)
+		}
+		if action.PriorityLabel != actionCenterLabelOnTrack {
+			t.Errorf("%s priority label = %q, want %q", id, action.PriorityLabel, actionCenterLabelOnTrack)
+		}
+		if action.Priority != ActionCenterPriorityStable {
+			t.Errorf("%s priority = %q, want %q", id, action.Priority, ActionCenterPriorityStable)
+		}
+	}
+	inbox, ok := findAction(got.Actions, "trade-inbox")
+	if !ok {
+		t.Fatalf("trade-inbox missing from %+v", got.Actions)
+	}
+	if inbox.PriorityLabel != actionCenterLabelNeedsYou {
+		t.Errorf("trade-inbox priority label = %q, want %q", inbox.PriorityLabel, actionCenterLabelNeedsYou)
+	}
+	for _, action := range got.Actions {
+		if action.PriorityLabel == "STABLE TASK" {
+			t.Fatalf("action %q still carries the retired STABLE TASK label", action.ID)
+		}
+	}
+}
+
 func TestBuildActionCenterWaiverResolutionTruth(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	facts := ActionCenterFacts{

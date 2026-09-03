@@ -37,6 +37,37 @@ func TestTradeVetoThreshold(t *testing.T) {
 	}
 }
 
+// TestTradeVetoPolicyLabelCoversEveryConfigValue covers wave-8 audit item
+// 7: the composer panel used to print the bare config token itself
+// ("commissioner") beside a separate "Veto policy" label; every one of
+// validateTrades' four legal values now reads as one plain sentence.
+func TestTradeVetoPolicyLabelCoversEveryConfigValue(t *testing.T) {
+	cases := map[string]string{
+		"commissioner": "Veto policy: commissioner review",
+		"vote":         "Veto policy: league vote",
+		"both":         "Veto policy: commissioner review or league vote",
+		"none":         "Veto policy: none",
+	}
+	for veto, want := range cases {
+		if got := tradeVetoPolicyLabel(veto); got != want {
+			t.Errorf("tradeVetoPolicyLabel(%q) = %q, want %q", veto, got, want)
+		}
+	}
+}
+
+// TestTradesDataCarriesVetoPolicyLabel covers wave-8 audit item 7 at the
+// TradesData boundary: veto_policy_label reads the league's configured
+// veto mode through tradeVetoPolicyLabel.
+func TestTradesDataCarriesVetoPolicyLabel(t *testing.T) {
+	service := newTestService(t, true)
+	service.cfg.Trades.Veto = "vote"
+	request, _ := http.NewRequest(http.MethodGet, "/trades", nil)
+	data := service.TradesData(request)
+	if data["veto_policy_label"] != "Veto policy: league vote" {
+		t.Fatalf("veto_policy_label = %v, want %q", data["veto_policy_label"], "Veto policy: league vote")
+	}
+}
+
 func TestTradesDataRequiresSeatAndOnlyListsManagedPartners(t *testing.T) {
 	seatless := newTestService(t, false)
 	request, _ := http.NewRequest(http.MethodGet, "/trades?counterparty=team-2", nil)
