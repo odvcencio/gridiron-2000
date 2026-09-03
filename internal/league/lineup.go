@@ -1105,7 +1105,11 @@ func (s *Service) starterRowMaps(lineup EffectiveLineup, roster []Player, games 
 			row["has_kickoff_label"] = kickoffLabel != ""
 			byeLabel := ""
 			if a.Player.ByeWeek > 0 {
-				byeLabel = fmt.Sprintf("BYE %d", a.Player.ByeWeek)
+				// "bye wk N" (wave-8 audit item 6), not the shouted "BYE N":
+				// this label now sits inline in the row's one merged
+				// schedule sentence, beside plain-word neighbors like the
+				// kickoff time, not alone in its own chip.
+				byeLabel = fmt.Sprintf("bye wk %d", a.Player.ByeWeek)
 			}
 			row["bye_label"] = byeLabel
 			row["has_bye_label"] = byeLabel != ""

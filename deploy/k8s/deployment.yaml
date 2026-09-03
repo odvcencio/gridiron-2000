@@ -30,12 +30,12 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-9d7331e-sweep3a; built from
-          # 9d7331e (main, 2026-09-03): hotfix — the pre-draft
-          # checklist strip no longer collapses the draft room's pane grid on
-          # desktop (closed-by-default disclosure, pinned rows, action column).
+          # release-2026.09.03-e9df36b-sweep3b; built from
+          # e9df36b (main, 2026-09-03): the opened pre-draft checklist
+          # overlays the draft room's panes instead of starving them; the pane
+          # grid keeps one geometry in both states (verified 1440/1280/390).
           # No schema change: `rollout undo` to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:ce540050b3b1d7ad2eb8eea5f4d6b6f0cb04ed81cf01db44bdc0dad5626cb87d
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:918160fda746f3829e0ea7eefc8e316393907a327e41e85060edfd79a9a87d97
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

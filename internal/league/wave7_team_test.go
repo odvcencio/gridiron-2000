@@ -84,8 +84,8 @@ func TestAddScheduleLabelsAppliesUnconditionalKickoffAndBye(t *testing.T) {
 	if rows[0]["has_kickoff_label"] != true || rows[0]["has_bye_label"] != false {
 		t.Fatalf("scheduled row = %+v, want has_kickoff_label=true has_bye_label=false", rows[0])
 	}
-	if rows[1]["has_kickoff_label"] != false || rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "BYE 1" {
-		t.Fatalf("bye row = %+v, want has_kickoff_label=false has_bye_label=true bye_label=\"BYE 1\"", rows[1])
+	if rows[1]["has_kickoff_label"] != false || rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "bye wk 1" {
+		t.Fatalf("bye row = %+v, want has_kickoff_label=false has_bye_label=true bye_label=\"bye wk 1\"", rows[1])
 	}
 }
 
@@ -253,6 +253,25 @@ func TestTeamPrimaryActionSubmitsLineupAutoFormOnlyOnceRosterComplete(t *testing
 	on := teamPrimaryAction(true)
 	if on["label"] != "Set best lineup" || on["kind"] != "submit" || on["form"] != "lineup-auto-form" || on["tone"] != "primary" {
 		t.Fatalf("teamPrimaryAction(true) = %+v, want the SET BEST LINEUP submit action", on)
+	}
+}
+
+// TestTeamDataHasTeamStreakFalseBeforeAnyWeekCloses covers wave-8 audit
+// item 6: teamView's own Team.Streak reads the em-dash "no results yet"
+// placeholder (defaultTeams' own zero value) for the entire pre-season
+// and every week before the first one closes, so has_team_streak — the
+// hero record line's own guard for its "· {streak}" segment — must read
+// false rather than let the page print a dangling "· —".
+func TestTeamDataHasTeamStreakFalseBeforeAnyWeekCloses(t *testing.T) {
+	svc, _, _ := newLineupTestService(t)
+	request, _ := http.NewRequest(http.MethodGet, "/team", nil)
+	data := svc.TeamData(request)
+	if data["has_team_streak"] != false {
+		t.Fatalf("has_team_streak = %v, want false before any week has closed", data["has_team_streak"])
+	}
+	team, ok := data["team"].(map[string]any)
+	if !ok || team["streak"] != "—" {
+		t.Fatalf("team.streak = %#v, want the unresolved em-dash placeholder", data["team"])
 	}
 }
 

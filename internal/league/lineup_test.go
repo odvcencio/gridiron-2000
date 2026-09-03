@@ -1179,7 +1179,36 @@ func TestStarterRowMapsCarriesUnconditionalKickoffAndByeLabels(t *testing.T) {
 	if rows[1]["has_kickoff_label"] != false {
 		t.Fatalf("bye QB2 row has_kickoff_label = %v, want false (TB has no week-1 game)", rows[1]["has_kickoff_label"])
 	}
-	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "BYE 1" {
-		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"BYE 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
+	if rows[1]["has_bye_label"] != true || rows[1]["bye_label"] != "bye wk 1" {
+		t.Fatalf("bye QB2 row has_bye_label/bye_label = %v/%q, want true/\"bye wk 1\"", rows[1]["has_bye_label"], rows[1]["bye_label"])
+	}
+}
+
+// TestStarterRowMapsCarriesNewsAndHouseRank covers wave-8 audit item 5:
+// starterRowMaps merges playerMap's full output onto every row (the "for
+// k, v := range playerMap(...)" loop), so a starter's has_news/news/
+// has_house_rank/house_rank fields must already be present on the row —
+// /team's page.gsx only needed to start rendering them, not a new
+// data-plumbing path.
+func TestStarterRowMapsCarriesNewsAndHouseRank(t *testing.T) {
+	svc := newTestService(t, true)
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	lineup := EffectiveLineup{Week: 1, Slots: []SlotAssignment{
+		{Slot: SlotInstance{ID: "QB", Def: SlotDef{Eligible: []string{"QB"}}}, HasPlayer: true,
+			Player: Player{ID: "p-news", Name: "Newsworthy", Position: "QB", NFLTeam: "PIT", News: "Ruled out.", Injury: "Ankle", HouseRank: 7}},
+	}}
+	rows := svc.starterRowMaps(lineup, nil, nil, now, nil, nil)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(rows))
+	}
+	row := rows[0]
+	if row["has_news"] != true || row["news"] != "Ruled out." {
+		t.Fatalf("row news = %v/%q, want true/\"Ruled out.\"", row["has_news"], row["news"])
+	}
+	if row["has_injury"] != true || row["injury"] != "Ankle" {
+		t.Fatalf("row injury = %v/%q, want true/\"Ankle\"", row["has_injury"], row["injury"])
+	}
+	if row["has_house_rank"] != true || row["house_rank"] != "H007" {
+		t.Fatalf("row house rank = %v/%q, want true/\"H007\"", row["has_house_rank"], row["house_rank"])
 	}
 }

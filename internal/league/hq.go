@@ -32,6 +32,21 @@ const (
 	ActionCenterPriorityInfo        ActionCenterPriority = "informational"
 )
 
+// actionCenterLabelOnTrack/actionCenterLabelNeedsYou (wave-8 audit item
+// 7) are the two plain-word PriorityLabel chips every ActionCenterPriorityStable
+// action now carries, replacing the shouted "STABLE TASK" jargon. Both
+// share the same Priority (ordering is unaffected); the wording only
+// distinguishes whether the task sits beside the chip needing the
+// viewer's own decision (a trade offer waiting in their inbox: "Needs
+// you") from one that is simply available to look over, nothing
+// pending (a lineup with no problems, a Pick'em week with nothing open
+// or missed, a waiver claim already filed and waiting on the league's
+// own schedule: "On track").
+const (
+	actionCenterLabelOnTrack  = "On track"
+	actionCenterLabelNeedsYou = "Needs you"
+)
+
 func actionCenterPriorityRank(p ActionCenterPriority) int {
 	switch p {
 	case ActionCenterPriorityEntry:
@@ -322,7 +337,7 @@ func lineupAction(f ActionCenterFacts) *ActionCenterAction {
 		detail := fmt.Sprintf("%d lineup slot", f.Lineup.Problems) + pluralSuffix(f.Lineup.Problems) + " need attention before kickoff."
 		return &ActionCenterAction{ID: "lineup", Priority: ActionCenterPriorityDeadline, PriorityLabel: "BEFORE KICKOFF", Label: "Fix your lineup", Detail: detail, Href: href, DueAt: f.Lineup.FirstKickoff, HasDueAt: f.Lineup.HasFirstKickoff, DueLabel: "FIRST KICKOFF", Urgent: true, Primary: true}
 	}
-	return &ActionCenterAction{ID: "lineup-review", Priority: ActionCenterPriorityStable, PriorityLabel: "STABLE TASK", Label: "Review your lineup", Detail: fmt.Sprintf("Week %d starters and bench are ready to review.", week), Href: href}
+	return &ActionCenterAction{ID: "lineup-review", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelOnTrack, Label: "Review your lineup", Detail: fmt.Sprintf("Week %d starters and bench are ready to review.", week), Href: href}
 }
 
 func pickemActions(f ActionCenterFacts) []ActionCenterAction {
@@ -342,7 +357,7 @@ func pickemActions(f ActionCenterFacts) []ActionCenterAction {
 		out = append(out, ActionCenterAction{ID: "pickem-missed", Priority: ActionCenterPriorityDeadline, PriorityLabel: "LOCKED", Label: "Review Pick'em results", Detail: fmt.Sprintf("%d game", f.Pickem.LockedUnpicked) + pluralSuffix(f.Pickem.LockedUnpicked) + " locked without a pick; review the slate.", Href: href, Urgent: true})
 	}
 	if len(out) == 0 {
-		out = append(out, ActionCenterAction{ID: "pickem-review", Priority: ActionCenterPriorityStable, PriorityLabel: "STABLE TASK", Label: "Review Pick'em HQ", Detail: fmt.Sprintf("Week %d has %d game", f.Pickem.Week, f.Pickem.GameCount) + pluralSuffix(f.Pickem.GameCount) + " on the slate.", Href: href})
+		out = append(out, ActionCenterAction{ID: "pickem-review", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelOnTrack, Label: "Review Pick'em HQ", Detail: fmt.Sprintf("Week %d has %d game", f.Pickem.Week, f.Pickem.GameCount) + pluralSuffix(f.Pickem.GameCount) + " on the slate.", Href: href})
 	}
 	return out
 }
@@ -353,7 +368,7 @@ func tradeActions(f ActionCenterFacts) []ActionCenterAction {
 		out = append(out, ActionCenterAction{ID: "trade-review", Priority: ActionCenterPriorityDeadline, PriorityLabel: "TRADE REVIEW", Label: "Review accepted trade", Detail: fmt.Sprintf("%d accepted trade", f.Trades.AcceptedReview) + pluralSuffix(f.Trades.AcceptedReview) + " still in the review window.", Href: "/trades", DueAt: f.Trades.NextReviewDeadline, HasDueAt: f.Trades.HasReviewDeadline, DueLabel: "REVIEW DEADLINE", Urgent: true})
 	}
 	if f.Trades.IncomingOpen > 0 {
-		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: "STABLE TASK", Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Primary: true})
+		out = append(out, ActionCenterAction{ID: "trade-inbox", Priority: ActionCenterPriorityStable, PriorityLabel: actionCenterLabelNeedsYou, Label: "Review incoming trade", Detail: fmt.Sprintf("%d trade offer", f.Trades.IncomingOpen) + pluralSuffix(f.Trades.IncomingOpen) + " waiting in your inbox.", Href: "/trades", Primary: true})
 	}
 	if f.DraftComplete && f.Trades.HasTradeDeadline && f.Now.Before(f.Trades.TradeDeadline) {
 		out = append(out, ActionCenterAction{ID: "trade-deadline", Priority: ActionCenterPriorityDeadline, PriorityLabel: "DEADLINE", Label: "Review trade desk", Detail: "Trades remain available until the configured league deadline.", Href: "/trades", DueAt: f.Trades.TradeDeadline, HasDueAt: true, DueLabel: "TRADE DEADLINE"})
@@ -369,7 +384,7 @@ func waiverAction(f ActionCenterFacts) *ActionCenterAction {
 		return nil
 	}
 	detail := fmt.Sprintf("%d open waiver claim", f.Waivers.OpenClaims) + pluralSuffix(f.Waivers.OpenClaims) + " are filed for your team."
-	priority, priorityLabel := ActionCenterPriorityStable, "STABLE TASK"
+	priority, priorityLabel := ActionCenterPriorityStable, actionCenterLabelOnTrack
 	urgent := false
 	location := f.Location
 	if location == nil {

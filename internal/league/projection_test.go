@@ -31,26 +31,30 @@ func TestWinProbabilityLogistic(t *testing.T) {
 	}
 }
 
-// TestWinProbabilityTextRendersDashWhenEitherSideUnknown covers rider item
-// 1 (review of ae1a525): the win-probability cell must never publish a
-// percentage the visible score cell itself cannot back up. Only when
-// both sides' TeamWeekLedger.Known is true may winProbabilityText render
-// a computed percentage; an unknown side on either team renders the same
-// honest "—" the score cell itself falls back to.
-func TestWinProbabilityTextRendersDashWhenEitherSideUnknown(t *testing.T) {
+// TestWinProbabilityTextRendersDashWhenEitherSideHasNoProjection covers
+// wave-8 audit item 2 (supersedes the review of ae1a525, item 1): the
+// win-probability cell must never publish a percentage a side has no
+// lineup to back up. Only when both sides have at least one projectable
+// starter may winProbabilityText render a computed percentage; a side
+// with no lineup renders the same honest "—" the score cell falls back
+// to. Crucially, this gate is NOT the current score's known-ness — a
+// pre-kickoff side with a full lineup and an unknown current score still
+// gets a computed percentage (TestFeaturedMatchupMapShowsProjectionBeforeKickoff
+// in featured_matchup_test.go covers that at the service layer).
+func TestWinProbabilityTextRendersDashWhenEitherSideHasNoProjection(t *testing.T) {
 	cases := []struct {
-		name                   string
-		mineKnown, theirsKnown bool
-		wantDash               bool
+		name                                   string
+		mineHasProjection, theirsHasProjection bool
+		wantDash                               bool
 	}{
-		{"both known", true, true, false},
-		{"mine unknown", false, true, true},
-		{"theirs unknown", true, false, true},
-		{"both unknown", false, false, true},
+		{"both have a projection", true, true, false},
+		{"mine has none", false, true, true},
+		{"theirs has none", true, false, true},
+		{"neither has one", false, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := winProbabilityText(112.4, 108.0, c.mineKnown, c.theirsKnown)
+			got := winProbabilityText(112.4, 108.0, c.mineHasProjection, c.theirsHasProjection)
 			if c.wantDash {
 				if got != "—" {
 					t.Fatalf("winProbabilityText(...) = %q, want the honest dash", got)
@@ -82,16 +86,33 @@ func TestRemainingFractionUnknownPeriodInProgressReadsHalfway(t *testing.T) {
 	}
 }
 
-// TestProjectedTextRendersDashWhenUnknown covers rider item 5 (review of
-// ff2a9b3): the featured team line's "proj N" figure must dash on the
-// same ScoreKnown gate winProbabilityText already applies to win
-// probability — a "proj N" beside a "—" score would claim more certainty
-// than the visible score itself does.
-func TestProjectedTextRendersDashWhenUnknown(t *testing.T) {
+// TestProjectedTextRendersDashWhenNoProjection covers wave-8 audit item 2
+// (supersedes the review of ff2a9b3, item 5): the featured team line's
+// "proj N" figure dashes only when the side has no projectable starter at
+// all, never merely because the CURRENT score is not yet known — a
+// pre-kickoff lineup still has a real projection to show.
+func TestProjectedTextRendersDashWhenNoProjection(t *testing.T) {
 	if got := projectedText(112.4, true); got != "112.4" {
-		t.Fatalf("projectedText(known) = %q, want a formatted number", got)
+		t.Fatalf("projectedText(hasProjection) = %q, want a formatted number", got)
 	}
 	if got := projectedText(112.4, false); got != "—" {
-		t.Fatalf("projectedText(unknown) = %q, want the honest dash", got)
+		t.Fatalf("projectedText(no projection) = %q, want the honest dash", got)
+	}
+}
+
+// TestHasProjectableStarters covers the new gate itself: a filled slot
+// (any PlayerID) makes a side projectable regardless of Points/PointsText;
+// an all-empty lineup (or none at all) is not.
+func TestHasProjectableStarters(t *testing.T) {
+	if hasProjectableStarters(nil) {
+		t.Fatal("nil rows = projectable, want false")
+	}
+	empty := []StarterLedgerRow{{Slot: "QB"}, {Slot: "RB1"}}
+	if hasProjectableStarters(empty) {
+		t.Fatal("all-empty rows = projectable, want false")
+	}
+	filled := []StarterLedgerRow{{Slot: "QB"}, {Slot: "RB1", PlayerID: "p-09"}}
+	if !hasProjectableStarters(filled) {
+		t.Fatal("one filled slot = not projectable, want true")
 	}
 }

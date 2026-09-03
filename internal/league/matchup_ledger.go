@@ -119,6 +119,76 @@ func ledgerPlayerDetail(row *StarterLedgerRow) {
 	}
 }
 
+// ledgerLineupText, ledgerStatsText, and ledgerSourceText are the single
+// place StarterLedgerRow's raw Provenance/JoinState/Source tokens turn
+// into the manager-facing words the per-starter ledger disclosure shows
+// ("Lineup: auto-filled · Stats: none yet") — wave-8 audit item 3. Before
+// this, /matchups printed the bare enum tokens themselves, unlabelled and
+// unguarded ("auto-filled · stats-empty ·", "empty · empty ·" for an
+// empty slot, both with a dangling trailing separator).
+//
+// Both callers this text feeds — starterLedgerMaps (service.go, the
+// initial page render) and LiveScoresView's per-row live-bind loop
+// (service.go) — call these three functions and nothing else, so the
+// token-to-word mapping itself lives in exactly one place, and every
+// live poll re-sends the same already-labelled text a full render would.
+// Stats/Source each carry their own leading " · " separator baked into
+// the non-empty case and return "" otherwise, so an empty segment (Stats
+// on an empty slot, Source before a stat line has ever matched) vanishes
+// together with its separator instead of leaving a dangling "· ·" — the
+// page concatenates the three segments with no separator of its own
+// (page.gsx's StarterCell).
+func ledgerLineupText(provenance string) string {
+	switch provenance {
+	case "empty":
+		return "Lineup: no player in this slot"
+	case "pinned":
+		return "Lineup: locked for the closed week"
+	case "auto-filled":
+		return "Lineup: auto-filled"
+	case "explicit":
+		return "Lineup: set by the manager"
+	default:
+		return "Lineup: " + provenance
+	}
+}
+
+func ledgerStatsText(joinState string) string {
+	switch joinState {
+	case "empty":
+		// Lineup already said "no player in this slot"; a starter this
+		// week never had, has nothing further to say about stats.
+		return ""
+	case "matched":
+		return " · Stats: scored"
+	case "missing-join":
+		return " · Stats: no stat row yet"
+	case "stats-unavailable":
+		return " · Stats: source unavailable"
+	case "stats-empty":
+		return " · Stats: none yet"
+	default:
+		return " · Stats: " + joinState
+	}
+}
+
+func ledgerSourceText(source string) string {
+	switch source {
+	case "":
+		return ""
+	case StatSourceLive:
+		return " · Source: live box score"
+	case StatSourceLiveFinal:
+		return " · Source: final box score"
+	case StatSourceLedgerLive:
+		return " · Source: ledger + live box score"
+	case StatSourceLedger:
+		return " · Source: weekly ledger"
+	default:
+		return " · Source: " + source
+	}
+}
+
 // tank01ToNFLverseAbbreviation maps the three Tank01 team abbreviations
 // that differ from nflverse's own (LAR, WSH, JAC), the same correction
 // internal/livescore.NormalizeTeam applies. This is a small, deliberate

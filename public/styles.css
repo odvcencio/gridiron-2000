@@ -16049,6 +16049,47 @@ a.skip-link {
 }
 .draft-panes:has(> .draft-preflight) > .draft-pane {
   grid-row: 2;
+/* comb — clover */
+
+/* wave-8 audit item 9: .trade-composer__option's checkbox measured a
+   bare 13×13 (the unstyled browser default) inside a 28px-tall label
+   row — well under the 44px touch-target floor every other control on
+   this app already meets, and too small to see or hit reliably on a
+   touch device. min-height raises the whole label (the entire row is
+   already the native click/tap target — <label> wraps both the input
+   and its text) to a real 44px row; the checkbox itself gets an
+   explicit 24px box, large enough to read as a checkbox and hit
+   accurately without crowding the roster name beside it. */
+.trade-composer__option {
+  min-height: 2.75rem;
+}
+
+.trade-composer__option input[type="checkbox"] {
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: 0 0 auto;
+}
+
+/* wave-8 audit item 8: the featured matchup card's own manager line
+   (.matchup-team-line__manager, /matchups) hard-truncated a real name to
+   2-3 letters ("Os…", "Ant…" for two long manager names) beside genuinely empty gutter space in the row. The
+   base .matchup-team-line__manager rule (public/styles.css, above)
+   already sets min-width: 0/overflow: hidden/text-overflow: ellipsis —
+   the shrink half of "minmax(0,1fr)" — but never flex-grow, so neither
+   it nor its own parent (.my-matchup__team > div, the name+manager
+   stack) ever claimed the width .my-matchup__team's own minmax(0,1fr)
+   grid track (.my-matchup__summary) already made available; both simply
+   sized to their own shrink-to-fit content and left the rest of the row
+   blank. flex: 1 1 0 on both completes minmax(0,1fr)'s grow half, so
+   the name gets first claim on real leftover width before it ever needs
+   to ellipsize. .matchup-team-line__meta (the record + live projection)
+   already reads as flex: 0 0 auto — flex-shrink: 0, and flex-grow's
+   initial value (0) with no shorthand override — so it keeps its own
+   fixed width unchanged; this is a pure grow-to-fill fix for the name
+   alone. */
+.my-matchup__team > div,
+.matchup-team-line__manager {
+  flex: 1 1 0;
 }
 
 /* comb — oleander */

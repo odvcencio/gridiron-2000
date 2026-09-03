@@ -104,7 +104,7 @@ func StarterCell(props StarterCellData) Node {
 			</summary>
 			<div class="matchup-ledger__body">
 				<p class="matchup-ledger__hint">Configured starters only. Bench, reserve, and IR are excluded.</p>
-				<span data-gosx-live-bind={"starterProvenance." + props.LiveKey}>{props.Provenance}</span> · <span data-gosx-live-bind={"starterJoinState." + props.LiveKey}>{props.JoinState}</span> · <span data-gosx-live-bind={"starterSource." + props.LiveKey}>{props.Source}</span>
+				<span data-gosx-live-bind={"starterProvenanceText." + props.LiveKey}>{props.ProvenanceText}</span><span data-gosx-live-bind={"starterJoinStateText." + props.LiveKey}>{props.JoinStateText}</span><span data-gosx-live-bind={"starterSourceText." + props.LiveKey}>{props.SourceText}</span>
 				<small class="matchup-ledger__detail" data-gosx-live-bind={"starterDetail." + props.LiveKey}>{props.Detail}</small>
 			</div>
 		</details>
@@ -239,21 +239,34 @@ func Scorebug(props ScorebugData) Node {
 
 // Page's status line (below) is one composed sentence for assistive tech
 // (AT) — state, source phrase, ledger stamp, games-final count, in the
-// mockup's own order. wave-6 item 8: the three raw bookkeeping spans a
-// poll needs (checkedAt/liveStatus/refreshLabel) used to sit outside the
-// role="status" region entirely, visually-hidden — a sighted user saw no
-// freshness clause anywhere on the page at all (the 2026-09-01 re-audit),
-// even though the live-bind values already carried one, e.g. "Waiting
-// for kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger unavailable".
-// They are now the status line's own trailing clause, visible to sighted
-// and AT users alike (role="status"/aria-live="polite" announces this
-// whole paragraph's text as it changes), keeping every data-gosx-live-bind
+// mockup's own order. wave-6 item 8: the raw bookkeeping spans a poll
+// needs (liveStatus/refreshLabel) used to sit outside the role="status"
+// region entirely, visually-hidden — a sighted user saw no freshness
+// clause anywhere on the page at all (the 2026-09-01 re-audit), even
+// though the live-bind values already carried one, e.g. "Waiting for
+// kickoff · Checked Tue Sep 1 · 4:41 PM EDT · Ledger unavailable". They
+// are now the status line's own trailing clause, visible to sighted and
+// AT users alike (role="status"/aria-live="polite" announces this whole
+// paragraph's text as it changes), keeping every data-gosx-live-bind
 // attribute so a poll still updates them in place. LEDGER's own
 // sourceLine value is the literal string "Weekly ledger (nflverse)"
 // (liveSourceLine, feed.go): the same words the static ledger-stamp span
 // always opens with, so that span only renders once the live state has
 // moved off LEDGER and the two no longer say the same thing back to back
 // (item 2).
+//
+// wave-8 audit item 4: liveStatus (service.go's liveStatusText) used to
+// compose its own "... · Checked ... · Ledger ..." clause AND the
+// freshness clause below carried its own separate static "· Checked
+// {checkedAt}" segment right beside it — the same clock, named twice in
+// one rendered sentence. liveStatusText no longer names Checked at all
+// (it only names the Ledger clock); the freshness clause's own checkedAt
+// bind below is now the sentence's one and only "Checked" mention.
+// liveStatusText also no longer says "Ledger Unavailable" before this
+// week's first kickoff — a genuine "nothing has posted yet" state, not an
+// outage — in favor of "Weekly ledger opens after the first game", which
+// no longer contradicts the source clause's "Weekly ledger (nflverse)"
+// right above it.
 // MatchupStatusBlock is the A5/A6 status paragraph (state chip, source
 // line, ledger stamp, games-final count, freshness clause) plus the
 // week-notice line, split out of Page() (item 1, wave 7b) so it can

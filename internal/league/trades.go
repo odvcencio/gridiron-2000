@@ -79,6 +79,51 @@ func randomTradeOfferID() (string, error) {
 	return "trd-" + hex.EncodeToString(buf[:]), nil
 }
 
+// tradeVetoPolicyLabel turns the raw Trades.Veto config token
+// (validateTrades' four values: commissioner, vote, both, none) into one
+// plain sentence for the composer panel (wave-8 audit item 7): the panel
+// used to print the bare config token itself ("commissioner") beside a
+// separate "Veto policy" label, two pieces a manager had to read
+// together as one fact. "commissioner review"/"league vote" match
+// notifyTradeVetoed's own mechanism phrasing exactly, so this league's
+// veto process is named the same way everywhere it appears.
+func tradeVetoPolicyLabel(veto string) string {
+	switch veto {
+	case "commissioner":
+		return "Veto policy: commissioner review"
+	case "vote":
+		return "Veto policy: league vote"
+	case "both":
+		return "Veto policy: commissioner review or league vote"
+	default:
+		return "Veto policy: none"
+	}
+}
+
+// tradeSectionIndexLabels resolves the trade desk's three trailing
+// section-index chips (COMMISSIONER REVIEW, LEAGUE VOTE, HISTORY) as
+// "%02d" strings, counting only the sections that actually render for
+// this viewer (wave-8 audit item 11): COMPOSE/INBOX/OUTBOX/PENDING
+// REVIEW always render as 01-04, so this starts counting from 4.
+// reviewVisible/voteVisible must match the section's own <If> guard in
+// page.gsx exactly (data.is_commissioner and
+// data.vote_panel_empty == false respectively); a hidden section's own
+// label is "" (unused — HISTORY always renders last regardless).
+func tradeSectionIndexLabels(reviewVisible, voteVisible bool) (reviewLabel, voteLabel, historyLabel string) {
+	index := 4
+	if reviewVisible {
+		index++
+		reviewLabel = fmt.Sprintf("%02d", index)
+	}
+	if voteVisible {
+		index++
+		voteLabel = fmt.Sprintf("%02d", index)
+	}
+	index++
+	historyLabel = fmt.Sprintf("%02d", index)
+	return reviewLabel, voteLabel, historyLabel
+}
+
 // tradeVetoThreshold resolves ceil((seats - 2) / 2) — section 6.1's veto
 // threshold: one veto per non-party seat, "3 of 6" (6 non-party seats)
 // under the reference 8-team league. Integer ceil((n-2)/2) == (n-1)/2 for
@@ -94,8 +139,15 @@ func tradeVetoThreshold(seatCount int) int {
 
 // teamNameByID resolves a team ID to its display name for an exact-message
 // interpolation (T5, T7); an unknown ID returns itself rather than panic,
-// so a malformed offer still renders a message instead of crashing.
-func teamNameByID(id string) string {
+// so a malformed offer still renders a message instead of crashing. state's
+// TeamNames override wins over the configured default, the same rule
+// teamView applies, so a manager who renamed their team sees that name in
+// their own validation errors (wave-8 audit item 1) instead of the raw
+// config default.
+func teamNameByID(state PersistedState, id string) string {
+	if override := strings.TrimSpace(state.TeamNames[id]); override != "" {
+		return override
+	}
 	for _, team := range defaultTeams() {
 		if team.ID == id {
 			return team.Name
@@ -262,8 +314,8 @@ func validateTradeAssetsForOperation(state PersistedState, cfg Config, games []G
 	rosters := currentRosters(state)
 	owner := rosterOwner(rosters)
 	week := lineupCurrentWeekAt(games, now)
-	fromName := teamNameByID(offer.FromTeamID)
-	toName := teamNameByID(offer.ToTeamID)
+	fromName := teamNameByID(state, offer.FromTeamID)
+	toName := teamNameByID(state, offer.ToTeamID)
 	for _, id := range offer.Give {
 		if err := validateTradeAsset(state, games, poolByID, week, now, owner, id, offer.FromTeamID, fromName); err != nil {
 			return err
@@ -1267,7 +1319,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		if team.ID == teamID || !teamHasManager(state, team.ID) {
 			continue
 		}
-		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: team.Name})
+		counterparties = append(counterparties, TradeCounterparty{ID: team.ID, Name: s.teamView(state, team.ID).Name})
 	}
 
 	// The composer is a two-step managed form (roster-ops spec section
@@ -1326,6 +1378,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 	}
 
 	history := s.tradeHistoryRows(state, pool, teamID, isCommissioner, threshold)
+	reviewIndex, voteIndex, historyIndex := tradeSectionIndexLabels(isCommissioner, len(votePanel) > 0)
 	return map[string]any{
 		"viewer":                    viewer,
 		"public_entry":              publicEntry,
@@ -1334,6 +1387,7 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"can_compose":               canCompose,
 		"is_commissioner":           isCommissioner,
 		"veto_mode":                 s.cfg.Trades.Veto,
+		"veto_policy_label":         tradeVetoPolicyLabel(s.cfg.Trades.Veto),
 		"trade_deadline_configured": deadlineConfigured,
 		"trade_deadline_passed":     deadlinePassed,
 		"trade_deadline":            deadlineLabel,
@@ -1364,6 +1418,20 @@ func (s *Service) tradesData(r *http.Request, readOnly bool) map[string]any {
 		"vote_panel_empty":          len(votePanel) == 0,
 		"history":                   history,
 		"history_empty":             len(history) == 0,
+		// section_review_index/section_vote_index/section_history_index
+		// (wave-8 audit item 11) renumber the page's own section-index
+		// chips sequentially over whichever sections actually render for
+		// THIS viewer: COMMISSIONER REVIEW (section) renders only for a
+		// commissioner (data.is_commissioner, the section's own <If>
+		// guard) and LEAGUE VOTE only when votePanel is non-empty (the
+		// section's own <If cond={data.vote_panel_empty == false}> guard)
+		// — a manager who is neither saw "01, 02, 03, 04, 07" with two
+		// numbers silently skipped. COMPOSE/INBOX/OUTBOX/PENDING REVIEW
+		// always render, so 01-04 stay the literal page.gsx text; only
+		// the three sections below them ever move.
+		"section_review_index":  reviewIndex,
+		"section_vote_index":    voteIndex,
+		"section_history_index": historyIndex,
 		// demo_mode (wave-6 item 6) backs the Trade Desk's own REHEARSAL MODE
 		// disclosure, matching /admin's and /draft's existing top-level key.
 		"demo_mode": s.demoMode,
