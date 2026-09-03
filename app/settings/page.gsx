@@ -64,13 +64,13 @@ component NotificationRow(props: NotificationRowProps) {
 			<span class="notification-preference__state">Current state: ON</span>
 		</If>
 		<If cond={props.OnAndNoTransport}>
-			<span class="notification-preference__state">Current state: ON (no transport)</span>
+			<span class="notification-preference__state">On · sends once email is configured</span>
 		</If>
 		<If cond={props.OffAndReady}>
 			<span class="notification-preference__state">Current state: OFF</span>
 		</If>
 		<If cond={props.OffAndNoTransport}>
-			<span class="notification-preference__state">Current state: OFF (no transport)</span>
+			<span class="notification-preference__state">Off · sends once email is configured</span>
 		</If>
 	</fieldset>
 }

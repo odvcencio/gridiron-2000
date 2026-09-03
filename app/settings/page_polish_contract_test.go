@@ -187,7 +187,7 @@ func TestSettingsPageNoTransportRowsAndSectionNoticeMatchDeliveryTruth(t *testin
 	if !strings.Contains(body, "Email delivery is not configured on this league; these preferences apply once it is.") {
 		t.Errorf("settings render missing the live-delivery section's no-transport notice: %s", body)
 	}
-	if !strings.Contains(body, "Current state: ON (no transport)") && !strings.Contains(body, "Current state: OFF (no transport)") {
+	if !strings.Contains(body, "On · sends once email is configured") && !strings.Contains(body, "Off · sends once email is configured") {
 		t.Errorf("settings render has no row stating its no-transport state: %s", body)
 	}
 	if strings.Contains(body, "Current state: ON</span>") || strings.Contains(body, "Current state: OFF</span>") {
