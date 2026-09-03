@@ -215,12 +215,19 @@ func TestDraftByTeamPlayerNameStacksOverPosAndNFL(t *testing.T) {
 // 2026-08-30 review), superseding P6 above: a phone has no hover, so P6's
 // one-line nowrap/ellipsis banner left its title= attribute (the only
 // place the rest of a truncated notice was readable) unreachable at
-// phone width. The base (desktop) rule keeps P6's one-line shape;
-// a phone-width override now allows a second line instead, via
+// phone width. A phone-width override allows a second line, via
 // max-height + overflow: hidden — the same two-line fallback
 // .board-grid__name already uses, not -webkit-line-clamp, since P6's own
 // comment already found line-clamp unreliable on a CSS grid item in the
 // engine the screenshot pass measured against.
+//
+// D16 (2026-09-02 draft-week audit) superseded P1-10's own "one line at
+// desktop" half in turn: a genuinely long banner message (a paused/
+// rehearsal/offline-pool notice, service.go's own priority chain) still
+// silently dropped whatever text ran past the command bar's width at
+// 1280px, exactly the truncation problem P1-10 already fixed for phone
+// width — this test's own desktop assertion now checks for the same
+// wrap the phone override already used, not nowrap/ellipsis.
 func TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth(t *testing.T) {
 	raw, err := os.ReadFile("../../public/styles.css")
 	if err != nil {
@@ -233,9 +240,14 @@ func TestDraftPhoneNoticeAllowsTwoLinesAtPhoneWidth(t *testing.T) {
 	}
 	ruleEnd := strings.Index(css[ruleStart:], "}")
 	rule := css[ruleStart : ruleStart+ruleEnd]
-	for _, want := range []string{"white-space: nowrap", "overflow: hidden", "text-overflow: ellipsis"} {
+	for _, want := range []string{"white-space: normal", "overflow: hidden"} {
 		if !strings.Contains(rule, want) {
-			t.Errorf("the base .draft-command__banner rule must still set %q (one line at desktop): %s", want, rule)
+			t.Errorf("the base .draft-command__banner rule must set %q (D16: wraps, no longer truncates, at desktop): %s", want, rule)
+		}
+	}
+	for _, unwanted := range []string{"white-space: nowrap", "text-overflow: ellipsis"} {
+		if strings.Contains(rule, unwanted) {
+			t.Errorf("the base .draft-command__banner rule must not set %q (D16: no ellipsis truncation at 1280px): %s", unwanted, rule)
 		}
 	}
 	// Wave 7 (multiple workers, each appending their own page-scoped

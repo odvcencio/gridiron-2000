@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"html"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -596,6 +598,211 @@ func fantasyPositionFloors(teams int, slots map[string]int) map[string]int {
 	return floors
 }
 
+// runtimeAssetCORS fixes D18 (2026-09-02 draft-week audit): the GoSX
+// framework's own head builder preloads every Tier 2 CDN runtime chunk
+// (public/gosx/assets/runtime/*, this build's own "18 assets, immutable
+// CDN" output) with <link rel="preload" as="script"
+// crossorigin="anonymous">, but the <script> element that actually
+// consumes a feature-hub chunk (client-side, loaded on demand by the
+// navigation runtime) carries no crossorigin attribute of its own — an
+// ordinary same-origin load. A CORS-mode preload is still validated
+// against the response's own Access-Control-Allow-Origin header even
+// when the request is same-origin (Fetch §4.1); without one, Chrome
+// silently discards the preloaded response (net::ERR_FAILED logged for
+// the preload specifically, not the page) and the consuming script
+// fetches the same bytes a second time, defeating the preload entirely.
+// These chunks are public, immutable, non-credentialed script bytes
+// (Cache-Control: public, max-age=31536000, immutable; no cookie or
+// session state baked into the response), so Access-Control-Allow-Origin:
+// * grants no read access beyond what the same URL already has to any
+// origin that requests it directly — the safe half of this defect's own
+// two options ("remove crossorigin from the preload" is not available
+// from application code; that tag is the framework's own, not this
+// file's). Scoped to the runtime asset path only, not every response,
+// so no other route's CSP/cache posture changes.
+func runtimeAssetCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/gosx/assets/runtime/") {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// preloadLinkOpen/preloadLinkFeatureHubMarker/htmlTagClose locate the
+// specific <link rel="preload" ... bootstrap-feature-hubs...> tag
+// dropFeatureHubPreload strips — see that function's own doc comment for
+// why byte-slice search, not a regexp import, is enough for one
+// fixed-shape tag.
+const (
+	preloadLinkOpen             = `<link rel="preload"`
+	preloadLinkFeatureHubMarker = "bootstrap-feature-hubs"
+	htmlTagClose                = ">"
+)
+
+// dropFeatureHubPreload fixes D18 in full (2026-09-02 draft-week audit,
+// coordinator addendum): runtimeAssetCORS above closes the CORS half of
+// this defect, but live investigation under this app's own strict CSP
+// (script-src ... 'nonce-...' 'strict-dynamic', main.go's
+// gridironSecurityPolicy) found a SECOND, deeper block — the framework's
+// own <link rel="preload" as="script" crossorigin="anonymous"> for the
+// bootstrap-feature-hubs runtime chunk carries no nonce, and
+// 'strict-dynamic' rejects any script-destined fetch without one
+// regardless of CORS headers (confirmed live: Chrome logs the CSP
+// violation and still double-fetches the chunk even with Access-Control-
+// Allow-Origin present). m31labs.dev/gosx@v0.53.11's own PageRuntime.
+// PreloadHints (server/runtime.go) has no nonce parameter at all — every
+// other GoSX-owned script tag on the page gets one from PageState.Head's
+// own HeadWithNonce call, but preload hints are hard-coded to skip it —
+// so no application-level Metadata/AddHead call can attach one here; the
+// gap is in the vendored framework, not this file. Per this defect's own
+// audit ("if the nonce is not reachable there, drop the preload rather
+// than ship a dead one"), this middleware strips the specific tag from
+// the rendered HTML instead of shipping a preload that CSP always
+// rejects — the consuming <script> (already same-origin, already
+// working per runtimeAssetCORS's own doc comment) is completely
+// unaffected; only the useless, CSP-blocked preload hint goes away.
+// Registered after EnableGzip in BuildApp (below) so it sees and edits
+// plain, uncompressed HTML — gzip (outermost in the middleware chain,
+// wrap()'s own last-added-runs-first order) compresses whatever this
+// middleware ultimately writes, not the other way around.
+func dropFeatureHubPreload(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &htmlCaptureWriter{ResponseWriter: w}
+		next.ServeHTTP(rec, r)
+		rec.flush()
+	})
+}
+
+// htmlCaptureWriter buffers a response body only long enough to strip
+// dropFeatureHubPreload's own single tag from an HTML document — every
+// other response (JSON, assets, SSE/websocket upgrades, which Write is
+// never called for) passes through untouched and unbuffered, decided by
+// contentTypeIsHTML at the first Write call, before any bytes are held.
+type htmlCaptureWriter struct {
+	http.ResponseWriter
+	status      int
+	wroteHeader bool
+	html        bool
+	htmlChecked bool
+	buf         bytes.Buffer
+}
+
+func (c *htmlCaptureWriter) WriteHeader(status int) {
+	c.status = status
+	c.wroteHeader = true
+}
+
+// Flush and Hijack pass straight through to the underlying
+// ResponseWriter, unbuffered: this wrapper's own body capture only ever
+// engages for a real text/html response (contentTypeIsHTML, above),
+// never for the WebSocket hub connections and SSE/chunked polling this
+// app's own draft room and live-scoring routes depend on — a plain
+// http.ResponseWriter embed satisfies http.Flusher/http.Hijacker only by
+// accident of the CONCRETE type underneath ever supporting them, which a
+// type assertion against THIS wrapper (net/http's own hijack/flush call
+// sites do exactly that) would silently fail without these, breaking
+// every hub connection and streamed response this middleware wraps.
+func (c *htmlCaptureWriter) Flush() {
+	if f, ok := c.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (c *htmlCaptureWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := c.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("dropFeatureHubPreload: underlying ResponseWriter does not support Hijack")
+	}
+	return h.Hijack()
+}
+
+func (c *htmlCaptureWriter) Write(p []byte) (int, error) {
+	if !c.htmlChecked {
+		c.htmlChecked = true
+		c.html = contentTypeIsHTML(c.Header().Get("Content-Type"))
+	}
+	if !c.html {
+		c.commitHeader()
+		return c.ResponseWriter.Write(p)
+	}
+	return c.buf.Write(p)
+}
+
+func (c *htmlCaptureWriter) commitHeader() {
+	if c.wroteHeader {
+		c.ResponseWriter.WriteHeader(c.status)
+		c.wroteHeader = false
+	}
+}
+
+func (c *htmlCaptureWriter) flush() {
+	if !c.html {
+		c.commitHeader()
+		return
+	}
+	body := stripFeatureHubPreload(c.buf.Bytes())
+	c.Header().Set("Content-Length", intToDecimalString(len(body)))
+	if c.status == 0 {
+		c.status = http.StatusOK
+	}
+	c.ResponseWriter.WriteHeader(c.status)
+	_, _ = c.ResponseWriter.Write(body)
+}
+
+func contentTypeIsHTML(contentType string) bool {
+	return strings.HasPrefix(contentType, "text/html")
+}
+
+func intToDecimalString(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	digits := [20]byte{}
+	i := len(digits)
+	for n > 0 {
+		i--
+		digits[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(digits[i:])
+}
+
+// stripFeatureHubPreload removes every <link rel="preload" ...> tag whose
+// attributes mention bootstrap-feature-hubs, leaving every other tag (the
+// stylesheet/icon/manifest preloads this app's own Metadata.Links sets,
+// any other engine's preload hint) untouched. Returns the input
+// unmodified (same backing array, no copy) when no such tag is present —
+// the overwhelmingly common case once GoSX ships a nonce-aware
+// PreloadHints and this whole file can be deleted.
+func stripFeatureHubPreload(body []byte) []byte {
+	if !bytes.Contains(body, []byte(preloadLinkFeatureHubMarker)) {
+		return body
+	}
+	out := make([]byte, 0, len(body))
+	rest := body
+	for {
+		start := bytes.Index(rest, []byte(preloadLinkOpen))
+		if start < 0 {
+			out = append(out, rest...)
+			return out
+		}
+		end := bytes.Index(rest[start:], []byte(htmlTagClose))
+		if end < 0 {
+			out = append(out, rest...)
+			return out
+		}
+		end += start + len(htmlTagClose)
+		tag := rest[start:end]
+		if bytes.Contains(tag, []byte(preloadLinkFeatureHubMarker)) {
+			out = append(out, rest[:start]...)
+		} else {
+			out = append(out, rest[:end]...)
+		}
+		rest = rest[end:]
+	}
+}
+
 // BuildApp assembles the HTTP application from cfg. It starts no HTTP server
 // and no background loop: every loop lands in the returned AppRuntime, so a
 // caller can mount and serve the same wiring main() runs without also
@@ -1005,6 +1212,8 @@ func BuildApp(cfg AppConfig) (*server.App, *AppRuntime, error) {
 	// instant this app builds — see the comment beside that call.
 	app.EnableSecurityPolicy(gridironSecurityPolicy())
 	app.EnableGzip()
+	app.Use(dropFeatureHubPreload)
+	app.Use(runtimeAssetCORS)
 	app.Use(avatarMultipartEnvelopeLimit)
 	app.Use(sessions.Middleware)
 	app.Use(csrfExemptClientEvents(csrfFailureRenderer(sessions.Protect, stylesheetHref)))
