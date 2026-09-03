@@ -43,11 +43,14 @@ func TestPlayerDetailsUseNativeDisclosureAcrossSurfaces(t *testing.T) {
 		{name: "draft", path: filepath.Join("draft", "page.gsx"), identityTips: 1, newsTips: 3},
 		{name: "big board", path: filepath.Join("board", "page.gsx"), identityTips: 2, newsTips: 2},
 		{name: "blitz", path: filepath.Join("blitz", "page.gsx"), identityTips: 3, newsTips: 0},
-		// The player pool keeps one native disclosure in the initial page and
-		// one in the authoritative fragment component; both remain keyboard- and
-		// touch-operable after a live region swap. Each of those two rows also
-		// carries its own news tip.
-		{name: "player pool", path: filepath.Join("players", "page.gsx"), identityTips: 2, newsTips: 2},
+		// The player pool renders its pool row through one component,
+		// PlayerPoolRegion(), which Page() embeds directly instead of
+		// hand-duplicating (item 1's root-cause fix, 2026-09-02
+		// route-crawl finding — rowan). One native disclosure, one news
+		// tip, both keyboard- and touch-operable after a live region
+		// swap, since the initial page and the fragment poll now render
+		// from the identical source.
+		{name: "player pool", path: filepath.Join("players", "page.gsx"), identityTips: 1, newsTips: 1},
 	}
 
 	for _, tt := range tests {

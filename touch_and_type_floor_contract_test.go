@@ -179,7 +179,15 @@ func TestPlayersDropCheckboxHitArea(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read app/players/page.gsx: %v", err)
 	}
-	if !strings.Contains(string(source), `<label><input type="checkbox" name="confirmation" value="drop-player" required="required"></input>`) {
-		t.Error("app/players/page.gsx no longer renders the bare drop-confirmation label this fix targets — re-check the selector still matches")
+	// The drop-confirmation checkbox now renders inside the two-step
+	// <details class="action-confirmation"> gate (item 1's root-cause
+	// fix, 2026-09-02 route-crawl finding — rowan), pretty-printed across
+	// several lines rather than as one bare single-line label. The
+	// checkbox+label pair the .board-controls CSS rules above target is
+	// unchanged; only its surrounding whitespace and disclosure wrapper
+	// differ.
+	checkboxLabel := regexp.MustCompile(`(?s)<label>\s*<input type="checkbox" name="confirmation" value="drop-player" required="required"></input>`)
+	if !checkboxLabel.MatchString(string(source)) {
+		t.Error("app/players/page.gsx no longer renders the drop-confirmation checkbox+label this fix targets — re-check the selector still matches")
 	}
 }
