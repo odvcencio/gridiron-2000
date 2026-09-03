@@ -30,13 +30,14 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-748e773-sweep4a; built from
-          # 748e773 (main, 2026-09-03): a dropped closing brace in
-          # styles.css had nested every later rule under .draft-pane and
-          # silently disabled three shipped fixes; restored, with a
-          # brace-balance contract test. No schema change: `rollout undo`
-          # to the previous revision is valid.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:fa781d686db24707f1c3c6828e1b8e1f3415a14fb5a88465c868ed7296a3688f
+          # release-2026.09.03-38f998b-sweep5; built from
+          # 38f998b (main, 2026-09-03): sweep release 5 — draft room
+          # residue: a real pool search, readable phone countdown, honest
+          # pre-draft status everywhere, banner details, rank chip on
+          # phones, grid header ellipsis, plain drawer copy, 5 pool rows
+          # per phone screen, 44 px news targets, one-height board rows.
+          # No schema change: `rollout undo` to the previous revision is valid.
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:0e713b570f1d48e6aa298e040a0d971b586941dadd66678f8450b058cb72d5b3
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
