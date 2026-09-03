@@ -51,6 +51,17 @@ type Service struct {
 	// surname-collision guard. Nil until SetPunterProjections wires it
 	// (app_build.go, right after Default()). See normalizePool.
 	punterProjections func(name, team string, requireTeam bool) (float64, bool)
+	// positionFloors is mergePool's per-position minimum kept count for its
+	// post-truncation backfill (draft-blocking punter-pool fix, see
+	// mergePool's own doc comment): app_build.go derives it from the active
+	// league's roster shape (teams x slots[pos] + 4) and wires it via
+	// SetPositionFloors, right after fantasy.Default(), the same order
+	// SetPunterProjections already follows. Nil (the pre-fix default) means
+	// no floor on any position — mergePool's truncation behaves exactly as
+	// before. Unlike punterProjections, wiring this does NOT retroactively
+	// re-normalize the pool already installed by NewService's loadCache:
+	// see SetPositionFloors' own doc comment for why.
+	positionFloors map[string]int
 }
 
 var (
@@ -145,6 +156,30 @@ func (s *Service) SetPunterProjections(fn func(name, team string, requireTeam bo
 	next := append([]Player(nil), s.players...)
 	s.players = normalizePool(next, fn)
 	s.version++
+	s.mu.Unlock()
+}
+
+// SetPositionFloors installs mergePool's per-position minimum kept counts
+// (draft-blocking fix: a deep enough ADP list can fill the whole pool
+// limit before the rest tier — where every zero-ADP position, punters
+// included, actually lives — ever gets truncated into it; see mergePool's
+// own doc comment). Callers wire this once, right after fantasy.Default(),
+// before Start(ctx) — the same order SetPunterProjections already follows
+// (app_build.go).
+//
+// Unlike SetPunterProjections, this deliberately does NOT re-normalize
+// whatever pool NewService's loadCache already installed: a cached pool
+// was already truncated to its final, persisted shape before floors ever
+// existed, so any position-floor backfill candidate mergePool would have
+// kept is already gone from that snapshot — floors have nothing left to
+// recover it from without the full pre-truncation ADP+rest merge, which
+// only a real SyncNow rebuilds. Floors take effect starting with the next
+// completed sync; a cache-only boot (no Tank01 key, or the first sync
+// still pending) keeps serving its pre-floors snapshot until then, same
+// as any other stale-cache tradeoff this service already makes.
+func (s *Service) SetPositionFloors(floors map[string]int) {
+	s.mu.Lock()
+	s.positionFloors = floors
 	s.mu.Unlock()
 }
 
@@ -308,8 +343,9 @@ func (s *Service) SyncNow(ctx context.Context) error {
 
 	s.mu.RLock()
 	punterProjection := s.punterProjections
+	floors := s.positionFloors
 	s.mu.RUnlock()
-	pool := mergePool(base, adp, projections, news, byes, s.config.PoolLimit, punterProjection)
+	pool := mergePool(base, adp, projections, news, byes, s.config.PoolLimit, punterProjection, floors)
 	if len(pool) == 0 {
 		return s.recordError(fmt.Errorf("merged pool is empty"))
 	}
@@ -358,7 +394,26 @@ func (s *Service) SyncNow(ctx context.Context) error {
 // pausing the draft clock for any roster with a P slot. Enriching first
 // means an enriched punter's real projection decides whether it survives
 // the cut, exactly like every other position.
-func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int, punterProjection func(name, team string, requireTeam bool) (float64, bool)) []Player {
+//
+// floors (nil-safe) is the second, independent half of the same
+// draft-blocking fix: enriching a punter's projection only decides its
+// place WITHIN the rest tier, but a deep enough ADP list (Tank01's real
+// feed runs 767 entries deep on the flagship, well past a 340 pool limit)
+// fills the entire limit from the ranked ADP head alone — no punter ever
+// carries real ADP, so the rest tier, and every punter in it, never
+// enters the cut at all regardless of its enriched projection. floors
+// keys a position ("P", ...) to its minimum kept count; after the normal
+// pool[:limit] cut below, any floored position short of its minimum is
+// backfilled from the next-best candidates of that position beyond the
+// cut, in their existing order (an untouched ADP-order run through the
+// ranked head, an untouched projection-descending run through the rest
+// tier) — so the pool may end up longer than limit by at most the sum of
+// each floor's shortfall, never shorter, and never reordered. A nil or
+// zero-valued floors leaves every position's truncation exactly as it was
+// before this parameter existed (app_build.go derives real floors from
+// the active league's roster shape; every other existing caller, and
+// every test that predates this fix, passes nil).
+func mergePool(base map[string]Player, adp []adpEntry, projections map[string]projEntry, news map[string]string, byes map[string]int, limit int, punterProjection func(name, team string, requireTeam bool) (float64, bool), floors map[string]int) []Player {
 	ranked := make([]Player, 0, len(adp))
 	seen := map[string]bool{}
 	for _, entry := range adp {
@@ -428,7 +483,7 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 	sort.SliceStable(rest, restLess(rest))
 
 	if len(pool) > limit {
-		pool = pool[:limit]
+		pool = backfillPositionFloors(pool, limit, floors)
 	}
 	for index := range pool {
 		if pool[index].ADP > 0 {
@@ -437,6 +492,45 @@ func mergePool(base map[string]Player, adp []adpEntry, projections map[string]pr
 	}
 	assignPunterRanks(pool)
 	return pool
+}
+
+// backfillPositionFloors cuts pool to limit, then restores just enough
+// beyond-the-cut candidates to bring every floored position back up to its
+// minimum — mergePool's own doc comment ("floors") has the full rationale.
+// pool arrives here already ordered exactly as mergePool builds it: an
+// ADP-order ranked head, then a projection-descending rest tier. kept is
+// an explicit copy of pool[:limit], not a re-slice of pool sharing its
+// backing array: pool[:limit] and pool[limit:] (below, "beyond") alias the
+// same underlying array. A range loop that reads each "beyond" element
+// before this function's own append can write to it happens to stay safe
+// even against a bare re-slice (each append's write index never outruns
+// the read index the same iteration already consumed), but that safety is
+// an artifact of today's specific read-then-append shape, not something
+// this function's contract promises to preserve. The explicit copy costs
+// one allocation per truncating call and removes the dependency on that
+// argument entirely, so a future rewrite (an index-based loop, a
+// pre-fetched slice, reordered read/write within an iteration) cannot
+// silently reopen it.
+func backfillPositionFloors(pool []Player, limit int, floors map[string]int) []Player {
+	kept := append([]Player(nil), pool[:limit]...)
+	if len(floors) == 0 {
+		return kept
+	}
+	counts := make(map[string]int, len(floors))
+	for _, player := range kept {
+		if floors[player.Position] > 0 {
+			counts[player.Position]++
+		}
+	}
+	for _, candidate := range pool[limit:] {
+		floor := floors[candidate.Position]
+		if floor <= 0 || counts[candidate.Position] >= floor {
+			continue
+		}
+		kept = append(kept, candidate)
+		counts[candidate.Position]++
+	}
+	return kept
 }
 
 // enrichPunters applies punterProjection to every Position "P" player in

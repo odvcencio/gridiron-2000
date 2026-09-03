@@ -210,7 +210,7 @@ The live Tank01 feed carries no punter ADP and no punter projections. Gridiron r
 - Market ADP never covers a punter, so the `P##` label is the only rank a punter ever carries.
 - A punter with fewer than 8 games shows no rank.
 - A punter's 2025 line has no games floor. A punter below the rank floor can still show a line and `—` for rank.
-- The pool sync keeps a limited number of players. A punter cut by that limit shows no rank.
+- The pool sync keeps a limited number of players, but never fewer than a per-position floor (teams times that position's roster slots, plus headroom — 12 punters on the flagship's 8-team league). A punter beyond the floor still shows no rank.
 
 ### Season history under house rules
 

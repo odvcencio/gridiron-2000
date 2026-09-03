@@ -464,7 +464,7 @@ func TestMergePoolEnrichesPunterBeforePoolLimitTruncation(t *testing.T) {
 	hook := stubPunterHook(map[string]float64{"Zzz Punter": 9.0})
 
 	const limit = 3
-	pool := mergePool(base, nil, nil, nil, nil, limit, hook)
+	pool := mergePool(base, nil, nil, nil, nil, limit, hook, nil)
 	if len(pool) != limit {
 		t.Fatalf("pool size = %d, want %d", len(pool), limit)
 	}
@@ -488,7 +488,7 @@ func TestMergePoolEnrichesPunterBeforePoolLimitTruncation(t *testing.T) {
 	// — must still pass unchanged with a nil hook: no enrichment, no
 	// panic, punter sorts to the alphabetical tail with the other
 	// zero-projection players.
-	unenriched := mergePool(base, nil, nil, nil, nil, limit, nil)
+	unenriched := mergePool(base, nil, nil, nil, nil, limit, nil, nil)
 	for _, p := range unenriched {
 		if p.ID == "punter" {
 			t.Fatalf("with a nil hook, the punter must not be enriched into the truncation-surviving set: %+v", unenriched)
