@@ -16335,3 +16335,30 @@ a.skip-link {
     opacity: 1;
   }
 }
+
+/* Item 8 (2026-09-02 audit): fern's own item-1 fix (above, "Item 1 (row
+   height)") trimmed .pool-row/.pool-row--status to two real text lines
+   at phone width and measured a compact card against the harness's own
+   fixture data — but that fixture's own short/empty Injury strings and
+   always-open signing window never exercised .control-locked__reason
+   (app/players/page.gsx), the disabled SIGN button's own explanatory
+   line ("Roster moves open after the draft."), which paints a real
+   third text row on EVERY player before the draft opens (or during any
+   other locked window) on a real league. The identical text is still
+   reachable — the disabled button's own title attribute already carries
+   it — so this is safe to drop rather than merely truncate; the
+   disabled visual state itself already tells a manager the control is
+   unavailable. Tightening this row's own padding/row-gap on top (0.3rem,
+   not 0.4rem) recovers the last few pixels fern's own trim left on the
+   table once the reason line's own row no longer needs the room. */
+@media (width <= 38rem) {
+  .board-page .control-locked__reason {
+    display: none;
+  }
+
+  .board-page .pool-row,
+  .board-page .pool-row--status {
+    padding: 0.3rem var(--space-sm);
+    row-gap: 0.3rem;
+  }
+}
