@@ -7768,7 +7768,7 @@ body.is-on-clock .draft-clock-panel {
   }
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .stat-tip__summary {
     min-height: 2.75rem;
   }
@@ -8136,7 +8136,7 @@ body.is-on-clock .draft-clock-panel {
   background: var(--color-accent-haze);
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .checklist-item {
     flex-wrap: wrap;
   }
@@ -8909,7 +8909,7 @@ body.is-on-clock .draft-clock-panel {
   }
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .home-action-center__header,
   .home-action-center__body {
     padding: var(--space-md);
@@ -9273,7 +9273,7 @@ body.is-on-clock .draft-clock-panel {
    otherwise shift the already-centered box another 50% of its own width
    off-screen). Desktop (> 38rem) keeps the original top-anchored rule
    above untouched — a mouse pointer has no "thumb zone" to keep clear of. */
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .toast-stack {
     inset: auto 0 calc(var(--mobile-bar-height) + env(safe-area-inset-bottom) + 0.5rem) 0;
     width: min(34rem, calc(100vw - 1rem));
@@ -9949,7 +9949,7 @@ body.is-on-clock .draft-clock-panel {
   padding-bottom: var(--space-xl);
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
 	.team-identity-settings > summary {
 		grid-template-columns: 1fr;
 		gap: var(--space-sm);
@@ -10147,7 +10147,7 @@ body.is-on-clock .draft-clock-panel {
   color: var(--color-accent);
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .lineup-intervention-banner {
     padding: var(--space-md);
   }
@@ -10450,7 +10450,7 @@ body.is-on-clock .draft-clock-panel {
    — so it stays out of the pointer: coarse query above on purpose: a
    wide touchscreen (a touch laptop, a docked tablet) should keep its
    desktop content layout while still getting the 44px/16px touch floor. */
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   /* Task 11b: Matchups summary-first layout, phone width. The
      .matchups-page prefix on every selector here is not scoping for its
      own sake: this block's rules and the base (non-media) block appended
@@ -15575,7 +15575,7 @@ a.skip-link {
    three carry (only the first two ever render .pool-row--status/
    .board-row at all) keeps this height trim off a row family redwood
    owns the cell rules for on /draft. */
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .board-page .pool-row,
   .board-page .pool-row--status,
   .board-page .board-row {
@@ -15622,7 +15622,7 @@ a.skip-link {
   font-size: var(--type-xs);
 }
 
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .board-labels {
     display: none;
   }
@@ -15790,7 +15790,7 @@ a.skip-link {
    separated segments (week label // status // refresh label) to fit on
    one line. Letting it wrap is a full content fix; nothing here shrinks
    or drops any of the three segments. */
-@media (max-width: 38rem) {
+@media (width <= 38rem) {
   .score-ticker p {
     overflow: visible;
     white-space: normal;

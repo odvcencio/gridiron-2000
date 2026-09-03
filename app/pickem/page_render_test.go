@@ -25,7 +25,7 @@ func TestPickemUsesCompactRowsAndLeaderboardStackAtTabletWidth(t *testing.T) {
 	if compactStart < 0 {
 		t.Fatal("expected the shared 54rem compact breakpoint")
 	}
-	compactEnd := strings.Index(css[compactStart:], "@media (max-width: 38rem)")
+	compactEnd := strings.Index(css[compactStart:], "@media (width <= 38rem)")
 	if compactEnd < 0 {
 		t.Fatal("expected the shared 54rem compact breakpoint before the phone breakpoint")
 	}
