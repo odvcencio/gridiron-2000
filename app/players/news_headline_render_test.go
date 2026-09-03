@@ -20,15 +20,18 @@ import (
 // making it crazy").
 var newsHeadline = strings.Repeat("Reports indicate a change in practice status ahead of Sunday's game. ", 4)[:250]
 
-// TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetail runs the real
+// TestPlayersPoolFragmentNewsIconOpensItsOwnPanel runs the real
 // PlayersPoolFragmentHandler against a real league.Service (mirrors
 // TestPlayersPoolFragmentRowsShowHouseRankLabel's own fresh-process
 // isolation, for the identical SetPlayerSource-vs-sync.Once reason): a
 // long news headline never reaches the pool row's one-line
-// <small>{detail}</small> summary, and instead renders inside the row's
-// own .stat-tip__panel, one tap away, under a NEWS label.
-func TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetail(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetailFixtureProcess$")
+// <small>{detail}</small> summary (item 1(a)), and instead renders behind
+// its own newspaper-icon stat-tip beside the projection one (item 1(b),
+// commissioner design revision — "news should be a lil newspaper icon
+// that opens as a tooltip detail just like the stat projection/
+// breakdown"), never inside the projection panel itself.
+func TestPlayersPoolFragmentNewsIconOpensItsOwnPanel(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPlayersPoolFragmentNewsIconOpensItsOwnPanelFixtureProcess$")
 	cmd.Env = append(os.Environ(),
 		"PLAYERS_POOL_NEWS_FIXTURE=1",
 		"DATA_FILE="+filepath.Join(t.TempDir(), "league-state.json"),
@@ -39,7 +42,7 @@ func TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetail(t *testing.T) {
 	}
 }
 
-func TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetailFixtureProcess(t *testing.T) {
+func TestPlayersPoolFragmentNewsIconOpensItsOwnPanelFixtureProcess(t *testing.T) {
 	if os.Getenv("PLAYERS_POOL_NEWS_FIXTURE") == "" {
 		t.Skip("fixture helper")
 	}
@@ -86,43 +89,73 @@ func TestPlayersPoolFragmentNewsHeadlineStaysOutOfSummaryDetailFixtureProcess(t 
 		t.Fatalf("summary carries the 250-character news headline, must stay one line: %s", summary)
 	}
 
-	panelStart := strings.Index(newsRow, `class="stat-tip__panel"`)
-	if panelStart < 0 {
-		t.Fatalf("newsworthy row missing its stat-tip__panel: %s", newsRow)
+	newsDetailsStart := strings.Index(newsRow, "stat-tip--news")
+	if newsDetailsStart < 0 {
+		t.Fatalf("newsworthy row missing its stat-tip--news icon: %s", newsRow)
 	}
-	panel := newsRow[panelStart:]
+	newsBlock := newsRow[newsDetailsStart:]
+	if !strings.Contains(newsBlock, "📰") {
+		t.Fatalf("news trigger missing its newspaper glyph: %s", newsBlock)
+	}
+	if !strings.Contains(newsBlock, `aria-label="News for Newsworthy Guy"`) {
+		t.Fatalf("news trigger missing a player-named aria-label: %s", newsBlock)
+	}
+	panelStart := strings.Index(newsBlock, `class="stat-tip__panel"`)
+	if panelStart < 0 {
+		t.Fatalf("news icon missing its own stat-tip__panel: %s", newsBlock)
+	}
+	panel := newsBlock[panelStart:]
+	if end := strings.Index(panel, "</details>"); end >= 0 {
+		panel = panel[:end]
+	}
 	if !strings.Contains(panel, `class="stat-tip__news"`) || !strings.Contains(panel, `class="stat-tip__label"`) {
-		t.Fatalf("panel missing the labelled news line: %s", panel)
+		t.Fatalf("news panel missing the labelled headline line: %s", panel)
 	}
 	if !strings.Contains(panel, "NEWS") || !strings.Contains(panel, html.EscapeString(newsHeadline)) {
-		t.Fatalf("panel missing the full news headline: %s", panel)
+		t.Fatalf("news panel missing the full headline: %s", panel)
+	}
+	if !strings.Contains(panel, "Questionable") {
+		t.Fatalf("news panel missing the injury note: %s", panel)
+	}
+
+	// The projection stat-tip's own (first) panel must not also carry
+	// the headline — item 1(b)'s whole point is that it moved out.
+	projectionPanelStart := strings.Index(newsRow, `class="stat-tip__panel"`)
+	projectionPanelEnd := strings.Index(newsRow[projectionPanelStart:], "</details>")
+	projectionPanel := newsRow[projectionPanelStart : projectionPanelStart+projectionPanelEnd]
+	if strings.Contains(projectionPanel, html.EscapeString(newsHeadline)) {
+		t.Fatalf("projection stat-tip panel still carries the headline: %s", projectionPanel)
 	}
 
 	quietRow := rowFor(t, "Quiet Guy")
-	if strings.Contains(quietRow, `class="stat-tip__news"`) {
-		t.Fatalf("quiet player's row still rendered a news line: %s", quietRow)
+	if strings.Contains(quietRow, "stat-tip--news") || strings.Contains(quietRow, "📰") {
+		t.Fatalf("quiet player's row still rendered a news icon: %s", quietRow)
 	}
 }
 
-// TestPlayersPageGSXNewsLineCoversBothPoolRowTemplates is a source
+// TestPlayersPageGSXNewsIconCoversBothPoolRowTemplates is a source
 // contract check (mirrors the app package's own
 // player_details_contract_test.go convention): players/page.gsx renders
 // its pool row twice — the full initial page and PlayerPoolRegion's own
 // authoritative fragment (see that file's own doc comment) — and both
-// must carry the has_news-gated stat-tip__news/stat-tip__label markup.
-func TestPlayersPageGSXNewsLineCoversBothPoolRowTemplates(t *testing.T) {
+// must carry the has_news-gated stat-tip--news newspaper-icon markup,
+// each wrapped in its own .pool-player-cell.
+func TestPlayersPageGSXNewsIconCoversBothPoolRowTemplates(t *testing.T) {
 	source, err := os.ReadFile("page.gsx")
 	if err != nil {
 		t.Fatal(err)
 	}
 	body := string(source)
-	if got := strings.Count(body, `class="stat-tip__news"`); got != 2 {
-		t.Fatalf(`stat-tip__news count = %d, want 2 (initial page + PlayerPoolRegion fragment)`, got)
+	if got := strings.Count(body, "stat-tip--news"); got != 2 {
+		t.Fatalf(`stat-tip--news count = %d, want 2 (initial page + PlayerPoolRegion fragment)`, got)
 	}
-	if got := strings.Count(body, `class="stat-tip__label"`); got != 2 {
-		t.Fatalf(`stat-tip__label count = %d, want 2`, got)
+	if got := strings.Count(body, `class="pool-player-cell"`); got != 2 {
+		t.Fatalf(`pool-player-cell wrapper count = %d, want 2`, got)
 	}
 	if got := strings.Count(body, "player.has_news"); got != 2 {
 		t.Fatalf(`player.has_news gate count = %d, want 2 (one per pool-row template)`, got)
+	}
+	if got := strings.Count(body, "📰"); got != 2 {
+		t.Fatalf("newspaper glyph count = %d, want 2", got)
 	}
 }

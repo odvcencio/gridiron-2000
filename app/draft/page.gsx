@@ -30,8 +30,15 @@ type DraftPlayerCard struct {
 	// must populate these two from the identical map keys for the panel
 	// line below to render live data; both stay their zero value (empty/
 	// false, no panel line) until that population lands.
-	News            string
-	HasNews         bool
+	News    string
+	HasNews bool
+	// Injury/HasInjury back the news stat-tip's own secondary line (wave
+	// 8 hotfix, item 1 design revision — "the injury note if any"
+	// alongside the headline), sourced from playerMap's own "injury"/
+	// "has_injury" keys (service.go, the same follow-up wiring gap News/
+	// HasNews's own doc comment above describes).
+	Injury          string
+	HasInjury       bool
 	Headshot        string
 	HasHeadshot     bool
 	Jersey          string
@@ -144,6 +151,7 @@ func DraftQueue(props DraftQueueProps) Node {
 			<Each of={props.Players} as="player">
 				<article class="pool-row" data-player-position={player.Position} data-search={player.Search}>
 					<span class="pool-rank mono">{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></span>
+					<span class="pool-player-cell">
 					<details class="stat-tip">
 						<summary class="pool-player pool-player--photo stat-tip__summary">
 						<If cond={player.HasHeadshot}>
@@ -172,9 +180,6 @@ func DraftQueue(props DraftQueueProps) Node {
 								<span class="mono">{player.Jersey}</span>
 								<span class="mono stat-tip__team">{player.NFLTeam}</span>
 							</div>
-							<If cond={player.HasNews}>
-								<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p>
-							</If>
 							<If cond={player.HasBreakdown}>
 								<div class="stat-tip__rows">
 									<Each of={player.Breakdown} as="row">
@@ -202,6 +207,18 @@ func DraftQueue(props DraftQueueProps) Node {
 							</If>
 						</div>
 					</details>
+					<If cond={player.HasNews}>
+						<details class="stat-tip stat-tip--news">
+							<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.Name}>📰</summary>
+							<div class="stat-tip__panel">
+								<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.News}</p>
+								<If cond={player.HasInjury}>
+									<p class="stat-tip__hist-note">{player.Injury}</p>
+								</If>
+							</div>
+						</details>
+					</If>
+					</span>
 					<span class="position-chip">{player.Position}</span>
 					<b class="mono">{player.Projection}</b>
 					<If cond={props.HasSeat}>

@@ -5220,7 +5220,15 @@ func playerMap(player Player, scoringValues map[string]float64, matchup matchupI
 		"projection": fmt.Sprintf("%.1f", player.Projection),
 		"points":     fmt.Sprintf("%.1f", player.Points), "status": player.Status, "news": player.News,
 		"has_news": player.News != "",
-		"rank":     rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
+		// injury/has_injury back the news stat-tip's own secondary line
+		// (wave 8 hotfix, item 1 design revision — "the injury note if
+		// any" alongside the headline): detail (above) already folds the
+		// same Injury string into its own team/bye/injury summary, so
+		// this is a second, independent exposure of the identical value
+		// for the news panel to render beside the headline, not a new
+		// source of truth.
+		"injury": player.Injury, "has_injury": player.Injury != "",
+		"rank": rank, "house_rank": houseRank, "has_house_rank": houseRank != "", "detail": detail,
 		"headshot": player.Headshot, "has_headshot": player.Headshot != "",
 		"jersey":          jersey,
 		"has_breakdown":   hasBreakdown,

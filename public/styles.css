@@ -14606,16 +14606,18 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   text-overflow: ellipsis;
 }
 
-/* stat-tip__news/stat-tip__label (wave 8, item 1): the labelled headline
-   line inside .stat-tip__panel that now carries what "detail" used to —
-   styled like the panel's own stat-tip__hist/stat-tip__hist-note pair
-   just above it in this file (border-top rule, muted secondary text),
-   with stat-tip__label as a small caps-mono tag ahead of the headline
-   text, matching stat-tip__team's own mono treatment in stat-tip__head. */
+/* stat-tip__news/stat-tip__label (wave 8, item 1, commissioner design
+   revision — "news should be a lil newspaper icon that opens as a
+   tooltip detail just like the stat projection/breakdown"): the news
+   headline no longer shares the projection stat-tip's own panel — it
+   gets its own small newspaper-icon stat-tip (.stat-tip--news below),
+   so stat-tip__news is now that panel's only, first line (no
+   stat-tip__head sitting above it to rule off from), plain and
+   unbordered. stat-tip__label is the small caps-mono "NEWS" tag ahead of
+   the headline text, matching stat-tip__team's own mono treatment in the
+   projection tip's stat-tip__head. */
 .stat-tip__news {
-  margin: var(--space-xs) 0 0;
-  padding-top: var(--space-xs);
-  border-top: 1px solid var(--color-border);
+  margin: 0;
   color: var(--color-text-secondary);
   font-size: var(--type-xs);
   overflow-wrap: anywhere;
@@ -14626,4 +14628,61 @@ body[data-density="compact"] .draft-mine__room-summary--compact {
   color: var(--color-text-muted);
   font: 700 var(--type-2xs)/1 var(--font-mono);
   letter-spacing: 0.06em;
+}
+
+/* .pool-player-cell (wave 8, item 1 design revision) wraps the row's two
+   independent stat-tip triggers — the existing player-identity/
+   projection one, and the news one beside it — as ONE grid child, so
+   every .board-row/.pool-row keeps the exact child count its own
+   grid-template-columns was built for (this file's own "N children, N
+   tracks" rule, .pool-row--status's doc comment) whether or not a given
+   player carries news. */
+.pool-player-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
+.pool-player-cell > .stat-tip {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* .stat-tip--news is the compact newspaper-icon trigger itself: a fixed,
+   non-growing flex item beside the (flexible) identity stat-tip, never
+   competing with it for the row's own name/detail space. */
+.stat-tip--news {
+  flex: 0 0 auto;
+}
+
+/* stat-tip__summary--news overrides the generic stat-tip__summary's own
+   "DETAILS +" text affordance (this file, the stat-tip stacking model
+   block) with a plain icon — a text label reading "DETAILS +" beside a
+   single glyph would misread as itself being the detail. touch-action/
+   cursor/focus-visible all still come from the shared stat-tip__summary
+   class this element also carries. */
+.stat-tip__summary--news {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-h);
+  min-width: var(--control-h);
+  border-bottom: 1px dotted var(--color-text-muted);
+  font-size: var(--type-md);
+  line-height: 1;
+}
+
+.stat-tip__summary--news::after {
+  content: none;
+}
+
+.stat-tip__summary--news:hover,
+.stat-tip__summary--news:focus-visible {
+  border-bottom-color: var(--color-accent-cyan);
+}
+
+.stat-tip[open] > .stat-tip__summary--news {
+  border-bottom-style: solid;
+  border-bottom-color: var(--color-accent-cyan);
 }

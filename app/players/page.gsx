@@ -264,6 +264,7 @@ func Page() Node {
 								<small class="house-rank">{player.house_rank}</small>
 							</If>
 						</span>
+						<span class="pool-player-cell">
 						<details class="stat-tip">
 							<summary class="pool-player pool-player--photo stat-tip__summary">
 							<If cond={player.has_headshot}>
@@ -292,9 +293,6 @@ func Page() Node {
 									<span class="mono">{player.position}</span>
 									<span class="mono stat-tip__team">{player.nfl_team}</span>
 								</div>
-								<If cond={player.has_news}>
-									<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p>
-								</If>
 								<div class="stat-tip__rows">
 									<div class="stat-tip__row">
 										<span>Projection</span>
@@ -338,6 +336,18 @@ func Page() Node {
 								</If>
 							</div>
 						</details>
+						<If cond={player.has_news}>
+							<details class="stat-tip stat-tip--news">
+								<summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.name}>📰</summary>
+								<div class="stat-tip__panel">
+									<p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p>
+									<If cond={player.has_injury}>
+										<p class="stat-tip__hist-note">{player.injury}</p>
+									</If>
+								</div>
+							</details>
+						</If>
+						</span>
 						<span class="position-chip">{player.position}</span>
 						<b class="mono">{player.projection}</b>
 						<If cond={player.rostered}>
@@ -758,6 +768,7 @@ func PlayerPoolRegion() Node {
 			<Each of={data.players} as="player">
 				<article class="pool-row pool-row--status" data-player-position={player.position}>
 					<span class="pool-rank mono">{player.rank}<If cond={player.has_house_rank}><small class="house-rank">{player.house_rank}</small></If></span>
+					<span class="pool-player-cell">
 					<details class="stat-tip">
 						<summary class="pool-player pool-player--photo stat-tip__summary">
 							<If cond={player.has_headshot}><img class="player-headshot" src={player.headshot} alt="" loading="lazy" /></If>
@@ -765,11 +776,12 @@ func PlayerPoolRegion() Node {
 						</summary>
 						<div class="stat-tip__panel">
 							<div class="stat-tip__head"><strong>{player.name}</strong><span class="mono">{player.position}</span><span class="mono stat-tip__team">{player.nfl_team}</span></div>
-							<If cond={player.has_news}><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p></If>
 							<div class="stat-tip__rows"><div class="stat-tip__row"><span>Projection</span><b class="mono">{player.projection}</b></div><If cond={player.rostered}><div class="stat-tip__row"><span>Availability</span><b class="mono" title={player.owner_name}>ROSTERED · {player.owner_name} ({player.owner_abbr})<If cond={player.is_drafted}> · {player.drafted_label}</If></b></div></If><If cond={player.on_waivers}><div class="stat-tip__row"><span>Availability</span><span class="mono">ON WAIVERS</span><b class="mono">{player.waiver_resolves}</b></div></If><If cond={player.free_agent}><div class="stat-tip__row"><span>Availability</span><b class="mono">FREE AGENT</b></div></If><If cond={player.claimed_by_me}><p class="stat-tip__hist mono">Claim filed for this player.</p></If><If cond={player.needs_drop && player.can_add}><p class="stat-tip__hist mono">Adding requires a drop from your full roster.</p></If></div>
 							<If cond={player.has_opponent}><p class="stat-tip__hist mono">{player.opponent}</p><If cond={player.has_matchup}><p class="stat-tip__hist mono">{player.matchup_detail}</p></If></If><If cond={player.has_hist}><p class="stat-tip__hist mono">{player.hist}</p><p class="stat-tip__hist-note">{player.hist_label}</p></If>
 						</div>
 					</details>
+					<If cond={player.has_news}><details class="stat-tip stat-tip--news"><summary class="stat-tip__summary stat-tip__summary--news" aria-label={"News for " + player.name}>📰</summary><div class="stat-tip__panel"><p class="stat-tip__news"><span class="stat-tip__label">NEWS</span> {player.news}</p><If cond={player.has_injury}><p class="stat-tip__hist-note">{player.injury}</p></If></div></details></If>
+					</span>
 					<span class="position-chip">{player.position}</span>
 					<b class="mono">{player.projection}</b>
 					<If cond={player.rostered}><span class="position-chip position-chip--locked" title={player.owner_name} aria-label={"Rostered by " + player.owner_name}>{player.owner_abbr}</span></If>

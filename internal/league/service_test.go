@@ -1091,11 +1091,21 @@ func TestPlayerMapDetailExcludesNewsHeadlineButHasNewsExposesIt(t *testing.T) {
 	if entry["has_news"] != true {
 		t.Errorf("has_news = %v, want true", entry["has_news"])
 	}
+	// injury/has_injury (design revision, commissioner: "the injury note
+	// if any" alongside the headline) expose the identical Injury value
+	// detail already folds in, a second time, for the news stat-tip's own
+	// panel to render beside the headline.
+	if entry["injury"] != "Questionable" || entry["has_injury"] != true {
+		t.Errorf("injury fields = injury:%v has_injury:%v, want Questionable/true", entry["injury"], entry["has_injury"])
+	}
 
 	quiet := Player{ID: "p-quiet", Name: "Quiet Guy", Position: "RB", NFLTeam: "SEA"}
 	quietEntry := playerMap(quiet, nil, matchupIndex{})
 	if quietEntry["news"] != "" || quietEntry["has_news"] != false {
 		t.Errorf("quiet player news fields = news:%v has_news:%v, want empty/false", quietEntry["news"], quietEntry["has_news"])
+	}
+	if quietEntry["injury"] != "" || quietEntry["has_injury"] != false {
+		t.Errorf("quiet player injury fields = injury:%v has_injury:%v, want empty/false", quietEntry["injury"], quietEntry["has_injury"])
 	}
 }
 
