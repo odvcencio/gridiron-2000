@@ -10,10 +10,23 @@ package results
 // shows the grid once the draft is complete). "Draft results" is the
 // page's own plain h1 — no slogan under it, matching /activity's
 // masthead pattern but without the marketing line.
+//
+// Item 7 (sumac comb re-audit): the masthead named no league at all —
+// the shared site rail and footer both carry data.league.name (the
+// same global identity key /page.gsx's own hero, /login, and /activity's
+// sibling mastheads across the app already read), but this page's own
+// masthead never did, so a manager landing here straight from a shared
+// results link saw no league identity above the fold. The signal-label
+// eyebrow now names it, the same signal-mark/signal-label shape
+// /activity and /players already use for their own eyebrow line.
 func Page() Node {
 	return <main class="page results-page" id="main-content">
 		<header class="draft-masthead">
 			<div class="draft-masthead__copy">
+				<span class="signal-label">
+					<span class="signal-mark" aria-hidden="true"></span>
+					{data.league.name}
+				</span>
 				<h1>Draft results</h1>
 			</div>
 			<div class="draft-clock-panel">

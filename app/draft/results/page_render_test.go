@@ -243,6 +243,15 @@ func TestDraftResultsRendersBeforeAndAfterCompletionFixtureProcess(t *testing.T)
 // DraftResultsData used to omit "viewer"/"league" from this page's own
 // Load() data, so app/layout.gsx's data.viewer.signed_in check always
 // read false here, regardless of the actual session.
+//
+// Item 7 (sumac comb re-audit) tightened the identity check to
+// PAGE-OWN-MASTHEAD scope, not whole-body: "THE LEAGUE"/">TL<" always
+// appeared somewhere in body already (the shared rail and footer carry
+// it on every page, app/layout.gsx), so the original whole-body check
+// stayed green even while this page's own <header class="draft-
+// masthead"> named no league at all — exactly the gap the audit found.
+// Extracting the masthead's own substring first makes this the same
+// decisive, page-scoped proof the audit's own check used.
 func assertSignedInShellAndLeagueIdentity(t *testing.T, body string) {
 	t.Helper()
 	for _, want := range []string{
@@ -259,6 +268,18 @@ func assertSignedInShellAndLeagueIdentity(t *testing.T, body string) {
 		t.Error("signed-in results page must not fall back to the anonymous minimal-bar shell")
 	}
 	if !strings.Contains(body, "THE LEAGUE") || !strings.Contains(body, ">TL<") {
-		t.Errorf("results masthead must carry the real league identity (name/badge), not an empty brand: %s", body)
+		t.Errorf("results page must carry the real league identity (name/badge) somewhere, not an empty brand: %s", body)
+	}
+	mastheadStart := strings.Index(body, `<header class="draft-masthead">`)
+	if mastheadStart < 0 {
+		t.Fatalf("results page is missing <header class=\"draft-masthead\">: %s", body)
+	}
+	mastheadEnd := strings.Index(body[mastheadStart:], "</header>")
+	if mastheadEnd < 0 {
+		t.Fatalf("results page's <header class=\"draft-masthead\"> never closes: %s", body)
+	}
+	masthead := body[mastheadStart : mastheadStart+mastheadEnd]
+	if !strings.Contains(masthead, "THE LEAGUE") {
+		t.Errorf("results page's OWN masthead must name the league (data.league.name), not just the shared rail/footer: %s", masthead)
 	}
 }
