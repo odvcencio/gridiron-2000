@@ -580,6 +580,57 @@ func TestCommissionerAttentionReadOnlyGeneratedAtSplitsDisplayISOAndRelative(t *
 	}
 }
 
+// TestPendingInviteCountExcludesAlreadySeatedInvitees is the item 4
+// decisive proof (2026-09-02 audit): an invite stays "pending" only
+// until its own email claims a seat. CommissionerAttentionDataReadOnly's
+// own "invite_count" (the /admin "X PENDING" readout) and
+// commissioner_summary_v1.go's Membership.PendingInvites both used to
+// sum every issued invite address with no seated check, so a league
+// where every invited manager had already claimed a seat still reported
+// one pending invite per address ever sent — 8, on the flagship, where
+// the truth was 1.
+func TestPendingInviteCountExcludesAlreadySeatedInvitees(t *testing.T) {
+	service := newTestService(t, true)
+	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)
+	// Every invite below has already claimed (or co-claimed) a seat,
+	// except one: the true, still-pending invite.
+	if err := service.AdminAddInvite(request, "claimed-1@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AdminAddInvite(request, "still-pending@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	teamID := service.Teams()[1].ID
+	if err := service.store.InviteCoManager(teamID, "claimed-2@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.store.AssignMember("claimed-1@example.com", "Seated One"); err != nil {
+		t.Fatal(err)
+	}
+	if _, bound, err := service.store.BindCoManager("claimed-2@example.com", "Seated Co"); err != nil || !bound {
+		t.Fatalf("BindCoManager = bound=%v err=%v, want bound=true", bound, err)
+	}
+
+	if got := pendingInviteCount(service.store.Snapshot()); got != 1 {
+		t.Fatalf("pendingInviteCount = %d, want 1 (only still-pending@example.com)", got)
+	}
+	if got := service.CommissionerAttentionDataReadOnly(request)["invite_count"]; got != 1 {
+		t.Fatalf("/admin invite_count = %v, want 1", got)
+	}
+
+	cfg, _, data, release := commissionerV1Fixture()
+	state := service.store.Snapshot()
+	v1Summary, err := projectCommissionerSummaryV1(commissionerSummaryV1Tuple{
+		config: cfg, state: state, data: data, release: release, now: commissionerV1TestNow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := *v1Summary.Membership.PendingInvites; got != 1 {
+		t.Fatalf("commissioner_summary_v1 PendingInvites = %d, want 1 (agrees with /admin)", got)
+	}
+}
+
 func TestAdminDataReportsInviteAcceptanceAndReadiness(t *testing.T) {
 	service := newTestService(t, true)
 	request, _ := http.NewRequest(http.MethodGet, "/admin", nil)

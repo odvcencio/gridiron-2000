@@ -61,6 +61,46 @@ func (s *Service) unclaimedSeatIDs(state PersistedState) []string {
 	return ids
 }
 
+// pendingInviteCount is the one true definition of "pending" (item 4,
+// 2026-09-02 audit): an issued invite (LEAGUE_ALLOWED_EMAILS, an
+// explicit state.Invites address, or a pending co-manager in
+// state.CoInvites) stays pending only until its own email claims a
+// seat. CommissionerAttentionDataReadOnly's own "invite_count" and
+// commissioner_summary_v1.go's Membership.PendingInvites both used to
+// sum every issued address with no seated-member check at all, so a
+// league where every seat was already claimed still reported as many
+// "PENDING" invites as it had ever sent (8, on the flagship, where the
+// truth was 1).
+func pendingInviteCount(state PersistedState) int {
+	candidates := make(map[string]struct{})
+	for _, email := range splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS")) {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	for _, email := range state.Invites {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	for email := range state.CoInvites {
+		email = strings.ToLower(strings.TrimSpace(email))
+		if email != "" {
+			candidates[email] = struct{}{}
+		}
+	}
+	pending := 0
+	for email := range candidates {
+		if member, ok := memberByEmail(state.Members, email); ok && strings.TrimSpace(member.TeamID) != "" {
+			continue
+		}
+		pending++
+	}
+	return pending
+}
+
 // CommissionerAttentionDataReadOnly is the small commissioner-operations
 // projection used by the live admin region. It reads one persisted snapshot,
 // includes presence/readiness/board-gap facts, and deliberately omits the
@@ -113,7 +153,6 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 			close[key] = value[key]
 		}
 	}
-	envEmails := splitEmails(os.Getenv("LEAGUE_ALLOWED_EMAILS"))
 	phase := state.Phase
 	if phase == "" {
 		if state.Schedule == nil || now.Before(seasonStartAt()) {
@@ -131,7 +170,7 @@ func (s *Service) CommissionerAttentionDataReadOnly(_ *http.Request) map[string]
 			"week": schedule["start_week"], "close": close,
 		}, "seats": seats,
 		"seat_count": len(s.Teams()), "claimed_count": claimed, "ready_count": ready,
-		"board_gap_count": boardGaps, "invite_count": len(envEmails) + len(state.Invites) + len(state.CoInvites),
+		"board_gap_count": boardGaps, "invite_count": pendingInviteCount(state),
 		"presence_here": presenceCounts["here"], "presence_idle": presenceCounts["idle"],
 		"presence_away": presenceCounts["away"], "presence_not_seen": presenceCounts["not_seen"],
 		"presence_unclaimed": presenceCounts["unclaimed"],
