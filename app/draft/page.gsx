@@ -1804,6 +1804,29 @@ func DraftAvailableHead(props DraftAvailableHeadProps) Node {
 	</div>
 }
 
+// AvailRowRankProps/AvailRowRank (comb — oleander, item 5): the RK cell's
+// own rank markup, pulled into its own component so the RK column
+// (desktop/tablet) and the phone-width name-cell chip (styles.css hides
+// one and shows the other, complementary, at the same breakpoint — never
+// both at once) render the identical two ranks from one source, not two
+// copies that could drift. A literal space between the two ranks (not
+// the original's bare concatenation) is D9's own fix carried forward:
+// H### run directly against the market rank read as one seven-digit
+// number ("H001001") with no cue two separate ranks were even present.
+type AvailRowRankProps struct {
+	Sort         string
+	HasHouseRank bool
+	HouseRank    string
+	Rank         string
+}
+
+func AvailRowRank(props AvailRowRankProps) Node {
+	return <>
+		<If cond={props.Sort == "house" && props.HasHouseRank}>{props.HouseRank} <small class="house-rank">{props.Rank}</small></If>
+		<If cond={(props.Sort == "house" && props.HasHouseRank) == false}>{props.Rank}<If cond={props.HasHouseRank}> <small class="house-rank">{props.HouseRank}</small></If></If>
+	</>
+}
+
 // DraftAvailable is the available-players pane's swapped body: the pool
 // grid pre/live, or the pre-draft checklist and the post-draft callout in
 // place of it.
@@ -1812,7 +1835,17 @@ func DraftAvailable(props DraftAvailableProps) Node {
 		<table class="avail-table">
 			<thead>
 				<tr class="avail-row avail-row--head">
-					<th scope="col" class="idx"><abbr title="rank by draft market (average draft position)">RK</abbr></th>
+					{/* comb — oleander, item 5: the header used to describe
+					    ADP unconditionally even while the SORT toggle
+					    (DraftAvailableHead) had HOUSE active and every RK
+					    cell below led with H###, not market rank — a header
+					    that named the wrong sort. Two variants, gated the
+					    same way the RK cell itself already picks which rank
+					    leads (props.Data.pool_sort). */}
+					<th scope="col" class="idx">
+						<If cond={props.Data.pool_sort == "house"}><abbr title="house rank: this league's own superflex-aware value order (your scoring and roster rules)">RK</abbr></If>
+						<If cond={props.Data.pool_sort != "house"}><abbr title="rank by draft market (average draft position)">RK</abbr></If>
+					</th>
 					<th scope="col" class="idx">PLAYER</th>
 					<th scope="col" class="idx">POS</th>
 					<th scope="col" class="idx"><abbr title="projected points per game">PROJ</abbr></th>
@@ -1833,10 +1866,18 @@ func DraftAvailable(props DraftAvailableProps) Node {
 							    no house rank at all (HasHouseRank false — a zero-
 							    Projection player, houserank.go) always shows the
 							    market rank alone, regardless of the active sort. */}
-							<If cond={props.Data.pool_sort == "house" && player.HasHouseRank}>{player.HouseRank}<small class="house-rank">{player.Rank}</small></If>
-							<If cond={(props.Data.pool_sort == "house" && player.HasHouseRank) == false}>{player.Rank}<If cond={player.HasHouseRank}><small class="house-rank">{player.HouseRank}</small></If></If>
+							<AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank>
 						</td>
-						<td class="avail-row__player"><strong>{player.Name}</strong> <small>· {player.Detail}</small></td>
+						<td class="avail-row__player">
+							{/* comb — oleander, item 5: .avail-row > :first-child
+							    (the RK cell above) goes display: none at phone
+							    width (styles.css), so this chip is the only
+							    surviving exposure of the active rank there —
+							    same AvailRowRank component, same two ranks, just
+							    inline before the name instead of its own column. */}
+							<span class="avail-row__rank-chip mono"><AvailRowRank Sort={props.Data.pool_sort} HasHouseRank={player.HasHouseRank} HouseRank={player.HouseRank} Rank={player.Rank}></AvailRowRank></span>
+							<strong>{player.Name}</strong> <small>· {player.Detail}</small>
+						</td>
 						<td class={"pos pos-" + player.Position}>{player.Position}</td>
 						<td class="num">{player.Projection}</td>
 						<If cond={props.Data.has_adp && props.Data.draft.started && player.HasValue}><td class="num" title={player.ValueLabel + " vs ADP: value if drafted at the next pick, versus average draft position"}>{player.ValueLabel}</td></If>

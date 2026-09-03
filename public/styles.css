@@ -16270,3 +16270,40 @@ a.skip-link {
     display: none;
   }
 }
+
+/* Item 5 (2026-09-02 audit): .avail-row > :first-child (above, 12993)
+   drops the whole RK column at phone width — the row's own market
+   position in the list still orients a scrolling manager, but the
+   ACTIVE rank (H### under HOUSE sort, market rank under ADP) is real,
+   useful information a manager reading a compact row still wants, not
+   merely decorative. .avail-row__rank-chip (AvailRowRank, page.gsx) is
+   the same rank, rendered a second time inline before the name — hidden
+   everywhere the RK column is visible (no double reporting), shown only
+   where the RK column just went away. */
+.avail-row__rank-chip {
+  display: none;
+}
+
+@media (max-width: 56.1875rem) {
+  .avail-row__rank-chip {
+    display: inline-block;
+    margin-right: var(--space-xs);
+    padding: 0 0.3em;
+    border-radius: var(--radius-sm);
+    background: var(--color-white-faint);
+    color: var(--color-text-muted);
+    font-size: var(--type-xs);
+    line-height: 1.4;
+    vertical-align: baseline;
+  }
+
+  /* .house-rank's own base rule (5352) stacks the secondary rank on its
+     own block line — correct for the RK column's two-line cell, wrong
+     for this one-line chip, where both ranks (and the space item 5 also
+     added between them, AvailRowRank) read left to right instead. */
+  .avail-row__rank-chip .house-rank {
+    display: inline;
+    margin-top: 0;
+    opacity: 1;
+  }
+}
