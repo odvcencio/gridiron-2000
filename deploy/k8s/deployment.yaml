@@ -30,13 +30,13 @@ spec:
         fsGroup: 65532
       containers:
         - name: gridiron-2000
-          # release-2026.09.03-e1baaa1-sweep2; built from
-          # e1baaa1 (main, 2026-09-03): sweep release 2 — activity
-          # filter names, viewer-aware attention chip, scoring/pickem phone
-          # strips, /players and /board headers and compact phone rail,
-          # desktop rail fit. No schema change: `rollout undo` to the
+          # release-2026.09.03-4cf0542-sweep3; built from
+          # 4cf0542 (main, 2026-09-03): sweep release 3 — draft
+          # results page carries the full app shell and league identity,
+          # commissioner console readouts and runbook state, one coverage
+          # formula, help fixes. No schema change: `rollout undo` to the
           # previous revision is a valid rollback.
-          image: harbor.draco.quest/orchard/gridiron-2000@sha256:f474c7fd18cdcb03bdb97cf20b0147ee914591beea78bd11c9ecf5ef1ada9efb
+          image: harbor.draco.quest/orchard/gridiron-2000@sha256:81f4bc0df94afcc149b0555d108fe5703477c6387cb77f4c29889eb4ffa9de3a
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
